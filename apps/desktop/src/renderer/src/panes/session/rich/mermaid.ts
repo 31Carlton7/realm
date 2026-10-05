@@ -42,10 +42,16 @@ type Mermaid = (typeof import("mermaid"))["default"];
 let mermaidChunk: Promise<Mermaid> | null = null;
 const loadMermaid = (): Promise<Mermaid> => (mermaidChunk ??= import("mermaid").then((m) => m.default));
 
+/** A diagram's labels sit at the small-UI rung beside 15px prose: Mermaid's 16px default reads as
+ *  a different document dropped into the message. Sequence diagrams take their sizes on their own. */
+const LABEL_PX = 14;
+
 function config(theme: DiagramTheme): MermaidConfig {
   return {
     startOnLoad: false, securityLevel: "strict", htmlLabels: false, suppressErrorRendering: true, logLevel: "fatal",
-    theme: "base", look: "classic", darkMode: theme.dark, fontFamily: theme.fontFamily, themeVariables: theme.vars,
+    theme: "base", look: "classic", darkMode: theme.dark, fontFamily: theme.fontFamily, themeVariables: { ...theme.vars, fontSize: `${LABEL_PX}px` },
+    fontSize: LABEL_PX, sequence: { actorFontSize: LABEL_PX, messageFontSize: LABEL_PX, noteFontSize: LABEL_PX,
+      actorFontFamily: theme.fontFamily, messageFontFamily: theme.fontFamily, noteFontFamily: theme.fontFamily },
     maxTextSize: UI_BLOCK_SOURCE_MAX, maxEdges: DIAGRAM_EDGES_MAX, deterministicIds: true, secure: SECURE,
   };
 }

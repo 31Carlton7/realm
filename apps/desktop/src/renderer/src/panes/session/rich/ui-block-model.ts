@@ -10,18 +10,21 @@ const PREFIX_UNITS = new Set(["$", "€", "£", "¥"]);
 
 /**
  * A value in the chart's unit: `exact` for the tooltip and the table, `short` for an axis or a label
- * over a column, where "1.2K KB" fits and "1,210 KB" does not.
+ * over a column, where "1.2K" fits and "1,210 KB" does not. A word of a unit is left off the short
+ * form — the block's head names it once, and nine repeats of "KB" up an axis are noise — while a
+ * symbol that is part of how the figure reads ("$1.2K", "40%") stays.
  */
 export function unitFormat(unit: string | undefined): { exact: (n: number) => string; short: (n: number) => string } {
   const exact = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
   const short = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const u = unit?.trim() ?? "";
-  const withUnit = (text: string, n: number): string => {
+  const withUnit = (text: string, n: number, word: boolean): string => {
     if (!u) return text;
     if (PREFIX_UNITS.has(u)) return n < 0 ? `-${u}${text.replace(/^-/, "")}` : `${u}${text}`;
-    return u === "%" ? `${text}%` : `${text} ${u}`;
+    if (u === "%") return `${text}%`;
+    return word ? `${text} ${u}` : text;
   };
-  return { exact: (n) => withUnit(exact.format(n), n), short: (n) => withUnit(short.format(n), n) };
+  return { exact: (n) => withUnit(exact.format(n), n, true), short: (n) => withUnit(short.format(n), n, false) };
 }
 
 const KIND_WORD: Record<ChartBlock["kind"], string> = { columns: "Columns", bars: "Bars", lines: "Lines", sparkline: "Sparklines" };

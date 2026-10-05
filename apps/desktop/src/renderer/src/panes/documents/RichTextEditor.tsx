@@ -4,6 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import { Icon } from "@realm/ui";
 import { RawBlock, TABLE_EXTENSIONS, parseMarkdown, serializeMarkdown } from "./markdown-model";
+import { UiCodeBlock } from "./UiBlockNode";
 import { useScrollMemory } from "../scroll-memory";
 
 /**
@@ -31,7 +32,9 @@ export function RichTextEditor({ text, onChange, scrollKey = null }: {
   const lastEmitted = useRef<string | null>(null);
 
   const editor = useEditor({
-    extensions: [StarterKit, Image.configure({ inline: true }), ...TABLE_EXTENSIONS, RawBlock],
+    // The same code block the schema has (`docSchema`), with a view that draws the block fences an
+    // agent writes — a chart, a diagram, a comparison — rather than showing their source.
+    extensions: [StarterKit.configure({ codeBlock: false }), UiCodeBlock, Image.configure({ inline: true }), ...TABLE_EXTENSIONS, RawBlock],
     editorProps: { attributes: { class: "documents-rich-surface", "aria-label": "Rich text editor" } },
     onUpdate: ({ editor: ed }) => {
       if (applying.current) return;

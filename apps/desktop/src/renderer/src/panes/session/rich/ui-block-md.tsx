@@ -1,4 +1,4 @@
-import { uiBlockKind, type UiBlockKind } from "@realm/contracts";
+import { fenceClosed, uiBlockKind, type UiBlockKind } from "@realm/contracts";
 import { useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { UiBlockPortal } from "./UiBlock";
@@ -16,21 +16,6 @@ import { UiBlockPortal } from "./UiBlock";
 /** Stamped on a fence the renderer itself parked, so markup an agent wrote by hand (`<pre
  *  data-ui-block>`) cannot pass for one and draw before its fence has closed. */
 export const BLOCK_MARK = Math.random().toString(36).slice(2, 10);
-
-/**
- * Whether a fenced code token's raw source ends in its closing fence.
- *
- * CommonMark lets a fence run unclosed to the end of the document, which is exactly what a message
- * mid-stream looks like: nothing is drawn from half a body. The close is the opener's character,
- * at least as many of them, and nothing after — so "``" a delta short of three is still open.
- */
-export function fenceClosed(raw: string): boolean {
-  const lines = raw.replace(/\n+$/, "").split("\n");
-  const open = /^ {0,3}(`{3,}|~{3,})/.exec(lines[0] ?? "");
-  if (!open || lines.length < 2) return false;
-  const fence = open[1]!;
-  return new RegExp(`^ {0,3}\\${fence[0]}{${fence.length},}[ \\t]*$`).test(lines.at(-1)!);
-}
 
 /** The attributes the code renderer adds to a block fence's `<pre>` — none for any other fence, or
  *  for a block fence still open. */

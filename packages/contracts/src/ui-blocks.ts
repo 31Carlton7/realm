@@ -26,6 +26,22 @@ export function uiBlockKind(info: string | null | undefined): UiBlockKind | null
   return Object.hasOwn(UI_BLOCK_FENCES, word) ? UI_BLOCK_FENCES[word as UiBlockFence] : null;
 }
 
+/**
+ * Whether a fenced code block's source ends in its closing fence — the rule that nothing is drawn
+ * from half a body.
+ *
+ * CommonMark lets a fence run unclosed to the end of the document, which is exactly what a message
+ * mid-stream looks like, and a file an agent is still writing. The close is the opener's character,
+ * at least as many of them, and nothing after — so "``" a delta short of three is still open.
+ */
+export function fenceClosed(raw: string): boolean {
+  const lines = raw.replace(/\n+$/, "").split("\n");
+  const open = /^ {0,3}(`{3,}|~{3,})/.exec(lines[0] ?? "");
+  if (!open || lines.length < 2) return false;
+  const fence = open[1]!;
+  return new RegExp(`^ {0,3}\\${fence[0]}{${fence.length},}[ \\t]*$`).test(lines.at(-1)!);
+}
+
 /** Past this a body is not drawn at all. Well over what any honest chart or diagram needs, and well
  *  under what would make parsing it a cost: the limit is a guard, not a budget. */
 export const UI_BLOCK_SOURCE_MAX = 20_000;

@@ -85,10 +85,11 @@ export function diagramTheme(doc: Document = document): DiagramTheme {
   const quiet = on("--line", ground, ink3);
   const well = on("--inset", ground, ground);
   const series = Array.from({ length: 8 }, (_, i) => on(`--series-${i + 1}`, ground, ink2));
-  const fontFamily = raw("--font-sans").trim() || "Inter, ui-sans-serif, system-ui, sans-serif";
+  // The UI face, which Settings may have changed: a diagram's labels are the app's, like a chart's.
+  const fontFamily = raw("--font-ui").trim() || "Inter, ui-sans-serif, system-ui, sans-serif";
 
   const vars: Record<string, unknown> = {
-    darkMode: dark, background: ground, fontFamily, fontSize: "14px",
+    darkMode: dark, background: ground, fontFamily,
     primaryColor: node, primaryTextColor: ink, primaryBorderColor: edge,
     secondaryColor: raised, secondaryTextColor: ink, secondaryBorderColor: edge,
     tertiaryColor: well, tertiaryTextColor: ink, tertiaryBorderColor: quiet,

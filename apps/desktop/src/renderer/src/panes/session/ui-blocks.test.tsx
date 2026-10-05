@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Markdown, renderMarkdown } from "./Markdown";
-import { BLOCK_MARK, fenceClosed } from "./rich/ui-block-md";
+import { BLOCK_MARK } from "./rich/ui-block-md";
 
 /**
  * Chart, diagram and comparison blocks in assistant prose (`rich/UiBlock.tsx`): what draws, when it
@@ -45,14 +45,6 @@ describe("the fence-closed rule", () => {
     expect(renderMarkdown(fence("json", "{}"))).not.toContain("md-block");
   });
 
-  it("reads a close that is a delta short as still open", () => {
-    expect(fenceClosed("```mermaid\ngraph TD\n``")).toBe(false);
-    expect(fenceClosed("````mermaid\nx\n```\n")).toBe(false);
-    expect(fenceClosed("~~~mermaid\nx\n~~~")).toBe(true);
-    expect(fenceClosed("```mermaid\nx\n```  \n\n")).toBe(true);
-    expect(fenceClosed("```mermaid")).toBe(false);
-  });
-
   it("parks a fence inside a list or a quote, where agents also put them", () => {
     expect(renderMarkdown(`- The flow:\n\n  \`\`\`mermaid\n  graph TD\n    A-->B\n  \`\`\`\n`)).toContain('data-ui-block="diagram"');
     expect(renderMarkdown("> ```realm-chart\n> {}\n> ```")).toContain('data-ui-block="chart"');
@@ -79,8 +71,8 @@ describe("a chart", () => {
     const { container } = render(<Markdown text={fence("realm-chart", BUNDLE)} />);
     const fills = new Set([...container.querySelectorAll("rect.chart-bar")].map((r) => r.getAttribute("fill")));
     expect(fills).toEqual(new Set(["var(--series-1)", "var(--series-2)"]));
-    // Direct labels: a total over every column, in the short form the axis uses.
-    expect([...container.querySelectorAll(".chart-value")].map((t) => t.textContent)).toEqual(["1.8K KB", "1.9K KB", "655 KB"]);
+    // Direct labels: a total over every column, in the short form the axis uses — the unit is the head's.
+    expect([...container.querySelectorAll(".chart-value")].map((t) => t.textContent)).toEqual(["1.8K", "1.9K", "655"]);
     expect(within(container.querySelector(".ui-block-head")!).getByText("Renderer bundle by release")).toBeInTheDocument();
     expect(container.querySelector(".chart-legend")?.textContent).toBe("App codeLibraries");
   });

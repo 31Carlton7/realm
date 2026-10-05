@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  CHART_POINTS_MAX, CHART_SERIES_MAX, DIAGRAM_LINES_MAX, UI_BLOCK_SOURCE_MAX, parseUiBlock, uiBlockKind,
+  CHART_POINTS_MAX, CHART_SERIES_MAX, DIAGRAM_LINES_MAX, UI_BLOCK_SOURCE_MAX, fenceClosed, parseUiBlock, uiBlockKind,
   type ChartBlock, type CompareBlock,
 } from "./ui-blocks";
 
@@ -24,6 +24,23 @@ describe("uiBlockKind — which fences are blocks", () => {
 
   it("leaves every other fence to be code", () => {
     for (const info of ["", "json", "ts", "realm", "chart", "mermaid-js", "realm-charts", undefined, null]) expect(uiBlockKind(info)).toBeNull();
+  });
+});
+
+describe("fenceClosed — nothing draws from half a body", () => {
+  it("reads a fence as closed only by its own character, at least as long, with nothing after", () => {
+    expect(fenceClosed("```mermaid\ngraph TD\n```")).toBe(true);
+    expect(fenceClosed("~~~mermaid\nx\n~~~")).toBe(true);
+    expect(fenceClosed("```mermaid\nx\n```  \n\n")).toBe(true);
+    expect(fenceClosed("```mermaid\n```")).toBe(true);
+  });
+
+  it("reads a close a delta short, a shorter close, or no close at all as still open", () => {
+    expect(fenceClosed("```mermaid\ngraph TD\n``")).toBe(false);
+    expect(fenceClosed("````mermaid\nx\n```\n")).toBe(false);
+    expect(fenceClosed("```mermaid\nx\n~~~")).toBe(false);
+    expect(fenceClosed("```mermaid\ngraph TD\n  A-->B\n")).toBe(false);
+    expect(fenceClosed("```mermaid")).toBe(false);
   });
 });
 

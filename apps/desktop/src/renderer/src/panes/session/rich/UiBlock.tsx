@@ -29,27 +29,39 @@ export type BlockState =
   | { status: "drawn"; block: UiBlock; diagram?: DrawnDiagram };
 
 /** A block's body parsed and, for a diagram, drawn. Pending only while a diagram is being drawn for
- *  the first time in this face; every later mount reads the drawing synchronously. */
-export function useUiBlock(kind: UiBlockKind, source: string): BlockState {
-  const parsed = useMemo(() => parseUiBlock(kind, source), [kind, source]);
-  const diagram = useDiagram(parsed.ok && parsed.block.kind === "diagram" ? parsed.block.source : null);
-  if (!parsed.ok) return { status: "failed", reason: parsed.reason };
-  if (parsed.block.kind !== "diagram") return { status: "drawn", block: parsed.block };
-  if (!diagram) return { status: "pending" };
-  return diagram.ok ? { status: "drawn", block: parsed.block, diagram } : { status: "failed", reason: diagram.reason };
+ *  the first time in this face; every later mount reads the drawing synchronously. `skip` holds it
+ *  at pending — a document's fence that has not closed is not a body to judge yet. */
+export function useUiBlock(kind: UiBlockKind, source: string, { skip = false }: { skip?: boolean } = {}): BlockState {
+  const parsed = useMemo(() => (skip ? null : parseUiBlock(kind, source)), [kind, source, skip]);
+  const diagram = useDiagram(parsed?.ok && parsed.block.kind === "diagram" ? parsed.block.source : null);
+  // One object per answer, not per render: a caller that keeps the last drawing compares by identity.
+  return useMemo((): BlockState => {
+    if (!parsed) return PENDING;
+    if (!parsed.ok) return { status: "failed", reason: parsed.reason };
+    if (parsed.block.kind !== "diagram") return { status: "drawn", block: parsed.block };
+    if (!diagram) return PENDING;
+    return diagram.ok ? { status: "drawn", block: parsed.block, diagram } : { status: "failed", reason: diagram.reason };
+  }, [parsed, diagram]);
 }
+
+const PENDING: BlockState = { status: "pending" };
 
 function useDiagram(source: string | null): DiagramResult | undefined {
   const theme = useDiagramTheme(source !== null);
   const [drawn, setDrawn] = useState<{ key: string; result: DiagramResult } | null>(null);
   const key = source !== null && theme ? `${theme.key}\n${source}` : null;
   const cached = source !== null && theme ? peekDiagram(source, theme) : undefined;
+  const showing = drawn?.result.ok ?? false;
   useEffect(() => {
     if (source === null || !theme || cached) return;
     let live = true;
-    void drawDiagram(source, theme).then((result) => { if (live) setDrawn({ key: `${theme.key}\n${source}`, result }); });
-    return () => { live = false; };
-  }, [source, theme, cached]);
+    // A body that changes under a drawing — its source being edited in a document — is drawn once it
+    // pauses, rather than once per keystroke, with the last drawing up meanwhile.
+    const timer = setTimeout(() => {
+      void drawDiagram(source, theme).then((result) => { if (live) setDrawn({ key: `${theme.key}\n${source}`, result }); });
+    }, showing ? 250 : 0);
+    return () => { live = false; clearTimeout(timer); };
+  }, [source, theme, cached, showing]);
   if (cached) return cached;
   if (drawn && drawn.key === key) return drawn.result;
   // The face changed under a drawing: it stays up until the new one lands, rather than dropping back
@@ -239,7 +251,7 @@ function ValuesTable({ chart }: { chart: ChartBlock }) {
   const stacked = chart.kind === "columns" && chart.series.length > 1;
   const cell = (v: number | null | undefined) => (v === null || v === undefined ? <span className="ui-none" aria-label="not reported">—</span> : exact(v));
   return (
-    <div className="ui-block-scroll" ref={scroller}>
+    <div className="ui-block-scroll" data-values="" ref={scroller}>
       <table className="ui-values">
         <caption className="visually-hidden">{chart.title}, as a table</caption>
         <thead>
