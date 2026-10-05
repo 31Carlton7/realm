@@ -37,6 +37,7 @@ import { FailoverPolicySchema } from "./failover";
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
+import { TerminalProgramSchema } from "./terminal-programs";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -592,6 +593,11 @@ export const Methods = {
   "terminals.prefill": { params: z.object({ terminalId: IdSchema, command: z.string() }), result: z.object({ ok: z.literal(true) }) },
   "terminals.resize": { params: z.object({ terminalId: IdSchema, cols: z.number().int(), rows: z.number().int() }), result: z.object({ ok: z.literal(true) }) },
   "terminals.close":  { params: z.object({ terminalId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** What every live terminal is running, keyed by terminal id — only the ones running something
+   *  other than their shell. A client reads it once on connect and keeps it with `terminal.program`,
+   *  because a tab that is not showing still says what its terminal is running, and that tab's
+   *  terminal may have started its program before this client was listening. */
+  "terminals.programs": { params: z.object({}), result: z.record(IdSchema, TerminalProgramSchema) },
 
   /** The browser trio is row + item only (Plan 11 W1): the native `WebContentsView` lives in Electron
    *  main and is driven over IPC, never through the server. These methods carry only what must survive
@@ -1893,6 +1899,10 @@ export const Events = {
    *  pty is (re)spawned, which is exactly when a seq stops meaning anything. */
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string(), runId: z.string(), seq: z.number().int() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
+  /** The terminal's foreground program changed: an agent or a tool started, or the shell came back
+   *  (null). Whole state, like every broadcast but `terminal.data` — a client that missed one reads
+   *  `terminals.programs` and is current again. */
+  "terminal.program": z.object({ terminalId: IdSchema, program: TerminalProgramSchema.nullable() }),
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
   "session.event":    StoredSessionEventSchema.extend({ ephemeral: z.boolean() }),
   "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),

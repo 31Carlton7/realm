@@ -1154,6 +1154,22 @@ kbd { font: 11px var(--font-mono); }
    picture fitted inside it, and never a column a row can squeeze. Its colours are the page's — it is
    not tinted with the row's ink the way a glyph is. */
 .page-icon { flex: none; aspect-ratio: 1; object-fit: contain; }
+/* A terminal's program in the same slot (ProgramMark.tsx). The slot is the glyph's square whatever
+   fills it, so a program starting or stopping never moves the title beside it; a change turns over on
+   `.icon-swap`, the one rule every swapped glyph shares. */
+.program-mark { flex: none; }
+.program-mark > span { display: grid; place-items: center; }
+/* An agent's mark on its tile: the vendor's one colour where its mark declares one (set inline), the
+   near-black of fx's and Codex's own tiles where it does not, and the mark in white either way. The
+   rim is the one-device-pixel outline every picture here wears — light on the dark face, dark on the
+   light one — and is what keeps a near-black tile from being a hole in a dark bar. */
+.program-tile { position: relative; flex: none; display: inline-grid; place-items: center;
+  --program-tile: oklch(0.17 0.004 265); --program-tile-rim: oklch(1 0 0 / 0.16); }
+:root[data-mode="light"] .program-tile { --program-tile-rim: oklch(0 0 0 / 0.1); }
+.program-tile-ground { position: absolute; inset: 0; }
+.program-tile-fill { fill: var(--program-tile); }
+.program-tile-rim { fill: none; stroke: var(--program-tile-rim); stroke-width: 1px; }
+.program-tile-glyph { position: relative; color: oklch(1 0 0); }
 .summary-plan-prose { font-size: 14px; }
 .summary-plan-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .summary-plan-steps li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--rl-text-dim); }
@@ -1939,7 +1955,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-tab-label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; height: 100%; padding: 0 2px 0 8px;
   font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-dim); text-align: left; }
 .pane-tab[data-active] .pane-tab-label { color: var(--rl-text-bright); }
-.panel[data-focused] .pane-tab[data-active] .pane-tab-label svg { color: var(--rl-accent); }
+/* Not a program's tile, whose glyph is the vendor's white on the vendor's colour (ProgramMark). */
+.panel[data-focused] .pane-tab[data-active] .pane-tab-label svg:not(.program-tile *) { color: var(--rl-accent); }
 .pane-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* A peek (W11b): the one tab that goes when the space does. */
 .pane-tab[data-peek] .pane-tab-title { font-style: italic; }
@@ -2309,6 +2326,32 @@ button.panel-title:hover { background: var(--rl-hover); }
 .terminal-hint[data-hidden] { opacity: 0; }
 .terminal-hint-path { font: 12px var(--font-mono); color: var(--rl-text-dim); }
 .terminal-hint-keys { font-size: 11px; color: var(--rl-text-faint); }
+/* Faint (SGR 2) text, mixed toward whatever the pane's ground is by the step the app's secondary ink
+   takes from its primary (`--term-dim`, terminal-palette.ts) — xterm's own is a flat half, which put
+   faint text under AA on the light face. Written per colour because xterm writes it per colour; the
+   default ink's rule leaves out every coloured span, and a span xterm coloured inline (truecolor, or
+   a colour its contrast floor corrected) gets no dimming from xterm at all in its DOM renderer, so it
+   takes the same share on its glyphs' fill — `currentColor` there is the span's own inline colour.
+   Never as an opacity: xterm.css pins `.xterm-dim` to 1, because an opacity dims the cell's
+   background with its text. The 240 colours past the sixteen keep xterm's own half. */
+.terminal-host .xterm .xterm-rows .xterm-dim:not([class*="xterm-fg-"]) { color: color-mix(in srgb, var(--term-fg, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-dim:is([style^="color:"], [style*=";color:"]) { -webkit-text-fill-color: color-mix(in srgb, currentColor var(--term-dim, 100%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-0.xterm-dim { color: color-mix(in srgb, var(--term-ansi-0, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-1.xterm-dim { color: color-mix(in srgb, var(--term-ansi-1, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-2.xterm-dim { color: color-mix(in srgb, var(--term-ansi-2, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-3.xterm-dim { color: color-mix(in srgb, var(--term-ansi-3, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-4.xterm-dim { color: color-mix(in srgb, var(--term-ansi-4, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-5.xterm-dim { color: color-mix(in srgb, var(--term-ansi-5, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-6.xterm-dim { color: color-mix(in srgb, var(--term-ansi-6, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-7.xterm-dim { color: color-mix(in srgb, var(--term-ansi-7, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-8.xterm-dim { color: color-mix(in srgb, var(--term-ansi-8, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-9.xterm-dim { color: color-mix(in srgb, var(--term-ansi-9, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-10.xterm-dim { color: color-mix(in srgb, var(--term-ansi-10, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-11.xterm-dim { color: color-mix(in srgb, var(--term-ansi-11, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-12.xterm-dim { color: color-mix(in srgb, var(--term-ansi-12, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-13.xterm-dim { color: color-mix(in srgb, var(--term-ansi-13, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-14.xterm-dim { color: color-mix(in srgb, var(--term-ansi-14, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-15.xterm-dim { color: color-mix(in srgb, var(--term-ansi-15, currentColor) var(--term-dim, 50%), transparent); }
 /* ── Machine pane (Plan 25 W3) ─────────────────────────────────────────────
    A screen somewhere else, drawn into a DOM canvas rather than a native view. Everything a browser
    pane cannot have — menus, sheets, the palette opening OVER the surface — this one has for free,
