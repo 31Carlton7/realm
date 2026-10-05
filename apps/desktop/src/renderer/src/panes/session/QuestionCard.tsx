@@ -75,13 +75,19 @@ export function QuestionCard({ card, onAnswer, onSkip, autoFocus = false, enter 
     setFocusBody(root.current?.contains(document.activeElement) ?? false);
     setPage(next);
   };
-  /** Record this question's answer and move on — or finish, handing every answer back at once. */
+  /** Record this question's answer and move on — or finish, handing every answer back at once. A
+   *  required question paged past unanswered is where finishing goes instead: sent without it, the
+   *  asker would only hear a decline the user never chose. */
   const commit = (value: string | string[]) => {
     const next = { ...answers, [q.id]: value };
     setAnswers(next);
-    if (page + 1 < count) go(page + 1);
+    if (page + 1 < count) { go(page + 1); return; }
+    const missing = card.questions.findIndex((x) => x.required === true && next[x.id] === undefined);
+    if (missing >= 0) go(missing);
     else onAnswer(next);
   };
+  /** Paging forward past a required question takes its answer first. */
+  const blocked = q.required === true && answers[q.id] === undefined;
   /** Skip this question (no answer kept for it, even one given before paging back); skipping the
    *  last one submits what we do have, and skipping when nothing has been answered is a plain skip. */
   const skipQuestion = () => {
@@ -110,7 +116,8 @@ export function QuestionCard({ card, onAnswer, onSkip, autoFocus = false, enter 
           <div className="question-pager">
             <button className="icon-btn" aria-label="Previous question" disabled={page === 0} onClick={() => go(page - 1)}><Icon name="chevronLeft" size={14} /></button>
             <span>{page + 1} of {count}</span>
-            <button className="icon-btn" aria-label="Next question" disabled={page + 1 >= count} onClick={() => go(page + 1)}><Icon name="chevronRight" size={14} /></button>
+            <button className="icon-btn" aria-label="Next question" disabled={page + 1 >= count || blocked}
+              title={blocked ? "Answer this one first — it is required" : undefined} onClick={() => go(page + 1)}><Icon name="chevronRight" size={14} /></button>
           </div>
         )}
         <button className="icon-btn question-close" aria-label={count > 1 ? `${dismiss} all` : dismiss}
@@ -120,7 +127,7 @@ export function QuestionCard({ card, onAnswer, onSkip, autoFocus = false, enter 
       <h3 className="question-title">{q.prompt}</h3>
       {q.detail && <p className="question-detail">{q.detail}</p>}
       <QuestionBody key={page} q={q} card={card} initial={answers[q.id]} focus={focusBody}
-        commit={commit} skip={q.required === true ? null : skipQuestion} dismiss={dismiss} ownsEscape={ownsEscape} />
+        commit={commit} skip={q.required === true ? null : skipQuestion} decline={onSkip} dismiss={dismiss} ownsEscape={ownsEscape} />
     </div>
   );
 }
@@ -134,6 +141,8 @@ type BodyProps = {
   commit: (value: string | string[]) => void;
   /** Skip this one question; null when it is required. */
   skip: (() => void) | null;
+  /** Say no to the whole request — what a page to open offers beside Open. */
+  decline: () => void;
   dismiss: string;
   ownsEscape: boolean;
 };
@@ -238,8 +247,26 @@ function ChoiceBody(p: BodyProps) {
     }
   };
 
+  // The field for an answer of your own: one more row of the list, so it keeps the list's own spacing,
+  // and under a grid of pictures rather than inside it.
+  const otherRow = other && (othering ? (
+    <div className="question-option question-other-edit">
+      <kbd className="question-num"><Icon name="edit" size={12} /></kbd>
+      <input ref={otherInput} className="question-other-input" type="text" value={otherText}
+        placeholder={q.placeholder ?? "Type your answer…"} aria-label="Your answer" onChange={(e) => setOtherText(e.target.value)} />
+      <button type="button" className="btn primary question-other-submit" disabled={!otherText.trim()} onClick={submitOther}>Answer</button>
+    </div>
+  ) : (
+    <button ref={(el) => { rows.current[options.length] = el; }} type="button" className="question-option question-other"
+      aria-label="Something else" data-selected={selected === options.length || undefined}
+      onFocus={() => setSelected(options.length)} onClick={() => setOthering(true)}>
+      <kbd className="question-num"><Icon name="edit" size={12} /></kbd>
+      <span className="question-option-body"><span className="question-option-label">Something else</span></span>
+    </button>
+  ));
+
   return (
-    <div className="question-body" onKeyDown={onKeyDown}>
+    <div className="question-body" data-kind={q.kind} onKeyDown={onKeyDown}>
       {filtered && (
         <div className="question-filter">
           <Icon name="search" size={14} />
@@ -279,22 +306,9 @@ function ChoiceBody(p: BodyProps) {
           );
         })}
         {options.length === 0 && filter && <p className="question-empty">Nothing matches “{filter.trim()}”.</p>}
+        {!tiles && otherRow}
       </div>
-      {other && (othering ? (
-        <div className="question-option question-other-edit">
-          <kbd className="question-num"><Icon name="edit" size={12} /></kbd>
-          <input ref={otherInput} className="question-other-input" type="text" value={otherText}
-            placeholder={q.placeholder ?? "Type your answer…"} aria-label="Your answer" onChange={(e) => setOtherText(e.target.value)} />
-          <button type="button" className="btn primary question-other-submit" disabled={!otherText.trim()} onClick={submitOther}>Answer</button>
-        </div>
-      ) : (
-        <button ref={(el) => { rows.current[options.length] = el; }} type="button" className="question-option question-other"
-          aria-label="Something else" data-selected={selected === options.length || undefined}
-          onFocus={() => setSelected(options.length)} onClick={() => setOthering(true)}>
-          <kbd className="question-num"><Icon name="edit" size={12} /></kbd>
-          <span className="question-option-body"><span className="question-option-label">Something else</span></span>
-        </button>
-      ))}
+      {tiles && otherRow}
       <Footer keys={[["↑↓", "Navigate"], ["↵", multi ? "Toggle" : "Select"]]} dismiss={p.dismiss} ownsEscape={p.ownsEscape} skip={p.skip}>
         {multi && (
           <button type="button" className="btn primary question-continue" disabled={!picked.length} onClick={() => p.commit(picked)}>
@@ -432,7 +446,7 @@ function ModelBody(p: BodyProps) {
         <ModelChooser anchor={anchor} models={models}
           own={{ kind: (own.agent ?? "fake") as AgentKind, label: own.label }}
           picked={new Set([values[choosing] === own.value ? OWN : values[choosing]!])}
-          label="Models" noAgent="question"
+          label="Models" noAgent="question" align="right"
           onToggle={(key) => {
             const value = key === OWN ? own.value : key;
             const row = choosing;
@@ -554,6 +568,7 @@ function LinkBody(p: BodyProps) {
       {lookalike && <p className="question-warn"><Icon name="alert" size={14} />The address uses look-alike letters. Check it is the site you expect.</p>}
       <p className="question-note">Opens in your browser, outside Realm. Nothing you do there passes through Realm or reaches an agent.</p>
       <Footer keys={[]} dismiss={p.dismiss} ownsEscape={p.ownsEscape} skip={null}>
+        <button type="button" className="question-skip" onClick={p.decline}>Decline</button>
         <button ref={open} type="button" className="btn primary question-continue"
           onClick={() => { window.open(href, "_blank"); p.commit("opened"); }}>
           Open {url.host}
@@ -587,7 +602,14 @@ export function AnsweredQuestion({ card, decision, answers, enter = false }: {
         {outcome && <span className="question-answered-outcome">{outcome}</span>}
       </div>
       {card.refused
-        ? <p className="question-answered-why">{card.message ? `${card.message} — ` : ""}{card.refused}</p>
+        ? (
+          <dl className="question-answered-list">
+            <div className="question-answered-row">
+              {card.message && <dt>{card.message}</dt>}
+              <dd className="question-answered-why">{card.refused}</dd>
+            </div>
+          </dl>
+        )
         : (
           <dl className="question-answered-list">
             {card.questions.map((q) => (
@@ -622,10 +644,10 @@ function AnswerValue({ q, value }: { q: AskQuestion; value: string | string[] })
         </ol>
       );
     }
-    case "file": return <span className="question-answered-path">{values.join(", ")}</span>;
+    case "file": case "branch": return <span className="question-answered-path">{values.join(", ")}</span>;
     case "time": return <span>{values[0] ? whenOf(values[0], q.format === "date") : ""}</span>;
     case "link": return <span>Opened {hostOf(q.url)}</span>;
-    case "choice": case "multi": case "branch": case "confirm": {
+    case "choice": case "multi": case "confirm": {
       const picture = q.options?.find((o) => o.value === values[0])?.image;
       return (
         <span className="question-answered-choice">

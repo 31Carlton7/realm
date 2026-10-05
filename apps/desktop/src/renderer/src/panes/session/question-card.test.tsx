@@ -191,9 +191,15 @@ describe("paging, skipping and Escape", () => {
     expect(none.onAnswer).not.toHaveBeenCalled();
   });
 
-  it("offers no Skip on a question the asker requires", () => {
-    const { el } = mount(cardOf([db({ required: true })]));
+  it("offers no Skip on a question the asker requires, and pages past it only once it is answered", () => {
+    // THE MUTANT: leave Next enabled. A form answered from page two on would go back as a decline the
+    // user never chose, because the server's required field was never filled.
+    const { el } = mount(cardOf([db({ required: true }), { id: "rt", prompt: "Which runtime?", kind: "choice", options: [{ value: "node", label: "Node" }] }]));
     expect(el.querySelector(".question-skip")).toBeNull();
+    expect(within(el).getByRole("button", { name: "Next question" })).toBeDisabled();
+    fireEvent.click(rowsOf(el)[0]!);
+    fireEvent.click(within(el).getByRole("button", { name: "Previous question" }));
+    expect(within(el).getByRole("button", { name: "Next question" })).toBeEnabled();
   });
 
   it("Esc skips the whole request where the card owns it, and names a form's dismissal Decline", () => {
@@ -312,6 +318,18 @@ describe("a page to open", () => {
     act(() => { fireEvent.click(within(el).getByRole("button", { name: "Open xn--lnear-6ta.app" })); });
     expect(open).toHaveBeenCalledWith("http://xn--lnear-6ta.app/connect?id=1", "_blank");
     expect(onAnswer).toHaveBeenCalledWith({ url: "opened" });
+    open.mockRestore();
+  });
+
+  it("offers a plain Decline beside Open, and declining opens nothing", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const card = cardOf([{ id: "url", prompt: "Authorize access", kind: "link", url: "https://linear.app/connect" }], { mode: "url", asker: { kind: "server", name: "Linear" } });
+    const { el, onSkip } = mount(card);
+    const decline = el.querySelector<HTMLElement>(".question-footer .question-skip")!;
+    expect(decline).toHaveTextContent("Decline");
+    fireEvent.click(decline);
+    expect(onSkip).toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
     open.mockRestore();
   });
 });

@@ -3925,17 +3925,23 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .question-model-row { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 36px; padding: 2px 4px 2px 8px; border-radius: var(--r-ctl); }
 .question-model-row[data-solo] { padding-left: 0; }
 .question-model-step { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; color: var(--ink); text-wrap: pretty; }
+/* The chip is the prompter's model chip set in a row: the harness's own mark carries the colour, the
+   name is the answer in the primary ink, and a hairline says it is a control. Not the accent — every
+   row has a pick, so a tinted chip on each would spend the accent on three resting values. */
+.question-model-row .question-num { align-self: center; }
 .question-model-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; max-width: 60%; height: 28px; padding: 0 8px 0 9px;
-  border-radius: var(--r-chip); corner-shape: squircle; background: var(--accent-tint); color: var(--accent-ink);
-  box-shadow: inset 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-accent) 45%, transparent);
-  font-size: 12px; font-weight: var(--fw-medium);
+  border-radius: var(--r-chip); corner-shape: squircle; background: transparent; color: var(--ink);
+  box-shadow: inset 0 0 0 var(--hairline-w) var(--line-strong);
+  font-size: 13px; font-weight: var(--fw-medium);
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .question-model-row[data-solo] .question-model-chip { max-width: 100%; }
-.question-model-chip:hover { background: color-mix(in srgb, var(--rl-accent) 24%, transparent); }
+.question-model-chip:hover, .question-model-chip[aria-expanded="true"] { background: var(--rl-hover); }
 .question-model-chip > svg { flex: none; }
 .question-model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.question-model-own { flex: none; opacity: .75; }
-.question-model-caret { opacity: .75; }
+.question-model-own { flex: none; font-weight: var(--fw-body); color: var(--ink-3); }
+.question-model-caret { color: var(--ink-3); }
+/* A branch is an identifier, and reads as one. */
+.question-body[data-kind="branch"] .question-option-label { font: 13px/18px var(--font-mono); }
 
 /* The file field: the workspace's own paths, matched characters set in the bright ink as ⌘P does. */
 .question-file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--font-mono); color: var(--ink-2); }
@@ -3956,7 +3962,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .question-answered-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--ink-2); }
 .question-answered-head > svg { flex: none; }
 .question-answered-outcome { flex: none; margin-left: auto; color: var(--ink-3); }
-.question-answered-why { margin: 0; font-size: 13px; line-height: 18px; color: var(--ink-2); text-wrap: pretty; }
+.question-answered-row dd.question-answered-why { font-weight: var(--fw-body); text-wrap: pretty; }
 .question-answered-list { display: flex; flex-direction: column; gap: 8px; margin: 0; }
 .question-answered-row { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .question-answered-row dt { font-size: 13px; line-height: 18px; color: var(--ink-2); text-wrap: pretty; }
@@ -3977,7 +3983,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 
 /* The card's mono runs give up the app's tracking, for the reason the list at the top of this file
    gives: Chromium drops a monospace face's ligatures on any tracked run. */
-.question-file-path, .question-file-pick, .question-link, .question-answered-path {
+.question-file-path, .question-file-pick, .question-link, .question-answered-path, .question-body[data-kind="branch"] .question-option-label {
   letter-spacing: normal;
 }
 
