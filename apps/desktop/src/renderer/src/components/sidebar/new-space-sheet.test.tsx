@@ -298,21 +298,43 @@ describe("NewSpaceSheet", () => {
     expect(store.getState().spaces.filter((x) => x.name === "Offline")).toHaveLength(1);
   });
 
-  it("Escape while Create runs leaves at once and stops the run where it stands: what was made stays, nothing else starts, the window does not move", async () => {
-    const { store, api } = await mount();
-    const release = holdCreate(api);
-    const layout = store.getState().layout;
-    fireEvent.change(nameField(), { target: { value: "Abandoned" } });
-    fireEvent.submit(nameField().closest("form")!);
-    fireEvent.keyDown(document.body, { key: "Escape" });
-    expect(store.getState().sheet).toBeNull();
-    release();
-    await waitFor(() => expect(store.getState().spaces.some((x) => x.name === "Abandoned")).toBe(true));
-    await new Promise((r) => setTimeout(r, 30));
-    expect(api.calls.some((c) => c.startsWith("createSession:"))).toBe(false);
-    expect(store.getState().layout).toBe(layout);
-    expect(store.getState().keyboardFor).toBeNull();
-  });
+  /* Held at each step in turn, because each step's own check is what stops the run there — a test
+     that only ever holds the first one cannot tell whether the later checks exist. */
+  it.each(["createSpace", "setMemory", "createProject"] as const)(
+    "Escape while %s is in flight leaves at once and stops the run there: what was made stays, nothing after it starts, the window does not move",
+    async (step) => {
+      const { store, api } = await mount();
+      const real = api[step] as (...args: unknown[]) => Promise<unknown>;
+      let release!: () => void;
+      const gate = new Promise<void>((r) => { release = r; });
+      let reached = false;
+      (api as Record<string, unknown>)[step] = async (...args: unknown[]) => { reached = true; await gate; return real(...args); };
+      const layout = store.getState().layout;
+      fireEvent.change(nameField(), { target: { value: "Abandoned" } });
+      fireEvent.click(screen.getByRole("button", { name: "Choose folder…" }));
+      await waitFor(() => expect(screen.getByText("/tmp/picked-repo")).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Write…" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "Memory" }), { target: { value: "Use pnpm." } });
+      fireEvent.submit(nameField().closest("form")!);
+      await waitFor(() => expect(reached).toBe(true));
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(store.getState().sheet).toBeNull();
+      release();
+      await waitFor(() => expect(store.getState().spaces.some((x) => x.name === "Abandoned")).toBe(true));
+      await new Promise((r) => setTimeout(r, 30));
+      const made = store.getState().spaces.find((x) => x.name === "Abandoned")!;
+      const happened = {
+        setMemory: () => api.calls.some((c) => c.startsWith("setMemory:")),
+        createProject: () => (api.data.projects[made.id] ?? []).length > 0,
+        createSession: () => api.calls.some((c) => c.startsWith("createSession:")),
+      };
+      const later = { createSpace: ["setMemory", "createProject", "createSession"], setMemory: ["createProject", "createSession"], createProject: ["createSession"] }[step];
+      for (const k of later as (keyof typeof happened)[]) expect(happened[k](), k).toBe(false);
+      // …and the step that was in flight did land: it was already sent.
+      if (step !== "createSpace") expect(happened[step](), step).toBe(true);
+      expect(store.getState().layout).toBe(layout);
+      expect(store.getState().keyboardFor).toBeNull();
+    });
 
   it("Escape in the icon picker closes the picker and leaves the sheet up; Escape again closes the sheet", async () => {
     const { store } = await mount();
