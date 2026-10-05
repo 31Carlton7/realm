@@ -5414,7 +5414,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .install-card::after,
 :root[data-squircle] .commit-card::after {
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  --sq-fill: inherit; --sq-ring: inherit; --sq-ring-w: inherit;
+  --sq-fill: inherit; --sq-ring: inherit; --sq-ring-w: inherit; --sq-ring-open: inherit;
   --sq-radius-top: inherit; --sq-radius-bottom: inherit; --sq-n: inherit;
   background: paint(rl-squircle);
 }
@@ -5566,15 +5566,19 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-overstrip:has(~ .composer[data-mode="ask"]) {
   box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-success) 34%, transparent);
 }
-/* …but only the tab that IS the band's top keeps the ring and the corners. Every strip arriving
-   under another gives up both: a ring on a middle tab would trace a hairline straight across the
-   band where the two meet — a second seam inside one object, which is what design.md's hairline
-   rule exists to catch. Each join is drawn from the strip that arrives UNDERNEATH, never by a rule
+/* …but only the tab that IS the band's top keeps the corners and the top edge. Every strip arriving
+   under another gives up its top corners, and its ring leaves the top OPEN (`--sq-ring-open`): a ring
+   across a middle tab would trace a hairline straight across the band where the two meet — a second
+   seam inside one object, which is what design.md's hairline rule exists to catch — and no ring at
+   all left the band's sides bare all the way down the lower tab. That was the git footer under the
+   plan strip: its fill is the pane's own ground, so with the ring gone the band read as an open-sided
+   box exactly where the card tucks over it. The sides now run unbroken from the top tab into the
+   card's own edge. Each join is drawn from the strip that arrives UNDERNEATH, never by a rule
    reaching up into the one above (the fallback's `border-radius: 0` sits beside the layout rule —
    under the gate the corner is the painter's, so the squaring has to be as well). */
 :root[data-squircle] .composer-goal + .composer-todos,
 :root[data-squircle] .composer-goal + .composer-overstrip,
-:root[data-squircle] .composer-todos + .composer-overstrip { --sq-radius-top: 0px; --sq-ring-w: 0; }
+:root[data-squircle] .composer-todos + .composer-overstrip { --sq-radius-top: 0px; --sq-ring-open: top; }
 /* The under-strip's top edge is hidden beneath the card, so only its bottom corners are drawn. */
 :root[data-squircle] .composer-understrip {
   --sq-fill: var(--rl-frame); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
