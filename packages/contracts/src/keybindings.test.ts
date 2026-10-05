@@ -290,6 +290,15 @@ describe("the shipped table", () => {
     expect(commandForChord(DEFAULT_KEYBINDINGS, "ctrl+-", { overlayOpen: true })).toBeNull();
   });
 
+  it("ships Select in Realm on ⌘⇧C, the inspector's chord, from the prompter and anywhere an overlay is not", () => {
+    // THE MUTANT: gate it on `sessionFocus` like ⌘U. The parts of Realm worth pointing at are as often a
+    // sidebar row or a settings switch, which are exactly the places a session is not focused.
+    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "session.selectInRealm")).toEqual(["mod+shift+c"]);
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+shift+c", { inputFocus: true, sessionFocus: true })).toBe("session.selectInRealm");
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+shift+c", { paneFocus: true })).toBe("session.selectInRealm");
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+shift+c", { overlayOpen: true })).toBeNull();
+  });
+
   it("swallows ⌘W in a spelling the resolver agrees with", () => {
     for (const chord of ALWAYS_SWALLOWED_CHORDS) expect(normalizeKeyChord(chord)).toBe(chord);
     expect(ALWAYS_SWALLOWED_CHORDS).toContain("mod+w");

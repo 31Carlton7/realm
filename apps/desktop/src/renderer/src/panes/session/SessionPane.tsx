@@ -25,9 +25,11 @@ import { latestTodos } from "./session-todos";
 import { SessionSummaryHost, useSummaryLive } from "./SessionSummary";
 import { SessionFilesHost } from "./SessionFiles";
 import { GoalStrip } from "./GoalStrip";
+import { useSelectInRealm } from "../../app-pick/start";
 import { PathMenu, asRef } from "./PathMenu";
 import { useSpaceTint } from "../../components/sidebar/use-sidebar-model";
 import type { SlashCommand } from "./slash-commands";
+import { MediaSessionContext } from "../../components/viewer/open";
 
 /** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
  *  re-render (and warn) forever. */
@@ -329,6 +331,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const resumeGoal = useApp((s) => s.resumeGoal);
   const clearGoal = useApp((s) => s.clearGoal);
   const addLinkChip = useApp((s) => s.addLinkChip);
+  const selectInRealm = useSelectInRealm(id);
   const draftLinks = useApp((s) => s.draftLinks[id] ?? NO_LINKS);
   // Attachments are part of the draft and are held the same way, for the same reason.
   const attachments = useApp((s) => s.pendingAttachments[id] ?? NO_ATTACHMENTS);
@@ -749,7 +752,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               onDrop={() => run(() => clearGoal(id))} />}
             sessionInit={transcript.init} fastSupport={fastSupport}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
-            mentions={mentionSources} refs={draftRefs}
+            mentions={mentionSources} refs={draftRefs} selectInRealm={selectInRealm}
             queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}
             onReleaseQueued={(queuedId) => run(() => releaseQueuedPrompt(id, queuedId))}
             onDropQueued={(queuedId) => run(() => dequeuePrompt(id, queuedId))} />}
@@ -784,7 +787,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       )}
     </div>
   );
-  return body;
+  // What this pane shows — its transcript's media, its prompter's chips — is asked about in this session.
+  return <MediaSessionContext.Provider value={id}>{body}</MediaSessionContext.Provider>;
 }
 
 /** The drawer's empty-state hint names where the shell opened — the session's cwd, by basename. */

@@ -2,7 +2,7 @@ import {
   artifactTypeOf, basenameOf, documentExtension, documentKindFor, extOf,
   type ArtifactType, type DocumentKind, type LibraryEntry,
 } from "@realm/contracts";
-import type { FileProvenance } from "../../components/FilePreview";
+import type { FileProvenance } from "../../state/viewer";
 
 /**
  * The documents pane's home, as data: the files it lists, where each one sits relative to the pane,

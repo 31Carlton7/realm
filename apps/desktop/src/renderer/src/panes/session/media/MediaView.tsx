@@ -1,7 +1,7 @@
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { basenameOf, formatAttachmentSize, mediaUrl, type MediaFile } from "@realm/contracts";
+import { useOpenViewer } from "../../../components/viewer/open";
 import { useMediaFiles, usePoster } from "./use-media";
 
 /**
@@ -124,8 +124,8 @@ function VideoPlayer({ file, autoFocus = false, onExpand }: { file: MediaFile; a
 }
 
 /** One media file at message width: the picture, the player, or an audio row. `onExpand` is what
- *  puts it in the lightbox — a 1080×1920 vertical video is legible in a 680px column only as a
- *  thumbnail, and the full-pane view is where it is actually watched. */
+ *  puts it in the media viewer — a 1080×1920 vertical video is legible in a 680px column only as a
+ *  thumbnail, and the full-window view is where it is actually watched. */
 export function MediaFrame({ file, autoFocus = false, onExpand }: { file: MediaFile; autoFocus?: boolean; onExpand?: () => void }) {
   const name = basenameOf(file.path);
   if (file.kind === "video") return <VideoPlayer file={file} autoFocus={autoFocus} onExpand={onExpand} />;
@@ -156,14 +156,17 @@ export function MediaFrame({ file, autoFocus = false, onExpand }: { file: MediaF
  *  wrapped grid when there are several — three mockups side by side is the comparison the reader
  *  came for, and stacking them full-width would put two of them off-screen. */
 export function MediaStrip({ files }: { files: readonly MediaFile[] }) {
-  const [open, setOpen] = useState<MediaFile | null>(null);
+  const open = useOpenViewer();
   if (files.length === 0) return null;
+  // The strip's files are each other's siblings in the viewer: three mockups side by side are the
+  // three ← and → walk, in the order the message showed them.
+  const expand = (i: number) => open?.({ files: files.map((f) => ({ path: f.path, mime: f.mime })), index: i });
   return (
     <>
       <ul className="media-strip" data-count={files.length > 1 ? "many" : "one"} aria-label="Files this message points at">
-        {files.map((file) => (
+        {files.map((file, i) => (
           <li key={file.path} className="media-item">
-            <MediaFrame file={file} onExpand={() => setOpen(file)} />
+            <MediaFrame file={file} onExpand={open ? () => expand(i) : undefined} />
             <div className="media-meta">
               <span className="media-name" title={file.path}>{basenameOf(file.path)}</span>
               <span className="media-detail">{formatAttachmentSize(file.size)}</span>
@@ -181,62 +184,7 @@ export function MediaStrip({ files }: { files: readonly MediaFile[] }) {
           </li>
         ))}
       </ul>
-      {open && <MediaLightbox file={open} onClose={() => setOpen(null)} />}
     </>
-  );
-}
-
-/**
- * One file, full window, over everything.
- *
- * A portal to `document.body` rather than a child of the transcript: the transcript is a scroller
- * with its own stacking context and a `backdrop-filter` fade over its bottom edge, and an overlay
- * inside it would be clipped by both.
- *
- * Escape closes, and focus moves into the dialog on open so the key lands somewhere. Nothing else
- * is trapped — this is a viewer, not a form, and a click anywhere outside the media closes it too.
- */
-export function MediaLightbox({ file, onClose }: { file: MediaFile; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
-    // Capture: the pane's own Escape bindings (close pane, dismiss the picker) are listening too,
-    // and the topmost surface is the one that should answer the key.
-    window.addEventListener("keydown", onKey, true);
-    ref.current?.focus();
-    /* A playing video keeps playing behind an overlay, and its SOUND does not care that it cannot be
-       seen. Pausing is also the half of the fix that the stylesheet cannot do — the other half is
-       hiding the frames, which `data-media-lightbox` drives (see the note in styles.css). */
-    document.body.dataset["mediaLightbox"] = "";
-    for (const v of Array.from(document.querySelectorAll<HTMLVideoElement>(".transcript video"))) v.pause();
-    return () => {
-      window.removeEventListener("keydown", onKey, true);
-      delete document.body.dataset["mediaLightbox"];
-    };
-  }, [onClose]);
-  return createPortal(
-    <div className="media-lightbox" role="dialog" aria-modal="true" aria-label={basenameOf(file.path)}
-      ref={ref} tabIndex={-1} onClick={onClose}>
-      {/* The stage swallows clicks so that using the scrubber does not dismiss the thing being
-          scrubbed; the backdrop around it still closes. */}
-      <div className="media-stage" onClick={(e) => e.stopPropagation()}>
-        <MediaFrame file={file} autoFocus />
-      </div>
-      <div className="media-lightbox-bar" onClick={(e) => e.stopPropagation()}>
-        <span className="media-name">{basenameOf(file.path)}</span>
-        <span className="media-detail">{formatAttachmentSize(file.size)}</span>
-        <button type="button" className="media-action" onClick={() => void window.realm?.media?.reveal(file.path)}>
-          <Icon name="folder" size={12} /> Reveal
-        </button>
-        <button type="button" className="media-action" onClick={() => void window.realm?.media?.open(file.path)}>
-          <Icon name="focusPane" size={12} /> Open
-        </button>
-        <button type="button" className="media-action" aria-label="Close" onClick={onClose}>
-          <Icon name="close" size={12} />
-        </button>
-      </div>
-    </div>,
-    document.body,
   );
 }
 
@@ -326,14 +274,13 @@ export function GeneratingCanvas({ label, detail, aspect = "1 / 1" }: {
  * up would be a worse card than the one that just showed the JSON.
  */
 export function ToolMedia({ path }: { path: string }) {
-  const [open, setOpen] = useState<MediaFile | null>(null);
+  const open = useOpenViewer();
   const files = useMediaFiles(useMemo(() => [path], [path]));
   const file = files[0];
   if (!file) return null;
   return (
     <div className="tool-media">
-      <MediaFrame file={file} onExpand={() => setOpen(file)} />
-      {open && <MediaLightbox file={open} onClose={() => setOpen(null)} />}
+      <MediaFrame file={file} onExpand={open ? () => open({ files: [{ path: file.path, mime: file.mime }] }) : undefined} />
     </div>
   );
 }

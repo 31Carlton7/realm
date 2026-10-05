@@ -401,7 +401,7 @@ export function chordsForCommand(rules: readonly Keybinding[], command: string, 
  */
 export type ContextKey = { key: string; doc: string };
 export const CONTEXT_KEYS: readonly ContextKey[] = [
-  { key: "overlayOpen", doc: "The palette, the spaces overview or a modal sheet is up, and owns the keyboard." },
+  { key: "overlayOpen", doc: "The palette, the spaces overview, a modal sheet or the media viewer is up, and owns the keyboard." },
   { key: "paletteOpen", doc: "The command palette is open." },
   { key: "spacesOpen", doc: "The all-spaces overview is open." },
   { key: "sheetOpen", doc: "A modal sheet is open." },
@@ -459,6 +459,9 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "session.newInWorktree", label: "New session in a worktree", group: "Sessions" },
   { id: "session.quickChat", label: "Quick chat", group: "Sessions" },
   { id: "session.attachFiles", label: "Add files to this session", group: "Sessions" },
+  /* Point at a part of Realm's own window and drop it into a prompter — the web picker's sibling for
+     the app around the pages (the renderer's app-pick/). */
+  { id: "session.selectInRealm", label: "Select in Realm", group: "Sessions" },
   { id: "session.dispatchDraft", label: "Dispatch the draft", group: "Sessions" },
   { id: "session.interrupt", label: "Interrupt the running session", group: "Sessions" },
   /* Shows the terminal and, in its default place as a tab of the side pane, goes to it rather than
@@ -553,6 +556,12 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
   { key: "mod+n", command: "session.new", when: WHEN_IDLE },
   { key: "mod+shift+n", command: "session.quickChat", when: WHEN_IDLE },
   { key: "mod+u", command: "session.attachFiles", when: "!overlayOpen && sessionFocus" },
+  /* ⌘⇧C is the inspector's own chord — Chrome's, Safari's and Firefox's "select an element" — and
+     nothing here held it. Not gated on a focused session: the part of Realm worth pointing at is as
+     often a sidebar row or a settings switch, and the pick goes to the session `sessionForPick` finds.
+     Typing is allowed (`inputFocus` is not in the clause) because the hand is in the prompter, where
+     ⌘⇧C types nothing. */
+  { key: "mod+shift+c", command: "session.selectInRealm", when: "!overlayOpen" },
   { key: "mod+j", command: "terminal.toggle", when: "!overlayOpen && sessionFocus" },
   { key: "mod+shift+enter", command: "session.dispatchDraft", when: "!overlayOpen && sessionFocus" },
   { key: "escape", command: "session.interrupt", when: "!overlayOpen && sessionRunning" },

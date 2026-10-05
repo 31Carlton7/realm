@@ -97,6 +97,17 @@ describe("the quick chat", () => {
     expect(chat().querySelector(".composer-overstrip")).toBeNull();
   });
 
+  it("offers only what goes with the message under its +, never a folder, a mode or the space's connectors", async () => {
+    /* Those are facts about where the session runs — chips this prompter does not carry — and their
+       rows did nothing here: a quick chat's mode is a no-op, and so is the media viewer's, which
+       shares this prompter. THE MUTANT: drop `compact` from the + menu. */
+    await mount();
+    const w = within(await openChat());
+    fireEvent.click(w.getByRole("button", { name: "Add" }));
+    const menu = await screen.findByRole("menu", { name: "Add" });
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([expect.stringContaining("Files…")]);
+  });
+
   it("has no browser, documents, terminal or summary — one close and nothing else", async () => {
     const w = within(await (await mount(), openChat()));
     for (const name of [/browser/i, /documents/i, /terminal/i, /summary/i]) {

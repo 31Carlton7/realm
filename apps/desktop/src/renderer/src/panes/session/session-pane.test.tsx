@@ -2542,7 +2542,7 @@ describe("the '+' menu (Plan 12 W1)", () => {
     expect(within(menu).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["Add", "Mode", "Connectors"]);
     const names = (group: string) => [...within(menu).getByRole("group", { name: group }).querySelectorAll('[role^="menuitem"]')]
       .map((b) => b.querySelector(".menu-label")!.textContent);
-    expect(names("Add")).toEqual(["Files…", "Folder…", "Skills", "Goal…"]);
+    expect(names("Add")).toEqual(["Files…", "Folder…", "Select in Realm", "Skills", "Goal…"]);
     expect(names("Mode")).toEqual(["Build", "Plan", "Ask"]);
     expect(names("Connectors")).toEqual(["Manage connections…"]);
     // The shortcut rides the name; the line is the row's DESCRIPTION, so a row is still found by
@@ -2551,6 +2551,12 @@ describe("the '+' menu (Plan 12 W1)", () => {
     expect(files).toHaveAccessibleName(/^Files…\s*⌘U$/);
     expect(files).toHaveAccessibleDescription("Attach to this message");
     expect(within(menu).getByRole("menuitem", { name: "Folder…" })).toHaveAccessibleDescription("Link a folder to this space");
+    // Select in Realm says the person's own chord for it, and is not an agent's to press (app_act
+    // refuses anything inside `data-no-agent`): a pick is the person pointing.
+    const select = within(menu).getByRole("menuitem", { name: /^Select in Realm/ });
+    expect(select).toHaveAccessibleName(/^Select in Realm\s*⌘⇧C$/);
+    expect(select).toHaveAccessibleDescription("Point at a part of the app");
+    expect(select).toHaveAttribute("data-no-agent", "element picker");
     // Every row wears a glyph, in one slot, so the names stand on one edge.
     expect([...menu.querySelectorAll('[role^="menuitem"]')].every((b) => b.querySelector(".menu-icon > *"))).toBe(true);
     // No Plugins section: Realm has no plugin system, and parity is not a reason to invent one.
@@ -2580,7 +2586,7 @@ describe("the '+' menu (Plan 12 W1)", () => {
     const menu = screen.getByRole("menu", { name: "Add" });
     expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: /^Files…/ }));
     // From the last row of Add straight into Mode — the heads are not stops.
-    for (let i = 0; i < 4; i++) fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
     expect(document.activeElement).toBe(within(menu).getByRole("menuitemcheckbox", { name: "Build" }));
     fireEvent.keyDown(document.activeElement!, { key: "End" });
     expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "Manage connections…" }));
@@ -2593,6 +2599,13 @@ describe("the '+' menu (Plan 12 W1)", () => {
     await exited();
     expect(screen.queryByRole("menu", { name: "Add" })).toBeNull();
     expect(document.activeElement).toBe(btn);
+  });
+
+  it("Select in Realm puts the in-app picker up for THIS prompter, whichever session the window would pick", async () => {
+    const { store } = await mountPlus();
+    openPlus();
+    fireEvent.click(within(screen.getByRole("menu", { name: "Add" })).getByRole("menuitem", { name: /^Select in Realm/ }));
+    expect(store.getState().appPick).toEqual({ sessionId: "se1" });
   });
 
   /* The goal row ARMS the box rather than opening anything: the objective is the argument, and

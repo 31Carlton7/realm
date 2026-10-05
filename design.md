@@ -273,6 +273,11 @@ Rules:
   mixed 55% into grey reads as grey, and a Rosé Pine sidebar beside Rosé Pine panes stopped looking
   like the theme. A ground the material would wash out — the light face, a hued theme — starts its
   range higher on the same control, so a theme is the theme everywhere it is worn.
+- A picture of the window that leaves the window — what Select in Realm attaches for an agent — is
+  laid over the theme's page colour first. The capture holds the DOM's alpha and none of the material
+  behind it, so a translucent ground comes out clear, and light ink on clear pixels is nothing at all
+  in a viewer that puts white behind them. It is the window's own capture or nothing: never inside a
+  browser view, which it cannot see, so a pick under one goes without and its chip says so.
 - A dissolve belongs to the SCROLLER, not to the layout band that happens to contain it. A fade
   positioned on a parent that also holds navigation is drawn over that navigation: the settings tab
   strip arrived smeared and half-legible the moment the column under it was scrolled, and at every
@@ -828,6 +833,15 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   leave to taste: an image decodes in process, and everything else goes out to the platform's
   preview generator — one child process per tile, sixty per page of a grid. A deliberately opened
   preview may ask for anything; a list that scrolls may not.
+- A file being looked at has its session's prompter under it. One viewer shows every file the app
+  shows — a message's picture, a prompter's chip, a Library tile, the documents home — and a question
+  asked there is a turn of the session the file came from, carrying the file, because that agent knows
+  what the file is for; the viewer draws only its own part of the transcript, and a new version the
+  answer names lands on the stage with the original one step back. Marks drawn on a picture go as a
+  copy with the marks in its pixels, so the agent sees what was circled rather than reading where. A
+  file nobody can be asked about starts a session in its space at the first question, never at the
+  look. The ground is opaque: at 97% every label in the window ghosted beside the file's name, which
+  reads as noise rather than context.
 - Measure what every source can report. A metric only some sources emit becomes a chart of which
   source reports it rather than of the thing it names — and where a figure genuinely cannot be
   stated, draw nothing at all rather than an empty meter, which is itself a claim.

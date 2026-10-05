@@ -84,15 +84,16 @@ describe("the session summary button", () => {
     expect(store.getState().sheet).toBeNull();
   });
 
-  it("…and one it has no view for still gets the sheet", async () => {
-    // A `.zip`, a binary. The sheet is the honest answer there: naming the file and offering the OS.
+  it("…and one it has no view for opens in the media viewer, the one place a file is looked at", async () => {
+    // A `.zip`, a binary. The viewer is the honest answer there: naming the file and offering the OS.
     const { store } = await mount([
       (sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/bundle.zip" }, parentToolUseId: null })),
       (sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
     ]);
     openPanel();
     fireEvent.click(screen.getByRole("button", { name: /bundle.zip/ }));
-    expect(store.getState().sheet).toEqual({ kind: "artifact", path: "/a/bundle.zip" });
+    expect(store.getState().viewer?.files).toEqual([{ path: "/a/bundle.zip" }]);
+    expect(store.getState().sheet).toBeNull();
   });
 });
 
