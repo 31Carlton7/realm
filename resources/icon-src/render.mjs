@@ -98,7 +98,7 @@ const renderAt = (browser, svg, size) => browser.shoot(page(img(svgUrl(svg), siz
 
 /** Every icon at 128 and 32 px, on a light ground and a dark one: the sizes a Dock and a menu draw. */
 async function sheet(browser, file) {
-  const row = (size) => `<div style="display:flex;gap:${size / 4}px;align-items:center">${ICONS.map((i) => img(svgUrl(iconSvg(i)), size)).join("")}</div>`;
+  const row = (size) => `<div style="display:flex;gap:${size / 4}px;align-items:center">${ICONS.map((i) => img(svgUrl(iconSvg(i, { glass: true })), size)).join("")}</div>`;
   const half = (ground) => `<div style="background:${ground};padding:28px;display:flex;flex-direction:column;gap:20px">${row(128)}${row(32)}</div>`;
   const width = 56 + ICONS.length * 160 - 32, height = 2 * (56 + 128 + 20 + 32);
   writeFileSync(file, await browser.shoot(page(half("#ececf0") + half("#1e1f22")), width, height));
@@ -148,7 +148,9 @@ try {
     writeMarks();
     mkdirSync(runtime, { recursive: true });
     for (const icon of ICONS) {
-      writeFileSync(join(runtime, `${icon.id}.png`), await renderAt(browser, iconSvg(icon), RUNTIME_SIZE));
+      // Settings draws these and the Dock is handed them as they are, so they carry the glass edge
+      // macOS would otherwise have drawn; the bundle's icon below leaves it to macOS.
+      writeFileSync(join(runtime, `${icon.id}.png`), await renderAt(browser, iconSvg(icon, { glass: true }), RUNTIME_SIZE));
       console.log(`wrote assets/app-icons/${icon.id}.png`);
     }
     const scratch = mkdtempSync(join(tmpdir(), "realm-iconset-"));

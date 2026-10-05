@@ -7,8 +7,10 @@
 //
 // The finish is calm on purpose. The set used to be generated pictures (GPT Image, through Codex) —
 // puffy bodies under a bright bevel, marks in chrome and candy plastic — that outshone every icon
-// beside them. macOS now lays its own glass edge over every app icon it draws, so the artwork carries
-// none: a body graded top to bottom, the mark's three matte faces, and one short shadow.
+// beside them. Now: a body graded top to bottom, the mark's three matte faces, and one short shadow.
+// macOS lays its own glass edge over every app icon it draws from a bundle, so the bundle's artwork
+// carries none; a picture handed straight to the Dock or drawn in Settings gets a copy of that edge
+// (`glass`), so it sits in the Dock the way the bundle's icon does.
 import { MARK, MARK_BOX, markLayer } from "./mark.mjs";
 
 /** The grid: a 1024 canvas, the body 824 px square at (100, 100). Apple's macOS app icon template, and
@@ -42,6 +44,13 @@ const CONTINUOUS = {
  *  black, 8 px down, a Gaussian of 14.75 px. macOS draws it again over a bundle's icon, so here it
  *  matters to the pictures handed straight to the Dock and to Settings. */
 const SHADOW = { opacity: 0.248, dy: 8, blur: 14.75 };
+/**
+ * macOS's glass edge, for the pictures it does not draw itself: a specular line just inside the body,
+ * strongest along the top, a little less along the bottom, and a faint shade down the sides. Fitted by
+ * eye and by profile to what macOS does to a plain grey body (it is not a linear blend, so a vector can
+ * only come close: within 7/255 rms along the edge).
+ */
+const GLASS = { width: 12, blur: 2.5, top: 1, bottom: 0.72, tail: 0.08, side: 0.16 };
 /** Grid px per mark unit: the mark is its box's full 40 units across, so 560 px, 68% of the body. */
 const MARK_SCALE = 14;
 /** The mark's own shadow, in mark units: enough to lift it off the body, not to float it. */
@@ -141,12 +150,32 @@ function groundLine(angle = 0) {
   return `x1="${num(c - dx)}" y1="${num(c - dy)}" x2="${num(c + dx)}" y2="${num(c + dy)}"`;
 }
 
-/** One icon as a 1024 px SVG on the macOS grid. */
-export function iconSvg(icon) {
+/** The glass edge's three strokes, inside the body. */
+function glassEdge() {
+  const lo = ORIGIN, hi = ORIGIN + BODY;
+  const y = `x1="0" y1="${lo}" x2="0" y2="${hi}" gradientUnits="userSpaceOnUse"`;
+  return {
+    defs: [
+      `<clipPath id="inside"><use href="#body"/></clipPath>`,
+      `<linearGradient id="glass-light" ${y}><stop offset="0" stop-color="#fff" stop-opacity="${GLASS.top}"/><stop offset=".2" stop-color="#fff" stop-opacity="0"/><stop offset=".8" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#fff" stop-opacity="${GLASS.bottom}"/></linearGradient>`,
+      `<linearGradient id="glass-shade" ${y}><stop offset=".18" stop-color="#000" stop-opacity="0"/><stop offset=".3" stop-color="#000" stop-opacity="${GLASS.side}"/><stop offset=".7" stop-color="#000" stop-opacity="${GLASS.side}"/><stop offset=".82" stop-color="#000" stop-opacity="0"/></linearGradient>`,
+      `<filter id="glass-line" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="${GLASS.blur}"/></filter>`,
+      `<filter id="glass-tail" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="5"/></filter>`,
+    ],
+    body: `<g clip-path="url(#inside)">`
+      + `<use href="#body" fill="none" stroke="url(#glass-light)" stroke-width="${GLASS.width}" filter="url(#glass-line)"/>`
+      + `<use href="#body" fill="none" stroke="url(#glass-light)" stroke-opacity="${GLASS.tail}" stroke-width="28" filter="url(#glass-tail)"/>`
+      + `<use href="#body" fill="none" stroke="url(#glass-shade)" stroke-width="10" filter="url(#glass-line)"/></g>`,
+  };
+}
+
+/** One icon as a 1024 px SVG on the macOS grid; `glass` adds the edge macOS gives a bundle's icon. */
+export function iconSvg(icon, { glass = false } = {}) {
   const tx = CANVAS / 2 - (MARK_BOX.width / 2) * MARK_SCALE;
   const ty = CANVAS / 2 - (MARK_BOX.height / 2) * MARK_SCALE;
   const mark = markLayer(icon.mark, "mark-");
   const [liftColor, liftOpacity] = icon.lift;
+  const edge = glass ? glassEdge() : { defs: [], body: "" };
   // A die-cut outline is the silhouette grown by a stroke, and the shadow is cast by the cut sticker.
   const cut = (color) => (icon.outline ? ` stroke="${color}" stroke-width="${OUTLINE}" stroke-linejoin="round"` : "");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${CANVAS}" height="${CANVAS}" viewBox="0 0 ${CANVAS} ${CANVAS}">
@@ -156,6 +185,7 @@ export function iconSvg(icon) {
 <filter id="shadow" x="-15%" y="-15%" width="130%" height="135%"><feGaussianBlur stdDeviation="${SHADOW.blur}"/></filter>
 <filter id="lift" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="${LIFT.blur}"/></filter>
 ${mark.defs.join("\n")}
+${edge.defs.join("\n")}
 </defs>
 <use href="#body" fill="#000000" fill-opacity="${SHADOW.opacity}" transform="translate(0 ${SHADOW.dy})" filter="url(#shadow)"/>
 <use href="#body" fill="url(#ground)"/>
@@ -164,6 +194,7 @@ ${mark.defs.join("\n")}
 ${icon.outline ? `<path d="${MARK.silhouette}" fill="${icon.outline}"${cut(icon.outline)}/>` : ""}
 ${mark.body.join("\n")}
 </g>
+${edge.body}
 </svg>
 `;
 }
