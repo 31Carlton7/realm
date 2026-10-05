@@ -546,11 +546,13 @@ export class SessionService {
     // Read BEFORE ensureLive: a session whose row says `running` but whose handle died has nothing to
     // interrupt, and interrupting a handle we just started would abort a turn that never began.
     const wasLive = this.live.has(id);
-    await this.measuring.get(id);
     await this.ensurePorts(id);
     const handle = this.ensureLive(id);
     const interrupted = wasLive && opts.interruptFirst;
     if (interrupted) await this.interruptAndSettle(id, handle);
+    // After the interrupt, not before: the turn it stopped is measured from that settle, and this
+    // message's turn must not write until git has finished looking (`deliver` waits in its own place).
+    await this.measuring.get(id);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
     await handle.send({ text: msg.text, attachments: [] });
     return { interrupted };

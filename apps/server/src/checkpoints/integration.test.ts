@@ -183,14 +183,37 @@ describe("checkpoints over rpc", () => {
     c.close();
   });
 
+  it("finishes measuring a turn a peer's message cut off before that message's turn can write", async () => {
+    // The interjection interrupts first, and the turn it stops is measured at that settle — after any
+    // wait at the door, so the door is the wrong place to wait. The peer's turn writes only once git
+    // has finished looking, or its edits are counted as the turn it cut off.
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const { session: peer } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "hold" });
+    await until(async () => (await c.call("sessions.events", { id: session.id })).result.find((e: Any) => e.event.type === "permission_request"));
+    writeFileSync(join(sp.folderPath, "b.txt"), "the first turn's work\n");
+    const { interrupted } = await app.sessions.deliverInterjection(session.id, { text: "edit", from: { sessionId: peer.id, title: "Peer" } }, { interruptFirst: true });
+    expect(interrupted).toBe(true);
+    await until(async () => (await c.call("sessions.events", { id: session.id })).result.find((e: Any) => e.event.type === "assistant_text"));
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    await new Promise((r) => setTimeout(r, 1_500));
+    const measured = (await c.call("sessions.events", { id: session.id })).result.filter((e: Any) => e.event.type === "turn_changes");
+    expect(measured).toHaveLength(1);
+    expect(measured[0].event.payload.files.map((f: Any) => f.path)).toEqual(["b.txt"]);
+    c.close();
+  });
+
   it("asks git nothing about a turn that ran no tools", async () => {
     const { c, sp } = await boot();
     const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
     await c.call("sessions.send", { id: session.id, text: "go" });
     await c.call("sessions.send", { id: session.id, text: "edit" });
+    // Counted once the EDITING turn's measurement is in: the first to land would be the talking turn's,
+    // were that one measured too, and a count taken then reads one either way.
     const events = await until(async () => {
       const all = (await c.call("sessions.events", { id: session.id })).result;
-      return all.some((e: Any) => e.event.type === "turn_changes") ? all : null;
+      return all.some((e: Any) => e.event.type === "turn_changes" && e.event.payload.totalFiles > 0) ? all : null;
     });
     // One measurement, for the turn that edited — the first turn only talked.
     expect(events.filter((e: Any) => e.event.type === "turn_changes")).toHaveLength(1);

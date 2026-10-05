@@ -364,7 +364,13 @@ describe("conversation rewind", () => {
       await releasing.restore(cp!.id, { filesChanged: 0, commitsRolledBack: 0 });
       expect(order).toEqual([`release ${s.id}`, "rewind"]);
 
+      // The session's own turn, with no cursor ever recorded for it, has nothing to rewind either.
       order.length = 0;
+      const plain = await releasing.captureTurn(s.id, "only talked");
+      const plainPreview = await releasing.preview(plain!.id);
+      await releasing.restore(plain!.id, { filesChanged: plainPreview.filesChanged, commitsRolledBack: plainPreview.commitsRolledBack });
+      expect(order).toEqual([]);
+
       const manual = await releasing.capture({ environmentId: env.id, sessionId: null, kind: "manual", label: "by hand" });
       const preview = await releasing.preview(manual!.id);
       await releasing.restore(manual!.id, { filesChanged: preview.filesChanged, commitsRolledBack: preview.commitsRolledBack });
