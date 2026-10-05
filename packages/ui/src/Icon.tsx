@@ -58,6 +58,9 @@ import {
   WebDesign01Icon,
   // The media viewer's zoom out, beside `add` for zoom in (components/viewer/ViewerStage.tsx).
   MinusSignIcon,
+  // A turn saved from the scroll track's card (ScrollTrack.tsx), and the Library's list of them: the
+  // plain ribbon, which fills when the turn is saved. `bookmark` stays the space icon it already is.
+  Bookmark02Icon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
@@ -215,6 +218,9 @@ export const icons = {
   /* A picture's zoom out, the plain bar beside the plain plus — the pair every image viewer's −/+
      is, which a magnifier holding either sign only restates at a size where the sign is a speck. */
   minus: MinusSignIcon,
+  /* The plain ribbon, outlined until the turn is saved and filled once it is (the model picker's star
+     does the same). Bookmark01's band across the top would read as a second, ruled-off control. */
+  saved: Bookmark02Icon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

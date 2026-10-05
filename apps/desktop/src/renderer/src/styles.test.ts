@@ -520,11 +520,23 @@ describe("the scroll track (ScrollTrack.tsx)", () => {
     expect(bodiesFor(".scroll-track:is(:hover, :focus-within) .track-line").join(" ")).toContain("transition-duration: 0s");
   });
 
-  it("puts up its card the way the tooltip comes and goes, and the card never takes the pointer", () => {
+  it("puts up its card the way the tooltip comes and goes, and the card takes the pointer only while it is up", () => {
     const card = bodiesFor(".track-card").join(" ");
     expect(card).toContain("pointer-events: none");
     expect(card).toContain(`opacity ${dur("--dur-press")}`);
-    expect(bodiesFor(".track-card[data-open]").join(" ")).toContain(`opacity ${dur("--dur-fast")}`);
+    const open = bodiesFor(".track-card[data-open]").join(" ");
+    expect(open).toContain(`opacity ${dur("--dur-fast")}`);
+    expect(open).toContain("pointer-events: auto");
+  });
+
+  it("gives a saved turn the accent — on the track, and on the card's filled ribbon", () => {
+    expect(bodiesFor(".track-tick[data-saved] .track-line").join(" ")).toContain("var(--accent-ink)");
+    expect(bodiesFor(".scroll-track:is(:hover, :focus-within) .track-tick[data-saved] .track-line").join(" ")).toContain("background: var(--accent-ink)");
+    expect(bodiesFor('.track-card-save[aria-pressed="true"] svg *').join(" ")).toContain("fill: currentColor");
+    // After the lens, so a saved tick under the pointer keeps its colour rather than turning to ink.
+    const at = (sel: string) => RULES.findIndex((r) => r.selectors.includes(sel));
+    expect(at(".scroll-track:is(:hover, :focus-within) .track-tick[data-saved] .track-line"))
+      .toBeGreaterThan(at('.scroll-track:is(:hover, :focus-within) .track-tick[data-near="0"] .track-line'));
   });
 });
 

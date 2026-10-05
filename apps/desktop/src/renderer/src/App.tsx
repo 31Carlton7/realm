@@ -621,6 +621,9 @@ export function App() {
     // The queue behind a running turn. Applied in every window for the reason the statuses are: the
     // session's pane may be open in any of them, and the payload is a handful of short strings.
     const offQ = rpc().on("session.queue", ({ sessionId, queued }) => store.getState().applySessionQueue(sessionId, queued));
+    // A turn saved or unsaved — from this window's track, another's, or the Library — is the same set in
+    // every window, which is also how a Library list open in one hears about a bookmark pressed in another.
+    const offSaved = rpc().on("session.saved", ({ sessionId, seqs }) => store.getState().applySavedTurns(sessionId, seqs));
     // The account's plan quota, restated by whichever provider just heard about it. Applied in every
     // window: the figure is about the account, so every window is looking at the same one.
     const offPL = rpc().on("limits.changed", ({ limits }) => store.getState().applyPlanLimits(limits));
@@ -690,7 +693,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

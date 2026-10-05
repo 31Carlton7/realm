@@ -15,6 +15,11 @@ export type TrackPrompt = {
   reply: string | null;
   /** Files the turn changed, as its Edited card counts them. 0 for a turn that changed none. */
   edited: number;
+  /** The prompt's own event, which is what a saved turn names. Null for a prompt the transcript has no
+   *  stored event for, which then cannot be saved. */
+  seq: number | null;
+  /** The reader saved this turn. */
+  saved: boolean;
 };
 
 /** The least distance between two ticks: Codex's pitch, and about the least a pointer can tell apart. */
@@ -29,15 +34,16 @@ const OPENING_MAX = 240;
 const ON_SCREEN_PX = 24;
 
 const ELEMENT_TOKEN = /@\[([^\]\n]+)\]/g;
+const NOTHING_SAVED: ReadonlySet<number> = new Set();
 
 /** One line, its whitespace collapsed. */
 const squash = (s: string): string => s.replace(/\s+/g, " ").trim();
 
 const firstLine = (text: string): string => text.split("\n").map(squash).find(Boolean) ?? "";
 
-/** What a prompt's card leads with. A goal's own turn is named as the bubble names it — nobody typed
- *  it — and a message that carried only files is the files. */
-function promptTitle(b: UserBlock): string {
+/** What a prompt's card leads with — and a saved turn's, in the Library. A goal's own turn is named as
+ *  the bubble names it (nobody typed it), and a message that carried only files is the files. */
+export function promptTitle(b: { text: string; attachments?: readonly { path: string }[]; goal?: UserBlock["goal"] | null }): string {
   if (b.goal) return goalTurnLabel(b.goal);
   // A picked element's token is a delimiter round its label; the bubble draws the label alone.
   const line = firstLine(b.text.replace(ELEMENT_TOKEN, "$1"));
@@ -85,8 +91,9 @@ export function opening(md: string): string | null {
  *
  * `editedBy(i)` is the number of files the run line at block `i` closes its turn on, read from the
  * transcript's own Edited cards, so the track and the card under the turn cannot disagree about it.
+ * `saved` is the session's saved turns, by their prompts' seqs.
  */
-export function trackPrompts(blocks: readonly Block[], editedBy: (runIndex: number) => number): TrackPrompt[] {
+export function trackPrompts(blocks: readonly Block[], editedBy: (runIndex: number) => number, saved: ReadonlySet<number> = NOTHING_SAVED): TrackPrompt[] {
   const out: TrackPrompt[] = [];
   let open: TrackPrompt | null = null;
   // A turn that failed before it said anything is still a turn the card can describe.
@@ -95,7 +102,8 @@ export function trackPrompts(blocks: readonly Block[], editedBy: (runIndex: numb
   blocks.forEach((b, i) => {
     if (b.kind === "user") {
       settle();
-      open = { key: blockKey(b, i), ts: b.ts, title: promptTitle(b), from: b.from?.title ?? null, reply: null, edited: 0 };
+      const seq = b.seq ?? null;
+      open = { key: blockKey(b, i), ts: b.ts, title: promptTitle(b), from: b.from?.title ?? null, reply: null, edited: 0, seq, saved: seq !== null && saved.has(seq) };
       failed = null;
       out.push(open);
       return;
@@ -109,12 +117,20 @@ export function trackPrompts(blocks: readonly Block[], editedBy: (runIndex: numb
   return out;
 }
 
+/** The saved prompt nearest `from` in the direction `step` goes, `from` itself not counted; null
+ *  when nothing that way is saved. */
+export function savedNear(prompts: readonly TrackPrompt[], from: number, step: 1 | -1): number | null {
+  for (let i = from + step; i >= 0 && i < prompts.length; i += step) if (prompts[i]!.saved) return i;
+  return null;
+}
+
 /** Whether two prompt lists say the same thing — what keeps a streaming turn from handing the track a
  *  new list, and every tick a re-render, on each token. */
 export function samePrompts(a: readonly TrackPrompt[], b: readonly TrackPrompt[]): boolean {
   return a.length === b.length && a.every((p, i) => {
     const q = b[i]!;
-    return p.key === q.key && p.ts === q.ts && p.title === q.title && p.from === q.from && p.reply === q.reply && p.edited === q.edited;
+    return p.key === q.key && p.ts === q.ts && p.title === q.title && p.from === q.from && p.reply === q.reply && p.edited === q.edited
+      && p.seq === q.seq && p.saved === q.saved;
   });
 }
 

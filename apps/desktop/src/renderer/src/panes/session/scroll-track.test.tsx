@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ComponentProps } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { sessionEvent, type TurnChanges } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -7,7 +8,7 @@ import { SessionPane } from "./SessionPane";
 import { Transcript } from "./Transcript";
 import { TIP_DELAY_MS } from "../../tooltips";
 import { stampLabel } from "./timestamps";
-import { reduceAll, type Block, type Transcript as TranscriptModel } from "./transcript-model";
+import { emptyTranscript, reduceAll, reduceTranscript, type Block, type Transcript as TranscriptModel } from "./transcript-model";
 
 /**
  * jsdom lays nothing out, so the track is given a geometry to read: each prompt's row at a staged
@@ -71,24 +72,26 @@ function stageObserver() {
 const nextFrame = () => act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
 
 const T0 = new Date(2026, 9, 5, 9, 30).getTime();
-/** `n` turns: a prompt, its answer, its run line — blocks 3i, 3i+1, 3i+2. */
+/** `n` turns: a prompt, its answer, its run line — blocks 3i, 3i+1, 3i+2. Each prompt is a stored event,
+ *  seq 1000 + i, as a log read from the server has them. */
 const turns = (n: number): Block[] => Array.from({ length: n }, (_, i): Block[] => [
-  { kind: "user", text: `Prompt ${i + 1}\nwith a second line`, ts: T0 + i * 60_000 },
+  { kind: "user", text: `Prompt ${i + 1}\nwith a second line`, ts: T0 + i * 60_000, seq: 1000 + i },
   { kind: "assistant", messageId: `m${i}`, text: `Answer **${i + 1}**, in full.`, streaming: false, ts: T0 + i * 60_000 + 5_000 },
   { kind: "run", ms: 5_000, startedAt: T0 + i * 60_000, ts: T0 + i * 60_000 + 6_000 },
 ]).flat();
 const model = (blocks: Block[], extra: Partial<TranscriptModel> = {}): TranscriptModel =>
   ({ blocks, run: null, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {}, summary: null, promptHint: null, ...extra });
 
-function mount(transcript: TranscriptModel) {
-  const r = render(<Transcript sessionStatus="idle" onDecide={() => {}} transcript={transcript} track />);
+function mount(transcript: TranscriptModel, props: Pick<ComponentProps<typeof Transcript>, "saved" | "onSave" | "reveal" | "onRevealed"> = {}) {
+  const r = render(<Transcript sessionStatus="idle" onDecide={() => {}} transcript={transcript} track {...props} />);
   // The stylesheet's padding, which jsdom does not load — read on the next measurement.
   document.querySelector<HTMLElement>(".transcript")!.style.paddingTop = "44px";
   return r;
 }
 
 const track = () => screen.getByRole("toolbar", { name: "Prompts" });
-const ticks = () => within(track()).getAllByRole("button");
+/** The ticks, in order — not the card's bookmark, which is a button in the same toolbar. */
+const ticks = () => within(track()).getAllByRole("button").filter((b) => b.classList.contains("track-tick"));
 const card = () => document.querySelector<HTMLElement>(".track-card")!;
 /** Where a tick's line is drawn, in the track's coordinates: its cell's top plus the line's place in it. */
 const lineAt = (tick: HTMLElement) => parseFloat(tick.style.top) + parseFloat(tick.querySelector<HTMLElement>(".track-line")!.style.top);
@@ -223,12 +226,15 @@ describe("the scroll track", () => {
     expect(card().querySelector(".track-card-title")!.textContent).toBe("Prompt 3");
     expect(card().querySelector(".track-card-reply")!.textContent).toBe("Answer 3, in full.");
     expect(card().querySelector("time")!.textContent).toBe(stampLabel(T0 + 2 * 60_000, Date.now()));
-    expect(ticks()[2]).toHaveAttribute("aria-describedby", card().id);
-    // Along the track it follows at once; off it, it goes.
+    // The keyboard hears what the card adds to the tick's own name: the answer, then when.
+    const described = ticks()[2]!.getAttribute("aria-describedby")!.split(" ").map((id) => document.getElementById(id)!);
+    expect(described.map((el) => el.className)).toEqual(["track-card-reply", "track-card-foot"]);
+    // Along the track it follows at once.
     fireEvent.pointerEnter(ticks()[4]!);
     expect(card().querySelector(".track-card-title")!.textContent).toBe("Prompt 5");
+    // Off it, it goes — once the pointer has had the moment it takes to cross to the card, and has not.
     fireEvent.pointerLeave(ticks()[4]!);
-    expect(card()).not.toHaveAttribute("data-open");
+    await waitFor(() => expect(card()).not.toHaveAttribute("data-open"), { timeout: 1000 });
     expect(ticks().every((t) => !t.hasAttribute("data-near"))).toBe(true);
   });
 
@@ -238,7 +244,7 @@ describe("the scroll track", () => {
     await fiveTurns({ changes: { [changed.settledAt]: changed } });
     expect(ticks().map((t) => t.hasAttribute("data-edited"))).toEqual([false, true, false, false, false]);
     act(() => ticks()[1]!.focus());
-    expect(card().querySelector(".track-card-foot")!.textContent).toBe("Edited 2 files");
+    expect(card().querySelector(".track-card-foot")!.textContent).toBe(`${stampLabel(T0 + 60_000, Date.now())} · Edited 2 files`);
   });
 
   it("moves between prompts on ↑ and ↓ once it has the keyboard, going to each, and to the ends on Home and End", async () => {
@@ -273,6 +279,116 @@ describe("the scroll track", () => {
   });
 });
 
+describe("saving a turn", () => {
+  /** The five turns, the track's save wired to a spy, and whichever prompts' seqs are already saved. */
+  async function saving(saved: number[] = [], extra: Pick<ComponentProps<typeof Transcript>, "reveal" | "onRevealed"> = {}) {
+    const geo = stage({ rows: [0, 900, 1800, 2700, 3600], height: 4400 });
+    const onSave = vi.fn();
+    mount(model(turns(5)), { saved, onSave, ...extra });
+    ro.resized();
+    await nextFrame();
+    return { geo, onSave };
+  }
+  const bookmark = () => card().querySelector<HTMLButtonElement>(".track-card-save");
+  const pointAt = async (i: number) => {
+    fireEvent.pointerEnter(ticks()[i]!);
+    await waitFor(() => expect(card()).toHaveAttribute("data-open"), { timeout: TIP_DELAY_MS + 500 });
+  };
+
+  it("saves a turn from its card's bookmark, and unsaves one that is saved", async () => {
+    const { onSave } = await saving([1003]);
+    await pointAt(1);
+    expect(bookmark()).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(bookmark()!);
+    expect(onSave).toHaveBeenLastCalledWith(1001, true);
+    fireEvent.pointerEnter(ticks()[3]!);
+    expect(bookmark()).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(bookmark()!);
+    expect(onSave).toHaveBeenLastCalledWith(1003, false);
+    // The press leaves the keyboard where it was, as a click on the tick does.
+    expect(fireEvent.mouseDown(bookmark()!)).toBe(false);
+  });
+
+  it("saves the turn the keyboard is on with S — and leaves ⌘S to whatever else wants it", async () => {
+    const { onSave } = await saving([1004]);
+    act(() => ticks()[2]!.focus());
+    fireEvent.keyDown(ticks()[2]!, { key: "s" });
+    expect(onSave).toHaveBeenLastCalledWith(1002, true);
+    fireEvent.keyDown(ticks()[2]!, { key: "s", metaKey: true });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(ticks()[2]!, { key: "End" });
+    fireEvent.keyDown(ticks()[4]!, { key: "S" });
+    expect(onSave).toHaveBeenLastCalledWith(1004, false);
+  });
+
+  it("marks the saved turns on the track, and says so to the keyboard", async () => {
+    await saving([1001, 1003]);
+    expect(ticks().map((t) => t.hasAttribute("data-saved"))).toEqual([false, true, false, true, false]);
+    expect(ticks()[1]).toHaveAttribute("aria-description", "Saved");
+    expect(ticks()[0]).not.toHaveAttribute("aria-description");
+  });
+
+  it("goes between saved turns on ⌥↓ and ⌥↑, past every turn that is not one", async () => {
+    const { geo } = await saving([1001, 1003]);
+    act(() => ticks()[0]!.focus());
+    fireEvent.keyDown(ticks()[0]!, { key: "ArrowDown", altKey: true });
+    expect(document.activeElement).toBe(ticks()[1]);
+    expect(geo.jumps.at(-1)!.top).toBe(900);
+    fireEvent.keyDown(ticks()[1]!, { key: "ArrowDown", altKey: true });
+    expect(document.activeElement).toBe(ticks()[3]);
+    expect(geo.jumps.at(-1)!.top).toBe(2700);
+    // Nothing saved further down: nowhere to go, and nothing moves.
+    const moves = geo.jumps.length;
+    fireEvent.keyDown(ticks()[3]!, { key: "ArrowDown", altKey: true });
+    expect(document.activeElement).toBe(ticks()[3]);
+    expect(geo.jumps).toHaveLength(moves);
+    fireEvent.keyDown(ticks()[3]!, { key: "ArrowUp", altKey: true });
+    expect(document.activeElement).toBe(ticks()[1]);
+  });
+
+  it("draws no bookmark for a prompt with no stored event, and S leaves it be", async () => {
+    stage({ rows: [0, 900, 1800], height: 2600 });
+    const onSave = vi.fn();
+    const bare = turns(3).map((b) => (b.kind === "user" ? { ...b, seq: undefined } : b));
+    mount(model(bare), { saved: [], onSave });
+    ro.resized();
+    await nextFrame();
+    await pointAt(1);
+    expect(bookmark()).toBeNull();
+    act(() => ticks()[1]!.focus());
+    fireEvent.keyDown(ticks()[1]!, { key: "s" });
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("draws no bookmark where nothing can be saved — the quick chat's log", async () => {
+    await fiveTurns();
+    await pointAt(1);
+    expect(bookmark()).toBeNull();
+  });
+
+  it("keeps the card up while the pointer crosses to its bookmark, and lets it go once the pointer has gone", async () => {
+    await saving();
+    await pointAt(2);
+    fireEvent.pointerLeave(ticks()[2]!);
+    // On its way to the card: still up a moment later, and up for as long as the pointer is on it.
+    expect(card()).toHaveAttribute("data-open");
+    fireEvent.pointerEnter(card());
+    await new Promise((r) => setTimeout(r, 300));
+    expect(card()).toHaveAttribute("data-open");
+    fireEvent.pointerLeave(card());
+    await waitFor(() => expect(card()).not.toHaveAttribute("data-open"), { timeout: 1000 });
+  });
+
+  it("opens at a prompt it is sent to, at once rather than gliding, and says it got there", async () => {
+    const onRevealed = vi.fn();
+    const { geo } = await saving([1002], { reveal: { seq: 1002, n: 7 }, onRevealed });
+    await waitFor(() => expect(onRevealed).toHaveBeenCalledWith(7));
+    expect(geo.jumps.at(-1)).toEqual({ top: 1800, behavior: "instant" });
+    await nextFrame();
+    expect(ticks()[2]).toHaveAttribute("data-current");
+  });
+});
+
 describe("in a session pane", () => {
   it("runs down the left edge of every session's log", async () => {
     stage({ rows: [0, 900], height: 2000 });
@@ -288,7 +404,36 @@ describe("in a session pane", () => {
     render(<StoreContext.Provider value={store}>
       <SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Session" })} visible />
     </StoreContext.Provider>);
-    expect(within(await screen.findByRole("toolbar", { name: "Prompts" })).getAllByRole("button").map((t) => t.getAttribute("aria-label")))
-      .toEqual(["what does this repo do", "and the server?"]);
+    await screen.findByRole("toolbar", { name: "Prompts" });
+    expect(ticks().map((t) => t.getAttribute("aria-label"))).toEqual(["what does this repo do", "and the server?"]);
+  });
+
+  it("saves a turn through the store: S on the track, the server's answer, the tick marked in every window", async () => {
+    stage({ rows: [0, 900], height: 2000 });
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })], savedTurns: { se1: [] } });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    // A log read from the server: each prompt keeps the seq of its stored event.
+    const stored = [
+      [11, sessionEvent("user_message", { text: "what does this repo do", attachments: [] })],
+      [12, sessionEvent("assistant_text", { messageId: "m1", text: "a lot" })],
+      [13, sessionEvent("user_message", { text: "and the server?", attachments: [] })],
+      [14, sessionEvent("assistant_text", { messageId: "m2", text: "a Fastify app" })],
+    ] as const;
+    const t = stored.reduce((acc: TranscriptModel, [seq, e]) => reduceTranscript(acc, e, false, seq), emptyTranscript());
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 14, t } } });
+    render(<StoreContext.Provider value={store}>
+      <SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Session" })} visible />
+    </StoreContext.Provider>);
+    await screen.findByRole("toolbar", { name: "Prompts" });
+    await waitFor(() => expect(api.calls).toContain("savedTurns:se1"));
+    act(() => ticks()[1]!.focus());
+    fireEvent.keyDown(ticks()[1]!, { key: "s" });
+    await waitFor(() => expect(api.calls).toContain("setTurnSaved:se1:13=true"));
+    expect(ticks()[1]).toHaveAttribute("data-saved");
+    expect(store.getState().savedTurns.se1).toEqual([13]);
+    // A change made in another window arrives as `session.saved`, and is drawn here as well.
+    act(() => store.getState().applySavedTurns("se1", [11]));
+    expect(ticks().map((x) => x.hasAttribute("data-saved"))).toEqual([true, false]);
   });
 });

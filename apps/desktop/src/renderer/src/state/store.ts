@@ -2,6 +2,7 @@ import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiv
 import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape } from "@realm/contracts";
 import { destinationTarget, pageHidesSidebar, pageItemId } from "./page-item";
 import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
+import type { SavedTurn } from "@realm/contracts";
 import { attachmentDisposition } from "@realm/contracts";
 import { VIEWER_SLOT, ownerOf, type Marking, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
 import type { PickedElement } from "@realm/contracts";
@@ -392,6 +393,12 @@ export type Api = {
   /** `limits.get` — every provider's plan quota as last reported. */
   planLimits(): Promise<PlanLimits[]>;
   recordFeedback(id: string, messageId: string, rating: Rating | null): Promise<void>;
+  /** `sessions.saved` — the turns saved in one session, by the seqs of their prompts' events. */
+  savedTurns(sessionId: string): Promise<number[]>;
+  /** `sessions.setSaved` — save one turn, or unsave it; answers with the session's saved set. */
+  setTurnSaved(sessionId: string, seq: number, saved: boolean): Promise<number[]>;
+  /** `library.saved` — every saved turn in a profile's sessions, the newest saved first. */
+  librarySaved(profileId: string): Promise<{ entries: SavedTurn[]; total: number }>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
   /** `sessions.setAgent` — rejected by the server once the session has any event. */
@@ -1241,6 +1248,14 @@ export type AppState = {
   /** Messages waiting for a session's current turn to end, oldest first, from `session.queue`. The
    *  key is dropped when a queue empties, so a session with nothing waiting holds nothing here. */
   sessionQueues: Record<string, QueuedPrompt[]>;
+  /** The turns the reader saved in each session, as their prompts' event seqs, from `sessions.saved`
+   *  and kept current by `session.saved`. A session not read yet holds nothing here. */
+  savedTurns: Record<string, number[]>;
+  /** Bumped whenever any session's saved turns change — what the Library's Saved list re-reads on. */
+  savedTurnsRev: number;
+  /** The prompt a session should be opened AT, as a pulse (`n` grows) for its track to take: a saved
+   *  turn clicked in the Library. Spent by `promptTaken`, like `keyboardFor`. */
+  promptFor: { sessionId: string; seq: number; n: number } | null;
   /** What each provider last said about the account's plan quota, one row per agent kind. Seeded by
    *  `refreshPlanLimits` and kept current by `limits.changed`. Empty until the first read: a row
    *  invented here would be a quota figure nobody reported. */
@@ -1995,6 +2010,14 @@ export type AppState = {
   applyPlanLimits(limits: PlanLimits[]): void;
   refreshPlanLimits(): Promise<void>;
   refreshSessionQueue(sessionId: string): Promise<void>;
+  refreshSavedTurns(sessionId: string): Promise<void>;
+  applySavedTurns(sessionId: string, seqs: number[]): void;
+  /** Save a turn, or unsave it. Shown at once and put back if the server refuses. */
+  saveTurn(sessionId: string, seq: number, saved: boolean): Promise<void>;
+  listSavedTurns(profileId: string): Promise<{ entries: SavedTurn[]; total: number }>;
+  /** Bring a session forward at one of its prompts — `revealSession`, then the track takes `promptFor`. */
+  revealPrompt(sessionId: string, spaceId: string | null, seq: number): Promise<boolean>;
+  promptTaken(n: number): void;
   dequeuePrompt(sessionId: string, queuedId: string): Promise<void>;
   releaseQueuedPrompt(sessionId: string, queuedId: string): Promise<void>;
   /** Create a session, open its item in the main view, and open its transcript. It goes to
@@ -4000,6 +4023,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", documentsAsk: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
+      savedTurns: {}, savedTurnsRev: 0, promptFor: null,
       spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
@@ -4984,6 +5008,12 @@ await get().refreshCustomThemes().catch(() => {});
         await persist();
       },
       keyboardTaken(n) { if (get().keyboardFor?.n === n) set({ keyboardFor: null }); },
+      async revealPrompt(sessionId, spaceId, seq) {
+        const landed = await get().revealSession(sessionId, spaceId);
+        if (landed) set({ promptFor: { sessionId, seq, n: (get().promptFor?.n ?? 0) + 1 } });
+        return landed;
+      },
+      promptTaken(n) { if (get().promptFor?.n === n) set({ promptFor: null }); },
       canStepWindow(delta) {
         const known = new Set(get().spaces.map((s) => s.id));
         return stepTarget(get().windowTrail, delta, (stop) => known.has(stop.spaceId)) !== null;
@@ -5341,7 +5371,7 @@ await get().refreshCustomThemes().catch(() => {});
             // re-entering this loop on a later page cannot draw two rules.
             const mark = seenSeq !== null && !marked && e.seq > seenSeq;
             if (mark) marked = true;
-            t = reduceTranscript(t, e.event, mark);
+            t = reduceTranscript(t, e.event, mark, e.seq);
             lastSeq = e.seq;
           }
           setTranscript(id, { lastSeq, t });
@@ -5395,7 +5425,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (ev.seq <= cur.lastSeq) { lineOnly(); return; }
         // A persisted event is ordered AFTER the deltas still waiting, so it folds them into its own
         // write rather than racing the frame that would have applied them.
-        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(drainInto(ev.sessionId, cur.t), ev.event) }, also);
+        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(drainInto(ev.sessionId, cur.t), ev.event, false, ev.seq) }, also);
         // Watching a transcript move IS reading it. Same predicate the notifications auto-read uses —
         // this session is the focused pane — because "which pane has the keyboard" is the only thing
         // the renderer actually knows about attention. A pane in the background, or restored behind
@@ -5448,6 +5478,22 @@ await get().refreshCustomThemes().catch(() => {});
       async refreshSessionQueue(sessionId) {
         get().applySessionQueue(sessionId, await api.sessionQueue(sessionId));
       },
+      async refreshSavedTurns(sessionId) {
+        get().applySavedTurns(sessionId, await api.savedTurns(sessionId));
+      },
+      applySavedTurns(sessionId, seqs) {
+        set({ savedTurns: { ...get().savedTurns, [sessionId]: seqs }, savedTurnsRev: get().savedTurnsRev + 1 });
+      },
+      async saveTurn(sessionId, seq, saved) {
+        /* At once, because the bookmark is pressed under the pointer and a toggle that waits on a round
+           trip reads as one that did not take. The server's answer replaces the guess, and a refusal
+           puts back what was there. */
+        const was = get().savedTurns[sessionId] ?? [];
+        get().applySavedTurns(sessionId, saved ? [...new Set([...was, seq])].sort((a, b) => a - b) : was.filter((x) => x !== seq));
+        try { get().applySavedTurns(sessionId, await api.setTurnSaved(sessionId, seq, saved)); }
+        catch (e) { get().applySavedTurns(sessionId, was); throw e; }
+      },
+      listSavedTurns(profileId) { return api.librarySaved(profileId); },
       async dequeuePrompt(sessionId, queuedId) {
         await api.dequeuePrompt(sessionId, queuedId);
       },
