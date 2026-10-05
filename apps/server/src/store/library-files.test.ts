@@ -131,13 +131,21 @@ describe("adding files to the Library", () => {
     expect(rows(db)).toBe(1);
   });
 
-  it("refuses a file past the attachment ceiling, saying how big it is, and copies none of it", async () => {
+  it("refuses a file past the attachment ceiling by its size, before reading any of it", async () => {
+    /* THE mutant: judge the size only after reading the file whole. A 3 GB file is refused by
+       `readFile` itself then, as unreadable, after an attempt to hold all of it in memory. Both files
+       are sparse: they take no room on disk. */
     const { home, profile, files, put } = fresh();
     const big = put("movie.mov", "");
     truncateSync(big, MAX_ATTACHMENT_BYTES + 1);
+    const huge = put("disk.img", "");
+    truncateSync(huge, 3 * 1024 ** 3);
     const ok = put("small.txt", "fine");
-    const r = await files.add({ profileId: profile.id, paths: [big, ok] });
-    expect(r.skipped).toEqual([{ name: "movie.mov", reason: "too-large", size: MAX_ATTACHMENT_BYTES + 1, existing: null }]);
+    const r = await files.add({ profileId: profile.id, paths: [big, huge, ok] });
+    expect(r.skipped).toEqual([
+      { name: "movie.mov", reason: "too-large", size: MAX_ATTACHMENT_BYTES + 1, existing: null },
+      { name: "disk.img", reason: "too-large", size: 3 * 1024 ** 3, existing: null },
+    ]);
     expect(r.added.map((e) => e.name)).toEqual(["small.txt"]);
     expect(readdirSync(libraryDir(home, profile.id))).toEqual(["small.txt"]);
   });
@@ -154,6 +162,9 @@ describe("adding files to the Library", () => {
     expect(chosen.skipped.map((s) => [s.name, s.reason])).toEqual([["shortcut.txt", "link"]]);
     put("album/one.png", "1");
     symlinkSync(secret, join(desk, "album", "two.png"));
+    // The offer counts what would be copied, so a folder's links are not in its count either.
+    const offer = await files.add({ profileId: profile.id, paths: [join(desk, "album")] });
+    expect(offer.folders.map((f) => [f.files, f.bytes])).toEqual([[1, 1]]);
     const folder = await files.add({ profileId: profile.id, paths: [join(desk, "album")], folders: true });
     expect(folder.added.map((e) => e.name)).toEqual(["one.png"]);
     expect(folder.skipped.map((s) => [s.name, s.reason])).toEqual([["two.png", "link"]]);
