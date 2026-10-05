@@ -181,10 +181,19 @@ describe("a space's section", () => {
   });
 
   it("starts a session in a fresh worktree of its space from the ⋯", async () => {
-    const { api } = await mount(home());
+    const { api } = await mount(home({ gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } } }));
     fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
     fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "New session in a worktree" }));
     await waitFor(() => expect(api.calls).toContain("createWorktree:s2"));
+  });
+
+  it("offers no session in a worktree from the ⋯ of a space that is a plain folder", async () => {
+    const { store } = await mount(home({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework", { folderPath: "/work/homework" })] }));
+    await act(async () => { await store.getState().refreshGitInfo("/work/homework"); });
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
+    const menu = await screen.findByRole("menu", { name: "Homework" });
+    expect(within(menu).queryByRole("menuitem", { name: "New session in a worktree" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: "Space settings" })).toBeInTheDocument();
   });
 });
 

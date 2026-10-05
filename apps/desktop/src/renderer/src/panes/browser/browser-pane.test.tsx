@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import type { BlockedDownload, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, PasskeyNotice } from "@realm/contracts";
-import { BrowserPane, PICK_NOTE_MS, SUGGEST_DEBOUNCE_MS } from "./BrowserPane";
+import { BrowserPane, SUGGEST_DEBOUNCE_MS } from "./BrowserPane";
+import { Toasts } from "../../components/Toasts";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
 import { persistBrowserPages } from "./persist-pages";
 
@@ -471,6 +472,25 @@ describe("BrowserPane", () => {
       expect(store.getState().browserRects).toHaveLength(1);
     });
 
+    /* The window's toasts, with no clear spot along its foot, hold a corner — and the view under it
+       gives that corner up for as long as they are up. THE mutant: send the placeholder's rect as it
+       is, and the view paints over the toast that is the only thing the window is trying to say. */
+    it("gives up the corner the toasts are holding, and takes it back when they go — its own rect unchanged", async () => {
+      const f = fakeBridges({ url: "https://example.com" });
+      const { store } = mountWithStore(f);
+      await settle();
+      expect(f.bounds.at(-1)!.rect).toMatchObject({ y: 40, height: 400 });
+      await act(async () => { store.getState().setToastReserve({ x: 300, y: 380, width: 372, height: 388 }); await settle(); });
+      expect(f.bounds.at(-1)!.rect).toMatchObject({ x: 10, y: 40, width: 600, height: 340 });
+      // The strip it gave up shows the pane's ground, not the placeholder's page white.
+      expect(document.querySelector(".browser-view-host")).toHaveAttribute("data-yielded");
+      // Where the view stands is still all of it: the no-overlay rect is the placeholder's.
+      expect(store.getState().browserRects).toEqual([{ itemId: "i1", x: 10, y: 40, width: 600, height: 400 }]);
+      await act(async () => { store.getState().setToastReserve(null); await settle(); });
+      expect(f.bounds.at(-1)!.rect).toMatchObject({ height: 400 });
+      expect(document.querySelector(".browser-view-host")).not.toHaveAttribute("data-yielded");
+    });
+
     it("no page, no rect — the empty state is plain DOM and floats may cover it", async () => {
       const { store } = mountWithStore(fakeBridges({ url: "" }));
       await settle();
@@ -779,7 +799,8 @@ describe("BrowserPane — element picker", () => {
     const store = createAppStore(fakeApi());
     const items = over.withSession === false ? [browserItem()] : [browserItem(), sessionItem];
     store.setState({ items, layout: gridPreset("two-col", items.map((i) => i.id)), focusedLeafId: null });
-    const { unmount } = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    // The receipts are the window's toasts, drawn by the host beside the pane.
+    const { unmount } = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /><Toasts /></StoreContext.Provider>);
     await settle();
     return { f, store, unmount };
   };
@@ -851,7 +872,7 @@ describe("BrowserPane — element picker", () => {
     f.bridges.host.pickElement = async () => { throw new Error("could not attach the debugger to browser b1"); };
     setBrowserBridgesForTests(f.bridges);
     const store = createAppStore(fakeApi());
-    render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /><Toasts /></StoreContext.Provider>);
     await settle();
     await press();
     expect(screen.getByLabelText("Pick an element")).toHaveAttribute("aria-pressed", "false");
@@ -886,7 +907,7 @@ describe("BrowserPane — the ⋯ menu (Plan 26 W7)", () => {
     const store = createAppStore(fakeApi());
     const items = over.withSession === false ? [browserItem()] : [browserItem(), sessionItem];
     store.setState({ items, layout: gridPreset("two-col", items.map((i) => i.id)), focusedLeafId: null, activeSpaceId: "s1" });
-    const view = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible focused={over.focused} /></StoreContext.Provider>);
+    const view = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible focused={over.focused} /><Toasts /></StoreContext.Provider>);
     await settle();
     act(() => f.emit(state({ url: "https://example.com/login", title: "Sign in" })));
     return { f, store, ...view };
@@ -1384,7 +1405,7 @@ describe("BrowserPane — annotate (Plan 26 W7d)", () => {
     const store = createAppStore(fakeApi());
     const items = over.withSession === false ? [browserItem()] : [browserItem(), sessionItem];
     store.setState({ items, layout: gridPreset("two-col", items.map((i) => i.id)), focusedLeafId: null });
-    const view = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    const view = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /><Toasts /></StoreContext.Provider>);
     await settle();
     return { f, store, ...view };
   };
@@ -1430,7 +1451,7 @@ describe("BrowserPane — annotate (Plan 26 W7d)", () => {
     await press();
     await act(async () => { f.settleAnnotate({ outcome: "left" }); await vi.advanceTimersByTimeAsync(0); });
     expect(screen.getByRole("status")).toHaveTextContent("The page changed, so its pins were cleared.");
-    await act(async () => { await vi.advanceTimersByTimeAsync(PICK_NOTE_MS + 10); });
+    // Arming again takes the pane's last receipt down; only a new one would put one back.
     await press();
     await act(async () => { f.settleAnnotate({ outcome: "closed" }); await vi.advanceTimersByTimeAsync(0); });
     expect(screen.queryByRole("status")).toBeNull();

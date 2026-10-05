@@ -614,14 +614,4 @@ describe("App shell", () => {
     expect(store.getState().focusedLeafId).toBe(l.children[1]!.id);
   });
 
-  it("the error bar steps below the connection banner only while the socket is down", async () => {
-    const { store } = await mountMain("L1");
-    act(() => store.setState({ error: "boom" }));
-    expect(document.querySelector(".error-bar")).not.toHaveAttribute("data-under-banner");
-    act(() => store.setState({ connectionState: "reconnecting" }));
-    expect(document.querySelector(".error-bar")).toHaveAttribute("data-under-banner");
-    act(() => store.setState({ connectionState: "connected" }));
-    expect(document.querySelector(".error-bar")).not.toHaveAttribute("data-under-banner");
-  });
-
 });

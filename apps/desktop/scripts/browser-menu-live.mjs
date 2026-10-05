@@ -508,7 +508,7 @@ async function main() {
     const pane = [...document.querySelectorAll('.panehost .panel')].find((p) => p.querySelector('.panel-title')?.textContent === ${JSON.stringify(TITLE)});
     const list = pane?.querySelector('.composer-attachments');
     return list && list.children.length > 0 ? { count: list.children.length, text: list.textContent, html: list.innerHTML.slice(0, 300) } : null; })()`), 5_000, "the attachment").catch(() => null);
-  const toast = await evalIn(c, `document.querySelector('.browser-toast')?.textContent ?? null`);
+  const toast = await evalIn(c, `document.querySelector('.toast[data-front] .toast-text')?.textContent ?? null`);
   check("…and it is in the session's prompter, the way a dropped file is", !!attached, attached);
   check("…with a receipt that names the file and the session", toast === `Added ${shots[0]} to ${TITLE}.`, toast);
   await shot(c, "screenshot-attached");
@@ -643,7 +643,7 @@ async function main() {
   await choose(["Clear browsing data…"]);
   const gone = await until(async () => !(await cookies()).includes("realm_live"), 5_000, "cookie cleared").catch(() => false);
   check("Clear takes it", gone, await cookies());
-  const clearedToast = await until(() => evalIn(c, `document.querySelector('.browser-toast')?.textContent ?? null`), 3_000, "clear receipt").catch(() => null);
+  const clearedToast = await until(() => evalIn(c, `document.querySelector('.toast[data-front] .toast-text')?.textContent ?? null`), 3_000, "clear receipt").catch(() => null);
   check("…and the pane says this profile's browser panes are signed out", /This profile's browser panes are signed out/.test(clearedToast ?? ""), clearedToast);
   await typeAddress("fixture");
   const afterClear = await until(suggestions, 5_000, "suggestions after clearing").catch(() => null);
@@ -715,7 +715,7 @@ async function main() {
     const pane = [...document.querySelectorAll('.panehost .panel')].find((p) => p.querySelector('.panel-title')?.textContent === ${JSON.stringify(TITLE)});
     const draft = pane?.querySelector('textarea')?.value ?? "";
     const files = [...(pane?.querySelectorAll('.composer-attachments li') ?? [])].map((li) => li.textContent);
-    return draft.includes("@[3 annotations]") ? { draft, files, toast: document.querySelector('.browser-toast')?.textContent ?? null } : null; })()`), 5_000, "the chip in the prompter").catch(() => null);
+    return draft.includes("@[3 annotations]") ? { draft, files, toast: document.querySelector('.toast[data-front] .toast-text')?.textContent ?? null } : null; })()`), 5_000, "the chip in the prompter").catch(() => null);
   check("…and ONE chip, \"3 annotations\", is waiting in the session's prompter", !!landed && (landed.draft.match(/@\[/g) ?? []).length === 1, landed?.draft);
   check("…with the capture of the pins attached beside it", !!landed?.files.some((f) => f.includes(capture ?? "nothing")), landed?.files);
   check("…and a receipt that names the chip and the session", landed?.toast === `Added 3 annotations to ${TITLE}.`, landed?.toast);
@@ -741,12 +741,12 @@ async function main() {
       if (v instanceof WebContentsView && v.webContents.getURL().startsWith(${JSON.stringify(SITE)})) { v.webContents.focus(); v.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" }); v.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" }); }
     return true; })()`);
   const escaped = await until(async () => ((await barText()) === null && (await annotateLit()) === "false" ? true : null), 5_000, "escaped").catch(() => false);
-  check("Escape in the page ends annotating, with nothing sent", escaped && !(await evalIn(c, `document.querySelector('.browser-toast')?.textContent?.includes("annotation") ?? false`)));
+  check("Escape in the page ends annotating, with nothing sent", escaped && !(await evalIn(c, `document.querySelector('.toast[data-front] .toast-text')?.textContent?.includes("annotation") ?? false`)));
   await pressAnnotate();
   await until(barText, 5_000, "armed a third time");
   await clickInView(await centreOf(`document.getElementById("i4")`));
   await go("/");
-  const leftToast = await until(() => evalIn(c, `document.querySelector('.browser-toast')?.textContent ?? null`), 5_000, "left toast").catch(() => null);
+  const leftToast = await until(() => evalIn(c, `document.querySelector('.toast[data-front] .toast-text')?.textContent ?? null`), 5_000, "left toast").catch(() => null);
   check("a navigation ends it and says the pins went with the page", leftToast === "The page changed, so its pins were cleared." && (await annotateLit()) === "false", leftToast);
 
   // ── 13. Device size ───────────────────────────────────────────────────────────────────────────

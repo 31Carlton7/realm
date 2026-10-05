@@ -213,6 +213,10 @@ Rules:
   pages assume a white canvas, so anything drawn inside it is a slab of another colour under the
   pane's translucent chrome; the browser pane's "lighter strip" was its host painting the panel tone
   where the view would be. The view comes back once its page has something of its own to show.
+- Something that must be SEEN beside a native view moves off it rather than being drawn under it: the
+  toast stack slides along the window's foot, a tooltip flips or goes beside its control, and where no
+  spot is clear a tooltip goes back to the system's own (macOS draws it above every view) while the view
+  under the toasts gives up a strip of its foot, on the pane's ground, for as long as they are up.
 - Contrast claims about a hairline are pixel measurements, not stylesheet readings. What `8% white`
   comes to depends on the ground it lands on, and no amount of reading the CSS will tell you. Take
   the mean luminance either side of the line and the line itself, in both faces, with the line
@@ -407,10 +411,19 @@ acronym that is uppercase anyway (a file extension on a tile).
 - Primary actions use the accent only when there is a clear primary action.
 - Focus is always visible and uses the accent ring.
 - Icon-only actions need an accessible name and a tooltip when the meaning is not universal.
+- A tooltip is the control's `title`, shown by the app's own layer (`tooltips.ts`) a fifth of a second
+  after the pointer arrives and at once on the next control — the system's took a second and a half,
+  which is a sweep across a toolbar that tells you nothing. Write the title as a plain sentence and end
+  it with the chord in brackets — "Search (⌘K)" — and the chord reads as a key.
 - A toggle names its state or carries `aria-pressed`, never both — "Unfocus Two, pressed" is a
   sentence at war with itself. Which one it takes is a fact about the accessible NAME, so it may not
   become a difference in the fill: "this control is on" gets ONE appearance across a bar, or the
   reader learns two of them.
+- A notice about something that already HAPPENED — a failed action, a refused file, a receipt — is a
+  toast at the window's foot that leaves on its own, waits while it is read, and never covers the
+  prompter's send button. A bar across the top that stays until closed is a chore charged for news.
+  What needs a DECISION — a permission, a sign-in, a server that has gone — is not a toast: it stays
+  where it is until it is answered.
 - State the screen has stopped showing belongs on the control that changes it, not on a strip that
   reports it. A focused pane hides its siblings, and the answer to that was a banner across the top
   of the window reading "Focused: <title> | Unfocus" — a whole row of chrome, and a second place to

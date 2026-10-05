@@ -612,7 +612,8 @@ describe("recording an app for Laya", () => {
     expect(screen.getByRole("dialog")).toBe(sheet);
     expect(within(sheet).getByRole("button", { name: "Start recording" })).toBeEnabled();
     expect(store.getState().laya?.recording ?? null).toBeNull();
-    expect(store.getState().error).toBeNull();
+    // …and not as a toast as well: the sheet already says it, where the Start is.
+    expect(store.getState().toasts).toEqual([]);
   });
 
   it("is unavailable while another device records, saying which, and keeps its Stop after the stream has gone", async () => {

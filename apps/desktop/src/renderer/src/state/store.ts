@@ -16,7 +16,8 @@ import {
   type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
-import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
+import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
+import { pushToast, type Toast, type ToastInput } from "./toasts";
 import { getMachineHub } from "../panes/machine/machine-hub";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, clampPaneAlpha, paneAlphaFromGround,
@@ -1095,7 +1096,12 @@ export type AppState = {
    *  is in a worktree. Sparse by design: a space that has never run anything has none until one is
    *  created. Filter by `spaceId` for one space's. */
   environments: Record<string, Environment>;
-  error: string | null;
+  /** What the foot of the window is saying — newest last, at most `TOAST_LIMIT` (toasts.ts). A failed
+   *  `run` lands here, and so does every receipt that used to draw a notice of its own. */
+  toasts: Toast[];
+  /** The strip a browser view gives up at the window's foot while the toasts have nowhere else to
+   *  stand (`placeToastStack` found no clear spot), in window px. Null almost always. */
+  toastReserve: Rect | null;
   /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner. */
   connectionState: "connected" | "reconnecting";
   /** The user's keymap as the server last reported it, or Realm's defaults until it answers. Held
@@ -2578,9 +2584,13 @@ export type AppState = {
    *  AND the row matches the active filter, and only once per id — the event can repeat (binding rule
    *  6), and a resend must not duplicate the row. */
   applyMcpCall(call: McpCall): void;
-  /** Run an action, surfacing any rejection in `error` (and console.error). Use at UI call sites. */
+  /** Run an action, surfacing any rejection as an error toast (and console.error). Use at UI call sites. */
   run(action: () => Promise<unknown>): void;
-  clearError(): void;
+  /** Put a toast up; the id is for a caller that may take its own down again (a receipt replaced by
+   *  the next one). */
+  toast(input: ToastInput): string;
+  dismissToast(id: string): void;
+  setToastReserve(rect: Rect | null): void;
 };
 
 /** The title "New worktree…" sends (Plan 12 W1): the draft's first few words — enough to recognise the
@@ -2589,6 +2599,25 @@ export type AppState = {
 export function worktreeTitleFrom(draft: string): string | null {
   const words = draft.trim().split(/\s+/).filter(Boolean).slice(0, 4).join(" ");
   return words ? words.slice(0, 40) : null;
+}
+
+/** The checkout a space's worktrees branch from: its primary environment, which is what
+ *  `environments.createWorktree` uses when no `from` is named — the space's own folder until one exists. */
+export function spaceCheckoutPath(s: Pick<AppState, "environments" | "spaces">, spaceId: string): string | null {
+  const primary = Object.values(s.environments).find((e) => e.spaceId === spaceId && e.kind === "primary");
+  return primary?.path ?? s.spaces.find((sp) => sp.id === spaceId)?.folderPath ?? null;
+}
+
+/**
+ * Whether git has said a space's own checkout is not a repository — a plain folder, which is what a
+ * space made from nothing is (`~/Realm/<profile>/<space>`). Such a space has no worktrees and cannot
+ * make one, so nothing offers to: offering it was how a space someone had just made came up under a
+ * red "is not a git repository, so it has no worktrees". A folder nobody has asked git about yet is
+ * NOT plain — the actions ask for themselves (`checkoutIsRepo`), and say nothing either way.
+ */
+export function spaceIsPlainFolder(s: Pick<AppState, "environments" | "spaces" | "gitInfo">, spaceId: string): boolean {
+  const path = spaceCheckoutPath(s, spaceId);
+  return path !== null && s.gitInfo[path] === null;
 }
 
 /** Prune-only: drop ids that no longer exist. Never adds — an unopened item is simply an item of its space. */
@@ -3081,7 +3110,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         next.push(a);
       }
       set({ pendingAttachments: { ...get().pendingAttachments, [sessionId]: next } });
-      if (refused.length > 0) set({ error: `Too large to attach — the limit is ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)}: ${refused.join(", ")}` });
+      if (refused.length > 0) get().toast({ tone: "warning", text: `Too large to attach — the limit is ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)}: ${refused.join(", ")}` });
     };
     /**
      * Put a history entry's IN-PANE view back — the half of a stop that no layout write can restore.
@@ -3220,6 +3249,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  itemsFetchSeq slot so any older in-flight refreshItems response is dropped instead of pruning
      *  the item this fetch is about to open. */
     /** Kick an event-driven git refresh for one session's cwd (no-op while the session is unknown). */
+    /**
+     * Ask git, now, whether a space's own checkout is a repository — and keep the answer where the
+     * prompter and the sidebar read it (`spaceIsPlainFolder`). Every action that would make a worktree
+     * asks this first instead of letting the server refuse, because a plain folder simply HAS no
+     * worktrees: that is a fact about the space, not a failure to report. (An empty repository reads
+     * the same way — git has no HEAD to branch a worktree from until its first commit.)
+     */
+    const checkoutIsRepo = async (spaceId: string): Promise<boolean> => {
+      const path = spaceCheckoutPath(get(), spaceId);
+      if (!path) return false;
+      await get().refreshGitInfo(path);
+      return get().gitInfo[path] != null;
+    };
     const refreshGitFor = (sessionId: string) => {
       const cwd = get().sessions[sessionId]?.cwd;
       if (cwd) get().run(() => get().refreshGitInfo(cwd));
@@ -3505,7 +3547,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const last = lastSpaceId && get().spaces.some((sp) => sp.id === lastSpaceId && sp.profileId === pid) ? lastSpaceId : null;
       set({
         activeProfileId: pid, items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}),
-        view: null, layout: null, focusedLeafId: null, peek: null, sheetSnap: null, error: null, offscreenBrowsers: [],
+        view: null, layout: null, focusedLeafId: null, peek: null, sheetSnap: null, offscreenBrowsers: [],
         // Diffs and patches are keyed by checkout path, and every pane that could show one belongs to
         // the profile being left.
         diffs: {}, diffLoading: {}, patches: {},
@@ -3622,6 +3664,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       try { return await fn(); } finally { if (--trailHeld === 0) noteStop(); }
     };
 
+    /** Toast ids, per window: the id is what a toast's timer and its exit are keyed to. */
+    let toastSeq = 0;
     let groundAlphaTimer: ReturnType<typeof setTimeout> | null = null;
     let paneAlphaTimer: ReturnType<typeof setTimeout> | null = null;
     let sidebarWidthTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3629,7 +3673,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
@@ -5071,8 +5115,14 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async newSessionInWorktree(targetLeafId = null, spaceId = null) {
         const sid = spaceFor(spaceId); if (!sid) return;
-        // The worktree is created FIRST and the session pinned to it. If creating it throws (not a
-        // repository, no commits yet) no session is made at all — `run` surfaces the reason.
+        // A plain folder has no worktrees. The session asked for still opens — in the folder, the only
+        // checkout such a space has — and nothing is said, because nothing went wrong.
+        if (!(await checkoutIsRepo(sid))) {
+          await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, spaceId: sid }, targetLeafId);
+          return;
+        }
+        // The worktree is created FIRST and the session pinned to it. If creating it throws (git
+        // refused the add) no session is made at all — `run` surfaces the reason.
         const env = await api.createWorktree(sid, null);
         if (inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
         await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id, spaceId: sid }, targetLeafId);
@@ -5103,11 +5153,14 @@ await get().refreshCustomThemes().catch(() => {});
         const text = brief.trim(); if (!text) return [];
         const n = Math.max(1, Math.min(FAN_OUT_MAX, Math.trunc(count)));
         const started: Session[] = [];
+        // A plain folder has no worktrees to give each agent; they share the folder, which is all such
+        // a space has, rather than the batch failing on its first add.
+        const isolate = worktrees && await checkoutIsRepo(sid);
         try {
           for (let i = 0; i < n; i++) {
             // Named from the brief, like "New worktree…" does, so the branches say what they are for
             // and the server's slugifier settles the collision between N of the same name.
-            const env = worktrees ? await api.createWorktree(sid, worktreeTitleFrom(text)) : null;
+            const env = isolate ? await api.createWorktree(sid, worktreeTitleFrom(text)) : null;
             if (env && inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
             const { session } = await api.createSession({
               spaceId: sid, agentKind, ...(env ? { environmentId: env.id } : {}), userDispatched: true,
@@ -5392,7 +5445,10 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async moveSessionToNewWorktree(sessionId) {
         const s = get().sessions[sessionId]; if (!s) return;
-        // Create FIRST; if it throws (not a repo, no commits) the session stays where it was and `run`
+        // A plain folder has no worktree to move into, and the prompter does not offer one there; a
+        // request that arrives anyway leaves the session where it is.
+        if (!(await checkoutIsRepo(s.spaceId))) return;
+        // Create FIRST; if it throws (git refused the add) the session stays where it was and `run`
         // surfaces the reason — same shape as newSessionInWorktree.
         const env = await api.createWorktree(s.spaceId, worktreeTitleFrom(get().drafts[sessionId] ?? ""));
         if (inProfile(s.spaceId)) set({ environments: { ...get().environments, [env.id]: env } });
@@ -6907,10 +6963,24 @@ await get().refreshCustomThemes().catch(() => {});
       run(action) {
         action().catch((e: unknown) => {
           console.error(e);
-          set({ error: e instanceof Error ? e.message : String(e) });
+          get().toast({ tone: "error", text: e instanceof Error ? e.message : String(e) });
         });
       },
-      clearError() { set({ error: null }); },
+      toast(input) {
+        const id = `toast-${++toastSeq}`;
+        set({ toasts: pushToast(get().toasts, input, id) });
+        return id;
+      },
+      dismissToast(id) {
+        const cur = get().toasts;
+        if (cur.some((t) => t.id === id)) set({ toasts: cur.filter((t) => t.id !== id) });
+      },
+      setToastReserve(rect) {
+        const cur = get().toastReserve;
+        // Reference-stable like `setBrowserRect`: every browser pane re-syncs its view on a change.
+        if (cur === rect || (cur && rect && cur.x === rect.x && cur.y === rect.y && cur.width === rect.width && cur.height === rect.height)) return;
+        set({ toastReserve: rect });
+      },
     };
   });
 }

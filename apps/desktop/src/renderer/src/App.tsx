@@ -14,6 +14,7 @@ import { FanOutSheet } from "./components/FanOutSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette } from "./components/CommandPalette";
+import { Toasts } from "./components/Toasts";
 import { QuickChat } from "./components/QuickChat";
 import { PageOverlay } from "./components/PageOverlay";
 import { PageNavProvider } from "./components/page-nav";
@@ -25,7 +26,7 @@ import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
 import { persistBrowserPages } from "./panes/browser/persist-pages";
 import { Onboarding } from "./components/Onboarding";
-import { StoreContext, createAppStore, useApp, type AppState } from "./state/store";
+import { StoreContext, createAppStore, useApp, useAppStore, type AppState } from "./state/store";
 import { useStore, type StoreApi } from "zustand";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
@@ -35,6 +36,7 @@ import { useApplyTheme } from "./theme/useTheme";
 import { useZoom } from "./theme/zoom";
 import { installRubberBand } from "./rubber-band";
 import { installPressTracking } from "./press-tracking";
+import { installTooltips } from "./tooltips";
 import "./panes";
 
 /**
@@ -193,6 +195,13 @@ function PressTrackingBridge() {
   return null;
 }
 
+/** Every control's `title` as the app's own tooltip (tooltips.ts), kept clear of the browser views. */
+function TooltipBridge() {
+  const store = useAppStore();
+  useEffect(() => installTooltips(document, { avoid: () => store.getState().browserRects }), [store]);
+  return null;
+}
+
 /** The app's scrollers give at their ends (rubber-band.ts). Off under reduced motion, as AppKit's is. */
 function RubberBandBridge() {
   useEffect(() => installRubberBand(document, {
@@ -270,20 +279,6 @@ function ConnectionBanner() {
   );
 }
 
-function ErrorBar() {
-  const error = useApp((s) => s.error);
-  const clearError = useApp((s) => s.clearError);
-  // The fixed conn-banner hangs over the top edge where this bar sits; step below it while it shows.
-  const underBanner = useApp((s) => s.connectionState !== "connected");
-  if (!error) return null;
-  return (
-    <div className="error-bar" data-under-banner={underBanner || undefined} role="alert">
-      <span>{error}</span>
-      <button aria-label="Dismiss error" onClick={clearError}>✕</button>
-    </div>
-  );
-}
-
 /** Renders whichever modal sheet the store says is open. */
 function SheetHost() {
   const sheet = useApp((s) => s.sheet);
@@ -335,11 +330,10 @@ export function Main() {
   // First run (W4): no spaces at all — the onboarding sheet, not a sentence pointing at a "+". It is
   // gated on `booted` because an unbooted store also has zero spaces, and on the space COUNT rather than
   // `activeSpaceId`, so it can never come back for someone who already has spaces.
-  if (booted && spaces.length === 0) return <><ErrorBar /><Onboarding /></>;
-  if (!spaceId) return <><ErrorBar /><div className="pane-placeholder muted">Create a space with the + in the sidebar.</div></>;
+  if (booted && spaces.length === 0) return <Onboarding />;
+  if (!spaceId) return <div className="pane-placeholder muted">Create a space with the + in the sidebar.</div>;
   return (
     <>
-      <ErrorBar />
       <PaneHost layout={layout ?? emptyLayout()} items={items} focusedLeafId={focusedLeafId}
         zoomedLeafId={zoomedLeafId}
         onZoom={(leafId) => run(() => focusPaneFull(leafId))}
@@ -628,6 +622,7 @@ export function App() {
       <ScrollbarStyleBridge />
       <RubberBandBridge />
       <PressTrackingBridge />
+      <TooltipBridge />
       {/* Shared by the sidebar and the page over the panes, whose own rail can take the sidebar's
           column (components/page-nav.tsx). */}
       <PageNavProvider>
@@ -643,6 +638,8 @@ export function App() {
       <QuickChat />
       <CommandPalette />
       <SpaceOverview />
+      {/* What the window has to say, at its foot and over everything: a failed action, a receipt. */}
+      <Toasts />
     </StoreContext.Provider>
   );
 }

@@ -106,14 +106,14 @@ describe("McpSection", () => {
     expect(within(row).getByText(/disconnects this server's OAuth connection/)).toBeInTheDocument();
   });
 
-  it("a refresh-tools failure renders inline as a result, never as the app's error banner", async () => {
+  it("a refresh-tools failure renders inline as a result, never as the app's error toast", async () => {
     const srv = mcpServer("m6", { name: "srv6", enabled: true, tools: [] });
     const { store } = await mount({ mcpServers: [srv], mcpToolsError: { m6: "connection refused: ECONNREFUSED" } });
     const row = (await screen.findByText("srv6")).closest(".mcp-row") as HTMLElement;
     expect(within(row).getByText(/Not connected yet — Refresh tools to connect\./)).toBeInTheDocument();
     fireEvent.click(within(row).getByRole("button", { name: "Refresh tools" }));
     await waitFor(() => expect(within(row).getByText("connection refused: ECONNREFUSED")).toBeInTheDocument());
-    expect(store.getState().error).toBeNull();
+    expect(store.getState().toasts).toEqual([]);
   });
 
   it("circuit_open shows Retry with the reconnect-and-refresh copy", async () => {

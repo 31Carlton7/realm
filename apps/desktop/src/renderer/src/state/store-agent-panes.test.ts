@@ -155,7 +155,7 @@ describe("reading a child that finished cleanly", () => {
     finish(store);
     await settled();
     expect(reads()).toEqual(["markSessionSeen:kid@4"]);
-    expect(store.getState().error).toBeNull();
+    expect(store.getState().toasts).toEqual([]);
   });
 
   it.each([

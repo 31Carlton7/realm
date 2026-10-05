@@ -2429,20 +2429,6 @@ button.panel-title:hover { background: var(--rl-hover); }
    invisible (W2's no-overlay invariant). Its height comes out of the view's, which the pane's
    ResizeObserver already syncs. */
 .browser-notice { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: var(--hairline-w) solid var(--rl-hairline); background: var(--rl-hover); }
-/* The pick receipt. A toast rather than the full-width banner this was: it reports something the
-   user has already watched happen, and a receipt that has to be dismissed is a chore.
-   In the CHROME rather than floating over the pane, and that is not a compromise — a native
-   WebContentsView composites over anything inside its rectangle, so a toast over the view is a
-   toast nobody sees. */
-.browser-toast {
-  flex: none; align-self: center; display: flex; align-items: center; gap: 8px;
-  margin: 6px 0 2px; padding: 6px 12px;
-  border-radius: 999px; background: var(--rl-raised); color: var(--rl-text-bright);
-  box-shadow: var(--shadow-raised);
-  animation: rl-toast-in var(--dur-enter) var(--ease-out-strong);
-}
-@keyframes rl-toast-in { from { opacity: 0; translate: 0 -6px; } to { opacity: 1; translate: 0 0; } }
-.browser-toast-text { font-size: 12px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browser-notice-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rl-text-dim); }
 .browser-notice-text strong { font-weight: var(--fw-title); color: var(--rl-text-bright); }
 /* Plan 26 W7b's find strip: the download bar's row, holding a field. A strip ABOVE the view like every
@@ -2476,7 +2462,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    instead). Pages are their own light world. At a device size (Plan 26 W7e) the view is narrower than
    its host and white beside a white page would hide the device's edge, so the ground frames it. */
 .browser-view-host { position: relative; flex: 1; min-width: 0; min-height: 0; }
-.browser-view-host[data-page]:not([data-device]) { background: #fff; }
+.browser-view-host[data-page]:not([data-device]):not([data-yielded]) { background: #fff; }
+/* The strip the view gives up while the window's toasts hold its corner (`yieldViewTo`) shows the
+   pane's ground like the rest of the host: white under a toast would read as the page's foot, with
+   the toast stuck to it. */
 /* A blank tab's tools (NewTabPage): one column of rows, set high in the pane rather than centred in
    it — the address field it continues is at the top, and a list floated to the middle of a tall
    pane reads as an empty state rather than as the next thing to pick. Scrolls past a short pane. */
@@ -2538,11 +2527,6 @@ button.panel-title:hover { background: var(--rl-hover); }
   .reach-mark-pulse, .browser-connecting { display: none; }
 }
 
-.error-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 8px 6px; padding: 6px 10px; border-radius: var(--r-ctl);
-  background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); color: var(--rl-danger); font-size: 12px; -webkit-app-region: no-drag; }
-.error-bar button { color: inherit; padding: 2px 6px; }
-/* While the conn-banner (fixed, top-center) is visible, drop below it instead of colliding. */
-.error-bar[data-under-banner] { margin-top: 34px; }
 /* Socket down: slim fixed banner, above panes but below sheets/palette. */
 .conn-banner { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 12px;
   padding: 5px 12px; border-radius: 0 0 var(--r-ctl) var(--r-ctl);
@@ -2553,12 +2537,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 .conn-banner[data-tone="bad"] { background: color-mix(in srgb, var(--rl-danger) 8%, var(--surface)); color: var(--rl-danger); }
 .conn-banner button { color: inherit; font-weight: var(--fw-title); padding: 2px 6px; border-radius: var(--r-chip); }
 .conn-banner button:hover { background: var(--rl-hover); }
-/* A system notice ARRIVES; it does not blink into being. Both of these are drawn by something the
-   user did not ask for — the socket dropping, a call failing — and a cut straight to a finished bar
-   at the top of the window reads as a repaint fault rather than as news. They enter on the
-   transcript's own rung (§6: --dur-enter, ease-out-strong), each from the edge it hangs off, so the
-   motion says where the thing came from. Nothing fades OUT: the banner leaves because the condition
-   cleared, and holding it on screen to animate that would be the app lying for 180ms.
+/* A system notice ARRIVES; it does not blink into being. The banner is drawn by something the user
+   did not ask for — the socket dropping — and a cut straight to a finished bar at the top of the
+   window reads as a repaint fault rather than as news. It enters on the transcript's own rung (§6:
+   --dur-enter, ease-out-strong), from the edge it hangs off, so the motion says where the thing came
+   from. Nothing fades OUT: the banner leaves because the condition cleared, and holding it on screen
+   to animate that would be the app lying for 180ms.
    `translateX(-50%)` is the banner's own centring and has to be carried through every frame — a
    keyframe that drops it slides the banner from the window's middle, which is the mutant here. */
 .conn-banner { animation: rl-notice-in var(--dur-enter) var(--ease-out-strong); }
@@ -2566,8 +2550,83 @@ button.panel-title:hover { background: var(--rl-hover); }
   from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
   to { opacity: 1; transform: translateX(-50%); }
 }
-.error-bar { animation: rl-bar-in var(--dur-enter) var(--ease-out-strong); }
-@keyframes rl-bar-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+/* ── The tooltip (v2) ───────────────────────────────────────────────────────
+   One layer for the window (tooltips.ts): the `title` every control carries, in the app's own type a
+   fifth of a second after the pointer arrives, where the system's grey box took a second and a half.
+   Small and quiet — the caption rung at the label weight, the chip corner, the tooltip chip's own
+   ground (built per theme in themes.ts, inverted into a dark chip on the light face), a hairline rim
+   and the card's small lift rather than a menu's, because it floats over one control rather than over
+   the window. It arrives on a fade with a two-pixel travel out of its control, leaves on a shorter fade
+   with none, and appears outright for the next control within the grace period. A chord in its title
+   reads as a KEY, as a menu's does. It never takes the pointer. */
+.tooltip { position: fixed; z-index: 120; left: 0; top: 0; display: flex; align-items: center; gap: 6px;
+  max-width: 280px; padding: 4px 8px; pointer-events: none;
+  border-radius: var(--r-chip); background: var(--tooltip-bg); color: var(--tooltip-fg);
+  box-shadow: 0 0 0 var(--hairline-w) var(--tooltip-border), var(--shadow-card-lift);
+  font: var(--fw-medium) 12px/16px var(--font-ui); text-wrap: pretty; overflow-wrap: anywhere;
+  opacity: 0; visibility: hidden; translate: 0 -2px;
+  transition: opacity var(--dur-press) var(--ease-fade), visibility 0s linear var(--dur-press); }
+.tooltip[data-side="above"] { translate: 0 2px; }
+.tooltip[data-side="right"] { translate: -2px 0; }
+.tooltip[data-side="left"] { translate: 2px 0; }
+.tooltip[data-open] { opacity: 1; visibility: visible; translate: 0 0;
+  transition: opacity var(--dur-fast) var(--ease-out-strong), translate var(--dur-fast) var(--ease-out-strong); }
+.tooltip[data-instant] { transition: none; }
+.tooltip-label { min-width: 0; }
+/* Concentric with the tip's corner: four pixels in from its edge, so four off its radius. */
+.tooltip-key { flex: none; padding: 0 4px; border-radius: calc(var(--r-chip) - 4px);
+  background: var(--tooltip-border); color: var(--tooltip-muted); font: 11px/16px var(--font-ui); letter-spacing: .02em; }
+
+/* ── Toasts (v2) ────────────────────────────────────────────────────────────
+   The window's notices, at its foot (components/Toasts.tsx): a failed action, a refused file, a pane's
+   receipt. A raised card like a menu — the surface, the panel corner, the raised shadow stack —
+   because it floats over the work the way a menu does. The tone is a glyph and the line across the
+   foot, never a fill: three errors in a row read as three notices, not as an alarm.
+   The stack: newest in front, the two before it tucked behind — clipped to its height, their words
+   hidden, each a step narrower and a peek higher — and fanned out under the pointer so each can be
+   read whole. Position, scale and height are the component's numbers; this only says how they move.
+   The custom properties are written per toast, inline; the values here are only their defaults. */
+.toasts { position: fixed; z-index: 90; pointer-events: none; }
+/* Fanned out, the whole stack is one target, gaps included: moving between two toasts must not
+   collapse it under the pointer. */
+.toasts[data-expanded] { pointer-events: auto; }
+.toast { position: absolute; left: 0; right: 0; bottom: 0; overflow: hidden; pointer-events: auto;
+  --toast-y: 0px; --toast-scale: 1; --toast-h: auto; --toast-life: 6000ms; --toast-tone: var(--rl-accent);
+  height: var(--toast-h); transform: translateY(var(--toast-y)) scale(var(--toast-scale)); transform-origin: 50% 0;
+  border-radius: var(--r-panel); background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--shadow-card);
+  transition: transform var(--dur-move) var(--spring-smooth), height var(--dur-base) var(--ease-out-strong);
+  animation: rl-toast-rise var(--dur-slow) var(--spring-smooth); }
+/* The front one floats on the raised stack, as a menu does. The ones tucked behind it take the card's:
+   three toasts each casting the raised stack's widest layer pooled into a dark cloud over the corner. */
+.toast[data-front] { box-shadow: var(--shadow-raised); }
+.toast[data-tone="error"] { --toast-tone: var(--rl-danger); }
+.toast[data-tone="warning"] { --toast-tone: var(--rl-warning); }
+.toast[data-tone="success"] { --toast-tone: var(--rl-success); }
+/* The glyph that says what kind of notice it is, the words, and the way to dismiss it. The words are
+   CONTENT — the path in an error is the part someone copies — so they select, where chrome does not. */
+.toast-body { display: flex; align-items: flex-start; gap: 10px; padding: 12px 8px 12px 12px;
+  transition: opacity var(--dur-swap) var(--ease-fade); }
+.toast-icon { flex: none; display: grid; place-items: center; height: 18px; color: var(--toast-tone); }
+.toast-text { flex: 1; min-width: 0; margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-medium);
+  overflow-wrap: anywhere; text-wrap: pretty; -webkit-user-select: text; user-select: text; cursor: text; }
+/* Off its own line box at the top, so a 28px target does not make a one-line toast taller. */
+.toast-close { flex: none; margin: -5px 0; color: var(--rl-text-faint); }
+/* Tucked behind, a toast is its top edge and nothing more: three notices' words a few pixels apart
+   would be one illegible one. */
+.toasts:not([data-expanded]) .toast:not([data-front]) .toast-body { opacity: 0; }
+/* The line across the foot is the toast's time, running left to right on the clock the component
+   leaves on, and stopping with it under the pointer. A fill, so the tone's own colour, softened. */
+.toast-progress { position: absolute; left: 0; bottom: 0; width: 100%; height: 2px; transform-origin: 0 50%; transform: scaleX(0);
+  background: color-mix(in oklch, var(--toast-tone) 70%, transparent);
+  animation: rl-toast-progress var(--toast-life) linear forwards; }
+.toast[data-paused] .toast-progress { animation-play-state: paused; }
+@keyframes rl-toast-progress { to { transform: scaleX(1); } }
+/* It rises from the window's foot on the spring a surface arrives on, and leaves on a short fade with
+   a little drop — quieter than it came. Reduced motion takes both away, and the line with them. */
+@keyframes rl-toast-rise { from { opacity: 0; translate: 0 calc(100% + 16px); } }
+.toast[data-leaving] { opacity: 0; translate: 0 6px; pointer-events: none;
+  transition: opacity var(--dur-swap) var(--ease-fade), translate var(--dur-swap) var(--ease-fade); }
 
 /* ── Sheets / palette (raised) ─────────────────────────────────────────── */
 .sheet-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: var(--scrim); }
@@ -6465,7 +6524,7 @@ select { appearance: none; padding-right: 22px;
 .fan-out-switch strong { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 /* The one sentence under the row that says something the label and the control do not: what the
    switch being off would cost. It changes with the switch, because that is the whole of its job. */
-.fan-out-note { font-size: 12px; line-height: 1.45; color: var(--rl-text-faint); }
+.fan-out-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--rl-text-faint); }
 
 /* ── The Library's file browser ────────────────────────────────────────────
    Codex's library, measured off its window: the kinds of file as tabs over a grid of square tiles,
