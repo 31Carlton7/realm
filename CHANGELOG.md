@@ -154,12 +154,12 @@ sliding with its edge, and casts a light shadow on the panes beside it. Landing 
 the keyboard in its prompter. The pane bars' own arrows are gone; ⌘[ and ⌘] still walk the focused
 pane's history.
 
-**A page takes the room it needs, and is left the way it was reached.** Connections, Scheduled tasks
-and Code review have no use for the spaces beside them, so while one is up the sidebar is away and
-the page takes the width right of the rail; a page with sections of its own, such as Settings or the
-Library, puts them in the sidebar's column under a Back instead of drawing a second sidebar beside
-the first. Either change lands in the frame the page opens in — only ⌘B or the toggle draws the
-sidebar moving — and leaving gives the sidebar back as it was. A page's bar is its name and nothing
+**A page takes the room it needs, and is left the way it was reached.** Connections has no use for
+the spaces beside it, so while it is up the sidebar is away and the page takes the width right of
+the rail; a page with a column of its own — Settings, the Library, Scheduled tasks, Code review —
+puts it in the sidebar's column under a Back instead of drawing a second sidebar beside the first.
+Either change lands in the frame the page opens in — only ⌘B or the toggle draws the sidebar moving
+— and leaving gives the sidebar back as it was. A page's bar is its name and nothing
 else: there is no close button, because Home, the lit rail button, a session in the sidebar, the
 column's Back and Escape already go back.
 
