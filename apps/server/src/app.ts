@@ -375,12 +375,13 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "tool", name: "Read", input: { file_path: "web/lib/orgs.ts" }, result: "export async function getOrgMembership(…)" },
       { kind: "tool", name: "Edit", apply: true, result: "The file web/lib/orgs.ts has been updated.", input: { file_path: "web/lib/orgs.ts",
         old_string: "  const rows = await db.select().from(organizationMember)\n    .where(and(eq(organizationMember.organizationId, orgId), eq(organizationMember.userId, userId)));\n",
-        new_string: "  // Only the stable columns access checks read. The invite metadata beside them drifts between\n"
-          + "  // environments, and selecting it is what crashed the layout.\n"
+        new_string: "  // Only the stable columns access checks read. The invite metadata beside them\n"
+          + "  // drifts between environments, and selecting it is what crashed the layout.\n"
           + "  const rows = await db\n    .select({\n      id: organizationMember.id,\n      organizationId: organizationMember.organizationId,\n"
           + "      userId: organizationMember.userId,\n      role: organizationMember.role,\n    })\n    .from(organizationMember)\n"
           + "    .where(and(\n      eq(organizationMember.organizationId, orgId),\n      eq(organizationMember.userId, userId),\n    ));\n"
-          + "  return rows.map(withInviteDefaults);\n" } },
+          + "  // The invite fields are filled in memory, where an older row cannot crash the read.\n"
+          + "  for (const row of rows) withInviteDefaults(row);\n  if (rows.length === 0) return null;\n" } },
       { kind: "tool", name: "Edit", apply: true, result: "The file has been updated.", input: { file_path: "web/lib/agent/chat-runtime/compaction/auto-compact.ts",
         old_string: "export function shouldCompact(tokens: number, limit: number) {\n",
         new_string: "export function shouldCompact(tokens: number, limit: number): boolean {\n  // Kept total for the tests that pass a zero limit.\n  if (limit <= 0) return false;\n" } },
