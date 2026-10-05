@@ -513,7 +513,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const draftRefs = useApp((st) => st.draftRefs[id] ?? NO_REFS);
   const profileId = spaces.find((s) => s.id === session?.spaceId)?.profileId ?? null;
   const mentionFiles = useCallback(async (q: string) => (await mentionFilesFor(id, q)).hits, [id, mentionFilesFor]);
-  const mentionLibrary = useCallback(async (q: string) => (await libraryArtifacts({ profileId, query: q, limit: 20 })).entries, [profileId, libraryArtifacts]);
+  // One row per FILE (`perFile`): the list names things to hand over, not the moments they were touched.
+  const mentionLibrary = useCallback(async (q: string) => (await libraryArtifacts({ profileId, query: q, limit: 20, perFile: true })).entries, [profileId, libraryArtifacts]);
   // Each opening re-reads both: an app installed, or Accessibility granted, since the last `@`.
   const onMentionOpen = useCallback(() => { run(() => loadInstalledApps()); run(() => refreshComputerAccess()); }, [run, loadInstalledApps, refreshComputerAccess]);
   const ensureIcons = useCallback((paths: readonly string[]) => { void ensureAppIcons(paths); }, [ensureAppIcons]);
