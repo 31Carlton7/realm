@@ -1558,7 +1558,8 @@ kbd { font: 11px var(--font-mono); }
 :root[data-quiet] .status-dot[data-status="running"]::after,
 :root[data-quiet] .status-dot[data-status="waiting_permission"]::after,
 :root[data-quiet] .status-dot[data-status="driving"]::after,
-:root[data-quiet] .status-dot[data-status="machine-booting"]::after { display: none; }
+:root[data-quiet] .status-dot[data-status="machine-booting"]::after,
+:root[data-quiet] .status-dot[data-status="recording"]::after { display: none; }
 
 /* The other thing that must NOT freeze: a transition the user is looking at mid-flight when the
    window loses focus would stick half-open. Transitions are not animations, so they are unaffected
@@ -1712,6 +1713,41 @@ kbd { font: 11px var(--font-mono); }
   --fill: transparent; color: var(--rl-text-dim); font-size: 12px; box-shadow: none; }
 .sim-frame-opt:hover { --fill: var(--rl-hover); color: var(--rl-text-bright); }
 .sim-frame-opt[aria-checked="true"] { --fill: var(--rl-accent); color: var(--rl-accent-contrast); }
+/* ── Recording the device for Laya ──
+   Its own row under the device's buttons (LayaRecord.tsx). What it records is the person's use of the
+   app on the device, so it sits with the device, where it has the room to say so in words — the bar
+   shares its width with the side pane's tabs, which keep it. */
+.sim-record { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 6px var(--sidebar-inset) 0; }
+.sim-record-start { --btn-h: 26px; height: var(--btn-h); display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 12px 0 9px; font-size: 12px; }
+/* The recording itself, in the frame choice's pill: the live mark, what is being kept and how much,
+   and Stop — the state and the control that ends it as one object. What is kept takes the slack and
+   gives it back first; the count and Stop keep their width. */
+.sim-recording { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 3px 3px 3px 12px;
+  border-radius: 999px; background: var(--rl-raised); box-shadow: var(--shadow-card);
+  font-size: 12px; line-height: 16px; }
+.sim-recording-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
+.sim-recording-count { flex: none; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sim-recording-stop { --btn-h: 24px; height: var(--btn-h); flex: none; padding: 0 12px; border-radius: 999px; font-size: 12px; }
+.sim-record-note { margin: 0; max-width: 62ch; text-align: center; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+/* What a recording keeps, said before it starts. A glyph beside each fact's name, the grammar
+   Settings' sections use, so five short paragraphs are found by shape before they are read — and no
+   tile round the glyph, which is the coloured-square icon design.md refuses. */
+.laya-record-facts { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.laya-record-fact { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 12px; align-items: start; }
+.laya-record-fact > svg { margin-top: 1px; color: var(--rl-text-dim); }
+.laya-record-fact-title { display: block; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.laya-record-fact-body { margin: 2px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.laya-record-fact-body code { font-size: 12px; overflow-wrap: anywhere; }
+.laya-record-refused { margin: 16px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-danger); }
+/* The same recording at the foot of the rail (RailRecording.tsx), for while the device is out of
+   sight: a recording light with the stop square every Mac and phone draws on one, so the disc is the
+   state and its Stop at once. Still, unlike the row above: that one pings, and two moving marks for
+   one fact is the sidebar dots' mistake. */
+.rail-recording-disc { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--rl-danger); }
+.rail-recording-stop { width: 8px; height: 8px; border-radius: 2px; background: #ffffff; }
 
 .sim-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px; }
 .sim-rest { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 380px; }
@@ -2762,7 +2798,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 .status-dot[data-status="running"]::after,
 .status-dot[data-status="waiting_permission"]::after,
 .status-dot[data-status="driving"]::after,
-.status-dot[data-status="machine-booting"]::after {
+.status-dot[data-status="machine-booting"]::after,
+.status-dot[data-status="recording"]::after {
   content: ""; position: absolute; inset: -3px; border-radius: 50%;
   border: 1px solid color-mix(in srgb, var(--ring) 60%, transparent);
   animation: rl-ping var(--ring-rate) var(--ease-out-strong) infinite;
@@ -2785,6 +2822,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    reaching a machine is something a person is waiting on. */
 .status-dot[data-status="machine-booting"] { background: var(--rl-accent); }
 .status-dot[data-status="machine-booting"]::after { --ring: var(--rl-accent); --ring-rate: 0.9s; }
+/* A recording for Laya (LayaRecord.tsx) is an act in progress — Realm keeping what a person does — so
+   it joins the family, in the red every recording light is, at the slow rate: nobody waits on it. */
+.status-dot[data-status="recording"] { background: var(--rl-danger); }
+.status-dot[data-status="recording"]::after { --ring: var(--rl-danger); --ring-rate: 1.8s; }
 /* Ends at scale(1) rather than growing past the authored box: the halo the reduced-motion reader
    sees is the same 13px circle the ping resolves to, so the two forms are the same shape. */
 @keyframes rl-ping { from { transform: scale(.45); opacity: .85; } 70%, to { transform: scale(1); opacity: 0; } }
@@ -2795,7 +2836,8 @@ button.panel-title:hover { background: var(--rl-hover); }
   .status-dot[data-status="running"]::after,
   .status-dot[data-status="waiting_permission"]::after,
   .status-dot[data-status="driving"]::after,
-  .status-dot[data-status="machine-booting"]::after { animation: none; }
+  .status-dot[data-status="machine-booting"]::after,
+  .status-dot[data-status="recording"]::after { animation: none; }
 }
 /* The one loading spinner — the G5 "Idling" orb (components/Spinner.tsx builds the dots and their
    nine poses). Nothing here rotates: each dot walks its own pre-projected pose table, so the whole

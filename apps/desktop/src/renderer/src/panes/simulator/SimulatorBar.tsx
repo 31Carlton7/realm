@@ -51,11 +51,9 @@ export function SimulatorPanelActions({ item }: { item: Item }) {
   const toggleElements = useApp((s) => s.toggleSimulatorElements);
   const wsUrl = state?.wsUrl ?? null;
   const live = state?.status === "running" && wsUrl !== null;
-  const recordingHere = useApp((s) => s.laya?.recording?.simulatorId === item.refId);
 
-  // A recording outlives the stream it reads — a phone that locked, a stream stopped — and the control
-  // that ends it stays where it was started until it is ended.
-  if (!live) return recordingHere ? <RecordToggle item={item} /> : null;
+  // Recording for Laya is under the device (`LayaRecord.tsx`), where it can say in words what it does.
+  if (!live) return null;
   return (<>
     {/* A screenshot is `simctl`'s, not the stream's: the stream is JPEG frames scaled for a pane, and
         this is the picture people paste into a pull request — full resolution, no JPEG in the way.
@@ -78,7 +76,6 @@ export function SimulatorPanelActions({ item }: { item: Item }) {
       onClick={() => toggleElements(item.refId)}>
       <Icon name="layout" size={14} />
     </button>
-    <RecordToggle item={item} />
     <AppsMenu item={item} physical={state?.physical === true} />
     {/* Everything in this menu is serve-sim's, and a real phone has no serve-sim: offered only where
         it exists (design.md), rather than as a menu of refusals. */}
@@ -94,43 +91,6 @@ export function SimulatorPanelActions({ item }: { item: Item }) {
       <Icon name="stop" size={14} />
     </button>
   </>);
-}
-
-/**
- * Laya learning the app in front from the person using it (`laya/recorder.ts`). A toggle rather than a
- * menu item for the Elements toggle's reason: it is a mode you work in, and the thing that ends it
- * should be the thing that started it. The app is the one in front when it starts — which is what
- * makes it work for an App Store app on a phone, whose app list names only what Xcode installed — and
- * only that app's screens are kept. Realm taps nothing for it.
- *
- * Named by what a click does rather than pressed-or-not (design.md): Record, or Stop recording
- * Instagram. One recording at a time, so another pane's makes this one's unavailable, with the reason.
- */
-function RecordToggle({ item }: { item: Item }) {
-  const recording = useApp((s) => s.laya?.recording ?? null);
-  const recordLaya = useApp((s) => s.recordLaya);
-  const stopLayaRecording = useApp((s) => s.stopLayaRecording);
-  const run = useApp((s) => s.run);
-  if (recording?.simulatorId === item.refId) {
-    const what = recording.apps.join(", ");
-    const kept = `${recording.screens} ${recording.screens === 1 ? "screen" : "screens"}`;
-    return (
-      <button className="icon-btn" data-on aria-label={`Stop recording ${what} for Laya`}
-        title={`Recording ${what} for Laya: ${kept} kept. Realm reads each new screen and taps nothing.${recording.lastError ? ` Not reading now: ${recording.lastError}` : ""}`}
-        onClick={() => run(() => stopLayaRecording())}>
-        <Icon name="record" size={14} />
-      </button>
-    );
-  }
-  return (
-    <button className="icon-btn" aria-label="Record this app for Laya" disabled={recording !== null}
-      title={recording
-        ? `Laya is already recording ${recording.device}. Stop that first.`
-        : "Record for Laya: keep each new screen of the app in front while you use it, for Laya's next training run. Realm taps nothing."}
-      onClick={() => run(() => recordLaya(item.refId, []))}>
-      <Icon name="record" size={14} />
-    </button>
-  );
 }
 
 /**

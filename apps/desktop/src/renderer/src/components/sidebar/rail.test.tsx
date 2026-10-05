@@ -115,6 +115,22 @@ describe("the rail", () => {
     await waitFor(() => expect(api.calls).toContain("installUpdate"));
   });
 
+  it("carries the Stop of a recording for Laya while one runs anywhere, and nothing otherwise", async () => {
+    const recording = { id: "rec-1", simulatorId: "sim-2", device: "Test iPhone", apps: ["TikTok"], seen: ["TikTok"], screens: 3, startedAt: "2026-09-29T07:12:00.000Z", endedAt: null, lastError: null };
+    const laya = { mode: "off" as const, installed: false, runtime: { state: "off" as const }, stepsLogged: 0, dir: "/Users/u/Realm/laya", assist: { available: false, reason: "x", threshold: null, accuracy: null }, recording };
+    const { api, store } = await mount({ laya });
+    // Nothing is known until the server has said: no recording, no control.
+    expect(within(rail()).queryByRole("button", { name: /^Stop recording/ })).toBeNull();
+    await act(async () => { await store.getState().loadLaya(); });
+    // THE MUTANT: a rail that never shows it. A recording whose device is out of sight could then be
+    // ended only by going to find it.
+    const stop = within(rail()).getByRole("button", { name: "Stop recording TikTok for Laya" });
+    expect(stop).toHaveAttribute("title", "Recording TikTok for Laya on Test iPhone: 3 screens kept. Click to stop.");
+    fireEvent.click(stop);
+    await waitFor(() => expect(api.calls).toContain("layaStopRecording"));
+    await waitFor(() => expect(within(rail()).queryByRole("button", { name: /^Stop recording/ })).toBeNull());
+  });
+
   it("stays on screen when the sidebar is collapsed, with the way back in it", async () => {
     const { store } = await mount({ settings: { "ui.sidebarCollapsed": true } }, true);
     expect(store.getState().sidebarCollapsed).toBe(true);
