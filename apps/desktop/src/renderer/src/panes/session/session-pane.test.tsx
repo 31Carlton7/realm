@@ -2527,6 +2527,21 @@ describe("the '+' menu (Plan 12 W1)", () => {
     expect(within(menu).queryByText(/plugin/i)).toBeNull();
   });
 
+  it("stays drawn in the app where the OS would draw every other menu", async () => {
+    /* In the app every other Menu goes to the OS (main/native-menu.ts). This one may not: its rows'
+       descriptions are the point of it, and an OS menu row has no second line. THE mutant: the + menu
+       dropping `inApp`, which jsdom alone cannot see, because jsdom has no OS menu to hand it to. */
+    const popupMenu = vi.fn(() => Promise.resolve(null));
+    (window as { realm?: unknown }).realm = { popupMenu, closeMenu: vi.fn(() => Promise.resolve()) };
+    try {
+      await mountPlus();
+      openPlus();
+      expect(await screen.findByRole("menu", { name: "Add" })).toHaveClass("plus-menu");
+      await new Promise((r) => setTimeout(r, 5));
+      expect(popupMenu).not.toHaveBeenCalled();
+    } finally { delete (window as { realm?: unknown }).realm; }
+  });
+
   it("the arrows walk every section as one list, and Escape hands focus back to the +", async () => {
     await mountPlus();
     const btn = screen.getByRole("button", { name: "Add" });
