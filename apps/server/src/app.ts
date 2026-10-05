@@ -389,6 +389,15 @@ export function defaultAdapters(): AdapterRegistry {
       { id: "token", prompt: "Paste the deploy token.", header: "Token", kind: "text", secret: true },
     ] } }],
   }, {
+    // An MCP server's own questions, asked mid-call through the hub: the live check connects
+    // `mcp/fixtures/elicit-stdio.mjs` as a Connection named "Linear", whose tools ask with a form, a
+    // page to open, and a form asking for a key that Realm must decline.
+    on: "file the Linear issue", emit: [{ kind: "call", tool: "Linear__create_issue", input: { title: "Dark mode toggle" } }],
+  }, {
+    on: "connect Linear", emit: [{ kind: "call", tool: "Linear__connect_workspace", input: {} }],
+  }, {
+    on: "set the Linear key", emit: [{ kind: "call", tool: "Linear__set_api_key", input: {} }],
+  }, {
     // The fallback, which is the half of the gate worth being able to see: a question offering
     // neither an option nor free text cannot be answered, so it must arrive as an ordinary
     // permission rather than as a card with no row on it.
