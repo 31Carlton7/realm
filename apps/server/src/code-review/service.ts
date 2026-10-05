@@ -15,7 +15,7 @@ import type { ProjectsStore } from "../store/projects";
 import { NotFoundError, RpcError } from "../store/rows";
 import type { SpacesStore } from "../store/spaces";
 import type { GitRun } from "../workspace/git-exec";
-import { parseGitHubRemote } from "../workspace/git-write";
+import { parseGitHubRemote } from "../workspace/github-remote";
 import type { GhClient, RawFile } from "./gh";
 import { PR_REVIEWER_PREAMBLE, anchorsOf, fileDiffText, parsedPatch, readReview, reviewPrompt } from "./reviewer";
 
