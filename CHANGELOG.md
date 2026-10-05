@@ -106,6 +106,14 @@ track, saves that turn: its tick takes the accent, ⌥↑ and ⌥↓ step betwee
 Saved lists every turn saved in the profile, with the answer each began with, a click from the
 prompt in its session.
 
+**A reply can carry a chart, a diagram or a comparison.** An agent can write a Mermaid diagram, a
+`realm-chart` (columns, bars, lines or a sparkline) or a `realm-compare` of up to six options as
+fenced code, and the transcript draws it once the fence closes — in Realm's own palette, with the
+values a click away and the source a click further. A body that does not parse stays code, with the
+reason. Nothing in a block fetches anything: a diagram that would load a picture or follow a link to
+lay itself out is left as code, saying so. In a narrow column a comparison becomes a card per option,
+and a Markdown document's rich view draws the same blocks.
+
 **A Connection can show its own views, and they act only on your click.** An MCP server that ships
 views, as the MCP Apps extension describes them, now has them drawn: compact under the tool call
 that made one, or as a tab beside the session. Each runs in a sandboxed frame on an origin of its
