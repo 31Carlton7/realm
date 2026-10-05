@@ -17,6 +17,7 @@ import {
 } from "./project-search";
 import { CatalogFontSchema, InstalledFontSchema, StoredThemeSchema } from "./theme-seed";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
+import { AppViewSchema } from "./mcp-apps";
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
@@ -1279,6 +1280,26 @@ export const Methods = {
   "mcp.oauth.disconnect": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Close a tripped circuit breaker and let the next call try the upstream server again. */
   "mcp.retry": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  /**
+   * One view an MCP server drew for a tool call (MCP Apps), ready to frame: the server reads the
+   * `ui://` resource through the hub, builds the frame's CSP from what the resource declared, and
+   * hands back an address on an origin of the view's own. Asked for each time a view is mounted —
+   * the address is good until it is released, and a second mount gets an origin of its own.
+   *
+   * `hidden` when the server's views are switched off; `unavailable` with a sentence saying why when
+   * the server is gone, is off in the session's space, or did not serve a resource Realm can show.
+   */
+  "apps.view": {
+    params: z.object({ viewId: IdSchema }),
+    result: z.discriminatedUnion("state", [
+      z.object({ state: z.literal("ready"), view: AppViewSchema }),
+      z.object({ state: z.literal("hidden") }),
+      z.object({ state: z.literal("unavailable"), reason: z.string() }),
+    ]),
+  },
+  /** A mounted view went away: its address stops serving. A no-op for one already released. */
+  "apps.release": { params: z.object({ url: z.string() }), result: z.object({ ok: z.literal(true) }) },
 
   /**
    * This space's Realm memory document plus the state of its opt-in `AGENTS.md`. The document lives at

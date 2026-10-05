@@ -74,7 +74,7 @@ export const preview = (id: string, environmentId: string, extra: Partial<Restor
 export const mcpServer = (id: string, extra: Partial<McpServer> = {}): McpServer =>
   ({ id, name: `srv-${id}`, transport: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"], url: "",
     envKeys: [], headerKeys: [], authKind: "none", oauthStatus: "unconfigured", status: "idle", tools: [], allowedTools: null,
-    enabled: false, scope: { kind: "space", spaceId: null }, createdAt: 0, ...extra });
+    enabled: false, scope: { kind: "space", spaceId: null }, showViews: true, createdAt: 0, ...extra });
 export const mcpTool = (name: string, description = ""): McpTool => ({ name, description });
 /** A logged call (W7). `serverName: ""` + `tool` holding the full namespaced string is the
  *  blocked-attribution shape (plan amendment); tests that need it pass that combination explicitly. */

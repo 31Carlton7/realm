@@ -2,6 +2,7 @@ import { z } from "zod";
 import { PlanAlertSchema, PlanLimitsUnavailableSchema, PlanWindowSchema } from "./plan-limits";
 import { MentionRefSchema } from "./mention-refs";
 import { AskAnswersSchema, AskCardSchema } from "./ui-ask";
+import { AppViewRefSchema } from "./mcp-apps";
 
 const P = {
   /** `from` is present ONLY when another session delivered this message (Plan 20's interjection).
@@ -28,7 +29,11 @@ const P = {
   assistant_delta: z.object({ messageId: z.string(), delta: z.string() }),
   thinking: z.object({ messageId: z.string(), text: z.string() }),
   tool_call: z.object({ toolUseId: z.string(), name: z.string(), input: z.record(z.unknown()), parentToolUseId: z.string().nullable() }),
-  tool_result: z.object({ toolUseId: z.string(), content: z.string(), isError: z.boolean() }),
+  /** `view` is present when the call reached an MCP server that drew its result in a view of its own
+   *  (MCP Apps), and Realm is showing that server's views. The server writes it, never an adapter:
+   *  the agent's harness reports only the text, and the gateway is what saw the call carry a view.
+   *  Optional, so every result ever persisted still parses. */
+  tool_result: z.object({ toolUseId: z.string(), content: z.string(), isError: z.boolean(), view: AppViewRefSchema.optional() }),
   /**
    * A sub-agent the HARNESS is running in its own process, started or stopped.
    *

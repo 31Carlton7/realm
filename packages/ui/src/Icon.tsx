@@ -49,6 +49,8 @@ import {
   JavaScriptIcon, Typescript01Icon, PythonIcon, GemIcon, JavaIcon, PhpIcon, PackageIcon, ServerStack01Icon, DatabaseIcon,
   // A device's own toolbar (SimulatorBar.tsx): turning it, selecting its elements, its volume down.
   ScreenRotationIcon, CursorRectangleSelection01Icon, VolumeLowIcon,
+  // A view an MCP server drew (AppView.tsx), as a tab and under its tool call.
+  WebDesign01Icon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
@@ -153,6 +155,9 @@ export const icons = {
   /* A session's own sub-agents: one box handing work down to two. Not the page's bot — the page is
      every agent there is, and this is the tree under one session, which is the thing the shape says. */
   agents: HierarchySquare02Icon,
+  /* A window with a layout drawn in it: an interface somebody else made. Not `browser`'s globe, which
+     is a page anywhere on the web, and not `layout`, which is Realm arranging its own panes. */
+  "app-view": WebDesign01Icon,
   /* A face in a circle, set apart from `profile-page`'s bare figure: the profile is a scope (its
      skills, connections and memory), and this page is the person. */
   "you-page": UserCircleIcon,

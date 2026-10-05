@@ -71,8 +71,10 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  `agents` (v2) is a session's Agents tab — its sub-agents and the composer that hands work out. Its
  *  `refId` is the SESSION's id, because the tab is a view of that one session; the session's own
  *  item is still the one `findByRefId` answers for the id (`ItemsStore` skips this kind), so nothing
- *  that looks a session's item up can be handed its tab instead. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page", "schedules-page", "agents-page", "you-page"]);
+ *  that looks a session's item up can be handed its tab instead.
+ *  `app-view` (v2) is a view an MCP server drew for one tool call (MCP Apps), opened as a tab of its
+ *  session's side pane. Its `refId` is the VIEW's id — an `app_views` row, which names the session. */
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page", "schedules-page", "agents-page", "you-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**
