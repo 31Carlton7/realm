@@ -366,6 +366,33 @@ export function defaultAdapters(): AdapterRegistry {
     on: "keep working", emit: [{ kind: "text", paceMs: 2000, text: "Reading the mapper first, then the reducer that folds its events, then every place the "
       + "sidebar draws a session, so the marks agree wherever a session is shown. After that the tests for each, one "
       + "at a time, and the live check last, because it is the only one that can see the paint." }],
+  }, {
+    // A turn that really edits a checkout, so the surfaces that exist only for one — the turn's
+    // checkpoint and its measurement, the "Edited N files" card, Review, Undo, a file named in the
+    // prose — have something true to show. The edits land in the session's own directory and expect
+    // the two files `transcript-live.mjs` seeds there; anywhere else they fail, as a real edit would.
+    on: "fix the org access", emit: [
+      { kind: "tool", name: "Read", input: { file_path: "web/lib/orgs.ts" }, result: "export async function getOrgMembership(…)" },
+      { kind: "tool", name: "Edit", apply: true, result: "The file web/lib/orgs.ts has been updated.", input: { file_path: "web/lib/orgs.ts",
+        old_string: "  const rows = await db.select().from(organizationMember)\n    .where(and(eq(organizationMember.organizationId, orgId), eq(organizationMember.userId, userId)));\n",
+        new_string: "  // Only the stable columns access checks read. The invite metadata beside them drifts between\n"
+          + "  // environments, and selecting it is what crashed the layout.\n"
+          + "  const rows = await db\n    .select({\n      id: organizationMember.id,\n      organizationId: organizationMember.organizationId,\n"
+          + "      userId: organizationMember.userId,\n      role: organizationMember.role,\n    })\n    .from(organizationMember)\n"
+          + "    .where(and(\n      eq(organizationMember.organizationId, orgId),\n      eq(organizationMember.userId, userId),\n    ));\n"
+          + "  return rows.map(withInviteDefaults);\n" } },
+      { kind: "tool", name: "Edit", apply: true, result: "The file has been updated.", input: { file_path: "web/lib/agent/chat-runtime/compaction/auto-compact.ts",
+        old_string: "export function shouldCompact(tokens: number, limit: number) {\n",
+        new_string: "export function shouldCompact(tokens: number, limit: number): boolean {\n  // Kept total for the tests that pass a zero limit.\n  if (limit <= 0) return false;\n" } },
+      { kind: "tool", name: "Bash", input: { command: "npx tsc --noEmit --pretty false" }, result: "" },
+      { kind: "text", paceMs: 20, text: "Fixed the org access crash path.\n\n"
+        + "The important change is in web/lib/orgs.ts (line 83): `getOrgMembership()` now selects only the stable fields it actually needs for access checks: `id`, `organizationId`, `userId`, and `role`. "
+        + "It then normalizes the unused invite metadata fields in memory. That avoids the layout crashing on environments where `organization_member` invite columns are out of sync or otherwise fragile.\n\n"
+        + "I also kept the earlier compaction helper type-compatible with its tests in `auto-compact.ts:67`, since full TypeScript caught that while verifying.\n\n"
+        + "Verified:\n\n- Reproduced `getOrgMembership()` / `canAccessProject()` with the exact org, user, and project IDs from your error: passes\n"
+        + "- `npx eslint lib/orgs.ts lib/agent/chat-runtime/compaction/auto-compact.ts --max-warnings=0`: passes\n"
+        + "- `npx tsc --noEmit --pretty false`: passes\n- `npm run build`: passes" },
+    ],
   }] });
   return reg;
 }
