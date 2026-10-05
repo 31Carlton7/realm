@@ -14,6 +14,14 @@ import { SettingsStore } from "./settings";
 import { ArtifactsStore } from "./artifacts";
 import { LibraryFilesStore, libraryDir, numberedName, safeLibraryName } from "./library-files";
 
+/* A file swapped for a link AFTER it was looked at: `lstat` of `path` answers for `as`, a regular file,
+   the way it would have the instant before the swap. Everything else is the real filesystem. */
+const swapped = vi.hoisted(() => ({ path: null as string | null, as: null as string | null }));
+vi.mock("node:fs/promises", async (real) => {
+  const fs = await real<typeof import("node:fs/promises")>();
+  return { ...fs, lstat: ((p: string, ...rest: never[]) => fs.lstat(p === swapped.path && swapped.as ? swapped.as : p, ...rest)) as typeof fs.lstat };
+});
+
 function fresh() {
   const home = tempDir("realm-library-");
   const db = openDatabase(join(home, "realm.db"));
@@ -150,6 +158,22 @@ describe("adding files to the Library", () => {
     expect(folder.added.map((e) => e.name)).toEqual(["one.png"]);
     expect(folder.skipped.map((s) => [s.name, s.reason])).toEqual([["two.png", "link"]]);
     expect(readdirSync(libraryDir(home, profile.id))).toEqual(["one.png"]);
+  });
+
+  it("refuses a file that became a link after it was looked at, rather than reading where it points", async () => {
+    /* The check and the read are two moments, and a link can be put in between them. THE mutant: open
+       the source without O_NOFOLLOW — the look said "a file", and the read follows the link. */
+    const { home, profile, files, desk } = fresh();
+    const secret = join(home, "secret.txt");
+    writeFileSync(secret, "not chosen");
+    writeFileSync(join(desk, "before.txt"), "a plain file");
+    symlinkSync(secret, join(desk, "after.txt"));
+    Object.assign(swapped, { path: join(desk, "after.txt"), as: join(desk, "before.txt") });
+    try {
+      const r = await files.add({ profileId: profile.id, paths: [join(desk, "after.txt")] });
+      expect(r.added).toEqual([]);
+      expect(r.skipped.map((s) => [s.name, s.reason])).toEqual([["after.txt", "link"]]);
+    } finally { Object.assign(swapped, { path: null, as: null }); }
   });
 
   it("describes a folder rather than copying it, until asked to add its own files", async () => {
