@@ -46,11 +46,21 @@ const loadMermaid = (): Promise<Mermaid> => (mermaidChunk ??= import("mermaid").
  *  a different document dropped into the message. Sequence diagrams take their sizes on their own. */
 const LABEL_PX = 14;
 
+/**
+ * Mermaid's spacing is a page's, set for a diagram that is the whole document. In a message it is
+ * one panel of a column a few hundred pixels wide, so the margins go to the block's own padding and
+ * a sequence diagram's columns are drawn closer: at Mermaid's defaults three participants already
+ * ran wider than the transcript. A sequence also stops repeating its participants underneath — the
+ * row along the top is in view for any diagram short enough to sit in a message.
+ */
 function config(theme: DiagramTheme): MermaidConfig {
   return {
     startOnLoad: false, securityLevel: "strict", htmlLabels: false, suppressErrorRendering: true, logLevel: "fatal",
     theme: "base", look: "classic", darkMode: theme.dark, fontFamily: theme.fontFamily, themeVariables: { ...theme.vars, fontSize: `${LABEL_PX}px` },
-    fontSize: LABEL_PX, sequence: { actorFontSize: LABEL_PX, messageFontSize: LABEL_PX, noteFontSize: LABEL_PX,
+    fontSize: LABEL_PX,
+    flowchart: { diagramPadding: 4, padding: 12, nodeSpacing: 40, rankSpacing: 44 },
+    sequence: { diagramMarginX: 4, diagramMarginY: 4, actorMargin: 36, width: 120, height: 44, boxMargin: 8, noteMargin: 8, messageMargin: 30,
+      mirrorActors: false, actorFontSize: LABEL_PX, messageFontSize: LABEL_PX, noteFontSize: LABEL_PX,
       actorFontFamily: theme.fontFamily, messageFontFamily: theme.fontFamily, noteFontFamily: theme.fontFamily },
     maxTextSize: UI_BLOCK_SOURCE_MAX, maxEdges: DIAGRAM_EDGES_MAX, deterministicIds: true, secure: SECURE,
   };

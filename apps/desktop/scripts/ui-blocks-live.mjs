@@ -248,6 +248,7 @@ async function main() {
       forbidden: svg.querySelectorAll("a, image, foreignObject, script, use").length, external: /https?:\\/\\//.test(svg.outerHTML.replace(/xmlns(:\\w+)?="[^"]*"/g, "")),
       ink: getComputedStyle(firstText).fill, box: __live.box(svg), scroller: { sw: svg.parentElement.scrollWidth, cw: svg.parentElement.clientWidth } }; })()`);
   check("the sequence diagram is drawn with its own labels, under an id of its own", diagram.count >= 8 && diagram.text.includes("Sign in with Claude") && /^rlmmd-\d+$/.test(diagram.id), diagram);
+  check("…and at the default width it fits its block without scrolling", diagram.scroller.sw <= diagram.scroller.cw + 1, diagram.scroller);
   check("…and holds no link, picture, embedded HTML or reference out of the drawing", diagram.forbidden === 0 && !diagram.external, diagram);
 
   const compare = await evalIn(c, `(() => { const b = __live.block("compare"); const pick = b.querySelector("th[data-pick]"); const other = b.querySelector("thead th:not([data-pick])");
@@ -315,12 +316,12 @@ async function main() {
   await menuRow("chart", "Hide source");
 
   // ── The light face: the diagram is drawn again in it ──
-  const darkGround = await evalIn(c, `getComputedStyle(__live.block("diagram")).backgroundColor`);
   const darkStyle = await evalIn(c, `__live.block("diagram").querySelector(".ui-diagram svg style").textContent.length`);
   await paletteRow(c, "Theme: Light");
-  await until(() => evalIn(c, `getComputedStyle(__live.block("diagram")).backgroundColor !== ${JSON.stringify(darkGround)}`), 5000, "the light face");
+  // The block's fill is the squircle painter's, so the face is read off the root rather than the block.
+  await until(() => evalIn(c, `document.documentElement.getAttribute("data-mode") === "light"`), 5000, "the light face");
   const lightDiagram = await until(() => evalIn(c, `(() => { const svg = __live.block("diagram")?.querySelector(".ui-diagram svg"); if (!svg) return null;
-    const t = svg.querySelector("text.messageText"); const fill = getComputedStyle(t).fill;
+    const t = svg.querySelector("text.messageText"); if (!t) return null; const fill = getComputedStyle(t).fill;
     return fill !== ${JSON.stringify(diagram.ink)} ? { fill, id: svg.id } : null; })()`), 10_000, "the diagram in the light face");
   check("the diagram is redrawn in the light face's ink", !!lightDiagram, { dark: diagram.ink, light: lightDiagram, darkStyle });
   await sleep(500);
@@ -341,7 +342,13 @@ async function main() {
   note("narrow", { narrow, overflow });
   check("in a narrow window every block stays inside the column and nothing widens the transcript",
     narrow.blocks.every((b) => b.inside) && overflow.col <= 1 && overflow.transcript <= 1 && overflow.chartSvg.r <= overflow.chart.r, overflow);
-  check("the diagram shrinks no further than four fifths of its size, then scrolls", overflow.diagram.w >= Math.floor(overflow.diagram.natural * 0.8) - 1, overflow.diagram);
+  check("the diagram shrinks no further than two thirds of its size, then scrolls", overflow.diagram.w >= Math.floor(overflow.diagram.natural * 2 / 3) - 1, overflow.diagram);
+  const narrowCompare = await evalIn(c, `(() => { const b = __live.block("compare"); return { cards: b.querySelectorAll(".ui-compare-card").length, table: !!b.querySelector("table"),
+    pick: b.querySelector(".ui-compare-card[data-pick] .ui-compare-option")?.textContent ?? null }; })()`);
+  check("a comparison too narrow for its columns recomposes into a card per option, the pick still set apart", narrowCompare.cards === 2 && !narrowCompare.table && narrowCompare.pick === "SQLite", narrowCompare);
+  const narrowChart = await evalIn(c, `(() => { const svg = __live.block("chart").querySelector("svg.chart"); const r = svg.getBoundingClientRect();
+    return { w: Math.round(r.width), h: Math.round(r.height), vb: svg.getAttribute("viewBox") }; })()`);
+  check("a narrow chart is drawn at its real width, with no empty band above or below it", narrowChart.vb.startsWith(`0 0 ${narrowChart.w} `) || narrowChart.h < 240, narrowChart);
   for (const kind of ["chart", "diagram", "compare"]) await shoot(c, `${kind}-narrow-dark`, pad(await evalIn(c, `__live.show(__live.block("${kind}"))`)));
   await paletteRow(c, "Theme: Light");
   await sleep(900);
@@ -382,7 +389,8 @@ async function main() {
     if (!b && !reason) return null; const svg = b?.querySelector("svg");
     return { drawn: !!b, reason: reason || null, forbidden: svg ? svg.querySelectorAll("a, image, foreignObject, script, use").length : 0,
       external: svg ? /example\\.com/.test(svg.outerHTML) : false, labels: svg ? [...svg.querySelectorAll("text")].map((t) => t.textContent.trim()).filter(Boolean) : [] }; })()`), 30_000, "the hostile diagram");
-  check("a hostile diagram draws as a drawing only: no link, no picture, no reference to anywhere", hostile.forbidden === 0 && !hostile.external, hostile);
+  check("a hostile diagram draws, as a drawing only: no link, no picture, no reference to anywhere", hostile.drawn && hostile.forbidden === 0 && !hostile.external
+    && ["Open the docs", "Run the setup"].every((l) => hostile.labels.includes(l)), hostile);
   if (hostile.drawn) await shoot(c, "hostile-dark", pad(await evalIn(c, `__live.show([...document.querySelectorAll(".session-pane .md-block[data-ui-block=diagram]")].at(-1))`)));
 
   // ── Reduced motion ──
@@ -390,7 +398,7 @@ async function main() {
   await sleep(300);
   const still = await evalIn(c, `(() => ({ running: document.getAnimations().filter((a) => a.effect?.target?.closest?.(".ui-block")).length,
     barTransition: getComputedStyle(__live.blocks().find((b) => b.dataset.chart === "bars").querySelector(".bd-bar-fill")).transitionDuration,
-    keyframes: [...document.querySelectorAll(".ui-diagram style")].some((s) => /@keyframes|animation/.test(s.textContent)) }))()`);
+    keyframes: [...document.querySelectorAll(".ui-diagram style")].some((s) => /@keyframes|animation(?:-[a-z-]+)?\s*:/.test(s.textContent)) }))()`);
   check("under reduced motion nothing in a block moves, and no diagram carries an animation", still.running === 0 && still.barTransition === "0s" && !still.keyframes, still);
   await c.send("Emulation.setEmulatedMedia", { features: [] });
 

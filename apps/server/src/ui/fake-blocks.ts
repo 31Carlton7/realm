@@ -107,7 +107,6 @@ flowchart TD
   A[Open the docs] --> B[Run the setup]
   B --> C@{ img: "https://example.com/logo.png", label: "Logo", pos: "t", w: 60, h: 60 }
   click A "https://example.com/docs" "Docs"
-  click B call alert(1)
-  classDef evil fill:url(https://example.com/class.svg),stroke:#f00
-  class B evil`)}\n` }],
+  click B call alert()
+  style B fill:#f00,stroke:#333`)}\n` }],
 }];

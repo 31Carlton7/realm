@@ -188,6 +188,24 @@ export function DrawnBlock({ state, kind, source, sourceShown = false, actions, 
   );
 }
 
+/** The narrowest a block's plot is drawn at its real size. Under it the drawing scales, rather than
+ *  its axis giving the bars no room at all. */
+const PLOT_MIN = 240;
+
+/** A block's own width as laid out, for a layout that recomposes rather than shrinks. Zero until it
+ *  is measured — and in jsdom, which measures nothing — which callers read as "wide". */
+function useInlineSize(ref: React.RefObject<HTMLElement | null>): number {
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => setW(Math.round(entry?.contentRect.width ?? 0)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return w;
+}
+
 /** A chart's series, in the order written, on the palette's slots in that order. */
 const seriesOf = (c: ChartBlock): StackSeries[] => c.series.map((s, i) => ({ key: String(i), label: s.label, colorIndex: i, values: s.values }));
 
@@ -199,7 +217,7 @@ function ChartBody({ chart }: { chart: ChartBlock }) {
   if (chart.kind === "columns") {
     return (
       <div className="ui-chart">
-        <StackedColumns labels={labels} series={series} format={exact} tickFormat={short} label={chart.title} description={description} totals />
+        <StackedColumns labels={labels} series={series} format={exact} tickFormat={short} label={chart.title} description={description} totals minWidth={PLOT_MIN} />
         <Legend series={series} />
       </div>
     );
@@ -207,10 +225,7 @@ function ChartBody({ chart }: { chart: ChartBlock }) {
   if (chart.kind === "lines") {
     return (
       <div className="ui-chart">
-        <LineChart labels={labels} series={series} format={exact} tickFormat={short} label={chart.title} description={description} />
-        {/* Named at the lines' ends when the plot has room; the legend is the fallback, and it is
-            drawn either way when a reader may need it — the end labels give way in a narrow pane. */}
-        <Legend series={series} />
+        <LineChart labels={labels} series={series} format={exact} tickFormat={short} label={chart.title} description={description} minWidth={PLOT_MIN} />
       </div>
     );
   }
@@ -287,45 +302,77 @@ function ValuesTable({ chart }: { chart: ChartBlock }) {
  * is something to read.
  */
 function CompareTable({ compare }: { compare: CompareBlock }) {
+  const holder = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   useDissolve(scroller, "x");
+  const width = useInlineSize(holder);
   const pick = compare.pick === undefined ? -1 : compare.options.indexOf(compare.pick);
   const last = compare.rows.length - 1;
+  // A column per option stops being readable well before it stops fitting, so a block too narrow
+  // for every option to keep a readable column recomposes into one card per option instead.
+  const cards = width > 0 && width < 36 + 110 + compare.options.length * 120;
   return (
-    <div className="ui-block-scroll" ref={scroller}>
-      <table className="ui-compare" data-picked={pick >= 0 || undefined}>
-        <caption className="visually-hidden">{compareTitle(compare)}{pick >= 0 ? `, recommended: ${compare.pick}` : ""}</caption>
-        <thead>
-          <tr>
-            <td />
-            {compare.options.map((o, i) => (
-              <th key={i} scope="col" data-pick={i === pick || undefined} data-end={i === pick ? "top" : undefined}>
-                {i === pick && <span className="ui-compare-pick">Recommended</span>}
-                <span className="ui-compare-option">{o}</span>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {compare.rows.map((r, ri) => (
-            <tr key={ri}>
-              <th scope="row">{r.label}</th>
-              {r.values.map((v, i) => (
-                <td key={i} data-pick={i === pick || undefined} data-end={i === pick && ri === last ? "bottom" : undefined}>
-                  {v ?? <span className="ui-none" aria-label="nothing to say">—</span>}
-                </td>
+    <div className="ui-compare-holder" ref={holder}>
+      {cards ? <CompareCards compare={compare} pick={pick} /> : (
+        <div className="ui-block-scroll" ref={scroller}>
+          <table className="ui-compare" data-picked={pick >= 0 || undefined}>
+            <caption className="visually-hidden">{compareTitle(compare)}{pick >= 0 ? `, recommended: ${compare.pick}` : ""}</caption>
+            <thead>
+              <tr>
+                <td />
+                {compare.options.map((o, i) => (
+                  <th key={i} scope="col" data-pick={i === pick || undefined} data-end={i === pick ? "top" : undefined}>
+                    {i === pick && <span className="ui-compare-pick">Recommended</span>}
+                    <span className="ui-compare-option">{o}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {compare.rows.map((r, ri) => (
+                <tr key={ri}>
+                  <th scope="row">{r.label}</th>
+                  {r.values.map((v, i) => (
+                    <td key={i} data-pick={i === pick || undefined} data-end={i === pick && ri === last ? "bottom" : undefined}>
+                      {v ?? <span className="ui-none" aria-label="nothing to say">—</span>}
+                    </td>
+                  ))}
+                </tr>
               ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The comparison for a narrow block: an option to a card, each row its label and that option's
+ *  value, the pick on the same raised surface the table's band is drawn in. */
+function CompareCards({ compare, pick }: { compare: CompareBlock; pick: number }) {
+  return (
+    <div className="ui-compare-cards" aria-label={`${compareTitle(compare)}${pick >= 0 ? `, recommended: ${compare.pick}` : ""}`} role="group">
+      {compare.options.map((o, i) => (
+        <section key={i} className="ui-compare-card" data-pick={i === pick || undefined} aria-label={i === pick ? `${o}, recommended` : o}>
+          {i === pick && <span className="ui-compare-pick">Recommended</span>}
+          <div className="ui-compare-option">{o}</div>
+          <dl>
+            {compare.rows.map((r, ri) => (
+              <div key={ri} className="ui-compare-pair">
+                <dt>{r.label}</dt>
+                <dd>{r.values[i] ?? <span className="ui-none" aria-label="nothing to say">—</span>}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ))}
     </div>
   );
 }
 
 /**
- * The drawing at its own size, shrunk to fit a narrower pane down to four fifths of it — 14px labels
- * stay above the 11px floor — and scrolled sideways past that rather than shrunk into illegibility.
+ * The drawing at its own size, shrunk to fit a narrower column down to two thirds of it, and
+ * scrolled sideways past that rather than shrunk into illegibility.
  */
 function DiagramBody({ diagram }: { diagram: DrawnDiagram }) {
   const markup = useMemo(() => placeDiagram(diagram.svg), [diagram.svg]);

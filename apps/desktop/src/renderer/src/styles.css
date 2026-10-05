@@ -3552,7 +3552,15 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .ui-block-act[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
 .ui-block-copied { color: var(--rl-success); }
 .ui-chart { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 2px 18px 0; }
-.ui-chart .bd-bars { padding-top: 4px; }
+/* The prose's list indent is for prose; a block's lists — a legend, bars, sparklines — sit on its edge. */
+.ui-block :is(ul.chart-legend, ul.bd-bars, ul.ui-sparks) { margin: 0; padding-left: 0; list-style: none; }
+/* Under the plot's own width it scales, whole, rather than leaving bands above and below it. */
+.ui-chart .chart { height: auto; }
+/* One grid for every bar, so each track starts where the others do whatever its label or value is —
+   a row of its own sizes its columns to its own text. */
+.ui-chart .bd-bars { display: grid; grid-template-columns: fit-content(40%) minmax(80px, 1fr) max-content; gap: 6px 12px; padding-top: 4px; }
+.ui-chart .bd-bar-row { grid-column: 1 / -1; grid-template-columns: subgrid; }
+.ui-chart .bd-bar-caption { display: none; }
 /* A column's total over it, and a line's name at its end: the value or the name where the eye is. */
 .chart-value { fill: var(--ink-2); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
@@ -3561,6 +3569,8 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .ui-sparks { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 4px 18px 0; list-style: none; }
 .ui-spark { display: grid; grid-template-columns: minmax(80px, 1fr) minmax(96px, 2fr) auto; align-items: center; gap: 12px; font-size: 13px; }
 .ui-spark .sparkline { margin-top: 0; }
+/* The line is stretched to its cell; the stroke keeps one weight however far it is stretched. */
+.ui-spark .sparkline polyline { vector-effect: non-scaling-stroke; }
 .ui-spark-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
 .ui-spark-value { color: var(--ink); font-variant-numeric: tabular-nums; }
 /* The values and the comparison scroll inside the block, never widening the column they sit in. The
@@ -3574,6 +3584,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .ui-block .ui-values :is(th, td), .ui-block .ui-compare :is(th, td) { position: static; padding: 6px 10px; border: 0;
   border-bottom: var(--hairline-w) solid var(--line); background: none; text-align: left; vertical-align: top; }
 .ui-block :is(.ui-values, .ui-compare) tbody tr:last-child :is(th, td) { border-bottom: 0; }
+/* The table's text starts on the head's left edge and ends on its right, as the code it replaced did. */
+.ui-block :is(.ui-values, .ui-compare) :is(th, td):first-child { padding-left: 0; }
+.ui-block .ui-values :is(th, td):last-child { padding-right: 0; }
 .ui-block :is(.ui-values, .ui-compare) tbody tr:hover { background: none; }
 .ui-block .ui-values thead th { font-size: 12px; font-weight: var(--fw-label); color: var(--ink-2); text-align: right; white-space: nowrap; }
 .ui-block .ui-values tbody th { font-weight: var(--fw-label); color: var(--ink); }
@@ -3589,10 +3602,21 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .ui-block .ui-compare [data-end="top"] { border-radius: var(--r-panel) var(--r-panel) 0 0; }
 .ui-block .ui-compare [data-end="bottom"] { border-radius: 0 0 var(--r-panel) var(--r-panel); }
 .ui-compare-pick { display: block; margin-bottom: 2px; font-size: 11px; font-weight: var(--fw-label); color: var(--accent-ink); }
-/* A drawing at its own width, shrunk to fit down to four fifths of it — its 14px labels then still
-   clear the 11px floor — and scrolled sideways past that rather than shrunk any further. */
+/* A narrow block's comparison: a card per option, the pick on the band's surface. The run of cards
+   sits 6px in, so a card's text starts on the head's edge and the pick's fill reaches past it. */
+.ui-compare-cards { display: flex; flex-direction: column; gap: 4px; margin: 0 6px; }
+.ui-compare-card { padding: 10px 12px; border-radius: var(--r-panel); }
+.ui-compare-card[data-pick] { background: var(--hover); }
+.ui-compare-card .ui-compare-option { font-size: 13px; font-weight: var(--fw-title); color: var(--ink); }
+.ui-compare-card dl { display: flex; flex-direction: column; gap: 2px; margin: 6px 0 0; }
+.ui-compare-pair { display: grid; grid-template-columns: minmax(72px, 38%) minmax(0, 1fr); gap: 10px; font-size: 13px; }
+.ui-compare-pair dt { font-weight: var(--fw-label); color: var(--ink-2); }
+.ui-compare-pair dd { margin: 0; color: var(--ink); }
+/* A drawing at its own width, shrunk to fit a narrower column — it is a picture, and a picture
+   that fits is read whole — down to two thirds of its size, where its 14px labels stop being
+   comfortably legible, and scrolled sideways past that rather than shrunk any further. */
 .ui-diagram { overflow-x: auto; overflow-y: hidden; padding: 4px 18px 0; }
-.ui-diagram svg { display: block; width: 100%; max-width: var(--diagram-w); min-width: calc(var(--diagram-w) * 0.8); height: auto; margin: 0 auto; }
+.ui-diagram svg { display: block; width: 100%; max-width: var(--diagram-w); min-width: calc(var(--diagram-w) * 2 / 3); height: auto; margin: 0 auto; }
 /* The same block in a Markdown document's rich view (documents/UiBlockNode.tsx), drawn where its
    fence is, with the source under the drawing while it is being edited. The editor keeps its spaces
    (`pre-wrap`); a drawing has none to keep. */

@@ -70,7 +70,7 @@ const BOX: ChartBox = { width: 720, height: 240, padTop: 12, padRight: 12, padBo
  * jsdom has no real layout, so `contentRect.width` is 0 there and the fallback holds — which is
  * exactly what the geometry tests assume (test-setup.ts already stubs an inert ResizeObserver).
  */
-function useMeasuredWidth(fallback: number): [number, React.RefObject<HTMLDivElement | null>] {
+function useMeasuredWidth(fallback: number, floor = 320): [number, React.RefObject<HTMLDivElement | null>] {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(fallback);
   useLayoutEffect(() => {
@@ -80,11 +80,11 @@ function useMeasuredWidth(fallback: number): [number, React.RefObject<HTMLDivEle
       const w = entry?.contentRect.width ?? 0;
       // A floor rather than the raw measurement: mid-transition the pane can report a few pixels,
       // and a 3px plot would divide the axis into slots narrower than their own gap.
-      if (w > 0) setWidth(Math.max(320, Math.round(w)));
+      if (w > 0) setWidth(Math.max(floor, Math.round(w)));
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [floor]);
   return [width, ref];
 }
 
@@ -100,7 +100,7 @@ function useMeasuredWidth(fallback: number): [number, React.RefObject<HTMLDivEle
  * tooltip — but only where every one of them fits its slot: half a row of labels reads as the other
  * half being missing.
  */
-export function StackedColumns({ series, format, tickFormat = format, label, description, totals = false, ...axis }: XAxis & {
+export function StackedColumns({ series, format, tickFormat = format, label, description, totals = false, minWidth, ...axis }: XAxis & {
   series: StackSeries[];
   format: (n: number) => string;
   /** The axis's own figures, where a short form reads better than the exact one the tooltip gives. */
@@ -109,13 +109,16 @@ export function StackedColumns({ series, format, tickFormat = format, label, des
   /** The chart in a sentence, for a reader who cannot see it (`describeChart`). */
   description?: string;
   totals?: boolean;
+  /** The narrowest the plot is drawn at its real size before it is scaled; Usage's own pane never
+   *  gets near it, and a block in a narrow transcript is drawn true to a narrower one. */
+  minWidth?: number;
 }) {
   const [tip, setTip] = useState<Tip>(null);
   const [active, setActive] = useState<number>(-1);
   const svgRef = useRef<SVGSVGElement>(null);
   const titleId = useId();
   const descId = useId();
-  const [width, wrapRef] = useMeasuredWidth(BOX.width);
+  const [width, wrapRef] = useMeasuredWidth(BOX.width, minWidth);
   const xs = xLabels(axis);
   const n = xs.length;
 
@@ -248,20 +251,21 @@ function StepKeys({ label, n, active, valueText, onShow, onClear }: {
  * are named at their present end, beside the last value each reported, when the plot has the room —
  * the legend's job without the trip to it — and by the legend under the chart when it does not.
  */
-export function LineChart({ labels, series, format, tickFormat = format, label, description }: {
+export function LineChart({ labels, series, format, tickFormat = format, label, description, minWidth }: {
   labels: readonly string[];
   series: StackSeries[];
   format: (n: number) => string;
   tickFormat?: (n: number) => string;
   label: string;
   description?: string;
+  minWidth?: number;
 }) {
   const [tip, setTip] = useState<Tip>(null);
   const [active, setActive] = useState<number>(-1);
   const svgRef = useRef<SVGSVGElement>(null);
   const titleId = useId();
   const descId = useId();
-  const [width, wrapRef] = useMeasuredWidth(BOX.width);
+  const [width, wrapRef] = useMeasuredWidth(BOX.width, minWidth);
   const n = labels.length;
 
   const all = series.flatMap((s) => s.values.filter((v): v is number => v !== null));
@@ -339,6 +343,8 @@ export function LineChart({ labels, series, format, tickFormat = format, label, 
         valueText={(i) => `${labels[i]}: ${series.flatMap((s) => (s.values[i] == null ? [] : [`${s.label} ${format(s.values[i]!)}`])).join(", ") || "no value"}`}
         onShow={showAt} onClear={clear} />
       {tip && <Tooltip tip={tip} width={box.width} />}
+      {/* Only where the lines could not be named at their ends: the two would say the same thing. */}
+      {!direct && <Legend series={series} />}
     </div>
   );
 }

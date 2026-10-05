@@ -149,6 +149,26 @@ describe("a comparison", () => {
     expect([...container.querySelectorAll("td[data-pick]")].map((c) => c.textContent)).toEqual(["A file", "Yes"]);
   });
 
+  it("recomposes into a card per option where its columns would be too narrow to read", () => {
+    // jsdom measures nothing, so the block is told its width the way a ResizeObserver would.
+    const Real = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(private fn: ResizeObserverCallback) {}
+      observe(el: Element) { this.fn([{ contentRect: { width: 300 } } as ResizeObserverEntry], this as unknown as ResizeObserver); void el; }
+      unobserve() {} disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      const { container } = render(<Markdown text={fence("realm-compare", DB)} />);
+      expect(container.querySelector("table.ui-compare")).toBeNull();
+      const cards = [...container.querySelectorAll(".ui-compare-card")];
+      expect(cards.map((c) => c.getAttribute("aria-label"))).toEqual(["Postgres", "SQLite, recommended"]);
+      expect(cards[1]).toHaveAttribute("data-pick");
+      expect([...cards[1]!.querySelectorAll(".ui-compare-pair")].map((p) => p.textContent)).toEqual(["SetupA file", "LocalYes"]);
+    } finally {
+      globalThis.ResizeObserver = Real;
+    }
+  });
+
   it("copies as a table that pastes as one, and as its source", async () => {
     render(<Markdown text={fence("realm-compare", DB)} />);
     fireEvent.click(screen.getByRole("button", { name: "Copy, and more" }));
