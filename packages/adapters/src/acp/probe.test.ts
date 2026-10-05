@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { fileURLToPath } from "node:url";
-import { fetchAcpModels, probeAcp } from "./probe";
+import { fetchAcpCatalog, fetchAcpModels, probeAcp } from "./probe";
 
 describe("probeAcp", () => {
   it("reports unavailable with a reason when the binary is missing", async () => {
@@ -34,6 +34,13 @@ describe("fetchAcpModels", () => {
 
   it("opens a throwaway session and reads the catalog off session/new", async () => {
     expect(await fetchAcpModels(opts())).toEqual([{ id: "fake-model-1", label: "Fake 1" }, { id: "fake-model-2", label: "Fake 2" }]);
+  });
+
+  it("reads the agent's reasoning levels off the same throwaway session, and none from the old shape", async () => {
+    expect(await fetchAcpCatalog(opts({ FAKE_ACP_CONFIGOPTIONS: "1" }))).toMatchObject({
+      efforts: [{ id: "low", label: "Low" }, { id: "medium", label: "Medium" }, { id: "high", label: "High" }], defaultEffort: "medium",
+    });
+    expect(await fetchAcpCatalog(opts())).toMatchObject({ efforts: [], defaultEffort: null });
   });
 
   it("keeps only the well-formed rows of a polluted catalog", async () => {

@@ -346,6 +346,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   /* What harnesses have said about fast mode, per model — the answer a session that has not started
      yet can offer the switch on. Its own `init` overrides it the moment it has one. */
   const fastSupport = useApp((s) => s.fastSupport);
+  const effortSupport = useApp((s) => s.effortSupport);
   const mentionSkills = useMemo(
     () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList.filter((k) => k.enabled && k.valid) : NO_SKILLS),
     [agentKind, spaceSkillList],
@@ -750,7 +751,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               onPause={() => run(() => setGoalStatus(id, "paused", "You paused it."))}
               onResume={() => run(() => resumeGoal(id))}
               onDrop={() => run(() => clearGoal(id))} />}
-            sessionInit={transcript.init} fastSupport={fastSupport}
+            sessionInit={transcript.init} fastSupport={fastSupport} effortSupport={effortSupport}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
             mentions={mentionSources} refs={draftRefs} selectInRealm={selectInRealm}
             queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}

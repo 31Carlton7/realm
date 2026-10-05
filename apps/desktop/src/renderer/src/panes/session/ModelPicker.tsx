@@ -1,13 +1,13 @@
 import { AGENT_META, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ScrollFades } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import {
-  agentRowHint, billingLead, chipLabel, fastModeHint, fastModeShown, fastModeUntried, filterRows, flatten, formatEffort, groupRows,
-  isHarnessDefault, modelAbout, modelIdOn, modelLabel, type FastMode, type ModelRow,
+  agentRowHint, billingLead, chipLabel, effortCurrent, fastModeHint, fastModeShown, fastModeTitle, fastModeUntried, filterRows, flatten,
+  formatEffort, groupRows, isHarnessDefault, modelAbout, modelIdOn, modelLabel, type EffortControl, type FastMode, type ModelRow,
 } from "./model-catalog";
 
 export { formatEffort };
@@ -76,15 +76,16 @@ function useEffortSweep(ref: RefObject<HTMLButtonElement | null>, effort: string
  *   harness's mark on its row, one click away; every other row shows nothing about routes at all.
  * - **Specs as a line, not a column.** What the highlighted model is for, its context and its price
  *   sit in one fixed strip under the list.
- * - **How it runs, on the same surface.** Effort and fast mode are the popover's foot, adjusted
- *   without leaving it — and each appears only where the harness will actually receive it.
+ * - **How it runs, on the same surface.** Effort and fast mode are the popover's foot — Codex's own
+ *   card: the bolt, the level by name, a reset to the model's default, a track with a dot per level —
+ *   adjusted without leaving it, and each drawn only where the harness will actually receive it.
  */
-export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, effortItems, overflow, fast, eggs = false }: {
+export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, overflow, fast, eggs = false }: {
   kind: AgentKind;
   model: string | null;
-  /** The session's effort level — the chip's grey suffix — or null where it is unset or the harness
-   *  never receives it. */
-  effort: string | null;
+  /** The session's reasoning level and what its model takes, or absent where the harness takes none —
+   *  the chip's grey suffix names the level in force. */
+  effort?: EffortControl;
   /** Built by the Composer, so anything else that resolves a route resolves it against these rows. */
   rows: ModelRow[];
   /** The model catalog by canonical key (`store.modelInfo`). Empty is a supported state: rows render
@@ -92,8 +93,6 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
   info: Record<string, ModelInfo>;
   onToggleFavorite: (key: string) => void;
   onPick: (kind: AgentKind, modelId: string | null) => void;
-  /** The effort levels this model takes on this harness; empty draws no effort control. */
-  effortItems: OverflowGroup["items"];
   /** Fast mode, or absent where Realm cannot ask this harness for it at all. */
   fast?: FastMode;
   overflow?: OverflowGroup[];
@@ -106,31 +105,33 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
   // The tooltip spells the whole thing out, the vendor's word included, for anyone who needs it.
   const fullName = rows.find((r) => r.selected)?.label ?? label;
   const bolt = fast ? fastModeShown(fast) : false;
-  useEffortSweep(btn, effort, eggs);
+  // The level in force, by name — the session's own, or the model's default where one is named.
+  const level = effort && effort.levels.length > 0 ? effortCurrent(effort).choice?.label ?? null : null;
+  useEffortSweep(btn, effort?.value ?? null, eggs);
 
   return (
     <>
       {/* The mark is the HARNESS's, in colour: the one fact the model's own name cannot carry, and the
           only place a session says which CLI is running it. */}
       <button ref={btn} type="button" className="ghost-chip model-chip" aria-label="Model"
-        title={`${fullName} through ${AGENT_META[kind].label}${effort ? ` · ${formatEffort(effort)} effort` : ""}${bolt ? " · fast mode" : ""}`}
+        title={`${fullName} through ${AGENT_META[kind].label}${level ? ` · ${level} effort` : ""}${bolt ? " · fast mode" : ""}`}
         aria-haspopup="dialog" aria-expanded={open}
         onClick={() => setOpen((v) => !v)}>
         <Icon name={AGENT_META[kind].icon} size={14} colored className="chip-brand" />
         <span className="chip-label">{label}</span>
-        {effort && <span className="chip-effort">{formatEffort(effort)}</span>}
+        {level && <span className="chip-effort">{level}</span>}
         {/* The bolt Codex's own chip wears for its Fast tier: the speed asked for, on a model nothing
             has said cannot serve it. */}
         {bolt && <Icon name="zap" size={12} className="chip-fast" />}
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
       {open && <ModelPopover kind={kind} name={label} rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
-        onToggleFavorite={onToggleFavorite} effortItems={effortItems} overflow={overflow} fast={fast} eggs={eggs} />}
+        onToggleFavorite={onToggleFavorite} effort={effort} overflow={overflow} fast={fast} eggs={eggs} />}
     </>
   );
 }
 
-function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onToggleFavorite, effortItems, overflow, fast, eggs }: {
+function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onToggleFavorite, effort, overflow, fast, eggs }: {
   kind: AgentKind;
   /** The current model's name, as the chip shows it — what the fast-mode line talks about. */
   name: string;
@@ -139,7 +140,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
   anchorRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void; onPick: (kind: AgentKind, modelId: string | null) => void;
   onToggleFavorite: (key: string) => void;
-  effortItems: OverflowGroup["items"];
+  effort?: EffortControl;
   fast?: FastMode;
   overflow?: OverflowGroup[];
   eggs?: boolean;
@@ -226,7 +227,8 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
   };
 
   const harness = AGENT_META[kind].label;
-  const hasFoot = effortItems.length > 0 || !!fast || (overflow?.length ?? 0) > 0;
+  const runs = (effort?.levels.length ?? 0) > 0 || !!fast;
+  const hasFoot = runs || (overflow?.length ?? 0) > 0;
   return createPortal(
     <div ref={ref} className="model-picker" aria-label="Model picker" role="dialog"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: room ?? undefined,
@@ -308,9 +310,8 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
       {hasFoot && (
         <div className="mp-foot">
           {/* Effort and fast mode stay put when changed: they are settings on the surface you are
-              looking at, and the segment lighting up is the answer. Only a model closes the picker. */}
-          {effortItems.length > 0 && <Segments label="Effort" items={effortItems} />}
-          {fast && <FastRow fast={fast} model={name} harness={harness} />}
+              looking at, and the knob moving is the answer. Only a model closes the picker. */}
+          {runs && <RunCard effort={effort} fast={fast} model={name} />}
           {/* A folded chip's menu still closes on a pick, as the chip's own menu does. */}
           {(overflow ?? []).map((g) => <Segments key={g.label} label={g.label} items={g.items} onPicked={close} />)}
         </div>
@@ -360,27 +361,94 @@ function Segments({ label, items, onPicked }: { label: string; items: OverflowGr
 }
 
 /**
- * Fast mode, honest about how much is known. A switch where the harness said the model can run it,
- * or where nothing has said yet — on, it is a request the first turn answers, and the line under it
- * says so; where the harness said it cannot, no switch, and the models that can, by name.
+ * How the answer is produced — Codex's card, laid into the picker's foot. The bolt is fast mode, the
+ * name in the middle is the level in force with the model it is for, the arrow puts the level back to
+ * the model's own default, and the track under them has a dot for every level the model takes.
+ *
+ * Every part is drawn only where it means something: no bolt where Realm cannot ask the harness for
+ * fast mode, no track where the harness takes no level, no reset when nothing has been changed.
  */
-function FastRow({ fast, model, harness }: { fast: FastMode; model: string; harness: string }) {
-  const a = fast.availability;
-  const hint = fastModeHint(fast);
+function RunCard({ effort, fast, model }: { effort?: EffortControl; fast?: FastMode; model: string }) {
+  const levels = effort?.levels ?? [];
+  const cur = effort && levels.length > 0 ? effortCurrent(effort) : null;
+  const def = levels.find((l) => l.id === effort?.defaultId) ?? null;
+  const hint = fast ? fastModeHint(fast, model) : null;
   // A refusal of a turn that DID ask is a warning; everything else on this line is information.
-  const refused = a.state !== "unavailable" && fast.on && fast.state !== null && fast.state !== "on" && !fastModeUntried(fast);
-  const title = a.state === "unknown"
-    ? `Nothing has said yet whether ${model} runs fast mode on ${harness}. Switched on, the first turn asks for it and reports what happened.`
-    : a.state === "unavailable" ? `${harness} says ${model} cannot run fast mode.` : undefined;
+  const refused = !!fast && fast.on && fast.state !== null && fast.state !== "on" && !fastModeUntried(fast);
+  const unavailable = fast?.availability.state === "unavailable";
   return (
-    <div className="mp-fast" role="group" aria-label="Fast mode" data-state={a.state} title={title}>
-      <span className="mp-fast-label" id="mp-fast-label">Fast mode</span>
-      <Icon name="zap" size={12} className="mp-fast-mark" />
-      {a.state === "unavailable"
-        ? <span className="mp-fast-off">Not on {model}</span>
-        : <input type="checkbox" role="switch" className="switch" aria-labelledby="mp-fast-label"
-            checked={fast.on} onChange={(e) => fast.onChange(e.target.checked)} />}
-      {hint && <p className="mp-fast-note" data-tone={refused ? "warning" : undefined}>{hint}</p>}
+    <div className="mp-run">
+      <div className="mp-run-head">
+        {fast ? (
+          <button type="button" className="mp-bolt" aria-label="Fast mode" aria-pressed={fast.on && !unavailable}
+            aria-disabled={unavailable || undefined} title={fastModeTitle(fast, model)}
+            onClick={() => { if (!unavailable) fast.onChange(!fast.on); }}>
+            <Icon name="zap" size={14} />
+          </button>
+        ) : <span className="mp-run-gap" aria-hidden="true" />}
+        <span className="mp-run-title">
+          <span className="mp-run-level" data-unset={cur && !cur.choice ? "" : undefined}>
+            {cur ? cur.choice?.label ?? "Default" : "Fast mode"}
+          </span>
+          {cur && <span className="mp-run-model">{model}</span>}
+        </span>
+        {effort && cur?.chosen && effort.value !== effort.defaultId ? (
+          <button type="button" className="mp-run-reset" aria-label="Reset effort"
+            title={def ? `Back to ${model}’s default, ${def.label}` : "Back to the model’s own default"}
+            onClick={() => effort.onChange(null)}>
+            <Icon name="undo" size={14} />
+          </button>
+        ) : <span className="mp-run-gap" aria-hidden="true" />}
+      </div>
+      {effort && levels.length > 1 && <EffortTrack effort={effort} />}
+      {hint && <p className="mp-fast-note" data-tone={refused || unavailable ? "warning" : undefined}>{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * The level as a track: a dot for every level the model takes, the knob on the one in force and the
+ * fill up to it. A slider for the keyboard — ←/→ (and ↑/↓) step a level, Home and End go to the ends —
+ * and for the pointer a press or a drag lands on the nearest dot. A level the session never chose and
+ * the harness never named has no knob at all: there is nothing to point at.
+ */
+function EffortTrack({ effort }: { effort: EffortControl }) {
+  const { levels } = effort;
+  const cur = effortCurrent(effort);
+  const ref = useRef<HTMLDivElement>(null);
+  const span = levels.length - 1;
+  const set = (i: number) => {
+    // A pointer event without a position (a synthetic one) names no dot.
+    if (!Number.isFinite(i)) return;
+    const level = levels[Math.max(0, Math.min(span, i))]!;
+    if (level.id !== effort.value) effort.onChange(level.id);
+  };
+  // The dot nearest the pointer, along the run between the first and the last.
+  const nearest = (clientX: number) => {
+    const r = ref.current!.getBoundingClientRect();
+    const inset = r.height / 2;
+    return Math.round(((clientX - r.left - inset) / Math.max(1, r.width - inset * 2)) * span);
+  };
+  const onKeyDown = (e: KeyboardEvent) => {
+    const step = e.key === "ArrowRight" || e.key === "ArrowUp" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 0;
+    if (step !== 0) { e.preventDefault(); set(cur.index < 0 ? 0 : cur.index + step); }
+    else if (e.key === "Home") { e.preventDefault(); set(0); }
+    else if (e.key === "End") { e.preventDefault(); set(span); }
+  };
+  return (
+    <div ref={ref} className="mp-track" role="slider" tabIndex={0} aria-label="Effort"
+      aria-valuemin={0} aria-valuemax={span} aria-valuenow={Math.max(0, cur.index)} aria-valuetext={cur.choice?.label ?? "Default"}
+      data-effort={cur.chosen ? cur.choice?.id : undefined}
+      style={{ "--at": cur.index < 0 ? 0 : cur.index / span } as CSSProperties}
+      onKeyDown={onKeyDown}
+      onPointerDown={(e) => { e.currentTarget.setPointerCapture?.(e.pointerId); set(nearest(e.clientX)); }}
+      onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture?.(e.pointerId)) set(nearest(e.clientX)); }}>
+      {cur.index >= 0 && <span className="mp-track-fill" />}
+      {levels.map((l, i) => (
+        <span key={l.id} className="mp-track-dot" data-passed={i <= cur.index || undefined}
+          style={{ "--at": i / span } as CSSProperties} />
+      ))}
+      {cur.index >= 0 && <span className="mp-track-knob" />}
     </div>
   );
 }

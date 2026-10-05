@@ -1128,6 +1128,11 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // with a 0% fallback, so a slider that never receives it is an empty track rather than a
       // broken one.
       "--fill",
+      // Where a point sits on the model picker's effort track (ModelPicker.tsx's `EffortTrack`): the
+      // fill, the knob and each dot carry their own fraction of the run, set inline because the
+      // number of levels is the model's, not the stylesheet's. Used with a 0 fallback, so a track
+      // that never receives it is empty rather than broken.
+      "--at",
       // The pane glyph's grid shape (sidebar/ItemList.tsx): how many columns and rows the layout
       // actually has, set inline because the mark is a picture of a tree that changes per item.
       // Both carry a fallback of 1, so a glyph that never receives them is still a single cell.
@@ -2835,6 +2840,8 @@ describe("light mode", () => {
     // The slider's handle is the switch's knob, for the same reason and with the same answer: two
     // round controls a few rows apart must not disagree about what a handle looks like.
     ['.slider-row input[type="range"]::-webkit-slider-thumb', "the same knob the switch wears"],
+    // …and so is the knob on the model picker's effort track, which is a slider in all but element.
+    [".mp-track-knob", "the same knob the switch wears"],
     [".attach-remove", "on the attached picture"], [".attach-remove:hover", "on the attached picture"],
     // An element's name, drawn over the DEVICE's own screen — whatever the simulator is showing is
     // the same in both modes, so the halo that keeps the name legible on it answers to the device.
@@ -4135,7 +4142,7 @@ describe("the pointer", () => {
     expect(list.startsWith(":where(")).toBe(true);
     for (const part of ["button", "a[href]", "summary", "select", '[role="button"]', '[role="link"]', '[role="tab"]',
       '[role="menuitem"]', '[role="menuitemradio"]', '[role="menuitemcheckbox"]', '[role="option"]', '[role="switch"]',
-      '[role="checkbox"]', '[role="radio"]', 'input:is([type="checkbox"], [type="radio"], [type="range"]',
+      '[role="checkbox"]', '[role="radio"]', '[role="slider"]', 'input:is([type="checkbox"], [type="radio"], [type="range"]',
       'label:has(input:is([type="checkbox"], [type="radio"]))']) expect(list).toContain(part);
     // Everything that tracks a press (press-tracking.ts) is something that points.
     for (const sel of PRESSABLE.split(", ")) expect(list, sel).toContain(sel === '[role^="menuitem"]' ? '[role="menuitem"]' : sel.replace(/^input\[type="checkbox"\]$/, '[type="checkbox"]'));

@@ -346,6 +346,13 @@ const P = {
      *  the harness's own default). One session's handshake is then enough for the next session on any
      *  of those models to offer the switch before its first message (`MODEL_FAST_SUPPORT_KEY`). */
     fastModeModels: z.record(z.string(), z.boolean()).optional(),
+    /** The reasoning levels the harness says each model it listed takes, keyed the same way; `[]` is
+     *  a model that takes none (`MODEL_EFFORTS_KEY`). */
+    effortModels: z.record(z.string(), z.array(z.string())).optional(),
+    /** THIS session's own reasoning levels, where they are a session setting — an ACP agent's
+     *  `thought_level` option — and the one the agent started it on. */
+    efforts: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
+    defaultEffort: z.string().optional(),
     /** Whether Realm ASKED this handshake to continue an earlier conversation. False on a session's
      *  first boot, true on every boot after one. */
     resumeRequested: z.boolean().optional(),

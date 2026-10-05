@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MODEL_ALIASES, canonicalModelKey, fastSupportKey, readFastSupport } from "./models";
+import { MODEL_ALIASES, canonicalModelKey, fastSupportKey, readEffortSupport, readFastSupport } from "./models";
 
 describe("the remembered fast-mode answers", () => {
   it("files the harness default under its own entry, apart from any named model", () => {
@@ -13,6 +13,14 @@ describe("the remembered fast-mode answers", () => {
   it("keeps a `false` — it is an answer — and drops everything that is not one", () => {
     expect(readFastSupport({ "claude:": true, "codex:gpt": false, "x:y": "yes", "z:": null })).toEqual({ "claude:": true, "codex:gpt": false });
     for (const junk of [null, undefined, 3, "x", [true], []]) expect(readFastSupport(junk)).toEqual({});
+  });
+});
+
+describe("the remembered reasoning levels", () => {
+  it("keeps a list of levels — an empty one is an answer — and drops everything that is not one", () => {
+    expect(readEffortSupport({ "claude:": ["low", "high"], "claude:claude-haiku-4-5": [], "x:y": "high", "z:": [1], "w:": null }))
+      .toEqual({ "claude:": ["low", "high"], "claude:claude-haiku-4-5": [] });
+    for (const junk of [null, undefined, 3, "x", [["low"]], []]) expect(readEffortSupport(junk)).toEqual({});
   });
 });
 

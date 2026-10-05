@@ -568,9 +568,14 @@ acronym that is uppercase anyway (a file extension on a tile).
   and a control offered on a guess is one whose only outcome is a refusal. Where the owner has
   said nothing, show nothing — not a disabled control, which invites a user to work out how to
   enable something nobody has claimed. The one exception is a REQUEST Realm can make and the owner
-  will answer: fast mode before a session's first turn is a switch that says "checked on the first
-  turn", because waiting for the answer made it unreachable for exactly the turn it was wanted on.
-  Where the owner said no, say which of its models say yes.
+  will answer: fast mode before a session's first turn is a bolt whose tooltip says the first turn
+  checks it, because waiting for the answer made it unreachable for exactly the turn it was wanted
+  on. Where the owner said no, say which of its models say yes.
+- A setting shows the value in force, never a blank. Unset, the effort card names the model's own
+  default and the chip wears it; the reset appears only once the level has moved, and it hands the
+  choice back to the harness rather than writing the default down as though someone had picked it.
+  The levels are the model's own list, a dot each — never a fixed five that one model takes and
+  the next refuses.
 - A link is shown as what it points AT. A pasted Slack permalink is ninety characters of nothing
   a person reads; its meaning is "this thread", and the chip says that: the app's mark, then a
   name (a thread's timestamp, an issue key, a page title). Only where Realm can name the link — a
