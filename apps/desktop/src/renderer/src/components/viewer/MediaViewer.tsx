@@ -23,9 +23,10 @@ type Facts = { size: number | null; mtimeMs: number | null } | null;
  * lightbox and the preview sheet this replaces were two answers to one question.
  *
  * A portal to `document.body`, over everything but the toasts and menus: a pane's stacking context
- * would clip it. While it is up the transcript's own video frames are hidden, because Chromium paints
- * a video layer over any overlay however it is stacked (`data-media-viewer`, styles.css), and every
- * browser pane's native view steps out of the way the way it does for a page (`shouldShowView`).
+ * would clip it. While it is up the transcript's own video frames are hidden, because Chromium has
+ * painted a video layer through an overlay however it was stacked (`data-media-viewer`, styles.css),
+ * and every browser pane's native view steps out of the way, as it does for a page (`shouldShowView`):
+ * a native view composites over anything the renderer draws.
  */
 export function MediaViewer() {
   const viewer = useApp((s) => s.viewer);

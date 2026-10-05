@@ -8196,12 +8196,13 @@ button.media-viewer-owner-name:hover { color: var(--rl-text-bright); text-decora
    middle of it, as the quick chat's does — over the file and the prompter alike, since both take it. */
 .media-viewer .media-viewer-drop { inset: 8px; z-index: 3; display: grid; place-items: center; border-radius: var(--r-float); }
 
-/* The workspace's own frames are hidden while the viewer is up, and this is load-bearing rather than
-   tidiness: a <video> is composited on its own layer and Chromium paints that layer OVER the overlay,
-   even opaque, even promoted — translateZ, isolation, will-change and contain were each measured and
-   none of them reorder it (scripts/media-live.mjs). Hiding the frames is the only thing that works,
-   and it costs nothing: they are behind a full-window overlay. Scoped to the app's own tree, because
-   the viewer's exchange is a transcript too and its frames are the point. */
+/* The workspace's own frames are hidden while the viewer is up. A <video> is composited on its own
+   layer, and Chromium painted that layer OVER the lightbox's 97% ground — translateZ, isolation,
+   will-change and contain were each measured and none of them reorder it (scripts/media-live.mjs).
+   Over this opaque ground it measured nothing through with the rule taken out
+   (media-viewer-live.mjs), so the rule is a guard for the day the ground is not opaque, and it costs
+   nothing: the frames are behind a full-window overlay. Scoped to the app's own tree, because the
+   viewer's exchange is a transcript too and its frames are the point. */
 body[data-media-viewer] .app .media-el { visibility: hidden; }
 
 /* An embedded ![](…) sits in the prose that referred to it, so it keeps a paragraph's rhythm rather

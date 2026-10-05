@@ -320,7 +320,7 @@ async function main() {
   const behind = await evalIn(c, `(() => {
     const b = document.querySelector('.app .media-strip video').getBoundingClientRect();
     const ground = (x, y) => { const top = document.elementsFromPoint(x, y)[0];
-      return !!top && top.closest('.media-viewer') && !top.closest('img, video, .media-viewer-player, .media-viewer-chat, .media-viewer-tools, .media-viewer-step, .media-viewer-head'); };
+      return !!top && top.closest('.media-viewer') && !top.closest('img, video, .media-controls, .media-play, .media-viewer-chat, .media-viewer-tools, .media-viewer-step, .media-viewer-head'); };
     for (let y = b.top + 6; y < b.bottom - 12; y += 6) for (let x = b.left + 6; x < b.right - 12; x += 6) {
       if ([[0, 0], [8, 0], [0, 8], [8, 8], [4, 4]].every(([dx, dy]) => ground(x + dx, y + dy))) return { x: Math.round(x), y: Math.round(y), w: 8, h: 8 };
     }
@@ -378,6 +378,7 @@ async function main() {
   const copy = sentFiles.find((p) => p.endsWith("hero-warm-marked.png"));
   check("the question carries the file and a copy with the marks drawn on it", sentFiles[0] === path.join(root, "hero-warm.png") && !!copy, sentFiles);
   if (copy) {
+    fs.copyFileSync(copy, path.join(OUT_DIR, "media-viewer-marked-copy.png"));
     // The circle is in the copy's pixels, in the theme's red: count the pixels that are that red.
     const raw = spawnSync("ffmpeg", ["-v", "error", "-i", copy, "-pix_fmt", "rgb24", "-f", "rawvideo", "-"], { maxBuffer: 1 << 26 }).stdout;
     let red = 0;
