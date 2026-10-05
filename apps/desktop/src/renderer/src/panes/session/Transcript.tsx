@@ -149,19 +149,18 @@ function UserText({ text, mentionIds, refs, appIcons }: { text: string; mentionI
 }
 
 /**
- * The tiles above a user message. Media among them opens in the lightbox on click.
+ * The tiles above a user message. Each opens in the media viewer on click, with the message's other
+ * files beside it.
  *
  * A screenshot was already visible as a 56px thumbnail, which answers "did I attach the right file"
  * and nothing else; a video attachment could not be played at all. Both are files the user chose,
- * so both are files they should be able to look at without leaving for Finder.
- *
- * Non-media attachments keep the plain tile. A PDF's tile shows its first page and there is nothing
- * more Realm can do with it here, so making it look clickable would be a promise it cannot keep.
+ * so both are files they should be able to look at without leaving for Finder — and a PDF too, in
+ * macOS's own render of it, with the session's prompter under it to ask about it.
  */
 function UserAttachments({ attachments }: { attachments: readonly { path: string; mime: string }[] }) {
   return (
     <ul className="msg-user-files" aria-label="Attached files">
-      {attachments.map((a) => <li key={a.path}><AttachmentTile path={a.path} mime={a.mime} /></li>)}
+      {attachments.map((a) => <li key={a.path}><AttachmentTile path={a.path} mime={a.mime} siblings={attachments} /></li>)}
     </ul>
   );
 }

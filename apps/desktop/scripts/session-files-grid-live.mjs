@@ -369,12 +369,12 @@ async function main() {
 
   // ── The doors: a picture opens full window over the panel; a folder card descends ──
   await evalIn(c, `(() => { [...document.querySelectorAll('.session-files .library-tile')].find((t) => t.textContent.includes('workspace.png')).click(); return true; })()`);
-  const lightbox = await until(() => evalIn(c, `!!document.querySelector('.media-lightbox') || null`), 8000, "the lightbox").catch(() => false);
+  const lightbox = await until(() => evalIn(c, `!!document.querySelector('.media-viewer') || null`), 8000, "the lightbox").catch(() => false);
   const panelBehind = await evalIn(c, `!!document.querySelector('.session-files')`);
   check("a picture's card opens it full window, over the panel", lightbox === true && panelBehind, { lightbox, panelBehind });
   await c.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-  await until(() => evalIn(c, `!document.querySelector('.media-lightbox') || null`), 5000, "the lightbox closing");
+  await until(() => evalIn(c, `!document.querySelector('.media-viewer') || null`), 5000, "the lightbox closing");
   check("Escape puts the picture away and leaves the panel", await evalIn(c, `!!document.querySelector('.session-files')`));
   await evalIn(c, `(() => { [...document.querySelectorAll('.session-files .library-tile')].find((t) => t.textContent.includes('renders')).click(); return true; })()`);
   const inner = await until(async () => {

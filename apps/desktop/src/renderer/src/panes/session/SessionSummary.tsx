@@ -1,14 +1,11 @@
 import { Icon, type IconName } from "@realm/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { AGENT_META, DEFAULT_MODEL_LABEL, PERMISSION_MODES, SESSION_MODES, documentKindFor, planLabel, sessionModeOf, tightestWindow, type AgentKind, type Environment, type GitInfo, type Item, type McpServer, type MemorySources, type PlanLimits, type Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { ScrollFades } from "../../components/ScrollFades";
-import { FilePreview } from "../../components/FilePreview";
 import { Sheet } from "../../components/Sheet";
 import { Markdown } from "./Markdown";
-import { MediaLightbox } from "./media/MediaView";
-import { useMediaFiles } from "./media/use-media";
 import { emptyTranscript } from "./transcript-model";
 import { isEmptySummary, recapOf, summarize, type Output, type PlanEntry, type SessionSummary, type Upload } from "./session-summary";
 import { DOCK_PIN_MIN_PANE, useDockDismiss, useDockPinned, usePaneRect } from "./pane-dock";
@@ -93,19 +90,17 @@ export function SessionSummaryHost({ item }: { item: Item }) {
      each would measure the same edge, claim it, and draw over the other. */
   const open = useApp((s) => s.sessionDock[id]?.kind === "summary");
   const closeSessionDock = useApp((s) => s.closeSessionDock);
-  /** Media opens HERE, in the transcript's own lightbox — the same surface a message's attachment
-   *  opens in, because a file must not open two different ways depending on which list it was
-   *  reached from. Files and plans go through the store's sheet slot instead (SheetHost), which is
-   *  what keeps a modal from being painted over by a browser pane's native view. */
-  const [lightbox, setLightbox] = useState<string | null>(null);
+  /** Media opens in the media viewer — the same surface a message's attachment opens in, because a
+   *  file must not open two different ways depending on which list it was reached from — and is asked
+   *  about in this session. */
+  const openViewer = useApp((s) => s.openViewer);
   return (
     <>
       <span ref={anchor} className="panel-anchor" aria-hidden="true" />
       {open && (
         <SummaryPanel summary={summary} sessionId={id} environmentId={environmentId} anchorRef={anchor} barRef={barRef}
-          onClose={() => closeSessionDock(id)} onLightbox={(path) => setLightbox(path)} />
+          onClose={() => closeSessionDock(id)} onLightbox={(path) => openViewer({ files: [{ path }], sessionId: id })} />
       )}
-      {lightbox && <SummaryLightbox path={lightbox} onClose={() => setLightbox(null)} />}
     </>
   );
 }
@@ -152,16 +147,17 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, barRef, on
   /** The model's account, when one has been written for this session. */
   const written = useApp((s) => s.transcripts[sessionId]?.t.summary?.text ?? null);
   const openSheet = useApp((s) => s.openSheet);
+  const openViewer = useApp((s) => s.openViewer);
   const openDocumentPath = useApp((s) => s.openDocumentPath);
   const run = useApp((s) => s.run);
   /* A file the pane can EDIT opens in the documents pane, not in a sheet offering to hand it to the
      OS. That was the gap: an agent writes six files, the summary lists them, and every one of them
      opened a modal whose only real action was "leave for the Finder" — so the artifacts a session
-     produced were the one thing you could not look at inside Realm. The sheet survives for the rest:
-     a `.zip`, a binary, anything the pane has no view for. */
+     produced were the one thing you could not look at inside Realm. The media viewer takes the rest:
+     a `.zip`, a binary, anything the pane has no view for — says what it is and what can be done. */
   const openFile = (path: string) => {
     onClose();
-    if (documentKindFor(path) === "unsupported") { openSheet({ kind: "artifact", path }); return; }
+    if (documentKindFor(path) === "unsupported") { openViewer({ files: [{ path }], sessionId }); return; }
     run(() => openDocumentPath(path, environmentId));
   };
   return createPortal(
@@ -474,27 +470,6 @@ function UploadRow({ upload, onLightbox, onFile }: { upload: Upload; onLightbox:
       <span className="summary-row-name">{upload.name}</span>
     </button>
   );
-}
-
-/** Media, through the transcript's lightbox. `useMediaFiles` is what confirms the file is still
- *  there; a path the agent wrote and something later deleted opens the plain artifact sheet, which
- *  says so, rather than an empty frame. */
-export function SummaryLightbox({ path, onClose }: { path: string; onClose: () => void }) {
-  const candidates = useMemo(() => [path], [path]);
-  const files = useMediaFiles(candidates);
-  const file = files[0];
-  if (!file) return <FilePreview path={path} onClose={onClose} />;
-  return <MediaLightbox file={file} onClose={onClose} />;
-}
-
-/** SheetHost's `artifact` sheet: a file the session produced or was handed. The preview itself is
- *  shared with the Library (`FilePreview`) — a `.zip` reached from a summary and the same `.zip`
- *  reached from the file browser must not offer two different sets of actions. This sheet passes no
- *  provenance: the summary knows the path and nothing the preview could turn into a "go to the
- *  session it came from", so that row is simply absent rather than half-filled. */
-export function ArtifactSheet({ path }: { path: string }) {
-  const closeSheet = useApp((s) => s.closeSheet);
-  return <FilePreview path={path} onClose={closeSheet} />;
 }
 
 /** SheetHost's `session-plan` sheet: one plan, read from the live transcript rather than copied into

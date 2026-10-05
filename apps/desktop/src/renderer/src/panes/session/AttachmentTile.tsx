@@ -1,9 +1,9 @@
 import { Icon } from "@realm/ui";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { basenameOf, isDirectoryMime, isImageMime, isOpenablePath, isPlayablePath } from "@realm/contracts";
 import { useThumbnail } from "../../components/use-thumbnail";
+import { useOpenViewer } from "../../components/viewer/open";
 import { squirclePath } from "../machine/squircle-path";
-import { MediaLightbox } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
 
 /** The extension, as the badge shows it: "pdf", "png". Empty for a file that has none. */
@@ -59,18 +59,17 @@ function useSquircleWell(): { ref: React.RefObject<HTMLSpanElement | null>; clip
  * has no generator for — lands on the glyph, because `attachmentThumbnail` answers null for every one
  * of them and the tile treats "no picture yet" and "no picture ever" the same.
  *
- * Clicking it opens the file, and what "open" means is decided by what the file IS. An image, a video
- * or an audio file — the ones `realm-media://` will serve — opens in the lightbox the transcript
- * already uses. Everything else goes to the app the user reads that type in, because there is no
- * element that could render a PDF or a CSV and a viewer that showed a broken image for half the
- * attachments would be worse than a tile that did nothing.
+ * Clicking it opens the file in the media viewer, whatever the file is: the picture or the player for
+ * media, macOS's render of a PDF or a document, and the file's own actions for anything else — the
+ * viewer is the one place a file is looked at, with the session's prompter docked under it. The
+ * tile's siblings are the viewer's: a message's other attachments, the prompter's other chips.
  *
  * Opening lives on the TILE rather than on either of its two callers. The composer's pending chip
  * and the sent chip in a message bubble are the same picture of the same file, so a tile that
  * behaved one way in the prompter and another way in the transcript would be a bug — and two
  * callers each holding their own copy of the behaviour is how that bug gets written.
  */
-export function AttachmentTile({ path, mime, name, detail, disposition, onRemove }: {
+export function AttachmentTile({ path, mime, name, detail, disposition, onRemove, siblings }: {
   path: string; mime: string;
   /** The picker's own name when there is one; otherwise the path's basename. */
   name?: string;
@@ -80,6 +79,8 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
   /** The composer's per-agent fate for this file; drives the warning tint. */
   disposition?: string;
   onRemove?: () => void;
+  /** The row this tile is one of, for the viewer's ← and →. Absent, the file is shown alone. */
+  siblings?: readonly { path: string; mime: string; name?: string }[];
 }) {
   const label = name ?? basenameOf(path);
   // The shared cache, not a private one: this same file is a tile in the composer, a tile in the
@@ -94,9 +95,10 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
   const thumb = useThumbnail(directory ? null : path);
   const ext = directory ? "" : extOf(path);
   const opener = useRef<HTMLButtonElement>(null);
-  const [lightbox, setLightbox] = useState(false);
+  const openViewer = useOpenViewer();
   /* Only a path the scheme could serve is worth asking main about, which is the same cheap filter the
-     transcript applies before it stats anything. A PDF never reaches IPC at all. */
+     transcript applies before it stats anything. A PDF never reaches IPC at all. The answer only
+     decides the cursor now — what to draw is the viewer's question, asked when it opens. */
   const candidates = useMemo(() => (!directory && isPlayablePath(path) ? [path] : []), [path, directory]);
   const file = useMediaFiles(candidates)[0] ?? null;
   // Answered from the path, not from `mime`: the prop carries whatever the picker said, while main
@@ -108,13 +110,17 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
   const canOpen = isOpenablePath(path);
   const well = useSquircleWell();
 
-  /* Media opens here, everything else opens THERE. The branch is on `file` — main's own answer about
-     the file on disk — rather than on the mime the caller passed, so a path that has since moved
-     falls to the OS (which reports it) instead of into a lightbox with nothing in it. */
-  const open = () => { if (file) setLightbox(true); else void window.realm?.openAttachment?.(path); };
-  // Focus goes back to the tile the lightbox came out of. Without it the keyboard lands back at the
-  // top of the document, which in a long transcript is nowhere near the file just looked at.
-  const close = useCallback(() => { setLightbox(false); opener.current?.focus(); }, []);
+  /* The viewer when the app has one — it says what Realm can do with any file, a moved one included
+     ("no longer on disk", rather than an empty frame) — and the OS only for a bare render of the tile,
+     which has no viewer to open into. Focus comes back to THIS tile on close: in a long transcript the
+     top of the document is nowhere near the file just looked at. */
+  const open = () => {
+    if (!openViewer) { void window.realm?.openAttachment?.(path); return; }
+    // Only the siblings the viewer can show: a folder in the row is not a file to step onto.
+    const shown = (siblings ?? []).filter((a) => !isDirectoryMime(a.mime) && isOpenablePath(a.path));
+    const row = shown.some((a) => a.path === path) ? shown : [{ path, mime, name }];
+    openViewer({ files: row.map((a) => ({ path: a.path, mime: a.mime, name: a.name })), index: row.findIndex((a) => a.path === path), opener: opener.current });
+  };
 
   const face = (
     <>
@@ -156,7 +162,6 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
           <Icon name="close" size={12} />
         </button>
       )}
-      {lightbox && file && <MediaLightbox file={file} onClose={close} />}
     </span>
   );
 }

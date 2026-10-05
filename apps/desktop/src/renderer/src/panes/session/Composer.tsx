@@ -217,7 +217,7 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
           <li key={a.path} className="composer-attach-item">
             <AttachmentTile path={a.path} mime={a.mime} name={a.name} disposition={attachmentDisposition(kind, a.mime)}
               detail={`${formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}
-              onRemove={() => onRemove(a.path)} />
+              onRemove={() => onRemove(a.path)} siblings={attachments} />
           </li>
         ))}
       </ul>
@@ -309,11 +309,15 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
  * Plugins section: Realm has no plugin system, and parity with Codex's menu is not a reason to
  * invent one.
  */
-function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkills, onGoal, connectors, onOpened, onManageConnections, modeRows, btnRef }: {
+function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkills, onGoal, connectors, onOpened, onManageConnections, modeRows, btnRef, compact = false }: {
   onAttachPick: () => void; onAddFolder: () => void;
   /** Point at a part of Realm and add it to this message, and the chord that does it too — the
    *  person's own, so a rebinding in Settings ▸ Keys is the hint here. Absent, there is no row. */
   selectInRealm?: { onSelect: () => void; kbd?: string };
+  /** The compact prompter's: what goes with this message, and nothing about where or how the session
+   *  runs — a folder linked to the space, a mode, the space's connectors are all chips this prompter
+   *  does not carry, and their rows here would be controls that do nothing. */
+  compact?: boolean;
   /** Open the skill picker. Offered only when `canSkills` — an item that would silently do nothing
    *  (a Cursor session, a machine with no skills anywhere) is never grown. */
   onSkills: () => void; canSkills: boolean;
@@ -340,7 +344,7 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
   const items: MenuItem[] = [
     { kind: "header", label: "Add" },
     { label: "Files…", icon: <Icon name="attach" size={16} />, detail: "Attach to this message", kbd: "⌘U", onSelect: onAttachPick },
-    { label: "Folder…", icon: <Icon name="folder" size={16} />, detail: "Link a folder to this space", onSelect: onAddFolder },
+    ...(compact ? [] : [{ label: "Folder…", icon: <Icon name="folder" size={16} />, detail: "Link a folder to this space", onSelect: onAddFolder } as MenuItem]),
     /* Not an agent's to press: a pick is the person pointing (`startAppPick`, which refuses its keys). */
     ...(selectInRealm ? [{ label: "Select in Realm", icon: <Icon name="select" size={16} />, detail: "Point at a part of the app", kbd: selectInRealm.kbd, noAgent: "element picker", onSelect: selectInRealm.onSelect } as MenuItem] : []),
     ...(canSkills ? [{ label: "Skills", icon: <Icon name="sparkles" size={16} />, detail: "Turn one on, or mention it", onSelect: onSkills } as MenuItem] : []),
@@ -348,6 +352,8 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
        nothing to pick from — which is the same gesture `/goal` already is, reached by someone who
        does not know the command exists. */
     ...(onGoal ? [{ label: "Goal…", icon: <Icon name="target" size={16} />, detail: "Keep working toward an objective", onSelect: onGoal } as MenuItem] : []),
+  ];
+  if (!compact) items.push(
     { kind: "header", label: "Mode" },
     ...modeRows,
     { kind: "header", label: "Connectors" },
@@ -363,13 +369,13 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
     }),
     { label: "Manage connections…", icon: <Icon name="plug" size={16} />, onSelect: onManageConnections,
       detail: connectors === null ? "Loading…" : enabled.length === 0 ? "None enabled in this space" : undefined },
-  ];
+  );
   return (
     <>
       {/* Toggle, mirroring ChipMenu: the Menu ignores pointerdown on its own anchor, so closing by a
           second click is this handler's job. Enter/Space come for free on a real button. */}
       <button ref={btn} type="button" className="icon-btn composer-attach" aria-label="Add"
-        title="Add files, a folder, skills or a goal, and set the mode" aria-haspopup="menu" aria-expanded={open}
+        title={compact ? "Add files" : "Add files, a folder, skills or a goal, and set the mode"} aria-haspopup="menu" aria-expanded={open}
         onClick={() => { if (!open) onOpened(); setOpen(!open); }}>
         <Icon name="add" size={16} />
       </button>
@@ -412,7 +418,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -424,6 +430,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    * model, attachments, and send.
    */
   compact?: boolean;
+  /** What the empty box says. The media viewer's prompter names the file it is asking about. */
+  placeholder?: string;
   /**
    * A passage the reader selected in the transcript, waiting to be quoted into the draft.
    *
@@ -1357,7 +1365,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               <span className="visually-hidden">Press Tab to fill in this suggested prompt.</span>
             </div>
           )}
-          <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : "Ask anything"} rows={1}
+          <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : placeholder} rows={1}
             value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setSelEnd(e.target.selectionEnd ?? e.target.value.length); setMentionActive(0); setSlashActive(0); setHotChip(null); }}
             onSelect={(e) => { setCaret(e.currentTarget.selectionStart ?? 0); setSelEnd(e.currentTarget.selectionEnd ?? 0); }}
             onClick={onClickChip} onMouseMove={onHoverChip} onMouseLeave={leaveChip}
@@ -1407,7 +1415,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               onGoal={slashCommands.some((c) => c.id === "goal") ? armGoal : null}
               connectors={connectors} onOpened={() => onConnectorsOpened?.()}
               onManageConnections={() => onManageConnections?.()}
-              modeRows={modeRows} btnRef={plusRef} />
+              modeRows={modeRows} btnRef={plusRef} compact={compact} />
             {/* Left group order (prompter rework): "+" · permission · mode · branch. The permission
                 and mode chips sit against the attach button; the git chip trails them. */}
             {/* In Plan and in Ask the permission mode is not in effect — Claude's `plan` replaces it

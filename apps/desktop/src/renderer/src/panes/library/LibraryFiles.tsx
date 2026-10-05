@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKe
 import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, type ArtifactType, type LibraryEntry } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { FileCard, FileRow } from "../../components/FileCard";
-import { FilePreview } from "../../components/FilePreview";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { PageScroll } from "../../components/ScrollFades";
 
@@ -109,6 +108,7 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
   const profileId = useApp((s) => s.spaces.find((x) => x.id === spaceId)?.profileId ?? null);
   const view = useApp((s) => s.libraryView);
   const setLibraryView = useApp((s) => s.setLibraryView);
+  const openViewer = useApp((s) => s.openViewer);
   const run = useApp((s) => s.run);
 
   const [scope, setScope] = useState<Scope>("all");
@@ -121,10 +121,15 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
   const [loading, setLoading] = useState(true);
   const [filtering, setFiltering] = useState(false);
   const filterBtn = useRef<HTMLButtonElement>(null);
-  /* The card that was clicked, held whole rather than by path: the preview needs the provenance the
-     index joined on (which session, which space, made or uploaded), and re-deriving it from a path
-     would mean a second query for a row already in hand. */
-  const [preview, setPreview] = useState<LibraryEntry | null>(null);
+  /* The card that was clicked, in the media viewer with the page's other files beside it — each with
+     the provenance the index joined on (which session, which space, made or uploaded), which is what
+     the viewer names and whom its prompter asks. Re-deriving that from a path would be a second query
+     for rows already in hand. */
+  const preview = (e: LibraryEntry) => openViewer({
+    files: entries.map((x) => ({ path: x.path, name: x.name,
+      from: { sessionId: x.sessionId, spaceId: x.spaceId, sessionTitle: x.sessionTitle, kind: x.kind } })),
+    index: entries.indexOf(e), spaceId,
+  });
   const sentinel = useRef<HTMLDivElement>(null);
   /* Every fetch carries the generation it was started under. A filter changed mid-flight would
      otherwise let an older page land on top of a newer one — the classic out-of-order-response bug,
@@ -250,7 +255,7 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
               <ul className="library-grid" onKeyDown={walkGrid}>
                 {g.entries.map((e) => (
                   <li key={e.id}>
-                    <FileCard path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} onOpen={() => setPreview(e)}>
+                    <FileCard path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} onOpen={() => preview(e)}>
                       <Provenance entry={e} />
                     </FileCard>
                   </li>
@@ -260,7 +265,7 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
               <ul className="library-rows">
                 {g.entries.map((e) => (
                   <li key={e.id}>
-                    <FileRow path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} time={timeOf(e.ts)} onOpen={() => setPreview(e)}>
+                    <FileRow path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} time={timeOf(e.ts)} onOpen={() => preview(e)}>
                       <Provenance entry={e} />
                     </FileRow>
                   </li>
@@ -274,14 +279,6 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
             and no spinner sitting under it forever. */}
         {!done && <div ref={sentinel} className="library-more">{loading ? "Loading…" : ""}</div>}
       </PageScroll>
-
-      {/* The same preview a session summary opens. The Library adds the provenance, which is the one
-          thing it knows and the summary does not — everything else about the file behaves identically
-          whichever list it was reached from. */}
-      {preview && (
-        <FilePreview path={preview.path} onClose={() => setPreview(null)}
-          from={{ sessionId: preview.sessionId, spaceId: preview.spaceId, sessionTitle: preview.sessionTitle, kind: preview.kind }} />
-      )}
     </div>
   );
 }
@@ -296,8 +293,8 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
  * Every card opens, and that is the change the picture is only half of. The grid used to draw a live
  * tile for a file the documents pane could render and an inert grey box for every other one — which
  * in a home whose sessions write archives, images and binaries is most of them, sitting there
- * refusing the mouse with no way to find out why. A card now opens the preview whatever the file is,
- * and the preview is where "what can Realm actually do with this" gets answered honestly.
+ * refusing the mouse with no way to find out why. A card now opens the media viewer whatever the
+ * file is, and the viewer is where "what can Realm actually do with this" gets answered honestly.
  */
 function Provenance({ entry }: { entry: LibraryEntry }) {
   const fromLabel = `${entry.kind === "upload" ? "Uploaded to " : "Made in "}${entry.sessionTitle}`;

@@ -401,7 +401,7 @@ export function chordsForCommand(rules: readonly Keybinding[], command: string, 
  */
 export type ContextKey = { key: string; doc: string };
 export const CONTEXT_KEYS: readonly ContextKey[] = [
-  { key: "overlayOpen", doc: "The palette, the spaces overview or a modal sheet is up, and owns the keyboard." },
+  { key: "overlayOpen", doc: "The palette, the spaces overview, a modal sheet or the media viewer is up, and owns the keyboard." },
   { key: "paletteOpen", doc: "The command palette is open." },
   { key: "spacesOpen", doc: "The all-spaces overview is open." },
   { key: "sheetOpen", doc: "A modal sheet is open." },

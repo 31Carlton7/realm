@@ -243,10 +243,10 @@ describe("the session file browser, laid out as cards", () => {
   for (const view of ["list", "grid"] as const) {
     it(`opens each kind of file the one way the panel opens it — ${view}`, async () => {
       /* The layout must not decide where a file goes: a card and a row reach the same `openRow`.
-         Three kinds, three doors — the documents pane for what it can edit, the sheet for what it
-         cannot, and the transcript's lightbox for a picture, which (like the summary's) leaves the
-         panel open behind it. THE MUTANTS: give the card the Library's own door (a preview sheet for
-         everything), or read the type off the whole name, which sent a screenshot to the sheet. */
+         Three kinds, two doors — the documents pane for what it can edit, and the media viewer for a
+         picture (with the folder's other pictures beside it, leaving the panel open behind) and for
+         what the pane cannot show. THE MUTANTS: give the card the Library's own door (the viewer for
+         everything), or read the type off the whole name, which sent a screenshot down the wrong one. */
       const { store, api } = await mount({ "": [row("notes.md"), row("bundle.zip"), row("shot.png")] },
         { settings: { [SETTING_FILES_VIEW]: view } });
       const names = () => (view === "grid" ? cardNames() : rowNames());
@@ -261,19 +261,17 @@ describe("the session file browser, laid out as cards", () => {
       await ensureOpen();
 
       fireEvent.click(opener("shot.png"));
-      await waitFor(() => expect(document.querySelector(".media-lightbox")).not.toBeNull());
-      expect(store.getState().sheet).toBeNull();
+      await waitFor(() => expect(store.getState().viewer?.files.map((f) => f.path)).toEqual([expect.stringMatching(/\/shot\.png$/)]));
+      expect(store.getState().viewer!.sessionId).toBe("se1");
       expect(document.querySelector(".session-files"), "the picture opens over the panel, not instead of it").not.toBeNull();
-      // Where the key really lands: the lightbox takes focus when it opens.
-      fireEvent.keyDown(document.querySelector(".media-lightbox")!, { key: "Escape" });
-      await waitFor(() => expect(document.querySelector(".media-lightbox")).toBeNull());
+      store.getState().closeViewer();
 
       await ensureOpen();
       fireEvent.click(opener("bundle.zip"));
-      await waitFor(() => expect(store.getState().sheet).toMatchObject({ kind: "artifact" }));
-      expect((store.getState().sheet as { path: string }).path).toMatch(/\/bundle\.zip$/);
+      await waitFor(() => expect(store.getState().viewer?.files[0]?.path).toMatch(/\/bundle\.zip$/));
+      expect(store.getState().sheet).toBeNull();
 
-      store.getState().closeSheet();
+      store.getState().closeViewer();
       await ensureOpen();
       fireEvent.click(opener("notes.md"));
       await waitFor(() => expect(api.calls.some((c) => c.startsWith("openDocumentPath:") && c.endsWith("/notes.md"))).toBe(true));

@@ -56,6 +56,8 @@ import {
   Undo02Icon,
   // A view an MCP server drew (AppView.tsx), as a tab and under its tool call.
   WebDesign01Icon,
+  // The media viewer's zoom out, beside `add` for zoom in (components/viewer/ViewerStage.tsx).
+  MinusSignIcon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
@@ -210,6 +212,9 @@ export const icons = {
   /* The open arc turning back — the mark Codex sets beside its own Undo, and what every editor draws
      for it. Not `reload`, whose closed circle means "again", which is the opposite. */
   undo: Undo02Icon,
+  /* A picture's zoom out, the plain bar beside the plain plus — the pair every image viewer's −/+
+     is, which a magnifier holding either sign only restates at a size where the sign is a speck. */
+  minus: MinusSignIcon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

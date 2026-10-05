@@ -508,6 +508,14 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "tool", name: "Edit", input: { file_path: "README.md", old_string: "# yooo\n", new_string: "# yooo\n\nLaunching on Friday.\n" }, result: "The file README.md has been updated." },
       { kind: "text", paceMs: 30, text: "Wrote the launch plan and the greeting script, and put the launch date in the README." },
     ],
+  }, {
+    // A change asked for from the media viewer's prompter: a command that writes the new version — a
+    // Bash call, which the Library's index cannot see — and an answer naming it, which is what the
+    // viewer finds and puts on its stage. The fake runs nothing, so a live check puts the file there.
+    on: "Make the sky warmer", emit: [
+      { kind: "tool", name: "Bash", input: { command: "magick hero.png -modulate 100,112,94 hero-warm.png", description: "Warm the sky" }, result: "" },
+      { kind: "text", paceMs: 30, text: "Warmed the sky and left the ridge as it was. The new version is `hero-warm.png`, beside the original." },
+    ],
   }] });
   /* The fake behind real agents' NAMES, for a live check that has to show work handed across
      harnesses — a sub-agent on the real Codex would be a billed turn. Named kinds only, and only with
