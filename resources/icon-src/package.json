@@ -2,10 +2,11 @@
   "name": "realm-icon-src",
   "private": true,
   "type": "module",
-  "description": "The Realm app icon and the Dock alternates Settings offers. icons.mjs is the source: one vector drawing on the macOS icon grid, built from mark.svg's geometry, in nine colourings. render.mjs renders every size natively through headless Chrome and writes resources/icon.png, resources/icon.icns (iconutil) and the renderer's 256 px pictures; `--sheet <file>` draws all of them at 128 and 32 px on light and dark. vgpu and pngjs are for render-candidates.mjs / render-dock.mjs, which draw the WGSL studies in candidates/. Not part of the pnpm workspace.",
+  "description": "Realm's mark and app icons. mark.mjs is the mark — a cube on its side with a lit doorway — and icons.mjs the app icon and the Dock alternates Settings offers: the mark on macOS's own icon body and shadow, in nine colourings. render.mjs renders every size natively through headless Chrome and writes resources/icon.png, resources/icon.icns (iconutil), the renderer's 256 px pictures, mark.svg, mark-flat.svg, the renderer's realm-mark.svg and its inline boot mark; `--sheet <file>` draws every icon at 128 and 32 px on light and dark. shape.swift measures macOS's icon shape against Apple's continuous corner. vgpu and pngjs are for render-candidates.mjs / render-dock.mjs, which draw the WGSL studies in candidates/. Not part of the pnpm workspace.",
   "scripts": {
     "render": "node render.mjs",
-    "sheet": "node render.mjs --sheet sheet.png"
+    "sheet": "node render.mjs --sheet sheet.png",
+    "shape": "swift shape.swift"
   },
   "dependencies": {
     "pngjs": "^7.0.0",

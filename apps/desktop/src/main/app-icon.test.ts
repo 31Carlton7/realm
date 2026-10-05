@@ -90,6 +90,24 @@ describe("app icon", () => {
     expect(tiles).toEqual([...APP_ICON_IDS]);
   });
 
+  /* The body is Apple's continuous corner at the radius macOS 27 draws every app icon with (measured by
+     resources/icon-src/shape.swift, whose printout of SwiftUI's own path is stored beside it). A
+     superellipse or a circular radius looks close on paper, and macOS answers an icon whose body is
+     not its own shape by shrinking it onto a grey plate — which is what the previous one got. */
+  it("draws the icon body as Apple's own continuous-corner path on the macOS grid", async () => {
+    const src = join(__dirname, "../../../../resources/icon-src");
+    const { bodyPath } = (await import(join(src, "icons.mjs"))) as { bodyPath: () => string };
+    const apple = JSON.parse(readFileSync(join(src, "apple-icon-body.json"), "utf8")) as { radius: number; d: string };
+    // Each cubic as its three points; the two paths start at different places on the same curve.
+    const cubics = (d: string) => [...d.matchAll(/C([^CLMZ]+)/g)]
+      .map((m) => m[1]!.trim().split(/[\s,]+/).map(Number))
+      .sort((a, b) => a[0]! - b[0]! || a[1]! - b[1]!);
+    const mine = cubics(bodyPath()), theirs = cubics(apple.d);
+    expect(mine).toHaveLength(12);
+    expect(theirs).toHaveLength(12);
+    mine.forEach((c, i) => c.forEach((v, j) => expect(Math.abs(v - theirs[i]![j]!), `cubic ${i} value ${j}`).toBeLessThan(0.01)));
+  });
+
   /* The pictures are rendered from resources/icon-src/icons.mjs, so the drawing is a fourth list. A
      colouring added there and not here would be rendered and never offered; one removed there would
      leave a stale picture behind that no render replaces. */

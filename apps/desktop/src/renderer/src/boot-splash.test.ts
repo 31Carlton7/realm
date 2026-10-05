@@ -39,8 +39,8 @@ describe("the boot mark's markup", () => {
   });
 
   it("clips the sweep to the mark, so it is never a band crossing an empty window", () => {
-    expect(html).toMatch(/clip-path="url\(#b-clip\)"/);
-    expect(html).toMatch(/<clipPath id="b-clip">/);
+    expect(html).toMatch(/<g clip-path="url\(#b-silhouette\)"><rect class="boot-shine"/);
+    expect(html).toMatch(/<clipPath id="b-silhouette">/);
   });
 
   it("keeps every gradient the mark's faces reference", () => {
@@ -49,8 +49,20 @@ describe("the boot mark's markup", () => {
     // that looks exactly like the bug the mark was added to fix.
     const declared = new Set([...html.matchAll(/<linearGradient id="([^"]+)"/g)].map((m) => m[1]!));
     const used = [...html.matchAll(/fill="url\(#([^)]+)\)"/g)].map((m) => m[1]!);
-    expect(used.length).toBeGreaterThanOrEqual(7); // six faces plus the sweep
+    expect(used.length).toBeGreaterThanOrEqual(7); // three faces, the doorway's three parts, the sweep
     expect(used.filter((id) => !declared.has(id))).toEqual([]);
+  });
+
+  /* The boot mark is a copy — it may fetch nothing, so it cannot point at the file — and a copy that
+     drifts from the mark is a second logo. render.mjs writes both from resources/icon-src/mark.mjs. */
+  it("draws the same mark as resources/icon-src/mark.svg and the renderer's realm-mark.svg", () => {
+    const shapes = (svg: string) => [...svg.matchAll(/<path (?:fill="[^"]*" )?d="([^"]+)"/g)].map((m) => m[1]!);
+    const boot = html.slice(html.indexOf('<svg class="boot-mark"'), html.indexOf("</svg>", html.indexOf('<svg class="boot-mark"')));
+    const mark = readFileSync(join(dirname(new URL(import.meta.url).pathname), "../../../../../resources/icon-src/mark.svg"), "utf8");
+    const asset = readFileSync(join(dirname(new URL(import.meta.url).pathname), "assets/realm-mark.svg"), "utf8");
+    expect(shapes(mark).length).toBeGreaterThanOrEqual(8); // the silhouette, the doorway's front, three faces, three parts
+    expect(shapes(boot)).toEqual(shapes(mark));
+    expect(shapes(asset)).toEqual(shapes(mark));
   });
 
   it("waits before appearing, so a warm launch shows nothing at all", () => {
