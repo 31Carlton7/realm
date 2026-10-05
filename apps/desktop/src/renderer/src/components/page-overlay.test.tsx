@@ -147,7 +147,7 @@ describe("how a page arrives", () => {
     act(() => store.getState().closePageOverlay());
     act(() => store.getState().openDestinationPage("library-page"));
     expect(page()).not.toHaveAttribute("data-cut");
-    act(() => store.getState().openDestinationPage("schedules-page"));
-    expect(page(), "Scheduled after the Library: the page was already up").not.toHaveAttribute("data-cut");
+    act(() => store.getState().openDestinationPage("connections-page"));
+    expect(page(), "Connections after the Library: the page was already up").not.toHaveAttribute("data-cut");
   });
 });

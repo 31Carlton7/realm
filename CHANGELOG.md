@@ -106,6 +106,14 @@ track, saves that turn: its tick takes the accent, ⌥↑ and ⌥↓ step betwee
 Saved lists every turn saved in the profile, with the answer each began with, a click from the
 prompt in its session.
 
+**A reply can carry a chart, a diagram or a comparison.** An agent can write a Mermaid diagram, a
+`realm-chart` (columns, bars, lines or a sparkline) or a `realm-compare` of up to six options as
+fenced code, and the transcript draws it once the fence closes — in Realm's own palette, with the
+values a click away and the source a click further. A body that does not parse stays code, with the
+reason. Nothing in a block fetches anything: a diagram that would load a picture or follow a link to
+lay itself out is left as code, saying so. In a narrow column a comparison becomes a card per option,
+and a Markdown document's rich view draws the same blocks.
+
 **A Connection can show its own views, and they act only on your click.** An MCP server that ships
 views, as the MCP Apps extension describes them, now has them drawn: compact under the tool call
 that made one, or as a tab beside the session. Each runs in a sandboxed frame on an origin of its
@@ -154,12 +162,12 @@ sliding with its edge, and casts a light shadow on the panes beside it. Landing 
 the keyboard in its prompter. The pane bars' own arrows are gone; ⌘[ and ⌘] still walk the focused
 pane's history.
 
-**A page takes the room it needs, and is left the way it was reached.** Connections, Scheduled tasks
-and Code review have no use for the spaces beside them, so while one is up the sidebar is away and
-the page takes the width right of the rail; a page with sections of its own, such as Settings or the
-Library, puts them in the sidebar's column under a Back instead of drawing a second sidebar beside
-the first. Either change lands in the frame the page opens in — only ⌘B or the toggle draws the
-sidebar moving — and leaving gives the sidebar back as it was. A page's bar is its name and nothing
+**A page takes the room it needs, and is left the way it was reached.** Connections has no use for
+the spaces beside it, so while it is up the sidebar is away and the page takes the width right of
+the rail; a page with a column of its own — Settings, the Library, Scheduled tasks, Code review —
+puts it in the sidebar's column under a Back instead of drawing a second sidebar beside the first.
+Either change lands in the frame the page opens in — only ⌘B or the toggle draws the sidebar moving
+— and leaving gives the sidebar back as it was. A page's bar is its name and nothing
 else: there is no close button, because Home, the lit rail button, a session in the sidebar, the
 column's Back and Escape already go back.
 

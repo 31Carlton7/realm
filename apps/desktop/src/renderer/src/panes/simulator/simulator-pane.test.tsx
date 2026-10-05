@@ -1,4 +1,4 @@
-import type { SimulatorDevice } from "@realm/contracts";
+import { findLeafOfItem, type SimulatorDevice } from "@realm/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { LayaStatus, SimulatorState } from "@realm/contracts";
@@ -43,7 +43,7 @@ vi.mock("../../rpc/client", () => ({
 import { SimulatorPane } from "./SimulatorPane";
 import { PanelBar } from "../../components/PanelBar";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item } from "../../state/store.test-fakes";
+import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { exited } from "../../components/popover-exit.test-fakes";
 
 function off(id: string): SimulatorState {
@@ -757,3 +757,108 @@ describe("recording an app for Laya", () => {
   });
 });
 
+describe("picking an element into the prompter", () => {
+  const SHOT = "/realm/tmp/attachments/f00d-iphone-reload-button.png";
+  const lead = item("i-lead", "s1", { kind: "session", refId: "lead", title: "Lead" });
+  const other = item("i-other", "s1", { kind: "session", refId: "other", title: "Other" });
+  /** The device as a tab of the lead's side pane, and the window's picture of a pick stubbed: main's
+   *  half (app-pick.ts) is tested where it lives, and this records what it was asked for. */
+  async function picker({ owned = true } = {}) {
+    const realm = { appPick: { arm: vi.fn(), capture: vi.fn(async (_rect: unknown, _ground: unknown, name: string) => {
+      overlayWhileCaptured.push(document.documentElement.hasAttribute("data-pick-capture"));
+      return { file: { path: SHOT, mime: "image/png", name, size: 4096 }, webView: false };
+    }) } };
+    const overlayWhileCaptured: boolean[] = [];
+    vi.stubGlobal("realm", realm);
+    getState = RUNNING;
+    const store = createAppStore(fakeApi({ items: { s1: [lead, other, paneItem] }, sessions: [session("lead", "s1"), session("other", "s1")] }));
+    await store.getState().boot();
+    await store.getState().openItem("i-lead");
+    if (owned) await store.getState().openInSidePane("lead", "i1");
+    // The keyboard in ANOTHER session: a device's pick goes to the session it belongs to regardless.
+    await store.getState().openItemAt("i-other", findLeafOfItem(store.getState().layout!, "i-lead")!.id, "left");
+    act(() => store.getState().applySimulatorState(RUNNING));
+    render(<StoreContext.Provider value={store}><SimulatorPane item={paneItem} visible /></StoreContext.Provider>);
+    return { store, realm, overlayWhileCaptured };
+  }
+  const select = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Show the device's elements" }));
+    return screen.findByRole("button", { name: "Reload" });
+  };
+  /** A click as a pointer makes one: down and up over the box, then the click. The press bubbles to the
+   *  device's own surface on its way — which is where the owner's clicks went. */
+  const press = (box: HTMLElement) => {
+    const r = box.getBoundingClientRect();
+    pointer(box, "pointerdown", r.left + r.width / 2, r.top + r.height / 2);
+    pointer(box, "pointerup", r.left + r.width / 2, r.top + r.height / 2);
+    fireEvent.click(box);
+  };
+
+  it("puts a clicked element into the prompter of the session the device belongs to, as a chip with its picture", async () => {
+    // THE BUG: the click TAPPED the device and nothing reached a prompter.
+    const { store, realm, overlayWhileCaptured } = await picker();
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0));
+    const reload = await select();
+    // What a click will do, and where it goes, said before anyone makes one.
+    expect(screen.getByText("Click to add to Lead")).toBeInTheDocument();
+    // THE BUG, as a pointer meets it: the press reached the device's surface first, which tapped the
+    // phone and captured the pointer, so the box never saw its click.
+    press(reload);
+    await waitFor(() => expect(store.getState().drafts.lead).toBe("@[iPhone · Reload button] "));
+    const [chip] = store.getState().draftElements.lead!;
+    expect(chip).toEqual({ label: "iPhone · Reload button", element: {
+      role: "Button", label: "Reload", value: "", id: null, enabled: true,
+      frame: { x: 220, y: 478, width: 44, height: 44 }, screen: { width: 440, height: 956 }, units: "points",
+      simulator: { id: "sim-1", kind: "iPhone", platform: "ios", physical: false, app: "Safari", shot: SHOT },
+    } });
+    // Its picture: the element's box on screen, armed around, taken with the overlay's boxes off it.
+    const k = PICTURE_BOX.width / AX_TREE.screen.width;
+    expect(realm.appPick.capture).toHaveBeenCalledTimes(1);
+    const [rect, , name] = realm.appPick.capture.mock.calls[0]!;
+    expect(rect).toEqual({ x: PICTURE_BOX.left + 220 * k, y: PICTURE_BOX.top + 478 * k, w: 44 * k, h: 44 * k });
+    expect(name).toBe("iphone-reload-button.png");
+    expect(realm.appPick.arm.mock.calls).toEqual([[true], [false]]);
+    // …and with what Realm draws over the device off it while it was taken, and back on after.
+    expect(overlayWhileCaptured).toEqual([true]);
+    expect(document.documentElement.hasAttribute("data-pick-capture")).toBe(false);
+    expect(store.getState().pendingAttachments.lead?.map((f) => f.path)).toEqual([SHOT]);
+    // …said where it went, the overlay gone with the pick, and nothing pressed on the device.
+    expect(store.getState().toasts.map((t) => t.text)).toContain("Added iPhone · Reload button to Lead.");
+    expect(store.getState().simulatorElements["sim-1"]).toBe(false);
+    expect(screen.queryByRole("group", { name: /Pick an element/ })).toBeNull();
+    expect(sockets.every((ws) => ws.sent.length === 0)).toBe(true);
+    expect(store.getState().drafts.other ?? "").toBe("");
+  });
+
+  it("picks a disabled element too — why it is disabled is often the question", async () => {
+    const { store } = await picker();
+    await select();
+    press(screen.getByRole("button", { name: "Back (disabled)" }));
+    await waitFor(() => expect(store.getState().drafts.lead).toBe("@[iPhone · Back button] "));
+  });
+
+  it("leaves on Escape with nothing picked, and Escape never reaches the device", async () => {
+    const { store, realm } = await picker();
+    await select();
+    const surface = document.querySelector(".sim-screen") as HTMLElement;
+    surface.focus();
+    fireEvent.keyDown(surface, { key: "Escape" });
+    await waitFor(() => expect(store.getState().simulatorElements["sim-1"]).toBe(false));
+    expect(store.getState().drafts.lead ?? "").toBe("");
+    expect(realm.appPick.capture).not.toHaveBeenCalled();
+    expect(sockets.every((ws) => ws.sent.length === 0)).toBe(true);
+    // …and from nothing focused at all, the way out of the app picker too.
+    fireEvent.click(screen.getByRole("button", { name: "Show the device's elements" }));
+    await screen.findByRole("button", { name: "Reload" });
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(store.getState().simulatorElements["sim-1"]).toBe(false));
+  });
+
+  it("asks the web picker's question for a device in a pane of its own", async () => {
+    // Not a tab of any session's side pane: the session the keyboard was last in takes it.
+    const { store } = await picker({ owned: false });
+    press(await select());
+    await waitFor(() => expect(store.getState().drafts.other).toBe("@[iPhone · Reload button] "));
+  });
+});

@@ -4,6 +4,8 @@ import { basenameOf } from "./attachments";
 import { fenceUntrusted } from "./fence";
 import { scanMentions } from "./mentions";
 import { describeLink, type LinkService } from "./links";
+import { IdSchema } from "./ids";
+import { SimulatorPlatformSchema, type SimulatorPlatform } from "./simulator";
 
 /**
  * Chips: the runs of a draft that NAME something rather than say something.
@@ -18,8 +20,9 @@ import { describeLink, type LinkService } from "./links";
  *
  *   - `mention` — `@skill-id`, the composer's existing syntax, recognised only against the live skill
  *     library so `carlton@mac` and `@nonesuch` stay plain text.
- *   - `element` — `@[button "Sign in"]`, an element the user picked out of a browser pane, or
- *     `@[Realm · Send button]`, a part of Realm's own window (`AppPickedElement`). Brackets
+ *   - `element` — `@[button "Sign in"]`, an element the user picked out of a browser pane,
+ *     `@[Realm · Send button]`, a part of Realm's own window (`AppPickedElement`), or
+ *     `@[iPhone · General button]`, an element on a device's screen (`DevicePickedElement`). Brackets
  *     because the label carries spaces and quotes that a bare `@id`'s charset cannot, and `@` because
  *     it extends a sigil the composer already teaches rather than inventing a second one. It is
  *     invisible to `scanMentions` for free: `[` is not an id character, so that scan's candidate run
@@ -123,9 +126,43 @@ export type AppPickedElement = {
   };
 };
 
-/** Anything a chip can stand for: an element of a page, or a part of Realm's window. */
-export type PickedElement = BrowserPickedElement | AppPickedElement;
+/**
+ * An element on a DEVICE's screen the user picked in the simulator pane — the picker's third sibling,
+ * for the phone beside the session. It rides the same chip as the other two.
+ *
+ * A device has no DOM and no markup. What it says about an element is its accessibility tree: the
+ * tree's own type for its `role` (Button, Cell, StaticText…), the `label` and `value` the app gives
+ * it, its `id` when the app sets one, whether it is `enabled`, and its `frame`, in the tree's own
+ * `units` out of a `screen` that size — all of them the app's words, which is why the description
+ * fences them. `simulator` is what only the pane knows: the id the simulator tools reach the device
+ * by, what the device is in a word (the chip's lead), its platform, whether it is a real phone, the
+ * app the tree says is in front, and the picture of the element the pane took, by PATH — checked
+ * against the message's attachments at send, as an app pick's is.
+ */
+export type DevicePickedElement = {
+  role: string;
+  label: string;
+  value: string;
+  id: string | null;
+  enabled: boolean;
+  frame: { x: number; y: number; width: number; height: number };
+  screen: { width: number; height: number };
+  units: "points" | "pixels";
+  simulator: {
+    id: string;
+    kind: string;
+    platform: SimulatorPlatform;
+    physical: boolean;
+    app: string;
+    shot: string | null;
+  };
+};
+
+/** Anything a chip can stand for: an element of a page, a part of Realm's window, or an element on a
+ *  device's screen. */
+export type PickedElement = BrowserPickedElement | AppPickedElement | DevicePickedElement;
 export const isAppElement = (el: PickedElement): el is AppPickedElement => "app" in el;
+export const isDeviceElement = (el: PickedElement): el is DevicePickedElement => "simulator" in el;
 
 /** Clamps for what an app pick carries beyond a page's. Nearest first in each list, so the cut takes
  *  the far end — the component five levels up says less than the one that drew the element. */
@@ -161,6 +198,26 @@ const AppElementSchema = z.object({
   }),
 });
 
+/** An element on a device's screen on the wire (`DevicePickedElement`), held to a page pick's bounds. */
+const DeviceElementSchema = z.object({
+  role: z.string().max(PICK_NAME_MAX),
+  label: z.string().max(PICK_TEXT_MAX),
+  value: z.string().max(PICK_TEXT_MAX),
+  id: z.string().max(PICK_DEVICE_ID_MAX).nullable(),
+  enabled: z.boolean(),
+  frame: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }),
+  screen: z.object({ width: z.number().positive(), height: z.number().positive() }),
+  units: z.enum(["points", "pixels"]),
+  simulator: z.object({
+    id: IdSchema,
+    kind: z.string().min(1).max(PICK_NAME_MAX),
+    platform: SimulatorPlatformSchema,
+    physical: z.boolean(),
+    app: z.string().max(PICK_NAME_MAX),
+    shot: z.string().max(PICK_URL_MAX).nullable(),
+  }),
+});
+
 /**
  * Element chips as they cross the RPC — the one place their strings arrive from another process.
  *
@@ -169,7 +226,8 @@ const AppElementSchema = z.object({
  * picker. Only `ref` is the browser's own — a CDP node id — and `url` is a fact just as far as its
  * origin, page-authored after it; everything else is the page's outright (see
  * `BrowserPickedElement`). The server neither interprets nor trusts any of them — it fences them
- * into the wire text and nothing else. A part of Realm's window is the second shape `element` takes.
+ * into the wire text and nothing else. A part of Realm's window is the second shape `element` takes,
+ * and an element on a device's screen the third.
  */
 export const ElementChipSchema = z.object({
   label: z.string().min(1).max(CHIP_LABEL_MAX),
@@ -193,7 +251,7 @@ export const ElementChipSchema = z.object({
       frame: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }),
       screen: z.object({ width: z.number().positive(), height: z.number().positive() }),
     }).optional(),
-  }), AppElementSchema]),
+  }), AppElementSchema, DeviceElementSchema]),
   /** Plan 26 W7d — see `ElementChip`. Optional, so every chip written before annotations parses. */
   pin: z.number().int().min(1).max(MAX_ELEMENT_CHIPS).optional(),
   shot: z.string().max(PICK_NAME_MAX).optional(),
@@ -314,10 +372,42 @@ export function appElementChipLabel(el: AppPickedElement): string {
   return `${APP_CHIP_PREFIX}${name.length > room ? `${name.slice(0, room - 1)}…` : name}${note}`;
 }
 
+/** What a device's own element types are called in a sentence. The tree passes its types through —
+ *  iOS's `Button`, Android's `android.widget.EditText` — so a type's last word is looked up, lowercased;
+ *  a type nobody says aloud (a cell, a static text, an other) leaves the element to its label. */
+const DEVICE_ROLE_NOUNS: ReadonlyMap<string, string> = new Map(Object.entries({
+  button: "button", link: "link", switch: "switch", toggle: "switch", checkbox: "checkbox", slider: "slider",
+  textfield: "field", securetextfield: "field", searchfield: "search field", edittext: "field",
+  image: "image", imageview: "image", tab: "tab",
+}));
+
+/**
+ * What an element on a device is called, as the overlay's box and the chip both say it: the label its
+ * app gives it and what its type is called ("General button"), its value or its id where it has no
+ * label, and otherwise its type.
+ */
+export function deviceElementName(el: Pick<DevicePickedElement, "role" | "label" | "value" | "id">): string {
+  const named = chipLabel(el.label || el.value || el.id || "");
+  const type = el.role.split(".").pop() ?? "";
+  const noun = DEVICE_ROLE_NOUNS.get(type.toLowerCase()) ?? "";
+  if (named) return noun && !named.toLowerCase().endsWith(noun) ? `${named} ${noun}` : named;
+  return chipLabel(type) || "element";
+}
+
+/** "iPhone · General button": what the device is, then the element. A pick that has no picture says
+ *  so in the chip, as a part of Realm's does. */
+export function deviceElementChipLabel(el: DevicePickedElement): string {
+  const lead = `${chipLabel(el.simulator.kind) || "Device"} · `;
+  const note = el.simulator.shot ? "" : " (no picture)";
+  const name = deviceElementName(el);
+  const room = CHIP_LABEL_MAX - lead.length - note.length;
+  return `${lead}${name.length > room ? `${name.slice(0, room - 1)}…` : name}${note}`;
+}
+
 /** A chip label for a picked element, unique among `taken` so two identical buttons in one draft do
  *  not both resolve to the same sidecar entry. */
 export function elementChipLabel(el: PickedElement, taken: Iterable<string> = []): string {
-  const base = isAppElement(el) ? appElementChipLabel(el) : pageElementLabel(el);
+  const base = isAppElement(el) ? appElementChipLabel(el) : isDeviceElement(el) ? deviceElementChipLabel(el) : pageElementLabel(el);
   const used = new Set(taken);
   if (!used.has(base)) return base;
   // Room for the suffix is MADE, never hoped for. `chipLabel` clips to `CHIP_LABEL_MAX`, so appending
@@ -357,17 +447,20 @@ export function annotationChipLabel(count: number, taken: Iterable<string> = [])
  * with no element chips gets no block at all, so the bytes on the wire are unchanged for every
  * message that never touched a browser pane.
  *
- * A page's elements come first, then the parts of Realm's own window. `attachments` are the message's
- * own: a part of Realm's picture is named only when it is really on the message.
+ * A page's elements come first, then the parts of Realm's own window, then elements on a device's
+ * screen. `attachments` are the message's own: a picture is named only when it is really on the message.
  */
 export function elementContext(chips: readonly ElementChip[], attachments: readonly { path: string }[] = []): string {
-  return pageElementContext(chips.filter(isPageChip)) + appElementContext(chips.filter(isAppChip), attachments);
+  return pageElementContext(chips.filter(isPageChip)) + appElementContext(chips.filter(isAppChip), attachments)
+    + deviceElementContext(chips.filter(isDeviceChip), attachments);
 }
 
 type PageChip = ElementChip & { element: BrowserPickedElement };
 type AppChip = ElementChip & { element: AppPickedElement };
-const isPageChip = (c: ElementChip): c is PageChip => !isAppElement(c.element);
+type DeviceChip = ElementChip & { element: DevicePickedElement };
+const isPageChip = (c: ElementChip): c is PageChip => !isAppElement(c.element) && !isDeviceElement(c.element);
 const isAppChip = (c: ElementChip): c is AppChip => isAppElement(c.element);
+const isDeviceChip = (c: ElementChip): c is DeviceChip => isDeviceElement(c.element);
 
 /**
  * The page half. Only the ORIGIN sits outside the fence. That much is the browser's own — script
@@ -452,6 +545,39 @@ function appElementContext(chips: readonly AppChip[], attachments: readonly { pa
   return `\n\nParts of Realm's own window the user picked, one per chip above:\n${index}\n\n`
     + "They are Realm's interface, not a web page, so the browser tools cannot reach them. The component and class names are the ones in Realm's source.\n\n"
     + detail;
+}
+
+/**
+ * The device half: where each element is and what its app says about it. The index — which device,
+ * and whether its picture is on the message — is Realm's own and stands outside the fence; everything
+ * the tree reported is the app's, the name it calls itself included, and goes under it.
+ *
+ * Said outside the fence, too, how to act on one: a device element has no DOM node, so the browser
+ * tools cannot reach it, and the simulator tools take the device by its id and an element by the
+ * number `simulator_elements` gives it — or a point, which the frame is for.
+ */
+function deviceElementContext(chips: readonly DeviceChip[], attachments: readonly { path: string }[]): string {
+  if (chips.length === 0) return "";
+  const attached = new Set(attachments.map((a) => a.path));
+  const index = chips.map(({ label, element: { simulator: s } }) => {
+    const what = `${s.physical ? `a real ${s.platform === "android" ? "Android" : "iOS"} device` : s.platform === "android" ? "an Android emulator" : "an iOS simulator"}, simulatorId ${s.id}`;
+    const picture = s.shot && attached.has(s.shot) ? `the attached ${basenameOf(s.shot)} shows it, with a margin of what is around it` : "no picture";
+    return `  ${elementChipToken(label)} — ${what}; ${picture}`;
+  }).join("\n");
+  const detail = chips.map(({ label, element: el }) => [
+    elementChipToken(label),
+    ...(el.simulator.app ? [`app in front: ${el.simulator.app}`] : []),
+    `role: ${el.role || "(none)"}`,
+    ...(el.label ? [`label: ${el.label}`] : []),
+    ...(el.value ? [`value: ${el.value}`] : []),
+    ...(el.id ? [`id: ${el.id}`] : []),
+    `enabled: ${el.enabled}`,
+    `frame: x=${round(el.frame.x)} y=${round(el.frame.y)} w=${round(el.frame.width)} h=${round(el.frame.height)} in a ${round(el.screen.width)}×${round(el.screen.height)} ${el.units === "pixels" ? "pixel" : "point"} screen`,
+  ].join("\n")).join("\n\n");
+  return `\n\nElements the user picked on a device's screen in Realm's simulator pane, one per chip above:\n${index}\n\n`
+    + "They are on the device, not in a web page, so the browser tools cannot reach them. Act on one with the simulator tools and its simulatorId: "
+    + "simulator_elements numbers what is on the screen now, and simulator_tap takes that number, or a point such as the middle of the frame below.\n\n"
+    + fenceUntrusted(detail);
 }
 
 /** Device frames arrive as floats (`293.33333333333337`). A prompt is read by a person and a model,

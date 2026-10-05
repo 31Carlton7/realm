@@ -110,6 +110,17 @@
   --rl-tile: var(--overlay-lighten-200);
   --rl-tile-hover: var(--overlay-lighten-300);
   --rl-tile-press: var(--overlay-lighten-400);
+  /* What an OBJECT rests on — a file's tile and its square in a row, a saved turn, a file on a message
+     or in the prompter, and the device's toolbar: a light border and a very slight shadow, the card
+     stack (the owner, 10-05, of the toolbar: "That should be the shadow and border used for any
+     library item"). Named once for all of them, so the toolbar pointed at and the files it was
+     pointed at for cannot drift apart; `styles.test.ts` holds each to it. */
+  --rl-object-shadow: var(--shadow-card);
+  /* …and the same two halves for a surface the worklet paints, where a box-shadow ring would trace the
+     square border box: the border goes to the painter and the shadow becomes a filter (tokens.css
+     splits the card stack the same way, for the same reason). */
+  --rl-object-ring: var(--card-ring);
+  --rl-object-lift-filter: var(--shadow-card-lift-filter);
   /* borders: BUI hairlines are solid and crisp, not alpha — hairline = line now */
   --rl-line: var(--line);                        /* BUI --line */
   --rl-line-strong: var(--line-strong);          /* BUI --line-strong */
@@ -563,6 +574,15 @@ kbd { font: 11px var(--font-mono); }
 /* Settings keeps its search where it is while the pages scroll under it, as it does in the page. */
 .sb-page-nav:has(.settings-rail) { overflow: hidden; }
 .sb-page-nav .page-rail.settings-rail { flex: 1; min-height: 0; max-height: none; gap: 8px; }
+/* The Scheduled page's column and Code review's (SchedulesPage, PrColumn) bring their own head, search
+   and scroller, so the slot only holds one — no inset or scroll of its own — and the column gives up
+   the ground, the edge and the width it wears standing in the page: the sidebar's are its now. Drawn in
+   the page, each read as a second sidebar, darker and square-cornered (the owner, 10-05: "It is
+   supposed to be the replacement sidebar, not like its own custom thing"). Its scroller dissolves on
+   the spaces list's depths, as everything else in this column does. */
+.sb-page-nav:has(> :is(.sched-col, .cr-col)) { padding: 0; overflow: hidden; }
+.sb-page-nav > :is(.sched-col, .cr-col) { flex: 1; width: auto; background: none; border-right: 0; }
+.sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-body, .cr-col-body) { --fade-h: 44px; --fade-top-h: 12px; }
 /* The list's head (SidebarLens): what the list is showing, in the column's section-label voice — the
    sentence-case caption "Pinned" and the day headings wear — and at its far end the switch to the other
    reading, a plain icon button lit while the activity is up. A caption row rather than a control row:
@@ -1720,11 +1740,15 @@ kbd { font: 11px var(--font-mono); }
   background: color-mix(in srgb, var(--rl-accent) 7%, transparent);
   border-radius: 3px; overflow: hidden; text-align: left;
   transition: background-color var(--dur-hover) ease, border-color var(--dur-hover) ease; }
-.sim-ax-box:hover:not(:disabled) { background: color-mix(in srgb, var(--rl-accent) 22%, transparent); border-color: var(--rl-accent); }
+.sim-ax-box:hover { background: color-mix(in srgb, var(--rl-accent) 22%, transparent); border-color: var(--rl-accent); }
 .sim-ax-box:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
 /* A disabled element is still worth SEEING — it is why the screen is not doing what you expected —
-   so it is drawn and cannot be tapped, rather than hidden. */
-.sim-ax-box:disabled { border-style: dashed; border-color: color-mix(in srgb, var(--rl-text-faint) 60%, transparent); background: transparent; }
+   so it is drawn, dashed, and picked like any other: why it is disabled is often the question. */
+.sim-ax-box[data-disabled] { border-style: dashed; border-color: color-mix(in srgb, var(--rl-text-faint) 60%, transparent); background: transparent; }
+/* For the frames a pick's picture is taken in (SimulatorPane's `pictureOf`), what Realm draws over the
+   device steps off it at once: the boxes, and the tooltip the press has just silenced, which would
+   otherwise still be fading out across the picture. The picture is of the device, not of Realm on it. */
+:root[data-pick-capture] :is(.sim-ax, .tooltip) { visibility: hidden; transition: none; }
 /* The label rides inside the box and disappears when there is no room for it, which on a dense
    screen is most of them: a tooltip carries the full name, and forty overlapping captions would
    hide the very thing they are naming. */
@@ -1739,6 +1763,12 @@ kbd { font: 11px var(--font-mono); }
   border-radius: var(--r-ctl); corner-shape: squircle; background: var(--tooltip-bg); color: var(--tooltip-fg);
   box-shadow: var(--shadow-raised); font-size: 12px; }
 .sim-ax-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The way out, said where the person is looking, as the app picker's hint says it — a key, so the
+   session's name keeps the width. The bar is the tooltip's dark chip in both faces, so its glyph
+   button takes the chip's ink rather than the pane's. */
+.sim-ax-esc { flex: none; color: var(--tooltip-muted); }
+.sim-ax-bar .icon-btn { flex: none; width: 24px; --btn-h: 24px; color: var(--tooltip-fg); }
+.sim-ax-bar .icon-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--tooltip-fg) 14%, transparent); color: var(--tooltip-fg); }
 
 /* ── Over and under the device ──
    One pill wherever the device's own controls are: the toolbar over it (SimulatorBar.tsx), and under
@@ -1747,7 +1777,7 @@ kbd { font: 11px var(--font-mono); }
    the device rather than as a strip of chrome and a stray button — and what sits inside a pill is a
    pill too, its corner the outer one less the 2px or 4px between them. */
 .sim-toolbar, .sim-record-start, .sim-recording, .sim-live {
-  height: 32px; border-radius: 999px; background: var(--rl-raised); box-shadow: var(--shadow-card); }
+  height: 32px; border-radius: 999px; background: var(--rl-raised); box-shadow: var(--rl-object-shadow); }
 /* The state, a rule, the four presses and the overflow. A narrow pane takes it apart in the order
    `toolbar-fit.ts` states, and its numbers are this rule's: 2px of padding, 2px gaps, 28px buttons. */
 .sim-toolbar { display: flex; align-items: center; gap: 2px; max-width: 100%; padding: 2px; }
@@ -3582,6 +3612,106 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .md-code-lang { font: 11px var(--font-mono); color: var(--ink-3); }
 /* 18px in, matching the head, because a 36px corner eats the first character of a line set at 12. */
 .md-code pre { margin: 0; padding: 4px 18px 14px; border-radius: 0; background: none; font-size: 13px; line-height: calc(1.65 + var(--lh-shift)); color: var(--syn-fg); }
+/* ── Blocks an agent writes and Realm draws (rich/UiBlock.tsx) ───────────────────────────
+   A closed ```mermaid / ```realm-chart / ```realm-compare fence is parked in `.md-block` as its code;
+   the drawn block lands beside it and the code steps out of the way, so a body that does not draw
+   is simply the code it always was, and "Show source" is the same code coming back under the
+   drawing. The reason a body stayed code sits in the code's head beside its language. */
+.md-block { display: flex; flex-direction: column; }
+.md-block > .md-code { order: 1; }
+.md-block:has(> .ui-block:not([data-source])) > .md-code { display: none; }
+.md-block-reason { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
+.md-block-reason:empty { display: none; }
+/* The fenced-code panel — curve, fill, head — with a drawing where the code was. */
+/* A drawing and its figures are the app's own, in the UI face, wherever the prose around them is set. */
+.ui-block { margin: 6px 0 8px; padding-bottom: 14px; min-width: 0; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface);
+  font-family: var(--font-ui); line-height: 20px; overflow-wrap: normal; }
+.ui-block[data-source] { margin-bottom: 4px; }
+.ui-block-head { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px 0 18px; }
+.ui-block-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--fw-title); color: var(--ink); }
+/* A diagram with no title of its own is named by its kind, which is a label, not a heading. */
+.ui-block-title[data-quiet] { font-size: 12px; font-weight: var(--fw-label); color: var(--ink-2); }
+.ui-block-sub { flex: none; font-size: 12px; color: var(--ink-2); }
+.ui-block-acts { display: flex; align-items: center; gap: 4px; flex: none; margin-left: auto; }
+.ui-block-acts .tool-copy { margin-left: 0; }
+.ui-block-act[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
+.ui-block-copied { color: var(--rl-success); }
+.ui-chart { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 2px 18px 0; }
+/* The prose's list indent is for prose; a block's lists — a legend, bars, sparklines — sit on its edge. */
+.ui-block :is(ul.chart-legend, ul.bd-bars, ul.ui-sparks) { margin: 0; padding-left: 0; list-style: none; }
+/* Under the plot's own width it scales, whole, rather than leaving bands above and below it. */
+.ui-chart .chart { height: auto; }
+/* One grid for every bar, so each track starts where the others do whatever its label or value is —
+   a row of its own sizes its columns to its own text. */
+.ui-chart .bd-bars { display: grid; grid-template-columns: fit-content(40%) minmax(80px, 1fr) max-content; gap: 6px 12px; padding-top: 4px; }
+.ui-chart .bd-bar-row { grid-column: 1 / -1; grid-template-columns: subgrid; }
+.ui-chart .bd-bar-caption { display: none; }
+/* A column's total over it, and a line's name at its end: the value or the name where the eye is. */
+.chart-value { fill: var(--ink-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-end line { stroke-width: 2; stroke-linecap: round; }
+.chart-end-label { fill: var(--ink-2); font-size: 11px; }
+.ui-sparks { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 4px 18px 0; list-style: none; }
+.ui-spark { display: grid; grid-template-columns: minmax(80px, 1fr) minmax(96px, 2fr) auto; align-items: center; gap: 12px; font-size: 13px; }
+.ui-spark .sparkline { margin-top: 0; }
+/* The line is stretched to its cell; the stroke keeps one weight however far it is stretched. */
+.ui-spark .sparkline polyline { vector-effect: non-scaling-stroke; }
+.ui-spark-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.ui-spark-value { color: var(--ink); font-variant-numeric: tabular-nums; }
+/* The values and the comparison scroll inside the block, never widening the column they sit in. The
+   `.ui-block` prefix outranks `.md`'s table rules, whose sticky head and panel fill belong to a
+   table that is the whole message rather than one drawn inside a panel. */
+.ui-block-scroll { max-height: 360px; margin: 0 18px; overflow: auto; }
+/* A chart's values take the chart's own height, so the toggle swaps one for the other in place
+   rather than moving everything under the block. */
+.ui-block-scroll[data-values] { max-height: 272px; }
+.ui-block .ui-values, .ui-block .ui-compare { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.ui-block .ui-values :is(th, td), .ui-block .ui-compare :is(th, td) { position: static; padding: 6px 10px; border: 0;
+  border-bottom: var(--hairline-w) solid var(--line); background: none; text-align: left; vertical-align: top; }
+.ui-block :is(.ui-values, .ui-compare) tbody tr:last-child :is(th, td) { border-bottom: 0; }
+/* The table's text starts on the head's left edge and ends on its right, as the code it replaced did. */
+.ui-block :is(.ui-values, .ui-compare) :is(th, td):first-child { padding-left: 0; }
+.ui-block .ui-values :is(th, td):last-child { padding-right: 0; }
+.ui-block :is(.ui-values, .ui-compare) tbody tr:hover { background: none; }
+.ui-block .ui-values thead th { font-size: 12px; font-weight: var(--fw-label); color: var(--ink-2); text-align: right; white-space: nowrap; }
+.ui-block .ui-values tbody th { font-weight: var(--fw-label); color: var(--ink); }
+.ui-block .ui-values td { color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ui-block .ui-values .usage-swatch { margin-right: 6px; }
+.ui-none { color: var(--ink-3); }
+.ui-block .ui-compare thead th { font-weight: var(--fw-title); color: var(--ink); vertical-align: bottom; }
+.ui-block .ui-compare tbody th { font-weight: var(--fw-label); color: var(--ink-2); white-space: nowrap; }
+.ui-block .ui-compare td { color: var(--ink); min-width: 120px; }
+/* The pick stands on one raised band down its column, rounded at its two ends — a surface step,
+   never the accent, which is for what can be clicked. Its name says so in words above it. */
+.ui-block .ui-compare [data-pick] { background: var(--hover); }
+.ui-block .ui-compare [data-end="top"] { border-radius: var(--r-panel) var(--r-panel) 0 0; }
+.ui-block .ui-compare [data-end="bottom"] { border-radius: 0 0 var(--r-panel) var(--r-panel); }
+.ui-compare-pick { display: block; margin-bottom: 2px; font-size: 11px; font-weight: var(--fw-label); color: var(--accent-ink); }
+/* A narrow block's comparison: a card per option, the pick on the band's surface. The run of cards
+   sits 6px in, so a card's text starts on the head's edge and the pick's fill reaches past it. */
+.ui-compare-cards { display: flex; flex-direction: column; gap: 4px; margin: 0 6px; }
+.ui-compare-card { padding: 10px 12px; border-radius: var(--r-panel); }
+.ui-compare-card[data-pick] { background: var(--hover); }
+.ui-compare-card .ui-compare-option { font-size: 13px; font-weight: var(--fw-title); color: var(--ink); }
+.ui-compare-card dl { display: flex; flex-direction: column; gap: 2px; margin: 6px 0 0; }
+.ui-compare-pair { display: grid; grid-template-columns: minmax(72px, 38%) minmax(0, 1fr); gap: 10px; font-size: 13px; }
+.ui-compare-pair dt { font-weight: var(--fw-label); color: var(--ink-2); }
+.ui-compare-pair dd { margin: 0; color: var(--ink); }
+/* A drawing at its own width, shrunk to fit a narrower column — it is a picture, and a picture
+   that fits is read whole — down to two thirds of its size, where its 14px labels stop being
+   comfortably legible, and scrolled sideways past that rather than shrunk any further. */
+.ui-diagram { overflow-x: auto; overflow-y: hidden; padding: 4px 18px 0; }
+.ui-diagram svg { display: block; width: 100%; max-width: var(--diagram-w); min-width: calc(var(--diagram-w) * 2 / 3); height: auto; margin: 0 auto; }
+/* The same block in a Markdown document's rich view (documents/UiBlockNode.tsx), drawn where its
+   fence is, with the source under the drawing while it is being edited. The editor keeps its spaces
+   (`pre-wrap`); a drawing has none to keep. */
+.ui-block-node-view { white-space: normal; font-size: 14px; }
+.ui-block-node .ui-block { margin: 0; }
+.ui-block-node-view ~ :is(.ui-block-node-reason, .ui-block-node-code:not([hidden])) { margin-top: 8px; }
+.ui-block-node-reason { margin: 0 0 6px; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.ui-block-node-code[hidden] { display: none; }
+/* Mermaid lays text out to measure it, so it draws in the document — off to one side, unseen. */
+.ui-diagram-scratch { position: fixed; top: 0; left: -10000px; width: 1200px; pointer-events: none; }
 /* A link is colour and weight, no underline: the accent already says "this goes somewhere", and an
    underline under every link in a paragraph of prose is a paragraph of rules. Hover restores it. */
 .md a { color: var(--rl-accent); font-weight: var(--fw-label); text-decoration: none; }
@@ -4649,9 +4779,11 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    once rather than this tile becoming the one that curves differently. `overflow: hidden` is what
    makes the thumbnail take the corner too, which is the point for MEDIA: the glyph tiles would look
    the same either way, an image would not. */
+/* A file is an object wherever it is shown, and here too it stands under the object's border and
+   shadow rather than a flat ring. */
 .attach-art { position: absolute; inset: 0; display: grid; place-items: center;
   border-radius: calc(var(--attach-tile) * var(--sq-ratio-media)); corner-shape: squircle;
-  background: var(--field); box-shadow: var(--shadow-hairline);
+  background: var(--field); box-shadow: var(--rl-object-shadow);
   color: var(--rl-text-faint); overflow: hidden; }
 .attach-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
 /* The whole face of the tile is the open control, and it adds no box of its own: the well underneath
@@ -4688,7 +4820,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   background: linear-gradient(to top, rgb(0 0 0 / .72), rgb(0 0 0 / 0)); }
 /* A file the agent will simply discard must not look like one it will read (§2.4: colour = state). */
 .attach-tile[data-disposition="ignored"] .attach-art { color: var(--orange); background: var(--orange-tint);
-  box-shadow: 0 0 0 var(--hairline-w) var(--orange); }
+  box-shadow: 0 0 0 var(--hairline-w) var(--orange), var(--shadow-card-lift); }
 .attach-tile[data-disposition="ignored"] .attach-glyph { color: var(--rl-warning); }
 /* The tip: the name the tile stopped spelling out. Above the tile, because the tile row sits at the
    top of the composer card and the text the user is writing is below it. Nothing between here and
@@ -5257,6 +5389,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .search-field,
 :root[data-squircle] .palette,
 :root[data-squircle] .md-code,
+:root[data-squircle] .ui-block,
 :root[data-squircle] .edit-summary,
 :root[data-squircle] .subagents-compose,
 :root[data-squircle] .diff-review,
@@ -5519,13 +5652,18 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   border-radius: 0;
   background: paint(rl-squircle);
   --sq-fill: var(--field);
-  --sq-ring: var(--line);
+  --sq-ring: var(--rl-object-ring);
   --sq-ring-w: var(--hairline-w);
   --sq-radius-top: calc(var(--attach-tile) * var(--sq-ratio-media));
   --sq-radius-bottom: calc(var(--attach-tile) * var(--sq-ratio-media));
   box-shadow: none;
   clip-path: var(--attach-clip, none);
 }
+/* The object's shadow under the painted well, as a filter on the control round it: the well's own
+   `clip-path` would cut away a shadow drawn on the well, and a `drop-shadow` follows the curve the
+   painter drew where a box-shadow would follow the square box. The tip and the remove button are
+   the control's siblings, so the filter lifts the file and nothing else. */
+:root[data-squircle] .attach-open { filter: var(--rl-object-lift-filter); }
 /* A file this agent will discard keeps saying so on the painted curve: the tint and the warning ring
    move to the painter's own inputs, because `background` is spent on `paint()` and a box-shadow ring
    would trace the square border box underneath it. */
@@ -5539,6 +5677,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
    with no background of its own, so there is nothing at the corners for the square clip to reveal. */
 :root[data-squircle] .md-code { --sq-fill: var(--surface); box-shadow: none; }
+/* A drawn block is the same panel the code it replaced was, painted the same way. */
+:root[data-squircle] .ui-block { --sq-fill: var(--surface); box-shadow: none; }
 /* A turn's edit card is content in the log for the same reason, and on the card rung (see the card). */
 :root[data-squircle] .edit-summary { --sq-fill: var(--surface); box-shadow: none;
   --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
@@ -5893,7 +6033,7 @@ select { appearance: none; padding-right: 22px;
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre, .app-view-request-well,
-  .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display,
+  .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display, .ui-block-scroll, .ui-diagram,
   /* the diff pane */
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
   /* page panes */
@@ -5960,17 +6100,37 @@ select { appearance: none; padding-right: 22px;
 :root:not([data-overlay-scrollbars]) [data-dissolve]::-webkit-scrollbar-corner, :root:not([data-overlay-scrollbars]) [data-dissolve-x]::-webkit-scrollbar-corner { background: transparent; }
 
 /* The sidebar's column keeps its own, narrower bar: 11px of standard scrollbar reads as heavy in a
-   280px column. Everything else about it is the rule above. */
-:root:not([data-overlay-scrollbars]) .space-body { scrollbar-color: auto; scrollbar-width: auto; }
-:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar { width: 8px; }
-:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h) var(--fade-h); }
-:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-thumb { background: var(--mark); border-radius: 999px;
+   280px column. Everything else about it is the rule above. Every scroller the column holds wears it —
+   the spaces, the slot a page's sections take, and the Scheduled and Code review columns in that slot,
+   which bring scrollers of their own — so a page's list scrolls the way the spaces do. */
+:root:not([data-overlay-scrollbars]) .space-body,
+:root:not([data-overlay-scrollbars]) .sb-page-nav,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body { scrollbar-color: auto; scrollbar-width: auto; }
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar,
+:root:not([data-overlay-scrollbars]) .sb-page-nav::-webkit-scrollbar,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body::-webkit-scrollbar,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body::-webkit-scrollbar { width: 8px; }
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-track,
+:root:not([data-overlay-scrollbars]) .sb-page-nav::-webkit-scrollbar-track,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body::-webkit-scrollbar-track,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h) var(--fade-h); }
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .sb-page-nav::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body::-webkit-scrollbar-thumb { background: var(--mark); border-radius: 999px;
   /* Inset from the 8px channel so the thumb reads as a 4px line with air either side rather than a
      bar wedged against the column's edge. `background-clip: content-box` is what makes the border
      transparent padding instead of a second colour. */
   border: 2px solid transparent; background-clip: content-box; }
-:root:not([data-overlay-scrollbars]) .space-body:hover::-webkit-scrollbar-thumb { background: var(--mark-strong); background-clip: content-box; }
-:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-corner { background: transparent; }
+:root:not([data-overlay-scrollbars]) .space-body:hover::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .sb-page-nav:hover::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body:hover::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body:hover::-webkit-scrollbar-thumb { background: var(--mark-strong); background-clip: content-box; }
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-corner,
+:root:not([data-overlay-scrollbars]) .sb-page-nav::-webkit-scrollbar-corner,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body::-webkit-scrollbar-corner,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body::-webkit-scrollbar-corner { background: transparent; }
 
 /* ── Scrollbars: on scroll, in the prompter ────────────────────────────────
    Everywhere above keeps the persistent hairline: a transcript, a diff, a settings page is long
@@ -7105,11 +7265,12 @@ select { appearance: none; padding-right: 22px;
    test could have caught it). Both columns are `flex: 1 1 <basis>`, so the panel drops under the
    list when the pane cannot hold them side by side. */
 /* ── Scheduled tasks (SchedulesPage.tsx) ─────────────────────────────────
-   Codex's layout. The page carries its own column — the tasks, their runs, the suggestions — on the
-   frame's ground beside the work, the step a sidebar stands at, and beside it what is selected: a
-   run's session in the real session pane, with the task's card docked at the top right. The column
-   wears the sidebar's row anatomy (rows 8px in from a 16px inset, the active fill once chosen,
-   nothing lit under a passing pointer), so it reads as the same column listing tasks. */
+   Codex's layout. The page's own column — the tasks, their runs, the suggestions — and beside it what
+   is selected: a run's session in the real session pane, with the task's card docked at the top
+   right. The column is the sidebar's while the page is up (`.sb-page-nav`, above); these are its
+   rules wherever it is, and the ground and edge below are what it wears in the page, with the sidebar
+   folded away. It wears the sidebar's row anatomy (rows 8px in from a 16px inset, the active fill once
+   chosen, nothing lit under a passing pointer). */
 .schedules-page { flex-direction: row; }
 .sched-col { flex: none; width: 272px; min-height: 0; display: flex; flex-direction: column;
   background: var(--rl-frame); border-right: var(--hairline-w) solid var(--rl-line); }
@@ -7207,11 +7368,12 @@ select { appearance: none; padding-right: 22px;
 }
 
 /* ── Code review (panes/code-review/) ─────────────────────────────────────
-   Codex's Code Review in Realm's grammar. The page carries its own column — the requests — on the
-   frame's ground, wearing the sidebar's row anatomy as the Scheduled page's column does; beside it
-   the request being read, under one bar: its two tabs at the left, its own actions at the right,
-   ending in Submit review. The prompter is docked at the foot, over the content, which keeps a
-   prompter's height of room under its last line so nothing reads behind it. */
+   Codex's Code Review in Realm's grammar. The page's own column — the requests — is the sidebar's
+   while the page is up, as the Scheduled page's is (`.sb-page-nav`, above), and stands in the page on
+   the frame's ground with the sidebar folded away. Beside it, the request being read, under one bar:
+   its two tabs at the left, its own actions at the right, ending in Submit review. The prompter is
+   docked at the foot, over the content, which keeps a prompter's height of room under its last line
+   so nothing reads behind it. */
 .code-review-page { flex-direction: row; --cr-ask-room: 156px; --cr-tree-w: 272px; }
 .cr-col { flex: none; width: 300px; min-height: 0; display: flex; flex-direction: column;
   background: var(--rl-frame); border-right: var(--hairline-w) solid var(--rl-line); }
@@ -7563,12 +7725,12 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .library-empty { padding: 8px 0; }
 /* The Library's Saved section (LibrarySaved.tsx). Each turn says three things — what was asked, how it
    was answered, whose session — so it is a card with air round it rather than a row under a rule, on
-   the settings card's fill and rim. The card is the control that goes there; the ribbon in its corner
-   unsaves, filled in the accent as the track card's is. */
+   the settings card's fill, standing on the page as every Library item does. The card is the control
+   that goes there; the ribbon in its corner unsaves, filled in the accent as the track card's is. */
 .saved-turns { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .saved-turn { position: relative; display: flex; }
 .saved-turn-open { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 12px 48px 12px 16px; text-align: left;
-  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel);
+  background: var(--rl-card); box-shadow: var(--rl-object-shadow); border-radius: var(--r-panel);
   transition: background-color var(--dur-hover) ease; }
 .saved-turn-open:hover { background: var(--rl-card-hover); }
 .saved-turn-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -7591,11 +7753,15 @@ button.cr-finding-where:hover { text-decoration: underline; }
 /* The tile: ONE square for every file, so the grid's shape never changes from file to file. A file
    with no picture is its name at the top, its glyph in the middle and what the list knows at the
    foot; a file whose picture IS the file is that picture, edge to edge. */
+/* It stands on the page as an object does, under a light border and a very slight shadow (the owner,
+   10-05: "instead of being just a flat square"), rather than a rim traced inside a flat square. The
+   border is OUTSIDE the box, so a picture filling the tile keeps the tile's corner and the border runs
+   round it — never a second ring laid over the picture's edge. */
 .library-tile {
   position: relative; display: flex; flex-direction: column; gap: 6px;
   width: 100%; aspect-ratio: 1; padding: 14px 14px 12px; text-align: left; font: inherit; border: none; overflow: hidden;
   border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-tile);
-  box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-card-rim);
+  box-shadow: var(--rl-object-shadow);
   transition: background var(--dur-hover) ease;
 }
 /* Every card opens, so every card answers the mouse — the preview is where "what can Realm do with
@@ -7625,13 +7791,13 @@ button.cr-finding-where:hover { text-decoration: underline; }
    it back first. Everything beside it is a fixed 12px glyph. */
 .library-tile-session { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A picture tile. The picture fills the square — anchored to the TOP, because the top of a page is
-   the part that names it — under the one-device-pixel outline every image in the app wears. Its name
-   and provenance come up over a scrim under the pointer or the focus ring, at once, and fade on the
-   way out (design.md: hover arrives instantly). The scrim is a picture's, so its ink is white on
-   both faces. */
+   the part that names it — clipped to the tile's corner, with the tile's own border round it as the
+   one-device-pixel outline every image in the app wears. (It had its own outline traced inside; with
+   the border outside, that was a second ring half a pixel from the first.) Its name and provenance
+   come up over a scrim under the pointer or the focus ring, at once, and fade on the way out
+   (design.md: hover arrives instantly). The scrim is a picture's, so its ink is white on both faces. */
 .library-tile[data-thumb] { padding: 0; }
 .library-tile-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
-.library-tile[data-thumb]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset var(--shadow-hairline); pointer-events: none; }
 .library-tile-caption {
   position: absolute; inset: auto 0 0 0; display: flex; flex-direction: column; gap: 3px; padding: 32px 12px 10px;
   background: linear-gradient(to top, rgb(0 0 0 / 0.8), rgb(0 0 0 / 0.55) 55%, transparent);
@@ -7649,8 +7815,10 @@ button.cr-finding-where:hover { text-decoration: underline; }
 }
 .library-row:hover { background: var(--rl-hover); }
 .library-row:is([data-pressed], :active:focus-visible) { background: var(--rl-active); }
+/* In a row the file is its square, and the square is the object: the row itself stays a line of a
+   list, lit under the pointer, rather than becoming a card stacked on the next. */
 .library-row-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-chip); corner-shape: squircle; overflow: hidden;
-  background: var(--rl-tile); color: var(--rl-text-dim); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-card-rim); }
+  background: var(--rl-tile); color: var(--rl-text-dim); box-shadow: var(--rl-object-shadow); }
 .library-row-mark[data-type="document"], .library-row-mark[data-type="video"], .library-row-mark[data-type="audio"] { color: var(--rl-accent); }
 .library-row-mark[data-type="image"] { color: var(--rl-success); }
 .library-row-mark[data-type="data"] { color: var(--orange); }
@@ -8103,6 +8271,10 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .docs-home-open:hover { background: var(--rl-hover); }
 .docs-home-open:is([data-pressed], :active:focus-visible) { background: var(--rl-active); }
 .docs-home-glyph { flex: none; display: grid; place-items: center; color: var(--rl-text-dim); }
+/* A file in the list is its square, as in the Library's rows — the glyph on the tile's fill, under the
+   object's border and shadow — at the row's own scale. Only a file's: the Create row's mark is not one. */
+.docs-home-glyph[data-type] { width: 24px; height: 24px; border-radius: var(--r-chip); corner-shape: squircle;
+  background: var(--rl-tile); box-shadow: var(--rl-object-shadow); }
 .docs-home-glyph[data-type="document"], .docs-home-glyph[data-type="video"], .docs-home-glyph[data-type="audio"] { color: var(--rl-accent); }
 .docs-home-glyph[data-type="image"] { color: var(--rl-success); }
 .docs-home-glyph[data-type="data"] { color: var(--orange); }

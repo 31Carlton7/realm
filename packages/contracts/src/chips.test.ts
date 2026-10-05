@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   annotationChipLabel, APP_PICK_HOOK_MAX, APP_PICK_HOOKS_MAX, CHIP_LABEL_MAX, chipLabel, ElementChipSchema, elementChipLabel, elementChipToken, elementContext,
-  chipRuns, isAppElement, keepLiveChips, MAX_ELEMENT_CHIPS, PICK_HTML_MAX, scanChips, scanElementChips, type AppPickedElement, type BrowserPickedElement,
+  chipRuns, isAppElement, isDeviceElement, keepLiveChips, MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, scanChips, scanElementChips,
+  type AppPickedElement, type BrowserPickedElement, type DevicePickedElement,
 } from "./index";
 
 const picked = (over: Partial<BrowserPickedElement> = {}): BrowserPickedElement => ({
@@ -332,5 +333,84 @@ describe("app chips", () => {
     // The page block lists only the page's chip.
     expect(both.slice(page, app)).not.toContain("Realm · Send button");
     expect(elementContext([{ label: 'button "Sign in"', element: picked() }])).not.toContain("Realm's own window");
+  });
+});
+
+describe("device chips", () => {
+  const SHOT = "/realm/tmp/attachments/f00d-iphone-general-button.png";
+  const SIM = "01JD2ZQ5Y3W8ZGZ1X6M2R7S9TA";
+  const devicePicked = (over: Partial<Omit<DevicePickedElement, "simulator">> = {}, simulator: Partial<DevicePickedElement["simulator"]> = {}): DevicePickedElement => ({
+    role: "Button", label: "General", value: "", id: "com.apple.settings.general", enabled: true,
+    frame: { x: 16, y: 293.33333333333337, width: 370, height: 44 }, screen: { width: 402, height: 874 }, units: "points",
+    ...over,
+    simulator: { id: SIM, kind: "iPhone", platform: "ios", physical: false, app: "Settings", shot: SHOT, ...simulator },
+  });
+
+  it("is named by what the device is, then by its label and what its type is called", () => {
+    expect(elementChipLabel(devicePicked())).toBe("iPhone · General button");
+    expect(elementChipLabel(devicePicked({ role: "Switch", label: "Wi-Fi", value: "1" }))).toBe("iPhone · Wi-Fi switch");
+    // Android passes its widget classes through, so the class's last word is what is looked up.
+    expect(elementChipLabel(devicePicked({ role: "android.widget.EditText", label: "Search" }, { kind: "Android", platform: "android" }))).toBe("Android · Search field");
+    // A type nobody says aloud leaves the element to its label; a nameless one goes by its value, its id, then its type.
+    expect(elementChipLabel(devicePicked({ role: "Cell", label: "Lemon pasta" }))).toBe("iPhone · Lemon pasta");
+    expect(elementChipLabel(devicePicked({ role: "TextField", label: "", value: "carlton" }))).toBe("iPhone · carlton field");
+    expect(elementChipLabel(devicePicked({ role: "Other", label: "", value: "", id: null }))).toBe("iPhone · Other");
+  });
+
+  it("says in the chip when there is no picture, and keeps the note when the name is clipped", () => {
+    expect(elementChipLabel(devicePicked({}, { shot: null }))).toBe("iPhone · General button (no picture)");
+    const long = elementChipLabel(devicePicked({ label: "x".repeat(200) }, { shot: null }));
+    expect(long).toHaveLength(CHIP_LABEL_MAX);
+    expect(long.endsWith("… (no picture)")).toBe(true);
+    // An app's label may carry the characters that would end the token or smuggle a mention in.
+    expect(elementChipLabel(devicePicked({ label: "hi @mac [x]" }))).toBe("iPhone · hi mac x button");
+  });
+
+  it("rides the same wire as the other two, and comes back as itself", () => {
+    // THE MUTANT: no device shape on the wire. Every chip the simulator pane made would bounce at send.
+    const device = ElementChipSchema.parse({ label: "iPhone · General button", element: devicePicked() });
+    expect(isDeviceElement(device.element)).toBe(true);
+    expect(isAppElement(device.element)).toBe(false);
+    expect(device.element).toEqual(devicePicked());
+    expect(isDeviceElement(ElementChipSchema.parse({ label: 'button "Sign in"', element: picked() }).element)).toBe(false);
+    // Held to bounds of its own, and to a real simulator id.
+    expect(ElementChipSchema.safeParse({ label: "x", element: devicePicked({ label: "y".repeat(PICK_TEXT_MAX + 1) }) }).success).toBe(false);
+    expect(ElementChipSchema.safeParse({ label: "x", element: devicePicked({}, { id: "not-an-id" }) }).success).toBe(false);
+  });
+
+  it("tells the agent which device, how to act on it, and fences what the app said", () => {
+    const out = elementContext([{ label: "iPhone · General button", element: devicePicked() }], [{ path: SHOT }]);
+    expect(out).toContain("Elements the user picked on a device's screen in Realm's simulator pane, one per chip above:\n"
+      + `  @[iPhone · General button] — an iOS simulator, simulatorId ${SIM}; the attached f00d-iphone-general-button.png shows it`);
+    expect(out).toContain("the browser tools cannot reach them");
+    expect(out).toContain("simulator_elements numbers what is on the screen now, and simulator_tap takes that number");
+    const fenced = out.slice(out.search(/untrusted-[0-9a-f]{16}/));
+    expect(fenced).toContain("app in front: Settings\nrole: Button\nlabel: General\nid: com.apple.settings.general\nenabled: true");
+    expect(fenced).toContain("frame: x=16 y=293.3 w=370 h=44 in a 402×874 point screen");
+    // THE MUTANT: the app's own words outside the fence. A label is the app's to write, so is its name.
+    expect(out.slice(0, out.search(/untrusted-[0-9a-f]{16}/))).not.toContain("Settings");
+  });
+
+  it("names the picture only while the message carries it, and says what kind of device it is", () => {
+    const taken = elementContext([{ label: "iPhone · General button", element: devicePicked() }], []);
+    expect(taken).toContain(`— an iOS simulator, simulatorId ${SIM}; no picture`);
+    expect(elementContext([{ label: "x", element: devicePicked({}, { physical: true }) }])).toContain("— a real iOS device");
+    expect(elementContext([{ label: "x", element: devicePicked({ units: "pixels" }, { platform: "android", kind: "Android" }) }]))
+      .toContain("— an Android emulator");
+    expect(elementContext([{ label: "x", element: devicePicked({ units: "pixels" }, { platform: "android" }) }])).toContain("in a 402×874 pixel screen");
+  });
+
+  it("comes after a page's elements and Realm's, under its own head, and leaves the other two alone", () => {
+    const all = elementContext([
+      { label: "iPhone · General button", element: devicePicked() },
+      { label: 'button "Sign in"', element: picked() },
+    ]);
+    const page = all.indexOf("Elements the user picked in Realm's browser pane");
+    const device = all.indexOf("on a device's screen in Realm's simulator pane");
+    expect(page).toBeGreaterThanOrEqual(0);
+    expect(device).toBeGreaterThan(page);
+    // THE MUTANT: a device chip read as a page's. It would be listed with a URL it does not have.
+    expect(all.slice(page, device)).not.toContain("iPhone · General button");
+    expect(elementContext([{ label: 'button "Sign in"', element: picked() }])).not.toContain("simulator pane");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, hasLeafIn, patchKey, spaceIsPlainFolder, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, type DropEdge } from "./store";
-import { allItems, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Item, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { allItems, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, ElementChipSchema, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type DevicePickedElement, type Environment, type Item, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 import { DEFAULT_GROUND_ALPHA } from "@realm/ui";
 
@@ -2752,6 +2752,26 @@ describe("element chips in the draft", () => {
     expect(store.getState().draftElements.se1).toHaveLength(MAX_ELEMENT_CHIPS);
     // …and the refused pick left no half-chip behind in the text.
     expect(scanElementChips(store.getState().drafts.se1!)).toHaveLength(MAX_ELEMENT_CHIPS);
+  });
+
+  it("sends a pick off a device as the same chip, its picture riding as the message's attachment", async () => {
+    // THE MUTANT: a device element the chip machinery reads as a page's — no label it could be named
+    // by, and an element the wire would refuse. The simulator pane's picks go out through this path.
+    const { a, store } = await ready();
+    const shot = "/realm/tmp/attachments/f00d-iphone-general-button.png";
+    const DEVICE: DevicePickedElement = {
+      role: "Button", label: "General", value: "", id: null, enabled: true,
+      frame: { x: 16, y: 300, width: 370, height: 44 }, screen: { width: 402, height: 874 }, units: "points",
+      simulator: { id: "01JD2ZQ5Y3W8ZGZ1X6M2R7S9TA", kind: "iPhone", platform: "ios", physical: false, app: "Settings", shot },
+    };
+    expect(store.getState().addElementChip("se1", DEVICE)).toBe("iPhone · General button");
+    store.getState().attachPicked("se1", [{ path: shot, mime: "image/png", name: "f00d-iphone-general-button.png", size: 2048 }]);
+    await store.getState().sendMessage("se1", store.getState().drafts.se1!.trim());
+    expect(a.sent[0]).toMatchObject({
+      text: "@[iPhone · General button]", attachments: [{ path: shot, mime: "image/png" }],
+      elements: [{ label: "iPhone · General button", element: DEVICE }],
+    });
+    expect(ElementChipSchema.parse(a.sent[0]!.elements![0])).toEqual({ label: "iPhone · General button", element: DEVICE });
   });
 
   it("deleting the session's item drops its picked elements with the draft", async () => {
