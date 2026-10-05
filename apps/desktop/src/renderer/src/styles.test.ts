@@ -207,6 +207,21 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".toast[data-paused] .toast-progress").join(" ")).toContain("animation-play-state: paused");
   });
 
+  /* THE mutants: a tooltip that catches the pointer (it would steal the hover from the control it
+     names, and flicker), one drawn under the menus and toasts it explains, and one that wears a colour
+     of its own instead of the per-theme chip tokens. */
+  it("the tooltip never takes the pointer, floats over menus and toasts, and arrives on the tip's own rung", () => {
+    const tip = bodiesFor(".tooltip").join(" ");
+    expect(tip).toContain("pointer-events: none");
+    const z = (sel: string) => Number(bodiesFor(sel).join(" ").match(/z-index:\s*(\d+)/)?.[1]);
+    expect(z(".tooltip")).toBeGreaterThan(z(".menu"));
+    expect(z(".tooltip")).toBeGreaterThan(z(".toasts"));
+    expect(tip).toContain("background: var(--tooltip-bg)");
+    expect(tip).toContain("color: var(--tooltip-fg)");
+    expect(bodiesFor(".tooltip[data-open]").join(" ")).toContain(`opacity ${dur("--dur-fast")}`);
+    expect(bodiesFor(".tooltip[data-instant]").join(" ")).toContain("transition: none");
+  });
+
   it("transcript items enter at 180ms with a 6px rise, gated on the data-enter mark Transcript.tsx sets", () => {
     expect(bodiesFor(".transcript-col > [data-enter]").join(" ")).toContain(`animation: rl-msg-in ${dur("--dur-enter")} var(--ease-out-strong)`);
     expect(blockAfter("@keyframes rl-msg-in")).toContain("translateY(6px)");

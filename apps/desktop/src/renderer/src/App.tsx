@@ -26,7 +26,7 @@ import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
 import { persistBrowserPages } from "./panes/browser/persist-pages";
 import { Onboarding } from "./components/Onboarding";
-import { StoreContext, createAppStore, useApp, type AppState } from "./state/store";
+import { StoreContext, createAppStore, useApp, useAppStore, type AppState } from "./state/store";
 import { useStore, type StoreApi } from "zustand";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
@@ -36,6 +36,7 @@ import { useApplyTheme } from "./theme/useTheme";
 import { useZoom } from "./theme/zoom";
 import { installRubberBand } from "./rubber-band";
 import { installPressTracking } from "./press-tracking";
+import { installTooltips } from "./tooltips";
 import "./panes";
 
 /**
@@ -191,6 +192,13 @@ function ScrollbarStyleBridge() {
 /** A held button's highlight follows the pointer (press-tracking.ts). */
 function PressTrackingBridge() {
   useEffect(() => installPressTracking(document), []);
+  return null;
+}
+
+/** Every control's `title` as the app's own tooltip (tooltips.ts), kept clear of the browser views. */
+function TooltipBridge() {
+  const store = useAppStore();
+  useEffect(() => installTooltips(document, { avoid: () => store.getState().browserRects }), [store]);
   return null;
 }
 
@@ -614,6 +622,7 @@ export function App() {
       <ScrollbarStyleBridge />
       <RubberBandBridge />
       <PressTrackingBridge />
+      <TooltipBridge />
       {/* Shared by the sidebar and the page over the panes, whose own rail can take the sidebar's
           column (components/page-nav.tsx). */}
       <PageNavProvider>

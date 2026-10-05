@@ -2462,6 +2462,31 @@ button.panel-title:hover { background: var(--rl-hover); }
   to { opacity: 1; transform: translateX(-50%); }
 }
 
+/* ── The tooltip (v2) ───────────────────────────────────────────────────────
+   One layer for the window (tooltips.ts): the `title` every control carries, in the app's own type a
+   fifth of a second after the pointer arrives, where the system's grey box took a second and a half.
+   Small and quiet — the caption rung at the label weight, the chip corner, the tooltip chip's own
+   ground (built per theme in themes.ts, inverted into a dark chip on the light face), a hairline rim
+   and the lightest lift in the shadow ladder, because it floats over one control rather than over the
+   window. It arrives on a fade with a two-pixel travel out of its control, leaves on a shorter fade
+   with none, and appears outright for the next control within the grace period. A chord in its title
+   reads as a KEY, as a menu's does. It never takes the pointer. */
+.tooltip { position: fixed; z-index: 120; left: 0; top: 0; display: flex; align-items: center; gap: 6px;
+  max-width: 280px; padding: 4px 8px; pointer-events: none;
+  border-radius: var(--r-chip); background: var(--tooltip-bg); color: var(--tooltip-fg);
+  box-shadow: 0 0 0 var(--hairline-w) var(--tooltip-border), var(--shadow-card-lift);
+  font: var(--fw-medium) 12px/16px var(--font-ui); text-wrap: pretty; overflow-wrap: anywhere;
+  opacity: 0; visibility: hidden; translate: 0 -2px;
+  transition: opacity var(--dur-press) var(--ease-fade), visibility 0s linear var(--dur-press); }
+.tooltip[data-side="above"] { translate: 0 2px; }
+.tooltip[data-open] { opacity: 1; visibility: visible; translate: 0 0;
+  transition: opacity var(--dur-fast) var(--ease-out-strong), translate var(--dur-fast) var(--ease-out-strong); }
+.tooltip[data-instant] { transition: none; }
+.tooltip-label { min-width: 0; }
+/* Concentric with the tip's corner: four pixels in from its edge, so four off its radius. */
+.tooltip-key { flex: none; padding: 0 4px; border-radius: calc(var(--r-chip) - 4px);
+  background: var(--tooltip-border); color: var(--tooltip-muted); font: 11px/16px var(--font-ui); letter-spacing: .02em; }
+
 /* ── Toasts (v2) ────────────────────────────────────────────────────────────
    The window's notices, at its foot (components/Toasts.tsx): a failed action, a refused file, a pane's
    receipt. A raised card like a menu — the surface, the panel corner, the raised shadow stack —
