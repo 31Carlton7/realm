@@ -360,12 +360,7 @@ kbd { font: 11px var(--font-mono); }
 .sidebar[data-collapsed] { --sidebar-open: 0; }
 .sidebar-slide { flex: none; width: var(--sidebar-w); min-height: 0; display: flex; flex-direction: column;
   translate: calc(var(--sidebar-w) * (var(--sidebar-open) - 1)) 0; }
-/* A LABEL is a control too. The lens's two segments are labels round hidden radios, and with only
-   buttons and inputs opted out, the column's drag region covered every pixel of them but the 13px
-   radio parked at the start of each word: a click on "Recent" anywhere else started a window drag
-   and never reached the page (reported 10-04 as "hard to click"). The whole track opts out, so the
-   gap between the segments is not a dead strip either. */
-.sidebar button, .sidebar input, .sidebar label, .sb-lens, .sb-resize { -webkit-app-region: no-drag; }
+.sidebar button, .sidebar input, .sb-resize { -webkit-app-region: no-drag; }
 /* Folded away, the column is a box with no width, but what it holds is still laid out — slid off to
    the left, across the rail — and Electron lays the window's drag regions down in document order, not
    stacking order or clipping. The rail comes first, so a drag region left on the folded column lands
@@ -549,15 +544,13 @@ kbd { font: 11px var(--font-mono); }
 /* Settings keeps its search where it is while the pages scroll under it, as it does in the page. */
 .sb-page-nav:has(.settings-rail) { overflow: hidden; }
 .sb-page-nav .page-rail.settings-rail { flex: 1; min-height: 0; max-height: none; gap: 8px; }
-/* The lens: the shared segmented control, across the column, its two readings sharing the width. It
-   sits on the column's translucent ground, not on a pane, where the control's opaque track read as a
-   hole in the sidebar and the loudest thing in it. So it takes the column's own fills — the track a
-   hover's step, the chosen reading the step a selected row takes (design.md: share the component,
-   let the ground choose the step). */
-.sb-lens { display: flex; }
-.sb-lens.seg { background: var(--rl-hover); border-color: transparent; }
-.sb-lens .seg-opt { flex: 1; text-align: center; }
-.sb-lens .seg-opt[data-selected] { background: var(--rl-active); box-shadow: none; }
+/* The list's head (SidebarLens): what the list is showing, in the column's section-label voice — the
+   sentence-case caption "Pinned" and the day headings wear — and at its far end the switch to the other
+   reading, a plain icon button lit while the activity is up. A caption row rather than a control row:
+   the switch is the one thing in it that answers the pointer. */
+.sb-lens { display: flex; align-items: center; min-height: 28px; padding-left: 8px; margin-top: 8px; }
+.sb-lens:first-child { margin-top: 0; }
+.sb-lens-title { flex: 1; min-width: 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
 /* What needs you: rows in the column's own anatomy, and under a waiting row the session's own request
    card, at the column's full width — a card squeezed under an indent wraps every option. */
 .sb-needs, .sb-pinned { display: flex; flex-direction: column; }
@@ -891,8 +884,6 @@ kbd { font: 11px var(--font-mono); }
 .sb-start { color: var(--rl-text-faint); }
 .sb-new-space { flex: none; width: 100%; min-height: 32px; margin-top: 6px; color: var(--rl-text-dim); }
 .sb-new-space:hover { color: var(--rl-text-bright); }
-.sb-lens { margin: 10px 0 6px; }
-.sb-lens:first-child { margin-top: 2px; }
 .sb-recent .sb-day:first-child > .group-label { padding-top: 4px; }
 /* Nothing yet is its own composition, centred in the room the list would have used. */
 .sb-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 32px 12px; text-align: center;

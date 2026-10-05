@@ -82,7 +82,7 @@ describe("the list", () => {
     expect(row.closest(".space-body")!.lastElementChild).toBe(row);
     fireEvent.click(row);
     await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-space" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Recent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "New space" })).toBeNull());
   });
 });

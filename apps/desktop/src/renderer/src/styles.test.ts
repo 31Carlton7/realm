@@ -1151,19 +1151,6 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".page-overlay-bar button").join(" ")).toContain("-webkit-app-region: no-drag");
   });
 
-  it("every control in the sidebar's drag region opts out of it — labels included, so Recent clicks", () => {
-    /* The column is a window-drag region, and macOS takes a press anywhere in one for the start of a
-       window drag: the page never hears the click. The lens's segments are LABELS round hidden radios,
-       and with only buttons and inputs opted out, "Recent" answered only on the 13px radio parked at
-       the start of its word (reported 10-04: "hard to click"). CDP's clicks go straight into the page
-       and never meet the OS's regions, so no live check can see this — it is held here. THE mutants:
-       `label` dropped from the opt-out, or the lens's track left in the column's region. */
-    const optOut = RULES.filter((r) => r.body.includes("-webkit-app-region: no-drag")).flatMap(partsOf);
-    for (const control of [".sidebar button", ".sidebar input", ".sidebar label", ".sb-lens"]) {
-      expect(optOut, `${control} is not opted out of the sidebar's drag region`).toContain(control);
-    }
-  });
-
   it("a folded sidebar takes no part in the window's drag regions, so the rail's buttons stay clickable", () => {
     /* Electron lays drag regions down in DOCUMENT order, not stacking order. The folded column slides
        under the rail, and the rail comes first in the DOM, so a drag region left on the column covers
@@ -2927,14 +2914,19 @@ describe("row and control layout", () => {
     expect(bodiesFor('.item-disclose[aria-expanded="true"] svg').join(" ")).toContain("rotate(90deg)");
   });
 
-  it("the sidebar's lens takes the column's own fills, not the shared control's opaque track", () => {
-    /* Spaces | Recent sits on the column's translucent ground, where `.seg`'s opaque `--rl-frame` track
-       read as a hole in the sidebar and the loudest thing in it. Share the component, let the ground
-       choose the step (design.md): the track is a hover's step, the chosen reading a selected row's. */
-    expect(bodiesFor(".sb-lens.seg").join(" ")).toContain("background: var(--rl-hover)");
-    const chosen = bodiesFor(".sb-lens .seg-opt[data-selected]").join(" ");
-    expect(chosen).toContain("background: var(--rl-active)");
-    expect(chosen).toContain("box-shadow: none");
+  it("the sidebar's list is headed by a caption and a switch, not a segmented control across the column", () => {
+    /* The owner, 10-04: "The tabs between spaces and recent should be removed. It should just have a
+       smaller subsection title that says spaces, then all the way to the right a button with an
+       activity icon". The caption is in the column's section-label voice — the size, weight and ink
+       "Pinned" wears. THE mutants: the old `.seg` track back, or a caption louder than the labels
+       around it. */
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".sb-lens") && /seg/.test(sel)))).toEqual([]);
+    const title = bodiesFor(".sb-lens-title").join(" ");
+    const label = bodiesFor(".group-label").join(" ");
+    for (const part of ["font-size: 13px", "font-weight: var(--fw-medium)", "color: var(--rl-text-faint)"]) {
+      expect(label, part).toContain(part);
+      expect(title, part).toContain(part);
+    }
   });
 
   it("a cross-space row's space name keeps its width, and the title is what gives way", () => {
