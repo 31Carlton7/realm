@@ -7,6 +7,7 @@ import { SpaceIcon } from "./SpaceIcon";
 import { Spinner } from "./Spinner";
 import { useAnchoredPopover } from "./use-anchored-popover";
 import { useFileDrop } from "./use-file-drop";
+import { useDissolve } from "./ScrollFades";
 
 /** The image types the server accepts as an icon (icons/service.ts's `ALLOWED_UPLOAD_MIMES`), by the
  *  MIME Chromium puts on a dropped File. Anything else is refused here with a sentence rather than
@@ -94,6 +95,10 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  /* One grid is drawn at a time, whichever tab is open, so one ref follows it (the emoji chunk's
+     grid dissolves on its own). */
+  const grid = useRef<HTMLDivElement>(null);
+  useDissolve(grid);
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, onClose, exit: true });
   const [tab, setTab] = useState<Tab>("default");
   /* The search takes the keyboard once the surface is placed, and again on a tab that has one. The
@@ -171,7 +176,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
         </div>
       )}
       {tab === "default" && (
-        <div className="ip-grid" role="radiogroup" aria-label="Default icons">
+        <div className="ip-grid" ref={grid} role="radiogroup" aria-label="Default icons">
           {defaultIcons.map((n) => (
             <button key={n} type="button" role="radio" aria-checked={icon === n} aria-label={`Icon ${n}`} className="icon-choice"
               data-selected={icon === n || undefined} onClick={() => onPick(n)}><Icon name={n} size={18} /></button>
@@ -181,7 +186,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
       )}
       {tab === "emoji" && (
         // The chunk is local, so the fallback is a frame or two — a spinner would flash rather than inform.
-        <Suspense fallback={<div className="ip-grid" aria-busy="true" />}>
+        <Suspense fallback={<div className="ip-grid" ref={grid} aria-busy="true" />}>
           <IconPickerEmoji icon={icon} query={query} onPick={onPick} />
         </Suspense>
       )}
@@ -197,7 +202,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
             {generating ? <><Spinner size={14} /> Generating…</> : <><Icon name="sparkles" size={14} /> Generate</>}
           </button>
           {genError && <p className="ip-error">{genError}</p>}
-          <div className="ip-grid">
+          <div className="ip-grid" ref={grid}>
             {generated.map((a) => (
               <button key={a.id} type="button" role="radio" aria-checked={icon === `asset:${a.id}`} aria-label={a.prompt ?? "Generated icon"}
                 title={a.prompt ?? undefined} className="icon-choice" data-selected={icon === `asset:${a.id}` || undefined}
@@ -214,7 +219,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
           </button>
           <p className="ip-hint">Or drop an image anywhere on this panel.</p>
           {uploadError && <p className="ip-error" role="alert">{uploadError}</p>}
-          <div className="ip-grid">
+          <div className="ip-grid" ref={grid}>
             {uploaded.map((a) => (
               <button key={a.id} type="button" role="radio" aria-checked={icon === `asset:${a.id}`} aria-label="Uploaded icon"
                 className="icon-choice" data-selected={icon === `asset:${a.id}` || undefined}

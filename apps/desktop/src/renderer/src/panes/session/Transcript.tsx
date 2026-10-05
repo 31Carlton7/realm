@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { fileMark } from "./mention-sources";
@@ -16,7 +16,7 @@ import { AnsweredQuestion } from "./QuestionCard";
 import { ToolCard, ToolCwd, ToolGroup } from "./ToolCard";
 import { LeadSessionContext } from "./DelegationLine";
 import { formatDuration, groupTranscript, withEnter } from "./tool-group";
-import { blockKey, lastUserMessage, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
+import { blockKey, goalTurnLabel, lastUserMessage, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { stampLabel, stampTitle, useNow } from "./timestamps";
 import { touchedFiles, type FileLinkContext } from "./file-links";
 import { EditSummary } from "./EditSummary";
@@ -28,7 +28,9 @@ import { useEnterTracker } from "./transcript-enter";
 import { TranscriptSummary } from "./TranscriptSummary";
 import { MediaStrip } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
-import { SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type ScrollMark } from "../scroll-memory";
+import { NEAR_END_PX, SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type ScrollMark } from "../scroll-memory";
+import { ScrollTrack } from "./ScrollTrack";
+import { samePrompts, trackPrompts, type TrackPrompt } from "./scroll-track";
 
 /** Permission cards share the blocks' key space; the prefix keeps a requestId from colliding with one. */
 const permKey = (requestId: string) => `perm:${requestId}`;
@@ -70,6 +72,9 @@ const NO_PACK_LABELS: readonly RunLabel[] = [];
 const NO_MENTIONS: readonly string[] = [];
 const NO_APP_ICONS: Readonly<Record<string, string | null>> = {};
 const NO_SOURCES: readonly Source[] = [];
+const NO_PROMPTS: readonly TrackPrompt[] = [];
+
+const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 /**
  * A user message's text, with its chips drawn as chips.
@@ -95,12 +100,19 @@ const NO_SOURCES: readonly Source[] = [];
  * HERE — what the agent was handed is a fact about the run, and a log that hid it would be lying by
  * omission — it is just not the loudest thing in the column.
  */
+/** An error's own words, capped, in a box that dissolves at an end once there is more of them. */
+function ErrorText({ text }: { text: string }) {
+  const box = useRef<HTMLPreElement>(null);
+  useDissolve(box);
+  return <pre ref={box}>{text}</pre>;
+}
+
 function GoalTurn({ kind, text }: { kind: "continuation" | "budget"; text: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button type="button" className="msg-user-from msg-goal-turn" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {kind === "budget" ? "Goal budget spent — Realm asked for a handover" : "Realm continued this goal"}
+        {goalTurnLabel(kind)}
         <Icon name="chevronRight" size={12} className="msg-goal-caret" />
       </button>
       {open && <div className="msg-user msg-goal-prompt">{text}</div>}
@@ -149,19 +161,18 @@ function UserText({ text, mentionIds, refs, appIcons }: { text: string; mentionI
 }
 
 /**
- * The tiles above a user message. Media among them opens in the lightbox on click.
+ * The tiles above a user message. Each opens in the media viewer on click, with the message's other
+ * files beside it.
  *
  * A screenshot was already visible as a 56px thumbnail, which answers "did I attach the right file"
  * and nothing else; a video attachment could not be played at all. Both are files the user chose,
- * so both are files they should be able to look at without leaving for Finder.
- *
- * Non-media attachments keep the plain tile. A PDF's tile shows its first page and there is nothing
- * more Realm can do with it here, so making it look clickable would be a promise it cannot keep.
+ * so both are files they should be able to look at without leaving for Finder — and a PDF too, in
+ * macOS's own render of it, with the session's prompter under it to ask about it.
  */
 function UserAttachments({ attachments }: { attachments: readonly { path: string; mime: string }[] }) {
   return (
     <ul className="msg-user-files" aria-label="Attached files">
-      {attachments.map((a) => <li key={a.path}><AttachmentTile path={a.path} mime={a.mime} /></li>)}
+      {attachments.map((a) => <li key={a.path}><AttachmentTile path={a.path} mime={a.mime} siblings={attachments} /></li>)}
     </ul>
   );
 }
@@ -216,8 +227,11 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
+  /** Draw the scroll track down the log's left edge (ScrollTrack.tsx) — every session pane's. Off in the
+   *  quick chat, whose 380px window is one short exchange with no scrollback to find a place in. */
+  track?: boolean;
   /** The session this log is — what a sub-agent's line links back to (its row in this session's
    *  Agents tab). Null in the read-only mounts, where the line reads and links nowhere. */
   sessionId?: string | null;
@@ -347,6 +361,22 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
     ...permissions.map((p) => permKey(p.requestId)),
     ...[...(edits?.cards.keys() ?? [])].map(editKey),
   ]);
+  /* The scroll track's prompts, and which of them changed files — counted off the Edited cards this
+     log draws, and off git's measurements where it draws none, so a tick marked as an edit is always
+     a turn with a card or a measurement behind it. Kept as the SAME list while it says the same thing:
+     every streamed token rebuilds the blocks, and the track would otherwise re-render every tick. */
+  const promptsRef = useRef<readonly TrackPrompt[]>(NO_PROMPTS);
+  const prompts = useMemo(() => {
+    if (!track) return NO_PROMPTS;
+    const next = trackPrompts(transcript.blocks, (i) => {
+      const b = transcript.blocks[i]!;
+      if (b.kind !== "run") return 0;
+      if (edits) return edits.cards.get(blockKey(b, i))?.totalFiles ?? 0;
+      const measured = transcript.changes?.[b.ts];
+      return measured && measured.files.length > 0 ? measured.totalFiles : 0;
+    });
+    return samePrompts(promptsRef.current, next) ? promptsRef.current : (promptsRef.current = next);
+  }, [track, transcript.blocks, transcript.changes, edits]);
 
   /* The ONE place the pin is written, so the pin and the remembered mark can never disagree — and
      so a programmatic jump is remembered too. Only `onScroll` would otherwise record anything, and
@@ -365,6 +395,19 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
     if (atBottom.current) setPill(false);
   };
   const scrollToBottom = () => { const el = ref.current; if (el) stick(el); else atBottom.current = true; setPill(false); };
+  /* A prompt picked on the scroll track. The reader has chosen where to be, so it is recorded as their
+     own scroll would be — and recorded FIRST: a smooth scroll reports itself a frame at a time, and a
+     token arriving before the first frame would stick a log that was at its end straight back there.
+     A restore still settling is the reader's no longer, as a wheel would have made it. */
+  const jumpRef = useRef((_top: number) => {});
+  jumpRef.current = (top) => {
+    const el = ref.current; if (!el) return;
+    restore.current = null;
+    const to = Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
+    pin({ top: to, atEnd: el.scrollHeight - to - el.clientHeight < NEAR_END_PX });
+    el.scrollTo({ top: to, behavior: reducedMotion() ? "instant" : "smooth" });
+  };
+  const jump = useCallback((top: number) => jumpRef.current(top), []);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -468,12 +511,17 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
               // footnote to the text. It is also the only arrangement that survives the two
               // degenerate cases — an attachment-only message has no bubble to sit inside, and a long
               // message would otherwise push its own files off the bottom of the card.
-              <div key={key} className="msg-user-row" data-enter={enter || undefined} data-from={b.from || b.goal ? "" : undefined}>
+              <div key={key} className="msg-user-row" data-prompt={key} data-enter={enter || undefined} data-from={b.from || b.goal ? "" : undefined}
+                data-scheduled={b.scheduled ? "" : undefined}>
                 {/* A question another session asked is NOT the user's words. Rendering it as a plain
                     user bubble would have the user believing they typed it — a lie by omission — so
                     the bubble is attributed and styled apart. The fenced text itself is left exactly
                     as the peer received it: the user should see what the agent was actually handed. */}
                 {b.from && <span className="msg-user-from">Asked by {b.from.title}</span>}
+                {/* A scheduled run's first message IS the person's words — the task's instructions — so
+                    its bubble stays theirs; it is the clock that sent it, and the line above says so.
+                    The note Realm added for the agent is under the pointer, not in the bubble. */}
+                {b.scheduled && <span className="msg-user-from" title={b.scheduled.note}>Scheduled run · {b.scheduled.task}</span>}
                 {b.attachments && <UserAttachments attachments={b.attachments} />}
                 {/* An attachment-only message has no text at all, and an empty bubble would read as a
                     send that lost its words rather than one that carried only files. */}
@@ -507,7 +555,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}>
               <Icon name="alert" size={14} />
               <div className="msg-error-body">
-                <pre>{b.message}</pre>
+                <ErrorText text={b.message} />
                 {b.fix?.command && <CommandCopy command={b.fix.command} />}
               </div>
             </div>;
@@ -598,6 +646,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         </div>
         </LeadSessionContext.Provider>
       </div>
+      {/* Outside the scroller for the same reason, and AFTER it: the track reads the scroller's ref in
+          its first layout effect, which React runs for an earlier sibling before this one's ref is
+          attached. It also leaves the track just behind the prompter in the tab order, rather than
+          behind every timestamp in the log. */}
+      {track && <ScrollTrack scrollRef={ref} prompts={prompts} onJump={jump} now={now} />}
       {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={12} /> New messages</button>}
     </div>
   );

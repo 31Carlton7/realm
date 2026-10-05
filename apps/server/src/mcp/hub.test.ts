@@ -7,7 +7,8 @@ import { openDatabase } from "../db/database";
 import { McpServersStore, type McpServerRow } from "../store/mcp";
 import { waitFor } from "../test-utils";
 import { McpHub, type HubElicit } from "./hub";
-import { makeStubServer, type StubServer } from "./fixtures/stub-server";
+import { makeStubServer, type StubResource, type StubServer } from "./fixtures/stub-server";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -91,8 +92,9 @@ describe("tool cache", () => {
     const stub = makeStubServer({ tools: [{ name: "search", description: "Search records", inputSchema: schema }] });
     const { hub } = hubFor(stub);
     const tools = await hub.tools(row.id);
-    // The live return: real inputSchema, straight from the upstream server.
-    expect(tools).toEqual([{ name: "search", description: "Search records", inputSchema: schema }]);
+    // The live return: real inputSchema, straight from the upstream server — and the tool itself, as
+    // it was listed, beside it.
+    expect(tools).toEqual([{ name: "search", description: "Search records", inputSchema: schema, ui: null, def: { name: "search", description: "Search records", inputSchema: schema } }]);
     // The persisted cache: name + description ONLY — see `McpToolRow`'s doc comment on why a schema
     // does not belong in something that can go stale between hub connections.
     expect(servers.get(row.id)!.tools).toEqual([{ name: "search", description: "Search records" }]);
@@ -102,7 +104,7 @@ describe("tool cache", () => {
     const row = newRow();
     const stub = makeStubServer({ tools: [{ name: "bare", inputSchema: { type: "object" } }] });
     const { hub } = hubFor(stub);
-    expect(await hub.tools(row.id)).toEqual([{ name: "bare", description: "", inputSchema: { type: "object" } }]);
+    expect(await hub.tools(row.id)).toMatchObject([{ name: "bare", description: "", inputSchema: { type: "object" } }]);
   });
 });
 
@@ -527,5 +529,99 @@ describe("a server asking the user mid-call (MCP elicitation)", () => {
     const row = newRow();
     const hub = asking(() => new Promise((res) => setTimeout(() => res({ action: "accept", content: { team: "eng" } }), 250)), { callTimeoutMs: 100 });
     expect(answerOf(await hub.call(row.id, "ask", {}, { sessionId: "s1" }))).toMatchObject({ action: "accept" });
+  });
+});
+
+describe("MCP Apps: what a server says about its views", () => {
+  const CHART: Tool = { name: "show_chart", description: "Chart the numbers", inputSchema: { type: "object" }, _meta: { ui: { resourceUri: "ui://stub/chart" } } };
+  const REFRESH: Tool = { name: "refresh_chart", description: "For the view only", inputSchema: { type: "object" }, _meta: { ui: { resourceUri: "ui://stub/chart", visibility: ["app"] } } };
+  const LEGACY: Tool = { name: "old_chart", description: "", inputSchema: { type: "object" }, _meta: { "ui/resourceUri": "ui://stub/old" } };
+  const HTML = "<!doctype html><html><body>chart</body></html>";
+
+  it("tells the server in initialize that Realm draws views, so it registers the tools that have them", async () => {
+    // THE MUTANT: drop the extension from the client's capabilities and a server following the spec
+    // registers its text-only tools instead — the one way a host is told it has views to show.
+    const row = newRow();
+    const stub = makeStubServer();
+    const { hub } = hubFor(stub);
+    await hub.tools(row.id);
+    expect(stub.server.getClientCapabilities()?.extensions?.["io.modelcontextprotocol/ui"]).toEqual({ mimeTypes: ["text/html;profile=mcp-app"] });
+  });
+
+  it("keeps each tool's view and visibility — live, and in the cache a server's row is drawn from", async () => {
+    const row = newRow();
+    const { hub } = hubFor(makeStubServer({ tools: [CHART, REFRESH, LEGACY, { name: "plain", inputSchema: { type: "object" } }] }));
+    const live = new Map((await hub.tools(row.id)).map((t) => [t.name, t]));
+    expect(live.get("show_chart")?.ui).toEqual({ resourceUri: "ui://stub/chart", visibility: ["model", "app"] });
+    expect(live.get("refresh_chart")?.ui).toEqual({ resourceUri: "ui://stub/chart", visibility: ["app"] });
+    expect(live.get("old_chart")?.ui?.resourceUri).toBe("ui://stub/old");
+    expect(live.get("plain")?.ui).toBeNull();
+    expect(live.get("show_chart")?.def._meta).toEqual(CHART._meta);
+    expect(servers.get(row.id)!.tools).toEqual([
+      { name: "show_chart", description: "Chart the numbers", view: "ui://stub/chart" },
+      { name: "refresh_chart", description: "For the view only", view: "ui://stub/chart", appOnly: true },
+      { name: "old_chart", description: "", view: "ui://stub/old" },
+      { name: "plain", description: "" },
+    ]);
+    expect((await hub.toolOf(row.id, "refresh_chart"))?.ui?.visibility).toEqual(["app"]);
+    expect(await hub.toolOf(row.id, "nope")).toBeNull();
+  });
+
+  it("reads a view's HTML with the content item's _meta.ui, as text or base64", async () => {
+    const row = newRow();
+    const ui = { csp: { connectDomains: ["https://api.example.com"] }, prefersBorder: false };
+    const stub = makeStubServer({ resources: [
+      { uri: "ui://stub/chart", mimeType: "text/html;profile=mcp-app", text: HTML, _meta: { ui } },
+      { uri: "ui://stub/blob", mimeType: "text/html; profile=mcp-app", blob: Buffer.from(HTML).toString("base64") },
+    ] });
+    const { hub } = hubFor(stub);
+    expect(await hub.uiResource(row.id, "ui://stub/chart")).toEqual({ html: HTML, ui });
+    expect((await hub.uiResource(row.id, "ui://stub/blob")).html).toBe(HTML);
+  });
+
+  it("falls back to the resource's resources/list entry for its _meta.ui, and the item wins where both speak", async () => {
+    // THE MUTANT: read only the content item, and a server that put its CSP on the listing (as the
+    // spec's draft lets it) has a view with no domains at all.
+    const row = newRow();
+    const stub = makeStubServer({ resources: [
+      { uri: "ui://stub/listed", mimeType: "text/html;profile=mcp-app", text: HTML, listMeta: { ui: { csp: { resourceDomains: ["https://cdn.example.com"] } } } },
+      { uri: "ui://stub/both", mimeType: "text/html;profile=mcp-app", text: HTML, _meta: { ui: { prefersBorder: true } }, listMeta: { ui: { prefersBorder: false } } },
+    ] });
+    const { hub } = hubFor(stub);
+    expect((await hub.uiResource(row.id, "ui://stub/listed")).ui).toEqual({ csp: { resourceDomains: ["https://cdn.example.com"] } });
+    expect((await hub.uiResource(row.id, "ui://stub/both")).ui).toEqual({ prefersBorder: true });
+  });
+
+  it("refuses what is not a view: another content type, another scheme, a resource with no HTML", async () => {
+    const row = newRow();
+    const stub = makeStubServer({ resources: [
+      { uri: "ui://stub/page", mimeType: "text/html", text: HTML },
+      { uri: "ui://stub/untyped", text: HTML },
+    ] });
+    const { hub } = hubFor(stub);
+    await expect(hub.uiResource(row.id, "ui://stub/page")).rejects.toThrow(/not text\/html;profile=mcp-app/);
+    await expect(hub.uiResource(row.id, "ui://stub/untyped")).rejects.toThrow(/untyped/);
+    await expect(hub.uiResource(row.id, "https://example.com/view.html")).rejects.toThrow(/not a ui:\/\/ resource/);
+  });
+
+  it("keeps a template for the connection until the server says it changed", async () => {
+    const row = newRow();
+    const resource: StubResource = { uri: "ui://stub/chart", mimeType: "text/html;profile=mcp-app", text: "<p>one</p>" };
+    const stub = makeStubServer({ resources: [resource] });
+    const { hub } = hubFor(stub);
+    expect((await hub.uiResource(row.id, resource.uri)).html).toBe("<p>one</p>");
+    resource.text = "<p>two</p>";
+    expect((await hub.uiResource(row.id, resource.uri)).html).toBe("<p>one</p>");
+    await stub.server.sendResourceUpdated({ uri: resource.uri });
+    await waitFor(async () => (await hub.uiResource(row.id, resource.uri)).html === "<p>two</p>");
+  });
+
+  it("does not hold a missing view against the server's tools", async () => {
+    const row = newRow();
+    const statuses: string[] = [];
+    const { hub } = hubFor(makeStubServer({ resources: [{ uri: "ui://stub/chart", mimeType: "text/html;profile=mcp-app", text: HTML }] }), { onStatus: (_id, s) => statuses.push(s) });
+    for (let i = 0; i < 4; i++) await expect(hub.uiResource(row.id, "ui://stub/missing")).rejects.toThrow();
+    expect(statuses).not.toContain("circuit_open");
+    await expect(hub.call(row.id, "echo", { ok: 1 })).resolves.toMatchObject({ content: [{ text: JSON.stringify({ ok: 1 }) }] });
   });
 });

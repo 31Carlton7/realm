@@ -1,9 +1,8 @@
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, type ArtifactType, type LibraryEntry } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { FileCard, FileRow } from "../../components/FileCard";
-import { FilePreview } from "../../components/FilePreview";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { PageScroll } from "../../components/ScrollFades";
 
@@ -102,13 +101,16 @@ function walkGrid(e: ReactKeyboardEvent<HTMLElement>) {
  * Paging is driven by a sentinel at the end of the list rather than by a scroll handler, so the cost
  * of "am I near the bottom" is the browser's rather than a listener firing on every wheel tick.
  */
-export function LibraryFiles({ spaceId }: { spaceId: string }) {
+export function LibraryFiles({ spaceId, head }: { spaceId: string;
+  /** The page's head, drawn first in this column and scrolling away with it, the toolbar under it. */
+  head?: ReactNode }) {
   const libraryArtifacts = useApp((s) => s.libraryArtifacts);
   // "Every space" is every space of THIS window's profile — profiles are separate homes for their
   // spaces, and the sidebar beside this page lists only its own.
   const profileId = useApp((s) => s.spaces.find((x) => x.id === spaceId)?.profileId ?? null);
   const view = useApp((s) => s.libraryView);
   const setLibraryView = useApp((s) => s.setLibraryView);
+  const openViewer = useApp((s) => s.openViewer);
   const run = useApp((s) => s.run);
 
   const [scope, setScope] = useState<Scope>("all");
@@ -121,10 +123,15 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
   const [loading, setLoading] = useState(true);
   const [filtering, setFiltering] = useState(false);
   const filterBtn = useRef<HTMLButtonElement>(null);
-  /* The card that was clicked, held whole rather than by path: the preview needs the provenance the
-     index joined on (which session, which space, made or uploaded), and re-deriving it from a path
-     would mean a second query for a row already in hand. */
-  const [preview, setPreview] = useState<LibraryEntry | null>(null);
+  /* The card that was clicked, in the media viewer with the page's other files beside it — each with
+     the provenance the index joined on (which session, which space, made or uploaded), which is what
+     the viewer names and whom its prompter asks. Re-deriving that from a path would be a second query
+     for rows already in hand. */
+  const preview = (e: LibraryEntry) => openViewer({
+    files: entries.map((x) => ({ path: x.path, name: x.name,
+      from: { sessionId: x.sessionId, spaceId: x.spaceId, sessionTitle: x.sessionTitle, kind: x.kind } })),
+    index: entries.indexOf(e), spaceId,
+  });
   const sentinel = useRef<HTMLDivElement>(null);
   /* Every fetch carries the generation it was started under. A filter changed mid-flight would
      otherwise let an older page land on top of a newer one — the classic out-of-order-response bug,
@@ -185,54 +192,55 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
 
   return (
     <div className="library-files">
-      <div className="library-toolbar">
-        <div className="filter-chips library-types" role="group" aria-label="Kind of file">
-          {TYPE_TABS.map((t) => (
-            <button key={t.id} type="button" className="filter-chip" data-selected={type === t.id || undefined}
-              aria-pressed={type === t.id} onClick={() => setType(t.id)}>{t.label}</button>
-          ))}
-          {/* A narrowing the filter menu made, said where the tabs are — so a list that is shorter
-              than it should be says why — and undone from the same place. Only while it narrows. */}
-          {scope !== "all" && (
-            <button type="button" className="filter-chip library-narrowing" onClick={() => setScope("all")}
-              title="Show files from every space">
-              {SCOPE_WORDS[scope]} <Icon name="close" size={12} />
-            </button>
-          )}
-          {kind !== "all" && (
-            <button type="button" className="filter-chip library-narrowing" onClick={() => setKind("all")}
-              title="Show every file, made or uploaded">
-              {KIND_WORDS[kind]} <Icon name="close" size={12} />
-            </button>
-          )}
-        </div>
-        <div className="library-tools">
-          <button ref={filterBtn} type="button" className="icon-btn library-filter" aria-label="Filter files"
-            aria-haspopup="menu" aria-expanded={filtering} data-on={narrowed || undefined}
-            title={`${SCOPE_WORDS[scope]} · ${KIND_WORDS[kind]}`}
-            onClick={() => setFiltering((v) => !v)}>
-            <Icon name="filter" size={16} />
-          </button>
-          <fieldset className="seg library-view">
-            <legend className="visually-hidden">View files as</legend>
-            {(["grid", "list"] as const).map((v) => (
-              <label key={v} className="seg-opt" data-selected={view === v || undefined} title={v === "grid" ? "Tiles" : "Rows"}>
-                <input type="radio" name="library-view" value={v} checked={view === v}
-                  onChange={() => run(() => setLibraryView(v))} aria-label={v === "grid" ? "Tiles" : "Rows"} />
-                <Icon name={v} size={14} />
-              </label>
-            ))}
-          </fieldset>
-          <label className="library-search">
-            <Icon name="search" size={14} />
-            <input className="search-field" type="search" aria-label="Search files" placeholder="Search files"
-              value={query} onChange={(e) => setQuery(e.target.value)} />
-          </label>
-        </div>
-      </div>
-      {filtering && <Menu items={filterItems} anchorRef={filterBtn} align="right" label="Filter files" onClose={() => setFiltering(false)} />}
-
       <PageScroll wide>
+        {head}
+        <div className="library-toolbar">
+          <div className="filter-chips library-types" role="group" aria-label="Kind of file">
+            {TYPE_TABS.map((t) => (
+              <button key={t.id} type="button" className="filter-chip" data-selected={type === t.id || undefined}
+                aria-pressed={type === t.id} onClick={() => setType(t.id)}>{t.label}</button>
+            ))}
+            {/* A narrowing the filter menu made, said where the tabs are — so a list that is shorter
+                than it should be says why — and undone from the same place. Only while it narrows. */}
+            {scope !== "all" && (
+              <button type="button" className="filter-chip library-narrowing" onClick={() => setScope("all")}
+                title="Show files from every space">
+                {SCOPE_WORDS[scope]} <Icon name="close" size={12} />
+              </button>
+            )}
+            {kind !== "all" && (
+              <button type="button" className="filter-chip library-narrowing" onClick={() => setKind("all")}
+                title="Show every file, made or uploaded">
+                {KIND_WORDS[kind]} <Icon name="close" size={12} />
+              </button>
+            )}
+          </div>
+          <div className="library-tools">
+            <button ref={filterBtn} type="button" className="icon-btn library-filter" aria-label="Filter files"
+              aria-haspopup="menu" aria-expanded={filtering} data-on={narrowed || undefined}
+              title={`${SCOPE_WORDS[scope]} · ${KIND_WORDS[kind]}`}
+              onClick={() => setFiltering((v) => !v)}>
+              <Icon name="filter" size={16} />
+            </button>
+            <fieldset className="seg library-view">
+              <legend className="visually-hidden">View files as</legend>
+              {(["grid", "list"] as const).map((v) => (
+                <label key={v} className="seg-opt" data-selected={view === v || undefined} title={v === "grid" ? "Tiles" : "Rows"}>
+                  <input type="radio" name="library-view" value={v} checked={view === v}
+                    onChange={() => run(() => setLibraryView(v))} aria-label={v === "grid" ? "Tiles" : "Rows"} />
+                  <Icon name={v} size={14} />
+                </label>
+              ))}
+            </fieldset>
+            <label className="library-search">
+              <Icon name="search" size={14} />
+              <input className="search-field" type="search" aria-label="Search files" placeholder="Search files"
+                value={query} onChange={(e) => setQuery(e.target.value)} />
+            </label>
+          </div>
+        </div>
+        {filtering && <Menu items={filterItems} anchorRef={filterBtn} align="right" label="Filter files" onClose={() => setFiltering(false)} />}
+
         {/* Two different emptinesses, and they need different words. "Nothing here yet" over a home
             with four hundred files, because the search matched none of them, is a lie about the app. */}
         {entries.length === 0 && !loading && (
@@ -250,7 +258,7 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
               <ul className="library-grid" onKeyDown={walkGrid}>
                 {g.entries.map((e) => (
                   <li key={e.id}>
-                    <FileCard path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} onOpen={() => setPreview(e)}>
+                    <FileCard path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} onOpen={() => preview(e)}>
                       <Provenance entry={e} />
                     </FileCard>
                   </li>
@@ -260,7 +268,7 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
               <ul className="library-rows">
                 {g.entries.map((e) => (
                   <li key={e.id}>
-                    <FileRow path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} time={timeOf(e.ts)} onOpen={() => setPreview(e)}>
+                    <FileRow path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} time={timeOf(e.ts)} onOpen={() => preview(e)}>
                       <Provenance entry={e} />
                     </FileRow>
                   </li>
@@ -274,14 +282,6 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
             and no spinner sitting under it forever. */}
         {!done && <div ref={sentinel} className="library-more">{loading ? "Loading…" : ""}</div>}
       </PageScroll>
-
-      {/* The same preview a session summary opens. The Library adds the provenance, which is the one
-          thing it knows and the summary does not — everything else about the file behaves identically
-          whichever list it was reached from. */}
-      {preview && (
-        <FilePreview path={preview.path} onClose={() => setPreview(null)}
-          from={{ sessionId: preview.sessionId, spaceId: preview.spaceId, sessionTitle: preview.sessionTitle, kind: preview.kind }} />
-      )}
     </div>
   );
 }
@@ -296,8 +296,8 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
  * Every card opens, and that is the change the picture is only half of. The grid used to draw a live
  * tile for a file the documents pane could render and an inert grey box for every other one — which
  * in a home whose sessions write archives, images and binaries is most of them, sitting there
- * refusing the mouse with no way to find out why. A card now opens the preview whatever the file is,
- * and the preview is where "what can Realm actually do with this" gets answered honestly.
+ * refusing the mouse with no way to find out why. A card now opens the media viewer whatever the
+ * file is, and the viewer is where "what can Realm actually do with this" gets answered honestly.
  */
 function Provenance({ entry }: { entry: LibraryEntry }) {
   const fromLabel = `${entry.kind === "upload" ? "Uploaded to " : "Made in "}${entry.sessionTitle}`;

@@ -44,6 +44,14 @@ contextBridge.exposeInMainWorld("realm", {
   motion: {
     set: (pref: ReducedMotionPref): Promise<void> => ipcRenderer.invoke("motion:set", pref),
   },
+  /** The element picker over this window (main/app-pick.ts): whether the person is picking, and the
+   *  picture of a pick — the window's own capture of the element and a margin, kept where a pasted
+   *  image goes. `ground` is the theme's page colour the capture's translucency is laid over. */
+  appPick: {
+    arm: (on: boolean): void => ipcRenderer.send("app-pick:arm", on),
+    capture: (rect: { x: number; y: number; w: number; h: number }, ground: [number, number, number] | null, name: string): Promise<{ file: PickedFile | null; webView: boolean }> =>
+      ipcRenderer.invoke("app-pick:capture", rect, ground, name),
+  },
   /** Settings ▸ General ▸ Power. Main holds the blocker; this only tells it the switch moved. */
   power: {
     preventSleep: (on: boolean): Promise<void> => ipcRenderer.invoke("power:prevent-sleep", on),
@@ -114,8 +122,9 @@ contextBridge.exposeInMainWorld("realm", {
       entries: { path: string; name: string; isDir: boolean; size: number; mtimeMs: number }[] } | null> =>
       ipcRenderer.invoke("files:browse", root, dir),
     /** A readable picture of the file (a decoded image, or QuickLook's render of a PDF, a sheet, a
-     *  page of source), as a data: URL. Null for a type macOS has no generator for. */
-    preview: (path: string): Promise<string | null> => ipcRenderer.invoke("files:preview", path),
+     *  page of source), as a data: URL. Null for a type macOS has no generator for. `page` is the
+     *  media viewer's window-sized render. */
+    preview: (path: string, size?: "page"): Promise<string | null> => ipcRenderer.invoke("files:preview", path, size),
     /** Select it in the Finder. `~/…` is the home folder and a relative path is relative to `base`,
      *  as an agent writes them; false when nothing is there. */
     reveal: (path: string, base?: string): Promise<boolean> => ipcRenderer.invoke("files:reveal", path, base),

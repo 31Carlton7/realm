@@ -1,6 +1,7 @@
 import { activityLevel, dayKey, dayRange, USAGE_CALENDAR_DAYS, type UsageDay } from "@realm/contracts";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../../state/store";
+import { useDissolve } from "../../../components/ScrollFades";
 
 const DAY_MS = 86_400_000;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -129,6 +130,9 @@ export function ActivityCalendar() {
   const usageActiveDays = useApp((s) => s.usageActiveDays);
   const run = useApp((s) => s.run);
   const scroller = useRef<HTMLDivElement>(null);
+  /* The graph opens on this week, so it is the OLDER end that has more past it — the start dissolves,
+     the way the strip of a pane's tabs does where they run on. */
+  useDissolve(scroller, "x");
   const [days, setDays] = useState<UsageDay[] | null>(null);
   // Frozen at mount: the grid's last column is "today", and a clock read on every render would
   // re-lay the whole calendar at midnight under a reader who is looking at it.

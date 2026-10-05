@@ -12,6 +12,8 @@ import { DocumentsPane } from "./documents/DocumentsPane";
 registerPane("documents", DocumentsPane);
 import { AgentsTab } from "./agents-tab/AgentsTab";
 registerPane("agents", AgentsTab);
+import { AppViewPane } from "./app-view/AppViewPane";
+registerPane("app-view", AppViewPane);
 import { SpacePage } from "./space/SpacePage";
 registerPane("space-page", SpacePage);
 import { LibraryPage } from "./library/LibraryPage";

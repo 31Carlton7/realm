@@ -8,6 +8,7 @@ import { Transcript } from "../panes/session/Transcript";
 import { useApp, useBrowserRects } from "../state/store";
 import { useFileDrop } from "./use-file-drop";
 import { complementOf } from "../state/no-overlay";
+import { MediaSessionContext } from "./viewer/open";
 
 /** The window's size. Fixed rather than resizable: it is a corner of the screen you ask something
  *  in, and a chat you want to size is a chat that wanted a pane. */
@@ -95,6 +96,7 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
   const kind = session.agentKind;
 
   return createPortal(
+    <MediaSessionContext.Provider value={sessionId}>
     <section className="quick-chat" style={{ left: drag.x, top: drag.y, width: W, height: H }}
       role="dialog" aria-label="Quick chat"
       data-dropping={fileDrop.dropping || undefined} {...fileDrop.handlers}>
@@ -178,7 +180,8 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
         onToggleModelFavorite={(key) => run(() => toggleModelFavorite(key))}
         sessionInit={transcript.init} fastSupport={fastSupport}
         submitKey={submitKey} />
-    </section>,
+    </section>
+    </MediaSessionContext.Provider>,
     document.body,
   );
 }

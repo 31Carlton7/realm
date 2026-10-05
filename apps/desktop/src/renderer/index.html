@@ -6,8 +6,12 @@
          served from it as a PNG (QuickLookView.tsx). That origin is already trusted here for
          `frame-src` and `connect-src`, and an image from it can do strictly less than the frame
          already can — it cannot script, navigate or post. It is Realm's own token-gated listener
-         either way. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: realm-media: http://127.0.0.1:*; media-src realm-media:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src http://127.0.0.1:*" />
+         either way.
+         `frame-src` also names the views MCP servers draw (MCP Apps), each served by Realm's views
+         listener on a host of its own under `.mcp-view.localhost`. It is the frame and nothing else:
+         this page never fetches from, scripts or images from those hosts, and a view that tries to
+         take its frame to any address outside these two is refused here before main is asked. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: realm-media: http://127.0.0.1:*; media-src realm-media:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src http://127.0.0.1:* http://*.mcp-view.localhost:*" />
     <title>Realm</title>
     <!-- The boot mark. Inline — style AND geometry — because this exists to cover the gap BEFORE the
          bundle runs, and anything it had to fetch would arrive on the far side of the gap it is for.

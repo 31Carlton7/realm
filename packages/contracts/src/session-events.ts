@@ -2,6 +2,7 @@ import { z } from "zod";
 import { PlanAlertSchema, PlanLimitsUnavailableSchema, PlanWindowSchema } from "./plan-limits";
 import { MentionRefSchema } from "./mention-refs";
 import { AskAnswersSchema, AskCardSchema } from "./ui-ask";
+import { AppViewRefSchema } from "./mcp-apps";
 
 const P = {
   /** `from` is present ONLY when another session delivered this message (Plan 20's interjection).
@@ -18,6 +19,12 @@ const P = {
      *  objective itself, which the user really did write. The transcript attributes it for `from`'s
      *  reason: a reader must never come away believing they typed it. */
     goal: z.enum(["continuation", "budget"]).optional(),
+    /** A scheduled task's run began with this message, written from the task rather than typed. `note`
+     *  is what Realm appended for the agent — the unattended rules — and stays in `text`, which is what
+     *  the agent was handed; the transcript draws the task's name above the bubble instead and keeps
+     *  the note out of it, so the bubble reads as the instructions the person wrote. Optional, so every
+     *  row ever written still parses. */
+    scheduled: z.object({ task: z.string(), note: z.string() }).optional(),
     /** What the message's `@[…]` chips named — files, Library items, apps — so the log can draw each
      *  chip with its own mark a week later. Kept apart from `attachments`, which stay the files the
      *  user attached: a mentioned file is a chip in the sentence, and a tile above it would be the
@@ -33,7 +40,11 @@ const P = {
    *  other agent, whose tool names already say both, and on every call written before they existed. */
   tool_call: z.object({ toolUseId: z.string(), name: z.string(), input: z.record(z.unknown()), parentToolUseId: z.string().nullable(),
     kind: z.string().optional(), paths: z.array(z.string()).optional() }),
-  tool_result: z.object({ toolUseId: z.string(), content: z.string(), isError: z.boolean() }),
+  /** `view` is present when the call reached an MCP server that drew its result in a view of its own
+   *  (MCP Apps), and Realm is showing that server's views. The server writes it, never an adapter:
+   *  the agent's harness reports only the text, and the gateway is what saw the call carry a view.
+   *  Optional, so every result ever persisted still parses. */
+  tool_result: z.object({ toolUseId: z.string(), content: z.string(), isError: z.boolean(), view: AppViewRefSchema.optional() }),
   /**
    * A sub-agent the HARNESS is running in its own process, started or stopped.
    *

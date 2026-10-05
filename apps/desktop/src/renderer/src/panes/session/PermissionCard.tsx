@@ -4,6 +4,7 @@ import type { PermissionDecision } from "../../state/store";
 import type { PendingPermission } from "./transcript-model";
 import { clip, prettyJson, toolIcon, toolSummary } from "./tool-summary";
 import { ToolInputBody } from "./rich/ToolViews";
+import { useDissolve } from "../../components/ScrollFades";
 import { toolInputView } from "./rich/tool-view";
 
 /** §5's numbered-list pattern (`HJz3KMT`): the options are a list with kbd number chips, the
@@ -51,6 +52,8 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
      The raw payload stays under the details below it: the drawing is what the reader decides on,
      the JSON is what they check when the drawing surprises them. */
   const preview = toolInputView(permission.toolName, permission.input);
+  const raw = useRef<HTMLPreElement>(null);
+  useDissolve(raw);
   const [selected, setSelected] = useState(0);
   const rows = useRef<(HTMLButtonElement | null)[]>([]);
   useEffect(() => { if (autoFocus) rows.current[0]?.focus(); }, [autoFocus]);
@@ -99,7 +102,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       </div>
       <div className="permission-tool"><Icon name={toolIcon(permission.toolName)} size={16} /><span className="tool-name">{permission.toolName}</span>{summary && <code>{summary}</code>}</div>
       {preview && <div className="permission-preview"><ToolInputBody view={preview} /></div>}
-      <details className="permission-details"><summary>{preview ? "Raw input" : "Input"}</summary><pre>{prettyJson(permission.input)}</pre></details>
+      <details className="permission-details"><summary>{preview ? "Raw input" : "Input"}</summary><pre ref={raw}>{prettyJson(permission.input)}</pre></details>
       <div className="permission-options">
         {optionsFor(permission.toolName).map((o, i) => (
           <button key={o.decision} ref={(el) => { rows.current[i] = el; }} className="permission-option"

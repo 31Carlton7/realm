@@ -1,4 +1,4 @@
-import { PageScroll } from "../../components/ScrollFades";
+import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { AppIconPicker, canChooseAppIcon } from "../../components/settings/AppIconPicker";
 import { CaretSettings } from "../../components/settings/CaretSettings";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
@@ -59,6 +59,9 @@ export function SettingsPage(_props: PaneProps) {
   /** The row a search result asked for, held until its page has rendered it. */
   const [landing, setLanding] = useState<string | null>(null);
   const page = useRef<HTMLDivElement>(null);
+  const lists = useRef<HTMLDivElement>(null);
+  useDissolve(lists);
+  useDissolve(lists, "x");
   const ids = useId();
   const results = query.trim() === "" ? null : searchSettings(query);
 
@@ -71,12 +74,6 @@ export function SettingsPage(_props: PaneProps) {
 
   return (
     <div className="page settings-page-pane" ref={page}>
-      {/* The page names the section it shows, as Codex's does — "Sign-ins" over sign-ins. "Settings"
-          is already the pane bar's word and the column's, and a third copy of it here was the one
-          heading on the page that said nothing about what was under it. */}
-      <header className="page-head">
-        <div className="page-title"><h1>{results !== null ? "Search" : settingsTabLabel(tab)}</h1></div>
-      </header>
       <div className="page-body">
         <PageRail label="Settings">
         <div className="page-rail settings-rail">
@@ -89,7 +86,7 @@ export function SettingsPage(_props: PaneProps) {
               if (e.key === "Enter" && results?.[0]) { e.preventDefault(); jump(results[0]); }
               if (e.key === "Escape" && query !== "") { e.preventDefault(); e.stopPropagation(); setQuery(""); }
             }} />
-          <div className="settings-rail-lists">
+          <div className="settings-rail-lists" ref={lists}>
             {/* One fieldset per heading, all one radio group: the name is what makes them one
                 choice, so the arrow keys still walk the whole rail. While a search is showing,
                 nothing is checked — the column is not any of these pages, and a lit tab over a list
@@ -119,6 +116,12 @@ export function SettingsPage(_props: PaneProps) {
             to a page: one scroller for all of them opened General as far down as Appearance had been
             left, which a jump to a row near the bottom of a page made the usual case. */}
         <PageScroll key={results === null ? tab : "results"}>
+          {/* The page names the section it shows, as Codex's does — "Sign-ins" over sign-ins. "Settings"
+              is already the pane bar's word and the column's, and a third copy of it here was the one
+              heading on the page that said nothing about what was under it. */}
+          <header className="page-head">
+            <div className="page-title"><h1>{results !== null ? "Search" : settingsTabLabel(tab)}</h1></div>
+          </header>
           {results !== null ? <SearchResults query={query.trim()} results={results} onPick={jump} /> : (
             <>
               {tab === "general" && <GeneralTab />}
@@ -221,6 +224,7 @@ function useLanding(page: RefObject<HTMLDivElement | null>, landing: string | nu
  */
 function CliJobPanel({ job, onDismiss }: { job: CliJob; onDismiss: () => void }) {
   const tail = useRef<HTMLPreElement>(null);
+  useDissolve(tail);
   useEffect(() => { const el = tail.current; if (el) el.scrollTop = el.scrollHeight; }, [job.output]);
   const state = job.state === "running" ? "Running…" : job.state === "ok" ? "Finished" : job.error ?? "Failed";
   return (
@@ -733,6 +737,8 @@ function FontLibrary() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const results = useRef<HTMLUListElement>(null);
+  useDissolve(results);
   useEffect(() => { if (open && !catalog) run(() => refreshFontCatalog()); }, [open, catalog, refreshFontCatalog, run]);
 
   const have = new Set(installed.map((f) => f.family));
@@ -769,7 +775,7 @@ function FontLibrary() {
           {catalog === null ? <p className="env-empty">Fetching the list from Google…</p> : shown.length === 0 ? (
             <p className="env-empty">{q ? "No family matches that." : "Everything here is already installed."}</p>
           ) : (
-            <ul className="font-results">
+            <ul className="font-results" ref={results}>
               {shown.map((f) => (
                 <li key={f.family}>
                   <span className="font-result-name">{f.family}</span>

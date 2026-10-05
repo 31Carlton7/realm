@@ -254,6 +254,31 @@ describe("browsers RPC", () => {
       c.close();
     });
 
+    it("an address that did not load is no visit, and the Reload that brings it in is one", async () => {
+      /* THE mutants: ignore `failed`, and a blank tab's Recently visited lists every address that
+         refused to connect; or forget the failure, and the Reload that loads the page is never
+         counted at all — it is the same address the row already holds, so it is no url change. */
+      const { c, a, pane, suggest } = await setup();
+      const p = await pane(a.id);
+      await c.call("browsers.update", { browserId: p, url: "http://localhost:3000/", title: "localhost:3000", failed: true });
+      expect(await suggest(a.id, "localhost")).toEqual([]);
+      // The tab keeps the address, so Reload has something to retry.
+      expect((await c.call("browsers.get", { browserId: p })).result.url).toBe("http://localhost:3000/");
+      await c.call("browsers.update", { browserId: p, url: "http://localhost:3000/", title: "My app" });
+      expect(await suggest(a.id, "localhost")).toEqual([expect.objectContaining({ url: "http://localhost:3000/", title: "My app", visits: 1 })]);
+      c.close();
+    });
+
+    it("a page that fails on a later reload keeps the title its visit wrote", async () => {
+      // THE mutant: retitle on a failed load. The row reads "localhost:3000", the error page's bare host.
+      const { c, a, pane, suggest } = await setup();
+      const p = await pane(a.id);
+      await c.call("browsers.update", { browserId: p, url: "http://localhost:3000/", title: "My app" });
+      await c.call("browsers.update", { browserId: p, url: "http://localhost:3000/", title: "localhost:3000", failed: true });
+      expect(await suggest(a.id, "localhost")).toEqual([expect.objectContaining({ title: "My app", visits: 1 })]);
+      c.close();
+    });
+
     it("records nothing that is not an address: Realm's blank page, a credential, an empty pane", async () => {
       const { c, a, pane, suggest } = await setup();
       const p = await pane(a.id);

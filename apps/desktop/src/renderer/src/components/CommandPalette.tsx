@@ -8,6 +8,7 @@ import { useResolvedMode, type ThemePref } from "../theme/useTheme";
 import { ItemGlyph } from "./sidebar/ItemList";
 import { ItemIcon } from "./PageIcon";
 import { SpaceIcon } from "./SpaceIcon";
+import { useDissolve } from "./ScrollFades";
 
 type Entry = { id: string; label: string; hint?: ReactNode; icon: ReactNode; run: () => void; section: string; disabled?: boolean;
   /** A pre-rendered label, for a row whose match positions matter (a ⌘P path). `label` stays a plain
@@ -182,6 +183,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  useDissolve(listRef);
   const close = () => setPaletteOpen(false);
   // W2 (no-overlay): with a browser pane open, center over the widest non-browser column instead
   // of the window — the native view would paint over a window-centered palette. Computed inline

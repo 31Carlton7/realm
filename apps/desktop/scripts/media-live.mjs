@@ -369,7 +369,7 @@ async function main() {
   // The lightbox: a portal to <body>, so the transcript's own overflow cannot clip it.
   await evalIn(c, `[...document.querySelectorAll('.media-item')].find((li) => li.querySelector('.media-name').textContent === 'tiny.png').querySelector('.media-image').click()`);
   const light = await until(() => evalIn(c, `(() => {
-    const d = document.querySelector('.media-lightbox');
+    const d = document.querySelector('.media-viewer');
     if (!d) return null;
     const b = d.getBoundingClientRect();
     return { parent: d.parentElement.tagName, w: Math.round(b.width), h: Math.round(b.height),
@@ -412,7 +412,7 @@ async function main() {
   check("the lightbox actually covers the video behind it", delta <= 6, { overVideo: [r, g, bl], control: [cr, cg, cb], delta });
 
   const stage = await evalIn(c, `(() => {
-    const el = document.querySelector('.media-lightbox .media-stage .media-el');
+    const el = document.querySelector('.media-viewer .media-viewer-img');
     const b = el.getBoundingClientRect();
     return { tag: el.tagName, w: Math.round(b.width), h: Math.round(b.height), natural: el.naturalWidth ?? null }; })()`);
   // A picture is shown at its own size, never blown up: an upscaled 2×2 fixture is a smear, and an

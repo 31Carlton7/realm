@@ -9,7 +9,7 @@ import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { NewProfileSheet } from "./components/profiles/NewProfileSheet";
 import { ProfileWindowBridge } from "./components/profiles/ProfileWindowBridge";
 import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets";
-import { ArtifactSheet, SessionPlanSheet } from "./panes/session/SessionSummary";
+import { SessionPlanSheet } from "./panes/session/SessionSummary";
 import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { FanOutSheet } from "./components/FanOutSheet";
@@ -17,7 +17,9 @@ import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette } from "./components/CommandPalette";
 import { Toasts } from "./components/Toasts";
+import { AppPickerBridge } from "./app-pick/AppPicker";
 import { QuickChat } from "./components/QuickChat";
+import { MediaViewer } from "./components/viewer/MediaViewer";
 import { PageOverlay } from "./components/PageOverlay";
 import { PageNavProvider } from "./components/page-nav";
 import { SpaceOverview } from "./components/sidebar/SpaceOverview";
@@ -58,9 +60,10 @@ import "./panes";
  */
 export function AppShell() {
   const collapsed = useApp(sidebarHidden);
+  const cut = useSidebarCut(collapsed);
   const folded = useSidebarFolded(collapsed);
-  // The column's width is painted here rather than on the sidebar itself because the collapse
-  // animation is a negative margin of exactly this number: one variable on the shell, read by
+  // The column's width is painted here rather than on the sidebar itself because the column's box,
+  // its slide and the head row's clip are all this number: one variable on the shell, read by
   // everything that has to agree with it.
   const width = useApp((s) => s.sidebarWidth);
   /* First run takes the whole window. Nothing in the rail or the sidebar works before a space exists
@@ -69,7 +72,8 @@ export function AppShell() {
   const firstRun = useApp((s) => s.booted && s.spaces.length === 0);
   return (
     <div className="app" data-sidebar-collapsed={collapsed || undefined} data-sidebar-folded={folded || undefined}
-      data-first-run={firstRun || undefined} style={{ "--sidebar-w": `${width}px` } as CSSProperties}>
+      data-sidebar-cut={cut || undefined} data-first-run={firstRun || undefined}
+      style={{ "--sidebar-w": `${width}px` } as CSSProperties}>
       <Rail />
       {/* Mounted whether or not it is showing, so collapsing is a MOVE rather than an unmount —
           there is no exit animation for an element React has already removed. `inert` is what makes
@@ -90,13 +94,39 @@ export function AppShell() {
 }
 
 /**
+ * Whether the sidebar's latest change was navigation rather than the person's own toggle.
+ *
+ * Only the toggle — its button, ⌘B (`sidebarToggles`) — is drawn moving. Everything else that opens
+ * or closes the column is a page arriving or leaving: one with no use for the spaces (`PAGE_SHELL`),
+ * one whose sections take the column (page-nav.tsx), one put away. Those change the column in the
+ * frame the page changes, because the column is part of what the page is: animated, the spaces stood
+ * folding shut beside a page already drawn, left a stub of themselves, and the page then jumped left
+ * — or a page's sections unfolded from nothing beside it (the owner, 10-05, with a video).
+ *
+ * `data-sidebar-cut` takes the column's motion off (styles.css). It is decided again in the render of
+ * every change, before that change is styled, so it holds from one change to the next and a toggle
+ * always finds its motion back. From boot it is a cut: the window opens as it was left, not moving.
+ */
+function useSidebarCut(collapsed: boolean): boolean {
+  const toggles = useApp((s) => s.sidebarToggles);
+  const [last, setLast] = useState({ collapsed, toggles, cut: true });
+  if (last.collapsed === collapsed && last.toggles === toggles) return last.cut;
+  // Set while rendering — React's own way to carry something from the last render — so the change
+  // and its motion are committed together: an effect would decide it a commit after the column moved.
+  const next = { collapsed, toggles, cut: last.toggles === toggles };
+  setLast(next);
+  return next.cut;
+}
+
+/**
  * Whether the sidebar has finished folding away, not just been asked to.
  *
  * Two things change hands at that moment rather than at the click: the frame's rim and its corner,
  * which are the column's while any of it is on screen and the panes' once none is
  * (`data-sidebar-folded`), and the toggle, which the column's own head row carries out and the
  * window's lead takes over once the column is gone. Opening hands both back at once. The wait is the
- * column's own transition, read off it, so under reduced motion — which has none — it folds at once.
+ * column's own transition, read off it, so under reduced motion — which has none — and on a cut
+ * (`useSidebarCut`), it folds at once, before the frame is drawn.
  */
 function useSidebarFolded(collapsed: boolean): boolean {
   const [folded, setFolded] = useState(collapsed);
@@ -343,7 +373,6 @@ function SheetHost() {
   if (sheet.kind === "new-lecture") return <NewLectureSheet />;
   if (sheet.kind === "wrap-up-lecture") return <WrapUpLectureSheet />;
   if (sheet.kind === "plynn-import") return <PlynnImportSheet />;
-  if (sheet.kind === "artifact") return <ArtifactSheet path={sheet.path} />;
   if (sheet.kind === "session-plan") return <SessionPlanSheet sessionId={sheet.sessionId} planId={sheet.planId} />;
   if (sheet.kind === "fan-out") return <FanOutSheet />;
   return null;
@@ -689,10 +718,14 @@ export function App() {
       {/* Over everything and outside the layout: it takes no pane, so it belongs to the window
           rather than to any one space's arrangement of it. */}
       <QuickChat />
+      {/* Every file the app shows opens here, over the window, with the session's prompter under it. */}
+      <MediaViewer />
       <CommandPalette />
       <SpaceOverview />
       {/* What the window has to say, at its foot and over everything: a failed action, a receipt. */}
       <Toasts />
+      {/* Select in Realm: the element picker over this window, above everything it can point at. */}
+      <AppPickerBridge />
     </StoreContext.Provider>
   );
 }

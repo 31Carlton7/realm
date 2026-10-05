@@ -409,13 +409,15 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   // no-overlay registration (there is nothing floating in those tests either).
   const store = useAppStoreMaybe();
 
-  /* A page open over the workspace hides every browser view — see `shouldShowView`. Read through the
-     NULLABLE store like everything else here (the unit tests render this pane with no provider, and
-     `useApp` would throw), and subscribed rather than polled so a change re-renders — which is what
-     lets the effect below push the new verdict to main. */
+  /* A page open over the workspace hides every browser view — see `shouldShowView` — and so does the
+     media viewer, which covers the whole window: a native view composites over anything the renderer
+     draws, so a view left showing would paint straight through the file being looked at. Read through
+     the NULLABLE store like everything else here (the unit tests render this pane with no provider,
+     and `useApp` would throw), and subscribed rather than polled so a change re-renders — which is
+     what lets the effect below push the new verdict to main. */
   const pageOverlay = useSyncExternalStore(
     useCallback((cb: () => void) => store?.subscribe(cb) ?? (() => {}), [store]),
-    useCallback(() => store?.getState().pageOverlay != null, [store]),
+    useCallback(() => store?.getState().pageOverlay != null || store?.getState().viewer != null, [store]),
   );
   const overlayRef = useRef(pageOverlay);
   overlayRef.current = pageOverlay;

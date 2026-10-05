@@ -1,7 +1,10 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
 import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape } from "@realm/contracts";
 import { destinationTarget, pageHidesSidebar, pageItemId } from "./page-item";
-import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
+import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
+import { attachmentDisposition } from "@realm/contracts";
+import { VIEWER_SLOT, ownerOf, type Marking, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
+import type { PickedElement } from "@realm/contracts";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
@@ -587,6 +590,8 @@ export type Api = {
   updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
   removeMcpServer(id: string): Promise<void>;
   setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `mcp.setShowViews` — whether Realm draws a server's views, in every space. */
+  setMcpShowViews(id: string, show: boolean): Promise<void>;
   /** `mcp.promote` / `mcp.demote` — move a server's defining scope (W2 RPCs, W4 UI). */
   promoteMcpServer(spaceId: string, id: string): Promise<void>;
   demoteMcpServer(spaceId: string, id: string): Promise<void>;
@@ -897,10 +902,6 @@ export type Sheet =
   | { kind: "new-lecture" }
   | { kind: "wrap-up-lecture" }
   | { kind: "plynn-import" }
-  /** One file out of a session's summary (Outputs / Sources): its path, and the offer to hand it to
-   *  the OS. Carries the path alone rather than the row it was opened from — a row is derived, and a
-   *  copy of one in the sheet slot could go stale against the transcript it came from. */
-  | { kind: "artifact"; path: string }
   /** One plan out of a session's summary, named by the session that proposed it and the plan's own
    *  id. Read live for the same reason: a plan the agent revises while the sheet is open should show
    *  the revision, not the snapshot that was taken when the row was clicked. */
@@ -1014,6 +1015,10 @@ export type AppState = {
    *  anyway — that overlay itself, so the ask ends with the page and never touches their own
    *  `sidebarCollapsed`. Read through `sidebarHidden` (selectors.ts), never on its own. */
   sidebarOnPage: AppState["pageOverlay"];
+  /** How many times the person has toggled the sidebar — its button, ⌘B — this window. The toggle is
+   *  the one change to the column that is drawn moving; the shell reads this across a change in
+   *  `sidebarHidden` to tell it from navigation, which takes effect at once (App.tsx, `useSidebarCut`). */
+  sidebarToggles: number;
   /** The column's width in pixels, inside SIDEBAR_WIDTH's range. Top-level because the shell paints
    *  it and the handle inside the sidebar writes it. */
   sidebarWidth: number;
@@ -1157,6 +1162,9 @@ export type AppState = {
   /** The strip a browser view gives up at the window's foot while the toasts have nowhere else to
    *  stand (`placeToastStack` found no clear spot), in window px. Null almost always. */
   toastReserve: Rect | null;
+  /** The element picker over Realm's own window, while it is up (app-pick/): the session whose prompter
+   *  a pick goes to. Null almost always. */
+  appPick: { sessionId: string } | null;
   /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner. */
   connectionState: "connected" | "reconnecting";
   /** The user's keymap as the server last reported it, or Realm's defaults until it answers. Held
@@ -1537,6 +1545,9 @@ export type AppState = {
    *  that came back after a relaunch would be chrome nobody asked for. */
   simulatorElements: Record<string, boolean>;
   quickChat: { sessionId: string } | null;
+  /** The media viewer, when a file is open in it — see `state/viewer.ts`. Transient: a file is looked
+   *  at, not kept, so it is never written into the saved view and a profile switch takes it away. */
+  viewer: ViewerState | null;
   /**
    * A session looked at without being opened (W11b): a tab of the focused session's side pane, from
    * any space, beside `owner` (the session item it was opened beside). TRANSIENT, which is the whole of
@@ -2155,10 +2166,10 @@ export type AppState = {
    *  runs an installer. */
   prefillTerminal(sessionId: string, command: string): Promise<void>;
   setDraft(sessionId: string, text: string): void;
-  /** Drop an element picked in a browser pane into a session's composer, as a chip. Answers the label
-   *  the chip went in under, so the browser pane can name what it just sent — or null when the draft
-   *  is already carrying `MAX_ELEMENT_CHIPS`. */
-  addElementChip(sessionId: string, element: BrowserPickedElement): string | null;
+  /** Drop an element picked in a browser pane — or a part of Realm's own window (app-pick/) — into a
+   *  session's composer, as a chip. Answers the label the chip went in under, so the picker can name
+   *  what it just sent — or null when the draft is already carrying `MAX_ELEMENT_CHIPS`. */
+  addElementChip(sessionId: string, element: PickedElement): string | null;
   /** Plan 26 W7d: an annotation — several elements pinned on one page and Sent together — as ONE chip,
    *  `@[3 annotations]`, whose sidecar entries share its label and carry their pin numbers. `shot` is
    *  the screenshot of the pins, named so the agent is told which attachment shows them. Answers the
@@ -2340,6 +2351,31 @@ export type AppState = {
   /** Where the window sits, from a drag. Clamped by the window itself, which is the only thing that
    *  knows how big it is. */
   setQuickChatPos(pos: { x: number; y: number }): void;
+  /** Show files in the media viewer, replacing whatever it was showing. Loads the owner session's
+   *  transcript when it is not held yet, so the exchange can be drawn as it arrives. */
+  openViewer(input: OpenViewerInput): void;
+  closeViewer(): void;
+  /** The next or previous sibling. Stops at the ends: the list is the one the eye just walked. */
+  stepViewer(delta: 1 | -1): void;
+  /** Files the viewer's exchange produced: added after the one on show, which `show` moves to — a
+   *  new version of the picture is what the person asked to see. Paths already listed are left. */
+  addViewerFiles(paths: readonly string[], show: boolean): void;
+  /** Show one file in the viewer that is already open — a picture in its own exchange, clicked —
+   *  keeping the exchange and the way back: it is the same look going on, not a new one. */
+  showViewerFile(file: ViewerFile): void;
+  /** Start or stop marking up the file on show, or record what has been drawn on it. */
+  setViewerMarks(marking: Marking | null): void;
+  /** The person took the viewed file off the next message (its chip's ×). */
+  detachViewerFile(path: string): void;
+  /** The agent and model the viewer's prompter will make a session with, while it has none. */
+  pickViewerAgent(agentKind: AgentKind, model: string | null): void;
+  /**
+   * Ask about the viewed file: the message goes to the viewer's session — made now, in its space, if
+   * there was none — carrying the file through the same attachment wire the prompter uses, with any
+   * files dropped on the viewer's prompter after it. The first send marks where this viewer's
+   * exchange begins in that session's transcript.
+   */
+  sendFromViewer(text: string): Promise<void>;
   refreshGitInfo(cwd: string): Promise<void>;
   /** Re-read one checkout's changed-file list. Also refreshes `gitInfo` for it, so the prompter's
    *  chips and the diff pane can never disagree about the same tree. */
@@ -2434,6 +2470,9 @@ export type AppState = {
   /** The session's Agents tab, as a tab of its side pane the way its other tools open — with the
    *  composer started from `plan`, or the row for `childId` brought into view, when asked. */
   openAgentsTab(sessionId: string, ask?: { plan?: string; childId?: string }): Promise<void>;
+  /** A view an MCP server drew for one of the session's tool calls, as a tab of the session's side
+   *  pane — the one it has, or a new one. Never a split: a view is the session's, not the layout's. */
+  openAppView(sessionId: string, view: AppViewRef): Promise<void>;
   /** The tab has taken what it was asked for; a remount must not take it again. */
   clearAgentsAsk(sessionId: string): void;
   /** `delegation.models`, for the composer. Not held in the store: it is read when the tab mounts. */
@@ -2707,6 +2746,8 @@ export type AppState = {
   updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
   removeMcpServer(id: string): Promise<void>;
   setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** Show or stop showing a server's views (MCP Apps) — the server's switch, the same in every space. */
+  setMcpShowViews(id: string, show: boolean): Promise<void>;
   /** Move a server's defining scope into `spaceId`'s profile, then re-read (guarded like any refresh). */
   promoteMcpServer(spaceId: string, id: string): Promise<void>;
   /** Pin a profile-scoped server to `spaceId` alone, then re-read. */
@@ -2757,6 +2798,9 @@ export type AppState = {
    *  the next one). */
   toast(input: ToastInput): string;
   dismissToast(id: string): void;
+  /** Put the element picker up for `sessionId`'s prompter, or with null take it down. What starts one is
+   *  `startAppPick` (app-pick/), which refuses where a pick could not be the person's own. */
+  setAppPick(sessionId: string | null): void;
   setToastReserve(rect: Rect | null): void;
 };
 
@@ -3127,12 +3171,32 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const held = id ? get().sessions[id] : undefined;
       return id && held && !next[id] ? { ...next, [id]: held } : next;
     };
-    /** The quick chat's row, and the peek's for the same reason: a peek may be another profile's. */
+    /** How many looks the viewer has had, so a new one is never mistaken for the last. */
+    let looks = 0;
+    /** A session this window can still reach: one it holds a row for, or one `sessionSpace` — which
+     *  spans every space of the profile — places somewhere. A deleted session is neither. */
+    const reachableSession = (id: string): boolean => get().sessions[id] !== undefined || id in get().sessionSpace;
+    /** The session the viewer's prompter is asking right now, if any. */
+    const viewerOwner = (): string | null => {
+      const v = get().viewer;
+      return v ? ownerOf(v, v.files[v.index], reachableSession) : null;
+    };
+    /** The viewer's exchange is read off its session's own transcript, which a Library file's session
+     *  — open in no pane — does not have loaded. */
+    const holdViewerSession = () => {
+      const id = viewerOwner();
+      if (id && !get().transcripts[id]) get().run(() => get().openSession(id));
+    };
+    /** The quick chat's row, and the peek's for the same reason: a peek may be another profile's. The
+     *  viewer's too — the Library's files come from every space, and its prompter asks the session one
+     *  came from wherever that session lives. */
     const keepHeldSessions = (next: Record<string, Session>): Record<string, Session> => {
-      const kept = keepQuickChatSession(next);
-      const id = get().peek?.item.refId;
-      const held = id ? get().sessions[id] : undefined;
-      return id && held && !kept[id] ? { ...kept, [id]: held } : kept;
+      let kept = keepQuickChatSession(next);
+      for (const id of [get().peek?.item.refId, viewerOwner()]) {
+        const held = id ? get().sessions[id] : undefined;
+        if (id && held && !kept[id]) kept = { ...kept, [id]: held };
+      }
+      return kept;
     };
     const panelOf = (id: string): TerminalPanel => get().terminalPanel[id] ?? { open: false, width: TERMINAL_PANEL_WIDTH };
     const setPanel = (id: string, p: TerminalPanel) => set({ terminalPanel: { ...get().terminalPanel, [id]: p } });
@@ -3803,7 +3867,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const last = lastSpaceId && get().spaces.some((sp) => sp.id === lastSpaceId && sp.profileId === pid) ? lastSpaceId : null;
       set({
         activeProfileId: pid, items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}),
-        view: null, layout: null, focusedLeafId: null, peek: null, sheetSnap: null, offscreenBrowsers: [],
+        view: null, layout: null, focusedLeafId: null, peek: null, viewer: null, sheetSnap: null, offscreenBrowsers: [],
         // Diffs and patches are keyed by checkout path, and every pane that could show one belongs to
         // the profile being left.
         diffs: {}, diffLoading: {}, patches: {},
@@ -3929,9 +3993,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidePanesHidden: false, toasts: [], toastReserve: null,
+      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
+      appPick: null,
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", documentsAsk: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
@@ -3940,7 +4005,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
-      terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null,
+      terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
@@ -4456,9 +4521,10 @@ await get().refreshCustomThemes().catch(() => {});
         // is a person asking to see their spaces beside the page, not changing what every other
         // screen does — and leaving the page leaves their own setting exactly as it was.
         const page = get().pageOverlay;
-        if (page && pageHidesSidebar(page.kind)) { set({ sidebarOnPage: get().sidebarOnPage === page ? null : page }); return; }
+        const sidebarToggles = get().sidebarToggles + 1;
+        if (page && pageHidesSidebar(page.kind)) { set({ sidebarOnPage: get().sidebarOnPage === page ? null : page, sidebarToggles }); return; }
         const next = !get().sidebarCollapsed;
-        set({ sidebarCollapsed: next });
+        set({ sidebarCollapsed: next, sidebarToggles });
         await api.setSetting(SETTING_SIDEBAR_COLLAPSED, next);
       },
       async setFilesView(view) {
@@ -6294,6 +6360,95 @@ await get().refreshCustomThemes().catch(() => {});
         await api.deleteSession(qc.sessionId);
       },
       setQuickChatPos(pos) { set({ quickChatPos: pos }); scheduleQuickChatPersist(); },
+      openViewer(input) {
+        const files = input.files.filter((f) => f.path !== "");
+        if (files.length === 0) return;
+        const sessionId = input.sessionId && reachableSession(input.sessionId) ? input.sessionId : null;
+        const focused = typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        set({ viewer: {
+          look: ++looks,
+          files: [...files], index: Math.max(0, Math.min(input.index ?? 0, files.length - 1)),
+          sessionId, spaceId: (sessionId && get().sessionSpace[sessionId]) || input.spaceId || null,
+          thread: null, detached: null, pick: null, marking: null, opener: input.opener ?? focused,
+        } });
+        holdViewerSession();
+      },
+      showViewerFile(file) {
+        const v = get().viewer; if (!v) return;
+        const at = v.files.findIndex((f) => f.path === file.path);
+        if (at === v.index) return;
+        if (at >= 0) set({ viewer: { ...v, index: at, detached: null, marking: null } });
+        else set({ viewer: { ...v, files: [...v.files.slice(0, v.index + 1), file, ...v.files.slice(v.index + 1)], index: v.index + 1, detached: null, marking: null } });
+        holdViewerSession();
+      },
+      closeViewer() { if (get().viewer) set({ viewer: null }); },
+      stepViewer(delta) {
+        const v = get().viewer; if (!v) return;
+        const index = Math.max(0, Math.min(v.index + delta, v.files.length - 1));
+        if (index === v.index) return;
+        set({ viewer: { ...v, index, detached: null, marking: null } });
+        holdViewerSession();
+      },
+      addViewerFiles(paths, show) {
+        const v = get().viewer; if (!v) return;
+        const known = new Set(v.files.map((f) => f.path));
+        const fresh = [...new Set(paths)].filter((p) => !known.has(p)).map((path) => ({ path }));
+        if (fresh.length === 0) return;
+        const files = [...v.files.slice(0, v.index + 1), ...fresh, ...v.files.slice(v.index + 1)];
+        set({ viewer: { ...v, files, ...(show ? { index: v.index + 1, detached: null, marking: null } : {}) } });
+      },
+      setViewerMarks(marking) { const v = get().viewer; if (v) set({ viewer: { ...v, marking } }); },
+      detachViewerFile(path) { const v = get().viewer; if (v) set({ viewer: { ...v, detached: path } }); },
+      pickViewerAgent(agentKind, model) { const v = get().viewer; if (v) set({ viewer: { ...v, pick: { agentKind, model } } }); },
+      async sendFromViewer(text) {
+        const v = get().viewer; if (!v) return;
+        const file = v.files[v.index]; if (!file) return;
+        let sessionId = ownerOf(v, file, reachableSession);
+        if (!sessionId) {
+          /* Nobody to ask — a file whose session is gone, a documents pane of its own. The question
+             starts a session in the file's own space while that still exists, which is where work on
+             the file belongs, and otherwise in the space on screen. Made at the send, not at the open:
+             looking at a file is not asking about it, and a session per look would be litter. */
+          const home = file.from?.spaceId ?? v.spaceId;
+          const sid = home && get().spaces.some((sp) => sp.id === home) ? home : get().activeSpaceId;
+          if (!sid) return;
+          const agentKind = v.pick?.agentKind ?? get().lastAgentKind ?? FALLBACK_AGENT;
+          const { session } = await api.createSession({ spaceId: sid, agentKind, model: v.pick?.model ?? null });
+          rememberAgent(agentKind);
+          mergeSession(session);
+          sessionId = session.id;
+          // The viewer's own from here — of this file and of every other with nobody to ask — and held
+          // at once, so a second send while the first is in flight asks the same session.
+          const now = get().viewer;
+          if (now) set({ viewer: { ...now, sessionId, spaceId: sid } });
+          await loadSpaceItems(sid);
+        }
+        if (!get().transcripts[sessionId]) await get().openSession(sessionId);
+        const kind = get().sessions[sessionId]?.agentKind ?? v.pick?.agentKind ?? FALLBACK_AGENT;
+        const from = get().transcripts[sessionId]?.t.blocks.length ?? 0;
+        const at = Date.now();
+        /* The file goes as an attachment, described by main like any picked file. The one refusal is
+           the prompter's own, narrowed to where it bites: an image the agent inlines has to fit in the
+           request. Anything handed over as a path has no such limit, and a long video asked about is
+           exactly that case. */
+        const viewed: Attachment[] = [];
+        if (v.detached !== file.path) {
+          const [d] = await api.describePaths([file.path]).catch(() => []);
+          if (!d) get().toast({ tone: "warning", text: `No longer on disk: ${basenameOf(file.path)}` });
+          else if (attachmentDisposition(kind, d.mime) === "inline" && d.size > MAX_ATTACHMENT_BYTES) {
+            get().toast({ tone: "warning", text: `Too large to attach — the limit is ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)}: ${d.name} (${formatAttachmentSize(d.size)})` });
+          } else viewed.push({ path: d.path, mime: d.mime });
+        }
+        const extras = (get().pendingAttachments[VIEWER_SLOT] ?? []).filter((a) => !viewed.some((w) => w.path === a.path));
+        await api.sendMessage(sessionId, text, [...viewed, ...extras.map(({ path, mime }) => ({ path, mime }))], [], [], undefined, [], []);
+        // Only after the send lands, as `sendMessage` does: a refused send keeps its files.
+        const cur = get().viewer;
+        if (cur) set({ viewer: { ...cur, detached: null, thread: cur.thread?.sessionId === sessionId ? cur.thread : { sessionId, from, at } } });
+        if (extras.length > 0) {
+          const sent = new Set(extras.map((a) => a.path));
+          set({ pendingAttachments: { ...get().pendingAttachments, [VIEWER_SLOT]: (get().pendingAttachments[VIEWER_SLOT] ?? []).filter((a) => !sent.has(a.path)) } });
+        }
+      },
       toggleSessionDock(sessionId, dock) {
         const cur = get().sessionDock[sessionId];
         // Same thing again closes it — which is what makes the opener a toggle without every opener
@@ -6544,6 +6699,18 @@ await get().refreshCustomThemes().catch(() => {});
         const { itemId } = await api.agentsTab(sessionId);
         // Already a tab somewhere: brought to the front where it is. Otherwise the documents button's
         // route — a tab of this session's side pane, with the keyboard, because a person asked.
+        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
+        await adoptItem(sid, itemId, null, { sessionId });
+      },
+      async openAppView(sessionId, view) {
+        const sid = get().sessions[sessionId]?.spaceId ?? get().allSessions[sessionId]?.spaceId;
+        if (!sid) return;
+        // One tab per view, found by its id: a second Open goes to the tab that is already there.
+        let itemId = get().items.find((i) => i.kind === "app-view" && i.refId === view.viewId)?.id;
+        if (!itemId) {
+          const created = await api.createItem(sid, "app-view", `${view.serverName} · ${view.tool}`, view.viewId);
+          itemId = created.id;
+        }
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
       },
@@ -7245,6 +7412,10 @@ await get().refreshCustomThemes().catch(() => {});
         await api.setMcpEnabled(spaceId, id, enabled);
         set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, enabled } : x)) });
       },
+      async setMcpShowViews(id, show) {
+        await api.setMcpShowViews(id, show);
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, showViews: show } : x)) });
+      },
       // Promote/demote re-read rather than patch: the scope AND the enabled flag can both change
       // shape server-side (demotion retires overrides), and the refresh guard already protects a
       // panel that moved on. Same shape for skills below.
@@ -7364,6 +7535,7 @@ await get().refreshCustomThemes().catch(() => {});
         const cur = get().toasts;
         if (cur.some((t) => t.id === id)) set({ toasts: cur.filter((t) => t.id !== id) });
       },
+      setAppPick(sessionId) { set({ appPick: sessionId === null ? null : { sessionId } }); },
       setToastReserve(rect) {
         const cur = get().toastReserve;
         // Reference-stable like `setBrowserRect`: every browser pane re-syncs its view on a change.

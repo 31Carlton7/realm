@@ -277,8 +277,9 @@ a {
   text-decoration-skip-ink: auto;
 }
 
-/* Tailwind v4 leaves buttons on the arrow, and so does Realm: a Mac app points with the arrow at every
- * control it draws and keeps the hand for a link (styles.css, beside `button`, says why). */
+/* Tailwind v4 leaves buttons on the arrow. Realm points with the hand at everything a click acts on,
+ * from one rule beside `button` in styles.css; a link is the one tag that asks here, because it was
+ * the first to. */
 a {
   cursor: pointer;
 }

@@ -33,12 +33,13 @@ export function useScrollEdges(ref: RefObject<HTMLElement | null>, axis: "y" | "
     const measure = () => {
       const slack = axis === "y" ? el.scrollHeight - el.clientHeight : el.scrollWidth - el.clientWidth;
       const at = axis === "y" ? el.scrollTop : el.scrollLeft;
-      setEdges({
-        start: at > 2,
-        // 2px of tolerance at both ends: sub-pixel layout and elastic scrolling both land a pixel
-        // short of the exact number, and an end that flickers on at rest is worse than none.
-        end: slack > 2 && at < slack - 2,
-      });
+      const start = at > 2;
+      // 2px of tolerance at both ends: sub-pixel layout and elastic scrolling both land a pixel
+      // short of the exact number, and an end that flickers on at rest is worse than none.
+      const end = slack > 2 && at < slack - 2;
+      // The same answer keeps the same state. A new object per scroll event re-rendered whoever owns
+      // the scroller on every frame of a scroll — in a session pane, the whole transcript.
+      setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
     };
     measure();
     el.addEventListener("scroll", measure, { passive: true });
@@ -122,16 +123,23 @@ export function useFadedScroller() {
  * legible while the content under it scrolls. Masking the scroller cannot reach the rail at all.
  *
  * It owns the ref as well, because every page that had one used it for nothing else.
+ *
+ * A page's head goes IN here, as its first child, and scrolls away with what it names: a head pinned
+ * above the column read as a sticky header on every page (the owner, 10-05: "the header shouldn't be
+ * sticky at all"). Inside the column it already starts where the content does, past the rail, so it
+ * needs no indent of its own to line up with it.
  */
-export function PageScroll({ children, wide = false }: { children: ReactNode;
+export function PageScroll({ children, wide = false, className }: { children: ReactNode;
   /** Opt out of the reading measure, for a column of work that wants the width — the Library's grid
    *  of files, the Tasks lens — rather than one of prose. */
-  wide?: boolean }) {
+  wide?: boolean;
+  /** The page's own name for its column, beside the shared one — the notifications feed's. */
+  className?: string }) {
   const scroller = useRef<HTMLDivElement>(null);
   return (
     <div className="page-scroll">
       <ScrollFades scroller={scroller} />
-      <div className="page-content" ref={scroller} data-wide={wide || undefined}>{children}</div>
+      <div className={className ? `page-content ${className}` : "page-content"} ref={scroller} data-wide={wide || undefined}>{children}</div>
     </div>
   );
 }

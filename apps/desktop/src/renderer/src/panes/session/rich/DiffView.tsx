@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useDissolve } from "../../../components/ScrollFades";
 import { hunkEmphasis, type DiffHunk, type DiffLine, type FileDiff, type Span } from "./diff";
 
 /** Lines drawn before a file folds behind "Show all". A whole-file `Write` is routinely thousands of
@@ -87,6 +88,9 @@ function StatBar({ add, del }: { add: number; del: number }) {
  *  the span inside a line that actually changed, which is the thing the reader came for. */
 export function FileDiffView({ file }: { file: FileDiff }) {
   const [showAll, setShowAll] = useState(false);
+  // Capped only where a permission's preview draws it, and dissolving there.
+  const card = useRef<HTMLDivElement>(null);
+  useDissolve(card);
   const total = file.hunks.reduce((n, h) => n + h.lines.length, 0);
   const clamped = total > LINE_CLAMP && !showAll;
   let budget = clamped ? LINE_CLAMP : Infinity;
@@ -97,7 +101,7 @@ export function FileDiffView({ file }: { file: FileDiff }) {
     budget -= h.lines.length;
   }
   return (
-    <div className="fd-file">
+    <div className="fd-file" ref={card}>
       <div className="fd-head">
         <PathLabel className="fd-path" path={file.path || "(unnamed file)"} />
         {(file.add > 0 || file.del > 0) && (

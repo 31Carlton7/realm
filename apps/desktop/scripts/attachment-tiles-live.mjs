@@ -294,7 +294,7 @@ async function main() {
   check("attachment:open is registered in main, and refuses a path that is not there", channel === "registered", { channel });
 
   await evalIn(c, `(() => { document.querySelector('.attach-tile[data-media] .attach-open').click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.media-lightbox')`), 8000, "an image to open in the lightbox instead");
+  await until(() => evalIn(c, `!!document.querySelector('.media-viewer')`), 8000, "an image to open in the lightbox instead");
 
   /* The stacking question, and the whole reason this part is live: the tile that opened it lives
      INSIDE the prompter — a card on its own layer, above the transcript. The lightbox is portalled
@@ -307,10 +307,10 @@ async function main() {
     return { x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) }; })()`);
   const cropOf = async () => (await c.send("Page.captureScreenshot", { format: "png", clip: { ...cardBox, scale: 1 } })).data;
   const covered = await cropOf();
-  await evalIn(c, `(() => { document.querySelector('.media-lightbox').style.visibility = 'hidden'; return true; })()`);
+  await evalIn(c, `(() => { document.querySelector('.media-viewer').style.visibility = 'hidden'; return true; })()`);
   await sleep(250);
   const bare = await cropOf();
-  await evalIn(c, `(() => { document.querySelector('.media-lightbox').style.visibility = ''; return true; })()`);
+  await evalIn(c, `(() => { document.querySelector('.media-viewer').style.visibility = ''; return true; })()`);
   await sleep(250);
   check("the lightbox really is painting over the prompter, not merely above it in the DOM",
     covered !== bare, { sameBytes: covered === bare });
@@ -319,7 +319,7 @@ async function main() {
   await c.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   const afterEscape = await until(() => evalIn(c, `(() => {
-    if (document.querySelector('.media-lightbox')) return null;
+    if (document.querySelector('.media-viewer')) return null;
     const a = document.activeElement;
     return { onTile: !!a?.classList.contains('attach-open'), label: a?.getAttribute('aria-label') ?? null }; })()`), 5000, "lightbox closed");
   check("Escape closes it and focus lands back on the tile", afterEscape.onTile, afterEscape);
@@ -409,13 +409,13 @@ async function main() {
     sentMarks.filter((m) => m.media).length === 1 && sentMarks[0].media, sentMarks);
 
   await evalIn(c, `(() => { document.querySelector('.msg-user-files .attach-tile[data-media] .attach-open').click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.media-lightbox')`), 8000, "a sent image to open in the lightbox, the same as a pending one");
+  await until(() => evalIn(c, `!!document.querySelector('.media-viewer')`), 8000, "a sent image to open in the lightbox, the same as a pending one");
   const sentShot = await c.send("Page.captureScreenshot", { format: "png" });
   fs.writeFileSync(path.join(os.tmpdir(), "realm-sent-attachments-live.png"), Buffer.from(sentShot.data, "base64"));
   console.log("SCREENSHOT " + path.join(os.tmpdir(), "realm-sent-attachments-live.png"));
   await c.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-  await until(() => evalIn(c, `!document.querySelector('.media-lightbox')`), 5000, "sent lightbox closed");
+  await until(() => evalIn(c, `!document.querySelector('.media-viewer')`), 5000, "sent lightbox closed");
 
   // The bubble, with the tip up, for the human verdict on whether the tile is findable at all.
   const sentBox = await evalIn(c, `(() => {

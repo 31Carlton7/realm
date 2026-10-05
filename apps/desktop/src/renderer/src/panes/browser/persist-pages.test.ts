@@ -15,11 +15,11 @@ function repoFile(rel: string): string {
   throw new Error(`cannot locate ${rel} from ${process.cwd()}`);
 }
 
-type State = { id: string; url: string; title: string; loading: boolean; favicon: string | null };
+type State = { id: string; url: string; title: string; loading: boolean; favicon: string | null; error: { code: number; name: string; url: string } | null };
 
 function rig(rows: Record<string, { url: string; title: string; favicon: string }> = {}) {
   let emit: (s: State) => void = () => {};
-  const writes: { id: string; url: string; title: string; favicon: string }[] = [];
+  const writes: { id: string; url: string; title: string; favicon: string; failed?: boolean }[] = [];
   const stop = persistBrowserPages({
     host: { onState: (cb) => { emit = cb as never; return () => { emit = () => {}; }; } },
     server: {
@@ -28,7 +28,7 @@ function rig(rows: Record<string, { url: string; title: string; favicon: string 
     },
     debounceMs: 50,
   });
-  const state = (s: Partial<State> & { id: string }) => emit({ url: "", title: "", loading: false, favicon: null, ...s });
+  const state = (s: Partial<State> & { id: string }) => emit({ url: "", title: "", loading: false, favicon: null, error: null, ...s });
   const settle = async () => { await vi.advanceTimersByTimeAsync(60); };
   return { state, writes, settle, stop };
 }
@@ -86,6 +86,30 @@ describe("persistBrowserPages", () => {
     r.state({ id: "b1", url: "https://a.example", title: "A" });
     await r.settle();
     expect(r.writes).toEqual([]);
+  });
+
+  it("saves a page that did not load as one, so the server keeps it out of the history", async () => {
+    vi.useFakeTimers();
+    const r = rig({ b1: { url: "", title: "", favicon: "" } });
+    // THE MUTANT: save it as any other page. A blank tab's Recently visited lists the refused address.
+    r.state({ id: "b1", url: "http://localhost:3000/", title: "localhost:3000", error: { code: -102, name: "ERR_CONNECTION_REFUSED", url: "http://localhost:3000/" } });
+    await r.settle();
+    expect(r.writes).toEqual([{ id: "b1", url: "http://localhost:3000/", title: "localhost:3000", favicon: "", failed: true }]);
+  });
+
+  it("writes the page that loads after a failure, even at the address and title already saved", async () => {
+    vi.useFakeTimers();
+    const r = rig({ b1: { url: "", title: "", favicon: "" } });
+    const refused = { code: -102, name: "ERR_CONNECTION_REFUSED", url: "http://localhost:3000/" };
+    r.state({ id: "b1", url: "http://localhost:3000/", title: "localhost:3000", error: refused });
+    await r.settle();
+    // THE MUTANT: compare the address, title and icon alone. A page with no <title> of its own is
+    // named by its host, as its error page was, so the Reload that brought it in wrote nothing — and
+    // the visit it was is never told to the server.
+    r.state({ id: "b1", url: "http://localhost:3000/", title: "localhost:3000" });
+    await r.settle();
+    expect(r.writes.at(-1)).toEqual({ id: "b1", url: "http://localhost:3000/", title: "localhost:3000", favicon: "" });
+    expect(r.writes).toHaveLength(2);
   });
 
   it("keeps each browser's write its own", async () => {

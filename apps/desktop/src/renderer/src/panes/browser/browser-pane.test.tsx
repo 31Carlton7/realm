@@ -472,6 +472,23 @@ describe("BrowserPane", () => {
       expect(store.getState().browserRects).toHaveLength(1);
     });
 
+    /* The media viewer covers the whole window, as a page covers the panes — and a view left
+       showing would paint straight through the picture being looked at. THE MUTANT: leave the
+       viewer out of the overlay selector. */
+    it("hides the view while the media viewer is up, and shows it again when it closes", async () => {
+      const shows: boolean[] = [];
+      const f = fakeBridges({ url: "https://example.com" });
+      f.bridges.host.setBounds = (_id, _rect, _dpr, show) => { shows.push(show); };
+      const { store } = mountWithStore(f);
+      await settle();
+      expect(shows.at(-1)).toBe(true);
+      await act(async () => { store.getState().openViewer({ files: [{ path: "/tmp/shot.png" }] }); await settle(); });
+      expect(shows.at(-1)).toBe(false);
+      expect(store.getState().browserRects).toEqual([]);
+      await act(async () => { store.getState().closeViewer(); await settle(); });
+      expect(shows.at(-1)).toBe(true);
+    });
+
     /* The window's toasts, with no clear spot along its foot, hold a corner — and the view under it
        gives that corner up for as long as they are up. THE mutant: send the placeholder's rect as it
        is, and the view paints over the toast that is the only thing the window is trying to say. */
@@ -864,7 +881,7 @@ describe("BrowserPane — element picker", () => {
     await press();
     await act(async () => { f.settlePick({ ...PICKED, ref: 43 }); });
     expect(store.getState().drafts.se1).toBe('@[button "Sign in"] @[button "Sign in" 2] ');
-    expect(store.getState().draftElements.se1!.map((c) => c.element.ref)).toEqual([42, 43]);
+    expect(store.getState().draftElements.se1!.map((c) => (c.element as BrowserPickedElement).ref)).toEqual([42, 43]);
   });
 
   it("a pick main refuses outright un-arms the button — a lit picker over a view that is not picking", async () => {
@@ -1429,7 +1446,7 @@ describe("BrowserPane — annotate (Plan 26 W7d)", () => {
     await act(async () => { f.settleAnnotate({ outcome: "sent", elements: [el(1), el(2), el(3)], shot: SHOT }); await vi.advanceTimersByTimeAsync(0); });
     const st = store.getState();
     expect(st.drafts.se1).toBe("@[3 annotations] ");
-    expect(st.draftElements.se1!.map((c) => [c.label, c.pin, c.element.ref, c.shot])).toEqual([
+    expect(st.draftElements.se1!.map((c) => [c.label, c.pin, (c.element as BrowserPickedElement).ref, c.shot])).toEqual([
       ["3 annotations", 1, 41, SHOT.name], ["3 annotations", 2, 42, SHOT.name], ["3 annotations", 3, 43, SHOT.name],
     ]);
     expect(st.pendingAttachments.se1).toEqual([{ path: SHOT.path, mime: "image/png", name: SHOT.name, size: 4096 }]);

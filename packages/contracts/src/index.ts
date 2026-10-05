@@ -19,6 +19,7 @@ export * from "./project-search";
 export * from "./mentions";
 export * from "./mention-refs";
 export * from "./mcp";
+export * from "./mcp-apps";
 export * from "./memory";
 export * from "./session-events";
 export * from "./session-facts";
