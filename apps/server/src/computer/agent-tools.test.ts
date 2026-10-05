@@ -121,6 +121,7 @@ describe("computer use granted by a mention", () => {
     expect(s.gates).toHaveLength(1);
     expect(s.gates[0]!.toolKey).toBe("computer_act:com.apple.TextEdit");
     expect(s.gates[0]!.opts?.promptUnderBypass).toBe(true);
+    expect(s.gates[0]!.opts?.preapproved).toBe(false);
   });
 
   it("refuses to snapshot an app nobody mentioned, or whatever is frontmost, before the helper reads it", async () => {
