@@ -400,6 +400,14 @@ async function main() {
   check("…in their kind's tab: Images and Documents", images.join() === "hero.png,palette.jpg" && docs.join() === "brief.pdf,notes.md", { images, docs });
   await shot(c, "3-library-documents-tab-dark");
   await tab("All", "brief.pdf,hero.png,notes.md,palette.jpg");
+  // The same files as rows: the origin is the row's third column, quiet as a session's title is.
+  await press(c, `.library-view label[title="Rows"]`);
+  const rows = await until(() => evalIn(c, `(() => { const r = [...document.querySelectorAll('.library-row')]; return r.length === 4
+    ? r.map((x) => [x.querySelector('.library-row-name').textContent, x.querySelector('.library-tile-session')?.textContent ?? null]) : null; })()`), 5_000, "rows");
+  check("…and in rows, each with the same quiet Added", rows.every(([, from]) => from === "Added"), rows);
+  await shot(c, "3b-library-rows-dark");
+  await press(c, `.library-view label[title="Tiles"]`);
+  await until(() => evalIn(c, `document.querySelectorAll('.library-tile').length === 4`), 5_000, "tiles again");
 
   // ── 3. Dropped on the page ─────────────────────────────────────────────────────────────────────
   let held = null;

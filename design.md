@@ -597,6 +597,9 @@ acronym that is uppercase anyway (a file extension on a tile).
   the window — the model picker did both from a mid-window prompter. And anything in it that changes
   with the highlight holds a fixed height: a surface that grows upward moves every row above a
   taller line, and the row under the pointer with them.
+- A surface that takes dropped files lights as a whole, its glow inset from its own edge as a pane's
+  is — never round a column inside it, whose content runs to its edges: the Library's ring, drawn round
+  its column of files, went through the page's title and its first tile.
 - Two overlays that both answer Escape answer it in MOUNT order, not stacking order, because both
   listen on the window. The one underneath was registered first and wins, so `stopPropagation` from
   the top surface cannot save it: expanding a picture out of a sheet closed the sheet too. A full
@@ -732,11 +735,15 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   anatomy, so it is the same sidebar listing something else, and the page they leave behind is a
   centred column. Where there is no column to take — the sidebar collapsed — the rail stays in the
   page, where it can still be reached (`components/page-nav.tsx`).
+- A destination page is left the way it was reached — a session in the sidebar, the column's Back, the
+  lit rail button pressed again — or with Escape, which goes back to where you were. Its bar is its
+  name and nothing else (the owner, 10-05): a × at the bar's far end was one more way out, away from
+  the ones used to arrive.
 - Closing a pane should never imply deleting the object behind it. That rule is about objects that
   outlive their pane — a session's transcript, a diff's checkout — and the × in a pane bar is right
-  exactly where one exists. It has no work to do where there is nothing underneath: a destination
-  page's `refId` is a sentinel, and a terminal, browser or documents pane is a thing opened at a
-  moment and finished with. A × on those closes into a drift of rows in the space that nobody asked
+  exactly where one exists. It has no work to do where there is nothing underneath: a terminal,
+  browser or documents pane is a thing opened at a moment and finished with (a destination page has
+  no close at all — above). A × on those closes into a drift of rows in the space that nobody asked
   to keep, and the user reads it as the pane refusing to go away. Give those bars the trash instead,
   and leave the layout-only close on ⌘W and in the ⋯ menu, named so it says which of the two it is.
 - A confirm step is owed by the OBJECT, not by the destructive-looking button. A pty, a live web

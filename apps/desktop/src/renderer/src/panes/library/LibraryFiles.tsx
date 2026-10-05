@@ -88,6 +88,10 @@ function walkGrid(e: ReactKeyboardEvent<HTMLElement>) {
   best.scrollIntoView({ block: "nearest" });
 }
 
+/** What the Library page hands the files it takes from a drop. The page is the drop target — the whole
+ *  of it, as a pane is a session's — and this column is what knows what to do with them. */
+export type LibraryFilesHandle = { drop(files: File[]): void };
+
 /**
  * Every file every session in this profile made or was given, browsable.
  *
@@ -109,10 +113,6 @@ function walkGrid(e: ReactKeyboardEvent<HTMLElement>) {
  * profile (`library.add`), and they are listed as any other file is, with "Added" where the others
  * name a session. A dropped folder is a question, not a copy: the page asks before its files come in.
  */
-/** What the Library page hands the files it takes from a drop. The page is the drop target — the whole
- *  of it, as a pane is a session's — and this column is what knows what to do with them. */
-export type LibraryFilesHandle = { drop(files: File[]): void };
-
 export function LibraryFiles({ spaceId, head, ref }: { spaceId: string;
   /** The page's head, drawn first in this column and scrolling away with it, the toolbar under it. */
   head?: ReactNode;
