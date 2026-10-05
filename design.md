@@ -60,11 +60,14 @@ Inspect the existing implementation before designing.
 - Shared theme derivation: `packages/ui/src/theme.ts` and `packages/ui/src/themes.ts`
 - Marketing tokens and prose styles: `site/app/globals.css`
 - App icon and landing shader: `resources/icon-src/` and `site/lib/realm-liquid-glass.ts`
-- The app icon and its Dock alternates are generated artwork on the mark's geometry, laid onto the
-  macOS grid by `resources/icon-src/compose-alternates.py`: only the BODY is taken from a generation,
-  cut to the continuous corner and given the grid's own shadow, so pictures from different prompts sit
-  together as one set. A running Mac app can change only its own Dock tile — the Finder keeps the
-  bundle's icon — and Settings says so rather than implying more.
+- The app icon and its Dock alternates are one vector drawing in nine colourings
+  (`resources/icon-src/icons.mjs`): the mark's own geometry on the macOS grid, rendered natively at
+  every size. An icon lives in a row of other apps' icons, so it is lit the way the Dock lights
+  Apple's — a graded body, a soft edge, one short shadow, a little light from above — and not as a
+  render: the generated set's chrome, candy plastic and bright bevel outshone every icon beside it.
+  A picture with no source can only be regenerated, never adjusted, which is why the colourings are
+  data. A running Mac app can change only its own Dock tile — the Finder keeps the bundle's icon — and
+  Settings says so rather than implying more.
 
 When the landing mark is presented as glass, derive its surface field from the approved vector rather
 than inventing geometry around it. Refraction and edge highlights must respond to that field, and
