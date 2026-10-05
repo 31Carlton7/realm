@@ -739,12 +739,26 @@ a {
   --pane-ground: color-mix(in srgb, var(--canvas) calc(92% + (var(--pane-alpha) - 84%) * 0.5), transparent);
 }
 
+/* A THEMED palette's sidebar starts where the light face's does, for the same reason in another
+ * form. The material under the window is the system's grey; Realm's own dark ground is a near-grey
+ * too, so 55% of it over the material reads as itself — but a palette with a hue (Rosé Pine's
+ * violet, Nord's blue) mixed 55% into grey reads as grey, and the sidebar stopped looking like the
+ * theme the panes beside it wear (reported 10-04, on Rosé Pine). Same slider, same 100% end; at the
+ * default the column is ~80% the theme's and only a fifth the material's. Realm's own dark face
+ * keeps the range it was drawn for. */
+:root[data-mode="dark"][data-theme]:not([data-theme="realm"]) {
+  --sidebar-ground: color-mix(in srgb, var(--page) calc(55% + var(--ground-alpha) * 0.45), transparent);
+}
+
 @media (prefers-reduced-transparency: reduce) {
   /* Every ground goes solid whatever the slider says — the preference is about the window being
    * see-through, and it outranks a setting the user may have left on months ago. Both of them, not
    * just the column: a pane still showing the desktop through itself beside an opaque sidebar
    * answers the preference by half. */
   :root, :root[data-mode="light"] { --sidebar-ground: var(--page); --pane-ground: var(--canvas); }
+  /* The themed rule above outranks a bare :root, so it is named here too, or the preference would
+   * leave a themed sidebar see-through. */
+  :root[data-mode="dark"][data-theme]:not([data-theme="realm"]) { --sidebar-ground: var(--page); }
 }
 
 /* ══ DECORATIVE GRAIN ══════════════════════════════════════════════════════════

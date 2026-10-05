@@ -1060,6 +1060,22 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
   });
 
+  it("a folded sidebar takes no part in the window's drag regions, so the rail's buttons stay clickable", () => {
+    /* Electron lays drag regions down in DOCUMENT order, not stacking order. The folded column slides
+       under the rail, and the rail comes first in the DOM, so a drag region left on the column covers
+       the rail's buttons again and macOS takes a click on them for the start of a window drag: the
+       toggle folded the sidebar and could not bring it back (reported 10-04). A live check cannot
+       see this — CDP's clicks go straight into the page and never meet the OS's regions — so the
+       rule is held here. THE mutant: the column's own `drag` left in force while it is folded. */
+    expect(bodiesFor(".sidebar").join(" ")).toContain("-webkit-app-region: drag");
+    // `initial`, which is no region at all. An explicit `none` computes as `no-drag` in this Chromium
+    // (measured): clickable, but a hole in the rail's own drag region wherever the column sits.
+    expect(bodiesFor(".sidebar[data-collapsed]").join(" ")).toContain("-webkit-app-region: initial");
+    // And everything in it: a drag band inside would cover the rail just the same, and a no-drag
+    // button would punch it.
+    expect(bodiesFor(".sidebar[data-collapsed] *").join(" ")).toContain("-webkit-app-region: initial");
+  });
+
   it("collapsing keeps the rail: the lights sit in it, and nothing in the main column makes room for them", () => {
     /* Plan 27: the rail is the window's left edge in both states, so collapsing takes the sidebar out
        of the row and nothing else. The lights (main places them at x:12, y:14; they run to ~66px)

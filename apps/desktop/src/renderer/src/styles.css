@@ -348,6 +348,14 @@ kbd { font: 11px var(--font-mono); }
 }
 .sidebar[data-collapsed] { margin-inline-start: calc(-1 * var(--sidebar-w)); opacity: 0; }
 .sidebar button, .sidebar input, .sb-resize { -webkit-app-region: no-drag; }
+/* Folded away, the column slides UNDER the rail — and Electron lays the window's drag regions down in
+   document order, not stacking order. The rail comes first, so a drag region left on the folded
+   column lands back over the rail's buttons and macOS takes every click on them for the start of a
+   window drag: the sidebar folded and its own toggle could not bring it back. A folded sidebar has
+   nothing to be dragged by, so it takes no part in the window's regions at all — `initial`, not
+   `none`: measured in this Chromium, an explicit `none` computes as `no-drag`, which would leave a
+   hole in the rail's own drag region where the column sits under it. */
+.sidebar[data-collapsed], .sidebar[data-collapsed] * { -webkit-app-region: initial; }
 
 /* ── The column's own edge, as a control ──
    Nothing at rest. The seam here is `.main`'s border-left and it is 1px on purpose (see the note

@@ -141,3 +141,25 @@ describe("the light face is nearly opaque", () => {
   });
 });
 
+/* A themed palette's sidebar (tokens.css). The material under the window is the system's grey, and a
+   hue mixed 55% into it reads as grey: on Rosé Pine the sidebar stopped looking like the theme its
+   panes wore (reported 10-04). Realm's own near-grey dark ground is the one the 55% was drawn for. */
+describe("a themed palette's sidebar wears the theme", () => {
+  const themed = tokensCss.slice(tokensCss.indexOf("A THEMED palette's sidebar starts where the light face's does"));
+  const at = (expr: string, v: number) =>
+    Function("g", `return ${expr.replace(/var\(--ground-alpha\)/g, "g").replace(/%/g, "")};`)(v) as number;
+  const rule = /:root\[data-mode="dark"\]\[data-theme\]:not\(\[data-theme="realm"\]\) \{\s*--sidebar-ground: color-mix\(in srgb, var\(--page\) calc\(([^;]+)\), transparent\);/.exec(themed);
+
+  it("starts the sidebar's range where the light face does: ~80% at the default, opaque at the top", () => {
+    // THE mutants: the rule dropped (a themed dark sidebar back on Realm's 55%), or aimed at Realm's
+    // own face too (which keeps the range it was drawn for).
+    expect(rule).not.toBeNull();
+    expect(at(rule![1]!, DEFAULT_GROUND_ALPHA)).toBeCloseTo(79.75, 1);
+    expect(at(rule![1]!, 100)).toBeCloseTo(100, 1);
+  });
+
+  it("still goes opaque under Reduce Transparency, which a bare :root would no longer reach", () => {
+    const reduce = tokensCss.slice(tokensCss.indexOf("@media (prefers-reduced-transparency: reduce)"));
+    expect(reduce.slice(0, reduce.indexOf("\n}") + 2)).toContain(':root[data-mode="dark"][data-theme]:not([data-theme="realm"]) { --sidebar-ground: var(--page); }');
+  });
+});

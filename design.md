@@ -251,6 +251,11 @@ Rules:
   see-through sidebar beside solid reading is a reasonable thing to want, and one control could not say it.
   A claim about what the material does to contrast is a real screen capture, never a CDP screenshot —
   the material is not in the DOM.
+- The material is the system's grey, so an alpha is drawn for a palette, not for every palette.
+  Realm's own dark ground is a near-grey that reads as itself at 55% over it; a theme with a hue
+  mixed 55% into grey reads as grey, and a Rosé Pine sidebar beside Rosé Pine panes stopped looking
+  like the theme. A ground the material would wash out — the light face, a hued theme — starts its
+  range higher on the same control, so a theme is the theme everywhere it is worn.
 - A dissolve belongs to the SCROLLER, not to the layout band that happens to contain it. A fade
   positioned on a parent that also holds navigation is drawn over that navigation: the settings tab
   strip arrived smeared and half-legible the moment the column under it was scrolled, and at every
