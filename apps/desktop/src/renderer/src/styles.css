@@ -1284,7 +1284,7 @@ kbd { font: 11px var(--font-mono); }
 /* The document's headings, in the rail's column and on the rail's metrics. Capped to the body's own
    height and scrolling inside that, so a skill with forty sections does not push the page taller
    than the pane. */
-.skill-toc { max-height: 100%; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; --fade-h: 24px; --fade-top-h: 24px; }
+.skill-toc { max-height: calc(100% - var(--page-head-top, 0px)); overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; --fade-h: 24px; --fade-top-h: 24px; }
 .skill-toc-link { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none;
   transition: color var(--dur-hover) ease; }
 /* A sub-heading is indented and quieter — the shape of the document, not a second list of peers. */

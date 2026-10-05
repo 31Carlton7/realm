@@ -284,6 +284,13 @@ Rules:
   width, because the rail is a column beside the content wide and a row above it narrow. The test is
   the hairline's test again — is the thing under the band content that scrolls past a fixed edge, or
   chrome that stays? Chrome never goes soft.
+- Every scroller dissolves where it has more to show (the owner, 10-05: "every scrollable surface…
+  our signature blur") — a page, a list, a popover, a sheet's body, a strip of tabs, a capped well of
+  output — and the exceptions are named, each for what a mask would take: a line read to its last
+  character (code, a diff, a command, a formula scrolling sideways), a surface whose own fill or
+  pinned heads are in the scroller (a table, a segmented track, a zoomed picture), and the editors,
+  whose caret can be on any line. A surface with a shadow never takes the mask itself; its rows
+  scroll inside it. `styles.test.ts` holds every scroller in the stylesheet to one or the other.
 - Chrome that lives INSIDE a scroller dissolves with it, and nothing can lift it out: a mask applies
   to everything the element paints, whatever its stacking order. That is survivable because a mask
   takes alpha rather than detail — a filter bar scrolling into the dissolve keeps its edges and reads
