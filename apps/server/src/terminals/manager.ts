@@ -54,6 +54,19 @@ export class TerminalManager {
     return { id, shell };
   }
   has(id: string): boolean { return this.terms.has(id); }
+  /** The kernel's short name for the leader of this pty's foreground process group — node-pty's
+   *  `process`, which is `tcgetpgrp` and one sysctl, so a timer may ask it. Null when the pty is gone
+   *  or the leader has already exited. */
+  foregroundName(id: string): string | null {
+    const p = this.terms.get(id);
+    if (!p) return null;
+    try { return p.process || null; } catch { return null; }
+  }
+  /** The pty's device (`/dev/ttys012`), which is how `ps` finds the processes on it. node-pty keeps it
+   *  as `ptsName` and its typings do not declare it. */
+  ttyName(id: string): string | null {
+    return (this.terms.get(id) as (pty.IPty & { ptsName?: string }) | undefined)?.ptsName ?? null;
+  }
   write(id: string, data: string): void { this.get(id).write(data); }
   /**
    * Write once the shell has stopped producing output for `quietMs` (or `timeoutMs` elapses).
