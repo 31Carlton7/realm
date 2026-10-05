@@ -14,12 +14,12 @@
  *   5. A blank tab shows the session's tools, and each one picked takes the tab's place: Terminal
  *      and Machine as tabs where it stood, Files through the ⌘P palette, and Documents — already
  *      open by then — by going to the tab that has it.
- *   6. Peek, from its row on the Notifications page, at a session in another space that is waiting on
- *      a card: a tab of the lead's side pane, eye and italic, its card answered in place, no prompter
- *      — never in the window's saved view. Peek from a sidebar row's menu, then Open session: the
- *      session takes the lead's place in the main view, from this space or another, with nothing
- *      switched. (What waits on you is the sidebar's Needs you list now — sidebar-rail-live measures
- *      it.)
+ *   6. Peek, from its sidebar row's menu, at a session waiting on a card: a tab of the lead's side
+ *      pane, eye and italic, its card answered in place, no prompter — never in the window's saved
+ *      view. Then Peek at another and Open session: the session takes the lead's place in the main
+ *      view, with nothing switched. (A peek at another space's session has no way in on screen since
+ *      the Notifications page went, whose rows carried the eye — store-peek.test.ts holds that one.
+ *      What waits on you is the sidebar's Needs you list — sidebar-rail-live measures it.)
  *
  * Ports: LIVE_SERVER_PORT (8964), LIVE_CDP_PORT (9364), LIVE_MAIN_INSPECT_PORT (9464), LIVE_SITE_PORT
  * (8974). Touches only a scratch dir; kills only what is listening on its own ports. Browses nothing
@@ -420,11 +420,10 @@ async function main() {
   await shot(c, "machine-tab");
 
   // ── 6. Peek ──────────────────────────────────────────────────────────────────────────────
-  const space2 = await api.call("spaces.create", { profileId: space.profileId, name: "Homework" });
-  const { session: other } = await api.call("sessions.create", { spaceId: space2.id, agentKind: "acp:gemini", title: "Peek target", permissionMode: "default" });
+  const { session: other } = await api.call("sessions.create", { spaceId: space.id, agentKind: "acp:gemini", title: "Peek target", permissionMode: "default" });
   await api.call("sessions.send", { id: other.id, text: "PERMIT", attachments: [], mentions: [] });
   await until(async () => (await api.call("sessions.get", { id: other.id })).status === "waiting_permission", 30_000, "the peek target waiting on a card");
-  const otherItem = (await api.call("items.list", { spaceId: space2.id })).find((i) => i.refId === other.id);
+  const otherItem = (await api.call("items.list", { spaceId: space.id })).find((i) => i.refId === other.id);
   /** Every item the window's saved view names, on screen or kept in a side pane — what a relaunch
    *  would restore, as the profile's `ui.view:<id>` row has it. */
   const savedIds = async () => {
@@ -435,32 +434,34 @@ async function main() {
   };
   const peekTab = () => evalIn(c, `(() => { const t = document.querySelector('.pane-tab[data-peek] [role=tab]');
     return t ? { label: t.getAttribute('aria-label'), italic: getComputedStyle(t.querySelector('.pane-tab-title')).fontStyle, draggable: t.getAttribute('draggable') } : null; })()`);
-  // The current space is the focused session's, which its pane's crumb names.
-  const activeSpace = () => evalIn(c, `document.querySelector('.panel[data-focused] .panel-crumb')?.getAttribute('aria-label') ?? null`);
   const focusedTitle = () => evalIn(c, `document.querySelector('.panehost .panel[data-focused] .panel-title')?.textContent ?? null`);
-  const openFeed = async () => {
-    await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Notifications')).click(); return true; })()`);
-    await until(() => evalIn(c, `!!document.querySelector('button[aria-label="Peek at Peek target"]')`), 10_000, "the notification row's peek on the target");
+  /** A session's row in this space's list (not its Needs you row, which opens and answers but has no
+   *  menu): its menu, then Peek — the way in a peek has. Returns what the menu offered. */
+  const peekFromRow = async (title) => {
+    const row = `[...document.querySelectorAll('.item-list .item')].find((r) => !r.closest('.sb-needs') && r.textContent.includes(${JSON.stringify(title)}))`;
+    await until(() => evalIn(c, `!!${row}`), 10_000, `${title}'s row`);
+    await evalIn(c, `(() => { const row = ${row}; const b = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.x + 20, clientY: b.y + 10 })); return true; })()`);
+    const offered = await until(() => evalIn(c, `[...document.querySelectorAll('.menu [role=menuitem]')].map((b) => b.textContent)`), 5_000, `${title}'s menu`);
+    await evalIn(c, `(() => { [...document.querySelectorAll('.menu [role=menuitem]')].find((b) => b.textContent === 'Peek')?.click(); return true; })()`);
+    return offered;
   };
 
   await intoLead();
-  await openFeed();
-  await shot(c, "feed-peek");
-  await evalIn(c, `(() => { document.querySelector('button[aria-label="Peek at Peek target"]').click(); return true; })()`);
+  const offeredFirst = await peekFromRow("Peek target");
   const tab = await until(peekTab, 10_000, "the peek's tab").catch(() => null);
-  const page = await evalIn(c, `!!document.querySelector('.notifications-page-pane')`);
   // Nothing switched: the lead's own pane is still on screen, its crumb naming Live. (The focus may be
   // in the side pane now, which carries no crumb.)
   const leadCrumb = () => evalIn(c, `[...document.querySelectorAll('.panehost .panel')].find((p) => p.querySelector('.panel-title')?.textContent === ${JSON.stringify(TITLE)})?.querySelector('.panel-crumb')?.getAttribute('aria-label') ?? null`);
-  check("Peek from a notification row opens another space's session as a tab of the lead's side pane, the page out of the way",
-    tab?.label === "Peek: Peek target" && !page && (await leadCrumb()) === "Open Live", { tab, page, lead: await leadCrumb() });
+  check("Peek from a session row's menu opens it as a tab of the lead's side pane, with nothing switched",
+    offeredFirst.includes("Peek") && tab?.label === "Peek: Peek target" && (await leadCrumb()) === "Open Live", { offered: offeredFirst, tab, lead: await leadCrumb() });
   check("…marked as a peek: an eye and an italic title, and it does not drag", tab?.italic === "italic" && tab?.draggable === "false", tab);
   const peekPane = () => evalIn(c, `(() => { const p = document.querySelector('.session-pane[data-peek]');
     return p ? { card: p.querySelector('.permission-card')?.textContent?.slice(0, 80) ?? null, composer: !!p.querySelector('.composer'),
       bar: p.querySelector('.peek-bar')?.textContent ?? null } : null; })()`);
   const pane = await until(async () => { const p = await peekPane(); return p?.card ? p : null; }, 10_000, "the peek's card").catch(peekPane);
-  check("the peek shows the waiting card and no prompter, and says which space it is from",
-    !!pane?.card && pane.composer === false && pane.bar === "Peek · HomeworkOpen session", pane);
+  check("the peek shows the waiting card and no prompter, and its bar the way in",
+    !!pane?.card && pane.composer === false && pane.bar === "PeekOpen session", pane);
   await sleep(500);
   await shot(c, "peek");
 
@@ -476,18 +477,13 @@ async function main() {
   await evalIn(c, `(() => { document.querySelector('.session-pane[data-peek] .permission-card button[aria-label="Allow"]').click(); return true; })()`);
   const answered = await until(async () => { const st = (await api.call("sessions.get", { id: other.id })).status; return st !== "waiting_permission" ? st : null; }, 10_000, "the card answered").catch(() => "waiting_permission");
   const cardGone = await until(async () => { const p = await peekPane(); return p && !p.card ? true : null; }, 5_000, "the card gone").catch(() => false);
-  check("Allow in the peek answers the other space's card", answered !== "waiting_permission" && cardGone === true, { status: answered });
+  check("Allow in the peek answers its card", answered !== "waiting_permission" && cardGone === true, { status: answered });
 
   // A same-space session, from its sidebar row's menu, then Open session: the tab stays, and is saved.
   const { session: second, itemId: secondItem } = await api.call("sessions.create", { spaceId: space.id, agentKind: "acp:gemini", title: "Second session", permissionMode: "default" });
-  await until(() => evalIn(c, `[...document.querySelectorAll('.item-list .item')].some((r) => r.textContent.includes('Second session'))`), 10_000, "Second session's row");
   await intoLead();
-  await evalIn(c, `(() => { const row = [...document.querySelectorAll('.item-list .item')].find((r) => r.textContent.includes('Second session'));
-    const b = row.getBoundingClientRect();
-    row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.x + 20, clientY: b.y + 10 })); return true; })()`);
-  const offered = await until(() => evalIn(c, `[...document.querySelectorAll('.menu [role=menuitem]')].map((b) => b.textContent)`), 5_000, "the row's menu");
+  const offered = await peekFromRow("Second session");
   check("a session row's menu offers Peek for a session not on screen", offered.includes("Peek"), offered);
-  await evalIn(c, `(() => { [...document.querySelectorAll('.menu [role=menuitem]')].find((b) => b.textContent === 'Peek').click(); return true; })()`);
   const tab2 = await until(peekTab, 10_000, "the second peek's tab").catch(() => null);
   check("…and peeks at it beside the lead", tab2?.label === "Peek: Second session", tab2);
   await evalIn(c, `(() => { [...document.querySelectorAll('.session-pane[data-peek] .peek-bar button')].find((b) => b.textContent === 'Open session').click(); return true; })()`);
@@ -497,20 +493,6 @@ async function main() {
   check("Open session on this space's peek takes the lead's place in the main view, saved with it",
     (await peekTab()) === null && inFront === "Second session" && saved2.includes(secondItem), { focused: inFront, saved: saved2.includes(secondItem) });
   void second;
-  // Back to the lead for the next peek, the way a person would: its row.
-  await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
-  await until(async () => ((await focusedTitle()) === TITLE ? true : null), 10_000, "the lead in front again");
-
-  // Another space's, Open session: that space, with the session in front.
-  await intoLead();
-  await openFeed();
-  await evalIn(c, `(() => { document.querySelector('button[aria-label="Peek at Peek target"]').click(); return true; })()`);
-  await until(peekTab, 10_000, "the third peek's tab");
-  await evalIn(c, `(() => { [...document.querySelectorAll('.session-pane[data-peek] .peek-bar button')].find((b) => b.textContent === 'Open session').click(); return true; })()`);
-  await until(async () => ((await focusedTitle()) === "Peek target" ? true : null), 10_000, "Peek target in front").catch(() => {});
-  await sleep(600);
-  const there = await evalIn(c, `(() => { const p = document.querySelector('.panehost .panel[data-focused]'); return p ? p.querySelector('.panel-title')?.textContent ?? [...p.querySelectorAll('.pane-tabs [role=tab][aria-selected=true]')].map((t) => t.textContent).join() : null; })()`);
-  check("Open session on another space's peek brings it into the main view, in front, with nothing switched", (await activeSpace()) === "Open Homework" && there === "Peek target" && (await peekTab()) === null, { space: await activeSpace(), focused: there });
   await shot(c, "peek-opened");
 }
 
