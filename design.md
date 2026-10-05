@@ -614,7 +614,15 @@ acronym that is uppercase anyway (a file extension on a tile).
   its one flexible part (a list) giving way, or it lands on the control that opened it or runs off
   the window — the model picker did both from a mid-window prompter. And anything in it that changes
   with the highlight holds a fixed height: a surface that grows upward moves every row above a
-  taller line, and the row under the pointer with them.
+  taller line, and the row under the pointer with them. The same goes for anything a press there can
+  change — the fast-mode note holds its line open beside the bolt, empty or not, because the line
+  arriving lifted the bolt out from under the pointer, and the press meant to switch it off landed on
+  the effort track. And it is placed by its laid-out size, never one read mid-entrance: measured
+  through its .97 scale-in, the picker sat 3% off its chip until its content next moved.
+- A prompter with no session behind it yet holds everything its controls set, not only the model,
+  and the first send starts the session that way. Code review's question box and the media viewer's
+  held the model picked and dropped the rest, so the effort track and the fast-mode bolt were drawn,
+  took the click and did nothing — a control that answers in one prompter answers in all of them.
 - A surface that takes dropped files lights as a whole, its glow inset from its own edge as a pane's
   is — never round a column inside it, whose content runs to its edges: the Library's ring, drawn round
   its column of files, went through the page's title and its first tile.
@@ -698,6 +706,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   respects reduced motion like everything else, and any hue it paints is derived from the live accent
   rather than chosen — the palette's other hues already mean something. Amplitude is calibrated to the
   hero greeting's nod, not to what the effect could do.
+- One standing exception, the owner's: a session asked to run at XHigh or Max draws Realm's light in
+  the picker's effort track — the landing page's streams running into a core at the knob, over faint
+  facets of the mark, stronger at Max — and switching fast mode on is one short moment: the bolt
+  charges, a glint runs the track and then the chip's words. Each states something (the level in
+  force; a switch that just took), the light runs only while the picker is open on it, the moment
+  plays only on the way ON, and both still under Reduce motion and Low power. The easter eggs run the
+  same light hot rather than laying a second treatment over it.
 - A frame loop is outside every mechanism this app governs motion with, and has to re-implement all
   of them. Both of the controls above are CSS: reduced motion is an app-wide `* { animation: none }`,
   and the `data-quiet` pause the power audit measured is `animation-play-state`. A canvas driven by
