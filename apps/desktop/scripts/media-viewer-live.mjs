@@ -176,6 +176,14 @@ const VIEWER = `(() => {
     placeholder: v.querySelector('textarea.composer-input')?.getAttribute('placeholder') ?? null,
   }; })()`;
 const viewer = (c) => evalIn(c, VIEWER);
+/** The viewer fades in, and a picture already in the cache is up before the fade is done: a capture
+ *  then is the workspace and the viewer at half strength each. Waits out every finite animation (a
+ *  spinner's never ends, so it is left out), then two frames for the paint. */
+const settled = (c) => evalIn(c, `Promise.race([
+  Promise.all(document.getAnimations().filter((a) => a.playState === "running" && Number.isFinite(a.effect?.getComputedTiming().endTime)).map((a) => a.finished.catch(() => null))),
+  new Promise((r) => setTimeout(r, 2000)),
+]).then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => true)`);
+
 const pictureUp = (c, name) => until(async () => {
   const v = await viewer(c);
   return v && v.name === name && v.img?.complete && v.img.natural[0] > 0 ? v : null;
@@ -276,7 +284,9 @@ async function main() {
   check("the prompter names the file it will ask about", v1.placeholder?.startsWith("Ask about hero.png"), v1.placeholder);
   {
     // The workspace under the viewer must not ghost through it: at 97% every label in the window read
-    // beside the file's own name. Sampled where a sidebar row's label sits under the viewer's ground.
+    // beside the file's own name. Sampled where a sidebar row's label sits under the viewer's ground,
+    // once the entrance fade is over (mid-fade, everything ghosts, as it should).
+    await settled(c);
     const at = await evalIn(c, `(() => { const r = [...document.querySelectorAll('.app .item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(TITLE)}))?.getBoundingClientRect();
       return r ? { x: Math.round(r.left + 8), y: Math.round(r.top + 4), w: Math.round(Math.min(120, r.width - 16)), h: Math.round(r.height - 8) } : null; })()`);
     const { data } = await c.send("Page.captureScreenshot", { format: "png", clip: { x: at.x, y: at.y, width: at.w, height: at.h, scale: 1 } });
@@ -457,6 +467,7 @@ async function main() {
  *  nothing and the PNG comes out see-through. For the capture alone the root is painted with a
  *  ground that stands in for the material over a plain wallpaper, dark or light as the face is. */
 async function shot(c, tag) {
+  await settled(c);
   await evalIn(c, `(() => { const r = document.documentElement; r.style.background = r.dataset.mode === "light" ? "#e9e9ec" : "#17181b"; return true; })()`);
   try {
     const { data } = await c.send("Page.captureScreenshot", { format: "png" });
