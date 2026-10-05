@@ -263,7 +263,7 @@ describe("a delegation call links the sessions it started", () => {
   ] };
   const sessions = [
     session(LEAD, "s1", { title: "Lead" }),
-    session(KID_ID, "s1", { title: "Agent: audit the mapper", dispatchedBy: { sessionId: LEAD, kind: "agent_run" } }),
+    session(KID_ID, "s1", { title: "Agent: audit the mapper", dispatchedBy: { sessionId: LEAD, kind: "browser_agent_run" } }),
     session(PEER_ID, "s1", { title: "A colleague" }),
   ];
   /** One finished call, with the trail the server writes after `agent_run`'s report. */
@@ -284,12 +284,14 @@ describe("a delegation call links the sessions it started", () => {
     return store;
   }
 
+  /* A browser agent's call keeps its list of the child it started. The `agent_run` family is drawn as
+     each sub-agent's own line instead, linked to its row in the Agents tab (delegation-line.test.tsx). */
   it("names the child on the call, and previews it in the lead's side pane", async () => {
-    const store = await mountWith(call("mcp__realm__realm-agent__agent_run", trail("The mapper is fine.")));
+    const store = await mountWith(call("mcp__realm__realm-agent__browser_agent_run", trail("The mapper is fine.")));
     // THE MUTANT: compare the raw tool name. Every harness prefixes it — Claude's `mcp__realm__…`,
     // Codex's `realm.…` — so a set of bare names would never match one, and there is no way back.
     expect(links()).toEqual(["Agent: audit the mapper"]);
-    fireEvent.click(screen.getByRole("button", { name: "Agent: audit the mapper — Delegated via agent_run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Agent: audit the mapper — Browser agent" }));
     // A tab beside the lead, like the control's row: the lead is the context the child is read in.
     await waitFor(() => expect(findSidePane(store.getState().layout!, "i-lead")?.tabs).toEqual(["i-kid"]));
   });
@@ -298,7 +300,7 @@ describe("a delegation call links the sessions it started", () => {
     // The child's report is the child's words, and it may name any session it likes. THE MUTANT:
     // link every id that resolves to a session, and a colleague the child merely mentioned becomes
     // a row on the lead's call, drawn as though the lead had delegated to it.
-    await mountWith(call("mcp__realm__realm-agent__agent_run", trail(`I compared notes with ${PEER_ID}.`)));
+    await mountWith(call("mcp__realm__realm-agent__browser_agent_run", trail(`I compared notes with ${PEER_ID}.`)));
     expect(links()).toEqual(["Agent: audit the mapper"]);
   });
 

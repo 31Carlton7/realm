@@ -1,9 +1,9 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
-import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
+import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, mimeForPath, nextFireOf } from "@realm/contracts";
-import type { CliStatus, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -318,6 +318,10 @@ export type FakeData = {
   reviews?: Record<string, ReviewResult | null>;
   /** The delegation engine's live registry by delegating session id — what `delegation.running` answers. */
   delegatedRuns?: Record<string, DelegatedRun[]>;
+  /** Each lead session's sub-agents — what `delegation.children` answers. */
+  delegatedChildren?: Record<string, DelegatedChild[]>;
+  /** What `delegation.models` answers, for every session. */
+  delegableModels?: DelegableModels;
   /** What `search.query` answers (Plan 16 W2), regardless of query — palette tests script the groups.
    *  Delay it with `delays["search"]` to hold results in flight. */
   searchResults?: SearchResults;
@@ -511,6 +515,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     notifications: overrides.notifications ?? [],
     reviews: overrides.reviews ?? {},
     delegatedRuns: overrides.delegatedRuns ?? {},
+    delegatedChildren: overrides.delegatedChildren ?? {},
+    delegableModels: overrides.delegableModels ?? { models: [], own: { kind: "claude", label: "Fable 5.1" } },
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
     artifacts: overrides.artifacts ?? [],
     iconAssets: overrides.iconAssets ?? {},
@@ -1698,6 +1704,17 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     getReview: async (environmentId) => { calls.push(`getReview:${environmentId}`); return { review: data.reviews[environmentId] ?? null }; },
     dismissReview: async (environmentId) => { calls.push(`dismissReview:${environmentId}`); data.reviews[environmentId] = null; },
     listDelegatedRuns: async (sessionId) => { calls.push(`listDelegatedRuns:${sessionId}`); return data.delegatedRuns[sessionId] ?? []; },
+    listDelegatedChildren: async (sessionId) => { calls.push(`listDelegatedChildren:${sessionId}`); return data.delegatedChildren[sessionId] ?? []; },
+    delegableModels: async (sessionId) => { calls.push(`delegableModels:${sessionId}`); return data.delegableModels; },
+    agentsTab: async (sessionId) => {
+      calls.push(`agentsTab:${sessionId}`);
+      const spaceId = data.sessions.find((x) => x.id === sessionId)?.spaceId ?? Object.keys(data.items)[0]!;
+      const existing = (data.items[spaceId] ?? []).find((i) => i.kind === "agents" && i.refId === sessionId);
+      if (existing) return { itemId: existing.id };
+      const it = item(`i${++n}`, spaceId, { kind: "agents", title: "Agents", refId: sessionId });
+      (data.items[spaceId] ??= []).push(it);
+      return { itemId: it.id };
+    },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

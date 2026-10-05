@@ -16,8 +16,11 @@ const COPIED_MS = 1400;
  * relaunch every message is complete at once, and forty bars fading in together reads as a fault
  * rather than as forty arrivals.
  */
-export function MessageActions({ text, onRetry, retryBusy = false, rating = null, onRate }: {
+export function MessageActions({ text, onRetry, retryBusy = false, rating = null, onRate, onImplementWith }: {
   text: string;
+  /** Hand this answer to other models — the Agents tab, opened with it as the work. Absent where
+   *  there is no tab to open (the read-only mounts). */
+  onImplementWith?: () => void;
   /** Present only on the message a retry would land after, and only when there is a user message to
    *  ask again — the bar does not offer a button it cannot honour. */
   onRetry?: () => void;
@@ -60,6 +63,15 @@ export function MessageActions({ text, onRetry, retryBusy = false, rating = null
       {/* Pressing the verdict already showing takes it back, which is why these are `aria-pressed`
           toggles and not a two-way choice: the reader who mis-clicked has somewhere to go, and
           "unrated" stays reachable rather than being a state you can only leave. */}
+      {/* The answer as the work for other models — usually a plan this session just wrote. It only
+          opens the Agents tab with the text in its composer, but it is the first step of launching
+          paid work, so like the composer's send it is no agent's to press (PermissionCard.tsx). */}
+      {onImplementWith && (
+        <button className="msg-action msg-implement-with" data-no-agent="sub-agent launch" aria-label="Implement with other models" title="Implement with… — hand this to sub-agents on other models"
+          onClick={onImplementWith}>
+          <Icon name="agents" size={14} />
+        </button>
+      )}
       {onRate && ([["up", "thumbsUp", "Good response"], ["down", "thumbsDown", "Bad response"]] as const).map(([v, icon, label]) => (
         <button key={v} className="msg-action" aria-label={label} title={label}
           aria-pressed={rating === v} onClick={() => onRate(rating === v ? null : v)}>

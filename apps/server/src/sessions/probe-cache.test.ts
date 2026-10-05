@@ -144,4 +144,17 @@ describe("ProbeCache", () => {
     await both;
     expect(p.passes).toBe(1);
   });
+
+  it("peek reads the last answer for free, with when it was taken", async () => {
+    let now = 1000;
+    const p = prober(() => "v1");
+    const c = new ProbeCache(p.run, { ttlMs: 30_000, now: () => now });
+    expect(c.peek()).toBeNull();
+    await c.get();
+    expect(c.peek()).toEqual({ value: [expect.objectContaining({ version: "v1" })], at: 1000 });
+    now += 60_000;
+    // Past the TTL, and still served — a peek never starts the probe a stale answer would cost.
+    expect(c.peek()?.at).toBe(1000);
+    expect(p.passes).toBe(1);
+  });
 });

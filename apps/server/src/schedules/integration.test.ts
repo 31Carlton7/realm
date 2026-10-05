@@ -36,7 +36,7 @@ class CaptureFake extends FakeAdapter {
 const GOAL = "Plan the migration, then have GPT-6 Luna implement it with sub-agents.\n\nKeep the plan in docs/plan.md.";
 const SCRIPT: FakeScript = [
   { on: "schedule it", emit: [
-    { kind: "mcp", tool: "realm-schedule__schedule_create", args: { title: "Weekly review", goal: "Write the status update.", cron: "0 16 * * 5" } },
+    { kind: "call", tool: "realm-schedule__schedule_create", input: { title: "Weekly review", goal: "Write the status update.", cron: "0 16 * * 5" } },
     { kind: "text", text: "Scheduled." },
   ] },
 ];

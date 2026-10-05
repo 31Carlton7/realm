@@ -1,6 +1,7 @@
-import { newId, sessionEvent, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { newId, sessionEvent, type AgentKind, type AgentModel, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
-import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import type { AgentAdapter, AgentHandle, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import { gatewayClient } from "./gateway-call";
 
 export type FakeStep =
   /** `paceMs` streams the text a word at a time, this far apart — the way a real agent's deltas
@@ -13,13 +14,14 @@ export type FakeStep =
    *  reproduce. */
   | { kind: "plan"; planId: string; text?: string; steps?: { text: string; status: "pending" | "in_progress" | "completed" }[] }
   | { kind: "throw"; message: string }
+  /** One of Realm's own tools, called for REAL through the gateway this session was handed — the way
+   *  an agent's CLI calls it — and recorded as the call and its result. `tool` is the gateway's name
+   *  for it (`realm-agent__agent_start`); the transcript shows it under Claude's prefix. The one step
+   *  that reaches past the script: what answers it is the production path. */
+  | { kind: "call"; tool: string; input: Record<string, unknown> }
   /** A plan-quota reading, as `SDKRateLimitEvent` produces one on the real Claude wire. The scripted
    *  adapter is the only kind that can drive the limits path end to end in a test. */
-  | { kind: "rateLimit"; payload: SessionEventPayload<"rate_limit"> }
-  /** A call to one of Realm's own tools (`realm-schedule__schedule_create`) through the gateway the
-   *  session was handed — the route a real agent takes, so a live check can drive a tool end to end
-   *  rather than writing the row the tool would have written. */
-  | { kind: "mcp"; tool: string; args: Record<string, unknown> };
+  | { kind: "rateLimit"; payload: SessionEventPayload<"rate_limit"> };
 export type FakeScript = { on: string; emit: FakeStep[] }[];
 
 /** Scripted adapter for tests and UI development. Messages matching `on` replay the scripted steps; others echo. */
@@ -39,9 +41,11 @@ export class FakeAdapter implements AgentAdapter {
     const sleep = () => new Promise((r) => setTimeout(r, delay));
     let disposed = false;
     let interrupted = false;
-    const gateway = gatewayClient(opts.mcpServers);
 
     const resumeOutcome = opts.resume ? this.cfg.resume : undefined;
+    // Made on first use, and once: the gateway keeps one MCP session per Realm session.
+    const entry = opts.mcpServers.find((m) => m.transport === "http" || m.transport === "sse");
+    const gateway = entry && entry.transport !== "stdio" ? gatewayClient({ url: entry.url, headers: entry.headers }) : null;
     q.push(sessionEvent("init", {
       // A continued resume keeps the id it was handed, as a real adapter does; anything else is a
       // fresh conversation with a fresh id.
@@ -70,13 +74,14 @@ export class FakeAdapter implements AgentAdapter {
         if (st.kind === "throw") throw new Error(st.message);
         if (st.kind === "rateLimit") { q.push(sessionEvent("rate_limit", st.payload)); continue; }
         if (st.kind === "plan") { q.push(sessionEvent("plan", { planId: st.planId, ...(st.text ? { text: st.text } : {}), ...(st.steps ? { steps: st.steps } : {}) })); continue; }
-        if (st.kind === "mcp") {
-          // Named as the harnesses name a gateway tool, so the transcript draws it as one.
+        if (st.kind === "call") {
           const toolUseId = newId();
-          q.push(sessionEvent("tool_call", { toolUseId, name: `mcp__realm__${st.tool}`, input: st.args, parentToolUseId: null }));
-          const out = await gateway.call(st.tool, st.args).catch((e: unknown) => ({ text: e instanceof Error ? e.message : String(e), isError: true }));
+          q.push(sessionEvent("tool_call", { toolUseId, name: `mcp__realm__${st.tool}`, input: st.input, parentToolUseId: null }));
+          const answer = gateway
+            ? await gateway.call(st.tool, st.input).catch((e: unknown) => ({ text: (e as Error).message ?? String(e), isError: true }))
+            : { text: "no Realm gateway was handed to this session", isError: true };
           if (disposed) return;
-          q.push(sessionEvent("tool_result", { toolUseId, content: out.text, isError: out.isError }));
+          q.push(sessionEvent("tool_result", { toolUseId, content: answer.text, isError: answer.isError }));
           continue;
         }
         if (st.kind === "text") {
@@ -145,37 +150,15 @@ export class FakeAdapter implements AgentAdapter {
 }
 
 /**
- * The least an MCP client can be and still be one: Streamable HTTP, JSON-RPC over POST, the session
- * id the server hands back on `initialize` carried on every later request, and a response read
- * whether the server answered as JSON or as one SSE event. Initialised once per handle, because the
- * gateway is stateful per Realm session and refuses a second `initialize`.
+ * The scripted adapter answering to a real agent's name — for a live check that has to show work
+ * handed ACROSS harnesses, where a sub-agent on the real Codex would be a billed turn. It probes as
+ * `kind`, reporting `models` as that harness's catalog (null: let the curated list stand, as Claude's
+ * does), and every session it starts runs the fake's own script.
  */
-function gatewayClient(servers: McpServerConfig[]) {
-  const gw = servers.find((s): s is Extract<McpServerConfig, { transport: "http" | "sse" }> => s.transport === "http");
-  let session: Promise<string | null> | null = null;
-  const post = async (body: unknown, sessionId: string | null) => {
-    if (!gw) throw new Error("this session was handed no Realm gateway");
-    const res = await fetch(gw.url, {
-      method: "POST", body: JSON.stringify(body),
-      headers: { ...gw.headers, "content-type": "application/json", accept: "application/json, text/event-stream", ...(sessionId ? { "mcp-session-id": sessionId } : {}) },
-    });
-    const raw = await res.text();
-    const json = raw.trimStart().startsWith("{") ? raw : raw.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).pop() ?? "";
-    return { sessionId: res.headers.get("mcp-session-id") ?? sessionId, message: json ? JSON.parse(json) as { result?: unknown; error?: { message: string } } : null };
-  };
-  const open = async () => {
-    const init = await post({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "realm-fake", version: "0" } } }, null);
-    await post({ jsonrpc: "2.0", method: "notifications/initialized" }, init.sessionId);
-    return init.sessionId;
-  };
-  let id = 1;
+export function fakeStandIn(fake: FakeAdapter, kind: AgentKind, models: AgentModel[] | null): AgentAdapter {
   return {
-    async call(tool: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
-      session ??= open();
-      const { message } = await post({ jsonrpc: "2.0", id: ++id, method: "tools/call", params: { name: tool, arguments: args } }, await session);
-      if (!message || message.error) return { text: message?.error?.message ?? "no answer from the gateway", isError: true };
-      const result = message.result as { content?: { type: string; text?: string }[]; isError?: boolean };
-      return { text: (result.content ?? []).map((c) => c.text ?? "").join("\n"), isError: result.isError === true };
-    },
+    kind,
+    probe: async () => ({ kind, available: true, version: "fake", loggedIn: true, reason: null, models }),
+    start: (opts) => fake.start(opts),
   };
 }

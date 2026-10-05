@@ -67,6 +67,7 @@ import { BrowserAgentService, createRealmAgentProvider, REALM_AGENT_PROVIDER_NAM
 import { DelegationEngine } from "./delegation/engine";
 import { announceDelegation } from "./delegation/announce";
 import { AgentRunService } from "./delegation/agent-run";
+import { DelegatedChildren } from "./delegation/children";
 import { ReviewService } from "./delegation/review";
 import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
@@ -86,7 +87,7 @@ import { McpService, oauthStatusOf } from "./mcp/service";
 import { McpHub } from "./mcp/hub";
 import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
-import type { McpServerStatus } from "@realm/contracts";
+import type { AgentKind, McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
 import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
@@ -97,7 +98,7 @@ import { RunService } from "./runs/service";
 import { ScheduleService } from "./schedules/service";
 import { createScheduleAgentProvider } from "./schedules/agent-tools";
 import { SchedulesStore } from "./store/schedules";
-import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
+import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, fakeStandIn, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
 import { GitDiffService } from "./workspace/git-diff";
 import { ProjectSearchService } from "./workspace/grep";
@@ -297,7 +298,36 @@ export function defaultAdapters(): AdapterRegistry {
   // updates is the behaviour worth looking at. A to-do list is here for the same reason, in two
   // triggers rather than one run: the strip above the prompter shuts itself once every item is done,
   // and both sides of that have to be reachable and holdable long enough to look at.
-  if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ delayMs: 15, script: [{ on: "plan", emit: [
+  if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ delayMs: 15, script: [{
+    // Work handed to other models: the Agents tab's "Build with…" message, played the way an
+    // orchestrating agent plays it — a word on the split, a real `agent_start` per model through
+    // this session's own gateway, one `agent_wait`, and the report. FIRST, because a message that
+    // hands over a plan also says "plan", and the first entry to match is the one that plays.
+    on: "Build this with", emit: [
+      { kind: "text", paceMs: 40, text: "I'll split this: the toggle and its tests go to GPT-6 Luna, and the migration to Fable." },
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Build the dark-mode toggle in Settings ▸ App, with its tests", constraints: { model: "GPT-6 Luna" } } },
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Write the migration that stores the theme choice", constraints: { model: "Fable" } } },
+      { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      { kind: "text", paceMs: 30, text: "Both sub-agents are done. GPT-6 Luna added the toggle and four tests for it; Fable wrote the migration and tested it against the previous schema. Everything passes." },
+    ],
+  }, {
+    // …and the two sub-agents it starts, each a turn long enough to be watched working, one of them
+    // stopping on a permission so the tab has a "Needs you" to show.
+    on: "Build the dark-mode toggle", emit: [
+      { kind: "text", paceMs: 260, text: "Reading the settings page first, then the theme hook the toggle should call." },
+      { kind: "tool", name: "Read", input: { file_path: "apps/desktop/src/renderer/src/panes/settings/AppSettings.tsx" }, result: "export function AppSettings() { … }" },
+      { kind: "tool", name: "Edit", input: { file_path: "apps/desktop/src/renderer/src/panes/settings/AppSettings.tsx", old_string: "<ThemePicker />", new_string: "<ThemePicker />\n<DarkModeToggle />" }, result: "Edited" },
+      { kind: "tool", name: "Bash", needsPermission: true, input: { command: "pnpm vitest run settings" }, result: "Tests  4 passed (4)" },
+      { kind: "text", paceMs: 90, text: "Added the dark-mode toggle to Settings ▸ App, wired to the theme hook, with four tests. All four pass." },
+    ],
+  }, {
+    on: "Write the migration that stores", emit: [
+      { kind: "text", paceMs: 320, text: "The choice needs a column of its own, so this is an append-only migration with a fixture test." },
+      { kind: "tool", name: "Write", input: { file_path: "apps/server/src/db/migrations.ts", content: "ALTER TABLE spaces ADD COLUMN theme TEXT;" }, result: "Written" },
+      { kind: "tool", name: "Bash", input: { command: "pnpm vitest run migrations" }, result: "Tests  12 passed (12)" },
+      { kind: "text", paceMs: 110, text: "Wrote the migration and tested it against a fixture of the previous schema. All twelve migration tests pass." },
+    ],
+  }, { on: "plan", emit: [
     { kind: "text", text: "Here is how I would go about it." },
     { kind: "plan", planId: "fake-plan", text: "## Rework the mapper\n\n1. Carry the plan as its own event.\n2. Draw it as a plan.", steps: [
       { text: "Carry the plan as its own event", status: "in_progress" }, { text: "Draw it as a plan", status: "pending" }] },
@@ -371,11 +401,23 @@ export function defaultAdapters(): AdapterRegistry {
     // agent reaches it. Nothing else this agent says calls a Realm tool, and a task that only ever
     // came from the modal would never show whether the two paths land as one row.
     on: "schedule the weekly review", emit: [
-      { kind: "mcp", tool: "realm-schedule__schedule_create", args: { title: "Weekly review", cron: "0 16 * * 5",
+      { kind: "call", tool: "realm-schedule__schedule_create", input: { title: "Weekly review", cron: "0 16 * * 5",
         goal: "Look back over this week in this space: list its sessions with agent_peers and its commits with git log, then write a short status update — what shipped, what is in progress, what is blocked." } },
       { kind: "text", text: "Done — \"Weekly review\" runs every Friday at 4:00 PM, starting this week." },
     ],
   }] });
+  /* The fake behind real agents' NAMES, for a live check that has to show work handed across
+     harnesses — a sub-agent on the real Codex would be a billed turn. Named kinds only, and only with
+     the fake on: each probes as that harness with a scripted catalog and runs the script above. */
+  if (process.env.REALM_ENABLE_FAKE_AGENT === "1" && reg.fake) {
+    const catalogs: Partial<Record<AgentKind, { id: string; label: string }[] | null>> = {
+      claude: null,
+      codex: [{ id: "gpt-6-luna", label: "GPT-6 Luna" }, { id: "gpt-6-astra", label: "GPT-6 Astra" }, { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" }],
+    };
+    for (const kind of (process.env.REALM_FAKE_STANDS_IN ?? "").split(",").map((k) => k.trim()) as AgentKind[]) {
+      if (kind in catalogs) reg[kind] = fakeStandIn(reg.fake as FakeAdapter, kind, catalogs[kind] ?? null);
+    }
+  }
   return reg;
 }
 
@@ -843,7 +885,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   browserAgents = new BrowserAgentService({ settings, sessions, rpc, engine: delegationEngine, skillsRoot: skills.root, fallbackKind: opts.browserAgent?.fallbackKind, timeouts: opts.browserAgent?.timeouts });
   agentRuns = new AgentRunService({ settings, sessions, rpc, engine: delegationEngine, environments: envService, skills, otherDelegation: browserAgents,
-    fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.agentRun?.timeouts, maxDepth: opts.agentRun?.maxDepth });
+    fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.agentRun?.timeouts, maxDepth: opts.agentRun?.maxDepth,
+    // A model named by a delegating agent resolves against the same probe rows the model picker
+    // draws, so "GPT-6 Luna" in a tool call and "GPT-6 Luna" in the picker are the same model.
+    models: { known: () => sessions.probeCached(), refresh: () => sessions.probe(), kinds: Object.keys(adapterRegistry) as AgentKind[] } });
   // The reviewer recipe (W3): same engine, read-only cap, review-origin children. `otherDelegation`
   // fans across BOTH sibling registries — no delegated child of any kind may mint a reviewer.
   const agentRunsFinal = agentRuns, browserAgentsFinal = browserAgents;
@@ -1033,6 +1078,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch: new ProjectSearchService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
        and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —

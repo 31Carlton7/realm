@@ -3,7 +3,7 @@ import { AGENT_SKILL_SUPPORT, BrowserAgentConstraintsSchema, type AgentKind } fr
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { DelegationEngine } from "../delegation/engine";
 import type { AgentRunService } from "../delegation/agent-run";
-import { AGENT_RUN_FAMILY, AGENT_RUN_TOOL, AGENT_RUN_TOOL_NAME, AGENT_START_TOOL, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL, AGENT_WAIT_TOOL_NAME } from "../delegation/agent-run";
+import { AGENT_RUN_FAMILY, AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL, AGENT_WAIT_TOOL_NAME } from "../delegation/agent-run";
 import type { ReviewService } from "../delegation/review";
 import { AGENT_REVIEW_TOOL, AGENT_REVIEW_TOOL_NAME } from "../delegation/review";
 import type { AskService } from "../delegation/ask";
@@ -107,6 +107,11 @@ export class BrowserAgentService {
 
   isChild(sessionId: string): boolean {
     return this.childRecord(sessionId) !== null;
+  }
+
+  /** The goal this browser agent was handed, for its lead's list of sub-agents. */
+  goalOf(sessionId: string): string | null {
+    return this.childRecord(sessionId)?.goal ?? null;
   }
 
   /** The gateway's `sessionToolset` seam: a delegated child sees ONLY `realm-browser`. Everything
@@ -295,15 +300,17 @@ export function createRealmAgentProvider(service: BrowserAgentService, mcp: { pr
     (agentRuns?.isChild(sessionId) ?? false) && (agentRuns?.canDelegate(sessionId) ?? false);
 
   const askTools = asks ? [AGENT_PEERS_TOOL, AGENT_ASK_TOOL, AGENT_ANSWER_TOOL] : [];
-  const runFamily = agentRuns ? [AGENT_RUN_TOOL, AGENT_START_TOOL, AGENT_WAIT_TOOL, AGENT_STATUS_TOOL] : [];
-  const toolNames = (): string => [RUN_TOOL_NAME, ...runFamily.map((t) => t.name), ...(reviews ? [AGENT_REVIEW_TOOL_NAME] : []), ...askTools.map((t) => t.name)].join(", ");
+  /** Rebuilt per listing: agent_run and agent_start name the models a caller can ask for, and those
+   *  are whatever the agents on this Mac last reported. */
+  const runFamily = (): Tool[] => agentRuns ? [...agentRuns.spawnTools(), AGENT_WAIT_TOOL, AGENT_STATUS_TOOL] : [];
+  const toolNames = (): string => [RUN_TOOL_NAME, ...(agentRuns ? AGENT_RUN_FAMILY : []), ...(reviews ? [AGENT_REVIEW_TOOL_NAME] : []), ...askTools.map((t) => t.name)].join(", ");
   return {
     name: REALM_AGENT_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!mcp.providerEnabled(ctx.spaceId, REALM_AGENT_PROVIDER_NAME)) return [];
       if (isBlockedChild(ctx.sessionId)) return [];
-      if (isBudgetedChild(ctx.sessionId)) return runFamily;
-      return [RUN_TOOL, ...runFamily, ...(reviews ? [AGENT_REVIEW_TOOL] : []), ...askTools];
+      if (isBudgetedChild(ctx.sessionId)) return runFamily();
+      return [RUN_TOOL, ...runFamily(), ...(reviews ? [AGENT_REVIEW_TOOL] : []), ...askTools];
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!mcp.providerEnabled(ctx.spaceId, REALM_AGENT_PROVIDER_NAME))

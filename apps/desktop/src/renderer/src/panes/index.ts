@@ -10,6 +10,8 @@ import { BrowserPane } from "./browser/BrowserPane";
 registerPane("browser", BrowserPane);
 import { DocumentsPane } from "./documents/DocumentsPane";
 registerPane("documents", DocumentsPane);
+import { AgentsTab } from "./agents-tab/AgentsTab";
+registerPane("agents", AgentsTab);
 import { SpacePage } from "./space/SpacePage";
 registerPane("space-page", SpacePage);
 import { LibraryPage } from "./library/LibraryPage";

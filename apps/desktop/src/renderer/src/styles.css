@@ -3264,6 +3264,101 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .delegation-item:hover { background: var(--rl-hover); }
 .delegation-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .delegation-dim { flex: none; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+
+/* ── A session's Agents tab (panes/agents-tab) ─────────────────────────────
+   The session's sub-agents above, the composer that hands it work below, in one column on the pane's
+   own ground. The composer is a flex sibling under the list rather than floating over it — nothing
+   scrolls beneath it, so it rests: a surface step and no lift. */
+.subagents { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.subagents-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; }
+.subagents-section { display: flex; flex-direction: column; gap: 10px; }
+.subagents-head { margin: 0; display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: var(--fw-title); color: var(--ink-2); }
+.subagents-count { font-weight: var(--fw-medium); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.subagents-empty { margin: 0; max-width: 60ch; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+/* Each sub-agent is several lines — model, task, what it is doing or what it said — so the list is
+   one of cards with air between them, not rows under a rule (design.md). */
+.subagents-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.subagent-card { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; padding: 10px 12px 11px; text-align: left;
+  border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); background: var(--rl-card); color: var(--ink);
+  transition: background-color var(--dur-hover) ease, box-shadow var(--dur-slow) ease; }
+/* The fill arrives at once and only its release fades — design.md's hover rule. */
+.subagent-card:hover { background: var(--rl-hover); transition: box-shadow var(--dur-slow) ease; }
+.subagent-card:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
+/* Asked for from a transcript line: lit long enough to be found, then let go. */
+.subagent[data-flash] .subagent-card { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 60%, transparent); }
+.subagent-top { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.subagent-mark { flex: none; }
+.subagent-model { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--fw-label); }
+.subagent-harness { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-3); }
+.subagent-state { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.subagent-state > svg { color: var(--ink-3); }
+.subagent[data-state="failed"] .subagent-state > svg, .subagent[data-state="timeout"] .subagent-state > svg { color: var(--rl-danger); }
+.subagent-time { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.subagent-task { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 13px; line-height: 18px; color: var(--ink); }
+.subagent-doing { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--ink-3); }
+.subagent-doing > svg { flex: none; }
+.subagent-doing-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-report { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+
+.subagents-build { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 8px 16px 16px; }
+.subagents-build-head { display: flex; flex-direction: column; gap: 8px; }
+.subagents-picks { display: flex; flex-wrap: wrap; gap: 6px; }
+/* A model to build with: a toggle, and on is the accent's tint — a selection, which is what the
+   accent is for — the same one appearance whichever chip it is. */
+.subagents-pick { display: inline-flex; align-items: center; gap: 6px; height: 26px; max-width: 100%; padding: 0 9px; border: none;
+  border-radius: var(--r-chip); background: transparent; box-shadow: inset 0 0 0 var(--hairline-w) var(--line-strong);
+  font-size: 12px; font-weight: var(--fw-medium); color: var(--ink-2);
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.subagents-pick:hover:not(:disabled) { background: var(--rl-hover); color: var(--ink); transition: none; }
+.subagents-pick[aria-pressed="true"] { background: var(--accent-tint); color: var(--accent-ink); box-shadow: inset 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-accent) 45%, transparent); }
+.subagents-pick > svg { flex: none; }
+.subagents-pick-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagents-pick-own { flex: none; color: var(--ink-3); }
+.subagents-pick[aria-pressed="true"] .subagents-pick-own { color: inherit; opacity: .75; }
+.subagents-more { box-shadow: none; color: var(--ink-3); }
+.subagents-compose { position: relative; display: flex; flex-direction: column; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface); }
+.subagents-compose:focus-within { box-shadow: 0 0 0 1px var(--line-strong); }
+.subagents-work { display: block; width: 100%; min-height: 64px; max-height: 220px; field-sizing: content; padding: 13px 16px 6px; border: none; outline: none; resize: none;
+  background: transparent; font: inherit; font-size: 14px; line-height: 20px; color: var(--ink); caret-color: var(--rl-accent); }
+.subagents-work::placeholder { color: var(--ink-3); }
+.subagents-tasks { display: flex; flex-direction: column; gap: 4px; padding: 2px 12px 4px; }
+.subagents-task { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); align-items: center; gap: 10px; }
+.subagents-task-who { display: inline-flex; align-items: center; gap: 6px; max-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--ink-2); }
+.subagents-task-who > svg { flex: none; }
+.subagents-task input { min-width: 0; height: 28px; padding: 0 9px; border: none; border-radius: var(--r-ctl); background: var(--field); color: var(--ink); font: inherit; font-size: 13px; outline: none; }
+.subagents-task input:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.subagents-task input::placeholder { color: var(--ink-3); }
+.subagents-compose-foot { display: flex; align-items: center; gap: 8px; padding: 4px 8px 8px 12px; }
+.subagents-split[aria-pressed="true"] { background: var(--rl-active); color: var(--ink); }
+.subagents-note { flex: 1 1 auto; min-width: 0; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.subagents-send { margin-left: auto; }
+.subagents-chooser { width: 300px; max-width: calc(100vw - 24px); padding: 6px; gap: 2px; }
+.subagents-chooser-search { display: flex; align-items: center; gap: 8px; padding: 4px 8px 6px; color: var(--ink-3); }
+.subagents-chooser-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
+.subagents-chooser-list { max-height: 320px; overflow-y: auto; overscroll-behavior: contain; }
+.subagents-chooser-head { display: flex; align-items: baseline; gap: 6px; padding: 8px 8px 4px; font-size: 12px; font-weight: var(--fw-title); color: var(--ink-2); }
+.subagents-chooser-note { font-size: 12px; font-weight: var(--fw-medium); color: var(--ink-3); }
+.subagents-chooser-row { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 8px; border-radius: var(--r-ctl); font-size: 13px; color: var(--ink); cursor: default; }
+.subagents-chooser-row[data-active] { background: var(--rl-hover); }
+.subagents-chooser-row[aria-disabled="true"] { color: var(--ink-3); }
+.subagents-chooser-row > svg { flex: none; }
+.subagents-chooser-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagents-chooser-tick { visibility: hidden; color: var(--rl-accent); }
+.subagents-chooser-row[aria-selected="true"] .subagents-chooser-tick { visibility: visible; }
+.subagents-chooser-empty { margin: 0; padding: 10px 8px; font-size: 13px; color: var(--ink-2); }
+
+/* A sub-agent in its lead's transcript: one ledger line, the tool row's shape, with the model it runs
+   on and its clock pushed to the end — "Subagent finished · Write the migration". */
+/* The task is prose the lead wrote, not an identifier, so it is set as prose — the tool row's mono
+   chip is for the command or path a call acts on. */
+.delegation-line-task { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink-2); }
+.delegation-line-task::before { content: "· "; color: var(--ink-3); }
+.delegation-line-model { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-3); }
+.delegation-line-time { flex: none; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.delegation-line[data-state="done"] .tool-status { color: var(--ink-3); }
+.delegation-line[data-state="failed"] .tool-status, .delegation-line[data-state="timeout"] .tool-status { color: var(--rl-danger); }
+.delegation-line .tool-row:disabled { color: var(--ink); opacity: 1; }
+.plan-implement-with { gap: 5px; }
 /* The settled twin of .msg-working: the same verb in the past tense, with the wait it cost. Quieter
    than the live label — it is scrollback now, not the thing to watch — and tabular so a column of
    these down a long session does not jitter as the digits change. */
@@ -4477,6 +4572,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 :root[data-squircle] .search-field,
 :root[data-squircle] .palette,
 :root[data-squircle] .md-code,
+:root[data-squircle] .subagents-compose,
 :root[data-squircle] .diff-review,
 :root[data-squircle] .composer,
 :root[data-squircle] .composer-drop-hint,
@@ -4743,6 +4839,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
    with no background of its own, so there is nothing at the corners for the square clip to reveal. */
 :root[data-squircle] .md-code { --sq-fill: var(--surface); box-shadow: none; }
+/* The Agents tab's composer, on the prompter's curve and painted like it; its focus edge moves to
+   the painter, because a box-shadow would trace the square border box `border-radius: 0` leaves. */
+:root[data-squircle] .subagents-compose { --sq-fill: var(--surface); }
+:root[data-squircle] .subagents-compose:focus-within { box-shadow: none; --sq-ring: var(--line-strong); --sq-ring-w: var(--hairline-w); }
 /* The palette keeps its overlay lift — it floats over the whole window, where a code block sits in
    a message. `overflow: hidden` clips a square, which costs nothing: its own head and list carry
    the surface, so there is nothing at the corners for the square clip to reveal. */
@@ -5084,6 +5184,8 @@ select { appearance: none; padding-right: 22px;
   .composer-todos .todo-list, .agents-pop .delegation-list,
   /* the sub-agent panel: the column itself, and the two prose panels it caps */
   .subagent-body, .subagent-prose,
+  /* a session's Agents tab: its list of sub-agents, and the composer's model chooser */
+  .subagents-scroll, .subagents-chooser-list,
   /* the Google Fonts browser's result list */
   .font-results,
   /* a blank browser tab's tools, in a pane short enough to need it, and the page a failed load leaves */

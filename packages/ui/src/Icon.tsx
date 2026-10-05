@@ -41,6 +41,8 @@ import {
   SquareLockPasswordIcon,
   // The permission ladder's marks (Composer's permission control).
   SecurityCheckIcon,
+  // A session's Agents tab: one box handing down to two (AgentsTab.tsx).
+  HierarchySquare02Icon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
@@ -142,6 +144,9 @@ export const icons = {
      name it does not hold, silently, so the page wore a folder in the sidebar and in its own pane
      bar. `icon-kinds.test.ts` is what stops the next one lasting that long. */
   "agents-page": BotIcon,
+  /* A session's own sub-agents: one box handing work down to two. Not the page's bot — the page is
+     every agent there is, and this is the tree under one session, which is the thing the shape says. */
+  agents: HierarchySquare02Icon,
   /* A face in a circle, set apart from `profile-page`'s bare figure: the profile is a scope (its
      skills, connections and memory), and this page is the person. */
   "you-page": UserCircleIcon,

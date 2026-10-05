@@ -186,6 +186,8 @@ export class SessionService {
   private probeCache = new ProbeCache(() => this.probeAll());
 
   probe(opts: { force?: boolean } = {}): Promise<ProbeResult[]> { return this.probeCache.get(opts); }
+  /** The last probe's rows, stale or not, without spending a new one — see `ProbeCache.peek`. */
+  probeCached(): { rows: ProbeResult[]; at: number } | null { const p = this.probeCache.peek(); return p && { rows: p.value, at: p.at }; }
 
   /**
    * One agent's probe, fresh, for a caller that needs to know about one CLI now. Every adapter's
@@ -672,6 +674,9 @@ export class SessionService {
       updated = this.d.sessions.moveToSpace(id, spaceId, env.id, null);
       const item = this.d.items.findByRefId(id);
       if (item) this.d.items.moveToSpace(item.id, spaceId);
+      // Its Agents tab is a view of this session and goes where the session goes.
+      const tab = this.d.items.findTab(id);
+      if (tab) this.d.items.moveToSpace(tab.id, spaceId);
       // The hidden terminal item and its row follow the session, or the destination would own a
       // session whose terminal the ORIGIN space's deletion would kill.
       if (term && keepTerminal) { this.d.items.moveToSpace(term.id, spaceId); this.d.terminals.moveToSpace(term.refId, spaceId); }
@@ -758,6 +763,9 @@ export class SessionService {
     if (term) this.closeTerminalItem(term.refId);
     const item = this.d.items.findByRefId(id);
     if (item) this.d.items.delete(item.id);
+    // …and its Agents tab, which is a view of nothing once the session is gone.
+    const tab = this.d.items.findTab(id);
+    if (tab) this.d.items.delete(tab.id);
     this.d.sessions.delete(id);
     this.d.rpc.broadcast("items.changed", { spaceId: s.spaceId });
   }

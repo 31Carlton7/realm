@@ -1,4 +1,4 @@
-import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome } from "@realm/contracts";
+import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
 import { destinationTarget, pageItemId } from "./page-item";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
@@ -639,7 +639,17 @@ export type Api = {
    *  in memory, so this is the only way a pane mounted mid-run learns about it; from then on
    *  `delegation.changed` carries every change. */
   listDelegatedRuns(sessionId: string): Promise<DelegatedRun[]>;
+  /** `delegation.children` — every session this one delegated to, settled ones included. */
+  listDelegatedChildren(sessionId: string): Promise<DelegatedChild[]>;
+  /** `delegation.models` — what a sub-agent can be put on, and what this session runs itself. */
+  delegableModels(sessionId: string): Promise<DelegableModels>;
+  /** `delegation.tab` — the session's Agents tab, made the first time it is asked for. */
+  agentsTab(sessionId: string): Promise<{ itemId: string }>;
 };
+
+/** The Agents tab composer's catalog: one row per model on the route a delegation would take, and
+ *  the model the session itself is on — the one choice that needs no name. */
+export type DelegableModels = { models: DelegableModel[]; own: { kind: AgentKind; label: string } };
 
 /** The two narrowing dimensions Activity's chips apply — `undefined` means "not filtering by this". */
 export type McpCallsFilter = { sessionId?: string; serverId?: string };
@@ -1407,6 +1417,14 @@ export type AppState = {
    *  delegation registry, mirrored. A session waiting on nothing holds no entry rather than an empty
    *  array, so the map stays the size of the delegation actually happening. */
   delegatedRuns: Record<string, DelegatedRun[]>;
+  /** Every sub-agent a lead session started (`delegation.children`), by LEAD session id — what its
+   *  Agents tab lists and its transcript's delegation lines read. Fetched while either is on screen,
+   *  and re-read on each `delegation.changed` for the lead, which is every begin, settle and collect. */
+  subagents: Record<string, DelegatedChild[]>;
+  /** What a lead's Agents tab was last asked to show: a plan to start the composer from ("Implement
+   *  with…"), or a row to bring into view (a transcript line). Counted, so the same ask twice is two
+   *  asks rather than a prop that did not change. */
+  agentsAsk: Record<string, { plan?: string; childId?: string; n: number }>;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -2310,6 +2328,25 @@ export type AppState = {
   /** The `delegation.changed` handler. The payload is the WHOLE set, so it replaces rather than
    *  merges; an empty one drops the key instead of parking an empty array nobody will clear. */
   applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
+  /** Re-read a lead's sub-agents into `subagents`. */
+  refreshSubagents(sessionId: string): Promise<void>;
+  /** The session's Agents tab, as a tab of its side pane the way its other tools open — with the
+   *  composer started from `plan`, or the row for `childId` brought into view, when asked. */
+  openAgentsTab(sessionId: string, ask?: { plan?: string; childId?: string }): Promise<void>;
+  /** The tab has taken what it was asked for; a remount must not take it again. */
+  clearAgentsAsk(sessionId: string): void;
+  /** `delegation.models`, for the composer. Not held in the store: it is read when the tab mounts. */
+  delegableModels(sessionId: string): Promise<DelegableModels>;
+  /**
+   * Send the Agents tab's instruction to the session's own agent.
+   *
+   * Not `sendMessage`, which carries the prompter's sidecars — its attachments, chips and session
+   * references — with whatever it sends: a half-written draft in the prompter is not part of what the
+   * Agents tab is asking for. And it leaves Plan first, answering a plan still waiting for approval
+   * with Keep planning: a lead in Plan can only start sub-agents that read, which is not what
+   * "build this" asked for.
+   */
+  delegateWork(sessionId: string, text: string): Promise<void>;
   /** The `session.agentOpened` handler. A durable run's worker opens beside the focused pane; a
    *  delegated child opens nowhere — it is listed under its lead's running-agents control — and is
    *  remembered so its clean finish can be read (`applyAgentSettled`). */
@@ -3748,7 +3785,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -4795,6 +4832,9 @@ await get().refreshCustomThemes().catch(() => {});
         for (const id of new Set([...Object.keys(get().delegatedRuns), ...Object.keys(get().transcripts)])) {
           get().run(() => get().refreshDelegatedRuns(id));
         }
+        // The lists of sub-agents are tables, not a registry, so they survived — but every child that
+        // began, settled or was collected while the socket was down went unannounced.
+        for (const id of Object.keys(get().subagents)) get().run(() => get().refreshSubagents(id));
       },
       // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
       setKeybindings(rules) { set({ keybindings: rules }); },
@@ -6248,6 +6288,40 @@ await get().refreshCustomThemes().catch(() => {});
       applyDelegationChanged({ sessionId, running }) {
         const { [sessionId]: _idle, ...rest } = get().delegatedRuns;
         set({ delegatedRuns: running.length === 0 ? rest : { ...rest, [sessionId]: running } });
+        // The same moment is a change in the lead's list of sub-agents — one began, settled, or was
+        // collected — wherever that list is being read: its Agents tab, or its transcript's lines.
+        if (get().subagents[sessionId] || get().transcripts[sessionId]) void get().run(() => get().refreshSubagents(sessionId));
+      },
+      async refreshSubagents(sessionId) {
+        const children = await api.listDelegatedChildren(sessionId);
+        set({ subagents: { ...get().subagents, [sessionId]: children } });
+      },
+      async openAgentsTab(sessionId, ask) {
+        if (ask) set({ agentsAsk: { ...get().agentsAsk, [sessionId]: { ...ask, n: (get().agentsAsk[sessionId]?.n ?? 0) + 1 } } });
+        const sid = get().sessions[sessionId]?.spaceId ?? get().allSessions[sessionId]?.spaceId;
+        if (!sid) return;
+        const { itemId } = await api.agentsTab(sessionId);
+        // Already a tab somewhere: brought to the front where it is. Otherwise the documents button's
+        // route — a tab of this session's side pane, with the keyboard, because a person asked.
+        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
+        await adoptItem(sid, itemId, null, { sessionId });
+      },
+      clearAgentsAsk(sessionId) {
+        if (!get().agentsAsk[sessionId]) return;
+        const { [sessionId]: _taken, ...agentsAsk } = get().agentsAsk;
+        set({ agentsAsk });
+      },
+      delegableModels: (sessionId) => api.delegableModels(sessionId),
+      async delegateWork(sessionId, text) {
+        // The lead may itself be someone's sub-agent; one the user writes to is theirs from here on,
+        // exactly as `sendMessage` has it.
+        delegatedChildren.delete(sessionId);
+        const waiting = (get().sessionStatus[sessionId] ?? get().sessions[sessionId]?.status) === "waiting_permission";
+        const plan = waiting ? get().transcripts[sessionId]?.t.pendingPermissions.find((p) => p.toolName === "ExitPlanMode") : undefined;
+        if (plan) await get().respondPermission(sessionId, plan.requestId, "deny");
+        const session = get().sessions[sessionId];
+        if (session && sessionModeOf(session.permissionMode) === "plan") await get().setSessionMode(sessionId, "build");
+        await api.sendMessage(sessionId, text, [], [], [], undefined, []);
       },
       async applyAgentOpened({ spaceId, sessionId, itemId }) {
         if (!inProfile(spaceId)) return;
