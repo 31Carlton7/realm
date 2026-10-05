@@ -308,6 +308,23 @@ async function main() {
   check("the run is listed under its task and lit as the one on screen", viewer.runRows === 1 && viewer.activeRun, viewer);
   await shot(c, "05-run-viewer-dark");
 
+  // Narrow, a docked card would squeeze the transcript into a column nobody can read: it folds
+  // behind a button instead, and opens over the run inside the view.
+  await c.send("Emulation.setDeviceMetricsOverride", { width: 1000, height: 800, deviceScaleFactor: 2, mobile: false });
+  await sleep(600);
+  const folded = await evalIn(c, `(() => ({ card: getComputedStyle(__live.q('.sched-card')).display,
+    toggle: getComputedStyle(__live.q('.sched-details-toggle')).display, session: __live.rect(__live.q('.sched-view-session')), view: __live.rect(__live.q('.sched-view')) }))()`);
+  check("narrow, the card folds behind a button and the run keeps the view's width",
+    folded.card === "none" && folded.toggle !== "none" && folded.session.width === folded.view.width, folded);
+  await evalIn(c, `__live.click(__live.q('.sched-details-toggle'))`);
+  await sleep(300);
+  const opened = await evalIn(c, `(() => ({ card: __live.rect(__live.q('.sched-card')), view: __live.rect(__live.q('.sched-view')) }))()`);
+  check("opened, it floats inside the view", opened.card.width > 0 && opened.card.x >= opened.view.x && opened.card.right <= opened.view.right && opened.card.bottom <= opened.view.bottom, opened);
+  await shot(c, "05b-run-viewer-narrow-dark");
+  await evalIn(c, `__live.click(__live.q('.sched-details-toggle'))`);
+  await c.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
+  await sleep(500);
+
   /* ── 4. A run fired on the scheduler's path while another is on screen ─────────────────────── */
   const fired = await api.call("schedules.runNow", { id: made.id });
   await until(async () => (await api.call("runs.list", { spaceId: space.id, scheduleId: made.id })).runs.filter((r) => r.state === "succeeded").length === 2, 30_000, "second run");
