@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME } from "@realm/contracts";
+import { CHART_POINTS_MAX, CHART_SERIES_MAX, COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME, parseUiBlock } from "@realm/contracts";
 import { CAPABILITY_PROVIDERS, capabilitiesContext } from "./capabilities";
 import { BROWSER_PROVIDER_NAME } from "../browsers/agent-tools";
 import { REALM_AGENT_PROVIDER_NAME } from "../browsers/browser-agent";
@@ -37,10 +37,12 @@ describe("capabilitiesContext", () => {
     expect(text).not.toContain("computer_act");
   });
 
-  it("returns nothing at all when the session has none of them", () => {
-    expect(capabilitiesContext([])).toBeUndefined();
-    // A user's own MCP server row is not one of these, and must not conjure an empty header.
-    expect(capabilitiesContext(["some-user-server"])).toBeUndefined();
+  it("says only what Realm draws when the session has none of them — never an empty tools header", () => {
+    for (const text of [capabilitiesContext([]), capabilitiesContext(["some-user-server"])]) {
+      // A user's own MCP server row is not one of these, and must not conjure the tools header.
+      expect(text).not.toContain("`realm` MCP server");
+      expect(text).toContain("## Blocks Realm draws");
+    }
   });
 
   it("orders the blocks the same way whatever order they arrive in", () => {
@@ -116,5 +118,37 @@ describe("capabilitiesContext", () => {
     const text = capabilitiesContext([BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME])!;
     expect(text).not.toContain("simulator_open");
     expect(text).not.toContain("serve-sim");
+  });
+});
+
+describe("the blocks Realm draws, as the preamble teaches them", () => {
+  const text = capabilitiesContext([]);
+  /** The JSON the preamble shows for a fence, read back out of the prose it sits in. */
+  const example = (fence: string) => {
+    const at = text.indexOf(`\`\`\`${fence} — JSON such as `);
+    const start = text.indexOf("{", at);
+    const end = text.indexOf("}. ", start);
+    return text.slice(start, end + 1);
+  };
+
+  it("names all three fences, for every session whatever its tools", () => {
+    for (const fence of ["```mermaid", "```realm-chart", "```realm-compare"]) expect(text).toContain(fence);
+    expect(capabilitiesContext([UI_PROVIDER_NAME, DOCS_PROVIDER_NAME])).toContain("```realm-chart");
+  });
+
+  it("shows bodies the schema takes, so an agent copying the shape draws a block", () => {
+    // THE MUTANT: let the example drift from the schema (a missing title, `data` for `series`), and
+    // every agent that follows it writes a block that stays code, with nothing to tell it why.
+    expect(parseUiBlock("chart", example("realm-chart"))).toMatchObject({ ok: true });
+    expect(parseUiBlock("compare", example("realm-compare"))).toMatchObject({ ok: true });
+  });
+
+  it("states the limits the schema holds a chart to", () => {
+    expect(text).toContain(`at most ${CHART_SERIES_MAX} series and ${CHART_POINTS_MAX} points`);
+    expect(text).toContain("bars take one series");
+  });
+
+  it("asks for values the agent has, not values that fill a chart", () => {
+    expect(text).toContain("only with values you have");
   });
 });

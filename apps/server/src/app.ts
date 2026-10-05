@@ -102,6 +102,7 @@ import { ScheduleService } from "./schedules/service";
 import { createScheduleAgentProvider } from "./schedules/agent-tools";
 import { SchedulesStore } from "./store/schedules";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, fakeStandIn, type AdapterRegistry } from "@realm/adapters";
+import { FAKE_BLOCK_SCRIPT } from "./ui/fake-blocks";
 import { GitInfoService } from "./workspace/git-info";
 import { GitDiffService } from "./workspace/git-diff";
 import { ProjectSearchService } from "./workspace/grep";
@@ -437,7 +438,9 @@ export function defaultAdapters(): AdapterRegistry {
     on: "stream slowly", emit: [{ kind: "text", paceMs: 45, text: "The mapper reads each **SDK message** once and hands back Realm's own events, so nothing downstream ever sees the wire.\n\n"
       + "Three things change in this pass:\n\n1. Plans travel as their own event.\n2. A revision replaces the card in place.\n3. `apps/server/src/sessions/service.ts` persists both.\n\n"
       + "Nothing else moves, and the transcript you already have reads exactly as it did." }],
-  }, {
+  },
+  // The chart, diagram and comparison blocks an agent writes, which nothing else here can draw.
+  ...FAKE_BLOCK_SCRIPT, {
     // A turn held mid-flight for well over a minute, a word every two seconds. Everything above
     // settles in a burst or a few seconds, and the surfaces that show a session WORKING — its row's
     // mark, here or in another room — have nothing else to pose for long enough to be measured.
