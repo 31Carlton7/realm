@@ -2332,6 +2332,21 @@ describe("squircle surfaces", () => {
 /** Light mode is a real mode, not a filter over the dark one. These pin the colours that were being
  *  written as dark-tuned literals in `styles.css` — one layer below the token ramps, where a sweep of
  *  tokens.css cannot see them — and, just as importantly, the ones that deliberately do NOT flip. */
+/* The owner's report: the band behind the address field and the arrows was a different colour from
+   the rest of the browser pane, and both from the session pane. The pane's chrome paints nothing, so it
+   is the session pane's ground; the view's host painted the opaque panel tone under a new tab and round
+   a device box, which beside the translucent band read as a lighter strip. THE mutants: a `background`
+   back on the host's own rule, or on the chrome. Only the page's white, and only while the page shows. */
+describe("the browser pane is one ground", () => {
+  it("paints nothing behind its chrome or in the view's rectangle, but the page's white while a page shows", () => {
+    for (const sel of [".browser-pane", ".browser-chrome", ".browser-view-host", ".new-tab", ".browser-error", ".browser-connecting"]) {
+      for (const body of RULES.filter((r) => partsOf(r).includes(sel)).map((r) => r.body)) expect(body, sel).not.toMatch(/(^|;|\s)background(-color)?:/);
+    }
+    const painted = RULES.filter((r) => /(^|;|\s)background(-color)?:/.test(r.body)).flatMap(partsOf).filter((s) => s.includes(".browser-view-host"));
+    expect(painted).toEqual([".browser-view-host[data-page]:not([data-device])"]);
+  });
+});
+
 describe("light mode", () => {
   const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
   const lightBlocks = [...tokens.matchAll(/:root\[data-mode="light"\]\s*\{([^}]*)\}/g)].map((m) => m[1]!).join("\n");
