@@ -773,6 +773,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   from git at its settle, not from what its tool calls claimed; Undo appears only when restoring
   takes back that turn and nothing after it, and says why when it cannot. A file named in prose
   becomes a link only once the disk says it is in this checkout, and opens beside the session.
+- A long log gets a map, not a second scrollbar: a tick per prompt down its left edge, laid over the
+  transcript's own padding so it never takes the column's width, and placed by where the prompt sits
+  — at least a pitch below the last, so a log of short turns is simply evenly spaced and only a long
+  turn opens a gap. The prompt being read is the one tick in ink; a turn that changed files carries a
+  dot, said in words on the tick's card, never a colour. A click goes there and leaves the keyboard in
+  the prompter, as a scrollbar's track does.
 - Never invent human-like agent presence, mood, or certainty.
 
 ## Documents, diffs, terminals, and data

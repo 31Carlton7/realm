@@ -33,12 +33,13 @@ export function useScrollEdges(ref: RefObject<HTMLElement | null>, axis: "y" | "
     const measure = () => {
       const slack = axis === "y" ? el.scrollHeight - el.clientHeight : el.scrollWidth - el.clientWidth;
       const at = axis === "y" ? el.scrollTop : el.scrollLeft;
-      setEdges({
-        start: at > 2,
-        // 2px of tolerance at both ends: sub-pixel layout and elastic scrolling both land a pixel
-        // short of the exact number, and an end that flickers on at rest is worse than none.
-        end: slack > 2 && at < slack - 2,
-      });
+      const start = at > 2;
+      // 2px of tolerance at both ends: sub-pixel layout and elastic scrolling both land a pixel
+      // short of the exact number, and an end that flickers on at rest is worse than none.
+      const end = slack > 2 && at < slack - 2;
+      // The same answer keeps the same state. A new object per scroll event re-rendered whoever owns
+      // the scroller on every frame of a scroll — in a session pane, the whole transcript.
+      setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
     };
     measure();
     el.addEventListener("scroll", measure, { passive: true });
