@@ -4,6 +4,7 @@ import { AGENT_META, AGENT_MODELS, DEFAULT_MODEL_LABEL, type AgentKind, type Ite
 import { FALLBACK_AGENT, useApp, useProfileSpaces, type AgentProbe } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { Menu, type MenuItem } from "../../components/Menu";
+import { useDissolve } from "../../components/ScrollFades";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { SessionPane } from "../session/SessionPane";
 import { formatEffort } from "../session/ModelPicker";
@@ -56,6 +57,8 @@ export function SchedulesPage({ item, visible, focused = false }: PaneProps) {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [modal, setModal] = useState<ModalOpen | null>(null);
+  const columnBody = useRef<HTMLDivElement>(null);
+  useDissolve(columnBody);
 
   // Every space of the profile, once: a task can run in any of them.
   const spaceIds = spaces.map((s) => s.id).join(",");
@@ -120,7 +123,7 @@ export function SchedulesPage({ item, visible, focused = false }: PaneProps) {
               onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setSearching(false); setQuery(""); } }} />
           </div>
         )}
-        <div className="sched-col-body">
+        <div ref={columnBody} className="sched-col-body">
           <button type="button" className="sched-new" onClick={openNew}><Icon name="add" size={16} /> New task</button>
           {all.length > 0 && <div className="group-label">Upcoming</div>}
           {all.length > 0 && listed.length === 0 && <p className="sched-col-note">No task matches that.</p>}
@@ -223,7 +226,9 @@ function TaskRow({ schedule, runs, more, limit, expanded, selectedRun, unread, o
 function ScheduleEmpty({ onNew }: { onNew: () => void }) {
   return (
     <div className="sched-empty">
-      <Icon name="clock" size={28} className="sched-empty-mark" />
+      {/* off-ladder: the page's one illustration, Codex's clock over the line that says what a task
+          is — the subject of an empty composition, as the diff pane's folder is, not a UI glyph. */}
+      <Icon name="clock" size={32} className="sched-empty-mark" />
       <h2 className="sched-empty-title">Schedule a task</h2>
       <p className="sched-empty-line">Realm starts an agent in one of your spaces on the clock you set, and keeps each run here to read and carry on.</p>
       <button type="button" className="btn primary" onClick={onNew}>New task</button>
@@ -276,7 +281,7 @@ function RunNotStarted({ run }: { run: Run }) {
 function TaskView({ schedule, onEdit, onRunNow, onGone }: { schedule: Schedule; onEdit: () => void; onRunNow: () => void; onGone: () => void }) {
   const next = schedule.enabled ? schedule.nextRunAt : null;
   return (
-    <div className="sched-view">
+    <div className="sched-view" data-task="">
       <div className="sched-view-session">
         <div className="sched-empty">
           <h2 className="sched-empty-title">No runs yet</h2>
