@@ -459,9 +459,13 @@ acronym that is uppercase anyway (a file extension on a tile).
   directions. The highlight is the current choice, and a choice is never half-made.
 - A sidebar row does not light under a passing pointer. Finder's, Mail's and Xcode's do not; the
   pointer reveals a row's own controls, and a click is what lights it.
-- The arrow cursor over every control the app draws; the hand only over a link, where the click
-  leaves what you are looking at. The hand on every button is the loudest single sign that a window
-  is a web page.
+- The hand over everything a click acts on — a button, a row, a tab, a chip, a menu row, a
+  disclosure, a label round a switch — from one rule by tag and role, so a control written tomorrow
+  points without asking. That is the owner's call (10-05), and it gives up the Mac's arrow over
+  controls on purpose. The arrow stays where a click does nothing: a control that is off, a row that
+  only reports, the scrim round a sheet. A field keeps the I-beam, a drag handle grab, a divider its
+  resize arrows. A `<div onClick>` is the one thing the rule cannot reach — it keeps the arrow, and
+  the keyboard cannot reach it either — so a press lands on a real control or on an element with a role.
 - A window-drag region takes every press that is not opted out of it, and a LABEL is a control: the
   sidebar's old Spaces | Recent segments, labels round hidden radios, answered only on the radio's 13px.
 - Chrome is not text. Buttons, rows, tabs, bars and menus do not select on a drag or a double-click,

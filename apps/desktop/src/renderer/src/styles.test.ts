@@ -7,6 +7,7 @@ import { REALM_SEED, deriveVars } from "@realm/ui";
 import { AGENT_FRAME, oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
 import { MAX_ROWS_PX } from "./panes/session/Composer";
+import { PRESSABLE } from "./press-tracking";
 
 /** §6's motion table and its "do NOT animate" list are enforceable only against the stylesheet
  *  itself — jsdom has no layout, no compositor and no CSSOM for a raw file, so nothing else in the
@@ -1863,8 +1864,9 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(open).toContain("background: none");
     expect(open).toContain("padding: 0");
     // A drop target's cursor must not promise a zoom the file cannot do: only a tile main has
-    // confirmed is media gets zoom-in, and the mark only lands once that answer is back.
-    expect(open).toContain("cursor: default");
+    // confirmed is media gets zoom-in, and the mark only lands once that answer is back. Every other
+    // tile is a button that opens its file, and points like one (the pointer rule, by tag).
+    expect(open).not.toContain("cursor:");
     expect(bodiesFor(".attach-tile[data-media] .attach-open").join(" ")).toContain("cursor: zoom-in");
   });
 
@@ -3908,21 +3910,69 @@ describe("prose reads in the content face", () => {
   });
 });
 
-describe("the Mac idiom", () => {
-  /* The hand is for links. THE mutant is any control asking for it again — one `cursor: pointer` on a
-     button is enough to make the window read as a page. */
-  it("points with the arrow at every control, and keeps the hand for the two link rules", () => {
-    const hand = RULES.filter((r) => r.body.includes("cursor: pointer")).flatMap(partsOf).sort();
-    // The empty session's place name is a link too (Plan 26 W8): accent, underlined under the pointer,
-    // and it goes somewhere — the space's page. So is a file the prose names (file-links.ts): it opens
-    // that file in the documents pane.
-    expect(hand).toEqual([".hero-greeting-place", ".md .md-file", ".md .md-path", ".page-row-link"]);
-    expect(bodiesFor("button").join(" ")).toContain("cursor: default");
-    // tokens.css loads first and used to put the hand back on every button; only links may ask there.
-    const tokenHands = [...tokensCss.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{[^{}]*cursor:\s*pointer/g)]
-      .map((m) => m[1]!.trim());
+describe("the pointer", () => {
+  /** The one rule that asks for the hand, and what it lists. */
+  const hands = RULES.filter((r) => /cursor:\s*pointer/.test(r.body));
+  const list = (hands[0]?.selectors ?? []).join(", ");
+
+  it("points with the hand at everything a click acts on, from ONE rule by tag and role, at no specificity", () => {
+    /* The owner's call (10-05): the hand over buttons and wherever it makes sense. THE mutants: a kind
+       of control left out of the list (every one of them keeps the arrow), a class rule asking for the
+       hand on its own (the next control like it does not), or the rule given specificity (every drag
+       handle, resize edge and zoomable picture loses its own cursor to it). */
+    expect(hands.flatMap(partsOf)).toHaveLength(1);
+    expect(list.startsWith(":where(")).toBe(true);
+    for (const part of ["button", "a[href]", "summary", "select", '[role="button"]', '[role="link"]', '[role="tab"]',
+      '[role="menuitem"]', '[role="menuitemradio"]', '[role="menuitemcheckbox"]', '[role="option"]', '[role="switch"]',
+      '[role="checkbox"]', '[role="radio"]', 'input:is([type="checkbox"], [type="radio"], [type="range"]',
+      'label:has(input:is([type="checkbox"], [type="radio"]))']) expect(list).toContain(part);
+    // Everything that tracks a press (press-tracking.ts) is something that points.
+    for (const sel of PRESSABLE.split(", ")) expect(list, sel).toContain(sel === '[role^="menuitem"]' ? '[role="menuitem"]' : sel.replace(/^input\[type="checkbox"\]$/, '[type="checkbox"]'));
+    // tokens.css loads first; a link is the one tag that asks there.
+    const tokenHands = [...tokensCss.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{[^{}]*cursor:\s*pointer/g)].map((m) => m[1]!.trim());
     expect(tokenHands).toEqual(["a"]);
+    expect(bodiesFor("button").join(" ")).not.toContain("cursor");
   });
+
+  it("no control turns the hand back off — the arrow is for what a click does nothing on", () => {
+    /* Sixty rules once wrote `cursor: default` to keep the Mac's arrow over their control, and each of
+       them would out-rank a rule of no specificity. THE mutant is one of them coming back. What may ask
+       for the arrow: a control that is off, and the handful of things that look like rows and are not
+       pressed, each named for why. */
+    const records: Record<string, string> = {
+      ".summary-fact": "a context fact in the summary, read and not pressed",
+      ".skill-file-name[data-inert]": "a skill's file the Library cannot open",
+      ".ghost-chip[data-static]": "a chip that only reports a value",
+      ".ship-row": "a record of a ship, whose PR link is the only thing in it that opens",
+      ".media-video .media-el": "a video's picture, which its own play control sits over",
+    };
+    const arrows = RULES.filter((r) => /cursor:\s*default/.test(r.body)).flatMap(partsOf);
+    const unexplained = arrows.filter((sel) => !(sel in records) && !/:disabled|\.disabled|aria-disabled/.test(sel));
+    expect(unexplained).toEqual([]);
+    expect(Object.keys(records).filter((sel) => !arrows.includes(sel)), "a record that no longer asks").toEqual([]);
+  });
+
+  it("gives the arrow back to a control that is off, and the I-beam to a field inside a row that points", () => {
+    // Both are rules of no specificity AFTER the hand, so they win by order and lose to any class.
+    const at = (re: RegExp) => RULES.findIndex((r) => re.test(r.body) && r.selectors.join(", ").startsWith(":where("));
+    const hand = at(/cursor:\s*pointer/), off = at(/cursor:\s*default/), field = at(/cursor:\s*text/);
+    expect(hand).toBeGreaterThanOrEqual(0);
+    expect(off).toBeGreaterThan(hand);
+    expect(field).toBeGreaterThan(hand);
+    expect(RULES[off]!.selectors.join(", ")).toContain(':disabled, [aria-disabled="true"]');
+    // `cursor` inherits, so a rename field inside a sidebar row would point without this.
+    for (const part of ["input:not(", "textarea", '[contenteditable="true"]']) expect(RULES[field]!.selectors.join(", ")).toContain(part);
+  });
+
+  it("keeps a drag handle's grab and a divider's resize, which the hand would otherwise take", () => {
+    expect(bodiesFor(".quick-chat-bar").join(" ")).toContain("cursor: grab");
+    expect(bodiesFor(".quick-chat-bar[data-dragging]").join(" ")).toContain("cursor: grabbing");
+    expect(bodiesFor(".sb-resize").join(" ")).toContain("cursor: col-resize");
+    expect(bodiesFor(".attach-tile[data-media] .attach-open").join(" ")).toContain("cursor: zoom-in");
+  });
+});
+
+describe("the Mac idiom", () => {
 
   it("does not let a drag or a double-click select the chrome, and leaves fields selectable inside it", () => {
     const chrome = RULES.find((r) => r.body.includes("user-select: none") && r.selectors.some((s) => s.includes(".sidebar")));
