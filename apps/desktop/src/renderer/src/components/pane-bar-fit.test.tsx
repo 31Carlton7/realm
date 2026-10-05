@@ -42,8 +42,8 @@ async function mountAt(width: number, settings: Record<string, unknown> = {}) {
   });
   const store = createAppStore(api);
   await store.getState().boot();
-  /* An empty transcript, so the list here is the six UNCONDITIONAL actions: files, terminal,
-     documents, browser, machine, simulator. The summary is a seventh in front of them when the
+  /* An empty transcript, so the list here is the seven UNCONDITIONAL actions: files, terminal,
+     documents, agents, browser, machine, simulator. The summary is a seventh in front of them when the
      session has anything to report, and its gate is tested where the gate lives
      (session-summary-panel.test.tsx) — leaving it out here keeps every count below a fact about the
      budget rather than about a summariser's opinion of a fixture. */
@@ -115,11 +115,11 @@ describe("what a narrowing pane bar gives up", () => {
 
   it("keeps every button in a wide bar, and adds no rows to the menu for them", async () => {
     await mountAt(widthFor(9));
-    expect(barActions()).toHaveLength(6);
+    expect(barActions()).toHaveLength(7);
     openMenu();
     // The layout rows are still there; the action rows are not, because none of them left the bar.
     expect(menuRows()).toEqual(expect.arrayContaining(["Rename", "Split right", "Close"]));
-    for (const gone of ["Files", "Browser", "Machine", "Simulator", "Terminal", "Documents"]) expect(menuRows()).not.toContain(gone);
+    for (const gone of ["Files", "Browser", "Machine", "Simulator", "Terminal", "Documents", "Agents"]) expect(menuRows()).not.toContain(gone);
   });
 
   it("an overflowed toggle still says which way it is pointing", async () => {
