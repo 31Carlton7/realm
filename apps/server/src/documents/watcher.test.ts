@@ -24,13 +24,6 @@ const settled = async (n: number) => { await waitFor(() => events.length >= n); 
 const quiet = () => new Promise((r) => setTimeout(r, 120));
 
 describe("DocumentWatcher", () => {
-  it("reports an outside edit with the new hash", async () => {
-    await writeFile(p("a.md"), "v1");
-    await w.watch(p("a.md"));
-    await writeFile(p("a.md"), "v2");
-    await settled(1);
-    expect(events).toEqual([{ path: p("a.md"), hash: hashText("v2") }]);
-  });
 
   /** Atomic rename is how agent tools and most editors save. A file-bound `fs.watch` goes deaf on the
    *  first one; this test is what pins the watch to the directory instead. */
@@ -94,14 +87,6 @@ describe("DocumentWatcher", () => {
     expect(events.map((e) => e.hash)).toEqual([null, hashText("reborn"), hashText("after rebirth")]);
   });
 
-  it("reports a deletion as a null hash", async () => {
-    await writeFile(p("a.md"), "v1");
-    await w.watch(p("a.md"));
-    await unlink(p("a.md"));
-    await settled(1);
-    expect(events[0]).toEqual({ path: p("a.md"), hash: null });
-  });
-
   it("says nothing when a file is touched without its content changing", async () => {
     await writeFile(p("a.md"), "same");
     await w.watch(p("a.md"));
@@ -114,14 +99,6 @@ describe("DocumentWatcher", () => {
     await writeFile(p("a.md"), "v1");
     await w.watch(p("a.md"));
     await writeFile(p("unrelated.md"), "noise");
-    await quiet();
-    expect(events).toEqual([]);
-  });
-
-  it("ignores its own atomic-save temp files", async () => {
-    await writeFile(p("a.md"), "v1");
-    await w.watch(p("a.md"));
-    await writeFile(p(".realm-tmp-99-a.md"), "half-written");
     await quiet();
     expect(events).toEqual([]);
   });

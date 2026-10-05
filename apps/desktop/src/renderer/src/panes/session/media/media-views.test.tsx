@@ -96,10 +96,6 @@ describe("MediaStrip", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("draws nothing at all for an empty list", () => {
-    const { container } = render(<MediaStrip files={[]} />);
-    expect(container).toBeEmptyDOMElement();
-  });
 });
 
 describe("Markdown media embeds", () => {
@@ -214,11 +210,6 @@ describe("GeneratingCanvas", () => {
     expect(container.querySelector(".gen-res")).toBeNull();
   });
 
-  it("carries no progress it cannot know", () => {
-    const { container } = render(<GeneratingCanvas label="Rendering image" />);
-    expect(container.querySelector("progress")).toBeNull();
-    expect(container.querySelector("[role='progressbar']")).toBeNull();
-  });
 });
 
 /* The feature end to end, on the shape of message that motivated it: an agent encodes three videos

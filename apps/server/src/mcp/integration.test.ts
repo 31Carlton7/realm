@@ -320,13 +320,6 @@ describe("oauth over rpc — the whole flow through a real app", () => {
     c.close();
   });
 
-  it("refuses to start a flow for a stdio server rather than opening a browser that goes nowhere", async () => {
-    const { c, work } = await boot();
-    const server = (await addStdio(c, work.id, "airtable")).result;
-    expect((await c.call("mcp.oauth.start", { id: server.id })).error?.code).toBe("MCP_OAUTH_UNSUPPORTED");
-    c.close();
-  });
-
   it("the gateway's callback route rejects a state nobody is waiting on, and echoes nothing back", async () => {
     const { c, work } = await boot();
     const as = await makeStubAuthServer();

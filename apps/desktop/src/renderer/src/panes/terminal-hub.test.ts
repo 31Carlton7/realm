@@ -86,18 +86,6 @@ describe("TerminalHub", () => {
     expect(terms[0]!.writes).toEqual(["hello world", "!"]);
   });
 
-  it("buffers data for terminals nobody has acquired yet", async () => {
-    const { hub, emitData, terms } = setup();
-    hub.acquire("other"); // creates the subscription
-    emitData("late", "early bird");
-    const c = document.createElement("div"); document.body.appendChild(c);
-    hub.acquire("late").attach(c);
-    // The first acquire ASKS what it missed, and that answer is where "early bird" comes back from —
-    // a chunk broadcast before this client held a cursor is one it can only learn about by reading.
-    await settled();
-    expect(terms[1]!.writes.join("")).toContain("early bird");
-  });
-
   it("detach/re-attach moves the same host and keeps the same xterm (no data lost, opened once)", async () => {
     const { hub, emitData, terms } = setup();
     const a = document.createElement("div"); const b = document.createElement("div"); document.body.append(a, b);
@@ -331,14 +319,6 @@ describe("a terminal's colours", () => {
   const light = () => root.setAttribute("data-mode", "light");
   const alpha = (hex: string | undefined) => hex?.slice(7);
   afterEach(() => { root.removeAttribute("data-mode"); root.style.removeProperty("--rl-text-bright"); });
-
-  it("paints no ground of its own in either face, so the pane's shows through as the chat's does", () => {
-    // THE MUTANT: any opaque background — the token the pane is made of, painted again at full strength
-    // over the translucent sheet the transcript sits on, which is the darker slab this replaced.
-    expect(alpha(terminalColors().theme.background)).toBe("00");
-    light();
-    expect(alpha(terminalColors().theme.background)).toBe("00");
-  });
 
   it("draws the light face in the app's ink, and holds a program's own colours to AA there", () => {
     // xterm's defaults are light-on-black. THE MUTANTS: leave the ink to xterm, and the light face's

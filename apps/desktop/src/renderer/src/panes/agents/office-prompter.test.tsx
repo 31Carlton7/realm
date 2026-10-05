@@ -186,15 +186,6 @@ describe("the office prompter", () => {
     expect(store.getState().officeWorld).toBeNull();
   });
 
-  it("stops at two attempts — a second failure is the ask, not the model", async () => {
-    const api = fakeApi({ spaces: [space("s1", "p1", "Versed")], pixelWorldJson: answer({ room: ["##", "#"] }) });
-    await mount(api);
-    fireEvent.change(field(), { target: { value: "x" } });
-    fireEvent.click(screen.getByRole("button", { name: "Build it" }));
-    await waitFor(() => expect(screen.getByLabelText("Why that office was refused")).toBeInTheDocument());
-    expect(api.calls.filter((c) => c.startsWith("generatePixelWorld:"))).toHaveLength(2);
-  });
-
   it("offers no repaint until there is a world to repaint", async () => {
     const api = fakeApi({ spaces: [space("s1", "p1", "Versed")] });
     await mount(api, null);

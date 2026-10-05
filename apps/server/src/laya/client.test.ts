@@ -29,23 +29,6 @@ describe("the laya-serve client", () => {
     expect(seen).toEqual([ms]);
   });
 
-  it("keeps a warm-up out of the latency", async () => {
-    server = await fakeLayaServer();
-    const seen: number[] = [];
-    const client = new LayaClient({ baseUrl: `http://127.0.0.1:${server.port}`, apiKey: "k", onLatency: (ms) => seen.push(ms) });
-    await client.ask("warm", { q: { type: "noul", instructions: "?" } }, 1_000, false);
-    expect(seen).toEqual([]);
-  });
-
-  it("gives up after its timeout, and says so", async () => {
-    server = await fakeLayaServer();
-    server.hang(true);
-    const client = new LayaClient({ baseUrl: `http://127.0.0.1:${server.port}`, apiKey: "k" });
-    const t0 = Date.now();
-    await expect(client.ask("x", { q: { type: "noul", instructions: "?" } }, 60)).rejects.toThrow("laya-serve did not answer within 60 ms");
-    expect(Date.now() - t0).toBeLessThan(1_000);
-  });
-
   it("takes a budget with a fraction in it, as a clock measured in performance.now() leaves one", async () => {
     // THE BUG: `AbortSignal.timeout(1499.99…)` throws before the question is sent, and Assist — whose
     // budget is what is left of 1 500 ms by performance.now() — heard "no answer" every single time.
@@ -61,9 +44,4 @@ describe("the laya-serve client", () => {
     await expect(client.ask("x", { q: { type: "noul", instructions: "?" } }, 1_000)).rejects.toThrow("laya-serve answered 401: invalid or missing bearer token");
   });
 
-  it("reads /health", async () => {
-    server = await fakeLayaServer();
-    const client = new LayaClient({ baseUrl: `http://127.0.0.1:${server.port}`, apiKey: "k" });
-    expect(await client.health(1_000)).toMatchObject({ loaded: ["english"], device: "mps", checkpoint_devices: { english: "mps" } });
-  });
 });

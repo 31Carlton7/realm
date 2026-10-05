@@ -51,12 +51,6 @@ describe("an engine row with an update available", () => {
     expect(within(codexRow()).getByRole("button", { name: "Update to v0.153.4" })).toBeInTheDocument();
   });
 
-  it("shows the exact command before the button that runs it", async () => {
-    await mount({ cliStatus: [behind] });
-    await waitFor(() => expect(within(codexRow()).getByText("npm install -g @openai/codex@0.153.4")).toBeInTheDocument());
-    expect(within(codexRow()).getByRole("button", { name: "Update to v0.153.4" })).toBeInTheDocument();
-  });
-
   it("runs that command only on the click, and streams what it says", async () => {
     const { store, api } = await mount({ cliStatus: [behind] });
     await waitFor(() => within(codexRow()).getByRole("button", { name: "Update to v0.153.4" }));

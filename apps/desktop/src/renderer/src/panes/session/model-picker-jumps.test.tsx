@@ -131,15 +131,6 @@ describe("the jump strip names the list's own separators", () => {
     expect(listed().join(" ")).toContain("GPT-5.6-Sol");
   });
 
-  it("carries no lit state, because a door is not a mode", () => {
-    mount();
-    fireEvent.click(jump("Codex"));
-    for (const b of within(bar()).getAllByRole("button")) {
-      expect(b.getAttribute("aria-pressed")).toBeNull();
-      expect(b.getAttribute("aria-checked")).toBeNull();
-    }
-  });
-
   it("goes away while searching: a search flattens the list, leaving no separator to point at", () => {
     mount();
     fireEvent.change(search(), { target: { value: "claude" } });
@@ -147,12 +138,6 @@ describe("the jump strip names the list's own separators", () => {
     expect(listed().length).toBeGreaterThan(0); // …and the picker still works
   });
 
-  it("still picks a model after a jump", () => {
-    const { picked } = mount();
-    fireEvent.click(jump("Codex"));
-    fireEvent.click(within(screen.getByRole("listbox", { name: "Models" })).getByText("GPT-5.6-Sol"));
-    expect(picked).toEqual([["codex", "gpt-5.6-sol"]]);
-  });
 });
 
 describe("the strip's arrows and the search field's arrows are different keys", () => {

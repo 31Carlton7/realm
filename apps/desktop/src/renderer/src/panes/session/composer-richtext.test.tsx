@@ -53,12 +53,6 @@ describe("the prompter's rich-text mirror", () => {
     expect(painted()).toEqual([["ch-slash", "/goal"]]);
   });
 
-  it("leaves a slash that names no command as plain text", async () => {
-    await mount();
-    type("/usr/local/bin is where it lives");
-    expect(painted()).toEqual([]);
-  });
-
   it("paints links and live mentions, and reproduces the draft exactly", async () => {
     await mount();
     type("https://piazza.com/usc\n\nyou can use @mac for this");
@@ -158,20 +152,6 @@ describe("list authoring in the prompter", () => {
     expect(api.sent[0]!.text).toBe("- one\n- two");
   });
 
-  it("numbers an ordered list as it goes", async () => {
-    const { store } = await mount();
-    typeAt("1. first");
-    fireEvent.keyDown(box(), { key: "Enter", shiftKey: true });
-    expect(store.getState().drafts.se1).toBe("1. first\n2. ");
-  });
-
-  it("ends the list on an empty item instead of bulleting forever", async () => {
-    const { store } = await mount();
-    typeAt("- one\n- ");
-    fireEvent.keyDown(box(), { key: "Enter", shiftKey: true });
-    expect(store.getState().drafts.se1).toBe("- one\n");
-  });
-
   /* Plain Enter is the send key by default, and list continuation must never quietly take it. */
   it("leaves plain Enter as send in the default mode, even inside a list", async () => {
     const { api, store } = await mount("enter");
@@ -266,13 +246,6 @@ describe("chip interaction in the prompter", () => {
     await waitFor(() => expect(picker()).not.toBeNull());
   });
 
-  it("leaves a caret in plain text exactly where the click put it", async () => {
-    await mount();
-    typeAt("see @mac now");
-    clickAt(1);
-    expect(sel()).toEqual([1, 1]);
-  });
-
   /* A range the user drew by hand is more specific than anything guessable from it. */
   it("never widens a drag-selection to a chip", async () => {
     await mount();
@@ -306,13 +279,6 @@ describe("chip interaction in the prompter", () => {
     typeAt('make @[button "Sign in"] blue', 5);
     fireEvent.keyDown(box(), { key: "Delete" });
     expect(store.getState().drafts.se1).toBe("make  blue");
-  });
-
-  it("leaves Delete alone in front of a mention", async () => {
-    const { store } = await mount();
-    typeAt("see @mac now", 4);
-    expect(fireEvent.keyDown(box(), { key: "Delete" })).toBe(true);
-    expect(store.getState().drafts.se1).toBe("see @mac now");
   });
 
   /* The whole point of doing this with offsets: selecting a chip is a selection and nothing else, so

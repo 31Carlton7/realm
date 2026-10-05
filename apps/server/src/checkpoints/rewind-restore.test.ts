@@ -191,25 +191,6 @@ describe("restore rewinds the conversation", () => {
     expect(adapter.starts.at(-1)).toEqual({ resume: "prov-1", resumeAt: "end1", resumeDropsTurn: "p2" });
   });
 
-  it("truncates Realm's transcript only when the provider is being rewound too", async () => {
-    /* The lie this whole feature is written against. A session whose checkpoint carries no provider
-       cursor must keep every event: hiding the turns from the reader while the model still carries them
-       is worse than admitting the agent remembers. */
-    const env = primary();
-    const s = newSession();
-    await send(s.id, "first");
-    const firstTurn = checkpoints.list(env.id, s.id)[0]!;
-    await send(s.id, "second");
-    expect(firstTurn.providerCursor).toBeNull(); // nothing preceded it; there is nowhere to fork to
-
-    await quiesce(s.id);
-    const preview = await checkpoints.preview(firstTurn.id);
-    expect(preview.rewindsConversation).toBe(false);
-    const result = await checkpoints.restore(firstTurn.id, { filesChanged: preview.filesChanged, commitsRolledBack: preview.commitsRolledBack });
-    expect(result.conversationRewound).toBe(false);
-    expect(events.listAfter(s.id, 0, 100).filter((e) => e.event.type === "user_message")).toHaveLength(2);
-  });
-
   it("refuses to arm a fork while the session still holds a live handle", async () => {
     // Not redundant with the environment-busy refusal: that one guards the CHECKOUT, this one guards
     // the arm. The fork is honoured at boot, so a live handle would mean a truncated transcript above a

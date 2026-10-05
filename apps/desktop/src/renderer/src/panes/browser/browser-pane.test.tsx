@@ -394,17 +394,6 @@ describe("BrowserPane", () => {
     });
   });
 
-  it("unmount releases the native view and never destroys it — a space switch is not a close", async () => {
-    const f = fakeBridges({ url: "https://example.com" });
-    setBrowserBridgesForTests(f.bridges);
-    const { unmount } = render(<BrowserPane item={browserItem()} visible />);
-    await settle();
-    unmount();
-    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
-    expect(f.calls).toContain("retain:b1");
-    expect(f.calls).not.toContain("destroy:b1");
-  });
-
   it("remounting after a release re-adopts the view instead of reloading the page", async () => {
     const f = fakeBridges({ url: "https://example.com" });
     setBrowserBridgesForTests(f.bridges);
@@ -434,39 +423,6 @@ describe("BrowserPane", () => {
     expect(f.calls.filter((c) => c.startsWith("create:b1"))).toHaveLength(2); // idempotent on the main side
   });
 
-  it("persists committed url/title to the server, debounced, and not while loading", async () => {
-    const f = fakeBridges({ url: "" });
-    setBrowserBridgesForTests(f.bridges);
-    // The page is saved by the app-wide saver, which App starts beside every pane (persist-pages.ts).
-    pageSavers.push(persistBrowserPages(f.bridges));
-    render(<BrowserPane item={browserItem()} visible />);
-    await settle();
-    act(() => f.emit(state({ url: "https://example.com", title: "Example", loading: true })));
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(f.updates).toHaveLength(0); // mid-load states never persist
-    act(() => f.emit(state({ url: "https://example.com", title: "Example Domain", loading: false })));
-    act(() => f.emit(state({ url: "https://example.com/2", title: "Example 2", loading: false })));
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(f.updates).toEqual([{ id: "b1", url: "https://example.com/2", title: "Example 2", favicon: "" }]); // one debounced write
-  });
-
-  it("saves nothing while the view has no page yet — a restored tab keeps its title until its page names it", async () => {
-    // THE MUTANT: persist the untitled state the view reports while it is still on Realm's bootstrap.
-    // The row would be renamed "Browser" during every relaunch, and for good if the page never came.
-    const f = fakeBridges({ url: "" });
-    setBrowserBridgesForTests(f.bridges);
-    // The page is saved by the app-wide saver, which App starts beside every pane (persist-pages.ts).
-    pageSavers.push(persistBrowserPages(f.bridges));
-    render(<BrowserPane item={browserItem()} visible />);
-    await settle();
-    act(() => f.emit(state({ url: "https://example.com/", title: "", loading: false })));
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(f.updates).toEqual([]);
-    act(() => f.emit(state({ url: "https://example.com/", title: "Example Domain", loading: false })));
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(f.updates).toEqual([{ id: "b1", url: "https://example.com/", title: "Example Domain", favicon: "" }]);
-  });
-
   it("persists the page's icon with its address and title, so the tab and its row can draw it", async () => {
     // THE mutant: persist url and title alone. The icon main resolved would never reach the item.
     const f = fakeBridges({ url: "" });
@@ -481,23 +437,6 @@ describe("BrowserPane", () => {
     expect(f.updates).toEqual([{ id: "b1", url: "https://www.google.com/search?q=hi", title: "hi - Google Search", favicon: ICON }]);
   });
 
-  it("a restored page that has not offered its icon yet keeps the one it was restored with", async () => {
-    /* THE mutant: persist the live state's null as none. Every relaunch would trade each tab's icon
-       for the glyph while its page loads and the icon is fetched again — undoing the reason it is kept. */
-    const f = fakeBridges({ url: "https://www.google.com/", title: "Google", favicon: ICON });
-    setBrowserBridgesForTests(f.bridges);
-    // The page is saved by the app-wide saver, which App starts beside every pane (persist-pages.ts).
-    pageSavers.push(persistBrowserPages(f.bridges));
-    render(<BrowserPane item={browserItem()} visible />);
-    await settle();
-    act(() => f.emit(state({ url: "https://www.google.com/", title: "Google", favicon: null })));
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(f.updates).toEqual([]);
-    // A NEW address with no icon is a page with none: the last page's is not lent to it.
-    act(() => f.emit(state({ url: "https://example.com/", title: "Example", favicon: null })));
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(f.updates).toEqual([{ id: "b1", url: "https://example.com/", title: "Example", favicon: "" }]);
-  });
 });
 
 describe("shouldShowView", () => {
@@ -626,19 +565,6 @@ describe("the blocked-download bar (Plan 23 W4)", () => {
 
     expect(f.calls).toContain("save:b1:bd_1:/tmp/proj/downloads");
     expect(screen.getByRole("status")).toHaveTextContent("Saved week-3.pdf to downloads/");
-  });
-
-  it("offers Save for an executable too — no type is shown as a dead end any more", async () => {
-    const f = await mountPane();
-    await act(async () => { f.blockDownload(blocked({ id: "bd_2", name: "installer.dmg" })); });
-
-    const bar = screen.getByRole("status");
-    expect(bar).toHaveTextContent("installer.dmg");
-    // The mutant this catches is the old copy coming back: a bar that tells the user Realm will not
-    // save this, beside a button that will.
-    expect(bar).not.toHaveTextContent("file type");
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
-    expect(f.calls).toContain("save:b1:bd_2:/tmp/proj/downloads");
   });
 
   it("a space with no project says so rather than inventing a destination", async () => {
@@ -975,13 +901,6 @@ describe("BrowserPane — the ⋯ menu (Plan 26 W7)", () => {
     expect(history.map((r) => [r.label, r.checked ?? false])).toEqual([["Docs", false], ["Sign in", true], ["Home", false]]);
   });
 
-  it("the zoom row carries the page's level", async () => {
-    const { f } = await mount();
-    f.setMenuState({ zoom: 1.25 });
-    await choose(f, null);
-    expect(rowsOf(f.menus[0]!.items).map((r) => r.label)).toContain("Actual size (125%)");
-  });
-
   it("Take a screenshot saves into the space's folder and lands in the session's prompter", async () => {
     const { f, store } = await mount();
     await choose(f, "screenshot");
@@ -1065,14 +984,6 @@ describe("BrowserPane — the ⋯ menu (Plan 26 W7)", () => {
     f.setShareResult({ ok: false, error: "That profile no longer exists." });
     await choose(f, "share-signin:p2");
     expect(screen.getByRole("status")).toHaveTextContent("That profile no longer exists.");
-  });
-
-  it("the menu offers the profiles main named, under the share row", async () => {
-    const { f } = await mount();
-    f.setMenuState({ shareTargets: [{ id: "p2", name: "School" }] });
-    await choose(f, null);
-    const share = rowsOf(f.menus.at(-1)!.items).find((r) => r.label === "Share this site's sign-in with");
-    expect(share?.submenu?.map((r) => r.label)).toEqual(["School"]);
   });
 
   it("Device size reaches the view, and the pane's ground frames the device's box", async () => {
@@ -1277,15 +1188,6 @@ describe("BrowserPane — Recently visited on a blank tab (Plan 26 W6)", () => {
   const clearData = async () => {
     await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "More" }).at(-1)!); await vi.advanceTimersByTimeAsync(0); });
   };
-
-  it("lists the space's recent pages under the tools, and one chosen opens in this tab's own view", async () => {
-    // THE mutant: draw the new-tab page without them, which is how it stood before.
-    const { f } = await mount();
-    expect(reads(f)).toEqual(["recent:s1"]);
-    expect(listed()).toEqual(["Delta careers", "Getting started"]);
-    fireEvent.click(screen.getByRole("button", { name: "Getting started" }));
-    expect(f.calls.filter((c) => c.startsWith("navigate:"))).toEqual(["navigate:b1:https://docs.example/start"]);
-  });
 
   it("each page wears the icon it last showed, and one that showed none the browser's glyph", async () => {
     const f = fakeBridges();

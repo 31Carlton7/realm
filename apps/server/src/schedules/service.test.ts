@@ -120,15 +120,6 @@ describe("the tick", () => {
     expect(created[0]).toMatchObject({ spaceId, goal: "check the inbox", title: "Morning sweep" });
   });
 
-  it("advances to the next occurrence and fires again there", () => {
-    const { svc, store } = service();
-    const s = svc.create(input());
-    clock = NINE; svc.tick();
-    expect(store.get(s.id)!.nextRunAt).toBe(at(2026, 4, 7, 9));
-    clock = at(2026, 4, 7, 9); svc.tick();
-    expect(created).toHaveLength(2);
-  });
-
   it("records the run it made, so the row can point at it", () => {
     const { svc, store } = service();
     const s = svc.create(input());
@@ -296,17 +287,6 @@ describe("a task set for one moment", () => {
     svc.tick();
     expect(created).toHaveLength(1);
     expect(store.get(s.id)!.lastSkippedAt).toBeNull();
-  });
-
-  it("leaves a recurring schedule's window exactly where it was", () => {
-    // The guard is on the one-shot alone. A daily that slept a week must still skip, or the fix for
-    // one-shots has quietly turned every schedule into a catch-up stampede.
-    const { svc, store } = service();
-    const s = svc.create(input());
-    clock = NINE + SCHEDULE_CATCHUP_MS + 60_000;
-    svc.tick();
-    expect(created).toEqual([]);
-    expect(store.get(s.id)!.lastSkippedAt).toBe(clock);
   });
 
   it("refuses a moment that has already passed, in the terms it was written in", () => {

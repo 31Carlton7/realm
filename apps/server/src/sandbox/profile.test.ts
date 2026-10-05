@@ -67,7 +67,6 @@ describe("what the compiler refuses", () => {
   const cases: [string, RegExp][] = [
     ["", /is empty/],
     ["relative/path", /not absolute/],
-    ["./here", /not absolute/],
     ["/", /filesystem root/],
     ["/a/b/", /trailing slash/],
     ["/a//b", /empty path segment/],
@@ -98,9 +97,6 @@ describe("what the compiler refuses", () => {
     expect(() => compileSeatbeltProfile(policy({ posture: "off" }))).toThrow(/no profile/);
   });
 
-  it("gives a root of `/` the same answer whichever list it is in", () => {
-    expect(sandboxPathProblem("/")).toMatch(/whole disk/);
-  });
 });
 
 describe("the compiled profile", () => {

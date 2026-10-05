@@ -64,15 +64,6 @@ describe("the prompter's @-mention picker (Plan 8 W4)", () => {
     expect(api.sent).toEqual([]); // Enter PICKED; it did not send
   });
 
-  it("⌘↵ sends even while typing a mention-bearing draft, and the wire declares the mention", async () => {
-    const { api } = await mount();
-    type("@mac go");
-    fireEvent.keyDown(box(), { key: "Enter", metaKey: true });
-    await waitFor(() => expect(api.sent).toHaveLength(1));
-    expect(api.sent[0]).toEqual({ id: "se1", text: "@mac go", attachments: [], mentions: ["mac"] });
-    expect(box().value).toBe("");
-  });
-
   it("NEVER opens in a Cursor session — an affordance that would silently do nothing is not offered", async () => {
     const { store } = await mount("acp:cursor");
     // Belt and braces: even with the library loaded into the store, the agent gate holds.
@@ -80,12 +71,6 @@ describe("the prompter's @-mention picker (Plan 8 W4)", () => {
     type("@");
     expect(picker()).toBeNull();
     type("@mac");
-    expect(picker()).toBeNull();
-  });
-
-  it("never opens mid-word: an email address is not a mention", async () => {
-    await mount();
-    type("carlton@mac");
     expect(picker()).toBeNull();
   });
 

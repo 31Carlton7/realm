@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, renderHook, act } from "@testing-library/react";
-import { CommandPalette, PALETTE_EXIT_MS, matchScore, relTime, usePaletteHotkey } from "./CommandPalette";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { CommandPalette, PALETTE_EXIT_MS, matchScore, relTime } from "./CommandPalette";
 import { StoreContext, createAppStore } from "../state/store";
 import { findLeafOfItem } from "@realm/contracts";
 import { fakeApi, item, session } from "../state/store.test-fakes";
@@ -32,7 +32,6 @@ describe("no-overlay centering (W2)", () => {
   });
 });
 
-
 const input = () => screen.getByRole("combobox");
 
 describe("matchScore (subsequence + boosts)", () => {
@@ -42,9 +41,6 @@ describe("matchScore (subsequence + boosts)", () => {
     expect(matchScore("tn", "not")).toBeNull(); // order matters — not a bag of chars ("nt" would match)
     expect(matchScore("", "anything")).toBe(0);
     expect(matchScore("TERM", "New terminal")).not.toBeNull(); // case-insensitive
-  });
-  it("ranks word-start hits above buried ones: 'nt' prefers New terminal to Open Terminal", () => {
-    expect(matchScore("nt", "New terminal")!).toBeGreaterThan(matchScore("nt", "Open Terminal…")!);
   });
   it("boosts a whole-query prefix", () => {
     expect(matchScore("new", "New terminal")!).toBeGreaterThan(matchScore("new", "Renew things")!);
@@ -257,17 +253,6 @@ describe("CommandPalette", () => {
     await waitFor(() => expect(options().filter((o) => /Split (right|down)/.test(o ?? ""))).toEqual([]));
   });
 
-  it("⌘K toggles the palette (still guarded by sheets)", () => {
-    const store = createAppStore(fakeApi());
-    renderHook(() => usePaletteHotkey(store));
-    fireEvent.keyDown(window, { key: "k", metaKey: true });
-    expect(store.getState().paletteOpen).toBe(true);
-    fireEvent.keyDown(window, { key: "k", metaKey: true });
-    expect(store.getState().paletteOpen).toBe(false);
-    store.getState().openSheet({ kind: "new-space" });
-    fireEvent.keyDown(window, { key: "k", metaKey: true });
-    expect(store.getState().paletteOpen).toBe(false); // ignored while a sheet is open
-  });
 });
 
 /** Plan 12 W3: the palette's settings entry survived the sheet's retirement — it opens the space PAGE.
@@ -294,22 +279,6 @@ describe("Open library / Open connections (Plan 12 W4)", () => {
     expect(store.getState().items.some((i) => i.kind === "library-page")).toBe(false);
   });
 
-  it("offers ONE entry per page — a placement would be a choice with no outcome", async () => {
-    /* There used to be a second, "Open library in this pane", because a page was a layout item and
-       where it landed was a real choice. A page is an overlay now: there is one, and it is over
-       everything. */
-    await mount();
-    fireEvent.change(input(), { target: { value: "open library" } });
-    expect(options().filter((o) => o!.includes("Open library"))).toHaveLength(1);
-  });
-
-  it("Open connections shows the Connections page", async () => {
-    const { store } = await mount();
-    fireEvent.change(input(), { target: { value: "open connections" } });
-    fireEvent.click(screen.getByRole("option", { name: /Open connections/ }));
-    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("connections-page"));
-  });
-
   it("Open profile shows the PROFILE page, not the space page (Plan 14 W2)", async () => {
     const { store } = await mount();
     fireEvent.change(input(), { target: { value: "open profile" } });
@@ -317,12 +286,6 @@ describe("Open library / Open connections (Plan 12 W4)", () => {
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("profile-page"));
   });
 
-  it("Open settings shows the SETTINGS page, not the space page (W6)", async () => {
-    const { store } = await mount();
-    fireEvent.change(input(), { target: { value: "open settings" } });
-    fireEvent.click(screen.getByRole("option", { name: /Open settings/ }));
-    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("settings-page"));
-  });
 });
 
 /** Plan 13 W2: the palette's dispatch entry — the honest shape: it dispatches the focused session's

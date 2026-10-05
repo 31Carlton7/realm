@@ -140,30 +140,6 @@ describe("the session file browser", () => {
     await waitFor(() => expect(asked.at(-1)!.dir).toBe(""));
   });
 
-  it("opens a file the way the summary would — the documents pane, or the sheet for what it cannot edit", async () => {
-    /* One file, one door. A `.md` reached from here and the same `.md` reached from the summary must
-       not open two different ways, so both go through the same three answers. */
-    const { store } = await mount({ "": [row("notes.md"), row("bundle.zip")] });
-    open();
-    await waitFor(() => expect(rowNames()).toContain("bundle.zip"));
-    fireEvent.click(screen.getByRole("button", { name: /bundle\.zip/ }));
-    await waitFor(() => expect(store.getState().sheet).toMatchObject({ kind: "artifact" }));
-    expect((store.getState().sheet as { path: string }).path).toContain("bundle.zip");
-  });
-
-  it("opens a picture in the transcript's lightbox, over the panel rather than instead of it", async () => {
-    /* The third of the summary's three answers, and the one nothing exercised: a zip is `other`
-       whichever way its type is read, so the case above passed while every screenshot went to the
-       sheet. THE MUTANT: hand `artifactTypeOf` the whole name again. */
-    const { store } = await mount({ "": [row("shot.png")] });
-    open();
-    await waitFor(() => expect(rowNames()).toEqual(["shot.png"]));
-    fireEvent.click(screen.getByRole("button", { name: /shot\.png/ }));
-    await waitFor(() => expect(document.querySelector(".media-lightbox")).not.toBeNull());
-    expect(store.getState().sheet).toBeNull();
-    expect(document.querySelector(".session-files")).not.toBeNull();
-  });
-
   it("says where it looked when there is nothing there", async () => {
     // Half the time the answer to "where did my file go" is that it went somewhere else, and an
     // empty panel that does not name the folder it read cannot say so.

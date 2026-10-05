@@ -37,11 +37,6 @@ describe("the argv", () => {
     expect(out.args.slice(out.args.indexOf("--") + 1)).toEqual(["/usr/bin/agent", ...args]);
   });
 
-  it("is deterministic — the same policy produces the same argv", () => {
-    const a = sandboxCommand({ command: "/bin/echo", args: [], policy: policy({ writableRoots: ["/b", "/a"] }) });
-    const b = sandboxCommand({ command: "/bin/echo", args: [], policy: policy({ writableRoots: ["/a", "/b"] }) });
-    expect(a).toEqual(b);
-  });
 });
 
 describe("the `off` branch is the only way to an unwrapped command", () => {

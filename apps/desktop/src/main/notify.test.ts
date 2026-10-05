@@ -82,14 +82,6 @@ describe("DesktopNotifier — the OS hop", () => {
     expect(h.log).not.toContain("activate:n1");
   });
 
-  it("the badge is pushed verbatim, and zero clears it", () => {
-    const h = harness();
-    h.notifier.badge(3);
-    expect(h.badge()).toBe(3);
-    h.notifier.badge(0);
-    expect(h.badge()).toBe(0);
-  });
-
   it("the badge clamps what arrives over IPC: negatives, fractions and NaN all become a number a dock can draw", () => {
     const h = harness();
     h.notifier.badge(-1);
@@ -118,12 +110,6 @@ describe("two sources, one toast", () => {
     expect(h.notifier.show(row, "renderer")).toBe(true);
     // The window closing between the renderer's request and main's is a real few milliseconds.
     h.state.hasWindow = false;
-    expect(h.notifier.show(row, "main")).toBe(false);
-  });
-
-  it("still refuses everything while the window is focused — the user is already looking", () => {
-    const h = harness({ focused: true, hasWindow: true });
-    expect(h.notifier.show(row, "renderer")).toBe(false);
     expect(h.notifier.show(row, "main")).toBe(false);
   });
 

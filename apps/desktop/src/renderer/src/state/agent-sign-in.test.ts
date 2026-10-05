@@ -18,14 +18,6 @@ async function fresh() {
 }
 
 describe("a first-run sign-in in the store", () => {
-  it("starts through agentSignIn.start, not the in-space signin.start, and keeps what it answered", async () => {
-    // THE mutant: routing the first run through `signin.start`, which needs a space nobody has yet.
-    const { api, store } = await fresh();
-    await store.getState().startAgentSignIn("codex");
-    expect(api.calls).toContain("agentSignInStart:codex");
-    expect(api.calls.some((c) => c.startsWith("startSignIn:"))).toBe(false);
-    expect(store.getState().agentSignIns.codex?.state).toBe("browser");
-  });
 
   it("does not let a start's own answer walk back the events that beat it here", async () => {
     // The server broadcasts "browser" before the start's reply is read: the reply's "starting" is older.

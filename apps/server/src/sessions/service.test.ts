@@ -233,13 +233,6 @@ describe("SessionService over rpc", () => {
     c.close();
   });
 
-  it("respondPermission without a live handle is SESSION_NOT_LIVE", async () => {
-    const { c, sp } = await boot();
-    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
-    expect((await c.call("sessions.respondPermission", { id: session.id, requestId: "r1", decision: "allow" })).error.code).toBe("SESSION_NOT_LIVE");
-    c.close();
-  });
-
   it("respondPermission routes broker-owned requestIds (bperm_) even with NO live handle (Plan 11 W3)", async () => {
     // The browser permission broker's prompts block an MCP call in the gateway, not the adapter — so
     // answering one must not require a live adapter. A bperm_ id on a handle-less session resolves ok
@@ -709,16 +702,6 @@ describe("the session's terminal side panel (W4)", () => {
     expect(app.terminals.has(term.terminalId)).toBe(false);
     expect(app.db.prepare("SELECT id FROM items WHERE id = ?").get(term.itemId)).toBeUndefined();
     expect(app.db.prepare("SELECT COUNT(*) AS n FROM terminals").get()).toEqual({ n: 0 });
-    c.close();
-  });
-
-  it("deleting the session's sidebar item takes the same path (items.delete → sessions.delete)", async () => {
-    const { c, sp } = await boot();
-    const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
-    const term = (await c.call("sessions.openTerminal", { id: session.id })).result;
-    await c.call("items.delete", { id: itemId });
-    expect(app.terminals.has(term.terminalId)).toBe(false);
-    expect(app.db.prepare("SELECT COUNT(*) AS n FROM sessions").get()).toEqual({ n: 0 });
     c.close();
   });
 

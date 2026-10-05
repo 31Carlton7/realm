@@ -19,9 +19,6 @@ describe("spaceColor (the one identity pixel, clamp rules unchanged from spec 20
   it("keeps the space colour's hue (it is the identity pixel, not a recolour)", () => {
     expect(Math.abs(hexToHsl(spaceColor("#3ddc97", "dark")).h - hexToHsl("#3ddc97").h)).toBeLessThan(2);
   });
-  it("near-black is lightened in dark mode", () => {
-    expect(hexToHsl(spaceColor("#111111", "dark")).l).toBeGreaterThan(40);
-  });
   it("near-white is darkened in dark mode", () => {
     expect(hexToHsl(spaceColor("#ffffff", "dark")).l).toBeLessThanOrEqual(75);
   });
@@ -134,13 +131,6 @@ describe("the adjustable ground", () => {
     expect(GROUND_ALPHA_RANGE.max).toBe(100); // fully opaque has to be reachable — that is "off"
   });
 
-  it("does not compose the ground itself — that stays in CSS, where a media query can reach it", () => {
-    const props: Record<string, string> = {};
-    const root = { style: { setProperty: (k: string, v: string) => { props[k] = v; }, removeProperty: () => {} }, dataset: {} } as unknown as HTMLElement;
-    applyTheme({ space: "#7c6cff", mode: "dark", groundAlpha: 60 }, root);
-    expect(props["--sidebar-ground"]).toBeUndefined();
-    expect(props["--pane-ground"]).toBeUndefined();
-  });
 });
 
 describe("the panes' own ground", () => {

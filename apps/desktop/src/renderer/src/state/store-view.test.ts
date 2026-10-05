@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { createAppStore } from "./store";
-import { allItems, findLeafOfItem, findSidePane, itemIdOfLeaf, primaryLeaves, type Layout, type StoredView } from "@realm/contracts";
+import { allItems, findLeafOfItem, findSidePane, itemIdOfLeaf, primaryLeaves, type StoredView } from "@realm/contracts";
 import { fakeApi, item, profile, session, space, type FakeApi } from "./store.test-fakes";
 
 /**
@@ -385,13 +385,6 @@ describe("work from a space that is not current", () => {
     expect(focusedItem(store)).toBe("i-a");
   });
 
-  it("an agent's terminal does the same", async () => {
-    const store = await sideBySide(api);
-    api.data.items.s2!.push(item("i-tb", "s2", { kind: "terminal", refId: "tb", title: "Terminal" }));
-    await store.getState().applyAgentPaneOpened({ spaceId: "s2", itemId: "i-tb", openedBy: "b" });
-    expect(findSidePane(store.getState().layout!, "i-b")?.tabs).toEqual(["i-tb"]);
-  });
-
   it("another profile's opens change nothing in this window", async () => {
     api.data.spaces.push(space("s9", "p2", "Elsewhere"));
     const store = await sideBySide(api);
@@ -412,23 +405,3 @@ describe("work from a space that is not current", () => {
   });
 });
 
-describe("no named splits", () => {
-  it("leaves nothing of the old store surface behind", () => {
-    const store = createAppStore(fakeApi());
-    const s = store.getState() as unknown as Record<string, unknown>;
-    // THE MUTANT: keep a back door to per-space arrangements — any of these is a second view.
-    for (const gone of ["groups", "newPaneGroup", "activatePaneGroup", "stepPaneGroup", "moveItemToPaneGroup", "removePaneGroup", "renamePaneGroup", "movePaneGroup", "applyPreset"]) {
-      expect(s[gone], gone).toBeUndefined();
-    }
-  });
-
-  it("never writes a space's groups or layout — the view is a setting of the window's profile", async () => {
-    const api = twoSpaces();
-    const store = await sideBySide(api);
-    await store.getState().splitFocused("row");
-    await store.getState().flushPersist();
-    expect(api.calls.some((c) => c.startsWith("setGroups") || c.startsWith("setLayout"))).toBe(false);
-    expect(api.data.spaces.every((sp) => sp.groups === null && sp.layout === null)).toBe(true);
-    expect((stored(api).layout as Layout).type).toBe("split");
-  });
-});

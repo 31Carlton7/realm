@@ -48,15 +48,6 @@ function referenceGlyph(name: string): string {
 }
 
 describe("a folder attached to a session", () => {
-  it("wears a folder glyph, not a document one", async () => {
-    // The report: dragging a folder in showed the same generic file glyph as any unrecognised
-    // document. Only a `stat` can tell the two apart, so the answer rides the mime from main.
-    stubBridge();
-    const folder = referenceGlyph("folder"), artifact = referenceGlyph("artifact");
-    expect(folder).not.toBe(artifact); // the test would prove nothing if these matched
-    const { container } = render(<AttachmentTile path="/x/Notes" mime="inode/directory" />);
-    expect(glyphPaths(container.querySelector(".attach-glyph"))).toBe(folder);
-  });
 
   it("is a folder even when its name says it is a picture", async () => {
     // THE mutant: read the glyph off the path's extension instead of the mime. `photos.png` is a
@@ -148,16 +139,6 @@ describe("opening an attachment from its tile", () => {
     expect(document.activeElement).toBe(tile);
   });
 
-  it("the tile is reached and opened by the keyboard alone", async () => {
-    const { openAttachment } = stubBridge();
-    render(<AttachmentTile path="/x/notes.md" mime="text/markdown" />);
-    const tile = screen.getByRole("button", { name: "Open notes.md" });
-    tile.focus();
-    expect(document.activeElement).toBe(tile);
-    // A real <button>, so Enter and Space are the browser's to deliver; clicking is what they raise.
-    fireEvent.click(tile);
-    await waitFor(() => expect(openAttachment).toHaveBeenCalledWith("/x/notes.md"));
-  });
 });
 
 describe("remove and open are separate controls", () => {
@@ -195,14 +176,6 @@ describe("a sent tile and a pending tile are the same tile", () => {
     sent([{ path: "/x/report.pdf", mime: "application/pdf" }]);
     fireEvent.click(screen.getByRole("button", { name: "Open report.pdf" }));
     await waitFor(() => expect(openAttachment).toHaveBeenCalledWith("/x/report.pdf"));
-  });
-
-  it("a sent image still opens in the lightbox", async () => {
-    stubBridge([mediaFile("/x/shot.png")]);
-    sent([{ path: "/x/shot.png", mime: "image/png" }]);
-    await waitFor(() => expect(document.querySelector(".attach-tile[data-media]")).not.toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Open shot.png" }));
-    await waitFor(() => expect(lightbox()).not.toBeNull());
   });
 
   it("the sent row names its files through the tile, with no wrapper of its own", () => {

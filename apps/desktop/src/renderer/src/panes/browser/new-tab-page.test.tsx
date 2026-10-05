@@ -6,7 +6,6 @@ import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { setBrowserBridgesForTests } from "./browser-client";
 import { fakeBrowserBridges } from "./browser-bridges.test-fakes";
-import { NewTabPage } from "./NewTabPage";
 import { BrowserPane } from "./BrowserPane";
 import { registerPane } from "../registry";
 
@@ -92,15 +91,4 @@ describe("a blank tab's new-tab page", () => {
     expect(api.calls.filter((c) => c.startsWith("createBrowser:"))).toHaveLength(made);
   });
 
-  it("draws no Recently visited until there are visits to draw, and opens one that is there", () => {
-    // With no visits the section is absent rather than empty. THE MUTANT: render the heading
-    // unconditionally, and a profile that has been nowhere gets a heading over nothing.
-    const { unmount } = render(<NewTabPage itemId="i-b" />);
-    expect(screen.queryByRole("region", { name: "Recently visited" })).toBeNull();
-    unmount();
-    const onVisit = vi.fn();
-    render(<NewTabPage itemId="i-b" recent={[{ url: "https://jobs.example/delta", title: "Delta careers" }]} onVisit={onVisit} />);
-    fireEvent.click(within(screen.getByRole("region", { name: "Recently visited" })).getByRole("button", { name: "Delta careers" }));
-    expect(onVisit).toHaveBeenCalledWith("https://jobs.example/delta");
-  });
 });

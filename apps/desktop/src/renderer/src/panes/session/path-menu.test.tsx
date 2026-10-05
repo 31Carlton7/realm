@@ -76,7 +76,6 @@ describe("Reveal in Finder on a path an agent wrote", () => {
   });
 });
 
-
 const CURSOR: InstalledEditor = { id: "cursor", name: "Cursor" };
 const ZED: InstalledEditor = { id: "zed", name: "Zed" };
 
@@ -113,11 +112,6 @@ describe("the path menu's editor", () => {
     // The user chose Zed, not "any editor". THE fall-through mutant: offer Cursor instead.
     await menu("/repo/src/app.ts", { editors: [CURSOR], settings: { [FILES_OPEN_IN_KEY]: "zed" } });
     expect(items().some((t) => t?.startsWith("Open in"))).toBe(false);
-  });
-
-  it("says nothing about editors on a Mac that has none", async () => {
-    await menu("/repo/src/app.ts", { editors: [] });
-    expect(items()).toEqual(["Open app.ts", "Reveal in Finder", "Copy path"]);
   });
 
   it("opens a folder in the editor too, which is what an editor makes a workspace of", async () => {

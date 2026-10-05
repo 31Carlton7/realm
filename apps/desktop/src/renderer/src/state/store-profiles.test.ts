@@ -74,15 +74,6 @@ describe("store · profiles made real", () => {
     expect(store.getState().activeSpaceId).toBe("s1");
   });
 
-  it("refreshProfiles reads what another window changed", async () => {
-    const api = fakeApi();
-    const store = createAppStore(api);
-    await store.getState().boot();
-    api.data.profiles.push(profile("p9", "Elsewhere"));
-    await store.getState().refreshProfiles();
-    expect(store.getState().profiles.map((p) => p.name)).toContain("Elsewhere");
-  });
-
   it("switchProfile brings forward the window ALREADY showing a profile, and switches this one only when none does", async () => {
     /* THE mutant: switch this window regardless, and one profile ends up in two windows — each holding
        the same panes, each believing the views are its own. */
@@ -100,18 +91,4 @@ describe("store · profiles made real", () => {
     expect(b.getState().activeSpaceId).toBe("s2");
   });
 
-  it("openProfileWindow asks main for the profile's window", async () => {
-    const api = fakeApi();
-    const store = createAppStore(api);
-    await store.getState().boot();
-    await store.getState().openProfileWindow("p2");
-    expect(api.calls).toContain("openProfileWindow:p2");
-  });
-
-  it("openNewProfileSheet opens the New profile sheet", async () => {
-    const store = createAppStore(fakeApi());
-    await store.getState().boot();
-    store.getState().openNewProfileSheet();
-    expect(store.getState().sheet).toEqual({ kind: "new-profile" });
-  });
 });

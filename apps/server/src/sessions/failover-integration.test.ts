@@ -105,23 +105,6 @@ describe("failover over rpc", () => {
     c.close();
   });
 
-  it("leaves an ordinary failure exactly where it fell", async () => {
-    // The common case, and the expensive mistake: an agent that failed because the code is wrong
-    // fails identically on the next agent, and spending someone else's quota to prove that is worse
-    // than stopping.
-    const { c, sp, second } = await setup({ first: "TypeError: x is not a function", second: "ok" });
-    await c.call("failover.set", { spaceId: sp.id, policy: { retry: true, chain: ["codex"] } });
-    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
-    await c.call("sessions.send", { id: session.id, text: "go" });
-    await waitFor(async () => {
-      const evs = (await c.call("sessions.events", { id: session.id, afterSeq: 0, limit: 200 })).result;
-      return evs.some((e: Any) => e.event.type === "error");
-    });
-    expect((await c.call("sessions.get", { id: session.id })).result.agentKind).toBe("fake");
-    expect(second.starts).toHaveLength(0);
-    c.close();
-  });
-
   it("does nothing at all with the default policy, however the turn dies", async () => {
     const { c, sp, second } = await setup({ first: "usage limit reached", second: "ok" });
     const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;

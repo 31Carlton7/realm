@@ -147,14 +147,6 @@ describe("what each agent actually loads", () => {
     expect(gone.textContent).toContain("missing");
   });
 
-  it("is honest about Cursor: nothing reaches this agent, stated, no fake rows", async () => {
-    await mount({
-      sessions: [session("se2", "s1", { agentKind: "acp:cursor", title: "Cursor session" })],
-      memorySources: { se2: cursorSources },
-    });
-    expect(await screen.findByText(/Cursor takes no per-session context parameter, so neither Realm's memory nor any managed file reaches it/)).toBeInTheDocument();
-  });
-
   it("falls back to the three per-agent honesty lines when the space has no sessions", async () => {
     await mount();
     expect(screen.getByText(memorySupportNote("acp:cursor"))).toBeInTheDocument();

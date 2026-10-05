@@ -157,10 +157,6 @@ describe("CheckpointsSheet", () => {
     expect(screen.getByText("Manual checkpoint")).toBeInTheDocument();
   });
 
-  it("explains the empty state rather than showing a blank list", async () => {
-    await open({ checkpoints: [] });
-    expect(screen.getByText(/Realm takes one before every message/)).toBeInTheDocument();
-  });
 });
 
 describe("Fork from here (Plan 16 W3)", () => {

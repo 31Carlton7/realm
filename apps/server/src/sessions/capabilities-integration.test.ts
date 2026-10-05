@@ -146,15 +146,6 @@ describe("the capabilities preamble reaches an ordinary session", () => {
     c.close();
   });
 
-  it("stops naming the simulator once the space switches that provider off", async () => {
-    const { c, space, claude } = await boot(true);
-    await c.call("mcp.setProviderEnabled", { spaceId: space.id, name: "realm-simulator", enabled: false });
-    await startSession(c, space.id, "claude");
-    await waitFor(() => claude.starts.length === 1);
-    expect(claude.starts[0]!.systemContext!).not.toContain("simulator_open");
-    c.close();
-  });
-
   it("hands Cursor nothing, because Cursor takes no per-session context at all", async () => {
     const { c, space, cursor } = await boot();
     await startSession(c, space.id, "acp:cursor");

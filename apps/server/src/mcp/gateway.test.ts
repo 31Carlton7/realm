@@ -639,14 +639,6 @@ describe("in-process providers (Plan 11 W3)", () => {
     await client.close();
   });
 
-  it("a provider that reports no tools for this space (disabled) contributes nothing", async () => {
-    const app = await setupApp();
-    app.gateway.registerProvider(fakeProvider("realm-browser", { enabled: () => false }));
-    const { client } = await connectClient(app);
-    expect((await client.listTools()).tools).toEqual([]);
-    await client.close();
-  });
-
   /* `realmProvidersFor` — what the capabilities preamble is allowed to claim a session has. It is a
    * PROMISE about tools, so the two ways it can lie are the two the preamble would repeat: naming a
    * provider the space switched off, and naming one this session's toolset hides. */

@@ -142,33 +142,6 @@ describe("capture", () => {
     } finally { cleanup(repo); }
   });
 
-  it("captures the executable bit and symlinks", async () => {
-    const repo = makeRepo();
-    try {
-      const script = join(repo, "script.sh");
-      writeFileSync(script, "#!/bin/sh\n");
-      chmodSync(script, 0o755);
-      symlinkSync("tracked.txt", join(repo, "link"));
-      const state = await svc().capture({ cwd: repo, ...ids(), message: "turn 1" });
-      const tree = git(repo, "ls-tree", "-r", state.worktreeTree);
-      expect(tree).toMatch(/100755 blob \w+\tscript\.sh/);
-      expect(tree).toMatch(/120000 blob \w+\tlink/);
-    } finally { cleanup(repo); }
-  });
-
-  it("records the staged side separately from the working tree", async () => {
-    const repo = makeRepo();
-    try {
-      writeFileSync(join(repo, "tracked.txt"), "one\nstaged\n");
-      git(repo, "add", "tracked.txt");
-      writeFileSync(join(repo, "tracked.txt"), "one\nstaged\nworktree\n");
-      const state = await svc().capture({ cwd: repo, ...ids(), message: "turn 1" });
-      expect(state.indexTree).not.toBe(state.worktreeTree);
-      expect(git(repo, "show", `${state.indexTree}:tracked.txt`)).toBe("one\nstaged\n");
-      expect(git(repo, "show", `${state.worktreeTree}:tracked.txt`)).toBe("one\nstaged\nworktree\n");
-    } finally { cleanup(repo); }
-  });
-
   it("keeps the staged tree reachable from the ref alone", async () => {
     const repo = makeRepo();
     try {

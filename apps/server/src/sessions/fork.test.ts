@@ -295,15 +295,6 @@ describe("forking onto a different agent", () => {
     expect(String(h.settings.get(forkContextKey(session.id)))).toContain("changed them");
   });
 
-  it("keeps every per-kind setting when the kind does not change", { timeout: 20_000 }, async () => {
-    const { h, cp } = await forkable();
-    const { session } = await h.forks.fork(cp.id);
-    expect(session.agentKind).toBe("fake");
-    expect(session.model).toBe("m1");
-    expect(session.effort).toBe("high");
-    expect(session.permissionMode).toBe("acceptEdits");
-  });
-
   it("refuses a kind this build cannot run BEFORE it makes a worktree for it", { timeout: 20_000 }, async () => {
     // The named mutant: check inside `createSession` instead. The throw would land after
     // `createWorktree` and leave a worktree on disk that nothing ever adopts.

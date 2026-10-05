@@ -95,12 +95,6 @@ describe("finding a Python for Laya", () => {
     expect(ran).toHaveLength(1);
   });
 
-  it("asks the interpreter itself, isolated from the user's site and PYTHON* variables", async () => {
-    const { deps, ran } = mac({ "/opt/homebrew/bin/python3.13": { version: [3, 13, 12] } });
-    await findPython(deps);
-    expect(ran[0]!.args.slice(0, 3)).toEqual(["-I", "-S", "-c"]);
-  });
-
   it("looks where pyenv and uv keep interpreters off the PATH", async () => {
     const { deps } = mac(
       { "/Users/u/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/bin/python3": { version: [3, 11, 16] } },

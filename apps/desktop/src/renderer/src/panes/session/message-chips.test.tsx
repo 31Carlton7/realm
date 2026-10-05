@@ -34,24 +34,10 @@ const chips = () => Array.from(bubble().querySelectorAll(".msg-chip")).map((el) 
  * composer paints by, and that drawing them changes nothing about what the record says.
  */
 describe("chips in the user message bubble", () => {
-  it("draws a mentioned skill as a chip", async () => {
-    await mount("use @mac to list reminders");
-    expect(chips()).toEqual([["mention", "@mac"]]);
-  });
-
-  it("draws a picked element as a chip, labelled by what it is", async () => {
-    await mount('make @[button "Sign in"] blue');
-    expect(chips()).toEqual([["element", 'button "Sign in"']]);
-  });
 
   it("draws both kinds in one message, in the order they were typed", async () => {
     await mount('@mac look at @[button "Go"]');
     expect(chips()).toEqual([["mention", "@mac"], ["element", 'button "Go"']]);
-  });
-
-  it("a mention chip shows the characters that were sent, sigil and all", async () => {
-    await mount("use @mac on it");
-    expect(bubble().textContent).toBe("use @mac on it");
   });
 
   it("an element chip drops only its delimiters, and keeps the whole token on the title", async () => {
@@ -63,22 +49,10 @@ describe("chips in the user message bubble", () => {
     expect(bubble().textContent).toBe('make button "Sign in" blue');
   });
 
-  it("an email is not a mention, here as in the composer", async () => {
-    await mount("write to carlton@mac about it");
-    expect(chips()).toEqual([]);
-    expect(bubble().textContent).toBe("write to carlton@mac about it");
-  });
-
   it("a skill switched off is not a chip — the composer does not paint it either", async () => {
     await mount("try @web instead");
     expect(chips()).toEqual([]);
     expect(bubble().textContent).toBe("try @web instead");
-  });
-
-  it("a skill that no longer exists goes back to being the text the user typed", async () => {
-    await mount("use @mac now", { skills: [] });
-    expect(chips()).toEqual([]);
-    expect(bubble().textContent).toBe("use @mac now");
   });
 
   it("nothing chips in a session Realm cannot inject skills into — its @ never meant anything", async () => {

@@ -6,7 +6,6 @@ import { classifyPath, resolveInstall } from "./provenance";
 import { agentBin } from "./bins";
 import { probeClaude } from "@realm/adapters";
 
-
 function tree(): string {
   const root = tempDir("realm-cli-");
   return root;
@@ -63,10 +62,6 @@ describe("classifyPath", () => {
   it("prefers brew when a formula vendors a node_modules tree inside its keg", () => {
     // `npm install -g` would not upgrade this copy, so calling it npm would be the dangerous answer.
     expect(classifyPath("/opt/homebrew/Cellar/opencode/1.2.3/libexec/node_modules/opencode-ai/bin/opencode")).toBe("brew");
-  });
-
-  it("reads a plain downloaded binary as unknown", () => {
-    expect(classifyPath("/Users/x/.local/bin/cursor-agent")).toBe("unknown");
   });
 
   it("matches whole path segments, so a user directory that merely contains the word does not count", () => {

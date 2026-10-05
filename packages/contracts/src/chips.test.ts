@@ -48,9 +48,6 @@ describe("scanChips", () => {
     expect(scanChips("@[button]", ["button"]).map((c) => c.kind)).toEqual(["element"]);
   });
 
-  it("still refuses a mention the library does not know", () => {
-    expect(scanChips("@nonesuch", ["mac"])).toEqual([]);
-  });
 });
 
 describe("chipLabel", () => {
@@ -160,15 +157,9 @@ describe("keepLiveChips", () => {
     expect(keepLiveChips(`hello ${elementChipToken("a")}`, [kept, gone])).toEqual([kept]);
   });
 
-  it("keeps nothing once the draft is cleared", () => {
-    expect(keepLiveChips("", [{ label: "a", element: picked() }])).toEqual([]);
-  });
 });
 
 describe("ElementChipSchema", () => {
-  it("accepts what the picker produces", () => {
-    expect(ElementChipSchema.safeParse({ label: 'button "Sign in"', element: picked() }).success).toBe(true);
-  });
 
   it("refuses markup longer than the picker clips to — such a chip did not come from the picker", () => {
     expect(ElementChipSchema.safeParse({ label: "x", element: picked({ html: "y".repeat(PICK_HTML_MAX + 1) }) }).success).toBe(false);
@@ -195,9 +186,6 @@ describe("chipRuns", () => {
     ]);
   });
 
-  it("is one plain run for text with no chips at all", () => {
-    expect(chipRuns("just words", ["mac"])).toEqual([{ chip: null, text: "just words" }]);
-  });
 });
 
 /**

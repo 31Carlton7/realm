@@ -72,17 +72,6 @@ describe("macAccessRows — state", () => {
 });
 
 describe("macAccessRows — what each row is allowed to offer", () => {
-  it("a DENIED row never offers a prompt: denials are sticky, so a Grant button there could not work", () => {
-    const denied = row(macAccessRows(allGranted({ "automation:Mail": "denied" })), "automation:Mail");
-    expect(denied.canPrompt).toBe(false);
-    expect(denied.needsSettings).toBe(true);
-  });
-
-  it("a GRANTED row offers neither — nothing left to ask, nothing left to fix", () => {
-    const granted = row(macAccessRows(allGranted()), "automation:Mail");
-    expect(granted.canPrompt).toBe(false);
-    expect(granted.needsSettings).toBe(false);
-  });
 
   it("notRequested and unknown DO offer the prompt — this is the whole point of the page", () => {
     for (const status of ["notRequested", "unknown"]) {

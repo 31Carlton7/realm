@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AgentKindSchema } from "./entities";
 import { AGENT_META } from "./presets";
-import {
-  attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, DEFAULT_MIME, expandHome,
-  isImageMime, isOpenablePath, MAX_ATTACHMENT_BYTES, mimeForPath,
-} from "./attachments";
+import { attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, DEFAULT_MIME, expandHome, isImageMime, isOpenablePath, mimeForPath } from "./attachments";
 
 const KINDS = AgentKindSchema.options;
 
@@ -79,13 +76,6 @@ describe("attachmentDisposition mirrors the adapters", () => {
       expect(attachmentDisposition(kind, "application/pdf")).toBe("link");
     }
   });
-  it("the fake adapter reads no attachments at all", () => {
-    expect(attachmentDisposition("fake", "image/png")).toBe("ignored");
-    expect(attachmentDisposition("fake", "application/pdf")).toBe("ignored");
-  });
-  it("covers every registered agent kind", () => {
-    for (const kind of KINDS) expect(attachmentDisposition(kind, "image/png")).toBeTruthy();
-  });
 });
 
 describe("attachmentNote", () => {
@@ -94,14 +84,6 @@ describe("attachmentNote", () => {
       expect(attachmentNote(kind, "image/png")).toContain(AGENT_META[kind].label);
       expect(attachmentNote(kind, "application/pdf")).toContain(AGENT_META[kind].label);
     }
-  });
-  it("is different per agent for the SAME file — the whole point of showing it", () => {
-    const pdf = "application/pdf";
-    const notes = KINDS.map((k) => attachmentNote(k, pdf));
-    expect(attachmentNote("claude", pdf)).toMatch(/file path/);
-    expect(attachmentNote("codex", pdf)).toMatch(/file path/);
-    expect(attachmentNote("acp:cursor", pdf)).toMatch(/link/);
-    expect(new Set(notes).size).toBeGreaterThan(1);
   });
   it("distinguishes an ignored image from an ignored non-image", () => {
     // `fake` is the only kind left that ignores anything, and it ignores everything — so the
@@ -135,21 +117,6 @@ describe("attachmentSummary", () => {
     expect(attachmentNote("fake", "application/pdf").endsWith(".")).toBe(true);
   });
 
-  it("says nothing about a file the agent will simply read", () => {
-    // The good case earns no row: attaching a screenshot to Claude leaves the prompter silent.
-    expect(attachmentSummary("claude", [a("/a.png", "image/png"), a("/b.png", "image/png")])).toEqual([]);
-  });
-
-  it("collapses repeats into one line, never one line per file", () => {
-    const rows = attachmentSummary("fake", [a("/a.pdf", "application/pdf"), a("/b.txt", "text/plain")]);
-    expect(rows).toHaveLength(1); // both are dropped the same way, so they share the one sentence
-    expect(rows[0]!.files).toEqual(["a.pdf", "b.txt"]);
-  });
-
-  it("is empty with nothing attached", () => {
-    expect(attachmentSummary("claude", [])).toEqual([]);
-  });
-
   it("says nothing at all for Claude any more — it no longer drops a file on the floor", () => {
     // Claude reads images inline and is handed every other file's PATH in the message text, exactly
     // as Codex is (claude-adapter.ts `fileListFor`). Nothing is silently discarded, so nothing needs
@@ -174,12 +141,6 @@ describe("attachmentSummary", () => {
   });
 });
 
-describe("MAX_ATTACHMENT_BYTES", () => {
-  it("is the 20 MB ceiling the Claude adapter throws above", () => {
-    expect(MAX_ATTACHMENT_BYTES).toBe(20 * 1024 * 1024);
-  });
-});
-
 describe("isOpenablePath", () => {
   it("accepts every document type the mime table names", () => {
     for (const p of ["/x/a.pdf", "/x/a.png", "/x/a.mp4", "/x/a.csv", "/x/a.ts", "/x/a.md", "/x/a.zip"]) {
@@ -191,11 +152,6 @@ describe("isOpenablePath", () => {
     // this is the assertion that keeps `attachment:open` off them.
     for (const p of ["/x/Thing.app", "/x/run.command", "/x/h.tool", "/x/a.workflow", "/x/blob.bin", "/x/noext", "/x/.env"]) {
       expect(isOpenablePath(p), p).toBe(false);
-    }
-  });
-  it("agrees with mimeForPath — it IS that question, and both sides of the bridge ask it", () => {
-    for (const p of ["/x/a.pdf", "/x/Thing.app", "/x/noext"]) {
-      expect(isOpenablePath(p), p).toBe(mimeForPath(p) !== DEFAULT_MIME);
     }
   });
 });

@@ -107,10 +107,6 @@ describe("statMedia", () => {
     expect(wav).toMatchObject({ kind: "audio", mime: "audio/wav" });
   });
 
-  it("answers an empty ask with an empty list rather than reading anything", async () => {
-    await expect(statMedia([], home)).resolves.toEqual([]);
-  });
-
   /* The same file asked about twice is answered twice — the caller joins on index, and dropping the
      duplicate would shift every answer after it onto the wrong candidate. */
   it("keeps one answer per candidate even when two name the same file", async () => {

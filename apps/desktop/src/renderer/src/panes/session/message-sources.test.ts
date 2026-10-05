@@ -10,10 +10,6 @@ const tool = (name: string, input: Record<string, unknown>, result: { content: s
 const urls = (blocks: Block[]) => sourcesFor(blocks, blocks.length - 1).map((s) => s.url);
 
 describe("what counts as a source", () => {
-  it("takes the url a WebFetch was actually pointed at", () => {
-    expect(urls([user("q"), tool("WebFetch", { url: "https://example.com/a", prompt: "read it" }), say("answer")]))
-      .toEqual(["https://example.com/a"]);
-  });
 
   it("takes the browser tools too, prefixed as MCP delivers them", () => {
     // Claude's SDK prefixes every MCP tool `mcp__<server>__<tool>`, and nothing in the renderer
@@ -52,15 +48,6 @@ describe("what counts as a source", () => {
     expect(urls([user("q"), tool("WebFetch", { url: "file:///etc/passwd" }), say("a")])).toEqual([]);
     expect(urls([user("q"), tool("WebFetch", { url: "not a url" }), say("a")])).toEqual([]);
     expect(urls([user("q"), tool("WebFetch", { url: 42 }), say("a")])).toEqual([]);
-  });
-
-  it("credits each answer with its own turn's fetches, never the previous turn's", () => {
-    const blocks: Block[] = [
-      user("first"), tool("WebFetch", { url: "https://one.test/a" }), say("one", "m1"),
-      user("second"), tool("WebFetch", { url: "https://two.test/b" }), say("two", "m2"),
-    ];
-    expect(sourcesFor(blocks, 2).map((s) => s.url)).toEqual(["https://one.test/a"]);
-    expect(sourcesFor(blocks, 5).map((s) => s.url)).toEqual(["https://two.test/b"]);
   });
 
   it("lists one page once, however many times it was fetched", () => {

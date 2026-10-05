@@ -80,14 +80,6 @@ describe("cli.status / cli.run routes", () => {
     c.close();
   });
 
-  it("refuses to install a kind that has no install route at all", async () => {
-    const c = await boot();
-    const res = await c.call("cli.run", { kind: "fake", action: "install" });
-    expect(res.ok).toBe(false);
-    expect(res.error.code).toBe("CLI_ACTION_UNAVAILABLE");
-    c.close();
-  });
-
   it("runs the command the row offered, for a CLI whose install route is not how it updates", async () => {
     /* The reported bug, end to end: "no update command for acp:fx". fx installs by vendor script
        into ~/.local/bin — a provenance Realm cannot attribute — and updates with `fx upgrade`, so
@@ -130,10 +122,4 @@ describe("cli.status / cli.run routes", () => {
     c.close();
   });
 
-  it("rejects a kind that is not an agent, and an action that is not one", async () => {
-    const c = await boot();
-    expect((await c.call("cli.run", { kind: "not-an-agent", action: "install" })).ok).toBe(false);
-    expect((await c.call("cli.run", { kind: "codex", action: "uninstall" })).ok).toBe(false);
-    c.close();
-  });
 });

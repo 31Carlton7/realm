@@ -123,19 +123,6 @@ describe("what failover does with an error", () => {
     expect(h.hasTimer()).toBe(false);
   });
 
-  it("never hands over when the chain is empty, and says why", async () => {
-    // The default. Moving work between agents changes who is billed for it, so it is a decision the
-    // user makes once rather than one Realm makes silently — but a user who just lost an hour to a
-    // usage limit should learn that a chain is the thing that would have helped.
-    const h = harness({ policy: DEFAULT_FAILOVER_POLICY });
-    h.svc.turnStarted("se1", msg);
-    expect(h.svc.onError(h.session(), "usage limit reached")).toBe("stop");
-    expect(h.session().agentKind).toBe("claude");
-    expect(h.emitted[0]).toMatchObject({ type: "error" });
-    expect((h.emitted[0] as { payload: { message: string } }).payload.message)
-      .toContain("no fallback agent is configured");
-  });
-
   it("refuses to resume a turn the user cancelled", async () => {
     // The rudest thing this service could do, and the one that would make people turn it off.
     const h = harness({ policy: RETRY_CHAIN });

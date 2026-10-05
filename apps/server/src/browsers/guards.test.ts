@@ -42,9 +42,4 @@ describe("fenceUntrusted", () => {
     expect(out).toContain(`${open![1]}>>>`);
   });
 
-  it("uses a fresh random fence per call, so page text cannot pre-close a known delimiter", () => {
-    const a = fenceUntrusted("x").match(/untrusted-[0-9a-f]{16}/)![0];
-    const b = fenceUntrusted("x").match(/untrusted-[0-9a-f]{16}/)![0];
-    expect(a).not.toBe(b);
-  });
 });

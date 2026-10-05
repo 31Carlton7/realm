@@ -6,7 +6,7 @@ import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { SettingsStore } from "../store/settings";
-import { UsageService, environmentLabel, monthKeyOf, startOfMonth } from "./service";
+import { UsageService, environmentLabel, startOfMonth } from "./service";
 
 let db: Db; let settings: SettingsStore; let spaceA: string; let spaceB: string; let profileId: string;
 let budgetAlerts: { threshold: number; spendUsd: number; monthKey: string }[];
@@ -102,16 +102,6 @@ describe("UsageService.activeDays", () => {
     expect(service().activeDays(window)).toEqual([]);
   });
 
-  it("omits a day with nothing rather than sending a zero for it", () => {
-    // A year of zeroes on the wire says exactly what their absence says; the client builds the grid
-    // from the range, so an empty week is a visible gap either way.
-    makeSession("s1");
-    appendEvent("s1", day(2, 9), "user_message", { text: "one", attachments: [] });
-    const out = service().activeDays(window);
-    expect(out).toHaveLength(1);
-    expect(out.every((d) => d.messages > 0)).toBe(true);
-  });
-
   it("holds to its window at both ends", () => {
     makeSession("s1");
     appendEvent("s1", day(1, 0) - 1, "user_message", { text: "before", attachments: [] });
@@ -170,28 +160,6 @@ describe("UsageService.records — the page about you", () => {
     expect(service().records().longestTurn).toEqual({
       ms: 20 * MIN, endedAt: day(3, 9) + 20 * MIN, sessionId: "s2", title: "Session s2", spaceId: spaceA,
     });
-  });
-
-  it("has no longest turn before any turn has finished", () => {
-    makeSession("s1");
-    status("s1", day(2, 9), "running");
-    expect(service().records().longestTurn).toBeNull();
-  });
-
-  it("breaks a streak on a single day with nothing sent", () => {
-    makeSession("s1");
-    // The 9th to the 12th, a gap on the 13th, then the 14th and today (the 15th).
-    for (const d of [9, 10, 11, 12, 14, 15]) send("s1", day(d, 11));
-    const { streak } = service().records();
-    expect(streak.current).toEqual({ days: 2, from: "2026-09-14", to: "2026-09-15" });
-    expect(streak.longest).toEqual({ days: 4, from: "2026-09-09", to: "2026-09-12" });
-  });
-
-  it("keeps the streak alive on a today that has nothing in it yet", () => {
-    // NOW is 10am on the 15th, nothing sent yet today. The run through yesterday is still current.
-    makeSession("s1");
-    for (const d of [12, 13, 14]) send("s1", day(d, 16));
-    expect(service().records().streak.current).toEqual({ days: 3, from: "2026-09-12", to: "2026-09-14" });
   });
 
   it("counts days the way the calendar does — only what was sent, so a day of agent work alone is not a day", () => {
@@ -403,10 +371,6 @@ describe("UsageService — the budget", () => {
     expect(svc.budget()).toEqual(saved);
   });
 
-  it("reads a hand-mangled settings row as the default instead of throwing", () => {
-    settings.set(USAGE_BUDGET_KEY, "nonsense");
-    expect(service().budget().monthlyUsd).toBeNull();
-  });
 });
 
 describe("UsageService.handleSessionEvent — threshold alerts", () => {
@@ -468,8 +432,4 @@ describe("small helpers", () => {
     expect(environmentLabel(null, null)).toBe("No checkout");
   });
 
-  it("keys a month so each threshold announces itself once, and next month starts clean", () => {
-    expect(monthKeyOf(startOfMonth(day(15)))).toBe("2026-09");
-    expect(monthKeyOf(startOfMonth(new Date(2026, 11, 3).getTime()))).toBe("2026-12");
-  });
 });

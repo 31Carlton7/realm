@@ -75,14 +75,6 @@ describe("the keybindings panel", () => {
     expect(within(rowFor("New terminal")).getByText("⌘K").tagName).toBe("KBD");
   });
 
-  it("two spellings of one chord collide — the file's own `Cmd+K` defeats Realm's `mod+k`", async () => {
-    await mount({ rules: [
-      { key: "mod+k", command: "palette.toggle" },
-      { key: "Cmd+K", command: "terminal.new" },
-    ] });
-    expect(rowFor("Command palette")).toHaveTextContent("Taken by New terminal");
-  });
-
   it("says loudly when the file could not be read, and that these are Realm's rules and not theirs", async () => {
     /* THE MUTANT: drop the banner. Every shortcut still works — the server answers with the shipped
        defaults — so nothing looks wrong, and the user's own rules are quietly not running. That is

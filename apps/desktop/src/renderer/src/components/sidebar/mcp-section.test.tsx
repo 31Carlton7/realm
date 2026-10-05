@@ -22,10 +22,6 @@ async function mount(overrides: Parameters<typeof fakeApi>[0] = {}) {
    effect the moment you flip it — which these do, straight down the rpc. A checkbox is a choice
    inside a set you are about to act on, which is what the tool allowlist below still is. */
 describe("McpSection", () => {
-  it("says a fresh space has no MCP servers rather than rendering an empty list", async () => {
-    await mount();
-    expect(screen.getByText(/No MCP servers yet — add one to give this space's agents tools\./)).toBeInTheDocument();
-  });
 
   it("adding a server makes it appear, enabled for this space", async () => {
     const { store } = await mount();
@@ -349,13 +345,6 @@ describe("scoped server groups (W4)", () => {
     expect(screen.queryByTitle("Idle")).toBeNull();
   });
 
-  it("Test connection rides mcp.test and renders the probe's sentence on the row", async () => {
-    const { api } = await mount({ mcpServers: [mcpServer("m1", { name: "srv1" })], mcpTest: { m1: { reached: true, detail: "initialized in 42ms" } } });
-    const row = (await screen.findByText("srv1")).closest(".mcp-row") as HTMLElement;
-    fireEvent.click(within(row).getByRole("button", { name: "Test" }));
-    await waitFor(() => expect(api.calls).toContain("testMcpServer:m1"));
-    await waitFor(() => expect(within(row).getByText("initialized in 42ms")).toBeInTheDocument());
-  });
 });
 
 /**

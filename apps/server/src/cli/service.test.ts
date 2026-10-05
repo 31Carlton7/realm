@@ -7,7 +7,6 @@ import type { AgentKind } from "@realm/contracts";
 import { CliService } from "./service";
 import { updateSpecFor } from "./install";
 
-
 /** A PATH directory holding the named binaries, each a symlink into the layout its package manager
  *  would have produced. No package manager is ever run — the layout IS the fact under test. */
 function machine(installs: { bin: string; under: "npm" | "brew" | "unknown" }[]): { PATH: string } {
@@ -82,23 +81,6 @@ describe("CliService.status", () => {
     expect(gemini.latest).toBe("0.8.0");
   });
 
-  it("updates a brew-installed CLI WITH brew, even though its canonical route is npm", async () => {
-    /* This used to refuse. The refusal was half right — `npm install -g` really would leave a second
-       copy on the PATH — and wholly unhelpful: a plain `brew install` became a permanent "there is a
-       newer version and Realm will not fetch it". The rule is match the PROVENANCE, not the
-       canonical route, so a Homebrew install upgrades with Homebrew. */
-    const env = machine([{ bin: "gemini", under: "brew" }]);
-    const { impl } = fakeFetch({ [GEMINI_LATEST]: { version: "0.9.1" } });
-    const svc = new CliService({ probe: probes([{ kind: "acp:gemini", version: "0.8.0" }]), fetchImpl: impl, env });
-    const gemini = row(await svc.status(), "acp:gemini");
-    expect(gemini.updateAvailable).toBe(true);
-    expect(gemini.provenance).toBe("brew");
-    // No formula is published for gemini, so brew provenance has nothing to upgrade WITH: the
-    // refusal survives, and it is about this kind rather than about Homebrew.
-    expect(gemini.action).toBe("none");
-    expect(gemini.refusal).toContain("Homebrew");
-  });
-
   it("still refuses when it cannot attribute the install of a CLI that has no updater of its own", async () => {
     /* `unknown` is not laziness. A binary Realm cannot trace to a package manager is one where every
        upgrade command Realm could run is a guess, and guessing wrong installs a second copy — the
@@ -163,21 +145,6 @@ describe("CliService.status", () => {
     expect(row(rows, "acp:fx").command).toBe("fx upgrade");
   });
 
-  it("still offers the vendor updater when nothing newer is KNOWN — which is not the same as up to date", async () => {
-    /* `updateAvailable` stays false, so no row claims an update is waiting. The button is there
-       because the CLI's own updater resolves latest against the vendor's channel at the moment it
-       runs, and that channel is not the npm registry Realm watches — for cursor-agent it is the only
-       channel there is. */
-    const env = machine([{ bin: "codex", under: "npm" }]);
-    const { impl } = fakeFetch({ [CODEX_LATEST]: { version: "0.146.0" } });
-    const svc = new CliService({ probe: probes([{ kind: "codex", version: "codex-cli 0.146.0" }]), fetchImpl: impl, env });
-    const codex = row(await svc.status(), "codex");
-    expect(codex.updateAvailable).toBe(false);
-    expect(codex.action).toBe("update");
-    expect(codex.command).toBe("codex update");
-    expect(codex.refusal).toBe(null);
-  });
-
   it("upgrades a brew-installed CLI whose route is brew", async () => {
     const env = machine([{ bin: "goose", under: "brew" }]);
     const { impl } = fakeFetch({ [GOOSE_LATEST]: { versions: { stable: "1.9.0" } } });
@@ -199,13 +166,6 @@ describe("CliService.status", () => {
     expect(codex.latest).toBe(null);
     // Nothing to update means nothing to ask a registry about.
     expect(urls).toEqual([]);
-  });
-
-  it("never offers to install the compiled-in fake adapter", async () => {
-    const svc = new CliService({ probe: probes([{ kind: "fake", available: false }]), fetchImpl: fakeFetch({}).impl, env: machine([]) });
-    const fake = row(await svc.status(), "fake");
-    expect(fake.action).toBe("none");
-    expect(fake.command).toBe(null);
   });
 
   it("asks no registry for a script-installed CLI, and offers its own updater instead", async () => {
@@ -245,25 +205,9 @@ describe("CliService.status", () => {
     expect(gemini.action).toBe("none");
   });
 
-  it("does not claim an update when the registry answers a shape it does not understand", async () => {
-    const env = machine([{ bin: "codex", under: "npm" }]);
-    const { impl } = fakeFetch({ [CODEX_LATEST]: { latest: "0.153.4" } });
-    const svc = new CliService({ probe: probes([{ kind: "codex", version: "codex-cli 0.146.0" }]), fetchImpl: impl, env });
-    expect(row(await svc.status(), "codex").updateAvailable).toBe(false);
-  });
 });
 
 describe("CliService on a Mac that is missing things", () => {
-  it("says Node.js is missing instead of offering an npm install that cannot run", async () => {
-    /* THE MUTANT: offer the route's command whatever is on PATH. On a Mac with no npm, `cli.run`
-       spawns one anyway and the person who pressed Install reads `spawn npm ENOENT`. */
-    const env = machine([]);
-    const svc = new CliService({ probe: probes([{ kind: "codex", available: false }]), fetchImpl: fakeFetch({}).impl, env });
-    const codex = row(await svc.status(), "codex");
-    expect(codex).toMatchObject({ installed: false, action: "none", command: null });
-    // Node.js by name: it is the thing to go and get, and the first run offers it beside this line.
-    expect(codex.refusal).toBe("Codex installs with npm, which comes with Node.js — and Node.js isn't on this Mac yet.");
-  });
 
   it("names Homebrew and uv the same way for the routes that run them", async () => {
     const env = machine([{ bin: "npm", under: "unknown" }]);

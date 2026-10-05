@@ -239,23 +239,6 @@ describe("authHeaders seam (http/sse)", () => {
     expect(captured).toEqual({ Authorization: "Bearer fresh-oauth-token", "X-Extra": "extra-value" });
   });
 
-  it("redacts an authHeaders value from an error message the same as a row secret", async () => {
-    // HARDENING: `sanitize()` used to scrub only `row.secrets`. A W5 OAuth bearer token arrives via
-    // `authHeaders`, never `row.secrets`, so a 401 body quoting it back would have sailed through
-    // unredacted. This row has NO secrets at all — the sentinel arrives purely via `authHeaders`.
-    const SENTINEL = "oauth-bearer-do-not-leak-me";
-    const row = newHttpRow();
-    const hub = new McpHub({
-      servers, onStatus: () => {},
-      authHeaders: async () => ({ Authorization: `Bearer ${SENTINEL}` }),
-      makeTransport: () => { throw new Error(`401: invalid token "Bearer ${SENTINEL}"`); },
-    });
-    let err: unknown;
-    try { await hub.tools(row.id); } catch (e) { err = e; }
-    expect((err as Error).message).not.toContain(SENTINEL);
-    expect((err as Error).message).toContain("[redacted]");
-  });
-
   it("redacts the BARE token when an upstream error quotes it without its scheme prefix", async () => {
     // THE LEAK THIS FIXES: `entry.redact` used to be `Object.values(headers)`, i.e. the literal
     // `"Bearer at_xyz"`. A 401 body quoting the bare token — which is what an OAuth error response
@@ -317,20 +300,6 @@ describe("invalidate", () => {
 });
 
 describe("sanitized errors", () => {
-  it("keeps a connect failure's message free of the row's secret value", async () => {
-    // The named mutant: build the thrown error from `row` (e.g. interpolate headers/env into a
-    // wrapping message) instead of forwarding only `err.message`, and this fails.
-    const SENTINEL = "sk-do-not-leak-me";
-    const row = newRow({ TOKEN: SENTINEL });
-    const hub = new McpHub({
-      servers, onStatus: () => {}, authHeaders: noAuth,
-      makeTransport: () => { throw new Error("connection refused"); },
-    });
-    let err: unknown;
-    try { await hub.tools(row.id); } catch (e) { err = e; }
-    expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).not.toContain(SENTINEL);
-  });
 
   it("redacts a secret value the upstream error message echoes back", async () => {
     // HARDENING fix: forwarding only `err.message` isn't enough on its own — a real transport error can

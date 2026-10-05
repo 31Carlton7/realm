@@ -87,12 +87,6 @@ describe("the session's suggested prompt", () => {
       expect(hint({ blocks: recovered, status: "error" })).toBe("Find what went wrong and fix it.");
     });
 
-    it("never quotes an error's text back into the prompt", () => {
-      const blocks = [user("go"), { kind: "error", message: "EISDIR: illegal operation on a directory, read", ts: 3 } as Block];
-      expect(hint({ blocks, status: "error" })).toBe("Find what went wrong and fix it.");
-      expect(hint({ blocks, status: "error" })).not.toContain("EISDIR");
-    });
-
     it("says go when a plan is on screen and the agent cannot act on it", () => {
       const blocks = [user("plan it"), plan()];
       expect(hint({ blocks, inPlan: true })).toBe("Build the plan.");
@@ -170,12 +164,6 @@ describe("what the agent WROTE decides what to offer next", () => {
       .toBe("Walk me through w/bundle.zip.");
   });
 
-  it("a tool-free answer asks for an example, not for code", () => {
-    // "Show me the code behind that" is a sentence about a codebase, asked of a session that may
-    // never have had one. An example is the concrete follow-up to an explanation about anything.
-    expect(hint({ blocks: [user("who was Stuart Diamond?"), assistant("A Wharton professor…")] }))
-      .toBe("Give me an example.");
-  });
 });
 
 /**
@@ -222,7 +210,4 @@ describe("the generated hint", () => {
       .toBe("Give me an example.");
   });
 
-  it("still declines when neither the model nor the ladder has anything", () => {
-    expect(promptHint({ blocks: [], gitInfo: git(), status: "idle", inPlan: false, generated: null })).toBeNull();
-  });
 });

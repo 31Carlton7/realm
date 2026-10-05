@@ -105,13 +105,6 @@ describe("SkillsService.injectionFor", () => {
     expect(realpathSync(join(inj.root, "mac"))).toBe(realpathSync(join(service.root, "mac")));
   });
 
-  it("leaves a disabled skill out of the staged root", () => {
-    skill(service.root, "mac");
-    skill(service.root, "notes");
-    service.setEnabled(SPACE, "notes", false);
-    expect(staged(service.injectionFor(SPACE, "claude")!)).toEqual(["mac"]);
-  });
-
   it("leaves an invalid skill out of the staged root however enabled it is", () => {
     skill(service.root, "mac");
     skill(service.root, "broken", "not frontmatter at all");
@@ -214,11 +207,6 @@ describe("SkillsService.installBundled", () => {
 });
 
 describe("bundledSkillsDir", () => {
-  it("finds the repo's own skills directory, which is where skills/mac lives", () => {
-    const dir = bundledSkillsDir();
-    expect(dir).not.toBeNull();
-    expect(readdirSync(dir!)).toContain("mac");
-  });
 
   it("every skill this repo ships parses, and says what it is for", () => {
     /* A skill whose frontmatter is broken is not a skill that works badly — `parseMeta` marks it

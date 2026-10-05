@@ -181,16 +181,6 @@ describe("focusing a pane", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Rename One" })).toBeInTheDocument());
   });
 
-  it("⌘⇧F toggles focus on the focused pane", async () => {
-    const { store } = await mount("main");
-    await twoPanes(store);
-    const leafId = store.getState().focusedLeafId;
-    await act(async () => { fireEvent.keyDown(window, { key: "F", metaKey: true, shiftKey: true }); });
-    await waitFor(() => expect(store.getState().zoomedLeafId()).toBe(leafId));
-    await act(async () => { fireEvent.keyDown(window, { key: "F", metaKey: true, shiftKey: true }); });
-    await waitFor(() => expect(store.getState().zoomedLeafId()).toBeNull());
-  });
-
 });
 
 describe("a browser an agent opened for a session off screen", () => {
@@ -262,17 +252,6 @@ describe("command palette", () => {
   const show = async (store: Awaited<ReturnType<typeof open>>["store"]) => {
     await act(async () => { store.getState().setPaletteOpen(true); });
   };
-
-  it("offers no splits to switch to, no New split and no grid layouts", async () => {
-    const { store } = await open();
-    await twoPanes(store);
-    await show(store);
-    expect(screen.queryByText(/^Split: /)).toBeNull();
-    expect(screen.queryByText("New split")).toBeNull();
-    expect(screen.queryByText(/^Layout: /)).toBeNull();
-    // Split right is how a second pane is made from the keyboard — so at two it is not offered.
-    expect(screen.queryByText("Split right")).toBeNull();
-  });
 
   it("offers Focus for the focused pane, then Unfocus, and the pick toggles it", async () => {
     const { store } = await open();

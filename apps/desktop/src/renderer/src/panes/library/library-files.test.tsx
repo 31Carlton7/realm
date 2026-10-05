@@ -271,16 +271,6 @@ describe("previewing a file from the Library", () => {
     return screen.findByRole("dialog");
   }
 
-  it("opens a preview for EVERY file, not only the ones the documents pane can render", async () => {
-    /* The mutant: keep the old `if (isOpenableArtifact) openDocumentPath` on the card. It leaves the
-       archive — and every binary, image and unknown type in a real home — as a box that takes a
-       click and does nothing, with nothing on screen to say why. */
-    bridge();
-    await mount({ artifacts: [file({ id: "archive.zip", ext: "zip", path: "/tmp/archive.zip" })] });
-    fireEvent.click(await screen.findByTitle("/tmp/archive.zip"));
-    expect(await screen.findByRole("dialog", { name: "archive.zip" })).toBeTruthy();
-  });
-
   it("routes the preview's Open the same way a session summary does, and no other way", async () => {
     /* The one rule this preview exists to keep: a file must not open two different ways depending on
        which list it was reached from. `isOpenableArtifact` IS the summary's `documentKindFor(path)

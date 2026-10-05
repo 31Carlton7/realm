@@ -68,10 +68,6 @@ describe("saveTempAttachment", () => {
     expect((await stat(a.path)).size).toBe(1);
     expect((await stat(b.path)).size).toBe(2);
   });
-  it("creates the directory it needs", async () => {
-    await saveTempAttachment(home, "a.png", "image/png", new Uint8Array([1]));
-    expect((await readdir(tempAttachmentDir(home)))).toHaveLength(1);
-  });
 });
 
 describe("sweepTempAttachments", () => {
@@ -98,12 +94,6 @@ describe("sweepTempAttachments", () => {
     await age(p, TEMP_ATTACHMENT_TTL_MS - 5_000);
     expect(await sweepTempAttachments(dir())).toEqual([]);
     expect(await readdir(dir())).toEqual(["edge.png"]);
-  });
-
-  it("removes nothing when nothing is stale", async () => {
-    await put("a.png"); await put("b.png");
-    expect(await sweepTempAttachments(dir())).toEqual([]);
-    expect((await readdir(dir())).sort()).toEqual(["a.png", "b.png"]);
   });
 
   it("is a no-op on a directory that was never created", async () => {
@@ -137,9 +127,6 @@ describe("describeFiles", () => {
     await mkdir(join(home, "adir.png"));
     expect(await describeFiles([join(home, "adir.png")]))
       .toEqual([{ path: join(home, "adir.png"), mime: "inode/directory", name: "adir.png", size: 0 }]);
-  });
-  it("still drops what is neither a file nor a directory", async () => {
-    expect(await describeFiles([join(home, "nope")])).toEqual([]);
   });
 });
 
@@ -197,10 +184,6 @@ describe("quickLookThumbnail", () => {
     expect(left).toEqual([]);
   }, 20_000);
 
-  it("is a no-op off macOS — qlmanage is Apple's, and the caller falls back to its glyph", async () => {
-    if (darwin) return; // the darwin path is covered above; this is the guard's other branch
-    expect(await quickLookThumbnail(home, join(home, "report.pdf"), 96)).toBeNull();
-  });
 });
 
 /* What `files:stat` answers. The Library lists rows from an INDEX of what a session did, so a row

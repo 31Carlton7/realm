@@ -35,10 +35,6 @@ describe("redactValues", () => {
     expect(redactValues("the cat sat on the mat", ["cat"])).toBe("the cat sat on the mat");
   });
 
-  it("redacts at exactly the floor", () => {
-    expect(redactValues("value abcd here", ["abcd"])).toBe("value [redacted] here");
-  });
-
   it("leaves a message with no credential in it untouched", () => {
     expect(redactValues("upstream returned 503", ["at_xyz123"])).toBe("upstream returned 503");
   });

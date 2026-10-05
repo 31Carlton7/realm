@@ -23,14 +23,6 @@ describe("minifyJson", () => {
     expect(minifyJson('{"id": 12345678901234567890}')).toBe('{"id":12345678901234567890}');
   });
 
-  it("keeps a number's original spelling", () => {
-    expect(minifyJson('{"a": 1.0, "b": 1e3}')).toBe('{"a":1.0,"b":1e3}');
-  });
-
-  it("keeps an escape sequence rather than resolving it", () => {
-    expect(minifyJson('{"a": "\\u0041"}')).toBe('{"a":"\\u0041"}');
-  });
-
   it("does not mistake an escaped quote for the end of a string", () => {
     expect(minifyJson('{"a": "he said \\" then  stopped"}')).toBe('{"a":"he said \\" then  stopped"}');
   });

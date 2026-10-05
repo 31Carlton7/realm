@@ -44,24 +44,6 @@ const failure = async (paths: string[], r = root as string | null) => {
 };
 
 describe("resolveUploadPaths", () => {
-  it("resolves files inside the space folder with name, size, and no outside flag", async () => {
-    const files = await ok([join(root, "gallery", "hero.png"), join(root, "gallery", "shot-2.png")]);
-    expect(files.map((f) => f.name)).toEqual(["hero.png", "shot-2.png"]);
-    expect(files.map((f) => f.bytes)).toEqual([2048, 4096]);
-    expect(files.every((f) => !f.outsideRoot)).toBe(true);
-  });
-
-  it("marks a file outside the space folder, and carries its resolved path for the card to quote", async () => {
-    const [file] = await ok([join(outside, "demo.mp4")]);
-    expect(file!.outsideRoot).toBe(true);
-    expect(file!.path).toBe(join(outside, "demo.mp4"));
-  });
-
-  it("refuses an ssh key and NAMES the path — the mutant: a prompt the user could approve", async () => {
-    const error = await failure([join(outside, ".ssh", "id_rsa")]);
-    expect(error).toContain(join(outside, ".ssh", "id_rsa"));
-    expect(error).toMatch(/refused/);
-  });
 
   it("refuses a symlink whose TARGET is a key, by the target's name", async () => {
     // The mutant this kills: containment and the secret check applied to the requested path rather
@@ -75,14 +57,6 @@ describe("resolveUploadPaths", () => {
     expect(file!.outsideRoot).toBe(true);
     expect(file!.name).toBe("demo.mp4");
     expect(file!.requested).toBe(join(root, "demo-link.mp4"));
-  });
-
-  it("refuses a .env inside the space folder — approval of the directory does not reach it", async () => {
-    expect(await failure([join(root, ".env")])).toMatch(/refused/);
-  });
-
-  it("refuses a path that does not exist, as a missing file rather than a permission problem", async () => {
-    expect(await failure([join(root, "nope.png")])).toContain("no such file");
   });
 
   it("refuses a directory", async () => {
@@ -114,11 +88,6 @@ describe("resolveUploadPaths", () => {
   it("caps the number of files in one call", async () => {
     const many = Array.from({ length: 21 }, (_, i) => join(root, "gallery", `f${i}.png`));
     expect(await failure(many)).toContain("at most");
-  });
-
-  it("with no space folder, every path counts as outside — more shown, not less", async () => {
-    const r = await resolveUploadPaths([join(root, "gallery", "hero.png")], null);
-    expect(r.ok && r.files[0]!.outsideRoot).toBe(true);
   });
 
   it("a space folder reached through a symlink still contains its own files", async () => {

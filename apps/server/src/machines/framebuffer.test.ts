@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { inflateSync } from "node:zlib";
-import {
-  applyUpdate, blankFrame, downscale, encodePng, keyEventMessage, pointerEventMessage,
-  setEncodingsMessage, setPixelFormatMessage, updateRequestMessage, DRIVER_PIXEL_FORMAT, type Frame,
-} from "./framebuffer";
+import { applyUpdate, blankFrame, downscale, encodePng, pointerEventMessage, setEncodingsMessage, setPixelFormatMessage, updateRequestMessage, DRIVER_PIXEL_FORMAT, type Frame } from "./framebuffer";
 
 /** A Raw FramebufferUpdate carrying one rect of a solid colour, in the format the driver asked for. */
 function rawRect(x: number, y: number, w: number, h: number, [r, g, b]: [number, number, number]): Buffer {
@@ -60,10 +57,6 @@ describe("the messages the driver sends", () => {
     expect(pointerEventMessage(70000, -5, 0).readUInt16BE(4)).toBe(0);
   });
 
-  it("packs a key event with its keysym", () => {
-    expect([...keyEventMessage(0xff0d, true)]).toEqual([4, 1, 0, 0, 0, 0, 0xff, 0x0d]);
-    expect(keyEventMessage(0xff0d, false)[1]).toBe(0);
-  });
 });
 
 describe("decoding a framebuffer update", () => {

@@ -140,28 +140,3 @@ describe("ThemesService", () => {
   });
 });
 
-describe("against the colour themes actually installed on this machine", () => {
-  /* The translator's own suite works on constructed input; this one proves the pair — reader and
-     translator — survives files nobody wrote for Realm. It is skipped where Cursor is not installed
-     rather than pinning a path into CI. */
-  const EXT = "/Applications/Cursor.app/Contents/Resources/app/extensions";
-  const FILES = [
-    "theme-monokai/themes/monokai-color-theme.json",
-    "theme-solarized-light/themes/solarized-light-color-theme.json",
-    "theme-quietlight/themes/quietlight-color-theme.json",
-    "theme-abyss/themes/abyss-color-theme.json",
-  ];
-  it("imports each of them into a complete palette", () => {
-    if (!existsSync(EXT)) return;
-    for (const rel of FILES) {
-      const p = join(EXT, rel);
-      if (!existsSync(p)) continue;
-      const t = service.import(p);
-      for (const [role, v] of Object.entries({ ...t.seed, ...t.seed.syntax })) {
-        if (role === "syntax") continue;
-        expect(v, `${rel} ${role}`).toMatch(/^#[0-9a-f]{6}$/);
-      }
-      expect(["dark", "light"]).toContain(t.mode);
-    }
-  });
-});

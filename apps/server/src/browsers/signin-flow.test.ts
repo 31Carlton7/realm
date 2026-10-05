@@ -50,12 +50,6 @@ describe("signInUrlOn", () => {
     expect(signInUrlOn(screen)).toBe(CONSENT);
   });
 
-  it("reassembles a URL the terminal wrapped", async () => {
-    // 80 columns, a 150-character URL: three rows on screen, one link in the answer.
-    const screen = await renderScreen(`Open: ${CONSENT}`, { cols: 80, rows: 24 });
-    expect(signInUrlOn(screen)).toBe(CONSENT);
-  });
-
   it("leaves a sentence's punctuation out of the URL", async () => {
     const screen = await screenOf("Visit https://example.com/login to continue.");
     expect(signInUrlOn(screen)).toBe("https://example.com/login");

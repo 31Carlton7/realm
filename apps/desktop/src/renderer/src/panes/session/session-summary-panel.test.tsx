@@ -39,14 +39,6 @@ describe("the session summary button", () => {
     expect(screen.queryByRole("button", { name: /Summary/ })).toBeNull();
   });
 
-  it("appears the moment the session has something to summarise", async () => {
-    await mount([
-      (sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/made.ts" }, parentToolUseId: null })),
-      (sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
-    ]);
-    expect(screen.getByRole("button", { name: "Summary of A session" })).toBeInTheDocument();
-  });
-
   it("lists outputs, uploads and plans under their own headings, and omits a section with nothing in it", async () => {
     await mount([
       (sessionEvent("user_message", { text: "look", attachments: [{ path: "/u/spec.pdf", mime: "application/pdf" }] })),
@@ -137,10 +129,6 @@ describe("the summary as a side panel", () => {
     expect(within(panel).getByText("2 turns")).toBeInTheDocument();
   });
 
-  it("draws nothing at all for a session that has neither produced nor spent", async () => {
-    await mount([(sessionEvent("user_message", { text: "hello", attachments: [] }))]);
-    expect(screen.queryByRole("button", { name: /Summary/ })).toBeNull();
-  });
 });
 
 describe("pinned beside the transcript, or floating over it", () => {

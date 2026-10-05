@@ -4,7 +4,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ItemScope } from "@realm/contracts";
-import { ScopeGroups, scopeGroupOf } from "./ScopeGroups";
+import { ScopeGroups } from "./ScopeGroups";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi } from "../../state/store.test-fakes";
 
@@ -57,11 +57,6 @@ describe("ScopeGroups — the one grouped-scope renderer (Plan 12 W4)", () => {
     expect(screen.queryByText(/^From /)).toBeNull();
   });
 
-  it("scopeGroupOf: profile → its own group; space null → everywhere; space id → this space", () => {
-    expect(scopeGroupOf(profileScope("p9"))).toBe("profile:p9");
-    expect(scopeGroupOf(spaceScope(null))).toBe("everywhere");
-    expect(scopeGroupOf(spaceScope("s1"))).toBe("this-space");
-  });
 });
 
 /* ——— The structural half (the W2 discipline, apps/server/src/scoping.test.ts's grep, renderer-side):

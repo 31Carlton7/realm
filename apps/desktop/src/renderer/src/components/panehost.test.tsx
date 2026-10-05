@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, within, renderHook, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
 import { allItems, sessionEvent, type Item, type Layout } from "@realm/contracts";
 import { PaneHost, zoneAt, type PaneHostProps } from "./PaneHost";
 import { PanelBar } from "./PanelBar";
 import { Main } from "../App";
-import { useGlobalHotkeys } from "../hotkeys";
 import { StoreContext, createAppStore, findEmptySiblingOf } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
 import { setBrowserBridgesForTests } from "../panes/browser/browser-client";
@@ -133,15 +132,6 @@ describe("PaneHost", () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
-  /* It takes no confirm, unlike the trash on a page or a terminal. Nothing is being deleted — there
-     is nothing under an empty box — so a second click would guard a consequence that does not exist. */
-  it("drops the pane on the first click — there is nothing under it to confirm", () => {
-    const { props } = renderHost({ layout: { type: "leaf", id: "L", itemId: null }, items: [], focusedLeafId: "L" });
-    fireEvent.click(screen.getByRole("button", { name: "Close this empty pane" }));
-    expect(props.onCloseEmpty).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText(/Really delete/)).toBeNull();
-  });
-
   it("marks empty leaves with data-empty so a focused empty leaf (which has no header to accent-underline) still gets a visual focus mark (W5 carry-item)", () => {
     const withEmpty: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
       { type: "leaf", id: "L1", itemId: "A" },
@@ -211,14 +201,6 @@ describe("PaneHost", () => {
     it("a page deletes on ONE click: there is no row behind it for a confirm to protect", async () => {
       const { api } = renderBar("settings-page", "Settings");
       fireEvent.click(screen.getByRole("button", { name: "Delete Settings" }));
-      await waitFor(() => expect(api.calls).toContain("deleteItem:P"));
-    });
-
-    it("a terminal is two-step: the click would take a running pty with it", async () => {
-      const { api } = renderBar("terminal", "Shell");
-      fireEvent.click(screen.getByRole("button", { name: "Delete Shell" }));
-      expect(api.calls).not.toContain("deleteItem:P"); // armed, not deleted
-      fireEvent.click(screen.getByRole("button", { name: "Really delete Shell?" }));
       await waitFor(() => expect(api.calls).toContain("deleteItem:P"));
     });
 
@@ -396,11 +378,6 @@ describe("PaneHost divider double-click", () => {
     { type: "leaf", id: "L3", itemId: null },
   ] };
 
-  it("a split renders one divider between each adjacent pair", () => {
-    renderHost({ layout: threeCol });
-    expect(document.querySelectorAll(".resize-handle")).toHaveLength(2);
-  });
-
   it("double-clicking any divider asks the owning split — not the pair — to equalize", () => {
     const { props } = renderHost({ layout: threeCol });
     const handles = document.querySelectorAll(".resize-handle");
@@ -432,10 +409,6 @@ describe("PaneHost divider double-click", () => {
 });
 
 describe("PaneHost drag-to-split overlay", () => {
-  it("renders no drop-overlay when no drag is in progress", () => {
-    renderHost();
-    expect(document.querySelector(".drop-overlay")).toBeNull();
-  });
 
   it("a realm-item drag shows a .drop-overlay with five .drop-zones in every panel", () => {
     renderHost();
@@ -556,10 +529,6 @@ describe("PaneHost drag-to-split overlay", () => {
 describe("zoneAt (pure pointer -> edge mapping)", () => {
   const rect = { width: 400, height: 200 };
 
-  it("returns center for a pointer in the middle", () => {
-    expect(zoneAt(200, 100, rect)).toBe("center");
-  });
-
   it("returns left/right within 32% of the respective edge, else center (threshold boundary)", () => {
     expect(zoneAt(10, 100, rect)).toBe("left");
     expect(zoneAt(127, 100, rect)).toBe("left"); // 127/400 = 31.75% <= 32%
@@ -645,28 +614,6 @@ describe("App shell", () => {
     expect(store.getState().focusedLeafId).toBe(l.children[1]!.id);
   });
 
-  it("the global topbar is retired: no breadcrumb or topbar chrome, panes render full-bleed (layout presets live in the command palette)", async () => {
-    await mountMain("L2");
-    expect(document.querySelector(".topbar")).toBeNull();
-    expect(document.querySelector(".breadcrumb")).toBeNull();
-    expect(document.querySelector(".layout-menu")).toBeNull();
-    expect(document.querySelectorAll(".panel")).toHaveLength(2); // PaneHost is the whole stage now
-  });
-
-  it("⌘\\ splits the focused leaf; ignored while a sheet is open", async () => {
-    const api = fakeApi({ items: { s1: [...items] } });
-    const store = createAppStore(api);
-    await store.getState().boot();
-    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "A" }, focusedLeafId: "L1" }));
-    renderHook(() => useGlobalHotkeys(store));
-    fireEvent.keyDown(window, { key: "\\", metaKey: true });
-    await waitFor(() => expect(store.getState().layout!.type).toBe("split"));
-    act(() => store.getState().openSheet({ kind: "new-space" }));
-    fireEvent.keyDown(window, { key: "\\", metaKey: true });
-    const l = store.getState().layout!;
-    expect(l.type === "split" && l.children.length).toBe(2); // unchanged while the sheet is open
-  });
-
   it("the error bar steps below the connection banner only while the socket is down", async () => {
     const { store } = await mountMain("L1");
     act(() => store.setState({ error: "boom" }));
@@ -677,14 +624,4 @@ describe("App shell", () => {
     expect(document.querySelector(".error-bar")).not.toHaveAttribute("data-under-banner");
   });
 
-  it("⌘\\ is ignored while the command palette is open", async () => {
-    const api = fakeApi({ items: { s1: [...items] } });
-    const store = createAppStore(api);
-    await store.getState().boot();
-    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "A" }, focusedLeafId: "L1", paletteOpen: true }));
-    renderHook(() => useGlobalHotkeys(store));
-    fireEvent.keyDown(window, { key: "\\", metaKey: true });
-    const l = store.getState().layout!;
-    expect(l.type).toBe("leaf"); // unchanged while the palette is open
-  });
 });

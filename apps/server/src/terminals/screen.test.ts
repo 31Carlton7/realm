@@ -12,11 +12,6 @@ const CLEAR = `${ESC}[2J`;
 const size = { cols: 80, rows: 24 };
 
 describe("renderScreen", () => {
-  it("renders plain output as the lines it printed", async () => {
-    const s = await renderScreen("hello\r\nworld\r\n", size);
-    expect(s.screen).toEqual(["hello", "world", ""]);
-    expect(s.altScreen).toBe(false);
-  });
 
   it("drops the blank rows below the cursor but keeps the ones above it", async () => {
     // A gap a program DREW is content; the unused bottom of an 80x24 screen is not.

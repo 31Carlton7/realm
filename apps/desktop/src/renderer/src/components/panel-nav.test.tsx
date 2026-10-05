@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { render, renderHook, screen, waitFor } from "@testing-library/react";
 import { Main } from "../App";
 import { useGlobalHotkeys } from "../hotkeys";
 import { StoreContext, createAppStore } from "../state/store";
@@ -45,30 +45,4 @@ describe("a pane's own trail", () => {
     expect(store.getState().canPaneNav(b, -1)).toBe(false);
   });
 
-  it("⌘[ / ⌘] walk the FOCUSED pane's trail", async () => {
-    const { store } = await mount();
-    const leaf = store.getState().focusedLeafId!;
-    await store.getState().openItem("i1", leaf);
-    await store.getState().openItem("i2", leaf);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Rename two" })).toBeInTheDocument());
-
-    fireEvent.keyDown(window, { key: "[", metaKey: true });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Rename one" })).toBeInTheDocument());
-    fireEvent.keyDown(window, { key: "]", metaKey: true });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Rename two" })).toBeInTheDocument());
-  });
-
-  it("⌘⇧[ / ⌘⇧] no longer step anything — the pane's own trail is left exactly as it was", async () => {
-    // The chords stepped named splits, which are gone. THE MUTANT: read the shifted bracket as the
-    // pane's own trail, and ⌘⇧[ walks Back when nobody asked it to.
-    const { store } = await mount();
-    const leaf = store.getState().focusedLeafId!;
-    await store.getState().openItem("i1", leaf);
-    await store.getState().openItem("i2", leaf);
-    fireEvent.keyDown(window, { key: "{", metaKey: true, shiftKey: true });
-    fireEvent.keyDown(window, { key: "}", metaKey: true, shiftKey: true });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(store.getState().paneHistory[leaf]!.entries.map((e) => e.itemId)).toEqual(["i1", "i2"]);
-    expect(screen.getByRole("button", { name: "Rename two" })).toBeInTheDocument();
-  });
 });

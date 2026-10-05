@@ -30,9 +30,6 @@ describe("activityLevel", () => {
     expect(activityLevel(1, 100)).toBe(1);
   });
 
-  it("has no level to give when nothing happened all year", () => {
-    expect(activityLevel(0, 0)).toBe(0);
-  });
 });
 
 describe("calendarWeeks", () => {

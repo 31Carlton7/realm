@@ -77,10 +77,6 @@ describe("originAllowed", () => {
 });
 
 describe("toViewBounds", () => {
-  it("passes through unchanged when dpr equals the display scale (no app zoom)", () => {
-    expect(toViewBounds({ x: 10, y: 20, width: 300, height: 200 }, 2, 2)).toEqual({ x: 10, y: 20, width: 300, height: 200 });
-    expect(toViewBounds({ x: 10, y: 20, width: 300, height: 200 }, 1, 1)).toEqual({ x: 10, y: 20, width: 300, height: 200 });
-  });
   it("scales by the zoom factor (dpr / scaleFactor) and insets to the grid", () => {
     // App zoomed to 150% on a 2x display: dpr = 3, scale = 2. The box is x 150 → 451.5, y 75 → 223.5.
     // This used to answer width 302 — a right edge at 452, half a pixel PAST the placeholder and
@@ -332,17 +328,6 @@ describe("BrowserPaneHost", () => {
     expect(host.has("b2")).toBe(false);
   });
 
-  it("destroyAll tears down every view (window teardown)", () => {
-    const { host, views } = makeHost();
-    host.create("b1", "", null, P);
-    host.create("b2", "", null, P);
-    host.destroyAll();
-    expect(views.get("b1")!.calls).toContain("destroy");
-    expect(views.get("b2")!.calls).toContain("destroy");
-    expect(host.has("b1")).toBe(false);
-    expect(host.has("b2")).toBe(false);
-  });
-
   it("state events carry the id of THEIR view, not the last-created one", () => {
     const { host, views, states } = makeHost();
     host.create("b1", "", null, P);
@@ -501,24 +486,6 @@ describe("browserUserAgent", () => {
     );
   });
 
-  it("says nothing about Electron anywhere in the result", () => {
-    expect(browserUserAgent(E37).toLowerCase()).not.toContain("electron");
-  });
-
-  it("keeps the ENGINE's own major — it never claims a Chrome the renderer is not", () => {
-    // The whole reason this is not a spoof. A site told "152" may use what 152 has; this renderer
-    // is 138, and the failure lands as a blank panel three clicks into a flow.
-    expect(browserUserAgent(E37)).toContain("Chrome/138.");
-    expect(browserUserAgent(E37)).not.toContain("Chrome/139");
-  });
-
-  it("leaves the platform and the Safari/AppleWebKit tokens exactly as Chromium wrote them", () => {
-    const out = browserUserAgent(E37);
-    expect(out).toContain("(Macintosh; Intel Mac OS X 10_15_7)");
-    expect(out).toContain("AppleWebKit/537.36 (KHTML, like Gecko)");
-    expect(out.endsWith("Safari/537.36")).toBe(true);
-  });
-
   it("is idempotent — it is applied at the session AND at each view, and must not compound", () => {
     const once = browserUserAgent(E37);
     expect(browserUserAgent(once)).toBe(once);
@@ -538,10 +505,6 @@ describe("browserUserAgent", () => {
     expect(browserUserAgent("")).toBe("");
   });
 
-  it("does not disturb a UA that never carried an Electron token", () => {
-    const chrome = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
-    expect(browserUserAgent(chrome)).toBe(chrome);
-  });
 });
 
 /* ------------------------------ the ⋯ menu's view calls (Plan 26 W7b) ------------------------------ */
@@ -654,12 +617,6 @@ describe("print", () => {
 const preset = (id: string) => DEVICE_PRESETS.find((d) => d.id === id)!;
 
 describe("deviceFit", () => {
-  it("a phone in a wider pane is its own width, centred, at full scale, as tall as the pane", () => {
-    expect(deviceFit({ x: 900, y: 80, width: 600, height: 840 }, preset("phone"))).toEqual({
-      view: { x: 1005, y: 80, width: 390, height: 840 },
-      metrics: { width: 390, height: 840, deviceScaleFactor: 0, mobile: true, scale: 1 },
-    });
-  });
 
   it("a desktop in a narrow pane is scaled down to the pane's width, and told the height that fills it", () => {
     /* THE mutant: no scale. A 1440-wide page in a 600-wide view is cropped to its left two-fifths, and

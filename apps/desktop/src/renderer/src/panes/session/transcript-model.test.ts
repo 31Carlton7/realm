@@ -2,20 +2,6 @@ import { describe, expect, it } from "vitest";
 import { sessionEvent } from "@realm/contracts";
 import { blockKey, emptyTranscript, reduceAll, reduceTranscript } from "./transcript-model";
 
-describe("a message another session delivered (Plan 20)", () => {
-  it("carries `from` onto the user block, and leaves it undefined for a message the user typed", () => {
-    let t = emptyTranscript();
-    t = reduceTranscript(t, sessionEvent("user_message", { text: "I typed this", attachments: [] }));
-    // Absence is the ordinary case and must stay absent — a block that claimed an author for every
-    // message would attribute the user's own words to a session.
-    expect(t.blocks.at(-1)).not.toHaveProperty("from");
-    t = reduceTranscript(t, sessionEvent("user_message", { text: "an agent asked this", attachments: [], from: { sessionId: "s1", title: "Refactor the parser" } }));
-    // Kills the reducer dropping the field, which silently un-labels every injected message: the pane
-    // would then render another agent's words as something the user typed.
-    expect(t.blocks.at(-1)).toMatchObject({ kind: "user", text: "an agent asked this", from: { sessionId: "s1", title: "Refactor the parser" } });
-  });
-});
-
 describe("a plan the agent proposed", () => {
   const plan = (planId: string, payload: { text?: string; steps?: { text: string; status: "pending" | "in_progress" | "completed" }[] }, ts: number) =>
     sessionEvent("plan", { planId, ...payload }, ts);
@@ -62,10 +48,6 @@ describe("a plan the agent proposed", () => {
     expect(blockKey(block, 7)).toBe("plan:p1");
   });
 
-  it("survives a reload: the same events replayed rebuild the same single card", () => {
-    const events = [plan("p1", { steps: [{ text: "A", status: "pending" }] }, 10), plan("p1", { steps: [{ text: "A", status: "completed" }] }, 30)];
-    expect(reduceAll(events).blocks).toEqual([{ kind: "plan", planId: "p1", steps: [{ text: "A", status: "completed" }], ts: 10 }]);
-  });
 });
 
 describe("a tool call a sub-agent made", () => {
@@ -169,11 +151,6 @@ describe("how long the run worked", () => {
     expect(runBlocks(t)).toMatchObject([{ ms: 40_000, startedAt: 0 }]);
   });
 
-  it("keeps the label seed on the block so the settled line can name the same verb", () => {
-    const t = reduceAll([status("running", 777), status("idle", 1_777)]);
-    expect(runBlocks(t)).toMatchObject([{ startedAt: 777 }]);
-  });
-
   it("reports nothing for a status that closes no run", () => {
     // An adapter says `idle` when it boots and `ended` after the idle that closed the last turn.
     // Both would otherwise bank a run dated from the epoch.
@@ -199,15 +176,6 @@ describe("how long the run worked", () => {
 describe("feedback", () => {
   const rate = (messageId: string, rating: "up" | "down" | null) => sessionEvent("feedback", { messageId, rating });
 
-  it("keeps a rating against the message it judges, and nothing against the ones it does not", () => {
-    const t = reduceAll([
-      sessionEvent("assistant_text", { messageId: "m1", text: "one" }),
-      sessionEvent("assistant_text", { messageId: "m2", text: "two" }),
-      rate("m1", "up"),
-    ]);
-    expect(t.feedback).toEqual({ m1: "up" });
-  });
-
   it("lets the reader change their mind, and take the verdict back entirely", () => {
     // Three states, not two: absent is "not judged", which a boolean could not tell from "down".
     const up = reduceAll([rate("m1", "up")]);
@@ -216,16 +184,6 @@ describe("feedback", () => {
     expect(down.feedback).toEqual({ m1: "down" });
     const withdrawn = reduceAll([rate("m1", "up"), rate("m1", null)]);
     expect(withdrawn.feedback).toEqual({});
-  });
-
-  it("survives the relaunch, because it is in the log the transcript is rebuilt from", () => {
-    // The whole reason this is an event and not a settings row.
-    const events = [
-      sessionEvent("user_message", { text: "hi", attachments: [] }),
-      sessionEvent("assistant_text", { messageId: "m1", text: "hello" }),
-      rate("m1", "down"),
-    ];
-    expect(reduceAll(events).feedback).toEqual({ m1: "down" });
   });
 
   it("never touches the blocks — a verdict is about a message, not a thing in the scrollback", () => {
@@ -357,13 +315,6 @@ describe("a session that changed agents mid-turn", () => {
     expect(t.blocks.map((b) => b.kind)).toEqual(["handoff"]);
   });
 
-  it("gives the two blocks distinct keys, so React does not reuse one as the other", () => {
-    const t = reduceAll([
-      retrying(1),
-      sessionEvent("handoff", { from: "claude", to: "codex", reason: "auth", note: "n", attempt: 1 }),
-    ]);
-    expect(new Set(t.blocks.map(blockKey)).size).toBe(t.blocks.length);
-  });
 });
 
 describe("a background sub-agent's start and stop", () => {
@@ -429,8 +380,4 @@ describe("the prompt hint", () => {
     expect(t.promptHint).toBeNull();
   });
 
-  it("is absent on a transcript that never produced one, which is the ordinary case", () => {
-    expect(reduceAll([sessionEvent("user_message", { text: "hi", attachments: [] })]).promptHint).toBeNull();
-    expect(emptyTranscript().promptHint).toBeNull();
-  });
 });

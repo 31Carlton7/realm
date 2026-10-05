@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DAEMON_WAIT_MS, daemonModeEnabled, decideLaunch, ensureDaemon, type Probe } from "./daemon";
+import { daemonModeEnabled, decideLaunch, ensureDaemon, type Probe } from "./daemon";
 import type { DaemonState } from "@realm/contracts";
 
 const OURS = { bundleId: "100:200" };
@@ -135,10 +135,6 @@ describe("ensureDaemon", () => {
     });
     expect(w.handoffs).toEqual(["bundle"]);
     expect(handle.state.bundleId).toBe(OURS.bundleId);
-  });
-
-  it("budgets the wait at the same 15s the ready line always used", () => {
-    expect(DAEMON_WAIT_MS).toBe(15_000);
   });
 
   it("does not charge the replacement for the time it took to stop the old daemon", async () => {

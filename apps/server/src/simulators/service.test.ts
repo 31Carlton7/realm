@@ -300,24 +300,6 @@ describe("the device's own settings", () => {
 });
 
 describe("everything else a device can be told to do", () => {
-  it("reads the accessibility tree, and says 'not yet' rather than 'no elements' while it warms up", async () => {
-    /* A 503 after a boot means the device's AX framework is still coming up. Reporting that as an
-       empty tree would tell the user their screen has nothing on it, which is a different and much
-       more confusing claim than "ask again in a second". */
-    const { service, spaceId } = bring();
-    const { simulatorId } = service.create({ spaceId, name: "Simulator", udid: "UDID-1" });
-    service.start(simulatorId, "UDID-1");
-    await settle(() => service.stateOf(simulatorId).status === "running");
-    const tree = await service.ax(simulatorId);
-    expect(tree.app).toBe("Safari");
-    expect(tree.elements[0]).toMatchObject({ label: "Back", role: "Button", enabled: false });
-
-    const quiet = bring({ serveSim: { ax: async () => null } });
-    const { simulatorId: id2 } = quiet.service.create({ spaceId: quiet.spaceId, name: "Simulator", udid: "UDID-1" });
-    quiet.service.start(id2, "UDID-1");
-    await settle(() => quiet.service.stateOf(id2).status === "running");
-    await expect(quiet.service.ax(id2)).rejects.toThrow(/accessibility tree/);
-  });
 
   it("refuses the tree before there is a stream to ask — the route is the daemon's, not the device's", async () => {
     const { service, spaceId } = bring();

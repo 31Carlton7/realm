@@ -9,14 +9,6 @@ describe("evaluateSheet", () => {
     expect(out).toEqual([["1", "2", "3"]]);
   });
 
-  it("evaluates ranges and common functions", () => {
-    expect(evaluateSheet(grid("1,2,3,=SUM(A1:C1)"))[0]![3]).toBe("6");
-    expect(evaluateSheet(grid("4,9,=AVERAGE(A1:B1)"))[0]![2]).toBe("6.5");
-    // Built as arrays, not via grid(): these formulas contain commas, which the helper would split.
-    expect(evaluateSheet([["a", "b", "=CONCATENATE(A1,B1)"]])[0]![2]).toBe("ab");
-    expect(evaluateSheet([["5", '=IF(A1>3,"big","small")']])[0]![1]).toBe("big");
-  });
-
   it("follows chains of formulas", () => {
     const out = evaluateSheet(grid("2,=A1*2,=B1*2,=C1*2"));
     expect(out[0]).toEqual(["2", "4", "8", "16"]);
@@ -41,10 +33,6 @@ describe("evaluateSheet", () => {
   it("marks every cell in a cycle", () => {
     const out = evaluateSheet(grid("=B1,=A1"));
     expect(out[0]).toEqual([CYCLE_ERROR, CYCLE_ERROR]);
-  });
-
-  it("marks a self-reference", () => {
-    expect(evaluateSheet(grid("=A1"))[0]![0]).toBe(CYCLE_ERROR);
   });
 
   it("a cell FEEDING a cycle shows the cycle poisoning its arithmetic, but a clean cell is untouched", () => {

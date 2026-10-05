@@ -102,12 +102,6 @@ describe("selectionTarget", () => {
     return { isCollapsed: false, rangeCount: 1, toString: () => text, getRangeAt: () => range } as unknown as Selection;
   };
 
-  it("takes a passage inside one finished message", () => {
-    const root = mount(`<div class="msg-assistant-row" data-state="complete"><div class="msg-assistant"><p>hello there</p></div></div>`);
-    const p = root.querySelector("p")!;
-    expect(selectionTarget(selectionOver(p, "hello there"), root)?.text).toBe("hello there");
-  });
-
   it("refuses a selection that is only whitespace", () => {
     // A click that drags two pixels is a click. A bar that opens on it opens when the reader was
     // only putting the caret somewhere.

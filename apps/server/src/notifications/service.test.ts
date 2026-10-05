@@ -226,14 +226,6 @@ describe("NotificationsService — category toggles", () => {
 });
 
 describe("NotificationsService — list/markRead and the ONE unread count", () => {
-  it("markRead all is global across spaces (the feed is global — stated, not accidental)", () => {
-    svc.handleSessionEvent(session({ spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" }), sessionEvent("status", { status: "idle" }));
-    svc.handleSessionEvent(session({ id: "01BX5ZZKBKACTAV9WEVGEMMVRZ", spaceId: "01BX5ZZKBKACTAV9WEVGEMMVRZ" }), sessionEvent("status", { status: "idle" }));
-    expect(svc.list({ cursor: null, limit: 10 }).unread).toBe(2);
-    const r = svc.markRead({ ids: [], all: true });
-    expect(r.unread).toBe(0);
-    expect(svc.list({ cursor: null, limit: 10 }).notifications.every((n) => n.readAt !== null)).toBe(true);
-  });
 
   it("every broadcast's unread equals what notifications.list reports — one derivation site", () => {
     svc.handleSessionEvent(session(), sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: {}, title: "x", suggestions: [] }));

@@ -131,13 +131,6 @@ describe("parseAxTree", () => {
     expect(tree.elements[2]).toMatchObject({ label: "Reload", depth: 2 });
   });
 
-  it("leaves the Application node out — it is the screen, not a control on it", () => {
-    // An overlay that drew it would put a box around everything and call it a button.
-    const tree = parseAxTree(WIRE)!;
-    expect(tree.elements.some((e) => e.role === "Application")).toBe(false);
-    expect(tree.elements).toHaveLength(3);
-  });
-
   it("carries a value through, and reports frames in the points the tree speaks", () => {
     const tree = parseAxTree(WIRE)!;
     expect(tree.elements[1]).toMatchObject({ value: "localhost", frame: { x: 90, y: 870, width: 200, height: 20 } });

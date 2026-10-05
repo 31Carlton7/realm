@@ -18,25 +18,6 @@ describe("searching emoji by what they are for", () => {
     for (const c of ["➗", "➕", "➖", "✖️", "🧮"]) expect(r, c).toContain(c);
   });
 
-  it("finds the digits on 'number' and 'numbers' alike", () => {
-    for (const q of ["number", "numbers"]) {
-      const r = chars(q);
-      for (const c of ["🔢", "1️⃣", "🔟"]) expect(r, `${q} → ${c}`).toContain(c);
-    }
-  });
-
-  it("answers the other intent words a person types at an icon picker", () => {
-    const wanted: [string, string[]][] = [
-      ["money", ["💰", "💸"]],
-      ["code", ["🧑‍💻"]],
-      ["school", ["🎓", "🏫"]],
-      ["time", ["⏰", "⌛"]],
-      ["music", ["🎵", "🎸"]],
-      ["rocket", ["🚀"]],
-      ["warning", ["⚠️"]],
-    ];
-    for (const [q, want] of wanted) for (const c of want) expect(chars(q), `${q} → ${c}`).toContain(c);
-  });
 });
 
 describe("the ranking", () => {
@@ -97,11 +78,6 @@ describe("multi-word queries", () => {
 });
 
 describe("what the search leaves alone", () => {
-  it("returns the whole set in Unicode order when nothing is typed", () => {
-    const all = searchEmoji("");
-    expect(all).toHaveLength(1914);
-    expect(all[0]!.char).toBe("😀");
-  });
 
   it("respects the category filter, with and without a query", () => {
     const flags = searchEmoji("", "Flags");

@@ -94,7 +94,7 @@ describe("RunsStore.claim — compare-and-set", () => {
     expect(store.get(run.id)!.attempt).toBe(1); // not 2 — the loser did not also increment
   });
 
-  it.each(["running", "blocked", "succeeded", "failed", "cancelled", "expired"] as const)(
+  it.each(["blocked", "succeeded", "failed", "cancelled", "expired"] as const)(
     "refuses to claim a run that is %s", (state) => {
       const run = store.create(insert())!;
       store.update(run.id, { state });

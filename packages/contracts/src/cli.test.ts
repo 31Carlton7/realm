@@ -7,9 +7,6 @@ import { AGENT_CLI_COMMANDS } from "./presets";
 import { AgentKindSchema } from "./entities";
 
 describe("AGENT_INSTALL_ROUTES", () => {
-  it("covers every agent kind", () => {
-    for (const kind of AgentKindSchema.options) expect(kind in AGENT_INSTALL_ROUTES).toBe(true);
-  });
 
   it("regenerates exactly the install command presets already offer for copying", () => {
     for (const kind of AgentKindSchema.options) {

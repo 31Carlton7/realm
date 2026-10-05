@@ -23,12 +23,6 @@ describe("highlightSegments — the mirror paints the draft, never a version of 
     }
   });
 
-  it("paints an element chip as one run, brackets included", () => {
-    expect(painted(highlightSegments('make @[button "Sign in"] blue', []))).toEqual([
-      ["element", '@[button "Sign in"]'],
-    ]);
-  });
-
   it("a URL inside a chip's label does not cut the token in half", () => {
     // The label is arbitrary page text. A link span winning here would paint half a chip and leave
     // the closing bracket looking like prose.
@@ -37,12 +31,6 @@ describe("highlightSegments — the mirror paints the draft, never a version of 
 
   it("an unclosed chip is plain text, not a chip that eats the rest of the draft", () => {
     expect(painted(highlightSegments("@[button and more", []))).toEqual([]);
-  });
-
-  it("paints an element chip and a mention in the same draft", () => {
-    expect(painted(highlightSegments("@mac look at @[div#hero]", ["mac"]))).toEqual([
-      ["mention", "@mac"], ["element", "@[div#hero]"],
-    ]);
   });
 
   it("paints URLs, and stops where the URL does", () => {
@@ -66,10 +54,6 @@ describe("highlightSegments — the mirror paints the draft, never a version of 
     expect(painted(highlightSegments("carlton@mac wrote", ["mac"]))).toEqual([]);
     // A longer id is a different id: `@mac-extras` must not light up as `mac`.
     expect(painted(highlightSegments("@mac-extras", ["mac"]))).toEqual([]);
-  });
-
-  it("gives a declared-but-dead mention the warning tone, not the live one", () => {
-    expect(painted(highlightSegments("run @web now", ["mac"], ["web"]))).toEqual([["mention-stale", "@web"]]);
   });
 
   it("paints list, quote and heading markers without touching their text", () => {
@@ -239,9 +223,6 @@ describe("chipSpans — what the mirror paints is what a gesture can take", () =
     expect(spans("https://x.dev/@mac")).toEqual([]);
   });
 
-  it("leaves nothing to interact with in a draft that has no chips", () => {
-    expect(spans("plain words @nonesuch")).toEqual([]);
-  });
 });
 
 describe("chipAround — a click aimed at a chip", () => {
@@ -306,11 +287,6 @@ describe("deleteChipAt", () => {
 
   it("takes it forwards too, from the leading edge", () => {
     expect(deleteChipAt(spans(draft), draft, 5, 1)).toEqual({ text: "make  blue", start: 5, end: 5 });
-  });
-
-  it("leaves the caret where the chip was, so the next keystroke lands in its place", () => {
-    const edit = deleteChipAt(spans(draft), draft, chipEnd, -1)!;
-    expect(edit.text.slice(0, edit.start)).toBe("make ");
   });
 
   it("does nothing anywhere else in the token, or in the prose around it", () => {

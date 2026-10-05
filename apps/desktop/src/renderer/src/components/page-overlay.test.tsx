@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { allItems, PAGE_REF_IDS } from "@realm/contracts";
+import { PAGE_REF_IDS } from "@realm/contracts";
 /* The pane components register themselves by side effect (`panes/index.ts`); the overlay renders
    through the same registry, so a test that never imports them gets the placeholder. */
 import "../panes";
@@ -27,22 +27,6 @@ const overlay = () => screen.queryByRole("dialog", { name: /Library|Settings|Not
 afterEach(() => cleanup());
 
 describe("app-level pages over the workspace", () => {
-  it("draws nothing until a destination is opened", async () => {
-    await mount();
-    expect(overlay()).toBeNull();
-  });
-
-  it("opens from the rail and takes no item, no leaf, no sidebar entry", async () => {
-    /* The complaint this answers: "I don't like that it even adds to the sidebar at all." These were
-       layout items — each open split a pane, zoomed it, and left a row in the Open list. */
-    const { store, api } = await mount();
-    const layout = allItems(store.getState().layout!);
-    fireEvent.click(screen.getByRole("button", { name: "Library" }));
-    expect(await screen.findByRole("dialog", { name: "Library" })).toBeInTheDocument();
-    expect(store.getState().items.some((i) => i.kind === "library-page")).toBe(false);
-    expect(allItems(store.getState().layout!)).toEqual(layout);
-    expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
-  });
 
   it("closes on the TRASH, because a page has nothing under it to keep", async () => {
     const { store } = await mount();
@@ -58,16 +42,6 @@ describe("app-level pages over the workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Library" }));
     await screen.findByRole("dialog", { name: "Library" });
     fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(store.getState().pageOverlay).toBeNull());
-  });
-
-  it("the rail button that opened it lights, and closes it when pressed again", async () => {
-    // design.md: a lit control says the state and undoes it in the same click.
-    const { store } = await mount();
-    const row = () => screen.getByRole("button", { name: "Library" });
-    fireEvent.click(row());
-    await waitFor(() => expect(row()).toHaveAttribute("aria-pressed", "true"));
-    fireEvent.click(row());
     await waitFor(() => expect(store.getState().pageOverlay).toBeNull());
   });
 

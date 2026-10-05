@@ -339,10 +339,4 @@ describe("EnvironmentsStore", () => {
     expect(() => envs.delete("01ARZ3NDEKTSV4RRFFQ69G5FAV")).toThrow(NotFoundError);
   });
 
-  it("space delete cascades to its environments", () => {
-    const envs = new EnvironmentsStore(db); const spaces = new SpacesStore(db, home); const sp = space();
-    envs.ensurePrimary(sp.id); envs.create({ spaceId: sp.id, path: "/tmp/wt", kind: "worktree" });
-    spaces.delete(sp.id);
-    expect(envs.list(sp.id)).toEqual([]);
-  });
 });

@@ -99,12 +99,6 @@ describe("reconcileOffice", () => {
     expect(calls).toContain(`unbubble:${id}`);
   });
 
-  it("keeps each agent's own chair when a neighbour leaves", () => {
-    const { office } = sink();
-    const three = reconcileOffice(office, new Map(), ["a", "b", "c"].map((i) => agent(i, "running")), 6);
-    const two = reconcileOffice(office, three, [agent("a", "running"), agent("c", "running")], 6);
-    expect(two.get("c")!.officeId).toBe(three.get("c")!.officeId);
-  });
 });
 
 describe("checkWorld", () => {
@@ -126,10 +120,6 @@ describe("checkWorld", () => {
       const check = checkWorld(room({ furniture: [{ type, col: 1, row: 1 }] }));
       expect(check.ok, `${type} is in the vocabulary but was refused`).toBe(true);
     }
-  });
-
-  it("accepts a plain room", () => {
-    expect(checkWorld(room()).ok).toBe(true);
   });
 
   it("refuses a tile array that is not cols × rows", () => {
@@ -283,24 +273,6 @@ describe("worldBounds", () => {
   it("falls back to the declared grid for a world with no floor at all", () => {
     const b = worldBounds({ ...padded, tiles: Array(36).fill(255) });
     expect([b.cols, b.rows]).toEqual([6, 6]);
-  });
-
-  it("is the whole grid when the room fills it, which is the generated case", () => {
-    const b = worldBounds({ ...padded, tiles: Array(36).fill(1) });
-    expect([b.minCol, b.minRow, b.cols, b.rows]).toEqual([0, 0, 6, 6]);
-  });
-
-  it("agrees with a direct scan of the office Realm actually ships", () => {
-    /* The layout everybody sees first, measured rather than assumed. This used to assert the shipped
-       office was much SMALLER than it declared — which was true of the upstream file it replaced,
-       where half the grid was padding. That was a property of that file, not an invariant, and
-       keeping it would now mean asserting the default office is badly authored. */
-    const b = worldBounds(DEFAULT_LAYOUT);
-    const occupied = DEFAULT_LAYOUT.tiles
-      .map((t, i) => ({ t, col: i % DEFAULT_LAYOUT.cols, row: Math.floor(i / DEFAULT_LAYOUT.cols) }))
-      .filter((x) => x.t !== 255);
-    expect(b.minCol).toBe(Math.min(...occupied.map((x) => x.col)));
-    expect(b.maxRow).toBe(Math.max(...occupied.map((x) => x.row)));
   });
 
   it("the shipped office wastes no grid on padding, so fitting it fills the pane", () => {

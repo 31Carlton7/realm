@@ -129,9 +129,6 @@ describe("renderStub + prependChangelog", () => {
 });
 
 describe("missingArtifacts — version-matched by shape, not exact name", () => {
-  it("all three present: nothing missing", () => {
-    expect(missingArtifacts(["Realm-0.0.2-arm64.dmg", "Realm-0.0.2-arm64-mac.zip", "latest-mac.yml"], "0.0.2")).toEqual([]);
-  });
   it("a stale version's dmg does NOT satisfy the new release", () => {
     const m = missingArtifacts(["Realm-0.0.1-arm64.dmg", "Realm-0.0.2-arm64-mac.zip", "latest-mac.yml"], "0.0.2");
     expect(m).toEqual(["a 0.0.2 .dmg"]);

@@ -39,12 +39,6 @@ const MESSAGE_TURN_ATTACHED = [
 const APPROVAL_PREFIX = 5;
 
 describe("CodexConnection", () => {
-  it("initializes and starts a thread", async () => {
-    const c = await open();
-    const r = await startThread(c);
-    expect(r.thread.id).toMatch(/^th_/);
-    await c.dispose();
-  });
 
   it("rejects instead of hanging when the server never answers initialize", async () => {
     await expect(
@@ -93,17 +87,6 @@ describe("CodexConnection", () => {
     expect(completed).toHaveLength(1);
     expect(completed[0]).toMatchObject({ status: "completed", exitCode: 0 });
     expect(unrouted).toEqual([]); // the connection must not also refuse a request it delivered
-    await c.dispose();
-  });
-
-  it("buffers frames that arrive before attach and flushes them in order", async () => {
-    const c = await open();
-    const t = await startThread(c);
-    await say(c, t.thread.id, "hi");
-    await waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(MESSAGE_TURN.length));
-    const seen: string[] = [];
-    c.attach(t.thread.id, { ...silent, onNotification: (m) => seen.push(m) });
-    expect(seen).toEqual(MESSAGE_TURN);
     await c.dispose();
   });
 

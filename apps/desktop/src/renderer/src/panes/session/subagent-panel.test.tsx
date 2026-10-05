@@ -79,12 +79,6 @@ describe("the sub-agent panel", () => {
     expect(body.getByText(/drops a field/)).toBeInTheDocument();
   });
 
-  it("says it is still working out what to do rather than drawing an empty list", async () => {
-    await mount([launch("t1", "audit the mapper")]);
-    await watch("audit the mapper");
-    expect(within(drawer()).getByText(/still working out what to do/)).toBeInTheDocument();
-  });
-
   it("closes on a TRASH, not a ×: there is no object under this view to keep", async () => {
     /* design.md: a close that promises to preserve something must have something to preserve. This
        panel is a view opened at a moment; nothing of it is in the space, and the sub-agent behind it

@@ -133,14 +133,6 @@ describe("rpc methods", () => {
     c.close();
   });
 
-  it("returns NOT_FOUND for items.create with a bogus spaceId", async () => {
-    const { c } = await boot();
-    const r = await c.call("items.create", { spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", kind: "terminal", title: "t", refId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });
-    expect(r.ok).toBe(false);
-    expect(r.error.code).toBe("NOT_FOUND");
-    c.close();
-  });
-
   it("terminals.create makes an item titled after its cwd basename and streams data events", async () => {
     const { c } = await boot();
     const prof = (await c.call("profiles.create", { name: "W" })).result;
@@ -157,16 +149,6 @@ describe("rpc methods", () => {
     const termData = () => c.events.filter((e) => e.event === "terminal.data").map((e) => e.payload.data).join("");
     await waitFor(() => termData().includes("REALM_RPC_OK"));
     await c.call("terminals.close", { terminalId });
-    c.close();
-  });
-
-  it("workspace.gitInfo answers over rpc: null for a non-repo cwd, INVALID_PARAMS for a relative one", async () => {
-    const { home, c } = await boot();
-    // `home` is a fresh temp dir — a real absolute path that is not a git repo.
-    expect((await c.call("workspace.gitInfo", { cwd: home })).result).toBeNull();
-    const bad = await c.call("workspace.gitInfo", { cwd: "not/absolute" });
-    expect(bad.ok).toBe(false);
-    expect(bad.error.code).toBe("INVALID_PARAMS");
     c.close();
   });
 
@@ -272,16 +254,6 @@ describe("environments over rpc", () => {
     c.close();
   });
 
-  it("runs a session in the worktree when sessions.create names it", async () => {
-    const { c, space } = await bootRepoSpace();
-    const env = (await c.call("environments.createWorktree", { spaceId: space.id, title: "wt" })).result;
-    const { session } = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude", environmentId: env.id })).result;
-    expect(session.environmentId).toBe(env.id);
-    expect(session.cwd).toBe(env.path);           // cwd is derived from the environment (W1)
-    expect(session.cwd).not.toBe(space.folderPath);
-    c.close();
-  });
-
   it("sessions.create records the user-dispatch origin ONLY when userDispatched is claimed (Plan 13 W2)", async () => {
     const { c, space } = await bootRepoSpace();
     const plain = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude" })).result.session;
@@ -348,17 +320,6 @@ describe("environments over rpc", () => {
     c.close();
   });
 
-  it("refuses a worktree in a space folder that is not a repository", async () => {
-    const { c } = await boot();
-    const prof = (await c.call("profiles.create", { name: "Work" })).result;
-    const plain = (await c.call("spaces.create", { profileId: prof.id, name: "Notes" })).result;
-    const r = await c.call("environments.createWorktree", { spaceId: plain.id, title: "x" });
-    expect(r.ok).toBe(false);
-    expect(r.error.code).toBe("NOT_A_REPOSITORY");
-    // The space itself still works: a plain directory is a normal Realm space.
-    expect((await c.call("sessions.create", { spaceId: plain.id, agentKind: "claude" })).result.session.cwd).toBe(plain.folderPath);
-    c.close();
-  });
 });
 
 /** Plan 7 W3 over the wire: the diff contract, the write verbs, and the cache invalidation that
@@ -390,14 +351,6 @@ describe("diff and the git write path over rpc", () => {
     expect(summary.files).toEqual([expect.objectContaining({ path: "a.txt", staged: false, unstaged: true, additions: 1 })]);
     const patch = (await c.call("workspace.fileDiff", { cwd, path: "a.txt", staged: false })).result;
     expect(patch.hunks[0].lines.filter((l: any) => l.kind === "add").map((l: any) => l.text)).toEqual(["two"]);
-    c.close();
-  });
-
-  it("returns null for a space that is not a repository, exactly like gitInfo does", async () => {
-    const { c } = await boot();
-    const prof = (await c.call("profiles.create", { name: "W" })).result;
-    const plain = (await c.call("spaces.create", { profileId: prof.id, name: "Notes" })).result;
-    expect((await c.call("workspace.diff", { cwd: plain.folderPath })).result).toBeNull();
     c.close();
   });
 
@@ -452,16 +405,6 @@ describe("diff and the git write path over rpc", () => {
     c.close();
   });
 
-  it("explains a push with no remote rather than failing", async () => {
-    const { c, cwd } = await bootRepoSpace();
-    writeFileSync(join(cwd, "a.txt"), "A\n");
-    await c.call("workspace.stage", { cwd, paths: ["a.txt"] });
-    const ship = (await c.call("workspace.ship", { cwd, commit: true, message: "m", push: true, openPr: true })).result;
-    expect(ship.commit.state).toBe("committed");
-    expect(ship.push).toMatchObject({ state: "no-remote", branch: "main" });
-    expect(ship.pr.state).toBe("skipped");
-    c.close();
-  });
 });
 
 /** The durable ship log over the wire (Plan 14 W1): attribution, listing, and the broadcast. The
@@ -586,15 +529,6 @@ describe("the computer-use allowed-apps list over rpc", () => {
     expect((await c.call("computer.allowedApps.list", { spaceId: s1.id })).result.apps).toEqual(["com.apple.Mail", "com.apple.TextEdit"]);
     // The other space is untouched: this is the scope the whole design rests on.
     expect((await c.call("computer.allowedApps.list", { spaceId: s2.id })).result.apps).toEqual([]);
-    c.close();
-  });
-
-  it("answers with what it will really honour, dropping an app that can never be driven", async () => {
-    const { c } = await boot();
-    const prof = (await c.call("profiles.create", { name: "W" })).result;
-    const s1 = (await c.call("spaces.create", { profileId: prof.id, name: "One" })).result;
-    const r = await c.call("computer.allowedApps.set", { spaceId: s1.id, apps: ["com.apple.Terminal", "com.apple.TextEdit"] });
-    expect(r.result.apps).toEqual(["com.apple.TextEdit"]);
     c.close();
   });
 

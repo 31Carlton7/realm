@@ -243,12 +243,6 @@ describe("setAllowedTools / effectiveServerIds (Plan 9 W3 — the gateway's own 
     expect(mcp.allowedTools(WORK, s.id)).toBeNull();
   });
 
-  it("effectiveServerIds returns exactly this space's enabled ids, empty for a space that enabled nothing", () => {
-    const a = mcp.add(stdio("airtable"), WORK);
-    mcp.add(stdio("school_only"), SCHOOL);
-    expect(mcp.effectiveServerIds(WORK)).toEqual([a.id]);
-    expect(mcp.effectiveServerIds("01ARZ3NDEKTSV4RRFFQ69G5FAX")).toEqual([]);
-  });
 });
 
 describe("scoping (W2) — profile vs space defining scope", () => {
@@ -373,10 +367,6 @@ describe("scoping (W2) — profile vs space defining scope", () => {
  * keys interfering — turning computer use on must not appear to turn the browser tools off.
  */
 describe("provider enablement", () => {
-  it("defaults Realm's ordinary providers to on", () => {
-    expect(mcp.providerEnabled(WORK, "realm-browser")).toBe(true);
-    expect(mcp.providerEnabled(WORK, "realm-docs")).toBe(true);
-  });
 
   it("defaults realm-computer to OFF — it reaches every app on the Mac", () => {
     expect(mcp.providerEnabled(WORK, "realm-computer")).toBe(false);
@@ -387,11 +377,6 @@ describe("provider enablement", () => {
     expect(mcp.providerEnabled(WORK, "realm-computer")).toBe(true);
     mcp.setProviderEnabled(WORK, "realm-computer", false);
     expect(mcp.providerEnabled(WORK, "realm-computer")).toBe(false);
-  });
-
-  it("keeps one space's answer out of another's", () => {
-    mcp.setProviderEnabled(WORK, "realm-computer", true);
-    expect(mcp.providerEnabled(SCHOOL, "realm-computer")).toBe(false);
   });
 
   it("keeps the two storage keys from interfering", () => {

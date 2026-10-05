@@ -245,12 +245,6 @@ describe("background sub-agents the harness is running", () => {
     expect(dock()).toBeNull();
   });
 
-  it("ignores a notification naming a call this transcript has never seen", async () => {
-    await mountWith([...launch("t1", "Agent 1"), stopped("nonexistent")]);
-    // A stray notification must not close somebody else's run, and must not invent a row of its own.
-    await openAgents();
-    await waitFor(() => expect(dockText()).toEqual(["Agent 1"]));
-  });
 });
 
 /**

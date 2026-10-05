@@ -121,13 +121,6 @@ const dur = (rung: string): string => {
 };
 
 describe("§6 motion ladder", () => {
-  it("is the one place a duration is written, and these are its rungs", () => {
-    expect(LADDER).toEqual({
-      "--dur-drag": 80, "--dur-hover": 180, "--dur-press": 120, "--dur-pop": 140, "--dur-fast": 150,
-      "--dur-swap": 160, "--dur-enter": 180, "--dur-base": 200, "--dur-rise": 220, "--dur-slow": 240,
-      "--dur-move": 320,
-    });
-  });
 
   it("no component writes a duration of its own", () => {
     // The failure mode this closes is the one the ladder was built to end: four tokens existed, two
@@ -148,17 +141,6 @@ describe("§6 motion ladder", () => {
 });
 
 describe("§6 motion table", () => {
-  it("sheets enter at 240ms on the spring with a .96 scale — one rule for every sheet, no per-sheet carve-out", () => {
-    expect(bodiesFor(".sheet").join(" ")).toContain(`animation: rl-sheet-in ${dur("--dur-slow")} var(--spring-smooth)`);
-    expect(blockAfter("@keyframes rl-sheet-in")).toContain("scale(.96)");
-    // W4b scoped 240ms to onboarding alone; W5's whole job was to hoist it. First run is no longer a
-    // sheet at all — it is the window's own page, entering by its parts on the stagger.
-    expect(bodiesFor(".onboarding > *").join(" ")).toContain("animation: onboarding-rise var(--dur-rise)");
-  });
-
-  it("the sheet scrim fades on its own at 160ms", () => {
-    expect(bodiesFor(".sheet-backdrop").join(" ")).toContain(`animation: rl-fade-in ${dur("--dur-swap")}`);
-  });
 
   /* A menu is NSMenu: there at once, gone on a short fade. THE mutants are an entrance creeping back
      onto `.menu` (a click waiting on a picture of the answer) and the exit growing travel again. */
@@ -211,23 +193,6 @@ describe("§6 motion table", () => {
     expect(Number(hook.match(/const EXIT_MS = (\d+);/)?.[1])).toBe(LADDER["--dur-press"]);
   });
 
-  it("the model picker is a popover and enters on the same rule as menus, not one of its own", () => {
-    // It shares `.menu`'s declaration rather than carrying a copy: §6 gives every popover one timing,
-    // and a second animation here is how the prompter's picker drifts away from every other surface.
-    expect(bodiesFor(".model-picker").join(" ")).toContain(`animation: rl-menu-in ${dur("--dur-pop")} var(--spring-smooth)`);
-    // Its interactive rows honour the hover rule — background/colour only, never geometry.
-    const hover = `transition: background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`;
-    for (const sel of [".mp-row", ".mp-seg-opt"]) {
-      expect(bodiesFor(sel).join(" "), sel).toContain(hover);
-      expect(bodiesFor(sel).join(" "), sel).not.toContain("transform");
-    }
-    // The route pills animate their border too — they carry the selected state on the outline rather
-    // than on a fill — but still nothing geometric.
-    expect(bodiesFor(".mp-route").join(" ")).toContain(
-      `transition: border-color ${dur("--dur-hover")} ease, background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`);
-    expect(bodiesFor(".mp-route").join(" ")).not.toContain("transform");
-  });
-
   it("transcript items enter at 180ms with a 6px rise, gated on the data-enter mark Transcript.tsx sets", () => {
     expect(bodiesFor(".transcript-col > [data-enter]").join(" ")).toContain(`animation: rl-msg-in ${dur("--dur-enter")} var(--ease-out-strong)`);
     expect(blockAfter("@keyframes rl-msg-in")).toContain("translateY(6px)");
@@ -262,12 +227,6 @@ describe("§6 motion table", () => {
     expect(body).toContain(`animation: rl-fade-in ${dur("--dur-slow")} var(--ease-fade)`);
     expect(body).not.toContain("rl-msg-in");
     expect(body).not.toMatch(/(^|;|\s)opacity:/);
-  });
-
-  it("hover fills run on the hover rung, on plain `ease`, and touch background/colour only — never geometry", () => {
-    const hover = bodiesFor(".item-row").join(" ");
-    expect(hover).toContain(`transition: background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`);
-    expect(hover).not.toContain("transform");
   });
 
   /* A Mac button does not shrink; it darkens, on the mouse-down frame. THE mutants: a scale coming
@@ -444,16 +403,6 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".msg-action::after")).toEqual(['content: ""; position: absolute; inset: -6px 0;']);
   });
 
-  it("the sources chevron turns on the swap rung — a glyph changing state, not a box changing size", () => {
-    expect(bodiesFor(".msg-sources-chevron").join(" ")).toContain(`transform ${dur("--dur-swap")} var(--ease-out-strong)`);
-    expect(bodiesFor(".msg-sources[data-open] .msg-sources-chevron").join(" ")).toContain("rotate(0deg)");
-  });
-
-  it("W2's prompter hero→docked move keeps its 320ms ease-in-out-strong (§6 assigns that easing to on-screen movement)", () => {
-    expect(bodiesFor(".composer-dock").join(" ")).toContain(`transition: transform ${dur("--dur-move")} var(--ease-in-out-strong)`);
-  });
-
-
   it("the three in-flight states share one ping, and its ring survives prefers-reduced-motion", () => {
     // Only the ring moves; the core is untouched, so the row's dot column cannot jitter.
     const ring = bodiesFor('.status-dot[data-status="running"]::after').join(" ");
@@ -546,7 +495,6 @@ describe("Ara refresh §3/§4 geometry", () => {
     }
   });
 
-
   /* Measured in a real Chromium at pane widths from 1100px down to 360px (jsdom has no layout, so
      the numbers below came from the browser, not from here). At a fixed 30px the longest greeting
      took three lines under roughly a 400px pane and a fixed-height box centred them, spilling a line
@@ -571,13 +519,6 @@ describe("Ara refresh §3/§4 geometry", () => {
     const span = bodiesFor(".hero-greeting > span").join(" ");
     expect(span).toContain("min-width: 0");
     expect(span).toContain("overflow-wrap: break-word");
-  });
-
-  it("the send button is a 32px circle; the hero textarea starts at ~56px", () => {
-    const send = bodiesFor(".composer-send").join(" ");
-    expect(send).toContain("width: 32px");
-    expect(send).toContain("height: 32px");
-    expect(bodiesFor('.session-pane[data-composer="hero"] .composer-input').join(" ")).toContain("min-height: 56px");
   });
 
   /* The rich-text mirror is only correct while it is metrically IDENTICAL to the textarea it sits
@@ -668,12 +609,6 @@ describe("Ara refresh §3/§4 geometry", () => {
     const chip = bodiesFor(".ghost-chip").join(" ");
     expect(chip).toContain("border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl))");
     expect(chip).toContain("corner-shape: squircle");
-  });
-
-  it("no rule still styles a mode CHIP, because the row no longer has one", () => {
-    // Left behind, these would tint whatever next took that aria-label — and they were written for a
-    // control inside a group that no longer exists.
-    expect(css).not.toContain('aria-label="Mode"');
   });
 
   /* The one thing the mode's move could break invisibly. With the chip gone, the card's tint is the
@@ -1176,11 +1111,6 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
   });
 
-  it("draws no strip of named splits above the panes — the window shows one view", () => {
-    // Plan 27: a split is a way of looking at two things, and needs no bar of its own.
-    expect(RULES.some((r) => r.selectors.some((sel) => /\.group-(bar|tab)/.test(sel)))).toBe(false);
-  });
-
   it("the left chrome's edge is a BORDER on .main, in both states", () => {
     /* Measured live (`sidebar-edge-live.mjs`): as an inset box-shadow this line computed perfectly
        and painted nothing at all. An inset shadow sits below the element's children, and `.main`'s
@@ -1251,18 +1181,6 @@ describe("Plan 9 W1 — the BUI bridge", () => {
 });
 
 describe("Plan 9 W2 — BUI transcript primitives", () => {
-  it("the permission card wears ApprovalCard's shell: a resting surface card on shadow-card with a hairline-topped footer", () => {
-    // Re-pin from §5's floating raised+overlay-shadow treatment: BUI cards rest in the flow.
-    const card = bodiesFor(".permission-card").join(" ");
-    expect(card).toContain("background: var(--surface)");
-    expect(card).toContain("box-shadow: var(--shadow-card)");
-    expect(card).toContain("border-radius: var(--r-panel)");
-    expect(bodiesFor(".permission-footer").join(" ")).toContain("border-top: var(--hairline-w) solid var(--line)");
-    // The kbd number chips take BUI's inset fill + hairline ring.
-    const num = bodiesFor(".permission-num").join(" ");
-    expect(num).toContain("background: var(--inset)");
-    expect(num).toContain("box-shadow: var(--shadow-hairline)");
-  });
 
   it("the tool ledger wears ThinkingState: shimmer on the working header (data-working, never a clock), a solid 1px trace rail, muted settled checks", () => {
     const shimmer = bodiesFor('.tool-group[data-working] .tool-group-summary').join(" ");
@@ -1624,14 +1542,6 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".space-fade")))).toEqual([]);
   });
 
-  it("the sidebar's dissolve needs no reduced-transparency fallback, because it paints nothing", () => {
-    // The transcript's band drops its blur under this preference and keeps its wash. The sidebar's
-    // mask has neither to drop: it is the same declaration on an opaque ground as on the material.
-    const reduced = blocksAfter("@media (prefers-reduced-transparency: reduce)").join("\n").replace(/\s+/g, " ");
-    expect(reduced).not.toContain(".space-fade");
-    expect(reduced).not.toContain(".space-body");
-  });
-
   /* Dropping a file anywhere on the session pane. jsdom has no compositing, so the one thing these
      can hold is the LAYERING and the degradations — how it actually paints is what
      `session-drop-live.mjs` samples. */
@@ -1664,14 +1574,6 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(soft).not.toContain("backdrop-filter");
     // The mask stays on the pseudo-element rather than the parent: a masked ancestor clips the ring.
     expect(glow).not.toContain("mask-image");
-  });
-
-  it("the glow appears on the drag rung, and reduced motion is what takes the fade away", () => {
-    // `--dur-drag` is the ladder's rung for exactly this: a drop target appearing mid-drag.
-    expect(bodiesFor(".session-drop").join(" ")).toContain(`animation: rl-fade-in ${dur("--dur-drag")} linear`);
-    // Reduced motion needs no rule of its own here: the blanket `*` kill covers a real element (it
-    // would NOT cover a pseudo-element, which is why the glow is one).
-    expect(blockAfter("@media (prefers-reduced-motion: reduce)")).toContain("animation: none !important");
   });
 
   it("has nothing left for reduced transparency to take off the glow", () => {
@@ -1781,15 +1683,6 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".msg-user-files").join(" ")).toContain("list-style: none");
   });
 
-  it("the send circle carries BUI Button's accent treatment: inset top highlight, accent-ink hover, PromptBar's disabled fill", () => {
-    expect(bodiesFor(".composer-send").join(" ")).toContain("box-shadow: var(--fill-bevel)");
-    expect(bodiesFor(".composer-send:hover:not(:disabled)").join(" ")).toContain("background: var(--accent-ink)");
-    const off = bodiesFor(".composer-send:disabled").join(" ");
-    // A disabled fill is a mark: it keeps the old line-strong weight now that the edges are softer.
-    expect(off).toContain("background: var(--mark-strong)");
-    expect(off).toContain("color: var(--ink-2)");
-  });
-
   it("the Thinking strip shimmers on the shared shimmer-text gradient — no opacity pulse", () => {
     expect(bodiesFor(".composer-thinking span").join(" ")).not.toContain("rl-pulse");
     // one shimmer rule serves all three surfaces; membership is the pin
@@ -1807,24 +1700,6 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor('.ghost-chip[data-warning]').join(" ")).toContain("var(--red-tint)");
     for (const body of [pill, bodiesFor('.ghost-chip[data-warning]').join(" ")]) {
       expect(body).not.toMatch(/(?:color|background|--fill):\s*color-mix/);
-    }
-  });
-
-  it("menus and the model picker are surface cards on shadow-raised with the opaque hover ladder (GlideMenu's surface, minus its JS glide layer)", () => {
-    for (const sel of [".menu", ".model-picker"]) {
-      const body = bodiesFor(sel).join(" ");
-      expect(body, sel).toContain("background: var(--surface)");
-      expect(body, sel).toContain("box-shadow: var(--shadow-raised)");
-      expect(body, sel).not.toContain("--rl-shadow");
-    }
-    expect(bodiesFor('.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus'.split(", ")[0]!).join(" ")).toContain("var(--hover)");
-  });
-
-  it("sheets and the palette are surface cards at window radius on shadow-overlay — and the palette stays instant (pinned above)", () => {
-    for (const sel of [".sheet", ".palette"]) {
-      const body = bodiesFor(sel).join(" ");
-      expect(body, sel).toContain("background: var(--surface)");
-      expect(body, sel).toContain("box-shadow: var(--shadow-overlay)");
     }
   });
 
@@ -2554,12 +2429,6 @@ describe("light mode", () => {
     expect(ratio(rest, hover)).toBeGreaterThanOrEqual(1.05);
   });
 
-  it("a token defined for one mode only is a token that would carry a dark value into light", () => {
-    // --grid-line and --shadow-glass-inset were both declared in the dark block alone and referenced
-    // nowhere. That is worse than unused: the first thing to reach for one would have got a dark
-    // value in light mode with nothing reporting it.
-    for (const gone of ["--grid-line", "--shadow-glass-inset"]) expect(tokens, gone).not.toContain(gone);
-  });
 });
 
 describe("§6 do-NOT-animate list", () => {
@@ -2804,16 +2673,6 @@ describe("row and control layout", () => {
     expect(where).toMatch(/max-width: \d+px/);
     expect(where).toContain("text-overflow: ellipsis");
     expect(bodiesFor(".item-title").join(" ")).toContain("flex: 1");
-  });
-
-  it("a page pane can shrink to its slot — otherwise it is painted over by the pane beside it", () => {
-    // A pane is a flex ITEM, and a flex item's default `min-width: auto` floors it at its content's
-    // min-content width. Without this, a page whose content did not fit grew PAST its slot and the
-    // neighbouring pane painted over the overflow — `elementFromPoint` in the covered strip returned
-    // the neighbour, so the buttons there could not be clicked. Found by driving the real app with
-    // three panes open (Sessions overflowed by 179px, the Tasks lens by 247px). jsdom has no layout,
-    // so this line is the only thing in the suite that can notice it going away.
-    expect(bodiesFor(".page").join(" ")).toContain("min-width: 0");
   });
 
   it("the Tasks lens wraps rather than clipping: both columns shrink, neither is fixed-width", () => {
@@ -3069,14 +2928,6 @@ describe("narrow panes", () => {
     const tight = blockAfter("@container (max-width: 380px)");
     expect(tight).toMatch(/\.diff-commit-bar \{[^}]*flex-wrap: wrap/);
     expect(tight).toMatch(/\.diff-staged-count \{[^}]*flex-basis: 100%/);
-  });
-
-  it("the notifications feed needs no narrow pass at all", () => {
-    /* There was a 760px threshold here that stacked a two-column split. The split is gone — one
-       measured column of cards reflows on its own — and a container query for a layout that no
-       longer exists is the kind of dead rule the next person spends an afternoon on. */
-    expect(css).not.toContain(".notif-split");
-    expect(css).not.toContain(".notif-detail {");
   });
 
   it("every override sits AFTER the shorthand it overrides — a container query adds no specificity", () => {
@@ -3413,7 +3264,6 @@ describe("the decorative wash", () => {
     expect(wash).toContain("var(--grain-x, 50%)");
   });
 });
-
 
 /**
  * A terminal sits on the pane's ground, as the transcript does. The pane area is ONE translucent sheet

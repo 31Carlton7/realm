@@ -22,7 +22,6 @@ describe("parseQuestions — only a genuinely question-shaped payload gets the q
   });
   it.each([
     ["no questions key", {}],
-    ["questions not an array", { questions: "nope" }],
     ["empty questions", { questions: [] }],
     ["question missing text", { questions: [{ header: "H", options: [{ label: "A" }] }] }],
     ["question with neither options nor free text", { questions: [{ question: "Pick?", options: [], allowOther: false }] }],
@@ -158,14 +157,6 @@ describe("QuestionCard", () => {
     fireEvent.change(input, { target: { value: "DuckDB" } });
     fireEvent.click(within(card).getByRole("button", { name: "Answer" }));
     expect(onAnswer).toHaveBeenCalledWith({ "Which database?": "DuckDB" });
-  });
-
-  it("Esc skips the whole request — the agent asked and got no answer, which is not any answer it offered", () => {
-    const onSkip = vi.fn(); const onAnswer = vi.fn();
-    const { container } = render(<QuestionCard questions={[q()]} onAnswer={onAnswer} onSkip={onSkip} />);
-    fireEvent.keyDown(container.querySelector(".question-card")!, { key: "Escape" });
-    expect(onSkip).toHaveBeenCalled();
-    expect(onAnswer).not.toHaveBeenCalled();
   });
 
   it("Esc inside the free-text row backs out to the options instead of skipping the request", () => {

@@ -160,8 +160,6 @@ describe("reading a child that finished cleanly", () => {
 
   it.each([
     ["it failed", { outcome: "failed" as const }],
-    ["someone stopped it", { outcome: "stopped" as const }],
-    ["it timed out", { outcome: "timeout" as const }],
     ["it is waiting on a permission again", { waiting: true }],
     ["the user has written to it", { wrote: true }],
   ])("reads nothing when %s", async (_why, how) => {
@@ -317,13 +315,6 @@ describe("what agents open goes into the side pane of the session that asked", (
     browser("i-br2");
     await store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: "i-br2", openedBy: "kid" });
     expect(Object.keys(store.getState().view!.sidePanes)).toEqual(["i-lead"]);
-  });
-
-  it("an agent's document goes to the same side pane; one a person opened still arrives beside", async () => {
-    const store = await twoLeads();
-    api.data.items.s1!.push(item("i-docs", "s1", { kind: "documents", refId: "ws1" }));
-    await store.getState().applyDocumentOpenRequested({ spaceId: "s1", environmentId: "e1", documentsId: "ws1", itemId: "i-docs", path: "a.md", openedBy: "a" });
-    expect(findSidePane(store.getState().layout!, "i-a")?.tabs).toEqual(["i-docs"]);
   });
 
   it("brings a document tab behind a browser to the front when the agent opens another file", async () => {

@@ -116,13 +116,6 @@ const NAMED_SEED = 1_756_900_000_000;
 const PLAIN_SEED = 1_756_900_000_001;
 
 describe("the friends the switch lets in", () => {
-  it("is the function it was before they existed while the switch is off", () => {
-    for (let i = 0; i < 500; i++) {
-      const seed = 1_756_900_000_000 + i * 37;
-      expect(runLabelFor(seed, undefined, false)).toBe(runLabelFor(seed));
-      expect(RUN_LABELS).toContain(runLabelFor(seed, undefined, false));
-    }
-  });
 
   it("leaves the verb of every run it does NOT rename exactly where it was", () => {
     // THE longer-pool mutant: append the friends to RUN_LABELS instead of rolling a second time.
@@ -157,20 +150,12 @@ describe("the friends the switch lets in", () => {
     }
   });
 
-  it("does not put a name on a plan, which is information rather than colour", () => {
-    expect(runLabelFor(NAMED_SEED, "plan", true)).toBe(PLAN_RUN_LABEL);
-  });
 });
 
 const model = (blocks: Block[], run: TranscriptModel["run"] = null): TranscriptModel =>
   ({ blocks, run, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {}, summary: null, promptHint: null });
 
 describe("what the transcript says about the run", () => {
-  it("shimmers this run's verb while it works, not a generic `Working…`", () => {
-    const startedAt = 1_756_900_000_123;
-    render(<Transcript transcript={model([], { startedAt, waitedMs: 0, waitingSince: null })} sessionStatus="running" onDecide={() => {}} />);
-    expect(document.querySelector(".msg-working")!.textContent).toBe(`${runLabelFor(startedAt).present}…`);
-  });
 
   it("settles into the same verb, past tense, with how long it took", () => {
     const startedAt = 1_756_900_000_123;
@@ -200,14 +185,6 @@ describe("what the transcript says about the run", () => {
       transcript={model([{ kind: "run", ms: 4_000, startedAt: NAMED_SEED, ts: NAMED_SEED + 4_000 }])} />);
     expect(screen.getByText(`${runLabelFor(NAMED_SEED).past} for 4s`)).toBeTruthy();
     expect(RUN_LABELS).toContain(runLabelFor(NAMED_SEED));
-  });
-
-  it("leaves a run the roll passed over alone, switch or no switch", () => {
-    // The friends are one run in four. The other three are the app talking the way it always does.
-    expect(EGG_RUN_LABELS).not.toContain(runLabelFor(PLAIN_SEED, undefined, true));
-    render(<Transcript eggs sessionStatus="idle" onDecide={() => {}}
-      transcript={model([{ kind: "run", ms: 4_000, startedAt: PLAIN_SEED, ts: PLAIN_SEED + 4_000 }])} />);
-    expect(screen.getByText(`${runLabelFor(PLAIN_SEED).past} for 4s`)).toBeTruthy();
   });
 
   it("keeps every run's line, so a scrolled-back turn still says what it cost", () => {

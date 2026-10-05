@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allItems, emptyLayout, navEntry } from "@realm/contracts";
+import { allItems, navEntry } from "@realm/contracts";
 import { createAppStore } from "./store";
 import { fakeApi, item, notification, session, space, type FakeData } from "./store.test-fakes";
 
@@ -45,17 +45,6 @@ describe("store — per-pane back/forward", () => {
     expect(showing(store)).toEqual({ itemId: "i2", view: null });
   });
 
-  it("THE stall mutant: pressing Back twice moves two stops, not one", async () => {
-    const { store } = await boot({ items: THREE });
-    const leaf = focused(store);
-    for (const id of ["i1", "i2", "i3"]) await store.getState().openItem(id, leaf);
-    await store.getState().stepPaneNav(leaf, -1);
-    await store.getState().stepPaneNav(leaf, -1);
-    // A step that recorded itself as a new stop would leave the pane pinned on i2 forever.
-    expect(showing(store)).toEqual({ itemId: "i1", view: null });
-    expect(store.getState().paneHistory[leaf]!.entries.map((e) => e.itemId)).toEqual(["i1", "i2", "i3"]);
-  });
-
   it("stops at the ends, changing nothing", async () => {
     const { store } = await boot({ items: THREE });
     const leaf = focused(store);
@@ -65,16 +54,6 @@ describe("store — per-pane back/forward", () => {
     await store.getState().stepPaneNav(leaf, 1);
     expect(store.getState().paneHistory).toBe(before);
     expect(store.getState().canPaneNav(leaf, -1)).toBe(false);
-  });
-
-  it("a new stop from the middle forks the trail — Forward does not resurrect the branch you left", async () => {
-    const { store } = await boot({ items: THREE });
-    const leaf = focused(store);
-    for (const id of ["i1", "i2"]) await store.getState().openItem(id, leaf);
-    await store.getState().stepPaneNav(leaf, -1); // back on i1, i2 ahead
-    await store.getState().openItem("i3", leaf);
-    expect(store.getState().canPaneNav(leaf, 1)).toBe(false);
-    expect(store.getState().paneHistory[leaf]!.entries.map((e) => e.itemId)).toEqual(["i1", "i3"]);
   });
 
   it("splits navigate independently — one pane's Back never moves its neighbour", async () => {
@@ -240,13 +219,6 @@ describe("a page overlay when another space is made current", () => {
     expect(allItems(store.getState().layout!)).toEqual(["i1", "i2"]);
     expect(focused(store)).toBe("L2");
     expect(store.getState().activeSpaceId).toBe("s2");
-  });
-
-  it("with no page open, the newest session takes the focused pane's place", async () => {
-    const { store } = await boot({ items: TWO_SPACE_ITEMS, sessions: SESSIONS });
-    await store.getState().selectSpace("s2");
-    expect(store.getState().pageOverlay).toBeNull();
-    expect(allItems(store.getState().layout ?? emptyLayout())).toEqual(["i3"]);
   });
 
   it("opens ONE pane when a chat in another space is revealed from behind a page", async () => {

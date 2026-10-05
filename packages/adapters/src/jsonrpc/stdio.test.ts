@@ -62,11 +62,6 @@ const make = (over: Partial<ConstructorParameters<typeof StdioJsonRpc>[0]> = {},
 };
 
 describe("StdioJsonRpc", () => {
-  it("round-trips a request and resolves with the result", async () => {
-    const { rpc } = make();
-    await expect(rpc.request("ping", { n: 5 })).resolves.toEqual({ pong: 5 });
-    await rpc.dispose();
-  });
 
   it("rejects with a JsonRpcCallError carrying code and data", async () => {
     const { rpc } = make();

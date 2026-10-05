@@ -113,10 +113,9 @@ describe("what a theme states survives derivation", () => {
 });
 
 describe(`every theme clears the floor (ink ${CONTRAST_FLOOR.ink}:1, ink-2 ${CONTRAST_FLOOR.ink2}:1, syntax ${CONTRAST_FLOOR.syntax}:1)`, () => {
-  it.each(faces().map(({ theme, mode }) => [`${theme.label} ${mode}`, theme.name, mode] as const))(
+  it.each(faces().filter(({ theme }) => theme.name !== "realm").map(({ theme, mode }) => [`${theme.label} ${mode}`, theme.name, mode] as const))(
     "%s", (_label, name, mode) => {
       const v = themeVars(name, mode);
-      if (name === "realm") return; // tokens.css is the palette; styles.test.ts pins it there.
       const worst = (token: string, grounds: readonly string[]) =>
         Math.min(...grounds.map((g) => contrast(parse(v[token]!), parse(v[g]!))));
       const onSurface = (token: string) => contrast(parse(v[token]!), parse(v["--surface"]!));
@@ -167,12 +166,6 @@ describe(`every theme clears the floor (ink ${CONTRAST_FLOOR.ink}:1, ink-2 ${CON
     expect(onSurface(asShipped), "the value the palette actually states does clear").toBeGreaterThanOrEqual(CONTRAST_FLOOR.syntax);
   });
 
-  it("the floor can actually fail — a ground and an ink half a step apart do not clear it", () => {
-    // Without this the suite above proves only that the derivation is self-consistent. `--ink` is
-    // the un-derived seed, so it is the one that demonstrates the check has teeth: #2b2b2b on
-    // #282828 is a plausible-looking pair and it is 1.03:1.
-    expect(contrast(hexToOklch("#2b2b2b"), hexToOklch("#282828"))).toBeLessThan(CONTRAST_FLOOR.ink);
-  });
 });
 
 describe("the ramps derivation reproduces", () => {

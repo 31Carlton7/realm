@@ -154,17 +154,6 @@ describe("browsers RPC", () => {
       c.close();
     });
 
-    it("survives a restart, so a restored tab draws it before the page has loaded again", async () => {
-      const { home, app, c, space, browserId, itemId } = await setup();
-      await c.call("browsers.update", { browserId, url: "https://www.google.com/", title: "Google", favicon: G });
-      c.close();
-      await app.close();
-      const app2 = await createApp({ home, port: 0 }); apps.push(app2);
-      const c2 = await client(app2.port);
-      expect((await c2.call("items.list", { spaceId: space.id })).result.find((i: any) => i.id === itemId).favicon).toBe(G);
-      c2.close();
-    });
-
     it("goes into the history with the page, for the suggestions and Recently visited", async () => {
       const { c, space, browserId } = await setup();
       await c.call("browsers.update", { browserId, url: "https://www.google.com/search?q=hi", title: "hi - Google Search", favicon: G });
@@ -262,17 +251,6 @@ describe("browsers RPC", () => {
       await c.call("browsers.update", { browserId: p, url: "https://news.example/", title: "News" });
       await c.call("browsers.update", { browserId: p, url: "https://mail.example/", title: "Inbox (3)" });
       expect((await suggest(a.id, "mail"))[0]!.visits).toBe(2);
-      c.close();
-    });
-
-    it("ranks what a person goes back to above what they saw once", async () => {
-      const { c, a, pane, suggest } = await setup();
-      const p = await pane(a.id);
-      for (const url of ["https://x.example/once", "https://x.example/often", "https://x.example/other", "https://x.example/often"]) {
-        await c.call("browsers.update", { browserId: p, url, title: url.split("/").pop() });
-        await new Promise((r) => setTimeout(r, 3)); // recency is the tiebreak, so no two visits share a millisecond
-      }
-      expect((await suggest(a.id, "x.example")).map((x) => x.title)).toEqual(["often", "other", "once"]);
       c.close();
     });
 

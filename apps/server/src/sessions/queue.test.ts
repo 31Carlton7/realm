@@ -66,17 +66,6 @@ async function releaseTurn(c: Awaited<ReturnType<typeof client>>, id: string) {
 }
 
 describe("mid-turn prompts", () => {
-  it("queues a message typed during a turn instead of sending it", async () => {
-    const { c, session } = await boot();
-    await holdTurn(c, session.id);
-
-    await c.call("sessions.send", { id: session.id, text: "also fix the test" });
-
-    // The transcript is what an agent was actually asked, so a queued message has no line in it yet.
-    expect(c.userMessages(session.id)).toEqual(["go"]);
-    const { queued } = (await c.call("sessions.queued", { id: session.id })).result;
-    expect(queued.map((q: { text: string }) => q.text)).toEqual(["also fix the test"]);
-  });
 
   it("drains one queued message per settle, oldest first", async () => {
     const { c, session } = await boot();

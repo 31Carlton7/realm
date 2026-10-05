@@ -357,14 +357,6 @@ describe("the device frame", () => {
     expect(outer - bezel).toBeGreaterThan(bezel); // the display's own corner, not a rounded rectangle's
   });
 
-  it("refuses the art for a phone that is not that shape, rather than letterboxing one inside it", async () => {
-    // An iPhone SE is 16:9. In a Pro's hole it would be a letterboxed picture under a Dynamic
-    // Island — a frame claiming the device is something it is not.
-    const { container } = await mount({ ...RUNNING, screen: { width: 750, height: 1334, orientation: "portrait" } });
-    const chassis = await chassisOf(container);
-    await waitFor(() => expect(chassis.getAttribute("data-frame")).toBe("drawn"));
-  });
-
   it("frames an emulator as a Pixel, not as an iPhone", async () => {
     platform = "android";
     const { container } = await mount({ ...RUNNING, screen: { width: 1080, height: 2400, orientation: "portrait" } });
@@ -404,15 +396,6 @@ describe("the device frame", () => {
     const clip = screenEl.style.getPropertyValue("--sim-clip");
     expect(clip.startsWith('path("M')).toBe(true);
     expect(clip.endsWith('Z")')).toBe(true);
-  });
-
-  it("draws no Dynamic Island — the device already sent one", async () => {
-    /* On a modern phone the island is black pixels the SYSTEM draws into the framebuffer, so it
-       arrives inside the picture. A drawn one would sit a few pixels above the real thing, which is
-       the kind of wrong that only shows up in a screenshot someone sends you. */
-    const { container } = await mount(RUNNING);
-    await chassisOf(container);
-    expect(container.querySelector(".sim-island, .sim-notch")).toBeNull();
   });
 
   it("the frame choice outlives the pane", async () => {

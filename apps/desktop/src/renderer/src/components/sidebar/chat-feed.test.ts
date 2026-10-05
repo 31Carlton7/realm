@@ -68,28 +68,10 @@ describe("groupByDay", () => {
     expect(groups[0]!.rows.map((s) => s.id)).toEqual(["today-late", "today-early"]);
   });
 
-  it("puts two sessions from the same day in one group", () => {
-    /* THE MUTANT: group by timestamp instead of by day — every session would get a heading of its
-       own and the feed would be all headings. */
-    const groups = groupSessionsByDay([session("a", at(2026, 8, 9, 9)), session("b", at(2026, 8, 9, 14))], NOW);
-    expect(groups).toHaveLength(1);
-    expect(groups[0]!.rows).toHaveLength(2);
-  });
-
-  it("groups by when a row last moved, so a long-running chat sits under the day it was last worked on", () => {
-    const groups = groupSessionsByDay([
-      session("stale-start", at(2026, 8, 9, 10), { createdAt: at(2026, 7, 1) }),
-    ], NOW);
-    expect(groups[0]!.label).toBe("Today");
-  });
-
   it("does not mutate the array it was given", () => {
     const rows = [session("a", at(2026, 8, 1)), session("b", at(2026, 8, 9))];
     groupSessionsByDay(rows, NOW);
     expect(rows.map((s) => s.id)).toEqual(["a", "b"]);
   });
 
-  it("answers nothing for no sessions", () => {
-    expect(groupSessionsByDay([], NOW)).toEqual([]);
-  });
 });

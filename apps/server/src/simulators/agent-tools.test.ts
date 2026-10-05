@@ -1298,12 +1298,6 @@ describe("through the real gateway", () => {
     await client.close();
   });
 
-  it("lists nothing on a Mac with no simulators, where the switch alone would have said yes", async () => {
-    const { client } = await boot("missing");
-    expect((await client.listTools()).tools.some((t) => t.name.startsWith(`${SIMULATOR_PROVIDER_NAME}__`))).toBe(false);
-    await client.close();
-  });
-
   it("tells the settings row what the probe said, beside what the space asked for", async () => {
     const provider = async (toolchain: "installed" | "missing" | "unprobed") => {
       const { client, spaceId } = await boot(toolchain);

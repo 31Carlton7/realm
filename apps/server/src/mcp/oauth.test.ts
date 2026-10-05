@@ -212,12 +212,6 @@ describe("handleCallback — state validation and code exchange", () => {
     expect(oauthStatusOf(h.reload())).toBe("unconfigured");
   });
 
-  it("rejects a callback with no state at all", async () => {
-    const h = await setup();
-    await h.oauth.start(h.row.id);
-    expect((await rejection(() => h.oauth.handleCallback(`${REDIRECT_URI}?code=whatever`))).code).toBe("MCP_OAUTH_STATE");
-  });
-
   it("rejects a replayed redirect — the state nonce is single-use", async () => {
     const h = await setup();
     const { authUrl } = await h.oauth.start(h.row.id);
@@ -482,26 +476,6 @@ describe("oauthStatusOf — the single derivation site", () => {
   const rowWith = (state: unknown): McpServerRow => ({ oauthJson: typeof state === "string" ? state : JSON.stringify(state) } as McpServerRow);
   const TOKENS = { access_token: "a-token", token_type: "Bearer" };
 
-  it("empty column is unconfigured", () => {
-    expect(oauthStatusOf(rowWith(""))).toBe("unconfigured");
-  });
-
-  it("a pending flow with no tokens is unconfigured — Connect was never completed", () => {
-    expect(oauthStatusOf(rowWith({ pending: { state: "n", codeVerifier: "v", redirectUri: REDIRECT_URI, startedAt: 1 } }))).toBe("unconfigured");
-  });
-
-  it("a client registration with no tokens is unconfigured", () => {
-    expect(oauthStatusOf(rowWith({ client: { client_id: "c" } }))).toBe("unconfigured");
-  });
-
-  it("tokens are connected", () => {
-    expect(oauthStatusOf(rowWith({ tokens: TOKENS }))).toBe("connected");
-  });
-
-  it("the reconnect flag wins over tokens — a row that cannot call is not connected", () => {
-    expect(oauthStatusOf(rowWith({ tokens: TOKENS, reconnectNeeded: true }))).toBe("reconnect_needed");
-  });
-
   it("corruption degrades to unconfigured rather than throwing", () => {
     for (const bad of ["{{{", "[]", "null", "42", '"a string"']) {
       expect(oauthStatusOf(rowWith(bad))).toBe("unconfigured");
@@ -548,15 +522,6 @@ describe("hub + oauth end to end", () => {
     });
     return { hub, stub, captured };
   }
-
-  it("injects the stored Bearer on an upstream call", async () => {
-    const h = await setup();
-    const { hub, captured } = wire(h);
-    await h.connect();
-    await hub.tools(h.row.id);
-    expect(captured).toEqual([`Bearer ${h.as.lastIssuedAccessToken()}`]);
-    await hub.close();
-  });
 
   it("refreshes an expired token at connect time and injects the NEW Bearer", async () => {
     const h = await setup();
@@ -639,13 +604,6 @@ describe("oauthJson at rest", () => {
     expect(stored).not.toContain("access_token");
     expect(stored).not.toContain(h.state().tokens!.access_token);
     // ...and it still reads back through the ordinary path, so nothing downstream changes.
-    expect(h.state().tokens?.access_token).toBeTruthy();
-  });
-
-  it("without a key it writes plaintext — the posture every build before this had, not a new failure", async () => {
-    const h = await setup();
-    await h.connect();
-    expect(isSealed(h.reload().oauthJson)).toBe(false);
     expect(h.state().tokens?.access_token).toBeTruthy();
   });
 

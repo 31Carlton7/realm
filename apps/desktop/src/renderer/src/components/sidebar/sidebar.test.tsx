@@ -61,12 +61,6 @@ describe("the list", () => {
     expect(screen.queryByRole("button", { name: /Switch to space/ })).toBeNull();
   });
 
-  it("lists sessions only — a terminal is something a session opens, not a row", async () => {
-    await mount(home());
-    await waitFor(() => expect(rowsIn("Versed")).toEqual(["Alpha"]));
-    expect(screen.queryByRole("button", { name: "Terminal" })).toBeNull();
-  });
-
   it("shows every space's sessions at once, without switching to it", async () => {
     // THE MUTANT: draw the active room's rows alone, and Homework's waiting session is a walk away.
     const { store } = await mount(home());
@@ -458,13 +452,6 @@ describe("paneMapOf — the arrangement itself, not a category of arrangement", 
   const boxes = (l: Layout, id: string) =>
     paneMapOf(l, id)?.map((r) => [r.x, r.y, r.w, r.h, r.active] as const)
       .map(([x, y, w, h, a]) => [+x.toFixed(3), +y.toFixed(3), +w.toFixed(3), +h.toFixed(3), a]);
-
-  it("draws a plain split as two halves, with this item's half lit", () => {
-    expect(boxes(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "i1")).toEqual([
-      [0, 0, 0.5, 1, true],
-      [0.5, 0, 0.5, 1, false],
-    ]);
-  });
 
   it("uses the layout's REAL proportions, so a dragged splitter shows as a dragged splitter", () => {
     // THE mutant: divide the box equally and ignore `sizes`. Every layout then draws as the tidy

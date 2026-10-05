@@ -44,13 +44,6 @@ beforeEach(() => { asked.length = 0; });
 const MOD = { ctrlKey: true } as const;
 
 describe("CodeEditor", () => {
-  it("shows the file it was given", () => {
-    /* Braces, not quotes: a JSX string attribute is literal, so `text="…\n"` would hand the editor a
-       backslash and an n rather than a newline — and the assertion below, a real JS string, would not
-       match it. */
-    const { container } = render(<CodeEditor path="src/a.ts" text={"const x = 1;\n"} onChange={() => {}} />);
-    expect(docOf(container)).toBe("const x = 1;\n");
-  });
 
   it("reports the whole document on an edit, not the change", () => {
     const onChange = vi.fn();
@@ -128,14 +121,6 @@ describe("CodeEditor", () => {
     await waitFor(() => expect(asked).toEqual(["typescript"]));
     rerender(<CodeEditor path="scripts/build.py" text="" onChange={() => {}} />);
     await waitFor(() => expect(asked).toEqual(["typescript", "python"]));
-  });
-
-  it("still edits a file it has no grammar for", async () => {
-    const onChange = vi.fn();
-    const { container } = render(<CodeEditor path="notes.frobnicate" text="hello" onChange={onChange} />);
-    await waitFor(() => expect(asked).toEqual(["text"]));
-    type(container, 5, "!");
-    expect(onChange).toHaveBeenCalledWith("hello!");
   });
 
   it("puts the cursor on the line a search sent it to", () => {

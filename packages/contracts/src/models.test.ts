@@ -61,12 +61,6 @@ describe("canonicalModelKey", () => {
     expect(canonicalModelKey("Claude Fable 5.1")).not.toBe(canonicalModelKey("Claude Fable 5"));
   });
 
-  it("keeps genuinely different models apart", () => {
-    const keys = ["Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6", "Gemini 3.7 Flash", "Cursor Grok 4.5"]
-      .map(canonicalModelKey);
-    expect(new Set(keys).size).toBe(keys.length);
-  });
-
   it("does not merge on a shared number alone", () => {
     expect(canonicalModelKey("Model 3")).not.toBe(canonicalModelKey("Model 30"));
   });

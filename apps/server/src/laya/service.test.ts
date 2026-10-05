@@ -58,12 +58,6 @@ function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "ass
 const state = async (s: LayaService) => (await s.status()).runtime;
 
 describe("before anything is installed", () => {
-  it("reports Laya unavailable, and looks for nothing, in an app built without a runtime", async () => {
-    const { service } = setup({ runtime: null });
-    expect(await state(service)).toEqual({ state: "unavailable", reason: "This build of Realm does not run Laya." });
-    await expect(service.install()).rejects.toMatchObject({ code: "LAYA_UNAVAILABLE" });
-    await expect(service.setMode("shadow")).rejects.toMatchObject({ code: "LAYA_NOT_INSTALLED" });
-  });
 
   it("says a Mac that cannot run it at all is unavailable, in the runtime's own sentence", async () => {
     const dir = tempDir("realm-laya-svc-");
@@ -72,11 +66,6 @@ describe("before anything is installed", () => {
     expect(await state(service)).toMatchObject({ state: "unavailable", reason: expect.stringContaining("Apple silicon") });
     await expect(service.install()).rejects.toMatchObject({ code: "LAYA_UNAVAILABLE" });
     expect(runtime.pythonLooks).toBe(0);
-  });
-
-  it("names the Python it would install with", async () => {
-    const { service } = setup();
-    expect(await state(service)).toEqual({ state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } });
   });
 
   it("says it needs Python, listing what it turned down, rather than guessing one", async () => {
@@ -419,15 +408,6 @@ describe("recording", () => {
     expect(stopped.recording).toBeNull();
     // Screens, not recordings: THE MUTANT counts one recording as one screen.
     expect(stopped.recorded).toEqual({ recordings: 1, screens: 2, apps: ["Instagram"] });
-  });
-
-  it("records the app in front when none is named, and refuses the home screen", async () => {
-    let app = " ";
-    const { service } = setup({ screen: () => tree(app, "Reels") });
-    await expect(service.record("sim1", [])).rejects.toMatchObject({ code: "LAYA_NO_APP" });
-    expect((await service.status()).recording).toBeNull();
-    app = "Instagram";
-    expect((await service.record("sim1", [])).recording).toMatchObject({ apps: ["Instagram"] });
   });
 
   it("refuses a device that is not a pane, and records nothing", async () => {

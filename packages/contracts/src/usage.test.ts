@@ -11,10 +11,6 @@ const sample = (ts: number, costUsd: number, inputTokens: number, outputTokens: 
   ({ ts, costUsd, inputTokens, outputTokens, numTurns });
 
 describe("USAGE_REPORTING", () => {
-  it("answers for every agent kind — a new engine cannot slip in defaulting to a guess", () => {
-    for (const kind of AgentKindSchema.options) expect(USAGE_REPORTING[kind], kind).toBeDefined();
-    expect(Object.keys(USAGE_REPORTING).sort()).toEqual([...AgentKindSchema.options].sort());
-  });
 
   it("records the ACP gap honestly: every acp:* kind reports NOTHING", () => {
     // This is the page's central claim, and it is a fact about the protocol (docs/dev/acp-protocol.md

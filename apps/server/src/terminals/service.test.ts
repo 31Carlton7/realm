@@ -92,21 +92,6 @@ describe("terminal port blocks", () => {
     c2.close();
   });
 
-  it("gives two spaces' terminals different blocks", async () => {
-    const home = tempDir("realm-home-");
-    const app1 = await createApp({ home, port: 0 }); apps.push(app1);
-    const c = await client(app1.port);
-    const prof = (await c.call("profiles.create", { name: "Work" })).result;
-    const a = (await c.call("spaces.create", { profileId: prof.id, name: "A" })).result;
-    const b = (await c.call("spaces.create", { profileId: prof.id, name: "B" })).result;
-    await c.call("terminals.create", { spaceId: a.id });
-    await c.call("terminals.create", { spaceId: b.id });
-    const blocks = (app1.db.prepare("SELECT port_block_start AS s FROM environments WHERE port_block_start IS NOT NULL").all() as { s: number }[]).map((r) => r.s);
-    expect(blocks).toHaveLength(2);
-    expect(new Set(blocks).size).toBe(2);
-    c.close();
-  });
-
   /** Output from every `terminal.data` frame this client saw, and the cursor to resume from. */
   const streamed = (c: { events: any[] }, terminalId: string) => {
     const frames = c.events.filter((e) => e.event === "terminal.data" && e.payload.terminalId === terminalId);

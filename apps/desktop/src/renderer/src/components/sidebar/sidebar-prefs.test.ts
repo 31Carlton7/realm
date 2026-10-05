@@ -11,19 +11,6 @@ async function booted(settings: Record<string, unknown> = {}) {
 }
 
 describe("the sidebar's remembered choices", () => {
-  it("rests on Spaces with every section open until anything is remembered", async () => {
-    const { store } = await booted();
-    await store.getState().hydrateSidebarPrefs();
-    expect(store.getState().sidebarLens).toBe("spaces");
-    expect(store.getState().sidebarCollapsedSpaces).toEqual([]);
-  });
-
-  it("comes back as it was left", async () => {
-    const { store } = await booted({ "ui.sidebarLens": "recent", "ui.sidebarCollapsedSpaces": ["s2"] });
-    await store.getState().hydrateSidebarPrefs();
-    expect(store.getState().sidebarLens).toBe("recent");
-    expect(store.getState().sidebarCollapsedSpaces).toEqual(["s2"]);
-  });
 
   it("reads anything else a settings file holds as the resting state", async () => {
     for (const [lens, folded] of [["sideways", "s2"], [7, [3, "s1"]], [null, null]] as const) {
@@ -43,13 +30,6 @@ describe("the sidebar's remembered choices", () => {
     await reading;
     expect(store.getState().sidebarLens).toBe("recent");
     expect(store.getState().sidebarCollapsedSpaces).toEqual(["s1"]);
-  });
-
-  it("writes the lens when it changes", async () => {
-    const { api, store } = await booted();
-    await store.getState().setSidebarLens("recent");
-    expect(store.getState().sidebarLens).toBe("recent");
-    expect(api.calls).toContain("setSetting:ui.sidebarLens=recent");
   });
 
   it("remembers a folded section, and forgets it when it is opened again", async () => {

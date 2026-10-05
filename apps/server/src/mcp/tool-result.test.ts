@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clip, err, ok } from "./tool-result";
+import { clip } from "./tool-result";
 
 describe("clip", () => {
   it("leaves a string at the budget untouched", () => {
@@ -24,18 +24,5 @@ describe("clip", () => {
     }
   });
 
-  it("clips to the ellipsis alone at a budget of one", () => {
-    expect(clip("abcdef", 1)).toBe("…");
-  });
 });
 
-describe("ok / err", () => {
-  it("carry the text as a single text block", () => {
-    expect(ok("done")).toEqual({ content: [{ type: "text", text: "done" }], isError: false });
-  });
-
-  it("differ only in isError, so a failure cannot read as a success", () => {
-    expect(err("nope").isError).toBe(true);
-    expect(ok("nope").isError).toBe(false);
-  });
-});

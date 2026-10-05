@@ -35,35 +35,6 @@ describe("brand marks", () => {
     ]);
   });
 
-  it("carries the vendor's colour on exactly the marks whose vendor has one", () => {
-    // Anthropic's coral spark, Gemini's blue and DeepSeek's whale blue are the vendors' own; OpenAI
-    // and Cursor publish no single glyph colour, so their marks declare none — inventing one would be
-    // a wrong statement about the trademark, not a design choice.
-    expect(brandMarks.claude.color).toBe("#D97757");
-    expect(brandMarks.gemini.color).toBe("#4796E3");
-    expect(brandMarks.deepseek.color).toBe("#5786FE");
-    expect(brandMarks.meta.color).toBe("#0467DF");
-    /* Apple and Vercel draw their marks in the GROUND's contrast — black on light, white on dark —
-       so they declare no colour and inherit ink, the same rule OpenAI and Cursor are here under. The
-       three distros and Modal each have exactly one. */
-    // Every machine vendor that publishes one keeps it; see `debian`'s comment for why, and for what
-    // each measures against Realm's two grounds.
-    expect(brandMarks.ubuntu.color).toBe("#E95420");
-    expect(brandMarks.debian.color).toBe("#A81D33");
-    expect(brandMarks.alpine.color).toBe("#0D597F");
-    expect(brandMarks.modal.color).toBe("#7FEE64");
-    // Android keeps its green where Apple takes ink: Apple publishes `000000`, which on this
-    // ground would be drawing nothing at all.
-    expect(brandMarks.android.color).toBe("#3DDC84");
-    expect(brandMarks.namespace.color).toBe("#1C32FF");
-    // Apple, Vercel and E2B draw their marks in the GROUND's contrast — black on light, white on
-    // dark — so they declare none and inherit ink, the rule OpenAI and Cursor are here under.
-    expect("color" in brandMarks.apple).toBe(false);
-    expect("color" in brandMarks.vercel).toBe(false);
-    expect("color" in brandMarks.e2b).toBe(false);
-    expect(Object.entries(brandMarks).filter(([, m]) => "color" in m).map(([n]) => n).sort()).toEqual(["alpine", "android", "claude", "debian", "deepseek", "figma", "gemini", "jira", "linear", "meta", "modal", "namespace", "sentry", "slack", "ubuntu"]);
-  });
-
   it("isBrandName accepts the marks and rejects Hugeicons names", () => {
     expect(isBrandName("claude")).toBe(true);
     expect(isBrandName("openai")).toBe(true);

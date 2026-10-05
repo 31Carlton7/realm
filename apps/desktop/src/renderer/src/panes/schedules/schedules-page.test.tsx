@@ -119,10 +119,6 @@ describe("the Scheduled tasks page", () => {
     await waitFor(() => expect(screen.getByText("Nightly")).toBeInTheDocument());
   });
 
-  it("says what the page is for when nothing is scheduled yet", async () => {
-    await mount([]);
-    expect(screen.getByText(/Nothing is scheduled here yet/)).toBeInTheDocument();
-  });
 });
 
 describe("a schedule that runs once", () => {

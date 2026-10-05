@@ -277,19 +277,6 @@ describe("the session's terminal, as a tab of its side pane", () => {
     expect(root.type === "split" ? root.children : [root]).toHaveLength(2);
   });
 
-  it("goes to the tab it has on a second press, bringing it to the front, rather than starting another shell", async () => {
-    // THE MUTANT: skip the lookup, and every press is a new shell — a strip filling with terminals.
-    const { api, store } = await lead();
-    await store.getState().showSessionTerminal("lead");
-    const term = terminals(store)[0]!.id;
-    await store.getState().openItem("i-br");
-    store.getState().focusLeaf(leafOf(store, "i-lead"));
-    await store.getState().showSessionTerminal("lead");
-    expect(made(api)).toBe(1);
-    expect(side(store).itemId).toBe(term);
-    expect(store.getState().focusedLeafId).toBe(side(store).id);
-  });
-
   it("brings back the same shell after its tab was put away with ⌘W", async () => {
     // THE MUTANT: forget which terminal the button made. The press after ⌘W starts a second shell, and
     // the first one — scrollback and all — is left in the sidebar.

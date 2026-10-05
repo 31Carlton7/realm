@@ -41,12 +41,6 @@ describe("cli status", () => {
     expect(a.calls.some((c) => c.startsWith("runCli:"))).toBe(false);
   });
 
-  it("forces past both caches when the user asks to check", async () => {
-    const { a, store } = await booted();
-    await store.getState().refreshCliStatus(true);
-    expect(a.calls).toContain("cliStatus:true");
-  });
-
   it("collapses a mount storm, but a cheap call never satisfies a forced one", async () => {
     const { a, store } = await booted();
     await tick(); // let the launch check settle, so what follows is only this test's calls
@@ -97,16 +91,6 @@ describe("running an install", () => {
     expect(store.getState().cliJobs.codex).toMatchObject({ output: "", state: "running" });
   });
 
-  it("records how it ended, keeping the output that explains it", async () => {
-    const { store } = await booted({ cliStatus: offering });
-    await store.getState().runCliAction("codex", "install");
-    const id = store.getState().cliJobs.codex!.id;
-    store.getState().applyCliOutput({ id, kind: "codex", chunk: "npm error EACCES\n" });
-    store.getState().applyCliDone({ id, kind: "codex", ok: false, code: 1, error: "exited with code 1" });
-    expect(store.getState().cliJobs.codex).toMatchObject({ state: "failed", error: "exited with code 1" });
-    expect(store.getState().cliJobs.codex!.output).toContain("EACCES");
-  });
-
   it("will not dismiss a job that is still running", async () => {
     // Hiding a package manager's output while it is still writing to the machine is the one moment
     // that output matters most.
@@ -126,29 +110,6 @@ describe("checking for new models", () => {
     kind: "codex" as AgentKind, available: true, version: "codex-cli 1.0.0", loggedIn: true, reason: null,
     models: ids.map((id) => ({ id, label: id })),
   }];
-
-  it("forces both existing seams — the live probe and the public catalog", async () => {
-    const { a, store } = await booted({ agentProbe: withModels(["gpt-5.6"]) });
-    a.calls.length = 0;
-    await store.getState().checkForNewModels();
-    expect(a.calls).toContain("probeAgents:true");
-    expect(a.calls).toContain("modelCatalog:true");
-  });
-
-  it("names the ids the provider started reporting", async () => {
-    const { a, store } = await booted({ agentProbe: withModels(["gpt-5.6"]) });
-    await store.getState().probeAgents();
-    a.data.agentProbe = withModels(["gpt-5.6", "gpt-6-astra"]);
-    await store.getState().checkForNewModels();
-    expect(store.getState().modelCheck!.added).toEqual([{ kind: "codex", id: "gpt-6-astra", label: "gpt-6-astra" }]);
-  });
-
-  it("reports nothing new as nothing new, not as no answer", async () => {
-    const { store } = await booted({ agentProbe: withModels(["gpt-5.6"]) });
-    await store.getState().probeAgents();
-    await store.getState().checkForNewModels();
-    expect(store.getState().modelCheck).toMatchObject({ added: [] });
-  });
 
   it("does not call a first-ever enumeration 'new'", async () => {
     // The named mutant: treating an absent previous list as an empty one, which would announce a

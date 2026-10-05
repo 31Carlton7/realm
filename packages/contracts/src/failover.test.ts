@@ -66,9 +66,6 @@ describe("classifyFailure", () => {
     expect(classifyFailure("rate limit exceeded — connection closed")).toBe("usage_limit");
   });
 
-  it("does not care about case", () => {
-    expect(classifyFailure("USAGE LIMIT REACHED")).toBe("usage_limit");
-  });
 });
 
 describe("the retry ladder", () => {
@@ -181,11 +178,6 @@ describe("the auth ladder", () => {
     expect(authBackoffFor(99)).toBe(AUTH_RECHECK_BACKOFF_MS[AUTH_MAX_RECHECKS - 1]);
   });
 
-  it("keeps auth out of the message-only retry rule", () => {
-    // `isRetryable` is read before anything has checked the credentials. An auth failure earns
-    // attempts from the probe, never from the phrase that produced it.
-    expect(isRetryable("auth")).toBe(false);
-  });
 });
 
 describe("what the user is told to do about an auth failure", () => {

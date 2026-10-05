@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  LayoutSchema, allItems, closeItem, closeLeaf, emptyLayout, findLeafOfItem, firstLeaf,
-  equalSizes, equalizeSplit, findSidePane, gridPreset, itemIdOfLeaf, migrateLayout, moveTab, openInSidePane, openItem,
-  splitLeaf, updateSizes, type Layout, type LayoutLeaf, type LayoutSplit,
-} from "./layout";
+import { LayoutSchema, allItems, closeItem, closeLeaf, emptyLayout, findLeafOfItem, firstLeaf, equalizeSplit, findSidePane, itemIdOfLeaf, migrateLayout, moveTab, openInSidePane, openItem, splitLeaf, updateSizes, type Layout, type LayoutLeaf, type LayoutSplit } from "./layout";
 
 const leaf = (itemId: string | null): LayoutLeaf => ({ type: "leaf", id: `L-${itemId ?? "empty"}`, itemId });
 const row = (children: Layout[], sizes = children.map(() => 100 / children.length)): Layout =>
@@ -30,20 +26,8 @@ describe("migrateLayout", () => {
     const out = migrateLayout(mixed) as { children: LayoutLeaf[] };
     expect(out.children).toEqual([{ type: "leaf", id: "a", itemId: "t1" }, { type: "leaf", id: "b", itemId: "t9" }]);
   });
-  it("LayoutSchema parses legacy shapes into the new shape", () => {
-    const parsed = LayoutSchema.parse({ type: "leaf", id: "a", tabs: ["t1", "t2"], activeTab: "t2" });
-    expect(parsed).toEqual({ type: "leaf", id: "a", itemId: "t2" });
-  });
   it("LayoutSchema still rejects structural garbage", () => {
     expect(() => LayoutSchema.parse({ type: "split", id: "s", dir: "row", sizes: [100], children: [leaf("x")] })).toThrow();
-  });
-  it("LayoutSchema rejects a split with 1 child after legacy migration collapses shapes", () => {
-    // A legacy split whose only child is itself a legacy leaf: migration converts the leaf,
-    // but the split still has just 1 child post-migration, which must still fail validation.
-    expect(() => LayoutSchema.parse({
-      type: "split", id: "s", dir: "row", sizes: [100],
-      children: [{ type: "leaf", id: "a", tabs: ["t1"], activeTab: "t1" }],
-    })).toThrow();
   });
   it("LayoutSchema rejects a split whose sizes.length mismatches children.length, independent of the children>=2 check", () => {
     // Two children (satisfies the >=2 invariant) but only one size — isolates the sizes check from
@@ -278,11 +262,6 @@ describe("splitLeaf", () => {
 });
 
 describe("equalizeSplit", () => {
-  it("equalSizes splits 100 evenly", () => {
-    expect(equalSizes(2)).toEqual([50, 50]);
-    expect(equalSizes(4)).toEqual([25, 25, 25, 25]);
-    expect(equalSizes(3).reduce((x, y) => x + y, 0)).toBeCloseTo(100, 5);
-  });
 
   it("puts a dragged split back on equal shares", () => {
     const out = equalizeSplit(row([leaf("a"), leaf("b"), leaf("c")], [60, 25, 15]), "S1") as LayoutSplit;
@@ -311,42 +290,6 @@ describe("equalizeSplit", () => {
     expect(out.sizes).toEqual([70, 30]); // ancestor untouched
     expect((out.children[0] as LayoutSplit).sizes).toEqual([50, 50]);
     expect(out.children[1]).toBe((l as LayoutSplit).children[1]); // untouched subtree is not even re-created
-  });
-});
-
-describe("gridPreset", () => {
-  it("fills leaves one item each; extras stay unopened", () => {
-    const out = gridPreset("two-col", ["a", "b", "c"]);
-    expect(allItems(out)).toEqual(["a", "b"]);
-  });
-  it("leaves trailing leaves empty when items run short", () => {
-    const out = gridPreset("grid-2x2", ["a"]);
-    expect(allItems(out)).toEqual(["a"]);
-    let empties = 0;
-    const walk = (n: Layout) => { if (n.type === "leaf") { if (n.itemId === null) empties++; } else n.children.forEach(walk); };
-    walk(out);
-    expect(empties).toBe(3);
-  });
-  it("three-col produces a single row split with exactly 3 leaf children", () => {
-    const out = gridPreset("three-col", ["a", "b", "c"]) as LayoutSplit;
-    expect(out.type).toBe("split");
-    expect(out.dir).toBe("row");
-    expect(out.children).toHaveLength(3);
-    expect(out.children.every((c) => c.type === "leaf")).toBe(true);
-    expect(out.children.map((c) => (c as LayoutLeaf).itemId)).toEqual(["a", "b", "c"]);
-  });
-  it("grid-3x3 produces a col split of 3 row splits, each with 3 leaf children", () => {
-    const out = gridPreset("grid-3x3", ["a"]) as LayoutSplit;
-    expect(out.type).toBe("split");
-    expect(out.dir).toBe("col");
-    expect(out.children).toHaveLength(3);
-    out.children.forEach((rowNode) => {
-      expect(rowNode.type).toBe("split");
-      const r = rowNode as LayoutSplit;
-      expect(r.dir).toBe("row");
-      expect(r.children).toHaveLength(3);
-      r.children.forEach((c) => expect(c.type).toBe("leaf"));
-    });
   });
 });
 

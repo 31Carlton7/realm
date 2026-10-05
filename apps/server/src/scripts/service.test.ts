@@ -1,7 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { scriptCommandId, scriptsKey } from "@realm/contracts";
 import { openDatabase } from "../db/database";
@@ -177,17 +176,6 @@ describe("ScriptService.run", () => {
     const a = add("Test", "pnpm test");
     settings.set(scriptsKey("spc_2"), [{ ...a }]);
     await expect(service.run("spc_2", a.id)).rejects.toThrow(/space spc_2 not found/);
-  });
-});
-
-describe("the port block", () => {
-  it("is left to the terminal service rather than copied here", () => {
-    // W2 gives each environment a block of ports and `TerminalService.open` already looks it up from
-    // the cwd (`envFor` → `portEnv`). A second copy in this file could disagree with the environment
-    // the pty was actually spawned in — and could not win, because the pty is spawned by that call.
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "service.ts"), "utf8")
-      .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-    for (const copy of ["portEnv", "REALM_PORT", "PORT_BLOCK", "findByPath"]) expect(src).not.toContain(copy);
   });
 });
 

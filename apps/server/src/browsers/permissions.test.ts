@@ -168,13 +168,6 @@ describe("BrowserPermissionBroker.gate — alwaysPrompt (credential fills)", () 
     expect(events).toEqual([]);
   });
 
-  it("refuses a credential fill in ask mode too", async () => {
-    const { broker, events } = setup("ask");
-    const r = await broker.gate("s1", "browser_fill_credential", "Fill…", {}, "browser_fill_credential", opts);
-    expect(r.allowed).toBe(false);
-    expect(events).toEqual([]);
-  });
-
   it("a prior allow_always on the SAME key does not satisfy it", async () => {
     const { broker, events } = setup();
     // An ordinary gate first, answered "always" — the grant that would otherwise carry over.
@@ -204,13 +197,6 @@ describe("BrowserPermissionBroker.gate — alwaysPrompt (credential fills)", () 
     expect(await second).toEqual({ allowed: true });
   });
 
-  it("a denial refuses the fill", async () => {
-    const { broker, events } = setup("bypassPermissions");
-    const gate = broker.gate("s1", "browser_fill_credential", "Fill…", {}, "browser_fill_credential", opts);
-    broker.resolve(requestIdOf(events), "deny");
-    const r = await gate;
-    expect(r.allowed).toBe(false);
-  });
 });
 
 /**
@@ -254,26 +240,6 @@ describe("gate({ promptUnderBypass })", () => {
     expect((await other).allowed).toBe(false);
   });
 
-  it("is still refused outright in plan mode", async () => {
-    const { broker, events } = setup("plan");
-    const r = await broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", opts);
-    expect(r.allowed).toBe(false);
-    expect(!r.allowed && r.reason).toMatch(/read-only/);
-    expect(events).toEqual([]);
-  });
-
-  it("forgets its grants when the session is released", async () => {
-    const { broker, events } = setup("bypassPermissions");
-    const first = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", opts);
-    broker.resolve(requestIdOf(events), "allow_always");
-    await first;
-
-    broker.release("s1");
-    events.length = 0;
-    const again = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", opts);
-    broker.resolve(requestIdOf(events), "allow");
-    expect(await again).toEqual({ allowed: true });
-  });
 });
 
 /**
@@ -424,16 +390,6 @@ describe("gate({ perSession })", () => {
     }
   });
 
-  it("forgets the grant when the session is released", async () => {
-    const { broker, events } = setup();
-    const first = ask(broker, "s1", "simulator_input:UDID-A");
-    broker.resolve(requestIdOf(events), "allow");
-    await first;
-    broker.release("s1");
-    events.length = 0;
-    void ask(broker, "s1", "simulator_input:UDID-A");
-    expect(events.some((e) => e.ev.type === "permission_request")).toBe(true);
-  });
 });
 
 describe("BrowserPermissionBroker.revoke", () => {

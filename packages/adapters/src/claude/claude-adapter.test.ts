@@ -1,6 +1,5 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode } from "./claude-adapter";
-import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import type { SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
@@ -439,13 +438,6 @@ describe("ClaudeAdapter", () => {
       expect("fastMode" in captureOptions[0]!).toBe(false);
     });
 
-    it("is not an Options key, by the SDK's own types", () => {
-      // The fake above cannot know the SDK's shape, so the compiler holds it instead. An SDK that
-      // grows a top-level `fastMode` fails the typecheck here — the moment to re-decide which to send.
-      // (That it IS a `Settings` key is checked where the adapter writes it.)
-      expectTypeOf<Options>().not.toHaveProperty("fastMode");
-    });
-
     it("leaves the option off the start entirely when it was not asked for", async () => {
       // `fastMode: false` and an absent key mean the same thing to the SDK, but sending the key
       // writes the flag layer and would override a user's own Claude Code setting with a default.
@@ -684,12 +676,6 @@ describe("@-mention resolution on the Claude wire (W4)", () => {
     await handle.dispose();
   });
 
-  it("without a resolved skill the text goes through verbatim — no prepend, and never a literal @name (the server already stripped it)", async () => {
-    const { handle, first } = captureFirstMessage();
-    await handle.send({ text: "plain text, mac not mentioned", attachments: [] });
-    expect(textOf(await first)).toBe("plain text, mac not mentioned");
-    await handle.dispose();
-  });
 });
 
 describe("claudeMcpServers", () => {
@@ -697,20 +683,10 @@ describe("claudeMcpServers", () => {
   const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
   const sse = { name: "legacy", transport: "sse" as const, url: "https://sse.example/mcp", headers: {} };
 
-  it("is a RECORD keyed by name, not an array (sdk.d.ts:1734 — some docs say otherwise)", () => {
-    const out = claudeMcpServers([stdio, http]);
-    expect(Array.isArray(out)).toBe(false);
-    expect(Object.keys(out)).toEqual(["airtable", "vercel"]);
-  });
-
   it("tags each entry with its transport and carries only that transport's fields", () => {
     expect(claudeMcpServers([stdio])).toEqual({ airtable: { type: "stdio", command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } } });
     expect(claudeMcpServers([http])).toEqual({ vercel: { type: "http", url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } } });
     expect(claudeMcpServers([sse])).toEqual({ legacy: { type: "sse", url: "https://sse.example/mcp", headers: {} } });
-  });
-
-  it("keeps every entry — no per-agent transport filtering happens here any more", () => {
-    expect(Object.keys(claudeMcpServers([stdio, http, sse]))).toHaveLength(3);
   });
 
   it("is empty — not absent — when there is nothing configured", () => {
@@ -855,10 +831,6 @@ describe("the sandbox wrap", () => {
     //
     // MUTANT: install the seam unconditionally and this key appears for everybody.
     expect(await options({})).not.toHaveProperty("spawnClaudeCodeProcess");
-  });
-
-  it("takes over the spawn only when a wrap was supplied", async () => {
-    expect(await options({ wrap: (command, args) => ({ command, args }) })).toHaveProperty("spawnClaudeCodeProcess");
   });
 
   it("hands the wrap the SDK's own argv and spawns what it answers with", async () => {

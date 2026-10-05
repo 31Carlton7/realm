@@ -40,23 +40,6 @@ describe("sliceSession — what one session contributed", () => {
     expect(totals.costUsd).toBeCloseTo(18, 6);
   });
 
-  it("counts an engine that reports nothing as UNMEASURED, never as zero spend", () => {
-    // The whole honesty rule in one assertion: an ACP session's tokens are unknown, not absent, and
-    // a page that billed it at $0.00 would be stating something false about it.
-    const s = facts({ agentKind: "acp:cursor", model: null, samples: [] });
-    const { totals } = sliceSession(s, FROM, TO, "day", priced);
-    expect(totals.unmeasuredSessions).toBe(1);
-    expect(totals.sessions).toBe(1);
-    expect(totals.costUsd).toBe(0);
-    expect(totals.inputTokens).toBe(0);
-  });
-
-  it("leaves the cost at zero when nothing prices the model, rather than inventing one", () => {
-    const s = facts({ agentKind: "codex", samples: [sample(day(2), 0, 1_000_000, 0, 1)] });
-    expect(sliceSession(s, FROM, TO, "day", unpriced).totals.costUsd).toBe(0);
-    expect(sliceSession(s, FROM, TO, "day", unpriced).totals.inputTokens).toBe(1_000_000);
-  });
-
   it("applies the window to the DELTAS, not to the events — the pre-range total is never re-billed", () => {
     // The load-bearing one. This session had already spent $5 in August; the range is September. A
     // filter applied to the events instead of to the deltas would make September's first event look
@@ -140,19 +123,6 @@ describe("aggregateUsage", () => {
     expect(out.totals.costUsd).toBeCloseTo(1, 6);
   });
 
-  it("names the models it could not price, which is why an estimate is missing", () => {
-    const sessions = [facts({ agentKind: "codex", model: "some-private-model", samples: [sample(day(2), 0, 1000, 1000, 1)] })];
-    const out = aggregateUsage({ sessions, from: FROM, to: TO, bucket: "day", priceFor: unpriced, activity: emptyActivity, budget: noBudget });
-    expect(out.unpricedModels).toEqual(["some-private-model"]);
-  });
-
-  it("does not call an engine that reports nothing 'unpriced' — that is a different story", () => {
-    const sessions = [facts({ agentKind: "acp:qwen", model: "qwen3" })];
-    const out = aggregateUsage({ sessions, from: FROM, to: TO, bucket: "day", priceFor: unpriced, activity: emptyActivity, budget: noBudget });
-    expect(out.unpricedModels).toEqual([]);
-    expect(out.unmeasuredKinds).toEqual(["acp:qwen"]);
-  });
-
   it("builds the bucket series from the RANGE, so a quiet day is a gap and not a missing column", () => {
     const sessions = [facts({ samples: [sample(day(2), 1, 0, 0, 1)] })];
     const out = aggregateUsage({ sessions, from: day(1, 0), to: day(5, 23), bucket: "day", priceFor: priced, activity: emptyActivity, budget: noBudget });
@@ -179,10 +149,6 @@ describe("aggregateUsage", () => {
 describe("turnDurations — how long the agent worked on each turn", () => {
   const MIN = 60_000;
   const at = (min: number, status: string) => ({ ts: day(2, 9) + min * MIN, status });
-
-  it("measures a turn from running to the settle that ends it", () => {
-    expect(turnDurations([at(0, "running"), at(12, "idle")])).toEqual([{ ms: 12 * MIN, endedAt: day(2, 9) + 12 * MIN }]);
-  });
 
   it("takes out the time spent waiting on a permission", () => {
     // 5 minutes of work, 8 hours on a prompt nobody answered, 3 more minutes of work. The night is

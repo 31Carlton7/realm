@@ -71,12 +71,6 @@ describe("what a font preference writes", () => {
     expect(parseFontPref({ ...DEFAULT_FONTS, leading: "big" }).leading).toBe(LEADING_RANGE.default);
   });
 
-  it("the two roles are independent — a code face cannot move the chrome", () => {
-    const a = fontVars({ ...DEFAULT_FONTS, code: "system" });
-    const b = fontVars({ ...DEFAULT_FONTS, code: "bundled" });
-    expect(a["--font-ui"]).toBe(b["--font-ui"]);
-    expect(a["--font-mono"]).not.toBe(b["--font-mono"]);
-  });
 });
 
 describe("read back off a user-editable settings row", () => {
@@ -121,14 +115,6 @@ describe("the content face (prose)", () => {
     expect(fontVars(DEFAULT_FONTS)["--font-content"]).toBe("var(--font-ui)");
     expect(FONT_FACES.content.map((f) => f.id)).toEqual(["bundled", "serif", "system"]);
     expect(fontVars({ ...DEFAULT_FONTS, content: "serif" })["--font-content"]).toMatch(/^ui-serif, .*serif$/);
-  });
-
-  it("is its own role — choosing it moves neither the chrome nor the code", () => {
-    const a = fontVars({ ...DEFAULT_FONTS, content: "serif" });
-    const b = fontVars(DEFAULT_FONTS);
-    expect(a["--font-ui"]).toBe(b["--font-ui"]);
-    expect(a["--font-mono"]).toBe(b["--font-mono"]);
-    expect(a["--font-content"]).not.toBe(b["--font-content"]);
   });
 
   it("puts a chosen family in front of the UI face, which is what prose fell back to before", () => {

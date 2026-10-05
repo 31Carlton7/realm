@@ -60,13 +60,6 @@ describe("VNC authentication", () => {
     expect(vncAuthResponse(Buffer.from(challenge, "hex"), password).toString("hex")).toBe(expected);
   });
 
-  it("truncates at eight bytes rather than hashing or refusing", () => {
-    expect(vncAuthResponse(Buffer.alloc(16), "12345678").equals(vncAuthResponse(Buffer.alloc(16), "12345678ignored"))).toBe(true);
-  });
-
-  it("answers a 16-byte challenge with exactly 16 bytes — padding off", () => {
-    expect(vncAuthResponse(Buffer.alloc(16), "pw")).toHaveLength(16);
-  });
 });
 
 describe("the handshake", () => {

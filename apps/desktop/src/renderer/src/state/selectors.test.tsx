@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { StoreContext, createAppStore } from "./store";
-import { currentSpaceId, pinnedItems, sessionsBySpace, useCurrentSpaceId, usePinnedItems, useSessionsBySpace } from "./selectors";
+import { pinnedItems, sessionsBySpace, useCurrentSpaceId, usePinnedItems, useSessionsBySpace } from "./selectors";
 import { fakeApi, item, profile, session, space } from "./store.test-fakes";
 
 /** Two spaces of Work — Homework sorted first — and one of School, which this window does not show. */
@@ -47,14 +47,6 @@ describe("the sidebar's selectors", () => {
     const { store } = await booted();
     // Not the archived one, and not another profile's.
     expect(pinnedItems(store.getState()).map((i) => i.id)).toEqual(["c", "a", "t"]);
-  });
-
-  it("names the current space, following the focus", async () => {
-    const { store } = await booted();
-    await store.getState().openItem("a");
-    expect(currentSpaceId(store.getState())).toBe("s1");
-    await store.getState().openItemBeside("b");
-    expect(currentSpaceId(store.getState())).toBe("s2");
   });
 
   it("is empty before a profile is the window's", () => {

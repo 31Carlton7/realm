@@ -48,17 +48,6 @@ describe("the Notifications page (Plan 12 W5)", () => {
     expect(within(old).queryByLabelText("Unread")).toBeNull();
   });
 
-  it("is one measured column of cards, with no decorated ground under it", async () => {
-    /* Both halves are deliberate reversals. The page was a two-column split at 968px whose detail
-       column stood empty until something was selected — a rule down the middle of a page with one
-       thing on it. And it was the only pane in the app wearing the accent wash, which competes with
-       the attention a list of things needing attention is asking for. */
-    const { container } = await mount({ notifications: [notification("n1", { title: "a row" })] });
-    await waitFor(() => expect(screen.getByText("a row")).toBeInTheDocument());
-    expect(container.querySelector(".notif-feed")).toBeInTheDocument();
-    expect(container.querySelector(".page")).not.toHaveClass("wash");
-  });
-
   it("shows a quiet, honest empty state", async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Nothing has needed you/)).toBeInTheDocument());

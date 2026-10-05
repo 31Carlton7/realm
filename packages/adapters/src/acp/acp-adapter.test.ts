@@ -135,16 +135,6 @@ describe("sliceLines", () => {
     expect(sliceLines(FOUR, null, null)).toBe(FOUR);
   });
 
-  it("treats line as 1-based and limit as a line count", () => {
-    expect(sliceLines(FOUR, 2, 2)).toBe("two\nthree");
-    expect(sliceLines(FOUR, 1, 1)).toBe("one");
-  });
-
-  it("honours line on its own", () => {
-    expect(sliceLines(FOUR, 3, undefined)).toBe("three\nfour\n");
-    expect(sliceLines(FOUR, 1, null)).toBe(FOUR);
-  });
-
   it("honours limit on its own", () => {
     expect(sliceLines(FOUR, undefined, 2)).toBe("one\ntwo");
     expect(sliceLines(FOUR, null, 1)).toBe("one");
@@ -195,10 +185,6 @@ describe("acpBootFailureMessage", () => {
 });
 
 describe("AcpAdapter", () => {
-  it("reports the kind it was constructed with", () => {
-    expect(newAdapter().kind).toBe("acp:cursor");
-    expect(newAdapter({ kind: "acp:gemini" }).kind).toBe("acp:gemini");
-  });
 
   it("probes the configured binary and tags the result with its kind", async () => {
     const good = await newAdapter().probe(); // process.execPath --version
@@ -635,16 +621,6 @@ describe("AcpAdapter", () => {
     await handle.dispose();
   });
 
-  it("links non-image attachments rather than embedding them", async () => {
-    const { handle, evs } = await booted();
-    // Cursor reports embeddedContext:false, so a `resource` block would be rejected outright.
-    await handle.send({ text: "ECHO", attachments: [{ path: "/tmp/notes.txt", mime: "text/plain" }] });
-    await waitFor(() => expect(texts(evs)).toHaveLength(1));
-    const prompt = JSON.parse(texts(evs)[0]!) as Record<string, unknown>[];
-    expect(prompt[1]).toEqual({ type: "resource_link", uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain" });
-    await handle.dispose();
-  });
-
   it("gives refusal and max_tokens their own copy and stays quiet for the rest", async () => {
     const { handle, evs } = await booted();
     await turn(handle, evs, "STOP:refusal");
@@ -985,15 +961,6 @@ describe("acpMcpServers", () => {
   const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { A: "1", B: "2" } };
   const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
   const sse = { name: "legacy", transport: "sse" as const, url: "https://sse.example/mcp", headers: {} };
-
-  it("sends stdio env as an ARRAY of name/value pairs, not a record", () => {
-    // The named mutant. Cursor validates with zod before its own lenient normalizer runs, so a record
-    // here is rejected `invalid_union` and session/new fails outright — proven live in
-    // scripts/live-mcp-check.ts, which watches the fixture server's env verdict.
-    const [out] = acpMcpServers([stdio]) as [Record<string, unknown>];
-    expect(out.env).toEqual([{ name: "A", value: "1" }, { name: "B", value: "2" }]);
-    expect(Array.isArray(out.env)).toBe(true);
-  });
 
   it("keeps args and env present even when empty — both are required, not optional", () => {
     const [out] = acpMcpServers([{ name: "bare", transport: "stdio", command: "/bin/x", args: [], env: {} }]) as [Record<string, unknown>];

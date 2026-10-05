@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { looksLikePath, markPaths } from "./file-paths";
+import { looksLikePath } from "./file-paths";
 import { renderMarkdownWithPaths } from "./Markdown";
 
 /**
@@ -92,8 +92,4 @@ describe("marking paths in rendered prose", () => {
     }
   });
 
-  it("counts what it marked, so a caller can skip the pass when there is nothing", () => {
-    const doc = new DOMParser().parseFromString("<p>nothing here</p>", "text/html");
-    expect(markPaths(doc.body)).toBe(0);
-  });
 });

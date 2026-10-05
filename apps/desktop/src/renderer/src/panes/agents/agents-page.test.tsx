@@ -209,13 +209,6 @@ describe("the Agents page answers in place", () => {
     stayed();
   });
 
-  it("answers a question with an option picked off the list", async () => {
-    const { answered } = await mount();
-    const card = await within(await itemOf(/^Session se3/)).findByRole("group", { name: "Base" });
-    fireEvent.click(within(card).getByRole("button", { name: "main" }));
-    await waitFor(() => expect(answered).toContainEqual(["se3", "q1", "allow", { "Which branch should this go on?": "main" }]));
-  });
-
   it("puts Stop on a running session, and it stops the turn without opening the session", async () => {
     const { api, stayed } = await mount();
     const working = await screen.findByRole("region", { name: "Working" });

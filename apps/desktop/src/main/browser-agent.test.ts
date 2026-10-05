@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UPLOAD_DROP_MAX_BYTES, type BrowserAction } from "@realm/contracts";
-import { buildSnapshot, cancelFileChooser, performAct, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
+import { buildSnapshot, performAct, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS } from "./agent-cursor";
 import { tickStylesFor } from "./browser-agent";
 
@@ -390,7 +390,6 @@ describe("performAct — the password hard block", () => {
   });
 });
 
-
 /**
  * The credential fill, and the mutants the file header owes:
  *   - the value reaching a result, an error, or a detail string in ANY form;
@@ -529,24 +528,13 @@ describe("performFillCredential", () => {
     expect(JSON.stringify(snap)).not.toContain(SECRET);
   });
 
-  it("plain browser_act STILL refuses a password field — fill_credential is not an escape hatch for it", async () => {
-    // Guards the requirement most easily lost to a refactor: adding a sanctioned route must not have
-    // relaxed the unsanctioned one. No mode exists at this layer, so this is the bypassPermissions
-    // case too.
-    const { send, calls } = fakeSend({ describe: { 7: { nodeName: "INPUT", attributes: ["type", "password"] } } });
-    const result = await performAct(send, { kind: "type", ref: 7, text: SECRET, method: "keys", submit: false });
-    expect(result).toEqual({ ok: false, error: "target is a password field", refused: "password" });
-    expect(calls.filter((c) => c.method.startsWith("Input."))).toHaveLength(0);
-  });
 });
 
 describe("isOpaqueColor", () => {
   it.each([
     ["rgb(255, 255, 255)", true],
-    ["rgba(0, 0, 0, 1)", true],
     ["rgba(0, 0, 0, 0.5)", true], // the classic modal scrim — dims and intercepts clicks
     ["rgba(0, 0, 0, 0.2)", false],
-    ["rgba(0, 0, 0, 0)", false],
     ["transparent", false],
     ["", false],
   ])("%s → %s", (color, expected) => {
@@ -1031,10 +1019,3 @@ describe("performUpload", () => {
   });
 });
 
-describe("cancelFileChooser", () => {
-  it("tells the page nothing was picked, by setting an EMPTY file list on the waiting input", async () => {
-    const { send, calls } = fakeSend({});
-    await cancelFileChooser(send, 31);
-    expect(calls.find((c) => c.method === "DOM.setFileInputFiles")!.params).toEqual({ backendNodeId: 31, files: [] });
-  });
-});

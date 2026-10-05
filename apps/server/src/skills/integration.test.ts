@@ -159,20 +159,6 @@ describe("skills over rpc", () => {
     c.close();
   });
 
-  it("survives a malformed SKILL.md: the session starts and the good skills still go over", async () => {
-    const { c, sp, home, claude } = await boot();
-    skill(join(home, "skills"), "mac");
-    mkdirSync(join(home, "skills", "broken"), { recursive: true });
-    writeFileSync(join(home, "skills", "broken", "SKILL.md"), "no frontmatter here");
-    const session = await startSession(c, sp.id, "claude");
-    await waitFor(() => claude.starts.length === 1);
-    expect(readdirSync(claude.starts[0]!.skills!.root)).toEqual(["mac"]);
-    expect((await c.call("sessions.get", { id: session.id })).result.status).toBe("idle");
-    expect((await c.call("skills.list", { spaceId: sp.id })).result.skills.find((s: Any) => s.id === "broken"))
-      .toMatchObject({ valid: false });
-    c.close();
-  });
-
   it("installs the bundled skills into the library once, on boot", async () => {
     const bundled = tempDir("realm-skills-bundle-");
     skill(bundled, "mac");

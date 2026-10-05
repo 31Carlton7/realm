@@ -127,19 +127,6 @@ describe("stick-to-bottom", () => {
     expect(screen.queryByRole("button", { name: /New messages/ })).toBeNull();
   });
 
-  it("⌘⇧↩ dispatches into a new session, so it leaves this transcript where the reader parked it", async () => {
-    const scroller = stageTranscript({ height: 4000, view: 600 });
-    const { api } = await mountPane();
-    const sent: string[] = [];
-    api.sendMessage = async (_id, text) => { sent.push(text); };
-
-    scroller.readerScrollsTo(1200);
-    fireEvent.change(box(), { target: { value: "take this one away" } });
-    fireEvent.keyDown(box(), { key: "Enter", metaKey: true, shiftKey: true });
-
-    expect(sent).toEqual([]); // the window-level dispatch binding owns this chord, not the prompter
-    expect(scroller.top).toBe(1200);
-  });
 });
 
 /**

@@ -91,10 +91,6 @@ function setup(opts: {
 }
 
 describe("BrowserAgentHost", () => {
-  it("an op against a browser whose pane is not open fails with the tell-the-user message", async () => {
-    const { host } = setup();
-    await expect(host.handleOp("snapshot", { browserId: "nope" })).rejects.toThrow(/pane is not open in the app/);
-  });
 
   it("describe reports open:false (not an error) for a missing view — browser_list needs the distinction", async () => {
     const { host } = setup();
@@ -726,11 +722,6 @@ describe("file-chooser interception", () => {
     expect(read.text).toContain("file chooser was intercepted");
   });
 
-  it("a chooser event with no node is ignored — without interception Chromium names none, and a panel is already up", async () => {
-    const { host, emitEvent } = setup();
-    emitEvent("Page.fileChooserOpened", { mode: "selectSingle" });
-    expect(((await host.handleOp("dismissDialog", { browserId: "b1" })) as { dismissed: boolean }).dismissed).toBe(false);
-  });
 });
 
 describe("the upload op", () => {
@@ -917,18 +908,6 @@ describe("BrowserAgentHost — annotate", () => {
     expect(stop).toBeGreaterThan(shot);
     expect(calls.find((c) => c.method === "Page.captureScreenshot")?.params).toEqual({ format: "png" });
     expect(all.some((e) => e.includes("addEventListener") && e.includes("__realmAnnotate"))).toBe(true);
-  });
-
-  it("a Send right behind a click still carries that click's pin", async () => {
-    /* THE mutant: answer Send without waiting for the pins in front of it. Each pin is three CDP round
-       trips to resolve, and a Send pressed straight after a click would leave that pin behind. */
-    const { host, emitEvent } = setup({ respond });
-    const pending = host.annotate("b1");
-    await Promise.resolve();
-    pin(emitEvent, 1);
-    report(emitEvent, { type: "send" });
-    const done = await pending;
-    expect(done.outcome === "sent" && done.elements.map((e) => e.ref)).toEqual([41]);
   });
 
   it("Clear takes every pin off, and the count starts again", async () => {

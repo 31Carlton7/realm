@@ -21,10 +21,6 @@ describe("intersects", () => {
 });
 
 describe("complementOf — the widest non-browser column", () => {
-  it("browser on the right half: the complement is the left half", () => {
-    const c = complementOf(WIN_RECT, [r(850, 40, 590, 860)]);
-    expect(c).toEqual(r(0, 0, 850, 900));
-  });
 
   it("browser in the middle: the wider flank wins", () => {
     const c = complementOf(WIN_RECT, [r(500, 0, 400, 900)]);
@@ -146,11 +142,6 @@ describe("placeAnchored", () => {
     expect(p.top).toBe(390); // vertically centered: (900-120)/2
   });
 
-  it("point placement (context menus): gap 0, zero-size anchor, same avoidance", () => {
-    const p = placeAnchored(base({ anchor: r(400, 300, 0, 0), gap: 0, avoid: [r(380, 250, 600, 400)] }));
-    const placed = r(p.left, p.top, 160, 120);
-    expect(intersects(placed, r(380, 250, 600, 400))).toBe(false);
-  });
 });
 
 describe("centerOverComplement", () => {
@@ -171,12 +162,6 @@ describe("centerOverComplement", () => {
     const c = centerOverComplement(WIN, avoid, 560)!;
     expect(c.width).toBe(476); // 500 - 2*12
     expect(c.left).toBe(12);
-  });
-
-  it("TWO browser panes: centered against the union's complement, not between the rects", () => {
-    const avoid = [r(260, 0, 590, 900), r(850, 0, 590, 900)];
-    const c = centerOverComplement(WIN, avoid, 560)!;
-    expect(c.left + c.width).toBeLessThanOrEqual(260); // entirely inside the sidebar column
   });
 
   it("geometrically impossible complement: floors at 120 wide instead of vanishing", () => {

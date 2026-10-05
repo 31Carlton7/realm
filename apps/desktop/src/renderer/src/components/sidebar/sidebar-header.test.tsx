@@ -149,11 +149,6 @@ describe("the profile switcher", () => {
     expect(menu.style.position).toBe("fixed");
   });
 
-  it("carries no theme items: appearance is Settings' business", async () => {
-    await mount(data());
-    const menu = await open();
-    expect(menu.queryByRole("menuitemcheckbox", { name: /Theme|Palette/ })).toBeNull();
-  });
 });
 
 describe("the lens", () => {

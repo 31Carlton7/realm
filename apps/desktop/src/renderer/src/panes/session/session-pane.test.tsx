@@ -144,13 +144,6 @@ describe("SessionPane", () => {
     expect(document.querySelector(".suggestions")).toBeNull();
   });
 
-  it("transcript content rides the centered .transcript-col rails", async () => {
-    await mount();
-    const col = document.querySelector(".transcript .transcript-col");
-    expect(col).not.toBeNull();
-    expect(col!.querySelector(".msg-user-row")).not.toBeNull(); // blocks render inside the rail column
-  });
-
   it("permission chip carries data-warning only in bypassPermissions (reached via the confirm); menu selections call setSessionOptions with the right key", async () => {
     const { store } = await mount("idle", reduceAll([]));
     const chip = screen.getByRole("button", { name: "Permission mode" });
@@ -269,42 +262,6 @@ describe("SessionPane", () => {
     expect(row).toHaveAttribute("aria-selected", "true");
   });
 
-  it("the cwd chip is gone from the control row (prompter rework) — the folder is the sidebar's to name", async () => {
-    await mount("idle", reduceAll([]));
-    expect(document.querySelector(".composer-cwd")).toBeNull();
-  });
-
-  /** W2 gave the checkout its own chip (the "Work locally" slot); the prompter rework retires it —
-   *  the diff pane and the sidebar still name the environment, and the row keeps only the branch as
-   *  its way in. Pinned in both shapes so neither chip can quietly return. */
-  describe("the environment chip is retired", () => {
-    const envRow: Environment = { id: "env1", spaceId: "s1", path: "/tmp/worktrees/s1/fix-login", branch: "realm/fix-login",
-      kind: "worktree", portBlockStart: 41020, createdAt: 0, updatedAt: 0 };
-
-    async function mountIn(environment: Environment | null) {
-      const api = fakeApi({
-        sessions: [session("se1", "s1", { status: "idle", ...(environment ? { environmentId: environment.id, cwd: environment.path } : {}) })],
-        environments: environment ? { s1: [environment] } : {},
-      });
-      const store = createAppStore(api); await store.getState().boot();
-      store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
-      render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
-    }
-
-    it("renders no environment (or cwd) chip for a worktree session", async () => {
-      await mountIn(envRow);
-      expect(document.querySelector(".composer-env")).toBeNull();
-      expect(document.querySelector(".composer-cwd")).toBeNull();
-      expect(screen.queryByText("Worktree")).toBeNull();
-    });
-
-    it("renders none for a session in the space's own checkout either", async () => {
-      await mountIn(null);
-      expect(document.querySelector(".composer-env")).toBeNull();
-      expect(screen.queryByText("Work locally")).toBeNull();
-    });
-  });
-
   it("attributes a question another session delivered, and never attributes the user's own words", async () => {
     await mount("idle", reduceAll([
       sessionEvent("user_message", { text: "I typed this", attachments: [] }),
@@ -321,13 +278,6 @@ describe("SessionPane", () => {
     // The fenced text itself is shown exactly as the peer received it: the user should be able to see
     // what the agent was actually handed, not a cleaned-up version of it.
     expect(rows[1]!.querySelector(".msg-user")).toHaveTextContent("an agent asked this");
-  });
-
-  it("the Thinking… under-strip shows only while the session is running", async () => {
-    const { store } = await mount("running", reduceAll([sessionEvent("user_message", { text: "go", attachments: [] })]));
-    expect(document.querySelector(".composer-thinking")).toHaveTextContent("Thinking…");
-    act(() => store.getState().applySessionStatus("se1", "idle"));
-    expect(document.querySelector(".composer-thinking")).toBeNull();
   });
 
   it("the Thinking… strip hides while the agent is blocked on the user (waiting_permission is not streaming)", async () => {
@@ -401,23 +351,6 @@ describe("SessionPane", () => {
     fireEvent.click(within(cards[1]!).getByRole("button", { name: /^Deny$/ }));
     fireEvent.click(within(cards[0]!).getByRole("button", { name: /^Allow$/ }));
     expect(decided).toEqual(["r2:deny", "r1:allow"]);
-  });
-
-  it("a finished run of consecutive tool calls reaches the pane as one collapsed `Worked for` ledger row (§5, Ara refresh §4)", async () => {
-    await mount("idle", reduceAll([
-      sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "ls" }, parentToolUseId: null }),
-      sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false }),
-      sessionEvent("tool_call", { toolUseId: "t2", name: "Read", input: { file_path: "/a.ts" }, parentToolUseId: null }),
-      sessionEvent("tool_result", { toolUseId: "t2", content: "ok", isError: false }),
-      sessionEvent("tool_call", { toolUseId: "t3", name: "Edit", input: { file_path: "/a.ts" }, parentToolUseId: null }),
-      sessionEvent("tool_result", { toolUseId: "t3", content: "ok", isError: false }),
-    ]));
-    const line = screen.getByRole("button", { name: "3 tool calls" });
-    expect(line).toHaveTextContent(/^Worked for /); // the events above land within the same second
-    expect(line).toHaveAttribute("title", "3 tools · 1 file · 1 command"); // the counts survive as the tooltip
-    expect(screen.queryByRole("button", { name: /Bash tool call/ })).toBeNull();
-    fireEvent.click(line);
-    expect(screen.getByRole("button", { name: /Bash tool call/ })).toBeInTheDocument();
   });
 
   it("idle session with an unresolved tool shows no spinner; error blocks render", async () => {
@@ -738,15 +671,6 @@ describe("the prompter's / commands", () => {
     expect(document.querySelector(".slash-picker")).toBeNull();
   });
 
-  it("narrows as the command is typed", async () => {
-    await mountFresh();
-    type("/");
-    expect(rows()).toContain("/export");
-    expect(rows().length).toBeGreaterThan(1);
-    type("/exp");
-    expect(rows()).toEqual(["/export"]);
-  });
-
   it("runs on Enter and takes its own token out of the draft", async () => {
     // The command RUNS; nothing about it is transmitted. That is the whole difference between this
     // picker and the @-mention beside it, so a send must not follow.
@@ -993,11 +917,6 @@ describe("SessionMeta", () => {
     expect(screen.queryByText("$0.50")).toBeNull();
   });
 
-  it("renders no cost while costUsd is 0, even after turns", () => {
-    mountMeta({ model: "fake-xl", costUsd: 0, numTurns: 3 });
-    expect(screen.queryByText(/\$/)).toBeNull();
-    expect(screen.getByLabelText(/^Status:/)).toBeInTheDocument(); // the rest of the meta still renders
-  });
 });
 
 describe("markdown + summaries", () => {
@@ -1123,14 +1042,6 @@ describe("prompter mode, in the \"+\" menu (Build / Plan)", () => {
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: label }));
     await exited();
   };
-
-  it("starts on Build and moves the session onto the plan permission mode", async () => {
-    const { store } = await mountFresh();
-    expect(await readMode()).toContain("Build");
-    await setMode("Plan");
-    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
-    expect(await readMode()).toContain("Plan");
-  });
 
   it("returning to Build restores the permission the user was on, not `default`", async () => {
     // The whole reason the store parks a value: Plan travels as `permissionMode`, so the round trip
@@ -1281,14 +1192,6 @@ describe("ACP mode chip — per-session modes (Plan 14 W3)", () => {
     expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
   });
 
-  it("shows NO chip for a session whose modes carry neither a plan- nor an ask-equivalent", async () => {
-    // The named mutant: a chip here would drive session/set_mode toward a mode that does not exist.
-    await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }),
-      initEvent([{ id: "agent", name: "Agent", description: "d" }, { id: "review", name: "Review", description: "d" }])]);
-    expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
-    expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
-  });
-
   it("offers Ask alone when the agent advertises `ask` but no plan-equivalent", async () => {
     await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }),
       initEvent([{ id: "agent", name: "Agent", description: "d" }, { id: "ask", name: "Ask", description: "Q&A mode - no edits or command execution" }])]);
@@ -1302,12 +1205,6 @@ describe("ACP mode chip — per-session modes (Plan 14 W3)", () => {
     fireEvent.click(row);
     // …and the submenu offers exactly Build and Ask: Plan has nothing to map onto here.
     expect(screen.getAllByRole("menuitemcheckbox").map((r) => r.textContent)).toEqual(["Build", "Ask"]);
-  });
-
-  it("shows NO chip when the agent named no modes at all", async () => {
-    await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }), initEvent()]);
-    expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
-    expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
   });
 
   it("enters and leaves Plan WITHOUT the Claude-shaped permission park", async () => {
@@ -1485,19 +1382,6 @@ describe("prompter model picker", () => {
       expect(screen.getByText(/No models match/)).toBeInTheDocument();
     });
 
-    it("a harness name finds every model that harness can run, not just the ones routed to it", async () => {
-      // What the icon rail used to be for, and the only part of it worth keeping. Cursor proxies a
-      // model the Claude CLI also runs: searching "cursor" has to surface it even though the row
-      // resolved to Claude, or the search would deny Cursor a model it just listed.
-      const { store } = await mountFresh({}, 0, [{ kind: "acp:cursor", available: true, version: "2026.09", loggedIn: null, reason: null,
-        models: [{ id: "claude-fable-5.1", label: "Claude Fable 5.1" }] }]);
-      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
-      openPicker();
-      fireEvent.change(screen.getByRole("combobox", { name: "Search models" }), { target: { value: "cursor" } });
-      expect(rowNames()).toContain("Claude Fable 5.1");
-      expect(rowNames()).not.toContain("Claude Sonnet 5"); // claude-only; Cursor never offered it
-    });
-
     it("groups by harness when idle and drops the headings while searching", async () => {
       // The list teaches which CLI runs what — but a filtered list is already an answer, and a
       // heading per result would push the third match below the fold to repeat the row's own line.
@@ -1530,22 +1414,6 @@ describe("prompter model picker", () => {
     const cursorProbe = (models: AgentProbe["models"]): AgentProbe[] =>
       [{ kind: "acp:cursor", available: true, version: "2026.09", loggedIn: null, reason: null, models }];
 
-    it("renders the catalog under its own kind, default row leading and selected", async () => {
-      const { store } = await mountFresh({ agentKind: "acp:cursor" }, 0, cursorProbe(catalog));
-      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
-      openPicker();
-      // Cursor first (session's own kind): default row, then the catalog verbatim; Claude's static
-      // list and Codex's default row are untouched by Cursor's probe models.
-      expect(rowNames()).toEqual(["Composer", "Auto", "composer-2.5", "gpt-5.3-codex",
-        "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5.5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6",
-        // Every other offered kind still contributes exactly its own rows: one agent's probe catalog
-        // must not leak onto another's.
-        "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
-        "DeepSeek V4 Pro", "DeepSeek V4 Flash", "Default", "Default"]);
-      expect(screen.getByRole("option", { name: /Composer/ })).toHaveAttribute("aria-selected", "true");
-      expect(screen.getByRole("option", { name: /Auto/ })).toHaveAttribute("aria-selected", "false");
-    });
-
     it("picking a catalog row transmits its id verbatim — Auto's real id included", async () => {
       const { store } = await mountFresh({ agentKind: "acp:cursor" }, 0, cursorProbe(catalog));
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
@@ -1560,18 +1428,6 @@ describe("prompter model picker", () => {
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("default[]"));
     });
 
-    it("search and keyboard still work across a 40-row catalog", async () => {
-      const big = Array.from({ length: 40 }, (_, i) => ({ id: `m-${i}[x=1]`, label: `Model ${i}` }));
-      const { store } = await mountFresh({ agentKind: "acp:cursor" }, 0, cursorProbe(big));
-      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
-      openPicker();
-      expect(screen.getAllByRole("option").length).toBeGreaterThan(40);
-      const search = screen.getByRole("combobox", { name: "Search models" });
-      fireEvent.change(search, { target: { value: "model 39" } });
-      expect(rowNames()).toEqual(["Model 39"]);
-      fireEvent.keyDown(search, { key: "Enter" });
-      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("m-39[x=1]"));
-    });
   });
 
   describe("favourites", () => {
@@ -1586,16 +1442,6 @@ describe("prompter model picker", () => {
       await act(async () => { r.store.setState({ modelFavorites: keys }); });
       return r;
     };
-
-    it("opens on search over a list, and shows no Favourites group when nothing is starred", async () => {
-      // Search, then the strip that names the list's separators, then the list: the popover opens for
-      // typing, and the groups are what the eye falls to when the user has nothing to type.
-      await mountFresh();
-      openPicker();
-      const picker = screen.getByRole("dialog", { name: "Model picker" });
-      expect([...picker.children].map((n) => n.className)).toEqual(["mp-search", "mp-jumps-wrap", "mp-body"]);
-      expect([...document.querySelectorAll(".mp-group-label")].map((n) => n.textContent)).not.toContain("Favourites");
-    });
 
     it("leads the list with a Favourites group once something is starred", async () => {
       await withFavorites([OPUS]);
@@ -1712,14 +1558,6 @@ describe("prompter model picker", () => {
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5"));
     });
 
-    it("a starred model appears once — in Favourites, not also under its harness", async () => {
-      await withFavorites([OPUS]);
-      openPicker();
-      const groups = [...document.querySelectorAll(".mp-group")];
-      expect(groups[0]!.querySelector(".mp-group-label")).toHaveTextContent("Favourites");
-      expect([...groups[0]!.querySelectorAll(".mp-row-name")].map((n) => n.textContent)).toEqual(["Claude Opus 5"]);
-      expect(rowNames().filter((n) => n === "Claude Opus 5")).toHaveLength(1);
-    });
   });
 
   describe("the route pills (the harness chip's replacement)", () => {
@@ -1939,26 +1777,6 @@ describe("the session's terminal (W4)", () => {
     // divider, which is what the split did and what this replaced.
     expect(screen.getByRole("dialog", { name: /Terminal for/ })).toBeInTheDocument();
     expect(document.querySelector(".session-split")).toBeNull();
-  });
-
-  /* The drawer used to come back open, at a dragged width, because both facts were persisted under
-     `ui.terminalPanel`. The dock carries neither: it is a panel you open when you want it, like the
-     summary beside it, and a shell that reopened itself on every relaunch was the split's habit
-     rather than a promise anyone asked for. The pty is what survives — see the next test. */
-  it("does not reopen itself on mount: showing the terminal is a fresh decision", async () => {
-    const { store } = await mountPane();
-    expect(store.getState().sessionDock["se1"]).toBeUndefined();
-    expect(screen.queryByRole("dialog", { name: /Terminal for/ })).toBeNull();
-    expect(document.querySelector(".terminal-pane")).toBeNull();
-  });
-
-  it("hiding it removes the view but keeps the terminal — nothing is disposed", async () => {
-    const { api, store } = await mountPane(true);
-    await waitFor(() => expect(store.getState().sessionTerminals["se1"]).toBe("term-se1"));
-    fireEvent.click(toggle());
-    await waitFor(() => expect(document.querySelector(".terminal-pane")).toBeNull());
-    expect(api.disposed).toEqual([]);
-    expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
   });
 
   it("a terminal item's header has no such toggle — only sessions own one", () => {

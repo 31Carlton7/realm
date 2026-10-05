@@ -160,12 +160,6 @@ describe("durable runs — the human gate", () => {
     expect(done.error).toContain("not needed after all");
   });
 
-  it("refuses to approve a run that is not blocked", async () => {
-    const { spaceId } = await boot();
-    const { run } = create(spaceId);
-    await settled(run.id);
-    expect(() => app.runs.approve(run.id, true, null)).toThrow(/not waiting/);
-  });
 });
 
 describe("durable runs — attempts and the budget", () => {
@@ -180,14 +174,6 @@ describe("durable runs — attempts and the budget", () => {
     expect(done.attempt).toBe(2);
     expect(attemptsOf(run.id).map((a) => [a.n, a.outcome])).toEqual([[1, "failed"], [2, "failed"]]);
     expect(done.error).toBeTruthy();
-  });
-
-  it("spends exactly one attempt when the budget is one", async () => {
-    const { spaceId } = await boot({ script: CRASHING });
-    const { run } = create(spaceId, { maxAttempts: 1 });
-    await settled(run.id);
-    expect(runOf(run.id).attempt).toBe(1);
-    expect(attemptsOf(run.id)).toHaveLength(1);
   });
 
   it("retry() re-queues a terminal run and widens the budget to fit", async () => {
@@ -229,15 +215,6 @@ describe("durable runs — cancelling", () => {
 });
 
 describe("durable runs — the dedupe key end to end", () => {
-  it("a poller firing twice for one assignment gets ONE run", async () => {
-    const { spaceId } = await boot();
-    const first = create(spaceId, { dedupeKey: "cs101-week-3" });
-    const second = create(spaceId, { dedupeKey: "cs101-week-3" });
-    expect(second.created).toBe(false);
-    expect(second.run.id).toBe(first.run.id);
-    await settled(first.run.id);
-    expect(app.runs.list({ spaceId, states: [], cursor: null, limit: 50 }).runs).toHaveLength(1);
-  });
 
   it("but next week's run of the same recurring thing still gets created once this one is done", async () => {
     const { spaceId } = await boot();

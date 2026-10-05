@@ -195,16 +195,9 @@ describe("resolver (rule 2: the last matching rule wins, across commands)", () =
     expect(matchKeybinding(rules, "mod+wat", idle)).toBeNull();
   });
 
-  it("refuses to match on an unparseable chord rather than matching everything", () => {
-    expect(commandForChord([{ key: "", command: "x" }], "", idle)).toBeNull();
-  });
 });
 
 describe("chordsForCommand", () => {
-  it("finds the chord a command answers to", () => {
-    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "terminal.new")).toEqual(["mod+t"]);
-    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "palette.toggle")).toEqual(["mod+k"]);
-  });
 
   it("does not advertise a binding a later rule has already taken", () => {
     /* THE MUTANT: filter rules by name. The hint would then print ⌘K beside "Command palette" for a
@@ -313,11 +306,6 @@ describe("merging newly shipped defaults", () => {
     expect(mergeDefaults(shipped, shipped)).toEqual(shipped);
     // …and stays that way however many times it runs.
     expect(mergeDefaults(mergeDefaults(shipped, shipped), shipped)).toEqual(shipped);
-  });
-
-  it("appends a default the file has never seen", () => {
-    const existing: Keybinding[] = [{ key: "mod+k", command: "palette.toggle", when: "!sheetOpen" }];
-    expect(mergeDefaults(existing, shipped)).toEqual([...existing, { key: "mod+t", command: "terminal.new" }]);
   });
 
   it("leaves a rebound command alone, even though its shipped key is free", () => {

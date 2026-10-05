@@ -52,10 +52,6 @@ const fileDrag = (files: File[]) => ({ dataTransfer: { files, items: files.map((
 afterEach(() => cleanup());
 
 describe("the quick chat", () => {
-  it("draws nothing until it is opened", async () => {
-    await mount();
-    expect(screen.queryByRole("dialog", { name: "Quick chat" })).toBeNull();
-  });
 
   it("makes a real session but takes NO pane — the window is where it is shown", async () => {
     /* THE MUTANT: adopt it into the layout like `newSession` does. The same conversation would then

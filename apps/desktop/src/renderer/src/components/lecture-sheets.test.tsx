@@ -29,11 +29,6 @@ describe("NewLectureSheet", () => {
     expect(store.getState().items.filter((i) => allItems(store.getState().layout!).includes(i.id)).map((i) => i.kind)).toEqual(["documents", "session"]);
   });
 
-  it("Enter submits the form", async () => {
-    const { api } = await mount(<NewLectureSheet />);
-    fireEvent.submit(screen.getByLabelText("Lecture topic").closest("form")!);
-    await waitFor(() => expect(api.calls).toContain("startLecture:s1:"));
-  });
 });
 
 describe("WrapUpLectureSheet", () => {

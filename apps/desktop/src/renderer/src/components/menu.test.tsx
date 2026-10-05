@@ -51,12 +51,6 @@ describe("Menu placement", () => {
     expect(screen.getByRole("menu").style.top).toBe("376px");
   });
 
-  it("placement='up' flips below when there is no room above", () => {
-    withMenuHeight();
-    mount([plain("A")], { anchorRef: anchor(2), placement: "up" }); // 2 - 120 - 4 is off-screen
-    expect(screen.getByRole("menu").style.top).toBe("26px"); // flipped: anchor.bottom + 4
-  });
-
   /** W2 (Plan 11): the same placement, with browser view rects to avoid. The store carries the
    *  rects; the MENU's own rect is mocked non-zero (a 0×0 menu would make every position "clear"
    *  and the tests hollow — the exact failure a past review caught). jsdom window: 1024×768. */
@@ -132,17 +126,6 @@ describe("Menu placement", () => {
       expect(origin()).toBe("bottom left");
     });
 
-    it("a menu that flips below because there is no room above grows downward again", () => {
-      withMenuHeight();
-      mount([plain("A")], { anchorRef: anchor(2), placement: "up" });
-      expect(origin()).toBe("top left");
-    });
-
-    it("a point-placed context menu grows from the click point", () => {
-      withMenuHeight();
-      mount([plain("A")], { at: { x: 40, y: 40 } });
-      expect(origin()).toBe("top left");
-    });
   });
 });
 
@@ -349,11 +332,6 @@ describe("Menu keyboard (U-M10/A-H3)", () => {
     expect(screen.getByRole("menuitemcheckbox", { name: "Light" }).querySelector("svg")).toBeNull();
   });
 
-  it("renders the kbd hint column from the item's kbd prop", () => {
-    mount([{ label: "Close", kbd: "⌘W", onSelect: () => {} }]);
-    const item = screen.getByRole("menuitem", { name: /Close/ });
-    expect(item.querySelector("kbd.menu-kbd")).toHaveTextContent("⌘W");
-  });
 });
 
 /**

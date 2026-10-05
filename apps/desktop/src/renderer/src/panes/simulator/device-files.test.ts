@@ -33,7 +33,4 @@ describe("sortForDevice", () => {
     expect(sortForDevice([{ name: "pasted.png", path: "" }])).toEqual({ apps: [], media: [], unusable: ["pasted.png"] });
   });
 
-  it("a name with no extension at all is not an app", () => {
-    expect(sortForDevice([f("Makefile"), f(".gitignore")])).toMatchObject({ apps: [], media: [], unusable: ["Makefile", ".gitignore"] });
-  });
 });

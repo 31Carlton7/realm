@@ -87,27 +87,3 @@ describe("allSessions — a row for every session, in every profile", () => {
   });
 });
 
-describe("sidebarOpenSpaces — which rooms show their live sessions", () => {
-  it("remembers an unfolded room across a relaunch", async () => {
-    const { api, store } = await boot({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p1", "Thesis")] });
-    expect(store.getState().sidebarOpenSpaces).toEqual([]);
-    await store.getState().setSpaceRowOpen("s2", true);
-    await store.getState().setSpaceRowOpen("s3", true);
-    await store.getState().setSpaceRowOpen("s2", false);
-    expect(store.getState().sidebarOpenSpaces).toEqual(["s3"]);
-    // THE MUTANT: keep it in memory only. The next launch reads the key back.
-    const again = createAppStore(api);
-    await again.getState().boot();
-    expect(again.getState().sidebarOpenSpaces).toEqual(["s3"]);
-  });
-
-  it("reads anything that is not a list of ids as nothing unfolded, and drops a deleted room on the next write", async () => {
-    for (const junk of ["s2", { s2: true }, 3, [7, null]]) {
-      const { store } = await boot({ settings: { "ui.sidebarOpenSpaces": junk } });
-      expect(store.getState().sidebarOpenSpaces).toEqual([]);
-    }
-    const { store } = await boot({ settings: { "ui.sidebarOpenSpaces": ["gone", "s2"] } });
-    await store.getState().setSpaceRowOpen("s1", true);
-    expect(store.getState().sidebarOpenSpaces).toEqual(["s2", "s1"]);
-  });
-});

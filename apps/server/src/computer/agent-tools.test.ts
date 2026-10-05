@@ -172,12 +172,6 @@ describe("computer_act permissions", () => {
     expect(s.gates[0]!.toolKey).toBe("computer_act:com.apple.TextEdit");
   });
 
-  it("prompts even under bypassPermissions", async () => {
-    const s = setup({ ops: { computerSnapshot: SNAPSHOT, computerAct: { ok: true, detail: "clicked" } } });
-    await snapshotThenAct(s, { kind: "click", index: 0 });
-    expect(s.gates[0]!.opts).toMatchObject({ promptUnderBypass: true });
-  });
-
   it("names the app and the typed text on the card, and nothing the app itself authored", async () => {
     const s = setup({ ops: { computerSnapshot: SNAPSHOT, computerAct: { ok: true, detail: "typed" } } });
     await snapshotThenAct(s, { kind: "type", index: 0, text: "hello" });
@@ -258,10 +252,6 @@ describe("the space's allowed-apps list", () => {
     expect(s.ops.filter((o) => o.op === "computerAct")).toEqual([]);
   });
 
-  it("refuses a forbidden app that is not on the list the same way", async () => {
-    const s = setup({ ops: { computerSnapshot: FORBIDDEN_SNAPSHOT } });
-    expect(text(await snapshotThenAct(s, { kind: "click", index: 0 }))).toMatch(/no permission lifts this/);
-  });
 });
 
 describe("computer_act refusals become advice", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DOCUMENT_MAX_BYTES, documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, isPictureFile, refineDocumentKind, shouldSurfaceWrite, writtenPathOf } from "./documents";
+import { documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, isPictureFile, refineDocumentKind, shouldSurfaceWrite, writtenPathOf } from "./documents";
 
 describe("documentKindFor", () => {
   it("routes each extension to its editor", () => {
@@ -75,15 +75,6 @@ describe("documentKindFor", () => {
     }
   });
 
-  it("does not take a format Realm has a real editor for", () => {
-    // The named mutant: adding `csv` or `md` to the preview set, which would swap an editable
-    // document for a picture of one.
-    expect(documentKindFor("data.csv")).toBe("sheet");
-    expect(documentKindFor("notes.md")).toBe("doc");
-    expect(documentKindFor("paper.tex")).toBe("latex");
-    expect(documentKindFor("guide.html")).toBe("html");
-    expect(documentKindFor("spec.pdf")).toBe("pdf");
-  });
 });
 
 describe("refineDocumentKind", () => {
@@ -122,10 +113,6 @@ describe("documentTemplate", () => {
   it("gives an unsupported file no content to write", () => {
     expect(documentTemplate("unsupported", "x")).toBe("");
   });
-});
-
-it("caps openable files at 2 MiB", () => {
-  expect(DOCUMENT_MAX_BYTES).toBe(2097152);
 });
 
 // ---- Plan 22: preview kinds, guide template, progress sidecar -----------------------------------

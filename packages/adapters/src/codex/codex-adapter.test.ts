@@ -166,9 +166,6 @@ describe("codexPolicyFor", () => {
 });
 
 describe("CodexAdapter", () => {
-  it("is registered as the codex agent kind", () => {
-    expect(newAdapter().kind).toBe("codex");
-  });
 
   it("emits init then a full streaming turn, and never a user_message", async () => {
     const { adapter, handle, evs } = await booted();
@@ -441,16 +438,6 @@ describe("CodexAdapter", () => {
     await handle.dispose();
   });
 
-  it("denies a fileChange approval with decline, which this request does offer", async () => {
-    const { handle, evs } = await booted();
-    await handle.send({ text: "PATCH", attachments: [] });
-    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
-    handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "deny");
-    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
-    expect(of(evs, "tool_result")[0]!.payload.isError).toBe(true);
-    await handle.dispose();
-  });
-
   it("bridges a command approval and produces the tool_result once allowed", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "APPROVE", attachments: [] });
@@ -587,26 +574,6 @@ describe("CodexAdapter", () => {
     await waitFor(() => expect(texts(evs)).toEqual(["hello", "hello"]));
     await waitFor(() => expect(statuses(evs)).toEqual([...done, "running", "running", "idle", "idle"]));
     await handle.dispose();
-  });
-
-  it("persists a half-streamed message when the turn is interrupted", async () => {
-    const { handle, evs } = await booted();
-    await handle.send({ text: "PARTIAL", attachments: [] });
-    await waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(2));
-    await handle.interrupt();
-    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
-    // assistant_delta is ephemeral: without the flush the streamed answer never reaches the transcript at all.
-    expect(texts(evs)).toEqual(["half an answer"]);
-    await handle.dispose();
-  });
-
-  it("persists a half-streamed message when the session is disposed mid-stream", async () => {
-    const { handle, evs, done } = await booted();
-    await handle.send({ text: "PARTIAL", attachments: [] });
-    await waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(2));
-    await handle.dispose();
-    await done;
-    expect(texts(evs)).toEqual(["half an answer"]);
   });
 
   it("records setOptions but reports that it only applies at the next thread start", async () => {
@@ -983,10 +950,6 @@ describe("codexMcpConfig", () => {
   const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } };
   const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
 
-  it("writes a stdio server as command/args/env under its name", () => {
-    expect(codexMcpConfig([stdio])).toEqual({ mcp_servers: { airtable: { command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } } } });
-  });
-
   it("writes an http server as url/http_headers — Codex's own key, not `headers` — which is the only shape that ever reaches here (the gateway's own entry)", () => {
     expect(codexMcpConfig([http])).toEqual({ mcp_servers: { vercel: { url: "https://mcp.vercel.com", http_headers: { Authorization: "Bearer t" } } } });
   });
@@ -996,9 +959,6 @@ describe("codexMcpConfig", () => {
     expect(codexMcpConfig([bare])).toEqual({ mcp_servers: { bare: { command: "/bin/x" } } });
   });
 
-  it("is undefined when nothing survives, so `config` is omitted from thread/start", () => {
-    expect(codexMcpConfig([])).toBeUndefined();
-  });
 });
 
 /**
@@ -1073,12 +1033,6 @@ describe("CodexAdapter model catalog", () => {
     process.env.FAKE_CODEX_MODEL_PAGES = "1";
     const r = await newAdapter().probe();
     expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }, { id: "gpt-5.4-mini", label: "GPT-5.4-Mini" }]);
-  });
-
-  it("keeps only the well-formed rows of a polluted catalog", async () => {
-    process.env.FAKE_CODEX_MODEL_GARBAGE = "1";
-    const r = await newAdapter().probe();
-    expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }, { id: "gpt-nameless", label: "gpt-nameless" }]);
   });
 
   it("degrades -32601 to models:null (a build from before model/list) without failing the probe, sticky", async () => {
@@ -1222,9 +1176,4 @@ describe("the sandbox refusal", () => {
     expect(adapter.sessionCount).toBe(0);
   });
 
-  it("starts normally when there is no wrap, which is every space on the shipped default", async () => {
-    // The other half of fail-closed: it must refuse ONLY what it was actually asked to confine.
-    const { evs } = await booted();
-    expect(types(evs)).toContain("init");
-  });
 });

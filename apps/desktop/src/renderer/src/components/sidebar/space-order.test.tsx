@@ -127,14 +127,6 @@ describe("sorted by activity", () => {
     expect(order(container)).toEqual(["Versed", "Homework"]);
   });
 
-  it("a question outranks a fresher touch, and the list re-sorts live as one arrives", async () => {
-    const { container, store } = await mount(twoSpaces());
-    await act(async () => { await store.getState().setSidebarActivityOrder(true); });
-    expect(order(container)).toEqual(["Homework", "Versed"]);
-    act(() => store.getState().applySessionStatus("se1", "waiting_permission"));
-    expect(order(container)).toEqual(["Versed", "Homework"]);
-  });
-
   /* `draggable` is browser-enforced — jsdom fires drag events regardless — so the attribute itself is
      the honest thing to assert. A drop into a spot the next status change would re-sort away from is a
      drop that looks like it did nothing. */

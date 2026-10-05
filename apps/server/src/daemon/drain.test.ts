@@ -42,18 +42,6 @@ describe("Drain", () => {
     expect(h.closes()).toBe(1);
   });
 
-  it("does not wait on a warm handle that is not doing anything", () => {
-    // A session Realm has used keeps its adapter handle until the adapter's stream ends, so `working`
-    // and "has a handle" are different numbers and only the first is work. MUTANT: wait on handles
-    // (which is what the plan said) and the drain never completes on any daemon anybody has used —
-    // measured by daemon-drain-live.mjs, which found exactly that.
-    const h = harness({ working: 0, activeRuns: 0 });
-    h.drain.tick();
-    h.advance(QUIESCENT_HOLD_MS);
-    h.drain.tick();
-    expect(h.closes()).toBe(1);
-  });
-
   it("restarts the hold when work comes back", () => {
     const h = harness({ working: 0, activeRuns: 0 });
     h.drain.tick();

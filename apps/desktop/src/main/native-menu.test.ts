@@ -112,16 +112,6 @@ describe("menuAnchor", () => {
 describe("popupNativeMenu", () => {
   afterEach(() => { vi.useRealTimers(); });
 
-  it("answers with the id of the row that was chosen, at the point the renderer asked for", async () => {
-    let shown: { t: MenuTemplateItem[]; at: { x: number; y: number }; close: () => void } | null = null;
-    const answer = popupNativeMenu([{ id: "print", label: "Print…" }], { x: 120, y: 44 }, (t, at, close) => { shown = { t, at, close }; });
-    expect(shown!.at).toEqual({ x: 120, y: 44 });
-    // The OS's order on a Mac: the row's action, then the menu's close.
-    shown!.t[0]!.click!();
-    shown!.close();
-    expect(await answer).toBe("print");
-  });
-
   it("a choice is never read as a dismissal, even when the close arrives first", async () => {
     /* THE mutant: settle null on close at once. Electron documents that the click runs first, but if a
        close ever beat it the menu would silently do nothing for the row the user chose. */

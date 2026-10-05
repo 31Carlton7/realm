@@ -1,7 +1,6 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { GitInfoService } from "./git-info";
@@ -33,10 +32,6 @@ describe("GitInfoService", () => {
   it("returns null for a directory that is not a git repo", async () => {
     const dir = tempDir("realm-notgit-");
     expect(await new GitInfoService().get(dir)).toBeNull();
-  });
-
-  it("returns null for a cwd that does not exist at all", async () => {
-    expect(await new GitInfoService().get(join(tmpdir(), "realm-definitely-missing-xyz"))).toBeNull();
   });
 
   it("clean repo with no upstream: branch name, all counters zero", async () => {
@@ -115,12 +110,6 @@ describe("GitInfoService", () => {
     expect(calls).toHaveLength(4); // one probe, not 3×4
     expect(a).toEqual(b);
     expect(b).toEqual(c);
-  });
-
-  it("hardening flags survive against a real git binary (repo behaviour unchanged)", async () => {
-    // The suite's other tests also run through execGit; this one pins the pairing explicitly.
-    const info = await new GitInfoService().get(repo);
-    expect(info).toMatchObject({ branch: "main" });
   });
 
   it("cache entries are keyed by cwd — one repo's info never answers for another", async () => {

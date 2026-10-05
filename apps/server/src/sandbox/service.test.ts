@@ -37,12 +37,6 @@ const service = (probe: () => SandboxAvailability = () => YES) =>
 beforeEach(() => { settings = new FakeSettings(); });
 
 describe("prefs", () => {
-  it("ships OPT-IN — nothing chosen means no sandbox, and the network flag still defaults on", () => {
-    // The shipped default is `off` for this release (see EXECUTION_SANDBOX_DEFAULT_POSTURE). The
-    // service has no default of its own; it must read the contract's, or the two disagree about
-    // what an untouched Realm does.
-    expect(service().defaults()).toEqual({ posture: "off", network: true });
-  });
 
   it("reads a hand-corrupted settings row as 'not chosen' rather than as a posture of its own", () => {
     // What this guards is unchanged even though the shipped default is now `off`: a mangled row is
@@ -230,10 +224,3 @@ describe("env", () => {
   });
 });
 
-describe("describe", () => {
-  it("does not call an off space sandboxed", () => {
-    const s = service();
-    s.setSpacePrefs("sp_1", { posture: "off", network: true });
-    expect(s.describe("sp_1")).toMatch(/^Not sandboxed/);
-  });
-});

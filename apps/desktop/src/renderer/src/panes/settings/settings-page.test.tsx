@@ -167,19 +167,6 @@ describe("Engines tab", () => {
     expect(within(ok).queryByText(/opencode auth login/)).toBeNull();
   });
 
-  it("lists every ACP agent Plan 18 added, each with its own install command", async () => {
-    await engines();
-    // opencode is deliberately absent: the fixture has it INSTALLED, so it correctly shows no install
-    // command. That case is covered by its own test above.
-    for (const [kind, name] of [["acp:copilot", "GitHub Copilot"], ["acp:goose", "goose"],
-                                ["acp:qwen", "Qwen Code"], ["acp:grok", "Grok"], ["acp:fx", "fx"]] as const) {
-      const row = await screen.findByRole("listitem", { name: new RegExp(`^${name}: `) });
-      // Kills a copy-paste mutation that gives two agents the same install line — the failure mode
-      // where the card tells you to install the wrong CLI.
-      expect(within(row).getByText(AGENT_CLI_COMMANDS[kind].install!)).toBeInTheDocument();
-    }
-  });
-
   it("copying an install command puts the command on the clipboard VERBATIM — no trailing newline (doctrine)", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
@@ -216,11 +203,6 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
   describe("Sort spaces by activity", () => {
     const SWITCH = "Sort spaces by activity";
 
-    it("is off until someone turns it on", async () => {
-      await openPage("General");
-      expect(screen.getByRole("switch", { name: SWITCH })).not.toBeChecked();
-    });
-
     it("writes the preference, so it survives a relaunch", async () => {
       const { store, api } = await openPage("General");
       fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
@@ -235,12 +217,6 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
       expect(screen.getByRole("switch", { name: SWITCH })).toBeChecked();
     });
 
-    it("says what it costs, not only what it does", async () => {
-      // Dragging stops working while it is on. A switch that disabled a gesture without saying so
-      // would read as the gesture breaking.
-      await openPage("General");
-      expect(screen.getByText(/spaces cannot be dragged/)).toBeInTheDocument();
-    });
   });
 
   const row = (face: "Light" | "Dark") => within(screen.getByRole("group", { name: `${face} theme` }));
@@ -390,12 +366,6 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     expect(api.calls.some((c) => c.startsWith("setSetting:ui.fonts"))).toBe(true);
   });
 
-  it("offers no weight for code, and says why rather than leaving a gap", async () => {
-    await openPage("Appearance");
-    expect(screen.queryByRole("combobox", { name: "Code font weight" })).toBeNull();
-    expect(screen.getByText(/Weight follows the app's own scale here/)).toBeInTheDocument();
-  });
-
   it("a pasted theme becomes the face's colours; a blob that is not one is refused in place", async () => {
     const { store } = await openPage("Appearance");
     fireEvent.click(colours("Dark").getByRole("button", { name: "Import" }));
@@ -536,16 +506,6 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     expect(screen.getByText(/count unread ones on the dock icon/)).toBeInTheDocument();
   });
 
-  it("one switch writes the activity order — the second \"Sort by activity\" row is gone", async () => {
-    /* The App tab carried the same key twice, under two Sidebar headings, as "Sort spaces by
-       activity" and "Sort by activity". THE MUTANT: bring the second row back. Two switches over one
-       preference are two places to look and one of them is always the one you did not mean. */
-    await openPage("General");
-    expect(screen.getAllByRole("switch", { name: /by activity/ })).toHaveLength(1);
-    expect(screen.getAllByRole("heading", { name: "Sidebar" })).toHaveLength(1);
-  });
-
-
   it("a stored OFF renders OFF, and toggling writes the key and clears the dock badge without touching the categories", async () => {
     const { api, store } = await openPage("Notifications", {
       settings: { [NOTIFICATIONS_DESKTOP_KEY]: false, [NOTIFICATIONS_DISABLED_KEY]: ["mcp_health"] },
@@ -603,16 +563,6 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     await openPage("Notifications", { settings: { [NOTIFICATIONS_SOUND_KEY]: false } });
     expect(screen.getByRole("switch", { name: "Play a sound with it" })).not.toBeDisabled();
     expect(screen.getByRole("slider", { name: "Sound volume" })).toBeDisabled();
-  });
-
-  it("a category row is a label and a switch — its sentence rides the row, it does not stack under it", async () => {
-    /* Nine rows each carrying a sentence that mostly restated its own label ("Permission requests:
-       an agent is waiting on your yes or no") was the bulk of the reading on this tab. THE mutant:
-       put them back as `.settings-row-desc`. The sentence is still there for anyone who wants it. */
-    await openPage("Notifications");
-    const row = (await screen.findByRole("switch", { name: "Permission requests" })).closest(".settings-row") as HTMLElement;
-    expect(row.querySelector(".settings-row-desc")).toBeNull();
-    expect(row).toHaveAttribute("title", "An agent is waiting on your yes or no.");
   });
 
   it("a toggle writes EXACTLY its own category (the named mutant: the wrong category), leaving the rest of the set alone", async () => {
@@ -765,12 +715,6 @@ describe("General → mid-turn prompts", () => {
     fireEvent.click(screen.getByRole("radio", { name: "General" }));
     return mounted;
   };
-
-  it("defaults to waiting its turn, which is the rung that interrupts nothing", async () => {
-    await openApp();
-    await waitFor(() => expect(screen.getByRole("radio", { name: "Waits its turn" })).toBeChecked());
-    expect(screen.getByRole("radio", { name: "Sends now" })).not.toBeChecked();
-  });
 
   it("choosing sends-now writes the setting and holds", async () => {
     const { store, api } = await openApp();

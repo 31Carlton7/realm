@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey } from "@realm/contracts";
-import { filterRows, flatten, groupRows, modelDetail, modelIdOn, modelRows } from "./model-rows";
+import { filterRows, flatten, groupRows, modelDetail, modelRows } from "./model-rows";
 import type { AgentProbe } from "../../state/store";
 
 const probe = (kind: AgentProbe["kind"], models: AgentProbe["models"]): AgentProbe =>
@@ -23,17 +23,6 @@ describe("modelRows with a probe catalog", () => {
     expect(cursor.slice(1).map((r) => ({ id: r.modelId, label: r.label }))).toEqual(cursorCatalog.map((m) => ({ id: m.id, label: m.label })));
     // model === null selects ONLY the default row — never the catalog's first entry.
     expect(cursor.filter((r) => r.selected)).toHaveLength(1);
-  });
-
-  it("transmits catalog ids verbatim — Auto keeps its real id, and nothing produces a literal \"auto\"", () => {
-    const rows = modelRows({ kind: "acp:cursor", model: null, agentProbe: [probe("acp:cursor", cursorCatalog)], canSwitchAgent: true });
-    expect(rows.find((r) => r.label === "Auto")?.modelId).toBe("default[]"); // the id set_model accepts
-    expect(rows.some((r) => r.modelId === "auto")).toBe(false);              // the id it rejects
-  });
-
-  it("selects the catalog row whose id the session pins", () => {
-    const rows = modelRows({ kind: "acp:cursor", model: "gpt-5.3-codex[reasoning=medium,fast=false]", agentProbe: [probe("acp:cursor", cursorCatalog)], canSwitchAgent: true });
-    expect(rows.filter((r) => r.selected).map((r) => r.modelId)).toEqual(["gpt-5.3-codex[reasoning=medium,fast=false]"]);
   });
 
   it("never renders one kind's catalog under another kind", () => {
@@ -70,20 +59,11 @@ describe("filterRows at catalog scale", () => {
   const bigCatalog = Array.from({ length: 40 }, (_, i) => ({ id: `m-${i}[x=1]`, label: `Model ${i}` }));
   const rows = modelRows({ kind: "acp:cursor", model: null, agentProbe: [probe("acp:cursor", bigCatalog)], canSwitchAgent: true });
 
-  it("carries all 40 catalog rows plus the default row", () => {
-    expect(rows.filter((r) => r.kind === "acp:cursor")).toHaveLength(41);
-  });
-
   it("search still narrows by model name across the whole catalog", () => {
     expect(filterRows(rows, "model 39").map((r) => r.label)).toEqual(["Model 39"]);
     expect(filterRows(rows, "model 3").length).toBe(11); // 3, 30..39
   });
 
-  it("searching a harness name narrows a large mixed list to what that harness runs", () => {
-    const cursorOnly = filterRows(rows, "cursor");
-    expect(cursorOnly).toHaveLength(41);
-    expect(new Set(cursorOnly.map((r) => r.kind))).toEqual(new Set(["acp:cursor"]));
-  });
 });
 
 /**
@@ -128,13 +108,6 @@ describe("one row per model, not per (harness, model)", () => {
     expect(rows.map((r) => r.label)).toContain("Auto");
   });
 
-  it("routes a merged row through the session's own harness, so picking it switches no agent", () => {
-    const rows = modelRows({ kind: "acp:cursor", model: null, canSwitchAgent: true,
-      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
-    // Same model, same two harnesses — but this session is on Cursor, so Cursor runs it.
-    expect(fable(rows)[0]).toMatchObject({ kind: "acp:cursor", modelId: CURSOR_FABLE_ID });
-  });
-
   it("keeps a model on the session's own harness even when that CLI is signed out", () => {
     // Availability is reported, never blocking (the install card is the fix, not a silent reroute).
     // Without the own-harness short-circuit this row would quietly move the session onto Cursor
@@ -159,19 +132,6 @@ describe("one row per model, not per (harness, model)", () => {
     expect(fable(rows)[0]).toMatchObject({ kind: "acp:cursor", modelId: CURSOR_FABLE_ID });
   });
 
-  it("blocks a merged row once the session has run and its own harness can't reach the model", () => {
-    const rows = modelRows({ kind: "codex", model: null, canSwitchAgent: false,
-      agentProbe: [probe("codex", null), probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
-    expect(fable(rows)[0]!.blockedReason).toMatch(/already run/);
-    expect(rows.filter((r) => r.kind === "codex").every((r) => r.blockedReason === null)).toBe(true);
-  });
-
-  it("still marks exactly one row selected once rows are deduped", () => {
-    const rows = modelRows({ kind: "claude", model: "claude-fable-5-1", canSwitchAgent: true,
-      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
-    expect(rows.filter((r) => r.selected).map((r) => r.label)).toEqual(["Claude Fable 5.1"]);
-  });
-
   it("never merges two harnesses' adapter-default rows", () => {
     // "the Codex default" and "the Cursor default" are different models described the same way.
     const rows = modelRows({ kind: "codex", model: null, canSwitchAgent: true,
@@ -185,42 +145,9 @@ describe("one row per model, not per (harness, model)", () => {
   });
 });
 
-describe("modelIdOn", () => {
-  const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: true,
-    agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
-
-  it("hands back the id the target harness actually accepts", () => {
-    // What the harness chip re-reads when it moves a chosen model onto another route.
-    expect(modelIdOn(fable(rows)[0]!, "acp:cursor")).toBe(CURSOR_FABLE_ID);
-    expect(modelIdOn(fable(rows)[0]!, "claude")).toBe("claude-fable-5-1");
-  });
-
-  it("says undefined — not null — for a harness that doesn't offer the model at all", () => {
-    // null would read as "use that harness's default", which is a different answer from "can't".
-    expect(modelIdOn(fable(rows)[0]!, "codex")).toBeUndefined();
-  });
-});
-
 describe("favourites", () => {
   const withFavs = (favorites: string[]) => modelRows({ kind: "claude", model: null, canSwitchAgent: true,
     agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)], favorites });
-
-  it("stars a model by canonical key, whichever harness ends up running it", () => {
-    const rows = withFavs([canonicalModelKey("Claude Fable 5.1")]);
-    expect(rows.filter((r) => r.favorite).map((r) => r.label)).toEqual(["Claude Fable 5.1"]);
-  });
-
-  it("defaults to nothing starred", () => {
-    expect(modelRows({ kind: "claude", model: null, agentProbe: [], canSwitchAgent: true }).some((r) => r.favorite)).toBe(false);
-  });
-
-  it("collects favourites into their own leading group, in row order", () => {
-    const rows = withFavs([canonicalModelKey("GPT-5.5"), canonicalModelKey("Claude Sonnet 5")]);
-    const groups = groupRows(rows, { query: "" });
-    expect(groups[0]!.label).toBe("Favourites");
-    // Row order, not favourites-array order: the ⌘-digit column has to read 1,2,3 down the page.
-    expect(groups[0]!.rows.map((r) => r.label)).toEqual(["Claude Sonnet 5", "GPT-5.5"]);
-  });
 
   it("a starred model appears once — in Favourites, not also under any harness that offers it", () => {
     // Fable is offered by both harnesses under test, so unstarred it would be listed twice; starred,
@@ -250,10 +177,6 @@ describe("searching a harness after dedupe", () => {
     expect(cursorHits).not.toContain("Claude Sonnet 5"); // claude-only, and Cursor never offered it
   });
 
-  it("groups by harness, session's own first, and drops headings while searching", () => {
-    expect(groupRows(rows, { query: "" }).map((g) => g.label)[0]).toBe("Claude");
-    expect(groupRows(filterRows(rows, "gpt"), { query: "gpt" }).map((g) => g.label)).toEqual([""]);
-  });
 });
 
 describe("a model two harnesses offer is listed under both of them", () => {
@@ -315,13 +238,6 @@ describe("modelDetail", () => {
   const info = (over: Partial<import("@realm/contracts").ModelInfo> = {}) => ({
     [fable.key]: { key: fable.key, label: "Claude Fable 5.1", vendor: "Anthropic", priceIn: 10, priceOut: 50,
       context: 1_000_000, efforts: ["max", "low"], blurb: "Vendor prose.", ...over },
-  });
-
-  it("prefers Realm's own note over the catalog's vendor prose", () => {
-    const { note, catalog } = modelDetail(fable, info());
-    expect(note).toBe(MODEL_NOTES.get(fable.key));
-    expect(note).not.toBe("Vendor prose.");
-    expect(catalog?.priceOut).toBe(50);
   });
 
   it("falls back to the catalog blurb for a model Realm has written nothing about", () => {

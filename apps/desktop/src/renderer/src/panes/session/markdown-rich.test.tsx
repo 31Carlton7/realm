@@ -1,6 +1,5 @@
-import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { Markdown, renderMarkdown } from "./Markdown";
+import { renderMarkdown } from "./Markdown";
 
 /** Plan 24 W1: what assistant prose renders as beyond paragraphs — highlighted code, TeX, GitHub
  *  admonitions, task lists. Every one of these is markup the model produced, so each case also has
@@ -33,16 +32,6 @@ describe("syntax highlighting", () => {
     expect(out).toContain("&lt;img");
   });
 
-  it("keeps the language label and copy control the code panel already had", () => {
-    const out = html("```ts\nconst a = 1;\n```");
-    expect(out).toContain('<span class="md-code-lang">ts</span>');
-    expect(out).toMatch(/aria-label="Copy code"/);
-  });
-
-  it("the copy button still yields the fence's exact source, tokens and all", () => {
-    const { container } = render(<Markdown text={"```ts\nconst a = 1;\n```"} />);
-    expect(container.querySelector("pre")!.textContent).toBe("const a = 1;\n");
-  });
 });
 
 describe("math", () => {

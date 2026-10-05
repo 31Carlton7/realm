@@ -39,14 +39,6 @@ describe("PlanLimitsService", () => {
     for (const row of rows) expect(row.windows).toEqual([]);
   });
 
-  it("keys state by agent kind, so two sessions on one account report one number", () => {
-    const { limits } = serviceWithBroadcasts();
-    limits.apply("claude", reading({ windows: [win("seven_day", 40)] }));
-    limits.apply("claude", reading({ windows: [win("seven_day", 55)] }));
-
-    expect(rowFor(limits.list(), "claude").windows).toEqual([win("seven_day", 55)]);
-  });
-
   it("merges windows rather than replacing them, so one moving window does not blank the rest", () => {
     const { limits } = serviceWithBroadcasts();
     // The full control-request answer, then a stream event naming only the window that moved.

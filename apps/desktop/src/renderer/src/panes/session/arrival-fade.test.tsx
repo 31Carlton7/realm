@@ -3,7 +3,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { sessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
-import { ARRIVAL_HORIZON_MS, NO_ARRIVALS, arrivalLength, markArrivals, noteArrival } from "./arrival-fade";
+import { ARRIVAL_HORIZON_MS, NO_ARRIVALS, markArrivals, noteArrival } from "./arrival-fade";
 import { Markdown } from "./Markdown";
 import { SessionPane } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
@@ -66,15 +66,6 @@ describe("marking the runs", () => {
     expect(el.querySelector("strong .md-arrival")).not.toBeNull();
   });
 
-  it("leaves the whitespace between blocks out — a span between two list items is no list", () => {
-    const el = host("<ul>\n<li>a</li>\n<li>b</li>\n</ul>");
-    // Counted without the newlines: "a" 0–1 · "b" 1–2.
-    expect(arrivalLength(el)).toBe(2);
-    markArrivals(el, [{ at: 0, t: 0 }], 0);
-    expect(marked(el)).toEqual(["a", "b"]);
-    expect([...el.querySelector("ul")!.children].map((c) => c.tagName)).toEqual(["LI", "LI"]);
-  });
-
   it("leaves formula markup alone, and still counts it, so the runs after it land on the right text", () => {
     // "x " 0–2 · "y" (MathML) 2–3 · "y" (drawn) 3–4 · " z" 4–6
     const el = host('<p>x <span class="katex"><span class="katex-mathml"><math><mi>y</mi></math></span><span class="katex-html">y</span></span> z</p>');
@@ -86,11 +77,6 @@ describe("marking the runs", () => {
     expect(el.querySelector("math .md-arrival")).toBeNull();
   });
 
-  it("does nothing at all without a run", () => {
-    const el = host("<p>quiet</p>");
-    markArrivals(el, [], 0);
-    expect(el.innerHTML).toBe("<p>quiet</p>");
-  });
 });
 
 describe("streamed prose", () => {

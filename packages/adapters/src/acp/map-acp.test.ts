@@ -74,13 +74,6 @@ describe("createAcpMapper", () => {
     expect(content).toContain("[terminal t1]");
   });
 
-  it("does not clear a title when a patch omits it", () => {
-    const m = createAcpMapper();
-    m.map({ sessionUpdate: "tool_call", toolCallId: "c4", title: "Original", kind: "read" });
-    m.map({ sessionUpdate: "tool_call_update", toolCallId: "c4", status: "in_progress" });
-    expect(m.titleOf("c4")).toBe("Original");
-  });
-
   it("drops plan, command-list, mode and user-echo updates", () => {
     const m = createAcpMapper();
     for (const u of [

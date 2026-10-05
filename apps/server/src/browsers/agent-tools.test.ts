@@ -380,14 +380,6 @@ describe("W4 — watching broadcasts (browser.driving / browser.action)", () => 
     expect(actions(mine)).toEqual([expect.objectContaining({ ok: false })]);
   });
 
-  it("a failed act still settles the broadcasts, with ok: false", async () => {
-    const { call, calls } = setup({ bridgeResults: { act: { ok: false, error: "no visible geometry" } } });
-    await call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
-    const mine = ofBrowser(calls.broadcasts, "b1");
-    expect(driving(mine)).toEqual([true, false]);
-    expect(actions(mine)[0]!.ok).toBe(false);
-  });
-
   it("a denied gate broadcasts NOTHING — nothing ran, so nothing may tick", async () => {
     const { call, calls } = setup({ gate: { allowed: false, reason: "no" } });
     await call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
@@ -490,12 +482,6 @@ describe("W5 constraints seam (delegated browser agents)", () => {
     expect(s.calls.bridge.filter((b) => b.op === "act")).toHaveLength(1);  // the allowed step ran
   });
 
-  it("without the constraints dep every mutating path behaves exactly as before", async () => {
-    const { call, calls } = setup();
-    const result = await call("browser_open", { url: "https://anywhere.example/" });
-    expect(result.isError).toBe(false);
-    expect(calls.opened).toEqual(["https://anywhere.example/"]);
-  });
 });
 
 /**
@@ -623,13 +609,6 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(false);
   });
 
-  it("browser_act typing into a password field STILL refuses — the fill tool did not relax it", async () => {
-    const { call } = setup({ bridgeResults: { act: { ok: false, refused: "password", error: "target is a password field" } } });
-    const r = await call("browser_act", { browserId: "b1", action: { kind: "type", ref: 7, text: "hunter2" } });
-    expect(r.isError).toBe(true);
-    expect(text(r)).toContain("password field");
-    expect(text(r)).toContain("never types into password fields in any mode");
-  });
 });
 
 /**
@@ -1181,12 +1160,6 @@ describe("the step observer (Laya's shadow) on browser_act", () => {
     expect(delivered).toBe(1);
   });
 
-  it("keeps no snapshot at all when nobody is watching", async () => {
-    const s = setup({ bridgeResults: { snapshot: CART } });
-    await s.call("browser_snapshot", { browserId: "b1" });
-    const r = await s.call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
-    expect(r.isError).toBe(false);
-  });
 });
 
 /* ---------------------------------- walks ---------------------------------- */

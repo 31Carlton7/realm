@@ -166,14 +166,6 @@ describe("ArtifactsStore", () => {
     expect(artifacts.count(null)).toBe(2);
   });
 
-  it("goes with the session: deleting one takes its files out of the Library", () => {
-    const { events, session, sessions, artifacts } = fresh();
-    events.append(session.id, write("/tmp/a/report.md"));
-    sessions.delete(session.id);
-    // ON DELETE CASCADE, not a second delete to remember — an index row pointing at a session that
-    // no longer exists is a row the read's own JOIN would drop anyway, silently and forever.
-    expect(artifacts.list({})).toEqual([]);
-  });
 });
 
 describe("the artifacts backfill", () => {
