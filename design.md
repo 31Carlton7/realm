@@ -237,6 +237,13 @@ Rules:
   the ring is also a per-segment decision: a segment that is FILLED (Full access, Ask, Plan) wears
   no ring on its side. The fill already says "control" there, and a hairline over a tint reads as a
   second, disagreeing edge.
+- A join inside one object takes the ring's TOP away, never its sides. The strips stacked above the
+  prompter once dropped the whole ring at each join, so no hairline would cross the band, and the
+  lower strip's sides went with it: its fill is the pane's own ground, so the ring was its only
+  edge, and the git footer under the plan strip read as an open-sided box right where the card
+  tucks over it. The painter leaves a ring's top open (`--sq-ring-open`), and the sides run on into
+  the card's own edge. An edge the fallback draws as a box-shadow is the fallback's alone: under the
+  painter it traces the squared border box, a second ring with square corners and a seam.
 - Floating menus, palettes, sheets, composers, and overlays use the established layered shadow
   stacks. Never invent a single heavy drop shadow.
 - The blue accent is a condiment: focus, selection, progress, links, and primary actions. It is not a
