@@ -203,6 +203,45 @@ describe("app store", () => {
     expect(store.getState().spaces.map((s) => s.id)).toEqual(["s1", "s2"]);
   });
 
+  it("createSpace lands IN the new space, on a new session holding the keyboard — never on its Overview", async () => {
+    /* Someone who just named a space came to work in it. THE mutant is the old landing: `selectSpace`,
+       which opens an empty space's Overview (its General settings) over the panes and starts nothing. */
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().createSpace({ name: "New", icon: "rocket", profileId: "p1", color: "#ff6b8b" });
+    const s = store.getState();
+    const made = s.spaces.find((x) => x.name === "New")!;
+    expect(made).toMatchObject({ icon: "rocket", color: "#ff6b8b" });
+    const started = Object.values(s.sessions).filter((x) => x.spaceId === made.id);
+    expect(started).toHaveLength(1);
+    expect(s.pageOverlay).toBeNull();
+    const focused = s.items.find((i) => i.id === itemIdOfLeaf(s.layout!, s.focusedLeafId!));
+    expect(focused).toMatchObject({ kind: "session", refId: started[0]!.id, spaceId: made.id });
+    expect(s.activeSpaceId).toBe(made.id);
+    // The keyboard goes with it, the way an open from a list hands it over (SessionPane takes it).
+    expect(s.keyboardFor?.sessionId).toBe(started[0]!.id);
+    // On the agent last used — the one a new session gets anywhere else.
+    expect(api.calls).toContain("createSession:claude");
+  });
+
+  it("createSpace's folder is the space's first project and where its session works; its memory is written before the session exists", async () => {
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().createSpace({ name: "Versed 2", icon: "folder", profileId: "p1", folder: "/Users/me/code/versed", memory: "Use pnpm." });
+    const made = store.getState().spaces.find((x) => x.name === "Versed 2")!;
+    const project = api.data.projects[made.id]?.[0];
+    expect(project).toMatchObject({ name: "versed", rootPath: "/Users/me/code/versed" });
+    const started = Object.values(store.getState().sessions).find((x) => x.spaceId === made.id)!;
+    expect(started.projectId).toBe(project!.id);
+    // Before, so the session's first turn reads it: memory is injected when an agent starts.
+    const order = api.calls.filter((c) => c.startsWith("setMemory:") || c.startsWith("createSession:"));
+    expect(order).toEqual([`setMemory:${made.id}:${"Use pnpm.".length}`, "createSession:claude"]);
+  });
+
+  it("createSpace writes no memory document when none was given, or only whitespace", async () => {
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().createSpace({ name: "Plain", icon: "folder", profileId: "p1", memory: "  \n" });
+    expect(api.calls.some((c) => c.startsWith("setMemory:"))).toBe(false);
+  });
+
   /* The regression: only the DIALOG path compressed, so a photo DROPPED on the picker went to the
      server at full size and came back refused by its 512KB cap. Compression belongs on the one path
      both entries share. */
@@ -1982,6 +2021,23 @@ describe("app store", () => {
       expect(store.getState().sheet).toBeNull();
       expect(store.getState().layout).toBe(original);
       expect(store.getState().sheetSnap).toBeNull();
+    });
+
+    it("MUTANT: Create closes the New space sheet BEFORE it lands, so the new session is laid into the restored layout, not wiped by it", async () => {
+      /* The sheet now stays up while Create runs. Closing it is what puts the snapped layout back, so
+         closed AFTER the landing it would lay the pre-sheet arrangement over the session just opened.
+         THE mutant moves the close after the landing. */
+      const store = await seed();
+      store.getState().openSheet({ kind: "new-space" });
+      await store.getState().createSpace({ name: "Beside the web", icon: "folder", profileId: "p1" });
+      const s = store.getState();
+      expect(s.sheet).toBeNull();
+      expect(s.sheetSnap).toBeNull();
+      const made = s.spaces.find((x) => x.name === "Beside the web")!;
+      const session = Object.values(s.sessions).find((x) => x.spaceId === made.id)!;
+      expect(s.items.find((i) => i.id === itemIdOfLeaf(s.layout!, s.focusedLeafId!))?.refId).toBe(session.id);
+      // The user's own arrangement, unsnapped, with the session in it.
+      expect((s.layout as Extract<Layout, { type: "split" }>).sizes).toEqual([80, 20]);
     });
 
     it("items deleted while the sheet was open are pruned from the restored layout", async () => {

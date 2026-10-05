@@ -382,6 +382,10 @@ export const Methods = {
 
   "spaces.list":   { params: z.object({}), result: z.array(SpaceSchema) },
   "spaces.create": { params: z.object({ profileId: IdSchema, name: z.string().min(1), icon: z.string().default("folder"), color: HexColorSchema.optional() }), result: SpaceSchema },
+  /** The folder `spaces.create` would make for this name under this profile, right now — its slug,
+   *  and the `-2` it takes when the first choice is already on disk. Read-only: the New space sheet
+   *  asks it as the name is typed, to say where a space without a folder of its own will work. */
+  "spaces.folderFor": { params: z.object({ profileId: IdSchema, name: z.string().min(1) }), result: z.object({ path: z.string() }) },
   "spaces.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: HexColorSchema.optional(), profileId: IdSchema.optional(), sortOrder: z.number().int().optional(), activeItemId: IdSchema.nullable().optional() }), result: SpaceSchema },
   "spaces.reorder": { params: z.object({ ids: z.array(IdSchema) }), result: z.object({ ok: z.literal(true) }) },
   "spaces.setLayout": { params: z.object({ id: IdSchema, layout: LayoutSchema }), result: SpaceSchema },

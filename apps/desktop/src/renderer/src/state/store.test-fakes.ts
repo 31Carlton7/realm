@@ -736,6 +736,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const s = space(`s${++n}`, input.profileId, input.name, { icon: input.icon, color: input.color ?? "#ffb454", sortOrder: data.spaces.length });
       data.spaces.push(s); return s;
     },
+    /** The server's slugs, under a home of `/home`, without the `-2` it adds for a folder on disk. */
+    spaceFolderFor: async (profileId, name) => {
+      calls.push(`spaceFolderFor:${profileId}:${name}`);
+      const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "space";
+      return `/home/${slug(data.profiles.find((p) => p.id === profileId)?.name ?? "")}/${slug(name)}`;
+    },
     updateSpace: async (input) => {
       const i = data.spaces.findIndex((x) => x.id === input.id); if (i < 0) throw new Error(`no space ${input.id}`);
       const { id: _id, ...patch } = input;

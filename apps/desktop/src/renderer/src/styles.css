@@ -4887,21 +4887,77 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .onboarding-other-state { flex: none; font-size: 12px; color: var(--rl-text-dim); }
 .onboarding-others > .onboarding-note { grid-column: 1 / -1; margin: 6px 8px 0; }
 .onboarding-note { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--rl-text-dim); }
-/* The space: name and folder on one row, how it looks in the sidebar under them. */
-.onboarding-space-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 12px 16px; margin-left: 34px; }
+/* The space: its name (with how it will look) beside its folder — the two fields the New space sheet
+   is made of too, styled once below. */
+.onboarding-space-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); align-items: start; gap: 12px 16px; margin-left: 34px; }
 .onboarding-space-row .field > span { font-size: 13px; }
-.onboarding-name input { height: 34px; font-size: 14px; }
-.onboarding-optional { margin-left: 4px; color: var(--rl-text-faint); }
-.onboarding-look { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-left: 34px; }
-.onboarding-look-label { font-size: 13px; color: var(--rl-text-dim); }
-/* The folder step: a control and its hint on one line, the whole thing a drop target. Dashed only
-   while a drag is over it — a dashed box at rest is an empty state asking to be filled, and this one
-   is optional. */
-.onboarding-folder { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 6px 0 0; border-radius: var(--r-ctl); corner-shape: squircle;
+/* ── A space's fields (space-fields.tsx): first run's space step and the New space sheet ── */
+/* The name, the tile beside it that is both the icon's preview and its picker, the swatches under. */
+.space-identity { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.space-identity-label { font-size: 13px; color: var(--rl-text-dim); }
+.space-identity-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.space-identity-row > .ip-error { flex-basis: 100%; margin: 0; }
+.space-identity > .swatches { margin-top: 6px; }
+/* The GLYPH wears the space's colour, as the sidebar draws it; the tile under it is the quiet well
+   the agent cards' marks sit in. A coloured tile would be decoration (design.md). */
+.space-tile { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-ctl); corner-shape: squircle;
+  background: var(--rl-hover); color: var(--rl-text-bright); transition: background-color var(--dur-hover) ease; }
+.space-tile:hover { background: var(--rl-active); }
+.space-tile:is([data-pressed], :active:focus-visible) { background: var(--hover-2); }
+.space-tile[data-dropping] { background: var(--accent-tint); box-shadow: inset 0 0 0 1.5px var(--rl-accent); }
+.space-name { flex: 1; min-width: 0; height: 36px; padding: 0 11px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
+  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 14px; outline: none; }
+.space-name::placeholder { color: var(--rl-text-faint); }
+.space-name:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+/* The folder: a control and its hint on one line, the whole field a drop target. Dashed only while a
+   drag is over it — a dashed box at rest is an empty state asking to be filled, and this one is
+   optional. Under it, where the space works without one. */
+.space-optional { margin-left: 4px; color: var(--rl-text-faint); }
+.space-folder-control { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 34px; padding: 0 6px 0 0; border-radius: var(--r-ctl); corner-shape: squircle;
   outline: var(--hairline-w) dashed transparent; outline-offset: 2px; }
-.onboarding-folder[data-dropping] { outline-color: var(--rl-accent); background: var(--accent-tint); }
-.onboarding-folder-path { flex: 1; min-width: 0; font-size: 13px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-.onboarding-folder > .icon-btn { flex: none; }
+.space-folder[data-dropping] .space-folder-control { outline-color: var(--rl-accent); background: var(--accent-tint); }
+.space-folder-control > .icon-btn { flex: none; }
+.space-folder-note { font-size: 13px; color: var(--rl-text-dim); white-space: nowrap; }
+/* A path keeps its END in view — the folder's own name is the part anybody reads — so it is cut from
+   the left. The mark before it keeps the leading slash on the left under the right-to-left flow.
+   It also has no width of its own to ask for (`contain: inline-size`): one unbroken line of unbounded
+   length, measured into a `1fr` track, widened first run's whole page past a narrow window. */
+.space-folder-path, .space-folder-made { min-width: 0; contain: inline-size; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.space-folder-path::before, .space-folder-made::before { content: "\200e"; }
+.space-folder-path { flex: 1; font-size: 13px; color: var(--rl-text-bright); }
+.space-folder-default { display: flex; gap: 4px; min-width: 0; margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: nowrap; }
+.space-folder-made { flex: 1; color: var(--rl-text-bright); }
+/* ── New space (NewSpaceSheet.tsx): the identity, then one card of the rest in Settings' grammar ── */
+.new-space { gap: 16px; }
+/* Each row is its label and its control on one line; whatever the row has to add runs under both. */
+.settings-row.new-space-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; }
+.new-space-row > .space-folder-control, .new-space-row > select, .new-space-row > .new-space-memory-add { justify-self: end; }
+/* A chosen folder's path takes the row and is cut, rather than pushing back over the label. */
+.new-space-row > .space-folder-control[data-chosen] { justify-self: stretch; }
+.new-space-row > .space-folder-default, .new-space-row > .profile-add-row, .new-space-row > .new-space-memory,
+.new-space-row > .new-space-note { grid-column: 1 / -1; }
+.new-space-row > .space-folder-label { font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.new-space-row > select { min-width: 160px; }
+.new-space-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.new-space-note { font-size: 13px; color: var(--rl-text-dim); }
+.new-space-row .profile-add-row input, .new-space-memory { border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field);
+  color: var(--rl-text-bright); font: inherit; outline: none; }
+.new-space-row .profile-add-row input { height: 30px; padding: 0 9px; }
+.new-space-memory { min-height: 64px; padding: 7px 9px; font-size: 14px; line-height: 20px; resize: vertical; }
+.new-space-row .profile-add-row input::placeholder, .new-space-memory::placeholder { color: var(--rl-text-faint); }
+.new-space-row .profile-add-row input:focus, .new-space-memory:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+/* The identity and the card are one fieldset, so Create can lock them together while it runs. The
+   lock dims them a beat late: a Create that lands at once never flashes the form grey. One opacity
+   for the whole form, rather than each control greying by its own disabled rule. */
+.new-space-fields { display: flex; flex-direction: column; gap: 16px; min-width: 0; margin: 0; padding: 0; border: 0;
+  transition: opacity var(--dur-fast) ease; }
+.new-space-fields:disabled { opacity: .6; transition-delay: var(--dur-fast); }
+.new-space-fields:disabled button:disabled { opacity: 1; }
+/* Create, with what it will do beside it — first run's foot, at the sheet's size — or, when it
+   failed, what went wrong, in the same place. */
+.new-space-foot { display: flex; align-items: center; gap: 8px; }
+.new-space-summary[data-tone="danger"] { color: var(--rl-danger); }
+.new-space-summary { flex: 1; min-width: 0; margin: 0 8px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
 /* Start, with what it will do beside it. */
 .onboarding-foot { display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding-top: 4px; }
 .onboarding-summary { flex: 1; min-width: 0; margin: 0; font-size: 13px; line-height: 1.45; color: var(--rl-text-dim); text-align: right; }
@@ -5762,8 +5818,10 @@ select { appearance: none; padding-right: 22px;
 }
 /* The rim runs round the RUN, not round each row: a row under another row hands its top edge to the
    divider, which is inset from both ends as Codex's is, so the card reads as one object ruled
-   inside rather than as a stack of boxes. */
+   inside rather than as a stack of boxes. The row above hands over its bottom edge too: with it,
+   every boundary was drawn twice — the full-width border, and the inset divider right under it. */
 .settings-row + .settings-row { border-top: 0; }
+.settings-row:has(+ .settings-row) { border-bottom: 0; }
 .settings-row:not(.settings-row + .settings-row) { border-start-start-radius: var(--r-panel); border-start-end-radius: var(--r-panel); }
 .settings-row:not(:has(+ .settings-row)) { border-end-start-radius: var(--r-panel); border-end-end-radius: var(--r-panel); }
 /* The divider, inset to the label's own edge. Drawn on the LOWER row, so a run's last row can never
