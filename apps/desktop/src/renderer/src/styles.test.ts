@@ -2317,6 +2317,7 @@ describe("every scroller dissolves", () => {
     ".settings-tabs": "a segmented control lying down in a narrow pane: a mask would fade the track it sits in",
     ".sched-card": "a scheduled task's card, whose own fill and rim a mask would dissolve with its rows",
     ".ql-view": "Quick Look's render on a ground of its own, which a mask would fade with the picture",
+    ".media-viewer-canvas[data-pans]": "a zoomed picture being panned: its edges are the picture's pixels, which is what a zoom is for",
     // Editors keep their engines' scrolling, as they keep its rubber-banding (design.md).
     ".documents-rich-scroll": "the rich-text editor's page, where the caret can be on any line",
     ".documents-rich-surface pre": "a code block inside the rich-text editor",

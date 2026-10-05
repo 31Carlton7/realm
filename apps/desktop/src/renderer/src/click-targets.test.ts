@@ -51,9 +51,8 @@ const NOT_A_CONTROL: Record<string, string> = {
   "selection-bar": "a toolbar whose press only keeps the text selection it acts on; its buttons point",
   "sim-screen": "a device's own screen, where the pointer stands in for a finger",
   "media-el": "a video's picture, which its play control sits over",
-  "media-lightbox": "the lightbox's dimmed window: a press there closes it",
-  "media-stage": "the lightbox's stage, which only keeps that press from closing it",
-  "media-lightbox-bar": "the lightbox's bar, which only keeps that press from closing it",
+  "media-viewer-stage": "the viewer's ground round a file: a press there puts the viewer away, as a scrim's does",
+  "media-viewer-canvas": "a zoomed picture's canvas, which takes the grab cursor of its own while it pans",
   "panes/session/Markdown.tsx:div": "a message's prose, which takes its links' clicks for them; each link wears its own role",
 };
 
