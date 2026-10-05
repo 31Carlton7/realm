@@ -675,6 +675,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   unbounded length, so they keep the width and the shown item's own actions go to its menu. The
   agents still working are a count in the session's bar, and their list previews one on request;
   a tab dragged to an edge is how something becomes part of the user's own layout.
+- What a pane SHOWS keeps its controls with it, not in the pane's bar, which in a side pane is the tab
+  strip: the simulator's state and eight buttons there once left the tabs no width at all. A device
+  wears a toolbar centred over it — its state and the presses used every minute, the rest one click
+  away in an overflow that a narrow pane fills from the toolbar's end — and what is done WITH it
+  (recording it for Laya) sits under it in the same pill, so the two read as one instrument.
 - Work a clock starts is not work the person started. A scheduled run lands under its task on the
   Scheduled page, unread until its session is read, rather than opening a pane beside whatever the
   person is doing — and for it "never opened" is what unread means, where for a session somebody
