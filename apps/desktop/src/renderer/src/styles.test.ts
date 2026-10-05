@@ -4142,7 +4142,7 @@ describe("the pointer", () => {
     expect(list.startsWith(":where(")).toBe(true);
     for (const part of ["button", "a[href]", "summary", "select", '[role="button"]', '[role="link"]', '[role="tab"]',
       '[role="menuitem"]', '[role="menuitemradio"]', '[role="menuitemcheckbox"]', '[role="option"]', '[role="switch"]',
-      '[role="checkbox"]', '[role="radio"]', 'input:is([type="checkbox"], [type="radio"], [type="range"]',
+      '[role="checkbox"]', '[role="radio"]', '[role="slider"]', 'input:is([type="checkbox"], [type="radio"], [type="range"]',
       'label:has(input:is([type="checkbox"], [type="radio"]))']) expect(list).toContain(part);
     // Everything that tracks a press (press-tracking.ts) is something that points.
     for (const sel of PRESSABLE.split(", ")) expect(list, sel).toContain(sel === '[role^="menuitem"]' ? '[role="menuitem"]' : sel.replace(/^input\[type="checkbox"\]$/, '[type="checkbox"]'));

@@ -270,7 +270,7 @@ button { font: inherit; color: inherit; background: none; border: none; padding:
    win. A label points only round a box or a radio, where a click on its words is a click on the
    control; round a text field it is the field's caption. */
 :where(button, a[href], summary, select, [role="button"], [role="link"], [role="tab"], [role="menuitem"],
-  [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"],
+  [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"],
   input:is([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"]),
   label:has(input:is([type="checkbox"], [type="radio"]))) { cursor: pointer; }
 /* …and the arrow wherever a click does nothing: a control that is off, the words beside one, and
@@ -1439,7 +1439,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-run-level[data-unset] { color: var(--rl-text-dim); }
 .mp-run-model { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
 .mp-bolt, .mp-run-reset { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; --btn-h: 28px;
-  border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; background: transparent; color: var(--rl-text-dim); cursor: default;
+  border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; background: transparent; color: var(--rl-text-dim);
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-bolt:hover, .mp-run-reset:hover { background: var(--hover); color: var(--rl-text-bright); }
 /* Asked for: the bolt takes the accent the way a pressed segment would, on its own tint. */
@@ -1448,7 +1448,7 @@ kbd { font: 11px var(--font-mono); }
 /* The track: a well with a dot per level, the fill up to the knob in the accent. `--at` is a place on
    the run between the first dot and the last, inset by half the track's height so the knob at either
    end sits inside it. */
-.mp-track { --inset: 11px; position: relative; height: 22px; border-radius: 999px; background: var(--hover); cursor: default; touch-action: none; }
+.mp-track { --inset: 11px; position: relative; height: 22px; border-radius: 999px; background: var(--hover); touch-action: none; }
 .mp-track:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; }
 .mp-track-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--rl-accent);
   width: calc(var(--inset) * 2 + (100% - var(--inset) * 2) * var(--at, 0)); transition: width var(--dur-hover) var(--ease-out-strong); }
