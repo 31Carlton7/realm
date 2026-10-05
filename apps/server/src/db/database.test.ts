@@ -1347,6 +1347,8 @@ describe("migration v40 — saved turns", () => {
     /* THE mutant: a table with no key to the event. A rewind that cut the prompt out of the log would
        leave a saved turn pointing at a seq nothing holds — listed as a blank, or as whatever reused it. */
     const { db } = migrated();
+    // A session that is not there is refused too: the per-session read a pane mounts with would never find it.
+    expect(() => save(db, 3, "nobody")).toThrow(/FOREIGN KEY/);
     save(db, 1, "sess1");
     save(db, 3, "sess1");
     save(db, 4, "sess2");
