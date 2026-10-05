@@ -15,6 +15,7 @@ import { ToolCard, ToolGroup } from "./ToolCard";
 import { formatDuration, groupTranscript, withEnter } from "./tool-group";
 import { blockKey, lastUserMessage, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { stampLabel, stampTitle, useNow } from "./timestamps";
+import { touchedFiles, type FileLinkContext } from "./file-links";
 import { useDissolve } from "../../components/ScrollFades";
 import { runLabelFor, type RunLabel } from "./run-label";
 import { formatTokens } from "./SessionUsage";
@@ -143,8 +144,11 @@ function UserAttachments({ attachments }: { attachments: readonly { path: string
  * strip that appeared, changed and disappeared as the sentence completed would be worse than one
  * that waits for the full stop.
  */
-function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetry, retryBusy, rating, onRate, onPath, sources = NO_SOURCES }: {
+function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetry, retryBusy, rating, onRate, onPath, sources = NO_SOURCES, fileLinks }: {
   text: string; streaming: boolean; enter: boolean; cwd: string | null;
+  /** The checkout, for the files this message names — handed over only once it has finished, for
+   *  the media strip's reason: half a path is a different path. */
+  fileLinks?: FileLinkContext;
   /** A file path in the prose was clicked. Absent in the read-only mounts, which leave paths as
    *  plain text rather than drawing a control that opens nothing. */
   onPath?: (path: string, at: HTMLElement) => void;
@@ -164,7 +168,7 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
     // direct children only, and the message stopped being one the moment it grew a wrapper.
     <div className="msg-assistant-row" data-enter={enter || undefined}
       data-state={streaming ? "streaming" : "complete"} aria-busy={streaming}>
-      <Markdown className="msg-assistant" text={text} cite={cite} onPath={onPath} arrive />
+      <Markdown className="msg-assistant" text={text} cite={cite} onPath={onPath} arrive files={streaming ? undefined : fileLinks} />
       <MediaStrip files={files} />
       {actions && !streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate} />}
       {!streaming && sources.length > 0 && <MessageSources sources={sources} />}
@@ -175,8 +179,12 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, onExpandPlan, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, onQuote }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, onExpandPlan, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, onQuote, checkout = null }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
+  /** The session's checkout and how to open a file in it — what turns a file the prose names into a
+   *  link (file-links.ts). Null in the read-only mounts, which leave those names as text. `onOpen`
+   *  must be stable: it is part of what every finished message re-checks its links against. */
+  checkout?: { root: string; onOpen: (path: string, line: number | null) => void } | null;
   /** Ask the last user message again. Offered on the newest assistant message only: "retry" names
    *  the turn that just finished, and a button on message three of forty would silently act on
    *  message forty instead. Absent in the read-only mounts the suite and the fork preview use. */
@@ -365,6 +373,18 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   const wrap = useRef<HTMLDivElement>(null);
   // The reader's day, for choosing how each timestamp is said — never for what time it says.
   const now = useNow();
+  /* What a bare file name in the prose may resolve to. Kept as the SAME set while its contents hold:
+     every streaming delta rebuilds the block list, and a new set each time would have every finished
+     message on screen re-check its links once per token. */
+  const touchedRef = useRef<Set<string> | null>(null);
+  const touched = useMemo(() => {
+    const next = cwd ? touchedFiles(transcript.blocks, transcript.changes, cwd) : null;
+    const prev = touchedRef.current;
+    if (prev && next && prev.size === next.size && [...next].every((p) => prev.has(p))) return prev;
+    return (touchedRef.current = next);
+  }, [cwd, transcript.blocks, transcript.changes]);
+  const fileLinks = useMemo<FileLinkContext | undefined>(() => (checkout && cwd && touched
+    ? { cwd, root: checkout.root, known: touched, onOpen: checkout.onOpen } : undefined), [checkout, cwd, touched]);
 
   return (
     <div className="transcript-wrap" ref={wrap}>
@@ -408,7 +428,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                   aria-label={`Sent ${stampTitle(b.ts)}`} tabIndex={0}>{stampLabel(b.ts, now)}</time>
               </div>);
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
-              actions={settled && key === lastAssistantKey} onPath={onPath}
+              actions={settled && key === lastAssistantKey} onPath={onPath} fileLinks={fileLinks}
               onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy}
               rating={transcript.feedback[b.messageId] ?? null}
               onRate={onRate && ((r) => onRate(b.messageId, r))}

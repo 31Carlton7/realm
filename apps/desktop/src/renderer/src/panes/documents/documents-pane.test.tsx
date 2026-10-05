@@ -19,6 +19,7 @@ const fireChange = (p: { environmentId: string; path: string; hash: string | nul
   act(() => { for (const cb of [...listeners]) cb(p); });
 };
 
+import { EditorView } from "@codemirror/view";
 import { DocumentsPane } from "./DocumentsPane";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
@@ -320,5 +321,47 @@ describe("the code editor's caret follows its OWN preference", () => {
 
     act(() => store.setState({ editorCursorBlink: false }));
     await waitFor(async () => expect(await rate()).toBe("0ms"));
+  });
+});
+
+describe("a line asked for from the transcript", () => {
+  const lineOfCursor = (container: HTMLElement): number | null => {
+    const el = container.querySelector<HTMLElement>(".cm-editor");
+    const view = el && EditorView.findFromDOM(el);
+    return view ? view.state.doc.lineAt(view.state.selection.main.anchor).number : null;
+  };
+  const source = Array.from({ length: 120 }, (_, i) => `const v${i} = ${i};`).join("\n");
+
+  it("lands the code editor on it, and is spent so the file's next open does not land there again", async () => {
+    const { store, ui } = renderPane({ "src/orgs.ts": source }, ["src/orgs.ts"], "src/orgs.ts");
+    act(() => store.setState({ documentReveal: { documentsId: DOCS_ID, path: "/w/app/src/orgs.ts", line: 83, n: 7 } }));
+    await waitFor(() => expect(lineOfCursor(ui.container)).toBe(83));
+    expect(store.getState().documentReveal).toBeNull();
+  });
+
+  it("is left for the workspace it names, and for the file it names", async () => {
+    const { store, ui } = renderPane({ "src/orgs.ts": source, "src/other.ts": source }, ["src/orgs.ts", "src/other.ts"], "src/orgs.ts");
+    await waitFor(() => expect(lineOfCursor(ui.container)).toBe(1));
+    act(() => store.setState({ documentReveal: { documentsId: "another", path: "/w/app/src/orgs.ts", line: 50, n: 1 } }));
+    act(() => store.setState({ documentReveal: { documentsId: DOCS_ID, path: "/w/app/src/other.ts", line: 50, n: 2 } }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(lineOfCursor(ui.container)).toBe(1);
+    // Still standing: the tab it names is not the one on screen yet.
+    expect(store.getState().documentReveal).toMatchObject({ n: 2 });
+  });
+
+  it("spends a request for a file that has no lines to land on", async () => {
+    const { store } = renderPane({ "notes.md": "# Notes" }, ["notes.md"], "notes.md");
+    act(() => store.setState({ documentReveal: { documentsId: DOCS_ID, path: "/w/app/notes.md", line: 3, n: 1 } }));
+    await waitFor(() => expect(store.getState().documentReveal).toBeNull());
+  });
+
+  it("is asked for by opening a path at a line", async () => {
+    const { store } = renderPane({ "src/orgs.ts": source });
+    store.setState({ activeSpaceId: "s1" });
+    await store.getState().openDocumentPath("/w/app/src/orgs.ts", null, "s1", 83);
+    expect(store.getState().documentReveal).toMatchObject({ documentsId: expect.any(String), path: "/w/app/src/orgs.ts", line: 83 });
+    await store.getState().openDocumentPath("/w/app/src/orgs.ts", null, "s1");
+    expect(store.getState().documentReveal).toMatchObject({ line: 83 }); // an open with no line asks for none
   });
 });

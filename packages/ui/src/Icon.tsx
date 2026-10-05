@@ -39,6 +39,9 @@ import {
   // Settings' pages, each beside its glyph in the column (settings-index.ts), and the Library's toolbar.
   CpuIcon, DashboardSpeed02Icon, Cursor01Icon, CommandIcon, InboxDownloadIcon, FilterHorizontalIcon, LeftToRightListBulletIcon,
   SquareLockPasswordIcon,
+  // A file named in the transcript, by what kind of file it is (the renderer's `file-icon.ts`).
+  Typescript01Icon, JavaScriptIcon, ReactIcon, ThirdBracketSquareIcon, PythonIcon, Html5Icon, Css3Icon, JavaIcon,
+  PhpIcon, SqlIcon, Pdf01Icon, Xml01Icon, Svg01Icon, FileZipIcon, FileScriptIcon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -141,6 +144,12 @@ export const icons = {
   /* The Library's toolbar: the narrowing a filter menu does, and the view as rows beside `grid`'s
      view as tiles — the pair every file browser draws. */
   filter: FilterHorizontalIcon, list: LeftToRightListBulletIcon,
+  /* What kind of file a path names, where the pack draws it: a language's own badge (the TS and JS
+     squares Codex marks its file links with, `{ }` for JSON, the HTML and CSS shields), the format's
+     letters in a page for the rest, and a page with `< >` on it for source the pack has no mark for. */
+  fileTs: Typescript01Icon, fileJs: JavaScriptIcon, fileReact: ReactIcon, fileJson: ThirdBracketSquareIcon,
+  filePython: PythonIcon, fileHtml: Html5Icon, fileCss: Css3Icon, fileJava: JavaIcon, filePhp: PhpIcon, fileSql: SqlIcon,
+  filePdf: Pdf01Icon, fileXml: Xml01Icon, fileSvg: Svg01Icon, fileZip: FileZipIcon, fileCode: FileScriptIcon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */
@@ -195,6 +204,25 @@ export function Icon({ name, size = 16, className, colored = false }: { name: Ic
   }
   const icon = Object.prototype.hasOwnProperty.call(icons, name) ? icons[name as keyof typeof icons] : icons.folder;
   return <HugeiconsIcon icon={icon} size={size} className={className} strokeWidth={iconStroke(size)} absoluteStrokeWidth />;
+}
+
+/**
+ * The glyph `Icon` draws, as markup — for the one renderer that writes HTML rather than React:
+ * assistant markdown, where a file the agent names is drawn as a link wearing its file type's mark.
+ * The same data and the same stroke rule, so the string and the component cannot draw two glyphs.
+ * Stroke glyphs only; a brand mark has its own string form beside it (`brandMarks`).
+ */
+export function iconSvg(name: IconName | (string & {}), size: number, className = ""): string {
+  const stroke = (iconStroke(size) * 24) / size;
+  const kebab = (k: string) => k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  // The same fallback `Icon` takes for a name it does not hold.
+  const icon = Object.prototype.hasOwnProperty.call(icons, name) ? icons[name as keyof typeof icons] : icons.folder;
+  const parts = icon.map(([tag, attrs]) => {
+    const list = Object.entries(attrs).filter(([k]) => k !== "key")
+      .map(([k, v]) => `${kebab(k)}="${k === "strokeWidth" ? stroke : String(v)}"`);
+    return `<${tag} ${list.join(" ")}/>`;
+  });
+  return `<svg class="${className}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">${parts.join("")}</svg>`;
 }
 
 /**

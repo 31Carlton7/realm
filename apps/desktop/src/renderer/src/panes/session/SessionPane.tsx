@@ -438,6 +438,14 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const [quote, setQuote] = useState<{ text: string; n: number } | null>(null);
   /** The file path whose menu is open, and the element it was clicked on. */
   const [pathMenu, setPathMenu] = useState<{ path: string; at: HTMLElement } | null>(null);
+  /* A file the prose names inside this session's checkout opens straight in the documents pane, at
+     the line it named. Stable, because every finished message re-checks its links against it. */
+  const openDocumentPath = useApp((s) => s.openDocumentPath);
+  const ownEnvironmentId = session?.environmentId ?? null;
+  const checkoutRoot = useApp((s) => { const sess = s.sessions[id]; return sess ? s.environments[sess.environmentId]?.path ?? sess.cwd : null; });
+  const openFileAt = useCallback((path: string, line: number | null) => { run(() => openDocumentPath(path, ownEnvironmentId, null, line)); },
+    [run, openDocumentPath, ownEnvironmentId]);
+  const checkout = useMemo(() => (checkoutRoot ? { root: checkoutRoot, onOpen: openFileAt } : null), [checkoutRoot, openFileAt]);
   /* The whole pane takes a dropped file, not just the prompter: with a transcript on screen the card
      is a strip at the bottom, and aiming at it with a file in hand is the chore this removes. The
      session id is closed over here, so a four-pane split lands each file in the pane it was dropped
@@ -598,7 +606,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
         mode={sessionModeOf(session.permissionMode)}
         eggs={easterEggs} packLabels={packLabels}
-        onPath={(p, at) => setPathMenu({ path: p, at })}
+        onPath={(p, at) => setPathMenu({ path: p, at })} checkout={checkout}
         onQuote={(text) => setQuote((q) => ({ text, n: (q?.n ?? 0) + 1 }))}
         sends={sends}
         // Keyed by SESSION, not by pane: a space switch tears this pane down and rebuilds it, and

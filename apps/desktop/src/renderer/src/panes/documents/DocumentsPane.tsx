@@ -76,6 +76,9 @@ export function DocumentsPane({ item }: PaneProps) {
   const createDocumentFile = useApp((s) => s.createDocumentFile);
   const renameDocumentFile = useApp((s) => s.renameDocumentFile);
   const listDocumentEntries = useApp((s) => s.listDocumentEntries);
+  /* A line some other pane asked this workspace to land on — a file reference in the transcript. */
+  const reveal = useApp((s) => (s.documentReveal?.documentsId === documentsId ? s.documentReveal : null));
+  const consumeDocumentReveal = useApp((s) => s.consumeDocumentReveal);
 
   const [ws, setWs] = useState<DocumentWorkspace | null>(null);
   const [buffers, setBuffers] = useState<Record<string, Buffer>>({});
@@ -219,6 +222,15 @@ export function DocumentsPane({ item }: PaneProps) {
 
   const tabs = Object.keys(buffers);
 
+  /* The request is the active file's when its absolute path ends in the tab's workspace path — the
+     server opened it as the active tab, so the tab it names is the one on screen. Only a code buffer
+     has lines to land on; any other kind spends the request the moment its file is up. */
+  const revealHere = reveal && buf && (reveal.path === buf.path || reveal.path.endsWith(`/${buf.path}`)) ? reveal : null;
+  const revealN = revealHere?.n ?? null;
+  useEffect(() => {
+    if (revealN !== null && kind !== "code") consumeDocumentReveal(revealN);
+  }, [revealN, kind, consumeDocumentReveal]);
+
   // ---- create ------------------------------------------------------------------------------------
   // Named AFTERWARDS, not before. The old flow made the first thing you did in a new document a form
   // field for a file that did not exist yet — and the name is the one thing you rarely know at that
@@ -308,6 +320,8 @@ export function DocumentsPane({ item }: PaneProps) {
             buffer={buf} kind={kind} mode={mode} documentsId={documentsId}
             onChange={(text) => setBuffer(buf.path, (b) => edited(b, text))}
             onSave={() => { void save(buf.path); }}
+            revealLine={revealHere?.line ?? null}
+            onRevealed={() => { if (revealN !== null) consumeDocumentReveal(revealN); }}
           />
         </>
       )}
@@ -478,9 +492,11 @@ function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onT
  * The editor host. W2 adds the rich Markdown editor for `doc` and `slides`; the source view remains for
  * every kind and is the only view for `sheet` and `latex` until W3 and W5 replace it.
  */
-function Editor({ buffer, kind, mode, documentsId, onChange, onSave }: {
+function Editor({ buffer, kind, mode, documentsId, onChange, onSave, revealLine = null, onRevealed }: {
   buffer: Buffer; kind: DocumentKind; mode: "rich" | "source"; documentsId: string;
   onChange: (text: string) => void; onSave: () => void;
+  /** A line asked for from outside the pane (`documentReveal`) — code buffers only. */
+  revealLine?: number | null; onRevealed?: () => void;
 }) {
   // The toggle itself lives in the head bar beside the name — the editor only has to know which view
   // it is drawing. A PDF has no text, so it is preview-only regardless of the mode (Plan 22).
@@ -519,6 +535,7 @@ function Editor({ buffer, kind, mode, documentsId, onChange, onSave }: {
                 rather than one document's undo history diffed onto another's. */}
             <CodeEditor key={buffer.path} path={buffer.path} text={buffer.text}
               onChange={onChange} onSave={onSave} blinkCaret={blinkCaret}
+              revealLine={revealLine} onRevealed={onRevealed}
               scrollKey={`doc:${documentsId}:code:${buffer.path}`} />
           </Suspense>
         ) : (

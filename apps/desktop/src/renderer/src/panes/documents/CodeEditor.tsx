@@ -11,7 +11,7 @@ import { EDITOR_CURSOR_BLINK_RATE } from "@realm/contracts";
 import { codeLanguageFor, type CodeLanguage } from "./code-languages";
 import { loadCodeMode } from "./code-modes";
 import { realmCodeTheme } from "./code-theme";
-import { useScrollMemory } from "../scroll-memory";
+import { forgetScroll, useScrollMemory } from "../scroll-memory";
 
 /**
  * The source editor for a `code` document (CodeMirror 6).
@@ -29,7 +29,7 @@ import { useScrollMemory } from "../scroll-memory";
  * tab that inserts a character instead of a level — which is why editing two wrong characters in a
  * source file meant leaving Realm for a real editor and coming back.
  */
-export function CodeEditor({ path, text, onChange, onSave, revealLine = null, scrollKey = null, blinkCaret = true }: {
+export function CodeEditor({ path, text, onChange, onSave, revealLine = null, onRevealed, scrollKey = null, blinkCaret = true }: {
   /** The document's path. Decides the grammar, and names the editor for a screen reader. */
   path: string;
   text: string;
@@ -40,6 +40,9 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
   /** 1-based line to put the cursor on when the file opens — what a `project.grep` row means by
    *  "this match". Null for an ordinary open, which resumes wherever the reader left off. */
   revealLine?: number | null;
+  /** Called once the editor has landed on `revealLine`, so whoever asked for it can spend the request
+   *  — a request left standing would land again on every remount of this file. */
+  onRevealed?: () => void;
   /** Where the reader was in this file, across the unmount a space switch causes (scroll-memory.ts). */
   scrollKey?: string | null;
   /** Whether the caret pulses. CodeMirror draws its own, so unlike the prompter's it can be told. */
@@ -56,8 +59,12 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
   const caret = useRef(new Compartment());
   /** The handlers, read through a ref so a new `onChange` identity never rebuilds the editor —
    *  rebuilding would throw away the undo history and the cursor on every keystroke. */
-  const handlers = useRef({ onChange, onSave });
-  handlers.current = { onChange, onSave };
+  const handlers = useRef({ onChange, onSave, onRevealed });
+  handlers.current = { onChange, onSave, onRevealed };
+  /** The line asked for as the view is BUILT: a remembered scroll position must not be restored over
+   *  it, so it is forgotten before the scroller is attached. */
+  const revealAtBuild = useRef(revealLine);
+  revealAtBuild.current = revealLine;
   /** The last document this editor produced, to recognise its own value arriving back as a prop. */
   const lastEmitted = useRef<string | null>(null);
   /** What the pane currently holds. Read when a view is BUILT — which is usually mount, but is also
@@ -134,6 +141,7 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
     /* The scroller is CodeMirror's own element, not one React rendered, so the hook cannot be
        attached as a ref and is called by hand. Its ref-callback cleanup is real (it removes the
        scroll listener and the settle loop) and is simply not in the hook's `void` return type. */
+    if (revealAtBuild.current !== null && scrollKey) forgetScroll(scrollKey);
     const detach = (attachScroll as (el: HTMLElement | null) => (() => void) | void)(v.scrollDOM);
     return () => {
       // `void` in the hook's return type, a real cleanup at runtime — checked rather than cast twice.
@@ -190,6 +198,7 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
       effects: EditorView.scrollIntoView(line.from, { y: "center" }),
     });
     v.focus();
+    handlers.current.onRevealed?.();
   }, [revealLine, path]);
 
   // ---- disk moved under us ------------------------------------------------------------------------

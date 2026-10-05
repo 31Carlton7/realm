@@ -1390,6 +1390,11 @@ export type AppState = {
   checkpointAckStale: boolean;
   /** The last restore's outcome, so the sheet can say what happened and name the undo. */
   restoreResult: RestoreResult | null;
+  /** A line to land on in a file just opened by `openDocumentPath` — a file reference in the
+   *  transcript names one. Held here, not sent with the open, because the pane that lands on it may
+   *  not exist yet: it is read when the file's editor mounts, and spent there (`n` tells a second
+   *  click on the same line from the first). `path` is absolute; the pane's are workspace-relative. */
+  documentReveal: { documentsId: string; path: string; line: number; n: number } | null;
   /** Terminal side panel per session id (W4). Absent = never opened, which is also what keeps the pty
    *  unspawned: nothing reaches the server until an entry turns `open`. Persisted as one setting. */
   terminalPanel: Record<string, TerminalPanel>;
@@ -2235,7 +2240,9 @@ export type AppState = {
    * the tab on; `applyDocumentOpenRequested` is the store's half, and it leaves an item that is
    * already on screen alone.
    */
-  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null): Promise<void>;
+  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null, line?: number | null): Promise<void>;
+  /** The documents pane landed on `documentReveal` number `n`; a later request is left standing. */
+  consumeDocumentReveal(n: number): void;
   applyDocumentOpenRequested(p: { spaceId: string; environmentId: string; documentsId: string; itemId: string; path: string; openedBy?: string }): Promise<void>;
   /** Start a lecture in `spaceId` (else the current space): the dated notes file open in the documents
    *  pane as the main view, and a session beside it to ask things during class. Nothing is sent to
@@ -3292,6 +3299,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
     /** File picks for a new tab still waiting on the server — see `applyDocumentOpenRequested`. */
     let newTabPicks = 0;
+    /** Numbers each `documentReveal`, so spending one can never clear the request after it. */
+    let reveals = 0;
     /**
      * What a new-tab page opened takes the blank tab's place: into the leaf holding it — a tab of the
      * same strip, where the new tab stood, or the pane itself — and the blank tab goes, since a
@@ -3625,7 +3634,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, documentReveal: null,
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -6012,7 +6021,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId, targetLeafId); return; }
         await adoptItem(sid, itemId, targetLeafId, beside);
       },
-      async openDocumentPath(path, environmentId = null, spaceId = null) {
+      async openDocumentPath(path, environmentId = null, spaceId = null, line = null) {
         const sid = (environmentId ? get().environments[environmentId]?.spaceId : undefined) ?? spaceFor(spaceId);
         if (!sid) return;
         // Read before the round trip: the palette closes as the pick is made, and its close clears it.
@@ -6021,7 +6030,8 @@ await get().refreshCustomThemes().catch(() => {});
         const replacing = get().paletteOpen ? get().paletteReplaces : null;
         if (replacing) newTabPicks++;
         try {
-          const { itemId } = await api.openDocumentPath(sid, path, environmentId ?? undefined);
+          const { itemId, documentsId } = await api.openDocumentPath(sid, path, environmentId ?? undefined);
+          if (line) set({ documentReveal: { documentsId, path, line, n: ++reveals } });
           // Picked from a new-tab page's Files: the documents pane takes the blank tab's place.
           if (replacing && findLeafOfItem(get().layout ?? emptyLayout(), replacing)) { await replaceNewTab(sid, replacing, itemId); return; }
           const layout = get().layout;
@@ -6030,6 +6040,9 @@ await get().refreshCustomThemes().catch(() => {});
         } finally {
           if (replacing) newTabPicks--;
         }
+      },
+      consumeDocumentReveal(n) {
+        if (get().documentReveal?.n === n) set({ documentReveal: null });
       },
       async applyDocumentOpenRequested({ spaceId, itemId, openedBy }) {
         if (!inProfile(spaceId)) return;
