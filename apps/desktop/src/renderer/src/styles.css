@@ -3970,8 +3970,12 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    off is transparent, and a mark that inherited that would be too.
    Positioned, and NOT an inline-block. An inline-block is an atomic inline, and the line breaker
    may wrap on either side of one — so the mirror broke `@mac` after its `@` where the textarea,
-   reading one word, moved it whole, and every glyph after it sat a line off the caret. */
+   reading one word, moved it whole, and every glyph after it sat a line off the caret. The mark is
+   out of flow, and Chromium will still break after an out-of-flow box, so the sigil and the first
+   glyph of the name are held together (`.chip-lead`) — wrap MODE only, so every space the draft holds
+   is kept exactly as the textarea keeps it. */
 .chip-sigil { position: relative; }
+.chip-lead { text-wrap-mode: nowrap; }
 .chip-sigil > .chip-mark { position: absolute; left: var(--chip-mark-x, 1px); top: 50%; translate: 0 -50%; pointer-events: none; color: var(--chip-ink); }
 /* A hovered chip's mark gives its place to the × (`.chip-remove`, a button over the textarea, since
    the mirror takes no pointer events): at once, as a hover arrives, and back on the shared swap's
@@ -4022,7 +4026,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
  * The chip family's pill in that tone, never weight: the mirror's glyphs sit under the textarea's
  * own caret, and a bolder run here would slide them off it (see `.ch-link`'s note). The `/` stays
  * visible — it is the command's mark, part of its name and part of what was typed. */
-.ch-slash { --chip-ink: var(--rl-success); --chip-tone: var(--rl-success); --chip-tint: var(--green-tint); --chip-dx: 0px; }
+/* A command has no sigil to give its pill room inside — its `/` is a glyph like any other — so its pill
+   reaches a half-pixel further out than the rest. It always opens the draft, on the first line, where
+   the extra height has nothing above it to meet. */
+.ch-slash { --chip-ink: var(--rl-success); --chip-tone: var(--rl-success); --chip-tint: var(--green-tint); --chip-spread: 2px; --chip-dx: -0.5px; }
 /* Hero (§2): the empty card reads as an invitation — ~56px of input before any growth. */
 .session-pane[data-composer="hero"] .composer-input { min-height: 56px; }
 /* Row 3 — control row (Ara refresh §3): 40px, hairline-free, 12px inline padding; "+" attach, then

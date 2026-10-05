@@ -651,6 +651,12 @@ describe("Ara refresh §3/§4 geometry", () => {
     const body = bodiesFor(".chip-sigil").join(" ");
     expect(body).toContain("position: relative");
     expect(body).not.toMatch(/display:\s*inline-(block|flex|grid)/);
+    /* …and the line may not break after the out-of-flow mark either, which Chromium allows. The
+       sigil and the name's first glyph are held together by wrap mode alone — `white-space: nowrap`
+       would also collapse the spaces a hand-typed label holds, and the mirror would come up short. */
+    const lead = bodiesFor(".chip-lead").join(" ");
+    expect(lead).toContain("text-wrap-mode: nowrap");
+    expect(lead).not.toContain("white-space");
   });
 
   it("a chip selected whole lights in its own shape, and the textarea's square selection steps aside", () => {

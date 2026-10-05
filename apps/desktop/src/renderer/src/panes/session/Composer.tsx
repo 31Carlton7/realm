@@ -1245,7 +1245,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                   data-selected={(chip && at === selectedChip?.start) || undefined}
                   title={link ? `${LINK_SERVICE_META[link.service].label} · ${link.url}` : undefined}>
                   {icon
-                    ? <><span className="chip-sigil">{s.text.slice(0, open)}<Icon name={icon} size={12} className="chip-mark" /></span>{bracketed ? s.text.slice(open, -1) : s.text.slice(open)}{bracketed && <span className="chip-sigil">]</span>}</>
+                    /* The sigil and the name's first glyph are held on one line (`.chip-lead`): the
+                       mark is an out-of-flow box, and the line breaker may break after one where the
+                       textarea, reading one word, never would. */
+                    ? <><span className="chip-lead"><span className="chip-sigil">{s.text.slice(0, open)}<Icon name={icon} size={12} className="chip-mark" /></span>{s.text.slice(open, open + 1)}</span>{bracketed ? s.text.slice(open + 1, -1) : s.text.slice(open + 1)}{bracketed && <span className="chip-sigil">]</span>}</>
                     : s.text}
                 </span>
               );
