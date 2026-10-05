@@ -85,9 +85,7 @@ export class KeybindingsService {
        noise in a dotfiles repo and a lie to anything watching. The second is rule 1 again, in its
        quieter form: writing a merged file here would drop the very entry we just complained about,
        so the user's typo would be silently deleted by the release that happened to add a default. */
-    // By identity, not by count: retiring a moved default and adding its replacement can leave the
-    // count unchanged, and the file would keep the old line forever.
-    const changed = merged.length !== existing.length || merged.some((rule, i) => rule !== existing[i]);
+    const changed = merged.length !== existing.length;
     return changed && error === null ? this.persist(merged, null) : { path: this.path, rules: merged, error };
   }
 

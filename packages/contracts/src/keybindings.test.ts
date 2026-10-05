@@ -339,29 +339,3 @@ function keyNames(expr: WhenExpr): string[] {
     case "and": case "or": return [...keyNames(expr.left), ...keyNames(expr.right)];
   }
 }
-
-describe("a default that moved", () => {
-  /* Quick Chat moved from ⌘⇧N to ⌥⌘N to make room for New Window. Every keymap file written before
-     holds the old line, which claims both the key and the command — so without retiring it, New
-     Window would never be added and Quick Chat would never move. THE mutant is retiring a line the
-     person CHANGED, which would delete their choice. */
-  it("replaces a seeded copy of the old default with the new pair", () => {
-    const seeded = mergeDefaults([{ key: "mod+shift+n", command: "session.quickChat", when: "!overlayOpen && !inputFocus" }]);
-    expect(commandForChord(seeded, "mod+shift+n", {})).toBe("window.new");
-    expect(commandForChord(seeded, "mod+alt+n", {})).toBe("session.quickChat");
-  });
-
-  it("keeps a line the person edited, whatever the shipped table now says", () => {
-    const edited = mergeDefaults([{ key: "mod+shift+n", command: "session.quickChat" }]);
-    expect(commandForChord(edited, "mod+shift+n", {})).toBe("session.quickChat");
-    // Their key for New Window was taken, so the default for it is not imposed on top.
-    expect(chordsForCommand(edited, "window.new")).toEqual([]);
-  });
-
-  it("ships New Window on ⌘⇧N from anywhere but a sheet, and Quick Chat on ⌥⌘N", () => {
-    expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+shift+n", { inputFocus: true })).toBe("window.new");
-    expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+shift+n", { sheetOpen: true, overlayOpen: true })).toBeNull();
-    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "session.quickChat")).toEqual(["mod+alt+n"]);
-    expect(KEY_COMMANDS.some((c) => c.id === "window.new")).toBe(true);
-  });
-});

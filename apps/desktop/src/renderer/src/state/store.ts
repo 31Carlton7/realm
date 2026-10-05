@@ -1323,13 +1323,8 @@ export type AppState = {
   profileSpaces(): Space[];
   boot(): Promise<void>;
   /** `land: false` when the caller will open its own item next — `revealSession` does, and a landing
-   *  chosen here would open a pane beside the one it is about to ask for.
-   *
-   *  Resolves false when the space is open in ANOTHER window: a space is shown in at most one
-   *  (main/windows.ts), so that window is brought forward instead and handed `handoff` to finish
-   *  there. `quiet` asks without bringing anything forward — for a window only looking for a free
-   *  space, which must not yank another window to the front. */
-  selectSpace(id: string, opts?: { land?: boolean; handoff?: { sessionId: string }; quiet?: boolean }): Promise<boolean>;
+   *  chosen here would open a pane beside the one it is about to ask for. */
+  selectSpace(id: string, opts?: { land?: boolean }): Promise<void>;
   /** Switch profiles: land on the space that profile was last on this run, else its first. The
    *  strip's profile chip and the overview's cross-profile rows both come through here. */
   selectProfile(profileId: string): Promise<void>;
@@ -2348,13 +2343,6 @@ const scheduleFrame = (fn: () => void): number =>
 
 export function createAppStore(api: Api): StoreApi<AppState> {
   return createStore<AppState>((set, get) => {
-    /** Counts space switches, so one overtaken while its claim was out knows to stop. */
-    let selectSeq = 0;
-    /** Land on the first of `candidates` no other window is showing, asking quietly. */
-    const landOnFreeSpace = async (candidates: readonly Space[]): Promise<boolean> => {
-      for (const c of candidates) if (await get().selectSpace(c.id, { quiet: true })) return true;
-      return false;
-    };
     let persistTimer: ReturnType<typeof setTimeout> | null = null;
     /** Monotonic id for fetches of the active space's items. Reconcile is destructive (it prunes open
      *  items missing from the list), so only the newest-started fetch may apply: the Api makes no
@@ -2881,15 +2869,8 @@ await get().refreshCustomThemes().catch(() => {});
         await get().refreshFonts().catch(() => {});
         await hydrateSpaceIcons(spaces);
         set({ spaces });
-        /* Which space THIS window opens on. A window coming back after a relaunch reclaims the space it
-           showed; otherwise the last space used, then any other — but only one no other window is
-           showing (main/windows.ts), asked quietly so nothing else is pulled forward. A new window
-           opened while every space is already open somewhere offers to make one. */
-        const assigned = await window.realm?.windows?.assignedSpace?.().catch(() => null) ?? null;
-        const order = [spaces.find((s) => s.id === assigned), spaces.find((s) => s.id === saved), ...spaces]
-          .filter((s, i, all): s is Space => !!s && all.findIndex((t) => t?.id === s.id) === i);
-        const landed = await landOnFreeSpace(order);
-        if (!landed && spaces.length > 0) set({ sheet: { kind: "new-space" } });
+        const target = spaces.find((s) => s.id === saved) ?? spaces[0];
+        if (target) await get().selectSpace(target.id);
         // Cross-space badges need every session's space + status, not just the active space's.
         await get().refreshAllSessions();
         await restoreQuickChat(quick);
@@ -2936,17 +2917,6 @@ await get().refreshCustomThemes().catch(() => {});
         void get().refreshCliStatus().catch(() => {});
       },
       async selectSpace(id, opts) {
-        // Asked of main before anything here moves, so a refusal costs this window nothing. The ask
-        // is a round trip, so a NEWER switch can start while it is out; that one wins, and this one
-        // stops once its answer is back — the last switch asked for is the one the window shows.
-        const mine = ++selectSeq;
-        if (id !== get().activeSpaceId) {
-          const claim = await window.realm?.windows?.claimSpace?.(id, opts?.quiet ? { raise: false } : opts?.handoff ?? null).catch(() => null);
-          if (claim && !claim.ok) return false;
-          // Overtaken: resolved as handled, because a newer explicit switch has settled where this
-          // window goes, and a caller looking for a fallback must not go on to pick another.
-          if (mine !== selectSeq) return true;
-        }
         await flushPersist();
         itemsFetchSeq++; // in-flight item fetches from the previous activation are now stale
         layoutHydrated = false;
@@ -2969,7 +2939,6 @@ await get().refreshCustomThemes().catch(() => {});
         // Space activation refreshes git context for the focused pane's session, if any.
         const focusedItem = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
         if (focusedItem?.kind === "session") refreshGitFor(focusedItem.refId);
-        return true;
       },
       async nextSpace() {
         const list = get().profileSpaces(); const i = list.findIndex((s) => s.id === get().activeSpaceId);
@@ -2993,11 +2962,11 @@ await get().refreshCustomThemes().catch(() => {});
         await hydrateSpaceIcons(spaces);
         set({ spaces });
         const active = get().activeSpaceId;
-        // The active space vanished (deleted elsewhere): fall back to the first one no other window
-        // shows, if any.
+        // The active space vanished (deleted elsewhere): fall back to the first one, if any.
         if (active && !spaces.some((s) => s.id === active)) {
-          set({ activeSpaceId: null });
-          if (!(await landOnFreeSpace(spaces))) set({ items: [], groups: null, layout: null, focusedLeafId: null, projects: [] });
+          const first = spaces[0];
+          if (first) await get().selectSpace(first.id);
+          else set({ activeSpaceId: null, items: [], groups: null, layout: null, focusedLeafId: null, projects: [] });
         }
       },
       async refreshItems() {
@@ -3090,10 +3059,9 @@ await get().refreshCustomThemes().catch(() => {});
         if (!wasActive) return;
         // refreshSpaces (spaces.changed) may already have moved the selection; keep its choice.
         if (get().activeSpaceId !== id) return;
-        const remaining = get().spaces;
-        const order = [remaining.find((s) => s.id === neighbor?.id), ...remaining].filter((s): s is Space => !!s);
-        set({ activeSpaceId: null });
-        if (!(await landOnFreeSpace(order))) set({ items: [], groups: null, layout: null, focusedLeafId: null, projects: [] });
+        if (neighbor && get().spaces.some((s) => s.id === neighbor.id)) await get().selectSpace(neighbor.id);
+        else if (get().spaces[0]) await get().selectSpace(get().spaces[0]!.id);
+        else set({ activeSpaceId: null, items: [], groups: null, layout: null, focusedLeafId: null, projects: [] });
       },
       async reorderSpaces(ids) {
         const prev = get().spaces;
@@ -5204,9 +5172,7 @@ await get().refreshCustomThemes().catch(() => {});
         // spaces leaves the caller's remembered id stale, and switching to the old space would open
         // nothing and look like a dead button.
         const target = get().sessionSpace[sessionId] ?? spaceId;
-        // Open in another window: that window is brought forward and reveals the session itself, so
-        // the jump DID land — just not here.
-        if (target && target !== get().activeSpaceId && !(await get().selectSpace(target, { land: false, handoff: { sessionId } }))) return true;
+        if (target && target !== get().activeSpaceId) await get().selectSpace(target, { land: false });
         const item = get().items.find((i) => i.kind === "session" && i.refId === sessionId);
         // A session with no item in the space it claims has no pane to be brought forward — the space
         // switch above already happened, so callers need to hear that the jump did NOT land rather

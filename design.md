@@ -484,16 +484,7 @@ accelerator fires first and would skip the `when` clauses that keep ⌘B bold in
 system's chords (copy, paste, undo, quit, hide) stay the menu's. Reload and Developer Tools are for
 development builds only: ⌘R must never reload the app out from under someone's work.
 
-Realm has as many windows as you open (File ▸ New Window, ⌘⇧N), and a space is open in at most one
-of them. A space's layout lives on the server, so two windows on one space would mirror each other —
-split in one, the other splits. Asking for a space another window shows brings that window forward
-instead, carrying whatever the ask was for: a session revealed from a notification lands in the
-window that owns its space. A new window opens cascaded on a space nobody is looking at, and offers
-to make one when every space is already open. Each window is titled with its space's name, which is
-what the Window menu and Mission Control list. Every window comes back after ⌘Q or a relaunch, each
-where it was and on its space; one closed on purpose while others stayed open does not.
-
-Each window comes back where it was left — size, place, maximised or full screen — unless the display
+The window comes back where it was left — size, place, maximised or full screen — unless the display
 it was on is gone, in which case its size comes back centred on the main display.
 
 ## Motion

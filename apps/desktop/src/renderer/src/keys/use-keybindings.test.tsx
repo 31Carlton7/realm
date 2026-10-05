@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
 import type { Keybinding } from "@realm/contracts";
 import { useKeybindings } from "./use-keybindings";
@@ -157,10 +157,10 @@ describe("useKeybindings", () => {
     await waitFor(() => expect(api.calls).toContain("interrupt:sess1"));
   });
 
-  it("opens a quick chat on ⌥⌘N, which had no keyboard way in at all", async () => {
+  it("opens a quick chat on \u2318\u21e7N, which had no keyboard way in at all", async () => {
     const { api, store } = await mount();
     expect(store.getState().quickChat).toBe(null);
-    key({ key: "˜", code: "KeyN", metaKey: true, altKey: true });
+    key({ key: "N", code: "KeyN", metaKey: true, shiftKey: true });
     await waitFor(() => expect(store.getState().quickChat).not.toBe(null));
     expect(made(api, "createUnlistedSession")).toBe(true);
   });
@@ -169,10 +169,10 @@ describe("useKeybindings", () => {
     // THE MUTANT: bind the chord to a toggle. The second press would delete the conversation the
     // first one started, which is not what a second press of an OPEN command should ever mean.
     const { api, store } = await mount();
-    key({ key: "˜", code: "KeyN", metaKey: true, altKey: true });
+    key({ key: "N", code: "KeyN", metaKey: true, shiftKey: true });
     await waitFor(() => expect(store.getState().quickChat).not.toBe(null));
     const opened = store.getState().quickChat;
-    key({ key: "˜", code: "KeyN", metaKey: true, altKey: true });
+    key({ key: "N", code: "KeyN", metaKey: true, shiftKey: true });
     await tick();
     expect(store.getState().quickChat).toEqual(opened);
     expect(made(api, "deleteSession")).toBe(false);
@@ -256,22 +256,5 @@ describe("useKeybindings — project scripts", () => {
     key({ key: "Y", metaKey: true, shiftKey: true });
     await tick();
     expect(made(api, "runScript")).toBe(false);
-  });
-});
-
-describe("⌘⇧N", () => {
-  /* Quick Chat moved off ⌘⇧N to make room for New Window. THE mutant is both defaults left on one
-     chord: the later rule would win and the other command would silently lose its key. */
-  it("opens a new window, and no longer opens a quick chat", async () => {
-    const newWindow = vi.fn(async () => {});
-    (window as { realm?: unknown }).realm = { windows: { newWindow } };
-    try {
-      const { store } = await mount();
-      key({ key: "N", code: "KeyN", metaKey: true, shiftKey: true });
-      expect(newWindow).toHaveBeenCalledOnce();
-      expect(store.getState().quickChat).toBe(null);
-    } finally {
-      delete (window as { realm?: unknown }).realm;
-    }
   });
 });

@@ -9,9 +9,7 @@ import { readFileSync, writeFileSync } from "node:fs";
  * this Mac's displays, not about the person's work, and it has to be known before the server is up.
  */
 export type Rect = { x: number; y: number; width: number; height: number };
-export type SavedWindow = Rect & { maximized?: boolean; fullScreen?: boolean;
-  /** The space the window showed (windows.ts). Absent in the single-window file this replaced. */
-  spaceId?: string | null };
+export type SavedWindow = Rect & { maximized?: boolean; fullScreen?: boolean };
 
 /** The smallest share of the window that must land on a display for the saved place to be kept. A
  *  window parked mostly off a display that has since been unplugged is a window nobody can reach. */

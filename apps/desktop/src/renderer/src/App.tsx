@@ -187,14 +187,6 @@ function ScrollbarStyleBridge() {
   return null;
 }
 
-/** The window is named for its space, which is what macOS's Window menu and Mission Control list —
- *  with several windows open, "Realm, Realm, Realm" says nothing about which is which. */
-function WindowTitleBridge() {
-  const name = useApp((s) => s.activeSpace()?.name ?? null);
-  useEffect(() => { document.title = name ?? "Realm"; }, [name]);
-  return null;
-}
-
 /** A held button's highlight follows the pointer (press-tracking.ts). */
 function PressTrackingBridge() {
   useEffect(() => installPressTracking(document), []);
@@ -564,7 +556,6 @@ export function App() {
       <ScrollbarStyleBridge />
       <RubberBandBridge />
       <PressTrackingBridge />
-      <WindowTitleBridge />
       <AppShell />
       <ConnectionBanner />
       {/* App-level pages, over the workspace and never inside it. Before the sheets so a sheet opened

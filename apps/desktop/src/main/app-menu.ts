@@ -31,8 +31,6 @@ const row = (command: string, label: string): CommandRow => ({ command, label })
 export const MENU_LAYOUT = {
   app: [row("settings.open", "Settings…")],
   file: [
-    row("window.new", "New Window"),
-    null,
     row("session.new", "New Session"), row("session.quickChat", "New Quick Chat"),
     row("terminal.new", "New Terminal"), row("browser.new", "New Browser"),
     null,
