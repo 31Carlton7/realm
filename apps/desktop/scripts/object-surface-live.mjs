@@ -196,9 +196,10 @@ const SURFACES = `(() => {
        two halves — rather than for a box-shadow it does not draw. */
     attach: (() => { const a = document.querySelector('.attach-art'); if (!a) return null;
       if (!document.documentElement.hasAttribute('data-squircle')) return getComputedStyle(a).boxShadow;
-      const lit = document.createElement('div'); lit.style.filter = 'var(--shadow-card-lift-filter)'; document.body.appendChild(lit);
-      const lift = getComputedStyle(lit).filter; lit.remove();
-      const ring = getComputedStyle(a).getPropertyValue('--sq-ring').trim(), want = getComputedStyle(document.documentElement).getPropertyValue('--card-ring').trim();
+      // A probe resolves the card stack's halves into the same notation the well's own values compute to.
+      const lit = document.createElement('div'); lit.style.filter = 'var(--shadow-card-lift-filter)'; lit.style.color = 'var(--card-ring)'; document.body.appendChild(lit);
+      const lift = getComputedStyle(lit).filter, want = getComputedStyle(lit).color; lit.remove();
+      const ring = getComputedStyle(a).getPropertyValue('--sq-ring').trim();
       const open = getComputedStyle(a.closest('.attach-open')).filter;
       return ring === want && open === lift ? 'painted: the object ring and lift' : JSON.stringify({ ring, want, open, lift }); })(),
     thumbOutline: (() => { const t = document.querySelector('.library-tile[data-thumb]'); return t ? getComputedStyle(t, '::after').boxShadow : null; })() };
@@ -278,6 +279,9 @@ async function main() {
 
   // ── Seeded: a session that was sent files and answered, two turns of it saved, and files added ──
   const { session } = await api.call("sessions.create", { spaceId: space.id, agentKind: "fake", title: TITLE, permissionMode: "default" });
+  // A few files in the session's own folder, for the Files dock's cards.
+  const checkout = (await api.call("environments.list", { spaceId: space.id })).find((e) => e.kind === "primary").path;
+  for (const n of ["hero.png", "notes.md", "usage.csv"]) fs.copyFileSync(path.join(desk, n), path.join(checkout, n));
   await until(() => evalIn(c, `[...document.querySelectorAll('.item-list .item-row')].some((b) => b.textContent.includes(${JSON.stringify(TITLE)}))`), 20_000, "session row");
   await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
   await sleep(800);
@@ -316,6 +320,20 @@ async function main() {
     const sent = await boxOf(c, ".msg-user-files", 12);
     if (sent) await shot(c, `${label}-3-sent-files-close`, sent, 2);
 
+    // The session's Files dock — its cards are the Library's.
+    await press(c, `button[aria-label=${JSON.stringify(`Files for ${TITLE}`)}]`);
+    await until(() => evalIn(c, `!!document.querySelector('.session-files')`), 10_000, "the Files dock");
+    if (await evalIn(c, `document.querySelector('.session-files button[aria-label="Show as a grid"]')?.getAttribute('aria-pressed') !== 'true'`)) {
+      await press(c, `.session-files button[aria-label="Show as a grid"]`);
+    }
+    await until(() => evalIn(c, `document.querySelectorAll('.session-files .library-tile').length >= 3`), 10_000, "the dock's cards").catch(() => null);
+    await park(c);
+    await sleep(400);
+    const dock = await boxOf(c, ".session-files", 12);
+    if (dock) await shot(c, `${label}-3b-files-dock`, dock, 2);
+    await press(c, `button[aria-label=${JSON.stringify(`Files for ${TITLE}`)}]`);
+    await sleep(300);
+
     // The documents pane's home, beside the session.
     await press(c, `button[aria-label=${JSON.stringify(`Open documents for ${TITLE}`)}]`);
     await until(() => evalIn(c, `!!document.querySelector('.docs-home section[aria-label="Library"] .docs-home-row')`), 15_000, "the documents home");
@@ -333,11 +351,10 @@ async function main() {
     await shot(c, `${label}-5-library-tiles`);
     const surfaces = await evalIn(c, SURFACES);
     note(`${label} surfaces`, surfaces);
-    // Under the pointer, and with the keyboard's focus.
-    const second = ".library-grid li:nth-child(2) .library-tile";
-    const b = await centre(c, second);
+    // Under the pointer — a glyph tile, whose hover is its fill — caught before the tooltip comes up.
+    const b = await centre(c, ".library-grid li:nth-child(3) .library-tile");
     await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: b.x, y: b.y });
-    await sleep(250);
+    await sleep(60);
     const grid = await boxOf(c, ".library-grid", 12);
     await shot(c, `${label}-6-library-tile-hover`, { ...grid, height: Math.min(grid.height, 330) }, 2);
     await park(c);

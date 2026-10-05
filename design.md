@@ -185,7 +185,12 @@ Rules:
   positioned over the thing it is ruling? If not, the rule is decoration, however reasonable
   the story told about it. Chrome above content may take a seam; chrome above more chrome may
   not, and two stacked seams in the same 60px is the failure this rule exists to catch.
-- Hairlines separate structure. Shadows indicate elevation. Resting objects do not cast shadows.
+- Hairlines separate structure. Shadows indicate elevation. Resting objects do not cast shadows —
+  with one family of exceptions the owner named (10-05): a thing a person picks up rather than reads.
+  A file wherever it is shown (a Library tile, the square of a file in a row or on a message), a saved
+  turn and the device's toolbar stand on the page under a light border and a very slight shadow, and
+  they all wear the one token for it (`--rl-object-shadow`). A group of settings stays a card of fill
+  under a rim; a picture in the transcript stays its own frame.
 - The window is chrome round a sheet. The rail and the head row across the whole window — the
   traffic lights, the sidebar's head, every pane's top bar — are one ground, a step off the
   sidebar's; the work sits below and beside them in one sheet, under a rim that runs along its top
