@@ -359,14 +359,13 @@ function TurnFileRow({ changes, file, start }: { changes: TurnChanges; file: Tur
  * One turn's changes, for an edit card's Review: the checkout as the turn's checkpoint found it,
  * against the checkout as the turn left it — the tree its settle recorded, so an edit made since is
  * not part of the answer. Read-only, because history has nothing to stage; "Show all changes" puts
- * the pane back on the checkout as it is now, and so does the pane going away.
+ * the pane back on the checkout as it is now, and so does closing the pane (`closeFromLayout`) — not
+ * unmounting it, which a tab switched away and StrictMode's rehearsal both do to a review still open.
  */
 function TurnDiff({ environmentId, scope }: { environmentId: string; scope: TurnDiffScope }) {
   const closeTurnDiff = useApp((s) => s.closeTurnDiff);
   const fileList = useRef<HTMLDivElement>(null);
   useDissolve(fileList);
-  // A review is a look, not a setting: once the pane goes, the next way in shows the checkout as it is.
-  useEffect(() => () => closeTurnDiff(environmentId), [closeTurnDiff, environmentId]);
   const { changes, asked } = scope;
   const n = changes.totalFiles;
   const firstLine = asked?.trim().split("\n")[0] ?? null;

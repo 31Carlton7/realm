@@ -4495,6 +4495,8 @@ await get().refreshCustomThemes().catch(() => {});
         // panel bar's ×, ⌘W, the sidebar row, archive and delete.
         const closing = get().items.find((i) => i.id === itemId);
         if (closing?.kind === "browser") api.destroyBrowserView(closing.refId);
+        // A turn's review is a look, not a setting: closing its pane ends it, so the next way in shows the checkout as it is.
+        if (closing?.kind === "diff" && get().diffTurns[closing.refId]) get().closeTurnDiff(closing.refId);
         const view = viewNow();
         if (!findLeafOfItem(view.layout, itemId)) {
           // Only a tab of a side pane kept off screen: it leaves that, and the screen is untouched.

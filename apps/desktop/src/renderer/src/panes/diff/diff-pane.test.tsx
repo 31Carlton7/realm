@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { StrictMode } from "react";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { DiffFile, DiffSummary, Environment, FileDiff, ShipResult, TurnChanges } from "@realm/contracts";
 import { StoreContext, createAppStore, patchKey } from "../../state/store";
@@ -318,6 +319,30 @@ describe("one turn's changes, for an edit card's Review", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show all changes" }));
     expect(store.getState().diffTurns.env1).toBeUndefined();
     expect(await screen.findByText("src/")).toBeInTheDocument();
+  });
+
+  it("lasts as long as its pane: through StrictMode's rehearsal and a tab put away, until the pane closes", async () => {
+    // THE MUTANT: end the review when the pane UNMOUNTS. StrictMode unmounts every pane once on mount in
+    // dev, and a tab switched away unmounts as well, so the review would be gone the moment it opened.
+    const api = fakeApi({
+      environments: { s1: [env()] }, sessions: [session("se1", "s1", { environmentId: "env1", cwd: CWD })],
+      diffs: { [CWD]: summary([file("src/a.ts")]) }, checkpoints: { env1: [] },
+    });
+    api.data.items.s1 = [item("i-a", "s1", { kind: "session", refId: "se1" })];
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-a");
+    await act(async () => { await store.getState().reviewTurn("env1", { changes: turn, asked: null }); });
+    const pane = store.getState().items.find((i) => i.kind === "diff" && i.refId === "env1")!;
+    const show = () => render(
+      <StrictMode><StoreContext.Provider value={store}><DiffPane item={pane} visible /></StoreContext.Provider></StrictMode>,
+    );
+    show().unmount();
+    show();
+    expect(await screen.findByText("2 files changed in one turn")).toBeInTheDocument();
+    // Closed (the panel bar's x, cmd-W, archive, delete all come here): the next way in is the checkout.
+    await act(async () => { await store.getState().closeFromLayout(pane.id); });
+    expect(store.getState().diffTurns.env1).toBeUndefined();
   });
 
   it("says where a file's patch went when the turn's snapshot is gone, instead of loading forever", async () => {
