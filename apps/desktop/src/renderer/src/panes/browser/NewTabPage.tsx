@@ -8,10 +8,11 @@ import { PageIcon } from "../../components/PageIcon";
  *  with the icon it last showed, when it showed one. */
 export type RecentVisit = { url: string; title: string; favicon?: string };
 
+/* Documents is where a file is found as well as made, so it is the one row for both and wears ⌘P —
+   a "Files" row beside it opened the same search somewhere else. */
 const TOOLS: { tool: NewTabTool; label: string; icon: IconName; hint: string; command?: string }[] = [
-  { tool: "files", label: "Files", icon: "folder", hint: "Find a file in this space's checkout", command: "palette.files" },
+  { tool: "documents", label: "Documents", icon: "documents", hint: "Find, open or make a file: the session's, the Library's and the checkout's", command: "palette.files" },
   { tool: "terminal", label: "Terminal", icon: "terminal", hint: "A shell in the session's checkout" },
-  { tool: "documents", label: "Documents", icon: "documents", hint: "The session's documents" },
   { tool: "simulator", label: "Simulator", icon: "simulator", hint: "A device on this Mac" },
   { tool: "machine", label: "Machine", icon: "machine", hint: "Connect to another computer" },
 ];

@@ -1,6 +1,6 @@
 import { PageScroll } from "../../components/ScrollFades";
 import { AppIconPicker, canChooseAppIcon } from "../../components/settings/AppIconPicker";
-import { EDITOR_CURSOR_BLINK_COPY, TERMINAL_CURSOR_STYLES, TERMINALS_CURSOR_STYLE_COPY, type TerminalCursorStyle, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
+import { EDITOR_CURSOR_BLINK_COPY, TERMINAL_CURSOR_STYLES, TERMINALS_CURSOR_STYLE_COPY, type TerminalCursorStyle, TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
   EDITOR_NAMES, resolveEditor, type OpenFilesIn, type TerminalDockEdge, } from "@realm/contracts";
@@ -1186,6 +1186,8 @@ function GeneralTab() {
   const setTerminalCursorBlink = useApp((s) => s.setTerminalCursorBlink);
   const terminalCursorStyle = useApp((s) => s.terminalCursorStyle);
   const setTerminalCursorStyle = useApp((s) => s.setTerminalCursorStyle);
+  const terminalColors = useApp((s) => s.terminalColors);
+  const setTerminalColors = useApp((s) => s.setTerminalColors);
   const lowPower = useApp((s) => s.lowPower);
   const setLowPower = useApp((s) => s.setLowPower);
   const preventSleep = useApp((s) => s.preventSleep);
@@ -1355,6 +1357,22 @@ function GeneralTab() {
               <option key={st} value={st}>{TERMINALS_CURSOR_STYLE_COPY.options[st]}</option>
             ))}
           </select>
+        </li>
+        {/* A pair rather than a switch: both answers are somebody's palette, and the row says whose. */}
+        <li className="settings-row" data-setting="terminal-colors" title="Realm's are sixteen colours drawn for the pane's ground and the theme you chose, each held to the contrast the app's own text is. My shell's are xterm's own, for prompts and tools tuned against them. A powerlevel10k prompt draws in 256-colour and truecolor codes, which never pass through these sixteen, so it keeps its colours under either — lifted only where one would be unreadable on the ground.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">{TERMINALS_COLORS_COPY.label}</span>
+            <span className="settings-row-detail">Your prompt's own colours show under either</span>
+          </div>
+          <fieldset className="settings-tabs" aria-label={TERMINALS_COLORS_COPY.label}>
+            {TERMINAL_COLOR_SCHEMES.map((scheme) => (
+              <label key={scheme} className="settings-tab" data-selected={terminalColors === scheme || undefined}>
+                <input type="radio" name="settings-terminal-colors" value={scheme} checked={terminalColors === scheme}
+                  onChange={() => run(() => setTerminalColors(scheme))} />
+                {TERMINALS_COLORS_COPY.options[scheme]}
+              </label>
+            ))}
+          </fieldset>
         </li>
         <li className="settings-row" data-setting="terminal-dock" title="Where ⌘J opens a session's terminal: as a tab of the pane beside the transcript, or docked under it. The dock pins when the pane has the room and floats when it does not, and closing it keeps the shell.">
           <div className="settings-row-main"><span className="settings-row-name">Session terminal</span></div>

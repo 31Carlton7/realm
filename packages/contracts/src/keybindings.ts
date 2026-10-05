@@ -510,9 +510,10 @@ const WHEN_IDLE = "!overlayOpen && !inputFocus";
  */
 export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
   { key: "mod+k", command: "palette.toggle", when: "!sheetOpen" },
-  /* The palette's two narrowings. Guarded on `!sheetOpen` like the palette itself, and deliberately
-     NOT on `!inputFocus`: ⌘P has to work while the palette's own search box has the keyboard, which
-     is how someone switches from "find in files" to "open a file" without reaching for the mouse.
+  /* Finding a file: ⌘P by its name, in the documents pane's own search, and ⌘⇧P by its contents, in
+     the palette. Guarded on `!sheetOpen` like the palette itself, and deliberately NOT on
+     `!inputFocus`: ⌘P has to work while the palette's search box or the prompter has the keyboard,
+     which is how someone switches from "find in files" to "open a file" without reaching for the mouse.
 
      ⌘⇧P, and NOT the ⌘⇧F other editors use for find-in-files, because ⌘⇧F is already
      `pane.toggleFocus` below. Two defaults on one chord is not a tie — the later rule wins — so

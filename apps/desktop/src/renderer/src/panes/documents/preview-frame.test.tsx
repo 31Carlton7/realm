@@ -116,8 +116,8 @@ describe("DocumentsPane — html guides (Plan 22)", () => {
 
   it("offers Guide among the new-document kinds, and creating one needs no name up front", async () => {
     const { api } = renderPane({});
-    fireEvent.click(await screen.findByRole("button", { name: "Add a document" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "New guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Study guide" }));
     await waitFor(() => expect(api.calls).toContain("createDocumentFile:docs1:Untitled guide.html"));
   });
 });
@@ -135,8 +135,8 @@ describe("DocumentsPane — pdf (Plan 22)", () => {
 
   it("the picker lets a PDF be opened", async () => {
     renderPane({ "slides/l4.pdf": "" });
-    fireEvent.click(await screen.findByRole("button", { name: "Add a document" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Open a file…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "A file in this folder…" }));
     const row = await screen.findByRole("button", { name: /l4\.pdf/ });
     expect(row).toBeEnabled();
   });

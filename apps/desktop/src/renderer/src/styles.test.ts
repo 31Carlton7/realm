@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BAR_CHROME, actionsThatFit } from "./components/pane-bar-fit";
+import { TOOLBAR_BUTTON, TOOLBAR_CHROME } from "./panes/simulator/toolbar-fit";
 import { REALM_SEED, deriveVars } from "@realm/ui";
 import { AGENT_FRAME, oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
@@ -1137,6 +1138,12 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // How far an update's download has got (Rail.tsx, RailUpdate): main's own percentage, set inline
       // as it arrives, with a 0% fallback for the moment before main has said.
       "--update-progress",
+      // A terminal's ink and sixteen colours, and the share faint text keeps (terminal-hub.ts, from
+      // terminal-palette.ts): set on each terminal's host, because they are computed from the live
+      // theme's tokens and must reach the terminals already open when it changes. Each carries a
+      // fallback — the span's own colour, and xterm's own half — so a host that never receives them
+      // draws faint text exactly as xterm would.
+      "--term-fg", "--term-dim", ...Array.from({ length: 16 }, (_, i) => `--term-ansi-${i}`),
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
@@ -1149,19 +1156,6 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        THE mutants: the bar's `drag` dropped, or its buttons left inside it. */
     expect(bodiesFor(".page-overlay-bar").join(" ")).toContain("-webkit-app-region: drag");
     expect(bodiesFor(".page-overlay-bar button").join(" ")).toContain("-webkit-app-region: no-drag");
-  });
-
-  it("every control in the sidebar's drag region opts out of it — labels included, so Recent clicks", () => {
-    /* The column is a window-drag region, and macOS takes a press anywhere in one for the start of a
-       window drag: the page never hears the click. The lens's segments are LABELS round hidden radios,
-       and with only buttons and inputs opted out, "Recent" answered only on the 13px radio parked at
-       the start of its word (reported 10-04: "hard to click"). CDP's clicks go straight into the page
-       and never meet the OS's regions, so no live check can see this — it is held here. THE mutants:
-       `label` dropped from the opt-out, or the lens's track left in the column's region. */
-    const optOut = RULES.filter((r) => r.body.includes("-webkit-app-region: no-drag")).flatMap(partsOf);
-    for (const control of [".sidebar button", ".sidebar input", ".sidebar label", ".sb-lens"]) {
-      expect(optOut, `${control} is not opted out of the sidebar's drag region`).toContain(control);
-    }
   });
 
   it("a folded sidebar takes no part in the window's drag regions, so the rail's buttons stay clickable", () => {
@@ -1271,8 +1265,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(dark).toBeGreaterThan(0);
     expect(light).toBeGreaterThan(0);
     expect(light).toBeLessThan(dark);
-    // Very light means very light: no step of it past a fifth of black.
-    expect(dark).toBeLessThanOrEqual(0.2);
+    // Very light means very light: the owner asked for it lighter again (10-04), to about 60% of the
+    // first cut's measured depth (0.14 dark, 0.02 light). THE mutant: the first cut's depth back.
+    expect(dark).toBeLessThanOrEqual(0.085);
+    expect(light).toBeLessThanOrEqual(0.012);
   });
 
   it("an app-level page is laid out in the panes' column: it moves with them and never covers the rail", () => {
@@ -1632,12 +1628,37 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(paintedFocus).toContain("box-shadow: none");
     expect(paintedFocus).toContain("--sq-ring: var(--rl-accent)");
 
-    /* Frame / No frame. They carry `.btn`, which is painted — so the picked one has to mark itself
-       with `--fill`. THE MUTANT is the obvious `background: var(--rl-accent)`: `background` is spent
-       on `paint()` there, so the segment paints its resting fill in every state and the control ends
-       up with no visible selection at all. */
-    expect(bodiesFor('.sim-frame-opt[aria-checked="true"]').join(" ")).toContain("--fill: var(--rl-accent)");
-    expect(bodiesFor('.sim-frame-opt[aria-checked="true"]').join(" ")).not.toContain("background:");
+  });
+
+  it("the device's controls over it and under it are one pill", () => {
+    /* The toolbar over the device, and under it the Record control, the recording it becomes and a
+       phone's offer to go live: one height, fill, corner and lift, so above and below read as one
+       instrument around the device. THE MUTANT: a row under the device in a material of its own —
+       the `.btn` the Record control was, whose painter trades the lift for a ring. */
+    const pill = RULES.find((r) => partsOf(r).includes(".sim-toolbar") && partsOf(r).includes(".sim-record-start"));
+    expect(pill && partsOf(pill).sort()).toEqual([".sim-live", ".sim-record-start", ".sim-recording", ".sim-toolbar"]);
+    for (const decl of ["height: 32px", "border-radius: 999px", "background: var(--rl-raised)", "box-shadow: var(--shadow-card)"]) {
+      expect(pill!.body).toContain(decl);
+    }
+    // What sits inside a pill is a pill, under the painter too — or Stop is a squircle in a capsule.
+    const inner = bodiesFor(":root[data-squircle] :is(.sim-recording-stop, .sim-live-btn)").join(" ");
+    expect(inner).toContain("--sq-radius-top: calc(var(--btn-h) / 2)");
+    expect(inner).toContain("--sq-radius-bottom: calc(var(--btn-h) / 2)");
+    expect(bodiesFor(".sim-toolbar .icon-btn").join(" ")).toContain("border-radius: 999px");
+  });
+
+  it("the device toolbar's budget is its own rule's arithmetic", () => {
+    /* `toolbar-fit.ts` decides how many presses a narrow pane keeps from these numbers: the pill's
+       padding, its gaps, the 28px buttons and the rule between the state and them (its hairline
+       counted as a whole pixel). Change the toolbar's box and the budget stops describing it —
+       buttons clip, or fold into the overflow with room to spare. */
+    const bar = bodiesFor(".sim-toolbar").join(" ");
+    const pad = Number(/padding: (\d+)px/.exec(bar)?.[1]);
+    const gap = Number(/gap: (\d+)px/.exec(bar)?.[1]);
+    const margin = Number(/margin: 0 (\d+)px/.exec(bodiesFor(".sim-toolbar-rule").join(" "))?.[1]);
+    const button = Number(/width: (\d+)px/.exec(bodiesFor(".icon-btn").join(" "))?.[1]);
+    expect(TOOLBAR_BUTTON).toBe(button + gap);
+    expect(TOOLBAR_CHROME).toBe(2 * pad + 1 + 2 * margin + button + 2 * gap);
   });
 
   it("the prompter's strips are edged alike — every tab above the card wears the ring the under-strip does", () => {
@@ -1728,31 +1749,21 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".diff-list").join(" ")).not.toContain("--fade-h:");
   });
 
-  it("the sidebar list clears its own fade the same way, and dissolves by masking itself", () => {
-    // Same invariant as the changes list: a full band of padding, and ONE declaration of the number,
-    // so the ramp and the clearance that keeps the last session out of it cannot drift apart.
+  it("the sidebar list dissolves with the app's shared mask, only where rows run past an end, and starts close under the profile", () => {
+    /* It wore a mask of its own that was always drawn, so its first row sat a whole band (12px, and 4
+       more) under the profile to stay out of a fade with nothing under it — the gap the owner asked to
+       close (10-04). It takes the shared dissolve now (`data-dissolve`, set by Sidebar.tsx through
+       `useDissolve`): a mask that appears at an end only while rows run past it. THE mutants: the
+       static ramp back on the scroller, or the band's depth back in its top padding. */
     const body = bodiesFor(".space-body").join(" ");
-    // The clearance is the band PLUS room to breathe under it — the fade is still the one declared
-    // number, and the extra is written in terms of it rather than as a second magic figure.
-    expect(body).toContain("padding-bottom: calc(var(--fade-h) + 24px)");
-    // …and the same at the top, which needs it more: a row half-dissolved under the header is one
-    // you can see and cannot confidently click.
-    expect(body).toContain("padding-top: calc(var(--fade-top-h) + 4px)");
-
+    expect(body).not.toContain("mask-image");
+    expect(body).toContain("padding-top: 4px");
+    // The depths the shared mask reads are still declared once, on the list, for the scroller to inherit.
     expect(bodiesFor(".sb-list").join(" ")).toContain("--fade-h: 44px");
+    expect(bodiesFor(".sb-list").join(" ")).toContain("--fade-top-h: 12px");
     expect(body).not.toContain("--fade-h:");
-    // The ramp is the scroller's own mask, reading the same --fade-h, and it runs to TRANSPARENT: the
-    // rows' alpha goes to zero and whatever ground was behind them shows — the vibrancy material, or
-    // the opaque page under reduced transparency. Nothing is painted over the rows. The two named
-    // mutants are the old band: a backdrop blur over this translucent column blurs the window's own
-    // transparency and composites toward black (a dark smudge above the strip, verified on screen);
-    // a colour wash to any fixed tone stripes the material. So no `.space-fade` rule may exist, and
-    // no rule on the scroller may blur or wash.
-    // One gradient, two stops in and two out — the top edge dissolves the same way the bottom does,
-    // and both read their own declared height rather than a literal.
-    const RAMP = "linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent)";
-    expect(body).toContain(`mask-image: ${RAMP}`);
-    expect(body).toContain(`-webkit-mask-image: ${RAMP}`);
+    // Still a mask and nothing painted over the rows: a blur over this translucent column composites
+    // toward black, and a wash to a fixed tone stripes the material.
     expect(body).not.toContain("backdrop-filter");
     expect(body).not.toContain("background:");
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".space-fade")))).toEqual([]);
@@ -2235,7 +2246,7 @@ describe("scrollbars", () => {
   });
 
   it("the sidebar's thumb is held clear of the mask, by the mask's own two depths", () => {
-    /* `.space-body` is masked at both ends, and a mask applies to the element's whole rendering —
+    /* `.space-body` dissolves at both ends, and a mask applies to the element's whole rendering —
        scrollbar included — so the thumb dissolved at exactly the two places a scrollbar is most
        used. The track's margin is what holds it clear, and it is written as the same two custom
        properties the mask reads rather than as numbers: tune one end of the fade and the thumb
@@ -2244,9 +2255,9 @@ describe("scrollbars", () => {
        composited-pixel question, and jsdom has no scrollbars at all. */
     const track = bodiesFor(`${GUARD} .space-body::-webkit-scrollbar-track`).join(" ");
     expect(track).toContain("margin-block: var(--fade-top-h) var(--fade-h)");
-    const masked = bodiesFor(".space-body").join(" ");
-    expect(masked).toContain("var(--fade-top-h)");
-    expect(masked).toContain("var(--fade-h)");
+    // The mask is the shared dissolve, reading the same two depths at its two ends.
+    expect(bodiesFor('[data-dissolve~="start"]').join(" ")).toContain("var(--fade-top-h");
+    expect(bodiesFor('[data-dissolve~="end"]').join(" ")).toContain("var(--fade-h");
   });
 
   it("every scroller in the stylesheet has had a deliberate decision made about its bar", () => {
@@ -2266,6 +2277,49 @@ describe("scrollbars", () => {
       .flatMap((r) => r.selectors)
       .filter((sel) => !covered.has(leaf(sel)) && !exempt.has(leaf(sel)));
     expect([...new Set(uncovered)].sort()).toEqual([]);
+  });
+});
+
+describe("a side pane's tab strip", () => {
+  it("keeps every tab's glyph whole, whatever the title beside it is doing", () => {
+    /* The documents and device tabs drew smaller marks than a session's: the glyph was a flex item
+       that SHRANK with its title — an SVG's automatic minimum width is zero — so every tab whose
+       title ran to an ellipsis lost width off its mark, measured 5px across for "Documents · realm".
+       THE MUTANT: the glyph left to the flex default. A page's own icon is held the same way. */
+    expect(bodiesFor(".pane-tab-label > svg").join(" ")).toMatch(/flex: none/);
+    expect(bodiesFor(".page-icon").join(" ")).toMatch(/flex: none/);
+  });
+
+  it("stays without a scrollbar where the dissolve hands every other scroller its bar back", () => {
+    /* `[data-dissolve-x]` reclaims the bar on a Mac set to show classic scrollbars, so the strip's
+       own `scrollbar-width: none` loses to it the moment the strip dissolves. THE MUTANT: no
+       override, and a 10px bar appears under a 28px row of tabs on those Macs only. */
+    expect(bodiesFor(":root:not([data-overlay-scrollbars]) [data-dissolve-x]").join(" ")).toContain("scrollbar-width: auto");
+    expect(bodiesFor(":root:not([data-overlay-scrollbars]) .pane-tabs[data-dissolve-x]").join(" ")).toContain("scrollbar-width: none");
+  });
+
+  it("gives a tab's close a hit target that ends at the tab, so a strip that fits has nothing to scroll", () => {
+    /* Every icon button reaches 6px past itself, and the close sits 3px in from its tab's end: the
+       last tab's reached 3px past the strip, which the strip measured as slack and dissolved its far
+       end over. The reach may be no more than the gap between the close and its tab's edges. */
+    const close = bodiesFor(".pane-tab .pane-tab-close").join(" ");
+    const tab = bodiesFor(".pane-tab").join(" ");
+    const room = Math.min(Number(/margin-right: (\d+)px/.exec(close)?.[1]),
+      (Number(/height: (\d+)px/.exec(tab)?.[1]) - Number(/--btn-h: (\d+)px/.exec(close)?.[1])) / 2);
+    const reach = -Number(/inset: (-?\d+)px/.exec(bodiesFor(".pane-tab > .icon-btn::after").join(" "))?.[1]);
+    expect(room).toBe(3);
+    expect(reach).toBeLessThanOrEqual(room);
+  });
+
+  it("draws a focused tab's ring inside the tab, where the strip's clip cannot cut it", () => {
+    /* The strip is exactly one tab tall and clips like any scroller, so the app's ring — 1px outside
+       the label — lost its top and bottom and read as two accent bars. THE MUTANT: the global ring
+       left to the label. The tab draws it instead, inset by its own width. */
+    const ring = bodiesFor(".pane-tab:has(> .pane-tab-label:focus-visible)").join(" ");
+    const width = Number(/outline: (\d+)px solid var\(--rl-accent\)/.exec(ring)?.[1]);
+    expect(width).toBeGreaterThan(0);
+    expect(ring).toContain(`outline-offset: -${width}px`);
+    expect(bodiesFor(".pane-tab-label:focus-visible").join(" ")).toContain("outline: none");
   });
 });
 
@@ -2925,14 +2979,19 @@ describe("row and control layout", () => {
     expect(bodiesFor('.item-disclose[aria-expanded="true"] svg').join(" ")).toContain("rotate(90deg)");
   });
 
-  it("the sidebar's lens takes the column's own fills, not the shared control's opaque track", () => {
-    /* Spaces | Recent sits on the column's translucent ground, where `.seg`'s opaque `--rl-frame` track
-       read as a hole in the sidebar and the loudest thing in it. Share the component, let the ground
-       choose the step (design.md): the track is a hover's step, the chosen reading a selected row's. */
-    expect(bodiesFor(".sb-lens.seg").join(" ")).toContain("background: var(--rl-hover)");
-    const chosen = bodiesFor(".sb-lens .seg-opt[data-selected]").join(" ");
-    expect(chosen).toContain("background: var(--rl-active)");
-    expect(chosen).toContain("box-shadow: none");
+  it("the sidebar's list is headed by a caption and a switch, not a segmented control across the column", () => {
+    /* The owner, 10-04: "The tabs between spaces and recent should be removed. It should just have a
+       smaller subsection title that says spaces, then all the way to the right a button with an
+       activity icon". The caption is in the column's section-label voice — the size, weight and ink
+       "Pinned" wears. THE mutants: the old `.seg` track back, or a caption louder than the labels
+       around it. */
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".sb-lens") && /seg/.test(sel)))).toEqual([]);
+    const title = bodiesFor(".sb-lens-title").join(" ");
+    const label = bodiesFor(".group-label").join(" ");
+    for (const part of ["font-size: 13px", "font-weight: var(--fw-medium)", "color: var(--rl-text-faint)"]) {
+      expect(label, part).toContain(part);
+      expect(title, part).toContain(part);
+    }
   });
 
   it("a cross-space row's space name keeps its width, and the title is what gives way", () => {

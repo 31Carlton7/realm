@@ -623,7 +623,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const ws = data.documentWorkspaces[documentsId]!;
       const openPaths = ws.openPaths.includes(path) ? ws.openPaths : [...ws.openPaths, path];
       data.documentWorkspaces[documentsId] = { ...ws, openPaths, activePath: path };
-      return { documentsId, itemId, environmentId: ws.environmentId };
+      return { documentsId, itemId, environmentId: ws.environmentId, path };
     },
     readGuideProgress: async (documentsId, path) => {
       calls.push(`readGuideProgress:${documentsId}:${path}`);
@@ -646,7 +646,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const r = await api.openDocumentPath(spaceId, path);
       (data.documentFiles[r.documentsId] ??= {})[path] = `# ${title || "Lecture"}\n`;
       (data.lectures[spaceId] ??= []).unshift({ path, title: title || "Lecture 2026-09-02", date: "2026-09-02", hasTranscript: false, sizeBytes: 10 });
-      return { path, ...r };
+      return { ...r, path };
     },
     listLectures: async (spaceId) => { calls.push(`listLectures:${spaceId}`); return data.lectures[spaceId] ?? []; },
     plynnList: async () => { calls.push("plynnList"); return data.plynn; },
@@ -725,22 +725,26 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     libraryArtifacts: async (q) => {
       // The profile first, so the query itself stays the call log's last word.
       if (q.profileId != null) calls.push(`libraryArtifactsProfile:${q.profileId}`);
+      if (q.sessionId != null) calls.push(`libraryArtifactsSession:${q.sessionId}`);
       calls.push(`libraryArtifacts:${q.spaceId ?? "all"}:${q.kind ?? "any"}:${q.type ?? "any"}:${q.query ?? ""}`);
       await wait("libraryArtifacts");
       // A profile narrows to its spaces, as the server's join does.
       const ofProfile = (spaceId: string) => q.profileId == null || data.spaces.find((x) => x.id === spaceId)?.profileId === q.profileId;
-      const all = data.artifacts.filter((a) => ofProfile(a.spaceId));
+      const scoped = data.artifacts.filter((a) => ofProfile(a.spaceId)
+        && (q.spaceId == null || a.spaceId === q.spaceId) && (q.sessionId == null || a.sessionId === q.sessionId));
+      // One row per file, its newest — the server's collapse, done before the keyset as it is there.
+      const collapse = (rows: LibraryEntry[]) => !q.perFile ? rows
+        : [...rows].sort((a, b) => b.ts - a.ts || (a.id < b.id ? 1 : -1)).filter((a, i, all) => all.findIndex((x) => x.path === a.path) === i);
       const needle = (q.query ?? "").trim().toLowerCase();
-      const matching = all.filter((a) =>
-        (q.spaceId == null || a.spaceId === q.spaceId)
-        && (q.kind == null || a.kind === q.kind)
+      const matching = collapse(scoped.filter((a) =>
+        (q.kind == null || a.kind === q.kind)
         && (q.type == null || artifactTypeOf(a.ext) === q.type)
-        && (needle === "" || a.name.toLowerCase().includes(needle)));
+        && (needle === "" || a.name.toLowerCase().includes(needle))));
       // Same keyset the server uses, so a test that pages here is testing the page's real cursor.
       const before = q.before ?? null;
       const after = before === null ? matching
         : matching.filter((a) => a.ts < before.ts || (a.ts === before.ts && a.id < before.id));
-      const total = all.filter((a) => q.spaceId == null || a.spaceId === q.spaceId).length;
+      const total = collapse(scoped).length;
       return { entries: after.slice(0, q.limit ?? LIBRARY_PAGE_SIZE), total };
     },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },

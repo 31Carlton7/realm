@@ -1,6 +1,7 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useState } from "react";
 import type { Item } from "@realm/contracts";
+import { TerminalMark } from "./ProgramMark";
 
 /**
  * A page's own icon where Realm has one — a browser's tab, its sidebar row, a page in the history —
@@ -17,7 +18,9 @@ export function PageIcon({ src, fallback, size }: { src: string | undefined; fal
   return <img className="page-icon" src={src} width={size} height={size} alt="" draggable={false} onError={() => setBroken(src)} />;
 }
 
-/** An item's mark: a browser's page icon once its page has offered one, the kind's glyph otherwise. */
+/** An item's mark: a browser's page icon once its page has offered one, a terminal's program while
+ *  one runs in it (ProgramMark), and the kind's glyph otherwise. */
 export function ItemIcon({ item, size }: { item: Item; size: number }) {
+  if (item.kind === "terminal") return <TerminalMark terminalId={item.refId} size={size} />;
   return <PageIcon src={item.kind === "browser" ? item.favicon : undefined} fallback={item.kind} size={size} />;
 }

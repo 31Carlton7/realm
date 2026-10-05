@@ -217,7 +217,7 @@ const contrastScale = (level: number): number => {
  *  separates "the palette lifted Nord's red half a step so error text is readable on Nord's own
  *  surface" from "the palette invented a colour and called it Nord". A seed that needs more than
  *  this is a bug in the theme, and the contrast suite says so by name. */
-const LIFT_BUDGET = 0.12;
+export const LIFT_BUDGET = 0.12;
 
 const clamp = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x);
 /** A step along the L axis, holding hue and offsetting chroma. Lightness is clamped to the display's
@@ -230,7 +230,7 @@ const step = (base: Oklch, dl: number, dc = 0): Oklch =>
  *  runs out, in which case the best effort is returned and the contrast suite fails the theme.
  *  Hue and chroma are untouched: what a theme states is a colour's identity, and identity is the one
  *  thing a correctness fix must not quietly edit. */
-function lift(o: Oklch, ground: Oklch, floor: number, budget = LIFT_BUDGET): Oklch {
+export function lift(o: Oklch, ground: Oklch, floor: number, budget = LIFT_BUDGET): Oklch {
   const dir = luminance(o) >= luminance(ground) ? 1 : -1;
   const g = emitted(ground);
   let best = o;

@@ -463,7 +463,7 @@ acronym that is uppercase anyway (a file extension on a tile).
   leaves what you are looking at. The hand on every button is the loudest single sign that a window
   is a web page.
 - A window-drag region takes every press that is not opted out of it, and a LABEL is a control: the
-  sidebar's Spaces | Recent segments, labels round hidden radios, answered only on the radio's 13px.
+  sidebar's old Spaces | Recent segments, labels round hidden radios, answered only on the radio's 13px.
 - Chrome is not text. Buttons, rows, tabs, bars and menus do not select on a drag or a double-click,
   and their glyphs do not lift off as drag ghosts. Content and fields keep selection.
 - A window that is not key greys its accent — selection, default button, checked boxes, lit
@@ -675,6 +675,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   unbounded length, so they keep the width and the shown item's own actions go to its menu. The
   agents still working are a count in the session's bar, and their list previews one on request;
   a tab dragged to an edge is how something becomes part of the user's own layout.
+- What a pane SHOWS keeps its controls with it, not in the pane's bar, which in a side pane is the tab
+  strip: the simulator's state and eight buttons there once left the tabs no width at all. A device
+  wears a toolbar centred over it — its state and the presses used every minute, the rest one click
+  away in an overflow that a narrow pane fills from the toolbar's end — and what is done WITH it
+  (recording it for Laya) sits under it in the same pill, so the two read as one instrument.
 - Work a clock starts is not work the person started. A scheduled run lands under its task on the
   Scheduled page, unread until its session is read, rather than opening a pane beside whatever the
   person is doing — and for it "never opened" is what unread means, where for a session somebody
@@ -747,6 +752,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 ## Documents, diffs, terminals, and data
 
 - Editors and terminals use the available pane. Avoid centered card-width work areas.
+- A terminal's sixteen colours carry two jobs that pull apart: text a program prints on the pane's
+  ground, and the ground a powerline prompt prints its segments on. Author them for the text — every
+  text colour, bright black included, at AA on the ground, faint text at the app's secondary ink —
+  leave the 240 a program names itself to the program, and let xterm's contrast floor rescue the few
+  pairs that miss: low on the dark face, where those colours were chosen for a dark ground, AA on
+  the light one, where they were not. A tab names what its terminal runs; only an agent wears its
+  vendor's colour there, on its tile, so colour in a strip of tabs means an agent and nothing else.
 - Tabs identify open work; the active document also has a clear title and save state.
 - Rich and source modes preserve the same document identity.
 - Diffs use color plus signs, line structure, and labels. Color alone never carries add/delete state.
@@ -769,6 +781,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   narrowing a person reaches for. The rarer ones — which space, who made it — live behind a filter
   that lights while it narrows and says so as a chip by the tabs, undone from there: a list that is
   shorter than it should be has to say why. The toolbar is the column's head, outside its scroller.
+- A documents pane with nothing open is a home, not a void: what this session made and was given,
+  then the Library's, under one search that also reaches the checkout's own names, and a New that
+  says what every kind it writes is — a code file among them, since nothing else on screen says a
+  `.py` is a document the pane can write. Finding a file is that search; a palette that found one
+  and opened it somewhere else was a second door to the same room.
 - A file the app shows behaves like one in the Finder: Space opens it in Quick Look (Return still
   acts), it drags out to the Finder or into another app, and its menu offers Quick Look and the
   system Share menu. Each is offered only where the desktop bridge has it — a Space that swallows the

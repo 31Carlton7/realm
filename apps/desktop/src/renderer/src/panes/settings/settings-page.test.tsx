@@ -1363,6 +1363,19 @@ describe("terminal scrollback", () => {
     expect(api.calls).toContain("setSetting:terminals.cursorStyle=bar");
   });
 
+  it("offers Realm's terminal colours or the shell's, Realm's until you choose", async () => {
+    /* THE mutant: read the stored value as anything but the two words, or default it to the shell's —
+       a terminal that has never been told then wears xterm's palette, whose blue and bright black are
+       under AA on Realm's ground. */
+    const { store, api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "General" }));
+    const group = screen.getByRole("group", { name: "Terminal colours" });
+    expect(within(group).getByRole("radio", { name: "Realm's" })).toBeChecked();
+    fireEvent.click(within(group).getByRole("radio", { name: "My shell's" }));
+    await waitFor(() => expect(store.getState().terminalColors).toBe("shell"));
+    expect(api.calls).toContain("setSetting:terminals.colors=shell");
+  });
+
   it("gives the code editor's caret its own switch, and says why the prompter's is not in it", async () => {
     /* VS Code splits `editor.cursorBlinking` from `terminal.integrated.cursorBlinking`, and so does
        this: the two carets are in different places doing different jobs. THE MUTANT: one switch for

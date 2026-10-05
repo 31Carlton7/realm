@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, hasLeafIn, patchKey, spaceIsPlainFolder, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, type DropEdge } from "./store";
-import { allItems, findLeafOfItem, firstLeaf, itemIdOfLeaf, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { allItems, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 import { DEFAULT_GROUND_ALPHA } from "@realm/ui";
 
@@ -2475,15 +2475,40 @@ describe("diff panes", () => {
     expect(store.getState().items.filter((i) => i.kind === "diff").map((i) => i.id)).toEqual([itemId]);
   });
 
-  it("splits beside the focused pane instead of evicting it — the session must stay reachable", async () => {
+  it("opens as a tab of the focused pane's side pane — the pane keeps what it shows, and no column of its own", async () => {
     const a = withEnv();
     const store = createAppStore(a);
     await store.getState().boot();
-    await store.getState().openItem("i1"); // session occupies the only leaf, focused
+    await store.getState().openItem("i1"); // the terminal occupies the only leaf, focused
     await store.getState().openDiff("env1");
-    const open = allItems(store.getState().layout!);
-    expect(open).toContain("i1"); // the session was NOT evicted — there must be a way back
-    expect(open).toContain(store.getState().items.find((i) => i.kind === "diff")!.id);
+    const diff = store.getState().items.find((i) => i.kind === "diff")!.id;
+    // THE MUTANTS: the old split beside it, or an open in its place that evicts what was there.
+    expect(findSidePane(store.getState().layout!, "i1")?.tabs).toEqual([diff]);
+    expect(primaryLeaves(store.getState().layout!).map((l) => l.itemId)).toEqual(["i1"]);
+    expect(store.getState().focusedLeafId).toBe(findLeafOfItem(store.getState().layout!, diff)!.id);
+  });
+
+  it("joins the side pane of the session working in that checkout — beside its browser, not a third column", async () => {
+    // The owner's report (10-04): Changes opened as its own column beside a session and its browser.
+    const a = fakeApi({
+      environments: { s1: [env] },
+      diffs: { "/tmp/wt": { root: "/tmp/wt", branch: "realm/x", files: [], totalFiles: 0, truncated: false } },
+      sessions: [session("se1", "s1", { environmentId: "env1" })],
+      items: { s1: [item("i-se1", "s1", { kind: "session", refId: "se1", title: "Lead" }), item("i-br", "s1", { kind: "browser", refId: "br", title: "Browser" })] },
+    });
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openItem("i-se1");
+    await store.getState().openInSidePane("se1", "i-br");
+    store.getState().focusLeaf(findLeafOfItem(store.getState().layout!, "i-br")!.id);
+    await store.getState().openDiff("env1");
+    const diff = store.getState().items.find((i) => i.kind === "diff")!.id;
+    expect(findSidePane(store.getState().layout!, "i-se1")?.tabs).toEqual(["i-br", diff]);
+    expect(primaryLeaves(store.getState().layout!)).toHaveLength(1);
+    // A second open goes to that tab rather than making another.
+    await store.getState().openItem("i-br");
+    await store.getState().openDiff("env1");
+    expect(findSidePane(store.getState().layout!, "i-se1")).toMatchObject({ itemId: diff, tabs: ["i-br", diff] });
   });
 
   it("refreshes gitInfo alongside the diff, so the prompter's chips cannot disagree with the pane", async () => {

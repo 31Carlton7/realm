@@ -55,6 +55,7 @@ export * from "./motion";
 export * from "./power";
 export * from "./editors";
 export * from "./terminals";
+export * from "./terminal-programs";
 export * from "./schedules";
 export * from "./failover";
 export * from "./school";

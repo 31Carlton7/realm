@@ -360,12 +360,7 @@ kbd { font: 11px var(--font-mono); }
 .sidebar[data-collapsed] { --sidebar-open: 0; }
 .sidebar-slide { flex: none; width: var(--sidebar-w); min-height: 0; display: flex; flex-direction: column;
   translate: calc(var(--sidebar-w) * (var(--sidebar-open) - 1)) 0; }
-/* A LABEL is a control too. The lens's two segments are labels round hidden radios, and with only
-   buttons and inputs opted out, the column's drag region covered every pixel of them but the 13px
-   radio parked at the start of each word: a click on "Recent" anywhere else started a window drag
-   and never reached the page (reported 10-04 as "hard to click"). The whole track opts out, so the
-   gap between the segments is not a dead strip either. */
-.sidebar button, .sidebar input, .sidebar label, .sb-lens, .sb-resize { -webkit-app-region: no-drag; }
+.sidebar button, .sidebar input, .sb-resize { -webkit-app-region: no-drag; }
 /* Folded away, the column is a box with no width, but what it holds is still laid out — slid off to
    the left, across the rail — and Electron lays the window's drag regions down in document order, not
    stacking order or clipping. The rail comes first, so a drag region left on the folded column lands
@@ -509,7 +504,7 @@ kbd { font: 11px var(--font-mono); }
    lights now cross into that row, and it could not hold them, the profile, back and forward, the
    toggle and two actions at the sidebar's own width. The profile's name is the one thing in the row of
    unbounded length, and it has the row to itself. */
-.sb-title { flex: none; display: flex; align-items: center; height: 44px; padding-top: 6px; }
+.sb-title { flex: none; display: flex; align-items: center; padding-top: 6px; }
 .sb-profile { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .sb-profile:hover:not(:disabled) { background: var(--rl-hover); }
@@ -528,16 +523,15 @@ kbd { font: 11px var(--font-mono); }
    something else, under a Back where the profile switcher was. The spaces stay mounted, hidden. */
 .sb-list[hidden] { display: none; }
 .sb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.sb-page-head { flex: none; height: 44px; display: flex; align-items: center; padding: 6px 16px 0; }
+.sb-page-head { flex: none; display: flex; align-items: center; padding: 6px 16px 0; }
 .sb-page-back { flex: none; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .sb-page-back:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* `no-drag` for the whole slot: the column is a window-drag region, and a rail's rows are LABELS,
    which the button-and-input opt-out above does not reach — a click on one would move the window. */
-/* 16px above the first thing in it — the search, or a section — which is where the spaces list starts
-   its first row (`.space-body`: the top band's 12px and 4 to breathe). Flush, the search sat on the
-   frame's rim under Back. */
-.sb-page-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 16px 16px; overflow-y: auto;
+/* The first thing in it — the search, or a section — the step under Back that the spaces list's head
+   takes under the profile (`.space-body`), so the column's first rows sit alike in both. */
+.sb-page-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 4px 16px 16px; overflow-y: auto;
   -webkit-app-region: no-drag; }
 .sb-page-nav .page-rail { width: auto; align-self: stretch; }
 .sb-page-nav .page-rail:has(.page-rail-list), .sb-page-nav .settings-rail-lists { gap: 4px; }
@@ -549,15 +543,13 @@ kbd { font: 11px var(--font-mono); }
 /* Settings keeps its search where it is while the pages scroll under it, as it does in the page. */
 .sb-page-nav:has(.settings-rail) { overflow: hidden; }
 .sb-page-nav .page-rail.settings-rail { flex: 1; min-height: 0; max-height: none; gap: 8px; }
-/* The lens: the shared segmented control, across the column, its two readings sharing the width. It
-   sits on the column's translucent ground, not on a pane, where the control's opaque track read as a
-   hole in the sidebar and the loudest thing in it. So it takes the column's own fills — the track a
-   hover's step, the chosen reading the step a selected row takes (design.md: share the component,
-   let the ground choose the step). */
-.sb-lens { display: flex; }
-.sb-lens.seg { background: var(--rl-hover); border-color: transparent; }
-.sb-lens .seg-opt { flex: 1; text-align: center; }
-.sb-lens .seg-opt[data-selected] { background: var(--rl-active); box-shadow: none; }
+/* The list's head (SidebarLens): what the list is showing, in the column's section-label voice — the
+   sentence-case caption "Pinned" and the day headings wear — and at its far end the switch to the other
+   reading, a plain icon button lit while the activity is up. A caption row rather than a control row:
+   the switch is the one thing in it that answers the pointer. */
+.sb-lens { display: flex; align-items: center; min-height: 28px; padding-left: 8px; margin-top: 8px; }
+.sb-lens:first-child { margin-top: 0; }
+.sb-lens-title { flex: 1; min-width: 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
 /* What needs you: rows in the column's own anatomy, and under a waiting row the session's own request
    card, at the column's full width — a card squeezed under an indent wraps every option. */
 .sb-needs, .sb-pinned { display: flex; flex-direction: column; }
@@ -593,10 +585,12 @@ kbd { font: 11px var(--font-mono); }
    column's right edge on every frame, so the shade rides the column open and closed; once the column
    has folded away there is nothing to cast it, and the pseudo-element is the panes' corner instead
    (the frame, above). Its own step per face, because the same black reads heavier on the light ground
-   (design.md: do not assume the light face mirrors the dark), set by measurement to about the depth of
-   Codex's own sheet shadow: five or six levels of 255 at the edge, gone in 8px. */
-:root { --seam-shade: oklch(0 0 0 / 0.14); --seam-w: 8px; }
-:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.02); }
+   (design.md: do not assume the light face mirrors the dark), set by measurement: 60% of the depth this
+   first shipped at — Codex's own sheet shadow — which the owner found a touch heavy for a seam (10-04).
+   Measured as the shade summed across its 8px, because at depths this small the gradient lands in
+   whole 8-bit steps, and 60% of the first ALPHA measured 75–82% of its depth. */
+:root { --seam-shade: oklch(0 0 0 / 0.062); --seam-w: 8px; }
+:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.0095); }
 .app:not([data-sidebar-folded]) > .main::after { content: ""; position: absolute; z-index: 36; pointer-events: none;
   top: var(--frame-top); bottom: 0; left: 0; width: var(--seam-w);
   background: linear-gradient(to right, var(--seam-shade), transparent); }
@@ -684,12 +678,7 @@ kbd { font: 11px var(--font-mono); }
   /* A shallower top band than the bottom's: it only has to soften a row sliding under the head row,
      not clear a row's height — at 32px rows, 12 does that. */
   --fade-top-h: 12px; }
-/* A full band of bottom padding, not a fraction of one, for the reason the diff list needs the same:
-   these are 32px rows of dense text, so a row that ends inside the ramp is a session you scrolled
-   down to read and then cannot. Scrolled to the end, the last row sits entirely clear of the band and
-   the ramp has only empty gutter under it. The scroller and the ramp read the one --fade-h so they
-   cannot drift apart.
-   The ramp is a MASK on the scroller itself: over its last --fade-h the rows' own alpha runs to zero,
+/* The ramp is a MASK on the scroller itself: over its last --fade-h the rows' own alpha runs to zero,
    and nothing is painted over them. That is what makes the dissolve seamless on this column, which is
    not an opaque panel but --page at --ground-alpha over the macOS vibrancy material: a row that fades
    out reveals exactly the ground that was always behind it, whatever that ground is — the material,
@@ -702,17 +691,15 @@ kbd { font: 11px var(--font-mono); }
    scroller's box, so it holds still while the content scrolls beneath it, and it needs no sibling
    element and no reduced-transparency fallback. */
 .space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px;
-  /* Clearance at BOTH ends: the band plus room to breathe. At exactly the band's height the last row
-     stopped where the mask started dissolving, so a fully scrolled list ended on a half-faded item.
-     The top needs the same, and needs it more — a row half-dissolved under the header is one you can
-     see and cannot confidently click, which is the whole reason this padding is generous. */
-  padding-top: calc(var(--fade-top-h) + 4px);
-  padding-bottom: calc(var(--fade-h) + 24px);
-  /* Masked at both edges, and still a mask rather than a blur: this column is translucent, and a
-     backdrop-filter over it blurs the window's own transparency toward black — a dark smudge with
-     nothing behind it. A mask paints nothing at all. */
-  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent); }
+  /* Close under the profile: the column's own step, not a band's depth. This padding was the top
+     band's 12px and 4 more, because the mask was always drawn and a first row inside it was half
+     faded at rest — so the profile and the list's head stood a band apart (the owner, 10-04: "reduce
+     the spacing"). The dissolve is the app's shared one now (`data-dissolve`, ScrollFades.tsx),
+     drawn only at an end with rows beyond it, so at rest the first row is whole and needs no room.
+     Nor does the bottom need a band of clearance any more: scrolled to the end there is no band, and
+     the last row stops a step above New space, pinned at the foot (`.sb-foot`). */
+  padding-top: 4px;
+  padding-bottom: 8px; }
 
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--inset); color: var(--ink-2); } /* W3: StatusPill neutral */
 .icon-btn { display: grid; place-items: center; width: 28px; --btn-h: 28px; height: var(--btn-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; color: var(--rl-text-dim); }
@@ -888,10 +875,11 @@ kbd { font: 11px var(--font-mono); }
 /* "Show more" is a line of text on the titles' column, not a row: it cannot be mistaken for a session. */
 .sb-more { margin: 0 0 4px 46px; }
 .sb-start { color: var(--rl-text-faint); }
-.sb-new-space { flex: none; width: 100%; min-height: 32px; margin-top: 6px; color: var(--rl-text-dim); }
+/* New space at the column's foot, outside the scroller, so no length of list can carry it off (the owner,
+   10-04). The list dissolves into it while there are rows below; its own step under the last row. */
+.sb-foot { flex: none; padding: 2px 0 10px; }
+.sb-new-space { flex: none; width: 100%; min-height: 32px; color: var(--rl-text-dim); }
 .sb-new-space:hover { color: var(--rl-text-bright); }
-.sb-lens { margin: 10px 0 6px; }
-.sb-lens:first-child { margin-top: 2px; }
 .sb-recent .sb-day:first-child > .group-label { padding-top: 4px; }
 /* Nothing yet is its own composition, centred in the room the list would have used. */
 .sb-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 32px 12px; text-align: center;
@@ -1178,6 +1166,22 @@ kbd { font: 11px var(--font-mono); }
    picture fitted inside it, and never a column a row can squeeze. Its colours are the page's — it is
    not tinted with the row's ink the way a glyph is. */
 .page-icon { flex: none; aspect-ratio: 1; object-fit: contain; }
+/* A terminal's program in the same slot (ProgramMark.tsx). The slot is the glyph's square whatever
+   fills it, so a program starting or stopping never moves the title beside it; a change turns over on
+   `.icon-swap`, the one rule every swapped glyph shares. */
+.program-mark { flex: none; }
+.program-mark > span { display: grid; place-items: center; }
+/* An agent's mark on its tile: the vendor's one colour where its mark declares one (set inline), the
+   near-black of fx's and Codex's own tiles where it does not, and the mark in white either way. The
+   rim is the one-device-pixel outline every picture here wears — light on the dark face, dark on the
+   light one — and is what keeps a near-black tile from being a hole in a dark bar. */
+.program-tile { position: relative; flex: none; display: inline-grid; place-items: center;
+  --program-tile: oklch(0.17 0.004 265); --program-tile-rim: oklch(1 0 0 / 0.16); }
+:root[data-mode="light"] .program-tile { --program-tile-rim: oklch(0 0 0 / 0.1); }
+.program-tile-ground { position: absolute; inset: 0; }
+.program-tile-fill { fill: var(--program-tile); }
+.program-tile-rim { fill: none; stroke: var(--program-tile-rim); stroke-width: 1px; }
+.program-tile-glyph { position: relative; color: oklch(1 0 0); }
 .summary-plan-prose { font-size: 14px; }
 .summary-plan-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .summary-plan-steps li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--rl-text-dim); }
@@ -1649,17 +1653,24 @@ kbd { font: 11px var(--font-mono); }
    rectangle behind it to be separated from the pane.
    The corner goes with the fill. `border-radius` and `corner-shape` were rounding the slab, and a
    curve on a box that paints nothing is a declaration with no picture in it — which is also why
-   this no longer appears in the paint-worklet rule (styles.test.ts enforces the pair). */
-.sim-screen { position: relative; flex: 1; min-width: 0; min-height: 0; display: grid; place-items: center;
+   this no longer appears in the paint-worklet rule (styles.test.ts enforces the pair).
+
+   The stage holds the device and its two rows — the toolbar over it, the Record row under it — as
+   ONE column centred in the room the pane has (SimulatorPane fits the device to what the rows leave),
+   so the toolbar stands on the device's top edge wherever the device ends up: a phone fitted to a
+   narrow pane's width does not float in the middle with its controls stranded at the two ends. */
+.sim-stage { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px;
   margin: var(--sidebar-inset);
   /* Breathing room, not a guard any more: with no round corner to clear, this is what keeps the
-     device off the toolbar above it and the frame control below. */
+     toolbar off the pane bar and the Record row off the pane's foot. */
   padding: 12px;
   /* Still earned: a device picture taller than the pane would otherwise spill into the bar. */
-  overflow: hidden;
-  /* It takes touches and keys, so it is a control — but the global focus ring around a whole pane is
-     a rectangle nobody needs to see. The picture's own outline says where focus is. */
-  outline: none; }
+  overflow: hidden; }
+.sim-above, .sim-under { flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; max-width: 100%; }
+/* The device. It takes touches and keys, so it is a control — but the global focus ring around a
+   whole box is a rectangle nobody needs to see. The picture's own outline says where focus is. */
+.sim-screen { position: relative; flex: none; display: grid; place-items: center; outline: none; }
 .sim-picture { display: block; width: var(--sim-w); height: var(--sim-h); clip-path: var(--sim-clip, none);
   box-shadow: var(--shadow-hairline); object-fit: fill;
   /* The pointer drives the device; a drag that started here must not become a picture drag. */
@@ -1677,11 +1688,6 @@ kbd { font: 11px var(--font-mono); }
    transparent ones — a blue L in each corner of a black iPhone. `drop-shadow` follows rendered
    alpha, so it outlines the phone. */
 .sim-screen:focus-visible .sim-art { filter: drop-shadow(0 0 0 var(--rl-accent)) drop-shadow(0 0 2px var(--rl-accent)); }
-/* On the PANE's dim ink now, not the terminal ground's. `--rl-terminal-ink-dim` is white at 32%,
-   chosen to sit on `#1c1d1f`; with that ground gone this line reads against `--rl-panel` like every
-   other quiet sentence in the app, and should be the ink the app uses for one. */
-.sim-connecting { position: absolute; inset: auto 0 12px; margin: 0; text-align: center;
-  color: var(--rl-text-dim); font-size: 12px; pointer-events: none; }
 
 /* ── The frame ──
    The stream is the screen and nothing else, so something has to stand in for the device around it,
@@ -1749,45 +1755,51 @@ kbd { font: 11px var(--font-mono); }
   box-shadow: var(--shadow-raised); font-size: 12px; }
 .sim-ax-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ── The frame's own controls ──
-   Under the device rather than in the pane bar, and that is the one deliberate exception to "a
-   pane's actions live in its bar": this changes what the PICTURE looks like, not what the device
-   does. Beside the buttons that press real hardware it would read as the same kind of thing. */
-/* ── Under the device ──
-   Two rows, and the split is the point: the device's own BUTTONS, then what the picture of it looks
-   like. Both were in the pane bar, which had grown to ten icons in one strip — and the bar is for
-   what the PANE does (take a picture of it, inspect it, stop streaming), not for what the phone
-   does. A phone's buttons belong with the phone. */
-.sim-hardware { flex: none; display: flex; justify-content: center; align-items: center; gap: 2px;
-  padding: 6px 0 0; }
+/* ── Over and under the device ──
+   One pill wherever the device's own controls are: the toolbar over it (SimulatorBar.tsx), and under
+   it the Record control (LayaRecord.tsx), the recording it becomes, and a phone's offer to go live.
+   One height, fill and corner on one centre line, so above and below read as one instrument around
+   the device rather than as a strip of chrome and a stray button — and what sits inside a pill is a
+   pill too, its corner the outer one less the 2px or 4px between them. */
+.sim-toolbar, .sim-record-start, .sim-recording, .sim-live {
+  height: 32px; border-radius: 999px; background: var(--rl-raised); box-shadow: var(--shadow-card); }
+/* The state, a rule, the four presses and the overflow. A narrow pane takes it apart in the order
+   `toolbar-fit.ts` states, and its numbers are this rule's: 2px of padding, 2px gaps, 28px buttons. */
+.sim-toolbar { display: flex; align-items: center; gap: 2px; max-width: 100%; padding: 2px; }
+.sim-toolbar .icon-btn { flex: none; border-radius: 999px; }
+/* What the stream is doing: a still dot, its word, and the device's resolution in mono. What a
+   narrow toolbar stops showing it still says to a screen reader, and on the tooltip. */
+.sim-toolbar-status { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 6px 0 10px;
+  font-size: 12px; line-height: 16px; color: var(--rl-text-dim); white-space: nowrap; }
+.sim-toolbar[data-status="word"] .machine-bar-size,
+.sim-toolbar[data-status="dot"] :is(.sim-toolbar-word, .machine-bar-size) {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.sim-toolbar-rule { flex: none; width: var(--hairline-w); height: 16px; margin: 0 4px; background: var(--rl-line); }
 /* A real iPhone's picture that is screenshots for a reason the person can change — and only then. */
-.sim-live { flex: none; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0;
-  padding: 6px var(--sidebar-inset) 0; color: var(--rl-text-dim); font-size: 12px; line-height: 16px; }
-.sim-live-btn { --btn-h: 24px; height: var(--btn-h); padding: 0 10px; font-size: 12px; }
-.sim-frame-bar { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 6px var(--sidebar-inset) var(--sidebar-inset); }
-.sim-frames { display: flex; align-items: center; gap: 4px; padding: 4px;
-  border-radius: 999px; background: var(--rl-raised); box-shadow: var(--shadow-card); }
-/* `--fill`, not `background`: these carry `.btn`, and a painted control spends its `background` on
-   `paint(rl-squircle)` — so a state that reached for the background painted the resting fill in
-   every state, and the picked segment was marked by nothing at all. */
-.sim-frame-opt { --btn-h: 24px; height: var(--btn-h); padding: 0 10px; border: 0; border-radius: 999px;
-  --fill: transparent; color: var(--rl-text-dim); font-size: 12px; box-shadow: none; }
-.sim-frame-opt:hover { --fill: var(--rl-hover); color: var(--rl-text-bright); }
-.sim-frame-opt[aria-checked="true"] { --fill: var(--rl-accent); color: var(--rl-accent-contrast); }
+.sim-live { display: flex; align-items: center; gap: 8px; max-width: 100%; margin: 0; padding: 4px 4px 4px 12px;
+  color: var(--rl-text-dim); font-size: 12px; line-height: 16px; }
+.sim-live-btn { --btn-h: 24px; height: var(--btn-h); flex: none; padding: 0 10px; border-radius: 999px; font-size: 12px; }
 /* ── Recording the device for Laya ──
-   Its own row under the device's buttons (LayaRecord.tsx). What it records is the person's use of the
-   app on the device, so it sits with the device, where it has the room to say so in words — the bar
-   shares its width with the side pane's tabs, which keep it. */
-.sim-record { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 6px var(--sidebar-inset) 0; }
-.sim-record-start { --btn-h: 26px; height: var(--btn-h); display: inline-flex; align-items: center; gap: 6px;
-  padding: 0 12px 0 9px; font-size: 12px; }
-/* The recording itself, in the frame choice's pill: the live mark, what is being kept and how much,
-   and Stop — the state and the control that ends it as one object. What is kept takes the slack and
-   gives it back first; the count and Stop keep their width. */
-.sim-recording { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 3px 3px 3px 12px;
-  border-radius: 999px; background: var(--rl-raised); box-shadow: var(--shadow-card);
+   Under the device, the toolbar's counterpart (LayaRecord.tsx). What it records is the person's use of
+   the app on the device, so it sits with the device, where it has the room to say so in words — the
+   bar shares its width with the side pane's tabs, which keep it. */
+.sim-record { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: 100%; }
+/* With no device up — a stream stopped, a phone that locked — a recording's row is all that is left,
+   at the pane's foot. */
+.sim-pane > .sim-record { flex: none; padding: 0 var(--sidebar-inset) 20px; }
+/* A pill, not a `.btn`: a painted control trades its lift for a ring, and this one stands in the
+   toolbar's material. So its states are the toolbar's surface ladder, a rung up on hover. */
+.sim-record-start { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 0 14px 0 10px;
+  font-size: 12px; color: var(--rl-text-dim); white-space: nowrap;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.sim-record-start:hover:not(:disabled) { background: var(--hover); color: var(--rl-text-bright); }
+.sim-record-start:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--hover-2); color: var(--rl-text-bright); }
+.sim-record-start:disabled { color: var(--rl-text-faint); }
+.sim-record-start > svg { flex: none; }
+/* The recording itself, in the same pill: the live mark, what is being kept and how much, and Stop —
+   the state and the control that ends it as one object. What is kept takes the slack and gives it
+   back first; the count and Stop keep their width. */
+.sim-recording { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 4px 4px 12px;
   font-size: 12px; line-height: 16px; }
 .sim-recording-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
 .sim-recording-count { flex: none; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1811,7 +1823,9 @@ kbd { font: 11px var(--font-mono); }
   background: var(--rl-danger); }
 .rail-recording-stop { width: 8px; height: 8px; border-radius: 2px; background: #ffffff; }
 
-.sim-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px; }
+/* The device list's ends dissolve over its own padding, so a card scrolled to either end clears the band. */
+.sim-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px;
+  --fade-h: 24px; --fade-top-h: 24px; }
 .sim-rest { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 380px; }
 .sim-title { margin: 0; font-size: 18px; font-weight: var(--fw-title); letter-spacing: -0.01em; color: var(--rl-text-bright); }
 .sim-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-faint); }
@@ -1949,6 +1963,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-strip { display: flex; align-items: center; gap: 2px; flex: 1 1 auto; min-width: 0; margin-left: -6px; }
 .pane-tabs { display: flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 0;
   overflow-x: auto; scrollbar-width: none; }
+/* Its ends dissolve where it scrolls (`ScrollFadesX`), and the dissolve's own rule hands a scroller
+   its bar back on a Mac that draws classic ones — under a 28px row of tabs that bar would be the
+   tallest thing in the bar. The strip keeps none either way. */
+:root:not([data-overlay-scrollbars]) .pane-tabs[data-dissolve-x] { scrollbar-width: none; }
 .pane-tabs-add { flex: none; color: var(--rl-text-faint); }
 .pane-tabs-add[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* A width rather than a flex basis: the strip is sized from its tabs now that the "+" follows them, and
@@ -1963,7 +1981,13 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-tab-label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; height: 100%; padding: 0 2px 0 8px;
   font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-dim); text-align: left; }
 .pane-tab[data-active] .pane-tab-label { color: var(--rl-text-bright); }
-.panel[data-focused] .pane-tab[data-active] .pane-tab-label svg { color: var(--rl-accent); }
+/* The glyph is a column of its own, never a share of the shortfall. Left to the flex default it shrank
+   with the title — an SVG's automatic minimum width is zero, since the UA clips its overflow — so every
+   tab whose title ran to an ellipsis drew a smaller mark, the longer the title the smaller: a
+   documents tab's at 5px wide beside a session's 14. A page's own icon is held the same way (`.page-icon`). */
+.pane-tab-label > svg, .pane-tab-label > .program-mark { flex: none; }
+/* Not a program's tile, whose glyph is the vendor's white on the vendor's colour (ProgramMark). */
+.panel[data-focused] .pane-tab[data-active] .pane-tab-label svg:not(.program-tile *) { color: var(--rl-accent); }
 .pane-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* A peek (W11b): the one tab that goes when the space does. */
 .pane-tab[data-peek] .pane-tab-title { font-style: italic; }
@@ -1971,6 +1995,16 @@ button.panel-title:hover { background: var(--rl-hover); }
   transition: opacity var(--dur-hover) var(--ease-out-strong); }
 .pane-tab:hover .pane-tab-close, .pane-tab[data-active] .pane-tab-close, .pane-tab-close:focus-visible { opacity: 1; }
 .pane-tab-confirm { width: auto; padding: 0 8px; margin-right: 3px; font-size: 12px; white-space: nowrap; }
+/* The close's hit target stops at its tab's edge. The 6px every icon button reaches past itself went
+   3px past the last tab, and a scroller counts that as more of itself: a strip of two tabs that fit
+   measured 3px of slack, enough for its far end to dissolve over nothing. */
+.pane-tab > .icon-btn::after { inset: -3px; }
+/* A tab's focus ring is drawn INSIDE it. The strip is a scroller exactly one tab tall, so the ring the
+   label drew outside itself lost its top and bottom to the strip's clip and arrived as two accent bars
+   either side of the title. On the tab rather than the label, so it follows the tab's corners. */
+.pane-tab:has(> .pane-tab-label:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: -2px;
+  animation: rl-focus-ring var(--dur-slow) var(--spring-smooth); }
+.pane-tab-label:focus-visible { outline: none; }
 /* The strip takes drops itself (reorder, join), so the pane's drop zones start under its bar. */
 .panel[data-tabbed] > .drop-overlay { top: 40px; }
 
@@ -2333,6 +2367,32 @@ button.panel-title:hover { background: var(--rl-hover); }
 .terminal-hint[data-hidden] { opacity: 0; }
 .terminal-hint-path { font: 12px var(--font-mono); color: var(--rl-text-dim); }
 .terminal-hint-keys { font-size: 11px; color: var(--rl-text-faint); }
+/* Faint (SGR 2) text, mixed toward whatever the pane's ground is by the step the app's secondary ink
+   takes from its primary (`--term-dim`, terminal-palette.ts) — xterm's own is a flat half, which put
+   faint text under AA on the light face. Written per colour because xterm writes it per colour; the
+   default ink's rule leaves out every coloured span, and a span xterm coloured inline (truecolor, or
+   a colour its contrast floor corrected) gets no dimming from xterm at all in its DOM renderer, so it
+   takes the same share on its glyphs' fill — `currentColor` there is the span's own inline colour.
+   Never as an opacity: xterm.css pins `.xterm-dim` to 1, because an opacity dims the cell's
+   background with its text. The 240 colours past the sixteen keep xterm's own half. */
+.terminal-host .xterm .xterm-rows .xterm-dim:not([class*="xterm-fg-"]) { color: color-mix(in srgb, var(--term-fg, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-dim:is([style^="color:"], [style*=";color:"]) { -webkit-text-fill-color: color-mix(in srgb, currentColor var(--term-dim, 100%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-0.xterm-dim { color: color-mix(in srgb, var(--term-ansi-0, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-1.xterm-dim { color: color-mix(in srgb, var(--term-ansi-1, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-2.xterm-dim { color: color-mix(in srgb, var(--term-ansi-2, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-3.xterm-dim { color: color-mix(in srgb, var(--term-ansi-3, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-4.xterm-dim { color: color-mix(in srgb, var(--term-ansi-4, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-5.xterm-dim { color: color-mix(in srgb, var(--term-ansi-5, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-6.xterm-dim { color: color-mix(in srgb, var(--term-ansi-6, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-7.xterm-dim { color: color-mix(in srgb, var(--term-ansi-7, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-8.xterm-dim { color: color-mix(in srgb, var(--term-ansi-8, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-9.xterm-dim { color: color-mix(in srgb, var(--term-ansi-9, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-10.xterm-dim { color: color-mix(in srgb, var(--term-ansi-10, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-11.xterm-dim { color: color-mix(in srgb, var(--term-ansi-11, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-12.xterm-dim { color: color-mix(in srgb, var(--term-ansi-12, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-13.xterm-dim { color: color-mix(in srgb, var(--term-ansi-13, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-14.xterm-dim { color: color-mix(in srgb, var(--term-ansi-14, currentColor) var(--term-dim, 50%), transparent); }
+.terminal-host .xterm-rows .xterm-fg-15.xterm-dim { color: color-mix(in srgb, var(--term-ansi-15, currentColor) var(--term-dim, 50%), transparent); }
 /* ── Machine pane (Plan 25 W3) ─────────────────────────────────────────────
    A screen somewhere else, drawn into a DOM canvas rather than a native view. Everything a browser
    pane cannot have — menus, sheets, the palette opening OVER the surface — this one has for free,
@@ -3376,12 +3436,19 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    The session's sub-agents above, the composer that hands it work below, in one column on the pane's
    own ground. The composer is a flex sibling under the list rather than floating over it — nothing
    scrolls beneath it, so it rests: a surface step and no lift. */
-.subagents { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.subagents-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; }
+/* `flex: 1` because the pane slot is a flex ROW: without it the tab is as wide as its content, which
+   at a wide pane left the composer and the empty state in a column short of the pane's right edge. */
+.subagents { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.subagents-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; display: flex; flex-direction: column; }
 .subagents-section { display: flex; flex-direction: column; gap: 10px; }
 .subagents-head { margin: 0; display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: var(--fw-title); color: var(--ink-2); }
 .subagents-count { font-weight: var(--fw-medium); color: var(--ink-3); font-variant-numeric: tabular-nums; }
-.subagents-empty { margin: 0; max-width: 60ch; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+/* None yet: centred in the space above the composer, both ways. A sentence pinned to the top left of
+   an empty column reads as a list that has not finished loading. */
+.subagents-empty { margin: auto; max-width: 400px; padding: 24px 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.subagents-empty-mark { color: var(--ink-3); }
+.subagents-empty-title { margin: 6px 0 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--ink); text-wrap: balance; }
+.subagents-empty-line { margin: 0; font-size: 13px; line-height: 18px; color: var(--ink-2); text-wrap: balance; }
 /* Each sub-agent is several lines — model, task, what it is doing or what it said — so the list is
    one of cards with air between them, not rows under a rule (design.md). */
 .subagents-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -4741,10 +4808,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 :root[data-squircle] .sim-screen:focus-visible .sim-chassis[data-frame="drawn"] {
   box-shadow: none; --sq-ring: var(--rl-accent); --sq-ring-w: 2px;
 }
-/* The frame's own two-option control. Painted like every other `.btn`, but a PILL: the list above
-   hands each button the control rung derived from `--btn-h`, and half the height is what keeps
-   these the shape of the pill they sit in. */
-:root[data-squircle] .sim-frame-opt {
+/* The buttons inside the device's pills (Stop, Show live). Painted like every other `.btn`, but PILLS:
+   the list above hands each button the control rung derived from `--btn-h`, and half the height is
+   what keeps them the shape of the pill they sit in. */
+:root[data-squircle] :is(.sim-recording-stop, .sim-live-btn) {
   --sq-radius-top: calc(var(--btn-h) / 2);
   --sq-radius-bottom: calc(var(--btn-h) / 2);
 }
@@ -5292,8 +5359,9 @@ select { appearance: none; padding-right: 22px;
   /* page panes */
   .cp-list, .activity-list, .task-detail-result, .notif-feed, .delegation-list,
   .lecture-list, .install-cmd code, .code-preview, .cli-job-output,
-  /* documents */
+  /* documents — the home's lists, and the new code file's languages, included */
   .documents-tabs, .documents-picker, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
+  .docs-home-scroll, .code-file-languages,
   /* the prompter — only the pinned strips' copies of the lists are bounded enough to scroll */
   .composer-todos .todo-list, .agents-pop .delegation-list,
   /* the sub-agent panel: the column itself, and the two prose panels it caps */
@@ -7355,6 +7423,7 @@ select { appearance: none; padding-right: 22px;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .documents-name:hover { background: var(--rl-hover); }
+.documents-name-ext { color: var(--rl-text-faint); }
 .documents-name-input {
   min-width: 0; flex: 0 1 340px; height: 24px; padding: 0 6px; margin-left: -6px;
   border: none; border-radius: var(--r-chip); background: var(--field); color: var(--rl-text-bright);
@@ -7416,6 +7485,77 @@ select { appearance: none; padding-right: 22px;
 .documents-picker-list button > svg { flex: none; color: var(--rl-text-faint); }
 .documents-picker-list button:hover:not(:disabled) { background: var(--hover); }
 .documents-picker-list button:disabled { opacity: .4; cursor: default; }
+/* The home's tab: a glyph alone, so its label is padded evenly rather than for a word and a close. */
+.documents-home-tab .documents-tab-label { padding: 5px 8px; }
+
+/* ── The documents pane's home (DocumentsHome.tsx) ──────────────────────────
+   What the pane shows with nothing open, and behind its first tab when something is: the search and
+   New in the head, then this session's files and the Library's, a file to a line. The head stands
+   OUTSIDE the scroller, so the search stays put and legible while the lists move under it. One line
+   a file, because a side pane is narrow and two-line rows there read as one block of prose; the line
+   is ordered so the folder gives way before the name does, and the time keeps its column. */
+.docs-home { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.docs-home-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; }
+.docs-home-search { position: relative; flex: 1; min-width: 0; display: block; }
+.docs-home-search > svg { position: absolute; left: 11px; top: 50%; translate: 0 -50%; color: var(--rl-text-faint); pointer-events: none; }
+.docs-home-search > .search-field { --search-h: 32px; padding-left: 32px; padding-right: 44px; }
+/* ⌘P, from the keymap — said inside the field it opens, until something is typed there. */
+.docs-home-kbd { position: absolute; right: 9px; top: 50%; translate: 0 -50%; pointer-events: none; }
+.docs-home-new { --btn-h: 32px; padding: 0 9px; gap: 5px; }
+.docs-home-new-chevron { color: var(--rl-text-faint); }
+/* A column so a page with nothing on it can centre its one message; sections are flex items that
+   keep their own height (`min-height: auto`), so a long list still scrolls rather than squashing. */
+.docs-home-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
+  padding: 4px 8px 16px; --fade-h: 28px; --fade-top-h: 24px; }
+.docs-home-section { flex: none; }
+.docs-home-section + .docs-home-section, .docs-home-section + .docs-home-create, .docs-home-section + .docs-home-none { margin-top: 14px; }
+.docs-home-section-head { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 2px 2px 8px; }
+.docs-home-section-head h3 { flex: 1; min-width: 0; margin: 0; font-size: 12px; line-height: 16px; font-weight: var(--fw-title); color: var(--rl-text-dim); }
+.docs-home-rows { flex: none; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.docs-home-row { position: relative; display: flex; align-items: center; min-width: 0; }
+.docs-home-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px;
+  text-align: left; border-radius: var(--r-ctl); corner-shape: squircle; font-size: 13px; color: var(--rl-text-bright);
+  cursor: default; transition: background-color var(--dur-hover) ease;
+}
+.docs-home-open:hover { background: var(--rl-hover); }
+.docs-home-open:is([data-pressed], :active:focus-visible) { background: var(--rl-active); }
+.docs-home-glyph { flex: none; display: grid; place-items: center; color: var(--rl-text-dim); }
+.docs-home-glyph[data-type="document"], .docs-home-glyph[data-type="video"], .docs-home-glyph[data-type="audio"] { color: var(--rl-accent); }
+.docs-home-glyph[data-type="image"] { color: var(--rl-success); }
+.docs-home-glyph[data-type="data"] { color: var(--orange); }
+.docs-home-glyph[data-type="code"] { color: var(--rl-text-bright); }
+.docs-home-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); }
+.docs-home-name mark { background: transparent; color: inherit; font-weight: var(--fw-strong); }
+/* Basis zero: the folder takes only what the name leaves, so it is the first thing to go. */
+.docs-home-detail { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rl-text-faint); }
+/* The time keeps a column as wide as the row's own control, flush with the section head's action, and
+   that control comes up IN it — under the pointer, and for as long as the file is in the next message
+   — so nothing else on the line moves, and there is no empty gutter at rest. */
+.docs-home-time { flex: none; min-width: 28px; margin-left: auto; text-align: right; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.docs-home-attach { position: absolute; right: 4px; top: 50%; translate: 0 -50%; opacity: 0; transition: opacity var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+.docs-home-row:is(:hover, :focus-within) > .docs-home-attach, .docs-home-attach[aria-pressed="true"] { opacity: 1; transition-duration: 0s; }
+.docs-home-row:has(> .docs-home-attach):is(:hover, :focus-within) .docs-home-time,
+.docs-home-row:has(> .docs-home-attach[aria-pressed="true"]) .docs-home-time { visibility: hidden; }
+.docs-home-attach[aria-pressed="true"] { color: var(--rl-accent); }
+.docs-home-note { margin: 0; padding: 2px 8px 6px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.docs-home-more { margin: 2px 0 0 4px; }
+.docs-home-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.new-doc-menu { min-width: 300px; max-width: min(400px, calc(100vw - 24px)); }
+/* "Code file…": a name, the languages that set its extension, and what the name will open as. */
+.code-file-prompt { width: 300px; max-width: calc(100vw - 24px); padding: 6px; }
+.code-file-name { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 4px 4px 8px; }
+.code-file-head { font-size: 12px; line-height: 16px; font-weight: var(--fw-title); color: var(--rl-text-dim); }
+.code-file-name > .search-field { --search-h: 30px; }
+.code-file-languages { flex: 0 1 auto; min-height: 0; max-height: 224px; overflow-y: auto; --fade-h: 24px; --fade-top-h: 24px; }
+.code-file-language { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: var(--r-chip); font-size: 13px; color: var(--rl-text-bright); cursor: default; }
+.code-file-language:hover { background: var(--hover); }
+.code-file-language[aria-selected="true"] { background: var(--rl-active); }
+.code-file-language-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-file-language-ext { flex: none; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.code-file-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 4px 2px; }
+.code-file-says { flex: 1; min-width: 0; margin: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.code-file-says[data-tone="warning"] { color: var(--rl-warning); }
 
 /* ── Rich markdown editor (Plan 17 W2) ───────────────────────────────────── */
 .documents-rich { display: flex; flex-direction: column; min-height: 0; height: 100%; }
