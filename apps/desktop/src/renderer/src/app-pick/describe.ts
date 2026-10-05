@@ -130,25 +130,37 @@ const PATH_DEPTH = 6;
 const esc = (v: string): string => (typeof CSS !== "undefined" && CSS.escape ? CSS.escape(v) : v.replace(/[^\w-]/g, (c) => `\\${c}`));
 const classesOf = (el: Element): string[] => flat(el.getAttribute("class")).split(" ").filter(Boolean);
 
-/** One step of a path: the tag and its first two classes, told apart from its siblings when it has to be. */
+const quoted = (v: string): string => `"${v.replace(/["\\]/g, "\\$&")}"`;
+
+/**
+ * One step of a path: the tag and its first two classes, told apart from its siblings when it has to
+ * be. A step with no class says what the element is called instead — a bare `input` is unique only
+ * until the next field opens, and names nothing anyone could find in the source.
+ */
 function step(node: Element): string {
-  const base = node.localName + classesOf(node).slice(0, 2).map((c) => `.${esc(c)}`).join("");
+  const classes = classesOf(node).slice(0, 2);
+  const label = node.getAttribute("aria-label");
+  const named = classes.length === 0 && label ? `[aria-label=${quoted(label)}]` : "";
+  const base = node.localName + classes.map((c) => `.${esc(c)}`).join("") + named;
   const parent = node.parentElement;
   if (!parent) return base;
   const alike = [...parent.children].filter((s) => s.matches(base));
   if (alike.length < 2) return base;
   // A name tells two buttons in a row apart in a way a person can read; a position is the fallback.
-  const label = node.getAttribute("aria-label");
-  if (label && alike.filter((s) => s.getAttribute("aria-label") === label).length === 1) return `${base}[aria-label="${label.replace(/["\\]/g, "\\$&")}"]`;
+  if (label && !named && alike.filter((s) => s.getAttribute("aria-label") === label).length === 1) return `${base}[aria-label=${quoted(label)}]`;
   const sameTag = [...parent.children].filter((s) => s.localName === node.localName);
   return `${base}:nth-of-type(${sameTag.indexOf(node) + 1})`;
 }
 
+/** Whether a path holds something a person would search for — a class, a name, an id — rather than
+ *  only tags and positions, which are unique by accident of the moment. */
+const anchored = (path: string): boolean => /[.#[]/.test(path);
+
 /**
  * A selector that finds exactly this element now, built the way a person working on Realm would write
- * one: class names first, the shortest path that is unique, climbing no further than it has to. A word
- * id ends the climb. Past `PATH_DEPTH` the path is the nearest steps, which still name the element in
- * the source even where they no longer name it alone.
+ * one: class names first, the shortest path that is unique and holds one of them (or a name), climbing
+ * no further than it has to. A word id ends the climb. Past `PATH_DEPTH` the path is the nearest steps,
+ * which still name the element in the source even where they no longer name it alone.
  */
 export function selectorFor(el: Element): string {
   const doc = el.ownerDocument;
@@ -157,7 +169,7 @@ export function selectorFor(el: Element): string {
   for (let node: Element | null = el; node && node !== doc.body && node !== doc.documentElement && parts.length < PATH_DEPTH; node = node.parentElement) {
     if (node.id && STABLE_ID.test(node.id) && unique(`#${esc(node.id)}`)) { parts.unshift(`#${esc(node.id)}`); break; }
     parts.unshift(step(node));
-    if (unique(parts.join(" > "))) break;
+    if (anchored(parts.join(" > ")) && unique(parts.join(" > "))) break;
   }
   while (parts.length > 1 && parts.join(" > ").length > PICK_SELECTOR_MAX) parts.shift();
   return clip(parts.join(" > "), PICK_SELECTOR_MAX);
@@ -169,6 +181,8 @@ type Fiber = { type?: unknown; return?: Fiber | null };
  *  nothing anyone can grep for, so it is not reported. */
 const COMPONENT_NAME = /^[A-Z][A-Za-z0-9]{2,}$/;
 
+const CONTEXTS = new Set<unknown>([Symbol.for("react.context"), Symbol.for("react.consumer"), Symbol.for("react.provider")]);
+
 function componentName(type: unknown): string | null {
   if (typeof type === "function") {
     const fn = type as { displayName?: unknown; name?: unknown };
@@ -176,8 +190,10 @@ function componentName(type: unknown): string | null {
     return COMPONENT_NAME.test(name) ? name : null;
   }
   if (type && typeof type === "object") {
+    const t = type as { $$typeof?: unknown; displayName?: unknown; type?: unknown; render?: unknown };
+    // A context's provider is plumbing, not something that drew the element.
+    if (CONTEXTS.has(t.$$typeof)) return null;
     // memo() and forwardRef() wrap the component they name.
-    const t = type as { displayName?: unknown; type?: unknown; render?: unknown };
     if (typeof t.displayName === "string") return COMPONENT_NAME.test(t.displayName) ? t.displayName : null;
     return componentName(t.render ?? t.type);
   }
@@ -207,6 +223,9 @@ export function componentChain(el: Element, max = APP_PICK_COMPONENTS_MAX): stri
 const shortName = (el: Element): string => el.localName + (classesOf(el)[0] ? `.${classesOf(el)[0]}` : "");
 /** A press's own bookkeeping (press-tracking.ts) is state about the pointer, not about the element. */
 const TRANSIENT_HOOKS = new Set(["data-pressed", "data-press-tracking"]);
+/** A value that is an id this run of the app made — a pane leaf's ULID, a library's generated key —
+ *  names nothing anyone can search for; the hook itself still does. */
+const OPAQUE = /^(?=.*\d)(?=.*[a-z])[\w-]{16,}$/i;
 
 /**
  * The `data-*` attributes on the element and its nearest ancestors, nearest first: Realm's own
@@ -219,7 +238,8 @@ export function hooksOf(el: Element, max = APP_PICK_HOOKS_MAX): string[] {
   for (let node: Element | null = el; node && node !== doc.body && node !== doc.documentElement && out.length < max; node = node.parentElement) {
     for (const a of node.attributes) {
       if (!a.name.startsWith("data-") || TRANSIENT_HOOKS.has(a.name)) continue;
-      out.push(clip(`${a.name}${a.value ? `="${clip(a.value, 40)}"` : ""} on ${shortName(node)}`, APP_PICK_HOOK_MAX));
+      const value = a.value && !OPAQUE.test(a.value) ? `="${clip(a.value, 40)}"` : "";
+      out.push(clip(`${a.name}${value} on ${shortName(node)}`, APP_PICK_HOOK_MAX));
       if (out.length >= max) break;
     }
   }

@@ -260,6 +260,9 @@ describe("app chips", () => {
     expect(elementChipLabel(appPicked({ role: "textbox", name: "Message", tag: "textarea" }))).toBe("Realm · Message field");
     // A name that already says what it is is not said twice.
     expect(elementChipLabel(appPicked({ name: "Close button" }))).toBe("Realm · Close button");
+    // A combobox is a field with suggestions as an input, and a pop-up menu as a select.
+    expect(elementChipLabel(appPicked({ role: "combobox", name: "Address", tag: "input" }))).toBe("Realm · Address field");
+    expect(elementChipLabel(appPicked({ role: "combobox", name: "Theme", tag: "select" }))).toBe("Realm · Theme menu");
   });
 
   it("names a nameless box by the component that drew it, then by its selector's last step", () => {

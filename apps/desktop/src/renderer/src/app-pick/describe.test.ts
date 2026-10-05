@@ -109,6 +109,14 @@ describe("selectorFor", () => {
     expect(resolves($(".rows .item:nth-of-type(2)"))).toBe("li.item:nth-of-type(2)");
   });
 
+  it("never settles for bare tags: a field with no class is named, a classless box is placed by its parent", () => {
+    // THE MUTANT: stop at the first unique path. The browser bar's address field is the only `input`
+    // on screen, so the agent was handed `input` — unique until the next field opens.
+    mount(`<div class="browser-chrome"><input aria-label="Address" role="combobox"></div><div class="panel-body"><div></div></div>`);
+    expect(resolves($("input"))).toBe('input[aria-label="Address"]');
+    expect(resolves($(".panel-body > div"))).toBe("div.panel-body > div");
+  });
+
   it("ends the climb at an id that is a word, and never leans on one a run of the app generated", () => {
     // THE MUTANT: accept every id. `prompt-hint-3f2a…` names one session, so the selector would
     // find nothing the next time anyone looked.
@@ -150,6 +158,13 @@ describe("componentChain", () => {
     expect(componentChain($(".b"))).toEqual([]);
   });
 
+  it("leaves a context's provider out — it is plumbing, not something that drew the element", () => {
+    mount('<span class="a"></span>');
+    const context = { $$typeof: Symbol.for("react.context"), displayName: "PanelGroupContext" };
+    fiberOn($(".a"), Composer, context, SessionPane);
+    expect(componentChain($(".a"))).toEqual(["Composer", "SessionPane"]);
+  });
+
   it("never throws on a fiber it does not understand", () => {
     mount('<span class="a"></span>');
     (($(".a") as unknown) as Record<string, unknown>)["__reactFiber$q"] = { get type() { throw new Error("odd"); } };
@@ -165,6 +180,11 @@ describe("hooksOf", () => {
     // The window's own state on the root is the whole window's, and a press's bookkeeping is the
     // pointer's — neither says anything about the element.
     document.documentElement.removeAttribute("data-mode");
+  });
+
+  it("keeps a hook whose value is an id this run made, but not the id — it names nothing to search for", () => {
+    mount(`<div class="panel" data-leaf-id="01M45VJK80BFK48RG28HHN7C4Y" data-panel-size="50.0"><span class="x" data-setting="sidebar-activity-order"></span></div>`);
+    expect(hooksOf($(".x"))).toEqual(['data-setting="sidebar-activity-order" on span.x', "data-leaf-id on div.panel", 'data-panel-size="50.0" on div.panel']);
   });
 });
 

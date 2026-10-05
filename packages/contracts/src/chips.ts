@@ -299,7 +299,8 @@ const TEXT_NAME_MAX = 48;
 export function appElementName(el: Pick<AppPickedElement, "role" | "name" | "text" | "tag" | "selector"> & { app: Pick<AppPickedElement["app"], "components"> }): string {
   const own = el.name || (TEXT_TAGS.has(el.tag) && el.text.length <= TEXT_NAME_MAX ? el.text : "");
   const named = chipLabel(own);
-  const noun = ROLE_NOUNS.get(el.role) ?? "";
+  // A combobox is a pop-up menu as a `<select>` and a field with suggestions as an `<input>`.
+  const noun = el.role === "combobox" && el.tag === "input" ? "field" : ROLE_NOUNS.get(el.role) ?? "";
   if (named) return noun && !named.toLowerCase().endsWith(noun) ? `${named} ${noun}` : named;
   return el.app.components[0] ?? (el.selector.split(" > ").pop() || el.tag || "element");
 }
