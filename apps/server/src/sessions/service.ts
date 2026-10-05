@@ -132,6 +132,13 @@ export class SessionService {
    * holds a copy of what it just sent.
    */
   private rewindTurns = new Map<string, SendMessage>();
+  /** Sessions whose turn in flight has called a tool — the only turns whose checkout is worth asking
+   *  git about at the settle (`recordTurnChanges`). A turn of conversation changes no file. */
+  private toolTurns = new Set<string>();
+  /** A settled turn's measurement still in flight, per session. The next message waits for it: an agent
+   *  that started writing before the snapshot was taken would have its first edits counted as the last
+   *  turn's — and a steered message, which takes no checkpoint, starts the moment the settle lands. */
+  private measuring = new Map<string, Promise<void>>();
   private closing = false;
   /** The questions open right now, by requestId, from whichever feed raised them — what an answer is
    *  read against to learn which of it is masked. */
@@ -443,6 +450,7 @@ export class SessionService {
   /** Everything a typed message earns on its way to the adapter. Reached only from `send` and from
    *  the two paths that have already chosen — a caller that came here has passed the queue gate. */
   private async deliver(id: string, msg: SendMessage, opts: { checkpoint?: boolean } = {}): Promise<void> {
+    await this.measuring.get(id);
     // Claim the environment's port block before the adapter can be spawned — `ensureLive` reads it
     // back off the row, so this is the only place the (async) allocation has to happen.
     await this.ensurePorts(id);
@@ -541,10 +549,11 @@ export class SessionService {
       ? this.d.skills.list(s.spaceId).skills : [];
     const mac = library.find((x) => x.id === MAC_SKILL_ID && x.valid);
     const files = this.refAttachments(refs);
-    // The blocks ride the same way and in this order: what the user picked ON a page, who else they
-    // pointed at, then the files and apps they named. Appended to the user's own text rather than
-    // sent as a system note, because all three agent wires take one markdown string and nothing else.
-    const context = elementContext(msg.elements ?? []) + sessionRefContext(msg.sessionRefs ?? [])
+    // The blocks ride the same way and in this order: what the user picked ON a page or in Realm's
+    // window, who else they pointed at, then the files and apps they named. Appended to the user's own
+    // text rather than sent as a system note, because all three agent wires take one markdown string
+    // and nothing else. A pick in Realm's window names its picture only if it is still attached.
+    const context = elementContext(msg.elements ?? [], msg.attachments) + sessionRefContext(msg.sessionRefs ?? [])
       + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld });
     const attachments = [...msg.attachments, ...files.attach];
     if (tokens.length === 0) return { text: msg.text + context, attachments };
@@ -628,6 +637,9 @@ export class SessionService {
     const handle = this.ensureLive(id);
     const interrupted = wasLive && opts.interruptFirst;
     if (interrupted) await this.interruptAndSettle(id, handle);
+    // After the interrupt, not before: the turn it stopped is measured from that settle, and this
+    // message's turn must not write until git has finished looking (`deliver` waits in its own place).
+    await this.measuring.get(id);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
     await handle.send({ text: msg.text, attachments: [] });
     return { interrupted };
@@ -860,6 +872,8 @@ export class SessionService {
     // still-draining pump could otherwise read after the session it describes has stopped existing.
     this.forkInFlight.delete(id);
     this.rewindTurns.delete(id);
+    this.toolTurns.delete(id);
+    this.measuring.delete(id);
     // The terminal belongs to the session: deleting the session must not leave its pty running.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
     if (term) this.closeTerminalItem(term.refId);
@@ -1058,6 +1072,25 @@ export class SessionService {
   }
 
   /**
+   * What a settled turn did to its checkout, put on the rail as `turn_changes` for the transcript's
+   * "Edited N files" card.
+   *
+   * After the settle and never ahead of it: git's account costs what a checkpoint does, and the turn
+   * is over for the reader the moment the settle lands. A nicety like every other `void` on this
+   * path — a checkout that has gone, a snapshot that fails, a daemon on its way down — writes nothing,
+   * and the card falls back to what the tool calls themselves said.
+   */
+  private async recordTurnChanges(id: string, checkpointId: string, settledAt: number): Promise<void> {
+    try {
+      const changes = await this.d.checkpoints?.turnChanges(checkpointId);
+      if (!changes || this.closing) return;
+      this.publishServerEvent(id, sessionEvent("turn_changes", { checkpointId, settledAt, ...changes }));
+    } catch (e) {
+      console.error(`[sessions] could not measure the turn for ${id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
    * What durable context this session's agent loads (memory.sources). The Codex report comes from THIS
    * session's own persisted `init` event and nowhere else — the store query is keyed by the session id,
    * which is what keeps one session's `instructionSources` from ever dressing up another's pane.
@@ -1073,11 +1106,13 @@ export class SessionService {
     return this.d.memory.sourcesFor({ kind: s.agentKind, spaceId: s.spaceId, cwd: s.cwd, skillsInjected, reported });
   }
 
-  /** Whether any session in this environment holds a live adapter handle — what stops a restore
-   *  rewriting a working tree under a running tool call. */
+  /** Whether a session in this environment is mid-turn — what stops a restore rewriting a working tree
+   *  under a running tool call. A handle alone is not that: a session keeps its adapter between turns,
+   *  and one idle there is writing nothing. */
   isEnvironmentBusy(environmentId: string): boolean {
     for (const id of this.live.keys()) {
-      if (this.d.sessions.get(id)?.environmentId === environmentId) return true;
+      const s = this.d.sessions.get(id);
+      if (s?.environmentId === environmentId && (s.status === "running" || s.status === "waiting_permission")) return true;
     }
     return false;
   }
@@ -1403,6 +1438,7 @@ export class SessionService {
      * edit across twenty files must not open twenty tabs, and a `.ts` does not belong behind a
      * rich-text editor. */
     if (ev.type === "tool_call") this.surfaceWrittenDocument(id, ev.payload.name, ev.payload.input);
+    if (ev.type === "tool_call") this.toolTurns.add(id);
     // Not persisted and not this session's: the reading describes the ACCOUNT behind every session on
     // this agent, so it is folded into per-kind state and never into the transcript.
     if (ev.type === "rate_limit") this.d.planLimits?.apply(before.agentKind, ev.payload);
@@ -1412,6 +1448,11 @@ export class SessionService {
     if (ev.type === "status") {
       this.d.sessions.update({ id, status: ev.payload.status });
       this.d.rpc.broadcast("session.status", { sessionId: id, status: ev.payload.status });
+      // The end of a turn, from any live status — the same moment the transcript banks its run line.
+      // Read here, ahead of `noteTurnCursor` below, which claims the checkpoint for its own purposes.
+      const settled = (before.status === "running" || before.status === "waiting_permission")
+        && ev.payload.status !== "running" && ev.payload.status !== "waiting_permission";
+      const fronting = settled ? this.d.checkpoints?.frontingCheckpoint(id) ?? null : null;
       // A SETTLE, not any status: the transition out of a live state is the moment the transcript
       // stops moving, and it is the only one worth summarizing. Fired after the events of the turn
       // are persisted below on their own passes — the summary reads the log, so it must not run
@@ -1422,6 +1463,7 @@ export class SessionService {
         // (the next turn has not begun). Synchronous and first, ahead of every `void` below — one of
         // those starts the next turn, and a cursor read after that would describe the wrong one.
         this.noteTurnCursor(id, before);
+        this.d.checkpoints?.endTurn(id);
         void this.d.summaries?.onSettled(id);
         /* The turn that was blocking the queue just ended — unless the USER ended it, in which case
          * the queue stays parked. Stop has to mean stop: a queued message that started a fresh turn
@@ -1441,6 +1483,11 @@ export class SessionService {
       }
       if (ev.payload.status === "idle" || ev.payload.status === "ended" || ev.payload.status === "error") {
         for (const settle of this.settleWaiters.get(id) ?? []) settle();
+      }
+      if (settled && this.toolTurns.delete(id) && fronting) {
+        const measured: Promise<void> = this.recordTurnChanges(id, fronting, ev.ts)
+          .finally(() => { if (this.measuring.get(id) === measured) this.measuring.delete(id); });
+        this.measuring.set(id, measured);
       }
     }
     if (PERSISTED_EVENT_TYPES.includes(ev.type)) {

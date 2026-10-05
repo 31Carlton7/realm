@@ -184,6 +184,8 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
       <div className="docs-home-scroll" ref={scroller}>
         {nothing ? (
           <div className="pane-empty docs-home-empty">
+            {/* off-ladder: the empty state's mark is a 64px tile's illustration, not a UI glyph — the
+                same 28 the Changes pane's empty state draws its folder at. */}
             <div className="pane-empty-tile" aria-hidden="true"><Icon name="documents" size={28} /></div>
             <h2 className="pane-empty-title">No files yet</h2>
             <p className="pane-empty-line">

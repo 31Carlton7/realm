@@ -52,6 +52,7 @@ export * from "./library";
 export * from "./runs";
 export * from "./daemon";
 export * from "./editor";
+export * from "./caret";
 export * from "./motion";
 export * from "./power";
 export * from "./editors";

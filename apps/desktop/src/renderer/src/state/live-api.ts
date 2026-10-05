@@ -237,6 +237,7 @@ export const liveApi = (): Api => ({
   captureCheckpoint: (environmentId, sessionId) => rpc().call("checkpoints.capture", { environmentId, sessionId }),
   previewCheckpoint: (id) => rpc().call("checkpoints.preview", { id }),
   restoreCheckpoint: (id, acknowledge) => rpc().call("checkpoints.restore", { id, acknowledge }),
+  turnDiff: (id, afterTree, path, oldPath) => rpc().call("checkpoints.turnDiff", { id, afterTree, path, oldPath }),
   listMcpServers: (spaceId) => rpc().call("mcp.list", { spaceId }),
   addMcpServer: (input) => rpc().call("mcp.add", input),
   updateMcpServer: (input) => rpc().call("mcp.update", input),

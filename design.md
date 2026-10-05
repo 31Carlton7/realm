@@ -268,6 +268,11 @@ Rules:
   mixed 55% into grey reads as grey, and a Rosé Pine sidebar beside Rosé Pine panes stopped looking
   like the theme. A ground the material would wash out — the light face, a hued theme — starts its
   range higher on the same control, so a theme is the theme everywhere it is worn.
+- A picture of the window that leaves the window — what Select in Realm attaches for an agent — is
+  laid over the theme's page colour first. The capture holds the DOM's alpha and none of the material
+  behind it, so a translucent ground comes out clear, and light ink on clear pixels is nothing at all
+  in a viewer that puts white behind them. It is the window's own capture or nothing: never inside a
+  browser view, which it cannot see, so a pick under one goes without and its chip says so.
 - A dissolve belongs to the SCROLLER, not to the layout band that happens to contain it. A fade
   positioned on a parent that also holds navigation is drawn over that navigation: the settings tab
   strip arrived smeared and half-legible the moment the column under it was scrolled, and at every
@@ -644,6 +649,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - Respect reduced-motion and reduced-transparency preferences. Realm's own Reduce motion setting is
   applied by changing what the window reports for `prefers-reduced-motion`, so a surface that honours
   the media query honours both, and nothing should ask about motion any other way.
+- Motion that says where something IS holds still at its shown end, never paused mid-cycle. The
+  caret blinks because someone chose a blink, and under Reduce motion or Low power it goes solid
+  (`data-caret-still`) rather than freezing where it stood: a blink paused at nothing is a field with
+  no caret. Drawn in place of the platform's, it stands on the platform's pixel — measured against it
+  at the same offsets, both painted one colour (`caret-live.mjs`) — and steps aside wherever the
+  platform's own does: a selection, a window not in front, an input method composing.
 - Playful motion is the one exception to the rule above it, and it is fenced. It ships only behind
   the easter-eggs switch, which defaults off, so the rules in this section still describe what Realm
   does out of the box. It never carries information a person would otherwise have to read from it, it
@@ -763,6 +774,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   mentioned file is handed over as an attached one is, and the chip IS the file, so no tile repeats
   it. A bare `@` is a short tour of what can be named, under quiet heads; a typed word is one list
   ranked across every kind, where each row says what it is because the heads are gone.
+- A control on what an agent did does exactly that, or is not drawn. A turn's edit counts come
+  from git at its settle, not from what its tool calls claimed; Undo appears only when restoring
+  takes back that turn and nothing after it, and says why when it cannot. A file named in prose
+  becomes a link only once the disk says it is in this checkout, and opens beside the session.
 - Never invent human-like agent presence, mood, or certainty.
 
 ## Documents, diffs, terminals, and data

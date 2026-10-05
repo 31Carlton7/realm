@@ -28,7 +28,12 @@ const P = {
   assistant_text: z.object({ messageId: z.string(), text: z.string() }),
   assistant_delta: z.object({ messageId: z.string(), delta: z.string() }),
   thinking: z.object({ messageId: z.string(), text: z.string() }),
-  tool_call: z.object({ toolUseId: z.string(), name: z.string(), input: z.record(z.unknown()), parentToolUseId: z.string().nullable() }),
+  /** `kind` and `paths` are what an ACP agent says about a call beside its free-text title — ACP's
+   *  `ToolKind` (`edit`, `read`, `execute`…) and the files its `locations` name. They are how the
+   *  transcript knows an ACP call edited a file at all, since its name is a sentence. Absent for every
+   *  other agent, whose tool names already say both, and on every call written before they existed. */
+  tool_call: z.object({ toolUseId: z.string(), name: z.string(), input: z.record(z.unknown()), parentToolUseId: z.string().nullable(),
+    kind: z.string().optional(), paths: z.array(z.string()).optional() }),
   /** `view` is present when the call reached an MCP server that drew its result in a view of its own
    *  (MCP Apps), and Realm is showing that server's views. The server writes it, never an adapter:
    *  the agent's harness reports only the text, and the gateway is what saw the call carry a view.
@@ -282,6 +287,39 @@ const P = {
    * summary is stale rather than merely old.
    */
   summary: z.object({ text: z.string(), throughSeq: z.number().int() }),
+  /**
+   * What one turn did to its checkout, as git measured it when the turn settled: the tree Realm's
+   * checkpoint captured in front of the turn, against the checkout as the turn left it.
+   *
+   * Written by the server, never by an agent. Every agent edits its own way — an `Edit`, an
+   * `apply_patch`, a `sed` in a shell, a codegen step — and git's account is the one that is the same
+   * for all of them, and the only one that counts lines a tool call never stated (a `Write` over a
+   * file says nothing about what was there). Only for a turn a checkpoint fronted: a plain folder, a
+   * message steered into a running turn and a capture that failed have no "before", so they get no
+   * event rather than a guess, and the transcript falls back to what the tool calls said.
+   */
+  turn_changes: z.object({
+    /** The `turn` checkpoint captured in front of the turn — the "before", and what Undo restores. */
+    checkpointId: z.string(),
+    /** The `ts` of the status event that settled the turn: which run line this belongs to. */
+    settledAt: z.number(),
+    /** The checkout root every `path` is relative to — what a client opens them against. */
+    root: z.string(),
+    /** The checkout's tree when the turn settled — the "after" a review diffs against. Nothing
+     *  references it, so a `git gc` past `gc.pruneExpire` may collect it; the review then says so. */
+    afterTree: z.string(),
+    files: z.array(z.object({
+      path: z.string(),
+      /** Where a rename came from; null otherwise. */
+      oldPath: z.string().nullable(),
+      status: z.enum(["added", "modified", "deleted", "renamed", "type-changed"]),
+      /** Lines added and removed — null for a binary file, which git does not count in lines. */
+      additions: z.number().int().nullable(),
+      deletions: z.number().int().nullable(),
+    })),
+    /** The true count when `files` was cut short at TURN_CHANGES_MAX_FILES. */
+    totalFiles: z.number().int(),
+  }),
   init: z.object({
     providerSessionId: z.string(), model: z.string(), tools: z.array(z.string()), cwd: z.string(),
     /** The instruction files the agent says it loaded — Codex `thread/start` `instructionSources`, W3's
@@ -345,11 +383,20 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("plan"),
   variant("feedback"),
   variant("summary"),
+  variant("turn_changes"),
   variant("rate_limit"),
   variant("prompt_hint"),
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEventSchema>;
+
+/** One turn's changes, and one file of them (`turn_changes`). */
+export type TurnChanges = z.infer<(typeof P)["turn_changes"]>;
+export type TurnFile = TurnChanges["files"][number];
+
+/** The most files one `turn_changes` event lists. A codegen turn can touch thousands, and the event is
+ *  a row in the session's log for good — `totalFiles` still says how many there really were. */
+export const TURN_CHANGES_MAX_FILES = 200;
 export type SessionEventOf<T extends SessionEventType> = Extract<SessionEvent, { type: T }>;
 export type SessionEventPayload<T extends SessionEventType> = z.infer<(typeof P)[T]>;
 
@@ -358,7 +405,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "summary", "prompt_hint"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "summary", "prompt_hint", "turn_changes"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

@@ -128,6 +128,7 @@ beforeEach(() => {
     isEnvironmentBusy: (id) => sessionService?.isEnvironmentBusy(id) ?? false,
     // The wiring request, exercised here: the same late-bound closure `isEnvironmentBusy` uses.
     rewindSession: (input) => sessionService?.rewindConversation(input) ?? false,
+    releaseSession: async (id) => { await sessionService?.stopAgent(id); },
   });
   sessions = new SessionService({
     db, rpc: { broadcast: () => {} }, sessions: sessionsStore, events, items: new ItemsStore(db), spaces,
@@ -187,6 +188,24 @@ describe("restore rewinds the conversation", () => {
     expect(existsSync(join(folder, "second.txt"))).toBe(false);
 
     // …and the provider is asked to end there too, on the very next send.
+    await send(s.id, "third");
+    expect(adapter.starts.at(-1)).toEqual({ resume: "prov-1", resumeAt: "end1", resumeDropsTurn: "p2" });
+  });
+
+  it("stops the session's agent itself, rather than needing it stopped before the restore", async () => {
+    // The agent between turns is warm and idle — the state every session is in the moment its turn
+    // ends, which is when Undo is reached for. The restore stops it so the fork is the next thing
+    // its next start does.
+    const env = primary();
+    const s = newSession();
+    await send(s.id, "first");
+    await send(s.id, "second");
+    const secondTurn = checkpoints.list(env.id, s.id)[0]!;
+    expect(sessions.isLive(s.id)).toBe(true);
+    const preview = await checkpoints.preview(secondTurn.id);
+    const result = await checkpoints.restore(secondTurn.id, { filesChanged: preview.filesChanged, commitsRolledBack: preview.commitsRolledBack });
+    expect(result.conversationRewound).toBe(true);
+    expect(sessions.isLive(s.id)).toBe(false);
     await send(s.id, "third");
     expect(adapter.starts.at(-1)).toEqual({ resume: "prov-1", resumeAt: "end1", resumeDropsTurn: "p2" });
   });

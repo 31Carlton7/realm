@@ -92,6 +92,31 @@ describe("capture", () => {
   });
 });
 
+describe("a turn's own changes", () => {
+  it("measures the turn its checkpoint fronted, and lets the settle claim it so nothing later borrows it", async () => {
+    initRepo(folder);
+    const env = primary();
+    const s = newSession(env.id);
+    const cp = await svc.captureTurn(s.id, "edit a");
+    expect(svc.frontingCheckpoint(s.id)).toBe(cp!.id);
+    writeFileSync(join(folder, "a.txt"), "two\n");
+    expect(await svc.turnChanges(cp!.id)).toMatchObject({
+      files: [{ path: "a.txt", oldPath: null, status: "modified", additions: 1, deletions: 1 }], totalFiles: 1,
+    });
+    svc.endTurn(s.id);
+    expect(svc.frontingCheckpoint(s.id)).toBeNull();
+  });
+
+  it("measures nothing for a checkpoint that is gone, or a checkout that is no longer a repository", async () => {
+    initRepo(folder);
+    const env = primary();
+    const cp = await svc.capture({ environmentId: env.id, sessionId: null, kind: "manual", label: "m" });
+    expect(await svc.turnChanges("01ARZ3NDEKTSV4RRFFQ69G5FAV")).toBeNull();
+    rmSync(join(folder, ".git"), { recursive: true, force: true });
+    expect(await svc.turnChanges(cp!.id)).toBeNull();
+  });
+});
+
 describe("restore", () => {
 
   it("refuses an acknowledgement that does not match what git reports now", async () => {
@@ -319,6 +344,37 @@ describe("conversation rewind", () => {
       rewindAnswer = false; // e.g. the session went live between the preview and the restore
       const result = await svc.restore(cp!.id, { filesChanged: 0, commitsRolledBack: 0 });
       expect(result.conversationRewound).toBe(false);
+    });
+
+    it("stops the agent it rewinds before arming the rewind, and stops nothing on a files-only restore", async () => {
+      // The rewind is honoured when that agent next starts, so a handle still running would leave it
+      // armed under a conversation nothing truncates. An agent with nothing to rewind is left warm:
+      // stopping one that cannot resume would cost it the conversation for no file's sake.
+      initRepo(folder);
+      const env = primary();
+      const s = runningSession(env.id);
+      const order: string[] = [];
+      const releasing = new CheckpointService({
+        checkpoints: store, environments: envs, sessions, git: new CheckpointGit(), maxPerEnvironment: KEEP,
+        releaseSession: async (id) => { order.push(`release ${id}`); },
+        rewindSession: () => { order.push("rewind"); return true; },
+      });
+      const cp = await releasing.captureTurn(s.id, "do the thing");
+      releasing.noteTurnCursor(s.id, { providerSessionId: "prov-1", promptUuid: "p1", endUuid: "end-1" });
+      await releasing.restore(cp!.id, { filesChanged: 0, commitsRolledBack: 0 });
+      expect(order).toEqual([`release ${s.id}`, "rewind"]);
+
+      // The session's own turn, with no cursor ever recorded for it, has nothing to rewind either.
+      order.length = 0;
+      const plain = await releasing.captureTurn(s.id, "only talked");
+      const plainPreview = await releasing.preview(plain!.id);
+      await releasing.restore(plain!.id, { filesChanged: plainPreview.filesChanged, commitsRolledBack: plainPreview.commitsRolledBack });
+      expect(order).toEqual([]);
+
+      const manual = await releasing.capture({ environmentId: env.id, sessionId: null, kind: "manual", label: "by hand" });
+      const preview = await releasing.preview(manual!.id);
+      await releasing.restore(manual!.id, { filesChanged: preview.filesChanged, commitsRolledBack: preview.commitsRolledBack });
+      expect(order).toEqual([]);
     });
 
     it("still restores the files when the rewind hook throws", async () => {

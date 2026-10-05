@@ -1,8 +1,10 @@
 import { copyFileSync, existsSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TURN_CHANGES_MAX_FILES, type FileDiff, type TurnChanges, type TurnFile } from "@realm/contracts";
 import { RpcError } from "../store/rows";
-import { gitCapture, gitReason, type GitRun } from "./git-exec";
+import { GIT_DIFF_FLAGS, gitCapture, gitReason, type GitRun } from "./git-exec";
+import { FILE_DIFF_MAX_BYTES, assertRepoRelative, parseNumstat, parsePatch } from "./git-diff";
 
 /**
  * Checkpoints as hidden git refs (Plan 7 W4).
@@ -248,6 +250,56 @@ export class CheckpointGit {
     return { filesChanged, commitsRolledBack, headMovable: movable, headReason: reason };
   }
 
+  /**
+   * What changed between a checkpoint's tree and the checkout as it is now — asked at a turn's settle,
+   * that turn's own work.
+   *
+   * The same tree-to-tree comparison `hazard` makes, for the same reason: `git diff <tree>` would read
+   * every untracked file the checkpoint captured as a deletion. The checkout is snapshotted into a
+   * second tree (index and working tree untouched), and the two are compared with rename detection,
+   * so a moved file is one row and not an add beside a delete. That tree comes back as `afterTree`:
+   * nothing references it, which is fine for the review it serves — git keeps loose objects for
+   * `gc.pruneExpire` — and is why the review checks it is still there before diffing against it.
+   */
+  async changes(input: { cwd: string; beforeTree: string }): Promise<Pick<TurnChanges, "root" | "afterTree" | "files" | "totalFiles">> {
+    const root = await this.root(input.cwd);
+    const head = await this.git(root, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+    const { worktreeTree } = await this.snapshot(root, head.code === 0 ? head.stdout.trim() || null : null);
+    const [names, numstat] = await Promise.all([
+      this.git(root, ["diff-tree", ...GIT_DIFF_FLAGS, "-r", "-M", "--name-status", "-z", input.beforeTree, worktreeTree]),
+      this.git(root, ["diff-tree", ...GIT_DIFF_FLAGS, "-r", "-M", "--numstat", "-z", input.beforeTree, worktreeTree]),
+    ]);
+    if (names.code !== 0) throw new RpcError("CHECKPOINT_FAILED", gitReason(names));
+    const counts = new Map(numstat.code === 0 ? parseNumstat(numstat.stdout) : []);
+    const files = parseNameStatus(names.stdout).map((f): TurnFile => {
+      const c = counts.get(f.path);
+      return { ...f, additions: !c || c.binary ? null : c.additions, deletions: !c || c.binary ? null : c.deletions };
+    });
+    return { root, afterTree: worktreeTree, files: files.slice(0, TURN_CHANGES_MAX_FILES), totalFiles: files.length };
+  }
+
+  /**
+   * One file's patch from one tree to another — a turn's checkpoint to the tree its settle recorded.
+   * Both trees are checked first: either can have left the repository (a pruned checkpoint's objects,
+   * an after-tree a `gc` collected), and a diff against a sha git no longer has is an error message
+   * dressed as a patch.
+   */
+  async treeFileDiff(input: { cwd: string; before: string; after: string; path: string; oldPath: string | null }): Promise<FileDiff> {
+    assertRepoRelative(input.path);
+    if (input.oldPath) assertRepoRelative(input.oldPath);
+    const root = await this.root(input.cwd);
+    for (const tree of [input.before, input.after]) {
+      if ((await this.git(root, ["cat-file", "-e", `${tree}^{tree}`])).code !== 0) {
+        throw new RpcError("TREE_GONE", "this turn's snapshot is no longer in the repository");
+      }
+    }
+    // Both ends of a rename in the pathspec, or rename detection has only one side to pair.
+    const paths = input.oldPath && input.oldPath !== input.path ? [input.oldPath, input.path] : [input.path];
+    const r = await this.git(root, ["diff-tree", ...GIT_DIFF_FLAGS, "-p", "-M", input.before, input.after, "--", ...paths], { maxBytes: FILE_DIFF_MAX_BYTES });
+    if (r.code !== 0) throw new RpcError("GIT_DIFF_FAILED", gitReason(r));
+    return parsePatch(input.path, false, r.stdout, r.truncated === true);
+  }
+
   /** Untracked, non-ignored paths. `--exclude-standard` is what keeps `.gitignore`d files out of both
    *  the count and the deletion sweep. */
   private async untracked(root: string): Promise<string[]> {
@@ -385,6 +437,23 @@ export class CheckpointGit {
 }
 
 const shortRef = (ref: string) => ref.replace(/^refs\/heads\//, "");
+
+/** `diff-tree --name-status -z`: a status letter (a rename's with its score, `R087`), then the path —
+ *  two paths for a rename, the source first. `C` cannot appear without `-C`, which is not asked for. */
+export function parseNameStatus(out: string): Pick<TurnFile, "path" | "oldPath" | "status">[] {
+  const fields = nulPaths(out);
+  const files: Pick<TurnFile, "path" | "oldPath" | "status">[] = [];
+  for (let i = 0; i < fields.length; i++) {
+    const letter = fields[i]![0];
+    if (letter === "R") { files.push({ path: fields[i + 2] ?? "", oldPath: fields[i + 1] ?? null, status: "renamed" }); i += 2; continue; }
+    const path = fields[i + 1];
+    i += 1;
+    if (!path) continue;
+    const status = letter === "A" ? "added" : letter === "D" ? "deleted" : letter === "T" ? "type-changed" : "modified";
+    files.push({ path, oldPath: null, status });
+  }
+  return files.filter((f) => f.path !== "");
+}
 /** NUL-separated paths, dropping the empty tail after the final NUL. */
 function nulPaths(out: string): string[] {
   return out.split("\0").filter((p) => p !== "");
