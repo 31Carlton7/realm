@@ -50,3 +50,12 @@ export const AGENT_FRAME = {
    */
   lingerMs: 1500,
 } as const;
+
+/**
+ * What every mark the agent drive injects is tagged with, and the controlled-screen frame's value of
+ * it. Main draws them (browser-agent.ts `markAct`); the renderer reads them too, because the frame in
+ * Realm's OWN document is how it knows an agent is driving the window it is — and a pick started while
+ * one is would not be the person's (app-pick/).
+ */
+export const AGENT_MARK_ATTR = "data-realm-agent-highlight";
+export const AGENT_MARK_FRAME = "frame";

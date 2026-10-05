@@ -864,7 +864,7 @@ describe("BrowserPane — element picker", () => {
     await press();
     await act(async () => { f.settlePick({ ...PICKED, ref: 43 }); });
     expect(store.getState().drafts.se1).toBe('@[button "Sign in"] @[button "Sign in" 2] ');
-    expect(store.getState().draftElements.se1!.map((c) => c.element.ref)).toEqual([42, 43]);
+    expect(store.getState().draftElements.se1!.map((c) => (c.element as BrowserPickedElement).ref)).toEqual([42, 43]);
   });
 
   it("a pick main refuses outright un-arms the button — a lit picker over a view that is not picking", async () => {
@@ -1429,7 +1429,7 @@ describe("BrowserPane — annotate (Plan 26 W7d)", () => {
     await act(async () => { f.settleAnnotate({ outcome: "sent", elements: [el(1), el(2), el(3)], shot: SHOT }); await vi.advanceTimersByTimeAsync(0); });
     const st = store.getState();
     expect(st.drafts.se1).toBe("@[3 annotations] ");
-    expect(st.draftElements.se1!.map((c) => [c.label, c.pin, c.element.ref, c.shot])).toEqual([
+    expect(st.draftElements.se1!.map((c) => [c.label, c.pin, (c.element as BrowserPickedElement).ref, c.shot])).toEqual([
       ["3 annotations", 1, 41, SHOT.name], ["3 annotations", 2, 42, SHOT.name], ["3 annotations", 3, 43, SHOT.name],
     ]);
     expect(st.pendingAttachments.se1).toEqual([{ path: SHOT.path, mime: "image/png", name: SHOT.name, size: 4096 }]);

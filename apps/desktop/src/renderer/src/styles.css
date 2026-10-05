@@ -2853,6 +2853,47 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .tooltip-key { flex: none; padding: 0 4px; border-radius: calc(var(--r-chip) - 4px);
   background: var(--tooltip-border); color: var(--tooltip-muted); font: 11px/16px var(--font-ui); letter-spacing: .02em; }
 
+/* ── Select in Realm: the element picker over the app's own window (app-pick/) ──────────────
+   The web picker's outline (browser-agent.ts), drawn here in the app's tokens: a fine accent line over a
+   soft accent fill, its corner concentric with what it outlines — the geometry is the picker's, inline —
+   and a small label in the tooltip's dark skin naming the element the way its chip will. It glides
+   from one element to the next on the press rung and never takes the pointer. The hint says how to
+   get out, on the same dark skin, and is gone for the frames a capture of the window takes, as the
+   outline is. Over everything it can point at, the tooltip included, and under only the drawn caret,
+   which sits over every layer there is (caret.ts). */
+.app-picker { position: fixed; inset: 0; z-index: 125; pointer-events: none; }
+.app-picker-box { position: absolute; left: 0; top: 0; box-sizing: border-box; opacity: 0;
+  border: 1.5px solid var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 12%, transparent);
+  transition: transform var(--dur-press) var(--ease-out-strong), width var(--dur-press) var(--ease-out-strong),
+    height var(--dur-press) var(--ease-out-strong), border-radius var(--dur-press) var(--ease-out-strong),
+    opacity var(--dur-press) var(--ease-fade), background-color var(--dur-press) var(--ease-fade); }
+.app-picker-label { position: absolute; left: 0; top: 0; display: flex; gap: 6px; height: 20px; padding: 0 7px;
+  border-radius: calc(var(--r-chip) - 4px); background: var(--tooltip-bg); color: var(--tooltip-fg);
+  box-shadow: 0 0 0 var(--hairline-w) var(--tooltip-border), var(--shadow-card-lift);
+  font: var(--fw-strong) 11px/20px var(--font-ui); white-space: nowrap; opacity: 0;
+  transition: transform var(--dur-press) var(--ease-out-strong), opacity var(--dur-press) var(--ease-fade); }
+.app-picker-component { font-weight: var(--fw-medium); color: var(--tooltip-muted); }
+.app-picker :is(.app-picker-box, .app-picker-label)[data-on] { opacity: 1; }
+.app-picker [data-instant] { transition: none; }
+/* The pick answered: a beat of deeper fill, then the fade — the web picker's confirmation. */
+.app-picker .app-picker-box[data-picked] { opacity: 0; background-color: color-mix(in srgb, var(--rl-accent) 26%, transparent);
+  transition: background-color var(--dur-drag) var(--ease-fade), opacity var(--dur-swap) var(--ease-fade) var(--dur-drag); }
+.app-picker-hint { position: fixed; z-index: 125; top: 48px; left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 12px 0 10px; border-radius: var(--r-pill); pointer-events: none;
+  background: var(--tooltip-bg); color: var(--tooltip-fg); box-shadow: 0 0 0 var(--hairline-w) var(--tooltip-border), var(--shadow-card-lift);
+  font: var(--fw-medium) 12px/16px var(--font-ui); white-space: nowrap;
+  animation: rl-app-pick-hint var(--dur-slow) var(--spring-smooth) both; }
+.app-picker-sep { color: var(--tooltip-muted); }
+.app-picker-hint kbd { padding: 0 4px; border-radius: calc(var(--r-chip) - 4px); background: var(--tooltip-border);
+  color: var(--tooltip-muted); font: 11px/16px var(--font-ui); letter-spacing: .02em; }
+@keyframes rl-app-pick-hint { from { opacity: 0; translate: -50% -4px; } }
+/* While it is up, nothing in the window drags it — a pane's bar is a thing to point at — and no
+   frame takes the pointer away from the window's own document. */
+:root[data-app-picking] * { -webkit-app-region: no-drag !important; }
+:root[data-app-picking] iframe { pointer-events: none; }
+:root:not([data-app-picking]) .app-picker-hint,
+:root[data-app-pick-capturing] :is(.app-picker, .app-picker-hint) { visibility: hidden; }
+
 /* ── Toasts (v2) ────────────────────────────────────────────────────────────
    The window's notices, at its foot (components/Toasts.tsx): a failed action, a refused file, a pane's
    receipt. A raised card like a menu — the surface, the panel corner, the raised shadow stack —
