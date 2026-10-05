@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
-import type { DiffFile, DiffSummary, Environment, FileDiff, ShipResult } from "@realm/contracts";
+import type { DiffFile, DiffSummary, Environment, FileDiff, ShipResult, TurnChanges } from "@realm/contracts";
 import { StoreContext, createAppStore, patchKey } from "../../state/store";
 import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
 import { DiffPane } from "./DiffPane";
@@ -291,5 +291,38 @@ describe("the review section", () => {
     // The BAN, at the UI layer: no button in the review section commits, ships or stages anything.
     const labels = Array.from(section.querySelectorAll("button")).map((b) => b.textContent + (b.getAttribute("aria-label") ?? ""));
     for (const label of labels) expect(label).not.toMatch(/commit|ship|push|stage|merge/i);
+  });
+});
+
+describe("one turn's changes, for an edit card's Review", () => {
+  const turn: TurnChanges = {
+    checkpointId: "cp1", settledAt: 200, root: CWD, afterTree: "a".repeat(40), totalFiles: 2,
+    files: [
+      { path: "web/lib/orgs.ts", oldPath: null, status: "modified", additions: 1, deletions: 1 },
+      { path: "assets/logo.png", oldPath: null, status: "added", additions: null, deletions: null },
+    ],
+  };
+
+  it("shows the turn's own files and patches, read-only, and goes back to the checkout on asking", async () => {
+    const { api, store } = await mount({ turnPatches: { "cp1|web/lib/orgs.ts": patch("web/lib/orgs.ts") } });
+    await act(async () => { await store.getState().reviewTurn("env1", { changes: turn, asked: "Fix the org access crash path\nand more" }); });
+    expect(screen.getByText("2 files changed in one turn")).toBeInTheDocument();
+    expect(screen.getByText("Fix the org access crash path")).toBeInTheDocument();
+    // Opened unasked — a turn's handful of files is what a review is for — across the turn's own trees.
+    await waitFor(() => expect(screen.getByText("new line")).toBeInTheDocument());
+    expect(api.calls).toContain(`turnDiff:cp1|${"a".repeat(40)}|web/lib/orgs.ts`);
+    expect(within(rowFor("assets/logo.png")).getByText("binary")).toBeInTheDocument();
+    // Nothing in a finished turn is staged, so nothing offers to stage it.
+    expect(screen.queryByRole("button", { name: /^Stage/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show all changes" }));
+    expect(store.getState().diffTurns.env1).toBeUndefined();
+    expect(await screen.findByText("src/")).toBeInTheDocument();
+  });
+
+  it("says where a file's patch went when the turn's snapshot is gone, instead of loading forever", async () => {
+    const { store } = await mount();
+    await act(async () => { await store.getState().reviewTurn("env1", { changes: { ...turn, files: [turn.files[0]!], totalFiles: 1 }, asked: null }); });
+    expect(await screen.findByText(/no turn patch for cp1\|web\/lib\/orgs\.ts/)).toBeInTheDocument();
   });
 });

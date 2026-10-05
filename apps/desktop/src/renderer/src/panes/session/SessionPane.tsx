@@ -1,6 +1,6 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, basenameOf, fastSupportKey, offeredModes, sessionModeOf, type Item, type LinkChip, type SessionMode, type Skill, runnableCommands, type UserCommand } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, basenameOf, fastSupportKey, offeredModes, sessionModeOf, type Item, type LinkChip, type SessionMode, type Skill, type TurnChanges, runnableCommands, type UserCommand } from "@realm/contracts";
 
 /** A stable empty list for the commands selector. A fresh `[]` in the selector is a new reference on
  *  every render, which is how a zustand subscription turns into a render loop. */
@@ -446,6 +446,19 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const openFileAt = useCallback((path: string, line: number | null) => { run(() => openDocumentPath(path, ownEnvironmentId, null, line)); },
     [run, openDocumentPath, ownEnvironmentId]);
   const checkout = useMemo(() => (checkoutRoot ? { root: checkoutRoot, onOpen: openFileAt } : null), [checkoutRoot, openFileAt]);
+  /* The edit cards' half: every checkpoint in this checkout (whether a turn's Undo is honest), the
+     turn's own diff for Review, and Undo through the checkpoint restore's own confirmation. */
+  const envCheckpoints = useApp((s) => (ownEnvironmentId ? s.envCheckpoints[ownEnvironmentId] : undefined));
+  const refreshEnvCheckpoints = useApp((s) => s.refreshEnvCheckpoints);
+  const openCheckpoints = useApp((s) => s.openCheckpoints);
+  const askRestoreCheckpoint = useApp((s) => s.askRestoreCheckpoint);
+  const reviewTurn = useApp((s) => s.reviewTurn);
+  useEffect(() => { if (ownEnvironmentId) run(() => refreshEnvCheckpoints(ownEnvironmentId)); }, [ownEnvironmentId, refreshEnvCheckpoints, run]);
+  const turnEditing = useMemo(() => (ownEnvironmentId ? {
+    sessionId: id, checkpoints: envCheckpoints,
+    onReview: (changes: TurnChanges, asked: string | null) => { run(() => reviewTurn(ownEnvironmentId, { changes, asked })); },
+    onUndo: (checkpointId: string) => { run(async () => { await openCheckpoints(ownEnvironmentId, id); await askRestoreCheckpoint(checkpointId); }); },
+  } : null), [id, ownEnvironmentId, envCheckpoints, run, reviewTurn, openCheckpoints, askRestoreCheckpoint]);
   /* The whole pane takes a dropped file, not just the prompter: with a transcript on screen the card
      is a strip at the bottom, and aiming at it with a file in hand is the chore this removes. The
      session id is closed over here, so a four-pane split lands each file in the pane it was dropped
@@ -606,7 +619,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
         mode={sessionModeOf(session.permissionMode)}
         eggs={easterEggs} packLabels={packLabels}
-        onPath={(p, at) => setPathMenu({ path: p, at })} checkout={checkout}
+        onPath={(p, at) => setPathMenu({ path: p, at })} checkout={checkout} turnEditing={turnEditing}
         onQuote={(text) => setQuote((q) => ({ text, n: (q?.n ?? 0) + 1 }))}
         sends={sends}
         // Keyed by SESSION, not by pane: a space switch tears this pane down and rebuilds it, and

@@ -42,7 +42,8 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
-.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code {
+.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
+.edit-counts {
   letter-spacing: normal;
 }
 
@@ -3265,6 +3266,33 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    line is for, and the faint tier is the quietest one that still clears AA — a timestamp mixed below
    it was a timestamp a reader had to squint at. */
 .msg-run-at { color: var(--rl-text-faint); }
+/* ── A turn's edits (EditSummary.tsx): Codex's "Edited 2 files +20 −3" card ───────────────────────
+   A card the eye rests in, so it wears the curve and no ring: the surface fill is the whole boundary,
+   and its head is not ruled off from its rows — the title and its two actions are chrome for the
+   card, not a section of it. The card's curve is the picker cards' rung so the rows' own corners
+   nest inside it (20 = 12 of padding + the 8 a row rounds by). */
+.edit-summary { display: flex; flex-direction: column; gap: 2px; margin: 2px 0; padding: 12px;
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); }
+.edit-summary-head { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 0 8px 6px; }
+.edit-summary-title { font-size: 14px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.edit-summary-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.edit-summary-undo { display: inline-flex; align-items: center; gap: 5px; }
+/* What a missing Undo, or a list cut short, is said in: quiet, and true. */
+.edit-summary-quiet { margin: 0; padding: 0 8px; font-size: 12px; color: var(--rl-text-faint); }
+.edit-summary-files { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.edit-file { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 30px; padding: 5px 8px;
+  border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; color: var(--rl-text-dim); }
+button.edit-file:hover { background: var(--rl-hover); }
+/* The directory gives way first: it is the part of a path a reader already has from the rows around it. */
+.edit-file-path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edit-file-dir { color: var(--rl-text-faint); }
+.edit-file-name { color: var(--rl-text-bright); font-weight: var(--fw-label); }
+.edit-file[data-deleted] .edit-file-name { text-decoration: line-through; text-decoration-color: var(--rl-text-faint); }
+.edit-file-note { flex: none; font-size: 12px; color: var(--rl-text-faint); }
+.edit-counts { flex: none; display: inline-flex; gap: 6px; font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
+.edit-add { color: var(--rl-success); }
+.edit-del { color: var(--rl-danger); }
+.edit-summary-more { align-self: flex-start; margin: 2px 4px 0; }
 /* The closing line of a settled session. Quieter than the run label above it and italic, because it
    is the one line in the transcript that is Realm talking about the session rather than anything
    that happened in it — a register the reader should be able to tell apart without reading the
@@ -4440,6 +4468,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 :root[data-squircle] .search-field,
 :root[data-squircle] .palette,
 :root[data-squircle] .md-code,
+:root[data-squircle] .edit-summary,
 :root[data-squircle] .diff-review,
 :root[data-squircle] .composer,
 :root[data-squircle] .composer-drop-hint,
@@ -4707,6 +4736,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
    with no background of its own, so there is nothing at the corners for the square clip to reveal. */
 :root[data-squircle] .md-code { --sq-fill: var(--surface); box-shadow: none; }
+/* A turn's edit card is content in the log for the same reason, and on the card rung (see the card). */
+:root[data-squircle] .edit-summary { --sq-fill: var(--surface); box-shadow: none;
+  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* The palette keeps its overlay lift — it floats over the whole window, where a code block sits in
    a message. `overflow: hidden` clips a square, which costs nothing: its own head and list carry
    the surface, so there is nothing at the corners for the square clip to reveal. */
@@ -5332,6 +5364,9 @@ select { appearance: none; padding-right: 22px;
 .diff-status[data-status="conflicted"] { color: var(--rl-warning); }
 .diff-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .diff-dir { color: var(--rl-text-faint); }
+/* The message that asked for the turn a review is showing — what names it. The unbounded item in the
+   head, so it is the one that gives way. */
+.diff-turn-asked { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--rl-text-faint); }
 .diff-base { color: var(--rl-text-bright); }
 .diff-counts { flex: none; display: flex; gap: 6px; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
 .diff-counts .diff-add { color: var(--rl-success); }

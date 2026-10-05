@@ -42,6 +42,8 @@ import {
   // A file named in the transcript, by what kind of file it is (the renderer's `file-icon.ts`).
   Typescript01Icon, JavaScriptIcon, ReactIcon, ThirdBracketSquareIcon, PythonIcon, Html5Icon, Css3Icon, JavaIcon,
   PhpIcon, SqlIcon, Pdf01Icon, Xml01Icon, Svg01Icon, FileZipIcon, FileScriptIcon,
+  // A turn's edits, put back (EditSummary.tsx).
+  Undo02Icon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -150,6 +152,9 @@ export const icons = {
   fileTs: Typescript01Icon, fileJs: JavaScriptIcon, fileReact: ReactIcon, fileJson: ThirdBracketSquareIcon,
   filePython: PythonIcon, fileHtml: Html5Icon, fileCss: Css3Icon, fileJava: JavaIcon, filePhp: PhpIcon, fileSql: SqlIcon,
   filePdf: Pdf01Icon, fileXml: Xml01Icon, fileSvg: Svg01Icon, fileZip: FileZipIcon, fileCode: FileScriptIcon,
+  /* The open arc turning back — the mark Codex sets beside its own Undo, and what every editor draws
+     for it. Not `reload`, whose closed circle means "again", which is the opposite. */
+  undo: Undo02Icon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

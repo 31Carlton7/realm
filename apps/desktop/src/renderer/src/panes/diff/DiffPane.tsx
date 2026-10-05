@@ -1,10 +1,10 @@
-import type { DiffFile, FileDiff, ReviewResult, ShipResult } from "@realm/contracts";
+import type { DiffFile, FileDiff, ReviewResult, ShipResult, TurnChanges, TurnFile } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { useDissolve } from "../../components/ScrollFades";
 import { Markdown } from "../session/Markdown";
-import { patchKey, useApp } from "../../state/store";
+import { patchKey, turnPatchKey, useApp, type TurnDiffScope } from "../../state/store";
 import type { PaneProps } from "../registry";
 
 /** One letter, the way `git status` writes it — the densest honest label for a row. */
@@ -214,6 +214,12 @@ function ShipReport({ cwd, environmentId, result }: { cwd: string; environmentId
  */
 export function DiffPane({ item }: PaneProps) {
   const environmentId = item.refId;
+  /* An edit card's Review puts the pane on one turn; everything else shows the checkout as it is. */
+  const turn = useApp((s) => s.diffTurns[environmentId] ?? null);
+  return turn ? <TurnDiff environmentId={environmentId} scope={turn} /> : <CheckoutDiff environmentId={environmentId} />;
+}
+
+function CheckoutDiff({ environmentId }: { environmentId: string }) {
   // Read live, never captured: an environment whose row changes must move this pane with it.
   const cwd = useApp((s) => s.environments[environmentId]?.path ?? null);
   const summary = useApp((s) => (cwd ? s.diffs[cwd] ?? null : null));
@@ -306,6 +312,78 @@ export function DiffPane({ item }: PaneProps) {
               title="Commit, push and open a pull request (⌘↵)"
               onClick={() => doShip(true)}>{shipping ? "Working…" : "Commit, push & PR"}</button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Files a review opens unasked. A turn is usually a handful of files and reading them is the whole
+ *  point; a codegen turn of two hundred is a list first, opened one at a time. */
+const OPEN_UP_TO = 8;
+
+/** One file of a turn: the same row the checkout's files wear, without staging — nothing in a
+ *  finished turn is staged — and its patch fetched across the turn's own two trees. */
+function TurnFileRow({ changes, file, start }: { changes: TurnChanges; file: TurnFile; start: boolean }) {
+  const [open, setOpen] = useState(start);
+  const [gone, setGone] = useState<string | null>(null);
+  const patch = useApp((s) => s.turnPatches[turnPatchKey(changes, file.path)]);
+  const loadTurnPatch = useApp((s) => s.loadTurnPatch);
+  useEffect(() => {
+    if (!open) return;
+    // Caught here rather than by the toast: a turn whose snapshot `git gc` has since collected is
+    // a fact about this file, and the place to say it is where its patch would have been.
+    loadTurnPatch(changes, file.path, file.oldPath).catch((e: unknown) => setGone(e instanceof Error ? e.message : String(e)));
+  }, [open, changes, file.path, file.oldPath, loadTurnPatch]);
+  return (
+    <div className="diff-file" data-open={open || undefined}>
+      <div className="diff-row">
+        <button type="button" className="diff-expand" aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${file.path}`}
+          onClick={() => setOpen((v) => !v)}>
+          <span className="diff-status" data-status={file.status} title={file.status}>{STATUS_LETTER[file.status]}</span>
+          <PathLabel path={file.path} oldPath={file.oldPath} />
+          {file.additions === null || file.deletions === null
+            ? <span className="diff-counts">binary</span>
+            : <span className="diff-counts">
+                {file.additions > 0 && <span className="diff-add">+{file.additions}</span>}
+                {file.deletions > 0 && <span className="diff-del">−{file.deletions}</span>}
+              </span>}
+        </button>
+      </div>
+      {open && <div className="diff-body">{gone ? <div className="diff-note">{gone}.</div> : <Patch patch={patch} />}</div>}
+    </div>
+  );
+}
+
+/**
+ * One turn's changes, for an edit card's Review: the checkout as the turn's checkpoint found it,
+ * against the checkout as the turn left it — the tree its settle recorded, so an edit made since is
+ * not part of the answer. Read-only, because history has nothing to stage; "Show all changes" puts
+ * the pane back on the checkout as it is now, and so does the pane going away.
+ */
+function TurnDiff({ environmentId, scope }: { environmentId: string; scope: TurnDiffScope }) {
+  const closeTurnDiff = useApp((s) => s.closeTurnDiff);
+  const fileList = useRef<HTMLDivElement>(null);
+  useDissolve(fileList);
+  // A review is a look, not a setting: once the pane goes, the next way in shows the checkout as it is.
+  useEffect(() => () => closeTurnDiff(environmentId), [closeTurnDiff, environmentId]);
+  const { changes, asked } = scope;
+  const n = changes.totalFiles;
+  const firstLine = asked?.trim().split("\n")[0] ?? null;
+  return (
+    <div className="diff-pane">
+      <div className="diff-head">
+        <span className="diff-head-count">{n === 1 ? "1 file" : `${n} files`} changed in one turn</span>
+        {firstLine && <span className="diff-turn-asked" title={asked ?? undefined}>{firstLine}</span>}
+        <span className="diff-head-spacer" />
+        <button type="button" className="btn-quiet" onClick={() => closeTurnDiff(environmentId)}>Show all changes</button>
+      </div>
+      {changes.files.length < n && (
+        <div className="diff-note">Showing {changes.files.length} of {n} changed files — the most one turn lists.</div>
+      )}
+      <div className="diff-list-wrap">
+        <div className="diff-list" ref={fileList}>
+          {changes.files.map((f) => <TurnFileRow key={f.path} changes={changes} file={f} start={changes.files.length <= OPEN_UP_TO} />)}
         </div>
       </div>
     </div>

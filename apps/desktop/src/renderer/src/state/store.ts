@@ -13,7 +13,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -554,6 +554,8 @@ export type Api = {
   previewCheckpoint(id: string): Promise<RestorePreview>;
   /** `checkpoints.restore`. The acknowledgement must equal what the server re-reads, or it refuses. */
   restoreCheckpoint(id: string, acknowledge: { filesChanged: number; commitsRolledBack: number }): Promise<RestoreResult>;
+  /** `checkpoints.turnDiff` — one file's patch across one turn, for the edit card's Review. */
+  turnDiff(id: string, afterTree: string, path: string, oldPath: string | null): Promise<FileDiff>;
   /** `mcp.list` — every server Realm knows about, carrying this space's own enable flag + allowlist. */
   listMcpServers(spaceId: string): Promise<{ servers: McpServer[]; secretNote: string }>;
   addMcpServer(input: AddMcpServerInput): Promise<McpServer>;
@@ -688,6 +690,12 @@ export type ShipInput = { cwd: string; commit: boolean; message: string; push: b
  * nothing in it.
  */
 export const patchKey = (cwd: string, path: string, staged: boolean) => `${cwd}\u0000${path}\u0000${staged ? "s" : "u"}`;
+
+/** What a diff pane shows when it shows one turn: the turn's measured changes, and the message that
+ *  asked for them, which is how the pane names the turn. */
+export type TurnDiffScope = { changes: TurnChanges; asked: string | null };
+/** A turn's patch for one file — the trees name the turn, the path the file. */
+export const turnPatchKey = (changes: TurnChanges, path: string) => `${changes.checkpointId}\u0000${changes.afterTree}\u0000${path}`;
 
 /** Which key sends the composer draft. "enter" (default): plain Enter sends, Shift+Enter inserts a
  *  newline. "cmdEnter": plain Enter inserts a newline, only ⌘/Ctrl+Enter sends. */
@@ -1364,6 +1372,16 @@ export type AppState = {
   worktreeAckStale: string | null;
   /** `checkpoints.list` by environment id (W4). Absent = never asked. */
   checkpoints: Record<string, Checkpoint[]>;
+  /** Every checkpoint in a checkout, unfiltered, for the transcript's edit cards. Whether a turn's
+   *  Undo would put back that turn's work and nothing more is a question about EVERY later
+   *  checkpoint in the checkout, whoever took it — so this is never the sheet's per-session list.
+   *  Absent = never asked; held ones follow `checkpoints.changed`. */
+  envCheckpoints: Record<string, Checkpoint[]>;
+  /** The turn a diff pane is showing instead of the working tree (an edit card's Review), by
+   *  environment id. Absent = the pane shows the checkout as it is. */
+  diffTurns: Record<string, TurnDiffScope>;
+  /** One file's patch across one turn, by `turnPatchKey`. Fetched on expansion, like `patches`. */
+  turnPatches: Record<string, FileDiff>;
   /** `ships.list` first page by space id (Plan 14 W1) — the History tab's other half. Absent = never
    *  asked; the `ships.changed` handler only refreshes spaces already held here. */
   ships: Record<string, Ship[]>;
@@ -2227,6 +2245,9 @@ export type AppState = {
    *  item has the ENVIRONMENT's id as its refId, so it survives the session that opened it and cannot
    *  show another checkout's tree. */
   openDiff(environmentId: string, targetLeafId?: string | null): Promise<void>;
+  /** An edit card's Review: put the checkout's diff pane on one turn's changes, opened the way every
+   *  diff pane is opened (`openDiff`), so it lands wherever that puts the pane. */
+  reviewTurn(environmentId: string, scope: TurnDiffScope): Promise<void>;
   /** Open (or focus) the document workspace for an environment — the `openDiff` gesture, for files.
    *  `environmentId` omitted uses the primary checkout of `spaceId`, else of the current space.
    *  `beside` splits right and opens there instead of taking over the focused pane — the same
@@ -2473,6 +2494,11 @@ export type AppState = {
   openCheckpoints(environmentId: string, sessionId?: string | null): Promise<void>;
   /** Re-list without opening anything — what the `checkpoints.changed` broadcast triggers. */
   refreshCheckpoints(environmentId: string, sessionId: string | null): Promise<void>;
+  /** Re-list a checkout's checkpoints, all of them, into `envCheckpoints`. */
+  refreshEnvCheckpoints(environmentId: string): Promise<void>;
+  /** Put a diff pane on a turn back on the checkout as it is. */
+  closeTurnDiff(environmentId: string): void;
+  loadTurnPatch(changes: TurnChanges, path: string, oldPath: string | null): Promise<void>;
   /** Re-fetch one space's ship log (first page — the History tab's glance, not an archive browser);
    *  what the History tab mounts and the `ships.changed` broadcast triggers for held spaces. */
   refreshShips(spaceId: string): Promise<void>;
@@ -3634,7 +3660,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, documentReveal: null,
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, documentReveal: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -6639,6 +6665,24 @@ await get().refreshCustomThemes().catch(() => {});
       async refreshCheckpoints(environmentId, sessionId) {
         const list = await api.listCheckpoints(environmentId, sessionId);
         set({ checkpoints: { ...get().checkpoints, [environmentId]: list } });
+      },
+      async refreshEnvCheckpoints(environmentId) {
+        const list = await api.listCheckpoints(environmentId, null);
+        set({ envCheckpoints: { ...get().envCheckpoints, [environmentId]: list } });
+      },
+      async reviewTurn(environmentId, scope) {
+        set({ diffTurns: { ...get().diffTurns, [environmentId]: scope } });
+        await get().openDiff(environmentId);
+      },
+      closeTurnDiff(environmentId) {
+        const { [environmentId]: _closed, ...rest } = get().diffTurns;
+        set({ diffTurns: rest });
+      },
+      async loadTurnPatch(changes, path, oldPath) {
+        const key = turnPatchKey(changes, path);
+        if (get().turnPatches[key]) return;
+        const patch = await api.turnDiff(changes.checkpointId, changes.afterTree, path, oldPath);
+        set({ turnPatches: { ...get().turnPatches, [key]: patch } });
       },
       async refreshShips(spaceId) {
         const { ships } = await api.listShips(spaceId);

@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { LINK_SERVICE_META, chipRuns, mediaCandidatesIn, type SessionMode, type SessionStatus } from "@realm/contracts";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { LINK_SERVICE_META, chipRuns, mediaCandidatesIn, type Checkpoint, type SessionMode, type SessionStatus, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { CommandCopy } from "../../components/CommandCopy";
 import type { PermissionDecision } from "../../state/store";
@@ -16,6 +16,8 @@ import { formatDuration, groupTranscript, withEnter } from "./tool-group";
 import { blockKey, lastUserMessage, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { stampLabel, stampTitle, useNow } from "./timestamps";
 import { touchedFiles, type FileLinkContext } from "./file-links";
+import { EditSummary } from "./EditSummary";
+import { turnEdits, undoOffer } from "./turn-edits";
 import { useDissolve } from "../../components/ScrollFades";
 import { runLabelFor, type RunLabel } from "./run-label";
 import { formatTokens } from "./SessionUsage";
@@ -27,6 +29,8 @@ import { SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type S
 
 /** Permission cards share the blocks' key space; the prefix keeps a requestId from colliding with one. */
 const permKey = (requestId: string) => `perm:${requestId}`;
+/** A turn's edit card, keyed off the run line it sits above. */
+const editKey = (runKey: string) => `edit:${runKey}`;
 
 function Thinking({ text, enter }: { text: string; enter?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -179,12 +183,17 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, onExpandPlan, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, onQuote, checkout = null }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, onExpandPlan, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, onQuote, checkout = null, turnEditing = null }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
   /** The session's checkout and how to open a file in it — what turns a file the prose names into a
    *  link (file-links.ts). Null in the read-only mounts, which leave those names as text. `onOpen`
    *  must be stable: it is part of what every finished message re-checks its links against. */
   checkout?: { root: string; onOpen: (path: string, line: number | null) => void } | null;
+  /** What the "Edited N files" cards need beyond the checkout: whose turns these are, every
+   *  checkpoint in the checkout (what decides whether Undo is honest), and where Review and Undo go.
+   *  Null in the read-only mounts, which draw no card. */
+  turnEditing?: { sessionId: string; checkpoints: readonly Checkpoint[] | undefined;
+    onReview: (changes: TurnChanges, asked: string | null) => void; onUndo: (checkpointId: string) => void } | null;
   /** Ask the last user message again. Offered on the newest assistant message only: "retry" names
    *  the turn that just finished, and a button on message three of forty would silently act on
    *  message forty instead. Absent in the read-only mounts the suite and the fork preview use. */
@@ -286,9 +295,15 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   }, [transcript.blocks]);
   // §6: 180ms enter, new items only. Everything on screen at mount is seeded as already-seen, so
   // re-rendering, scrolling, or coming back to this session never replays an entrance.
+  /* Each settled turn's edits, and every turn as Undo weighs it (turn-edits.ts). The card is its own
+     entry in the enter tracker: it lands a beat after its run line, when git's account arrives. */
+  const edits = useMemo(() => (turnEditing
+    ? turnEdits(transcript.blocks, { changes: transcript.changes, checkpoints: turnEditing.checkpoints, sessionId: turnEditing.sessionId, cwd, root: checkout?.root ?? null })
+    : null), [transcript.blocks, transcript.changes, turnEditing, cwd, checkout?.root]);
   const isEntering = useEnterTracker([
     ...transcript.blocks.map(blockKey),
     ...permissions.map((p) => permKey(p.requestId)),
+    ...[...(edits?.cards.keys() ?? [])].map(editKey),
   ]);
 
   /* The ONE place the pin is written, so the pin and the remembered mark can never disagree — and
@@ -454,13 +469,27 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             // long did that take" is a question asked after the fact, not during.
             // A turn the user stopped says so, on the same quiet line and in the same place. It does
             // not get the run's playful past tense: "Simmered for 4s" reads as a job that finished.
-            case "run": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>
-              <span>{runSummary(b, eggs, packLabels)}</span>
-              {/* When it finished. A duration alone reads the same whether the run ended a minute
-                  ago or last Tuesday, and a transcript you come back to is where that matters. Dated
-                  from the settle itself, and the full date rides the tooltip. */}
-              <time className="msg-run-at" dateTime={new Date(b.ts).toISOString()} title={stampTitle(b.ts)}>{stampLabel(b.ts, now)}</time>
-            </div>;
+            case "run": {
+              /* What the turn changed, just above the line that closes it — the "Edited N files" card,
+                 Codex's. Only on a turn that changed something, and only where a transcript can act
+                 on one. */
+              const edited = edits?.cards.get(key);
+              const measured = transcript.changes?.[b.ts];
+              return <Fragment key={key}>
+                {edited && turnEditing && <EditSummary edits={edited} enter={isEntering(editKey(key))}
+                  undo={undoOffer(edited, edits!.turns, turnEditing.checkpoints, turnEditing.sessionId)}
+                  onOpen={(p) => checkout?.onOpen(p, null)}
+                  onReview={measured ? () => turnEditing.onReview(measured, edited.asked) : undefined}
+                  onUndo={turnEditing.onUndo} />}
+                <div className="msg-run muted" data-enter={enter || undefined}>
+                  <span>{runSummary(b, eggs, packLabels)}</span>
+                  {/* When it finished. A duration alone reads the same whether the run ended a minute
+                      ago or last Tuesday, and a transcript you come back to is where that matters.
+                      Dated from the settle itself, and the full date rides the tooltip. */}
+                  <time className="msg-run-at" dateTime={new Date(b.ts).toISOString()} title={stampTitle(b.ts)}>{stampLabel(b.ts, now)}</time>
+                </div>
+              </Fragment>;
+            }
             // The seam. Everything above it is one agent's voice and everything below is another's,
             // so it is drawn AS a seam — a rule across the column with the sentence set into it —
             // rather than as a card, which would read as one more thing an agent said.
