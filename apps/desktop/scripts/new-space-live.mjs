@@ -309,6 +309,13 @@ async function main() {
   await dropFolder(c, row, repo, { hold: async () => { await sleep(250); await shot(c, "dark-dropping", '[role="dialog"][aria-label="New space"]'); } });
   const shown = await until(() => evalIn(c, `document.querySelector('.space-folder-path')?.textContent ?? ''`), 5000, "the dropped folder").catch(() => "");
   check("a folder dropped on the row becomes the space's folder", shown === repo, { shown, repo });
+  // Measured, because a path is the one thing in the sheet of unbounded length: it is cut at its
+  // start inside its own row, never laid back over the row's label.
+  const fit = await evalIn(c, `(() => { const row = document.querySelector('.space-folder'); const b = (e) => e.getBoundingClientRect();
+    const label = b(row.querySelector('.space-folder-label')), path = row.querySelector('.space-folder-path');
+    return { labelRight: Math.round(label.right), pathLeft: Math.round(b(path).left), pathRight: Math.round(b(path).right), rowRight: Math.round(b(row).right),
+      cut: path.scrollWidth > path.clientWidth }; })()`);
+  check("the dropped path stays in its row, cut from the start rather than over the label", fit.pathLeft >= fit.labelRight && fit.pathRight <= fit.rowRight, fit);
 
   await click(c, ".new-space-memory-add", "Add memory");
   await until(() => evalIn(c, `document.activeElement?.tagName === 'TEXTAREA'`), 3000, "the memory field to take the keyboard");
@@ -316,6 +323,8 @@ async function main() {
   await sleep(300);
   await shot(c, "dark-filled", '[role="dialog"][aria-label="New space"]');
   await shot(c, "dark-filled-window");
+  const summary = await evalIn(c, `(() => { const p = document.querySelector('.new-space-summary'); return { text: p.textContent, h: Math.round(p.getBoundingClientRect().height) }; })()`);
+  check("the line by Create is one line", summary.h <= 20, summary);
 
   // Enter, from the name — the one gesture the fast path is.
   await click(c, 'input[aria-label="Space name"]', "the name field");
@@ -369,6 +378,20 @@ async function main() {
   const notesSessions = notes ? (await api.call("sessions.listAll", {})).filter((s) => s.spaceId === notes.id) : [];
   check("light: with no folder, the session works in the folder the sheet named", notesSessions.length === 1 && notesSessions[0].cwd === notes.folderPath
     && notes.folderPath === path.join(home, "personal", "field-notes"), { cwd: notesSessions[0]?.cwd, folder: notes?.folderPath });
+
+  /* ── A narrow window: the sheet keeps to it, and nothing in it runs off the side ──────────── */
+  await c.send("Emulation.setDeviceMetricsOverride", { width: 520, height: 760, deviceScaleFactor: 2, mobile: false });
+  await sleep(400);
+  await openSheet(c);
+  await c.send("Input.insertText", { text: "A space with a long name for a narrow window" });
+  await sleep(400);
+  const narrow = await evalIn(c, `(() => { const s = __live.sheet(); const r = s.getBoundingClientRect();
+    const over = [...s.querySelectorAll('*')].filter((e) => { const b = e.getBoundingClientRect(); return b.width > 0 && (b.right > r.right + 0.5 || b.left < r.left - 0.5); })
+      .filter((e) => !e.closest('.space-folder-made, .space-folder-path')).map((e) => e.className || e.tagName).slice(0, 5);
+    return { sheet: { left: Math.round(r.left), right: Math.round(r.right), w: innerWidth }, scrolls: s.scrollWidth > s.clientWidth + 1, over }; })()`);
+  check("narrow: the sheet fits the window and nothing in it runs off the side", narrow.sheet.left >= 0 && narrow.sheet.right <= narrow.sheet.w && !narrow.scrolls && narrow.over.length === 0, narrow);
+  await shot(c, "light-narrow");
+  await press(c, "Escape");
 
   await api.call("settings.set", { key: "ui.theme", value: "dark" });
   check("no uncaught renderer exceptions", c.errors.length === 0, c.errors.slice(0, 5));

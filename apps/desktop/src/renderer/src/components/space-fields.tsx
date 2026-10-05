@@ -98,7 +98,7 @@ export function SpaceFolderField({ folder, onFolder, profileId, name, className 
   return (
     <div className={className ? `space-folder ${className}` : "space-folder"} data-dropping={drop.dropping || undefined} {...drop.handlers}>
       <span className="space-folder-label">Folder <span className="space-optional">optional</span></span>
-      <div className="space-folder-control">
+      <div className="space-folder-control" data-chosen={folder !== null || undefined}>
         {folder ? (
           <>
             <Icon name="folder" size={14} />

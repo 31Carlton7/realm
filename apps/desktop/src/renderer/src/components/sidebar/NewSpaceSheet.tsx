@@ -15,8 +15,8 @@ const NEW_PROFILE = "new-profile";
  * fields first run asks with (`space-fields.tsx`) — because the name is the one thing anybody has to
  * give. Under it, one card of the rest, each with a working default: the folder (or where the space
  * works without one), the profile it belongs to (a new one made in place), and the memory every
- * session there reads first. The line by Create says what it does — starts a session in the space,
- * on the agent last used — and that session is where the window lands, prompter focused, never the
+ * session there reads first. The line by Create says what it does — the space opens on a new
+ * session, on the agent last used — and that is where the window lands, prompter focused, never the
  * space's settings (`openNewSpace`).
  *
  * Fast on purpose: the name has the keyboard when the sheet opens and Enter creates, so a name and
@@ -121,7 +121,7 @@ export function NewSpaceSheet() {
           </div>
         </div>
         <div className="new-space-foot">
-          <p className="new-space-summary">Starts a {AGENT_META[agentKind].label} session in {spaceName || "the new space"}.</p>
+          <p className="new-space-summary">Opens on a new {AGENT_META[agentKind].label} session.</p>
           <button type="button" className="btn" onClick={closeSheet}>Cancel</button>
           <button type="submit" className="btn primary" disabled={!ready}>Create</button>
         </div>

@@ -618,6 +618,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   a tab dragged to an edge is how something becomes part of the user's own layout.
 - Pane focus, selection, zoom, navigation history, and group state must remain visibly distinct.
 - Empty panes should offer the shortest honest path to useful work.
+- Making a thing lands you IN it. Create on the New space sheet opens the space on a new session
+  with the keyboard in the prompter; it used to open the space's Overview, a page of settings for
+  something named a second earlier in order to work in it. Settings are where a thing is visited
+  later, and the sheet that made it has already asked everything that had no default.
 - Several agents need one page that answers "what should I look at": every session across every
   space by what it needs from you — blocked on a permission first, then working, failed, finished.
   The per-space badges say the same thing per space; the page says it once, with enough on each

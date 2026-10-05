@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { itemIdOfLeaf } from "@realm/contracts";
 import { NewSpaceSheet } from "./NewSpaceSheet";
 import { SpaceIcon } from "../SpaceIcon";
@@ -203,11 +203,11 @@ describe("NewSpaceSheet", () => {
     await waitFor(() => expect(api.calls).toContain(`setMemory:${made.id}:${"Use pnpm.".length}`));
   });
 
-  it("says beside Create what it does: a session, on the agent last used, in the space named", async () => {
-    await mount();
-    expect(screen.getByText("Starts a Claude session in the new space.")).toBeInTheDocument();
-    fireEvent.change(nameField(), { target: { value: "Versed 2" } });
-    expect(screen.getByText("Starts a Claude session in Versed 2.")).toBeInTheDocument();
+  it("says beside Create what it does: the space opens on a new session, on the agent last used", async () => {
+    const { store } = await mount();
+    expect(screen.getByText("Opens on a new Claude session.")).toBeInTheDocument();
+    act(() => store.setState({ lastAgentKind: "codex" }));
+    expect(screen.getByText("Opens on a new Codex session.")).toBeInTheDocument();
   });
 
   it("Escape in the icon picker closes the picker and leaves the sheet up; Escape again closes the sheet", async () => {

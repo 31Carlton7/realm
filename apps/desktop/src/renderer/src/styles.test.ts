@@ -2626,6 +2626,19 @@ describe("row and control layout", () => {
     expect(btn).toContain("flex-shrink: 0");
   });
 
+  it("a space's folder path takes the room it is given and asks for none, so it cannot widen the page around it", () => {
+    /* One unbroken line of unbounded length: measured into first run's `1fr` tracks, the default
+       location's path widened the whole page past a 520px window and un-stacked the agent cards
+       (onboarding-live.mjs). THE mutant drops the containment — `min-width: 0` alone only lets a flex
+       item shrink; it still reports the whole path as its intrinsic width. */
+    for (const sel of [".space-folder-path", ".space-folder-made"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("contain: inline-size");
+      expect(body, sel).toContain("text-overflow: ellipsis");
+      expect(body, sel).toMatch(/flex: 1/);
+    }
+  });
+
   it("a page row has exactly one elastic column, so its trailing metadata forms a straight edge", () => {
     // The bug: `.page-row-dim` and `.item-status` both carried `margin-left: auto`, which splits the
     // leftover space between them — every row parked its timestamp at a different x. The title grows
