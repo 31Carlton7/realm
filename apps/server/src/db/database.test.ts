@@ -1219,10 +1219,13 @@ describe("migration v38 — a scheduled task keeps its runs", () => {
 /**
  * The v38 shape of what v39 touches, hand-written for the reason every fixture above is: `sessions`
  * as it stands at v38 matters only as the table `app_views` hangs off, so it is a stub holding the
- * id the foreign key needs — with a session in it, as a real home would have.
+ * id the foreign key needs — with a session in it, as a real home would have. `session_events` is a
+ * stub too, for the reason V32's `browsers` is: a real v38 home has had it since v3, and v40's key to
+ * it — which a session's deletion now resolves — is what found it missing.
  */
 const V38_SESSIONS_SCHEMA = `
 CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE);
 `;
 
 function v38Fixture(path: string): void {
@@ -1282,6 +1285,90 @@ describe("migration v39 — the views MCP servers draw", () => {
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     // The statement itself is safe to meet twice as well — `IF NOT EXISTS`, not a version check alone.
     expect(() => again.exec(migrations[38]!)).not.toThrow();
+    again.close();
+  });
+});
+
+/**
+ * The v39 shape of what v40 hangs off, hand-written for every fixture's reason: `session_events`
+ * exactly as it has stood since v3 — the table a saved turn names a row of — and `sessions` as a stub
+ * holding the id the second key needs, with a log in it, as a real home would have.
+ */
+const V39_EVENTS_SCHEMA = `
+CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
+CREATE INDEX session_events_session ON session_events(session_id, seq);
+`;
+
+function v39Fixture(path: string): void {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V39_EVENTS_SCHEMA);
+  for (let v = 1; v <= 39; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  db.prepare("INSERT INTO sessions (id, title) VALUES ('sess1', 'Org access'), ('sess2', 'Recipes')").run();
+  const ev = db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, ?)");
+  ev.run("sess1", 10, "user_message", '{"text":"Fix the crash","attachments":[]}'); // seq 1
+  ev.run("sess1", 11, "assistant_text", '{"messageId":"m1","text":"Fixed."}'); // seq 2
+  ev.run("sess1", 20, "user_message", '{"text":"Add a test","attachments":[]}'); // seq 3
+  ev.run("sess2", 30, "user_message", '{"text":"Soup?","attachments":[]}'); // seq 4
+  db.close();
+}
+
+describe("migration v40 — saved turns", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v39Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+  const save = (db: DatabaseSync, seq: number, sessionId: string) =>
+    db.prepare("INSERT INTO saved_turns (event_seq, session_id, saved_at) VALUES (?, ?, 1)").run(seq, sessionId);
+
+  it("is appended, not folded into v39: a v39 home reaches the end of the chain and gains the table", () => {
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBeGreaterThan(39);
+    const cols = (db.prepare("PRAGMA table_info(saved_turns)").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toEqual(["event_seq", "session_id", "saved_at"]);
+    db.close();
+  });
+
+  it("saves nothing on the way in, and leaves the log it names exactly as it was", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM saved_turns").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT seq, session_id, type FROM session_events ORDER BY seq").all()).toEqual([
+      { seq: 1, session_id: "sess1", type: "user_message" }, { seq: 2, session_id: "sess1", type: "assistant_text" },
+      { seq: 3, session_id: "sess1", type: "user_message" }, { seq: 4, session_id: "sess2", type: "user_message" }]);
+    db.close();
+  });
+
+  it("goes with the event it names — cut from the log, or gone with its session — and names no other", () => {
+    /* THE mutant: a table with no key to the event. A rewind that cut the prompt out of the log would
+       leave a saved turn pointing at a seq nothing holds — listed as a blank, or as whatever reused it. */
+    const { db } = migrated();
+    save(db, 1, "sess1");
+    save(db, 3, "sess1");
+    save(db, 4, "sess2");
+    db.prepare("DELETE FROM session_events WHERE session_id = 'sess1' AND seq > 1").run();
+    expect(db.prepare("SELECT event_seq FROM saved_turns ORDER BY event_seq").all()).toEqual([{ event_seq: 1 }, { event_seq: 4 }]);
+    db.prepare("DELETE FROM sessions WHERE id = 'sess2'").run();
+    expect(db.prepare("SELECT event_seq FROM saved_turns").all()).toEqual([{ event_seq: 1 }]);
+    expect(() => save(db, 999, "sess1")).toThrow(/FOREIGN KEY/);
+    db.close();
+  });
+
+  it("is idempotent: reopening twice more neither re-runs the CREATE nor loses a turn saved since", () => {
+    const { p, db } = migrated();
+    save(db, 1, "sess1");
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(again.prepare("SELECT event_seq, session_id FROM saved_turns").all()).toEqual([{ event_seq: 1, session_id: "sess1" }]);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    // The statement itself is safe to meet twice as well — `IF NOT EXISTS`, not a version check alone.
+    expect(() => again.exec(migrations[39]!)).not.toThrow();
     again.close();
   });
 });
