@@ -2466,6 +2466,16 @@ describe("dividers", () => {
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".edge-fade"))), "the bands are gone").toEqual([]);
   });
 
+  it("a docked panel arrives from the edge it docks to and never past it — its travel is the gap it rests at", () => {
+    /* The summary came in from 12px out to rest 8px in, so its first frames hung 4px past the window's
+       edge, and a window that could not run the animation left it there (new-surfaces-live measured
+       the panel at 1404 in a 1400px window). THE mutant: any travel wider than the inset — the
+       terminal dock rises from the foot by the same rule. */
+    expect(bodiesFor(".pane-dock").join(" ")).toContain("margin: var(--sidebar-inset)");
+    expect(blockAfter("@keyframes rl-summary-in")).toMatch(/from \{ translate: var\(--sidebar-inset\) 0;/);
+    expect(blockAfter("@keyframes rl-dock-up")).toMatch(/from \{ translate: 0 var\(--sidebar-inset\);/);
+  });
+
   it("\"this icon button is on\" has ONE appearance, whichever attribute carries it", () => {
     /* Two rules used to say it: `.icon-btn[aria-pressed=\"true\"]` for Bold and ⌘J, and a bespoke
        `.summary-btn[data-on]` on a different token for the summary toggle. Which attribute a toggle

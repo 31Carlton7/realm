@@ -1039,9 +1039,13 @@ kbd { font: 11px var(--font-mono); }
 .terminal-dock .terminal-pane { flex: 1; min-height: 0; }
 /* From the edge it docks to, so it reads as arriving from beside the pane rather than fading in
    over it. Enter only: the panel is removed on toggle, and an exit that had to be awaited would
-   make the button feel unresponsive on the way out. */
-@keyframes rl-summary-in { from { translate: 12px 0; opacity: 0; } to { translate: 0 0; opacity: 1; } }
-@keyframes rl-dock-up { from { translate: 0 12px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+   make the button feel unresponsive on the way out.
+   It travels the gap it rests at and no further, so its first frame is flush with that edge. From
+   12px out to rest 8px in, the summary's first frames hung 4px past the window's edge — and a window
+   that could not run the animation (occluded, throttled) left it there: measured at 1404 in a 1400px
+   window. */
+@keyframes rl-summary-in { from { translate: var(--sidebar-inset) 0; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+@keyframes rl-dock-up { from { translate: 0 var(--sidebar-inset); opacity: 0; } to { translate: 0 0; opacity: 1; } }
 .summary-panel-head {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 8px 8px 14px;
 }
