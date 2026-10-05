@@ -449,7 +449,11 @@ async function main() {
   await mouse(c, "mouseMoved", await evalIn(c, `__live.tickAt(${densePane}, 150)`));
   await sleep(450);
   const dcard = await evalIn(c, `__live.card(${densePane})`);
-  check("a pointer on the dense track lands on one prompt", dcard.open && dcard.title === `Step 151: ${ASKS[150 % ASKS.length]}`, dcard);
+  // At a 2px pitch a pixel of late layout moves the tick under a still pointer, so the claim is the
+  // card's: it names exactly the prompt the pointer is on, and that is the one aimed at or a neighbour.
+  const under = await evalIn(c, `(() => { const t = __live.track(${densePane}); const i = t.ticks.findIndex((k) => k.near === "0"); return { i, label: t.ticks[i]?.label ?? null }; })()`);
+  check("a pointer on the dense track lands on one prompt, and the card is that prompt's",
+    dcard.open && dcard.title === under.label && Math.abs(under.i - 150) <= 3, { under, title: dcard.title });
   const dt = await evalIn(c, `__live.track(${densePane})`);
   await shoot(c, "track-dense-hover-dark", { x: dt.wrap.x, y: dt.wrap.y, w: 420, h: dt.wrap.h });
   await shoot(c, "track-dense-zoom-dark", { x: dt.wrap.x, y: dcard.box.y - 40, w: 60, h: dcard.box.h + 80, scale: 4 });
