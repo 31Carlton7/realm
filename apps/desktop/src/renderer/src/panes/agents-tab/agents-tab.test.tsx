@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { findSidePane, sessionEvent, type DelegatedChild } from "@realm/contracts";
 import { StoreContext, createAppStore, type DelegableModels } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
@@ -27,6 +27,7 @@ const CATALOG: DelegableModels = { own: { kind: "claude", label: "Claude Opus 5.
   { key: "6-gpt-luna", label: "GPT-6 Luna", kind: "codex", id: "gpt-6-luna", ready: true },
   { key: "5.1-claude-fable", label: "Claude Fable 5.1", kind: "claude", id: "claude-fable-5-1", ready: true },
   { key: "5.5-claude-opus", label: "Claude Opus 5.5", kind: "claude", id: "claude-opus-5-5", ready: true },
+  { key: "2-composer", label: "Composer 2", kind: "acp:cursor", id: "composer-2", ready: false },
 ] };
 
 async function mount(over: { lead?: typeof LEAD; children?: DelegatedChild[]; status?: Record<string, "idle" | "running" | "waiting_permission"> } = {}) {
@@ -131,6 +132,32 @@ describe("Build with", () => {
       "- GPT-6 Luna: Write the toggle",
       "- Your own model (Claude Opus 5.5), with constraints.model left out: Review it",
     ]);
+  });
+
+  it("More models lists every model by harness; one picked there joins the chips, one not ready cannot be picked", async () => {
+    await mount();
+    fireEvent.click(await screen.findByRole("button", { name: "More models" }));
+    const list = await screen.findByRole("listbox", { name: "Models" });
+    expect(within(list).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["This session", "Codex", "Claude", "Cursor"]);
+    fireEvent.click(within(list).getByRole("option", { name: /Claude Fable 5\.1/ }));
+    expect(within(list).getByRole("option", { name: /Claude Fable 5\.1/ })).toHaveAttribute("aria-selected", "true");
+    // Mutant: let an unready harness's row toggle — a sub-agent the server would refuse to start.
+    const composer = within(list).getByRole("option", { name: /Composer 2/ });
+    expect(composer).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(composer);
+    expect(composer).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("button", { name: /Claude Fable 5\.1/, pressed: true })).toBeInTheDocument();
+  });
+
+  it("the chooser's search narrows by model or by harness", async () => {
+    await mount();
+    fireEvent.click(await screen.findByRole("button", { name: "More models" }));
+    const search = await screen.findByRole("textbox", { name: "Search models" });
+    fireEvent.change(search, { target: { value: "luna" } });
+    expect(within(screen.getByRole("listbox", { name: "Models" })).getAllByRole("option").map((o) => o.textContent)).toEqual(["GPT-6 Luna"]);
+    fireEvent.change(search, { target: { value: "claude" } });
+    expect(within(screen.getByRole("listbox", { name: "Models" })).getAllByRole("option").map((o) => o.textContent))
+      .toEqual(["Claude Opus 5.5Claude", "Claude Fable 5.1"]);
   });
 
   it("will not send without a model, or without anything to build", async () => {
