@@ -78,6 +78,10 @@ export function sessionDetail(e: Pick<LibraryEntry, "kind">, place: { rel: strin
   return tildePath(folderOf(place.abs ?? path));
 }
 
+/** A Library row's quiet half: the session the file came from, or that the person added it. */
+export const libraryDetail = (e: Pick<LibraryEntry, "kind" | "sessionTitle">): string =>
+  e.kind === "added" ? "Added" : e.sessionTitle ?? "";
+
 /** The Library index's rows as the home lists them. `detail` is the list's to decide. */
 export function homeFilesOf(entries: readonly LibraryEntry[], root: string | null,
   detail: (e: LibraryEntry, place: { rel: string | null; abs: string | null }) => string): HomeFile[] {

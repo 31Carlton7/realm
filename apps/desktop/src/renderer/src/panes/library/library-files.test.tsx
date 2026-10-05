@@ -83,11 +83,11 @@ describe("the Library's file browser", () => {
       file({ id: "shot.png", kind: "upload", ext: "png", sessionTitle: "Design review" }),
     ] });
     expect(await screen.findByText("report.md")).toBeTruthy();
-    // "Made" and "uploaded" are the same file to the filesystem and very different facts to a
+    // "Made" and "attached" are the same file to the filesystem and very different facts to a
     // reader trying to remember where something came from. The sentence is the accessible name; the
     // glyph beside the title is how it reads on screen.
     expect(screen.getByText("Made in The parser rewrite")).toBeTruthy();
-    expect(screen.getByText("Uploaded to Design review")).toBeTruthy();
+    expect(screen.getByText("Attached to Design review")).toBeTruthy();
     /* The mutant: put "Made in " back in the VISIBLE span. jsdom cannot measure the ellipsis, but it
        can hold the rule that produced it — the session title is the row's only unbounded item and
        nothing fixed-width may share its element and take the slack first. */
@@ -134,7 +134,7 @@ describe("the Library's file browser", () => {
     const filter = screen.getByRole("button", { name: "Filter files" });
     expect(filter).not.toHaveAttribute("data-on");
     fireEvent.click(filter);
-    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Uploaded by you" }));
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Attached by you" }));
     await waitFor(() => expect(api.calls.some((c) => c.includes(":upload:"))).toBe(true));
     // The menu leaves on a short fade (design.md: a menu has no entrance, and exits quietly).
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
@@ -146,7 +146,7 @@ describe("the Library's file browser", () => {
     const chip = screen.getByRole("button", { name: /In this space/ });
     fireEvent.click(chip);
     await waitFor(() => expect(api.calls.at(-1)).toMatch(/^libraryArtifacts:all:upload:/));
-    fireEvent.click(screen.getByRole("button", { name: /Uploaded by you/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Attached by you/ }));
     await waitFor(() => expect(api.calls.at(-1)).toMatch(/^libraryArtifacts:all:any:/));
     expect(screen.getByRole("button", { name: "Filter files" })).not.toHaveAttribute("data-on");
   });
@@ -374,6 +374,22 @@ describe("previewing a file from the Library", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  it("opens a file the person added like any other, saying it was added and offering its app, not the documents pane", async () => {
+    /* An added file lives in Realm's own folder, in no checkout. THE mutants: the viewer naming a
+       session that does not exist ("Made in null"), a jump to it, or Open in the documents pane — which
+       the server refuses for a file outside the workspace. */
+    bridge();
+    await mount({
+      artifacts: [file({ id: "notes.md", kind: "added", path: "/realm-home/library/p1/notes.md", sessionId: null, spaceId: null, sessionTitle: null, agentKind: null })],
+      addedProfiles: { "notes.md": "p1" },
+    });
+    const dialog = await openCard("/realm-home/library/p1/notes.md");
+    expect(within(dialog).getByText("Added by you")).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: /Added by you|Made in|Attached to/ })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: "Open in the documents pane" })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Open with the default app" })).toBeTruthy();
+  });
+
   it("draws no actions at all for a file that is no longer on disk", async () => {
     /* The index records what a session DID, not what survived it. Three buttons that each fail in
        turn is a worse way to learn the file is gone than one sentence saying so. */
@@ -399,5 +415,116 @@ describe("previewing a file from the Library", () => {
     expect(document.querySelectorAll(".library-tile")).toHaveLength(LIBRARY_PAGE_SIZE);
     expect(api.calls.filter((c) => c.startsWith("libraryArtifacts:"))).toHaveLength(1);
     vi.unstubAllGlobals();
+  });
+});
+
+/** A file as a drop hands it over: backed by a path, which is how Electron names a file from the Finder. */
+const dropped = (path: string) => Object.assign(new File(["x"], path.split("/").pop()!), { path });
+/** Files held over `el` and let go, the way a Finder drag arrives: its types carry "Files". */
+function dropOn(el: Element, files: File[]) {
+  const dataTransfer = { types: ["Files"], files, dropEffect: "none" };
+  fireEvent.dragEnter(el, { dataTransfer });
+  fireEvent.dragOver(el, { dataTransfer });
+  fireEvent.drop(el, { dataTransfer });
+}
+const toastTexts = (store: { getState(): { toasts: { text: string }[] } }) => store.getState().toasts.map((t) => t.text);
+
+describe("adding files to the Library", () => {
+  it("adds what the picker chose and lists it as any file is — with a quiet Added, in All and in its kind's tab", async () => {
+    /* The owner, 10-05: "an add button so the user can upload files to realm". THE mutants: an Add
+       that never reaches the server, a page that does not ask again once it has (the files are added
+       and not shown), or a tile that names a session for a file no session holds. */
+    const { api, store } = await mount({
+      artifacts: [file({ id: "plan.md", ts: 1 })],
+      pickFiles: [
+        { path: "/Users/me/Desktop/shot.png", mime: "image/png", name: "shot.png", size: 10 },
+        { path: "/Users/me/Desktop/brief.pdf", mime: "application/pdf", name: "brief.pdf", size: 10 },
+      ],
+    });
+    await screen.findByText("plan.md");
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(api.calls).toContain("addLibraryFiles:p1:/Users/me/Desktop/shot.png,/Users/me/Desktop/brief.pdf"));
+    const tile = (await screen.findByText("shot.png")).closest(".library-tile")!;
+    expect(tile.querySelector(".library-tile-session")!.textContent).toBe("Added");
+    expect(within(tile as HTMLElement).getByText("Added by you")).toHaveClass("visually-hidden");
+    expect(screen.getByText("brief.pdf")).toBeTruthy();
+    expect(toastTexts(store)).toContain("Added 2 files to the Library.");
+    const tabs = screen.getByRole("group", { name: "Kind of file" });
+    fireEvent.click(within(tabs).getByRole("button", { name: "Images" }));
+    await waitFor(() => expect(screen.queryByText("plan.md")).toBeNull());
+    expect(screen.getByText("shot.png")).toBeTruthy();
+    expect(screen.queryByText("brief.pdf")).toBeNull();
+    // And the filter has a name for them, beside the session's own two.
+    fireEvent.click(screen.getByRole("button", { name: "Filter files" }));
+    expect(await screen.findByRole("menuitemcheckbox", { name: "Added by you" })).toBeTruthy();
+  });
+
+  it("takes files dropped anywhere on the page, lit while they are held over it, and says which it cannot add", async () => {
+    // THE mutants: no drop target (the files land nowhere), or a file with no place on disk dropped silently.
+    const { api, store } = await mount({ artifacts: [file({ id: "plan.md", ts: 1 })] });
+    await screen.findByText("plan.md");
+    const page = document.querySelector(".library-files")!;
+    const dataTransfer = { types: ["Files"], files: [dropped("/Users/me/notes.md"), new File(["x"], "clip.png")], dropEffect: "none" };
+    fireEvent.dragEnter(page, { dataTransfer });
+    expect(document.querySelector(".library-drop")?.textContent).toBe("Drop to add to the Library");
+    fireEvent.dragOver(page, { dataTransfer });
+    fireEvent.drop(page, { dataTransfer });
+    expect(document.querySelector(".library-drop")).toBeNull();
+    await waitFor(() => expect(api.calls).toContain("addLibraryFiles:p1:/Users/me/notes.md"));
+    expect(await screen.findByText("notes.md")).toBeTruthy();
+    expect(toastTexts(store)).toEqual(expect.arrayContaining(["Only files on this Mac can be added: clip.png.", "Added notes.md to the Library."]));
+  });
+
+  it("asks before a dropped folder's files come in, and copies them only when told to", async () => {
+    /* A folder is a question, not a copy. THE mutants: its files copied on the drop, an offer that never
+       appears, or an Add on it that does not ask for the folder's files. */
+    const { api } = await mount({
+      addFolders: { "/Users/me/shots": { files: ["/Users/me/shots/a.png", "/Users/me/shots/b.png"], bytes: 2048, subfolders: 1 } },
+    });
+    await screen.findByText(/Nothing here yet/);
+    dropOn(document.querySelector(".library-files")!, [dropped("/Users/me/shots")]);
+    const offer = await screen.findByRole("group", { name: "Add the files in a folder" });
+    expect(offer.textContent).toContain("“shots” is a folder of 2 files (2.0 KB). Add them to the Library? The folders inside it are left out.");
+    expect(api.calls.filter((c) => c.startsWith("addLibraryFiles:"))).toEqual(["addLibraryFiles:p1:/Users/me/shots"]);
+    expect(screen.queryByText("a.png")).toBeNull();
+    fireEvent.click(within(offer).getByRole("button", { name: "Add 2 files" }));
+    await waitFor(() => expect(api.calls).toContain("addLibraryFiles:p1:folders:/Users/me/shots"));
+    expect(await screen.findByText("a.png")).toBeTruthy();
+    expect(screen.getByText("b.png")).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Add the files in a folder" })).toBeNull();
+  });
+
+  it("leaves a folder where it is on Not now", async () => {
+    const { api } = await mount({ addFolders: { "/Users/me/shots": { files: ["/Users/me/shots/a.png"], bytes: 10, subfolders: 0 } } });
+    await screen.findByText(/Nothing here yet/);
+    dropOn(document.querySelector(".library-files")!, [dropped("/Users/me/shots")]);
+    const offer = await screen.findByRole("group", { name: "Add the files in a folder" });
+    expect(offer.textContent).toContain("“shots” is a folder of 1 file (10 B). Add it to the Library?");
+    fireEvent.click(within(offer).getByRole("button", { name: "Not now" }));
+    expect(screen.queryByRole("group", { name: "Add the files in a folder" })).toBeNull();
+    expect(api.calls.filter((c) => c.startsWith("addLibraryFiles:"))).toEqual(["addLibraryFiles:p1:/Users/me/shots"]);
+  });
+
+  it("lands on what came in: a tab that would hide a new file goes back to All", async () => {
+    // Making a thing lands you in it (design.md). THE mutant: the file is added under the Images tab and
+    // the page goes on showing only images, so the PDF just added is nowhere to be seen.
+    await mount({ artifacts: [file({ id: "old.png", ext: "png", ts: 1 })],
+      pickFiles: [{ path: "/Users/me/brief.pdf", mime: "application/pdf", name: "brief.pdf", size: 1 }] });
+    await screen.findByText("old.png");
+    const tabs = screen.getByRole("group", { name: "Kind of file" });
+    fireEvent.click(within(tabs).getByRole("button", { name: "Images" }));
+    await waitFor(() => expect(within(tabs).getByRole("button", { name: "Images" })).toHaveAttribute("aria-pressed", "true"));
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(await screen.findByText("brief.pdf")).toBeTruthy();
+    expect(within(tabs).getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("says nothing and adds nothing when the picker is cancelled", async () => {
+    const { api, store } = await mount({ artifacts: [file({ id: "plan.md" })] });
+    await screen.findByText("plan.md");
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(api.calls).toContain("pickFiles"));
+    expect(api.calls.some((c) => c.startsWith("addLibraryFiles:"))).toBe(false);
+    expect(store.getState().toasts).toEqual([]);
   });
 });

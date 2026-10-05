@@ -314,6 +314,11 @@ const typeInto = (selectorExpr, value) => `(() => {
 const fieldByLabel = (text) => `[...document.querySelectorAll("label")].find((l) => l.textContent.trim().startsWith(${JSON.stringify(text)}))?.querySelector("input")`;
 /** A button by its text, inside an optional scope. */
 const buttonByText = (text, scope = "document") => `[...${scope}.querySelectorAll("button")].find((b) => b.textContent.trim() === ${JSON.stringify(text)})`;
+/** Put the page away the way a person does, with Escape — its bar has no close of its own. Only while
+ *  one is up: elsewhere Escape means something else. */
+const closePage = (c) => evalIn(c, `(() => {
+  if (document.querySelector(".page-overlay")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  return true; })()`);
 
 /** Every fixture view main holds: which window it composites into, which partition it lives in, and
  *  the page it is on. Read off the Electron objects, never off anything a page says. */
@@ -618,8 +623,8 @@ async function main() {
   // ── 7b. A space moved to another profile takes its browser into that profile's jar ────────────
   // One window per profile: the moved space leaves Personal's window and is Work's to show, where its
   // browser opens in Work's jar — and, moved back, opens in Personal's again.
-  await evalIn(c, `(() => { document.querySelector('.page-overlay-bar [aria-label^="Close"]')?.click(); return true; })()`);
-  await evalIn(c2, `(() => { document.querySelector('.page-overlay-bar [aria-label^="Close"]')?.click(); return true; })()`);
+  await closePage(c);
+  await closePage(c2);
   const spare = await api.call("spaces.create", { profileId: personal.id, name: "Spare" });
   await until(() => evalIn(c, `!!document.querySelector('.sb-section[aria-label="Spare"]')`), 10_000, "Spare in the sidebar");
   const spareBrowser = await openBrowserIn(c, spare.id);
@@ -651,7 +656,7 @@ async function main() {
   await openPaneMenu(c, m);
   await clickMenuRow(m, ["Share this site's sign-in with", "Work"]);
   await sleep(800);
-  await evalIn(c2, `(() => { document.querySelector('.page-overlay-bar [aria-label^="Close"]')?.click(); return true; })()`);
+  await closePage(c2);
   await palette(c2, "Open profile", "Open profile");
   await until(() => evalIn(c2, `!!document.querySelector('.profile-page-pane')`), 10_000, "Work's profile page");
   await evalIn(c2, `(() => { ${buttonByText("Delete profile…")}.click(); return true; })()`);
@@ -677,7 +682,7 @@ async function main() {
       && (await cookiesIn(m, "persist:browser")).session === "alice",
     { windows: left, workJar: jar, rows: fileAfter.credentials.map((r) => r.profileId) });
   // The last profile cannot go.
-  await evalIn(c, `(() => { document.querySelector('.page-overlay-bar [aria-label^="Close"]')?.click(); return true; })()`);
+  await closePage(c);
   await sleep(300);
   await palette(c, "Open profile", "Open profile");
   await until(() => evalIn(c, `!!document.querySelector('.profile-page-pane')`), 10_000, "Personal's profile page");

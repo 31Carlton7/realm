@@ -23,6 +23,8 @@ import {
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
 import { pushToast, type Toast, type ToastInput } from "./toasts";
+import { libraryAddNotices } from "./library-add";
+import type { LibraryAddInput, LibraryAddResult } from "@realm/contracts";
 import { getMachineHub } from "../panes/machine/machine-hub";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, clampPaneAlpha, paneAlphaFromGround,
@@ -165,6 +167,8 @@ export type Api = {
   /** `library.artifacts` — one keyset page of the file index, plus the unfiltered count for the
    *  scope. Read off the index, never folded out of transcripts (packages/contracts/src/library.ts). */
   libraryArtifacts(query: LibraryQuery): Promise<{ entries: LibraryEntry[]; total: number }>;
+  /** `library.add` — copy files into a profile's Library by path (the picker's, a drop's). */
+  addLibraryFiles(input: LibraryAddInput): Promise<LibraryAddResult>;
   listProjects(spaceId: string): Promise<Project[]>;
   /** Every checkout the space knows about: its primary, plus any worktree Realm made (W2). */
   listEnvironments(spaceId: string): Promise<Environment[]>;
@@ -999,6 +1003,9 @@ export type AppState = {
   filesView: FilesView;
   /** The Library's grid or rows (`SETTING_LIBRARY_VIEW`); tiles unless the person chose rows. */
   libraryView: FilesView;
+  /** Bumped each time this window adds files to the Library. A list of the Library's files already on
+   *  screen — the page's own, the documents pane's home under it — asks again when it moves. */
+  libraryRevision: number;
   /**
    * The space strip sorts by activity instead of the order you last dragged it into.
    *
@@ -1741,6 +1748,10 @@ export type AppState = {
   /** One page of the Library's file index. Not cached in the store: the page owns its own cursor,
    *  filter and query, and those belong to one component's scroll position rather than to the app. */
   libraryArtifacts(query: LibraryQuery): Promise<{ entries: LibraryEntry[]; total: number }>;
+  /** Add files to a profile's Library by path — the picker's, a drop's — and say what happened, as
+   *  toasts (`libraryAddNotices`). A folder comes back described, for the page to offer, unless
+   *  `folders` asks for its files. */
+  addLibraryFiles(profileId: string, paths: readonly string[], opts?: { folders?: boolean }): Promise<LibraryAddResult | null>;
   /** The `@` list's Files: the session's checkout ranked against a query. Not cached here either — the
    *  server keeps the listing, and the answer belongs to the keystroke that asked. */
   mentionFiles(sessionId: string, query: string): Promise<ProjectFilesResult>;
@@ -3949,6 +3960,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       appPick: null,
+      libraryRevision: 0,
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", documentsAsk: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
@@ -4181,6 +4193,17 @@ await get().refreshCustomThemes().catch(() => {});
          open in at most one pane. A store slice would have to hold a cursor, a filter and a query
          that belong to a single component's scroll position. */
       libraryArtifacts: (q) => api.libraryArtifacts(q),
+      async addLibraryFiles(profileId, paths, opts = {}) {
+        if (paths.length === 0) return null;
+        try {
+          const result = await api.addLibraryFiles({ profileId, paths: [...paths], folders: opts.folders ?? false });
+          for (const notice of libraryAddNotices(result)) get().toast(notice);
+          return result;
+        } finally {
+          // Even an add that stopped part way may have copied files in before it did.
+          set({ libraryRevision: get().libraryRevision + 1 });
+        }
+      },
       mentionFiles: (sessionId, query) => api.mentionFiles(sessionId, query),
       async searchDeep(query) {
         const profileId = get().activeProfileId;

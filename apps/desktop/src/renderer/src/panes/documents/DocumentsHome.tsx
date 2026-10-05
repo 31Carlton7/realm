@@ -8,7 +8,7 @@ import { useDissolve } from "../../components/ScrollFades";
 import { SEARCH_DEBOUNCE_MS, relTime } from "../../components/CommandPalette";
 import { CodeFilePrompt, NEW_KINDS, NewMenu } from "./NewMenu";
 import {
-  checkoutFileOf, folderName, homeFilesOf, identityOf, matchRun, planNewFile, sessionDetail, tildePath, withoutShown, type HomeFile,
+  checkoutFileOf, folderName, homeFilesOf, identityOf, libraryDetail, matchRun, planNewFile, sessionDetail, tildePath, withoutShown, type HomeFile,
 } from "./home-model";
 
 /** Rows a section shows before folding the rest: enough to read the shape of a session's work in a
@@ -57,6 +57,8 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
   const beat = useApp((s) => (sessionId ? s.transcripts[sessionId]?.t.blocks.length ?? 0 : 0));
   const status = useApp((s) => (sessionId ? s.sessionStatus[sessionId] ?? null : null));
   const pending = useApp((s) => (sessionId ? s.pendingAttachments[sessionId] : undefined));
+  // Files added to the Library from this window — the page over this pane, say — are asked for again.
+  const libraryRevision = useApp((s) => s.libraryRevision);
   const attachPaths = useApp((s) => s.attachPaths);
   const removeAttachment = useApp((s) => s.removeAttachment);
   const openDestinationPage = useApp((s) => s.openDestinationPage);
@@ -91,7 +93,7 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
       }).catch(() => { /* the lists keep what they last showed; the next beat asks again */ });
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [sessionId, profileId, root, q, beat, status, libraryArtifacts, searchProjectFiles]);
+  }, [sessionId, profileId, root, q, beat, status, libraryRevision, libraryArtifacts, searchProjectFiles]);
 
   // ⌘P: the keyboard in the search, with what was typed last selected so the next word replaces it.
   useEffect(() => {
@@ -107,7 +109,7 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
     if (!lists) return null;
     const session = lists.session ? homeFilesOf(lists.session, root, (e, place) => sessionDetail(e, place, e.path)) : null;
     const shown = new Set((session ?? []).map(identityOf));
-    const library = withoutShown(homeFilesOf(lists.library, root, (e) => e.sessionTitle), shown);
+    const library = withoutShown(homeFilesOf(lists.library, root, libraryDetail), shown);
     for (const f of library) shown.add(identityOf(f));
     const checkout = lists.checkout && root ? withoutShown(lists.checkout.map((rel) => checkoutFileOf(rel, root)), shown) : null;
     return { session, library, checkout };
@@ -288,7 +290,8 @@ function HomeRow({ file, query, onOpen, attach }: {
 }) {
   const hit = matchRun(file.name, query);
   const where = file.rel ?? (file.abs ? tildePath(file.abs) : file.path);
-  const from = file.from ? `${file.from.kind === "upload" ? "Attached to" : "Made in"} ${file.from.sessionTitle}` : null;
+  const from = !file.from ? null : file.from.kind === "added" ? "Added by you"
+    : `${file.from.kind === "upload" ? "Attached to" : "Made in"} ${file.from.sessionTitle ?? "a session"}`;
   return (
     <li className="docs-home-row">
       <button type="button" className="docs-home-open" title={[where, from].filter(Boolean).join("\n")} onClick={onOpen}

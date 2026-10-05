@@ -80,10 +80,10 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 
 /**
  * The column while a page's rail has it: Back, which closes the page and gives the spaces back, and
- * the slot the page draws its rail into. Back is the column's own way out — the page's bar keeps its
- * close, and Escape still closes from anywhere — because a sidebar that changed what it lists needs to
- * say, where it changed, how to change it back. It stands where the profile does, at the head of what
- * the column lists.
+ * the slot the page draws its rail into. Back is the column's own way out — the page's bar draws no
+ * close, and Escape still goes back from anywhere — because a sidebar that changed what it lists needs
+ * to say, where it changed, how to change it back. It stands where the profile does, at the head of
+ * what the column lists.
  */
 function PageNavColumn({ label, setSlot }: { label: string; setSlot: (el: HTMLElement | null) => void }) {
   const close = useApp((s) => s.closePageOverlay);

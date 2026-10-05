@@ -1,4 +1,4 @@
-import { artifactsFromEvent, extsOfType, KNOWN_EXTS, LibraryQuerySchema, type Artifact, type LibraryEntry, type LibraryQuery } from "@realm/contracts";
+import { artifactsFromEvent, extsOfType, KNOWN_EXTS, LibraryQuerySchema, type Artifact, type ArtifactKind, type ArtifactType, type LibraryEntry, type LibraryQuery } from "@realm/contracts";
 import type { Db } from "../db/database";
 import type { SettingsStore } from "./settings";
 
@@ -13,18 +13,78 @@ export const ARTIFACTS_BACKFILL_KEY = "artifacts.backfill";
 export const ARTIFACTS_BACKFILL_CHUNK = 500;
 
 type Row = {
-  id: string; session_id: string; seq: number; kind: string; path: string; name: string; ext: string; ts: number;
-  session_title: string; agent_kind: string;
+  id: string; session_id: string | null; kind: string; path: string; name: string; ext: string; ts: number;
+  session_title: string | null; agent_kind: string | null; space_id: string | null;
 };
 
 const toEntry = (r: Row): LibraryEntry => ({
-  id: r.id, sessionId: r.session_id, spaceId: "", kind: r.kind as LibraryEntry["kind"],
+  id: r.id, sessionId: r.session_id, spaceId: r.space_id, kind: r.kind as LibraryEntry["kind"],
   path: r.path, name: r.name, ext: r.ext, ts: r.ts,
   sessionTitle: r.session_title, agentKind: r.agent_kind,
 });
 
 /**
- * The Library's index over every file a session ever wrote or was given.
+ * One of the Library's two sources, as the rows it yields under the columns both share, and the clauses
+ * that narrow it. `t` is the alias its file columns are read through.
+ *
+ * Two, because a file someone ADDED is not an artifact (migration v40): the index holds what sessions
+ * made and were given, joined to its session for the title and the space, and `library_files` holds
+ * what a person put in the Library, which belongs to a profile and to no session.
+ */
+type Source = { t: "a" | "f"; select: string; where: string[]; args: (string | number)[] };
+
+const MADE = `SELECT a.id AS id, a.session_id AS session_id, a.kind AS kind, a.path AS path, a.name AS name, a.ext AS ext, a.ts AS ts,
+  s.title AS session_title, s.agent_kind AS agent_kind, s.space_id AS space_id
+  FROM artifacts a JOIN sessions s ON s.id = a.session_id`;
+const ADDED = `SELECT f.id AS id, NULL AS session_id, 'added' AS kind, f.path AS path, f.name AS name, f.ext AS ext, f.ts AS ts,
+  NULL AS session_title, NULL AS agent_kind, NULL AS space_id
+  FROM library_files f`;
+
+/**
+ * The sources a query can find rows in, each narrowed to the query's scope. An added file is in no space
+ * and no session and is only ever `added`, so a query for a space, a session or another kind leaves that
+ * source out altogether — and one for `added` leaves out the index.
+ */
+function sourcesFor(q: { spaceId: string | null; profileId: string | null; sessionId: string | null; kind: ArtifactKind | null }): Source[] {
+  const out: Source[] = [];
+  if (q.kind !== "added") {
+    const made: Source = { t: "a", select: MADE, where: [], args: [] };
+    if (q.spaceId !== null) { made.where.push("s.space_id = ?"); made.args.push(q.spaceId); }
+    if (q.profileId !== null) { made.where.push("s.space_id IN (SELECT id FROM spaces WHERE profile_id = ?)"); made.args.push(q.profileId); }
+    if (q.sessionId !== null) { made.where.push("a.session_id = ?"); made.args.push(q.sessionId); }
+    if (q.kind !== null) { made.where.push("a.kind = ?"); made.args.push(q.kind); }
+    out.push(made);
+  }
+  if ((q.kind === null || q.kind === "added") && q.spaceId === null && q.sessionId === null) {
+    const added: Source = { t: "f", select: ADDED, where: [], args: [] };
+    if (q.profileId !== null) { added.where.push("f.profile_id = ?"); added.args.push(q.profileId); }
+    out.push(added);
+  }
+  return out;
+}
+
+/** The type and the name a person narrowed by, applied to one source through its own alias. */
+function narrow(src: Source, q: { type: ArtifactType | null; query: string }): void {
+  if (q.type !== null) {
+    // "Other" is everything no type claims, so it is the complement of the whole table of them —
+    // an extension a later build learns to call code stops being other without a migration.
+    const exts = q.type === "other" ? KNOWN_EXTS : extsOfType(q.type);
+    src.where.push(`${src.t}.ext ${q.type === "other" ? "NOT IN" : "IN"} (${exts.map(() => "?").join(", ")})`);
+    src.args.push(...exts);
+  }
+  const needle = q.query.trim();
+  if (needle !== "") {
+    src.where.push(`${src.t}.name LIKE ? ESCAPE '\\'`);
+    src.args.push(`%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+  }
+}
+
+const sqlOf = (src: Source): string => `${src.select}${src.where.length > 0 ? ` WHERE ${src.where.join(" AND ")}` : ""}`;
+const argsOf = (sources: Source[]): (string | number)[] => sources.flatMap((src) => src.args);
+
+/**
+ * The Library's index over every file a session ever wrote or was given — read, for the page, together
+ * with the files a person added to the Library themselves (`library_files`, `LibraryFilesStore`).
  *
  * Writes go through `index`, called from the one choke point every persisted event passes through
  * (`SessionEventsStore.append`) — the same placement the search index takes, and for the same
@@ -59,63 +119,50 @@ export class ArtifactsStore {
    */
   list(input: LibraryQuery): LibraryEntry[] {
     const q = LibraryQuerySchema.parse(input);
-    const where: string[] = [];
-    const args: (string | number)[] = [];
-    scopeOf(q, where, args);
-    if (q.kind !== null) { where.push("a.kind = ?"); args.push(q.kind); }
-    if (q.type !== null) {
-      // "Other" is everything no type claims, so it is the complement of the whole table of them —
-      // an extension a later build learns to call code stops being other without a migration.
-      const exts = q.type === "other" ? KNOWN_EXTS : extsOfType(q.type);
-      where.push(`a.ext ${q.type === "other" ? "NOT IN" : "IN"} (${exts.map(() => "?").join(", ")})`);
-      args.push(...exts);
-    }
-    const needle = q.query.trim();
-    if (needle !== "") {
-      where.push("a.name LIKE ? ESCAPE '\\'");
-      args.push(`%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
-    }
-    const rows = (q.perFile ? this.newestPerFile(where, args, q) : this.everyRow(where, args, q)) as (Row & { space_id: string })[];
-    return rows.map((r) => ({ ...toEntry(r), spaceId: r.space_id }));
+    const sources = sourcesFor(q);
+    if (sources.length === 0) return [];
+    for (const src of sources) narrow(src, q);
+    const rows = (q.perFile ? this.newestPerFile(sources, q) : this.everyRow(sources, q)) as Row[];
+    return rows.map(toEntry);
   }
 
-  private everyRow(where: string[], args: (string | number)[], q: { before: { ts: number; id: string } | null; limit: number }): unknown[] {
+  /**
+   * Newest first across both sources, one page of them. Each source is narrowed and keyset-cut on its
+   * own and the two are merged in order, so each still reads off its own `(ts, id)` index and the page
+   * stops at `limit` rather than sorting every row there is.
+   */
+  private everyRow(sources: Source[], q: { before: { ts: number; id: string } | null; limit: number }): unknown[] {
     if (q.before !== null) {
       // Strict lexicographic on the same pair the index is ordered by, so a page boundary that lands
       // inside a millisecond neither repeats a row nor drops one.
-      where.push("(a.ts < ? OR (a.ts = ? AND a.id < ?))");
-      args.push(q.before.ts, q.before.ts, q.before.id);
+      for (const src of sources) {
+        src.where.push(`(${src.t}.ts < ? OR (${src.t}.ts = ? AND ${src.t}.id < ?))`);
+        src.args.push(q.before.ts, q.before.ts, q.before.id);
+      }
     }
-    return this.db.prepare(`
-      SELECT a.*, s.title AS session_title, s.agent_kind, s.space_id
-      FROM artifacts a JOIN sessions s ON s.id = a.session_id
-      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
-      ORDER BY a.ts DESC, a.id DESC LIMIT ?`).all(...args, q.limit);
+    return this.db.prepare(`${sources.map(sqlOf).join(" UNION ALL ")} ORDER BY ts DESC, id DESC LIMIT ?`).all(...argsOf(sources), q.limit);
   }
 
   /** The same rows collapsed to each path's newest, the keyset applied to what is left. */
-  private newestPerFile(where: string[], args: (string | number)[], q: { before: { ts: number; id: string } | null; limit: number }): unknown[] {
+  private newestPerFile(sources: Source[], q: { before: { ts: number; id: string } | null; limit: number }): unknown[] {
     const outer = q.before === null ? "" : "AND (ts < ? OR (ts = ? AND id < ?))";
     const page = q.before === null ? [] : [q.before.ts, q.before.ts, q.before.id];
     return this.db.prepare(`
       SELECT * FROM (
-        SELECT a.*, s.title AS session_title, s.agent_kind, s.space_id,
-          ROW_NUMBER() OVER (PARTITION BY a.path ORDER BY a.ts DESC, a.id DESC) AS newest
-        FROM artifacts a JOIN sessions s ON s.id = a.session_id
-        ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""})
+        SELECT r.*, ROW_NUMBER() OVER (PARTITION BY r.path ORDER BY r.ts DESC, r.id DESC) AS newest
+        FROM (${sources.map(sqlOf).join(" UNION ALL ")}) r)
       WHERE newest = 1 ${outer}
-      ORDER BY ts DESC, id DESC LIMIT ?`).all(...args, ...page, q.limit);
+      ORDER BY ts DESC, id DESC LIMIT ?`).all(...argsOf(sources), ...page, q.limit);
   }
 
-  /** How many rows the index holds in a scope, for the page's own "nothing here yet" versus "nothing
+  /** How many rows the Library holds in a scope, for the page's own "nothing here yet" versus "nothing
    *  matches" distinction — the same distinction the schedules page draws. Counted the way the list
    *  is read: files, not events, when the list is one row per file. */
   count(spaceId: string | null, profileId: string | null = null, { sessionId = null, perFile = false }: { sessionId?: string | null; perFile?: boolean } = {}): number {
-    const where: string[] = [];
-    const args: string[] = [];
-    scopeOf({ spaceId, profileId, sessionId }, where, args);
-    const r = this.db.prepare(`SELECT COUNT(${perFile ? "DISTINCT a.path" : "*"}) AS n FROM artifacts a JOIN sessions s ON s.id = a.session_id
-      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}`).get(...args) as { n: number };
+    const sources = sourcesFor({ spaceId, profileId, sessionId, kind: null });
+    if (sources.length === 0) return 0;
+    const r = this.db.prepare(`SELECT COUNT(${perFile ? "DISTINCT path" : "*"}) AS n FROM (${sources.map(sqlOf).join(" UNION ALL ")})`)
+      .get(...argsOf(sources)) as { n: number };
     return r.n;
   }
 
@@ -167,14 +214,6 @@ export class ArtifactsStore {
       await new Promise((r) => setImmediate(r));
     }
   }
-}
-
-/** Where a query looks — a space, a profile, one session — as WHERE clauses over `a` and `s`. Shared by
- *  the list and the count, so "nothing here yet" is always measured over the scope the list reads. */
-function scopeOf(q: { spaceId: string | null; profileId: string | null; sessionId: string | null }, where: string[], args: (string | number)[]): void {
-  if (q.spaceId !== null) { where.push("s.space_id = ?"); args.push(q.spaceId); }
-  if (q.profileId !== null) { where.push("s.space_id IN (SELECT id FROM spaces WHERE profile_id = ?)"); args.push(q.profileId); }
-  if (q.sessionId !== null) { where.push("a.session_id = ?"); args.push(q.sessionId); }
 }
 
 export type { Artifact };
