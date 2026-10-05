@@ -13,9 +13,14 @@
  * had at the same address, so a relaunched tab reloading its page does not trade its icon for the
  * glyph while the icon is fetched again; a new address with none is a page with none. Writes are
  * debounced per browser, and one equal to what is saved is not made.
+ *
+ * A page that did not load is saved as one (`failed`): the row keeps its address, so the tab shows it
+ * and Reload retries it, and the server keeps it out of the history — a blank tab's Recently visited
+ * listed every address that had refused to connect. Coming back from that is a write of its own, even
+ * when the address and title are the ones saved, because it is the visit the failure was not.
  */
 
-type Saved = { url: string; title: string; favicon: string };
+type Saved = { url: string; title: string; favicon: string; failed?: boolean };
 
 export type PagePersistDeps = {
   host: { onState?: (cb: (s: BrowserViewState) => void) => () => void };
@@ -50,8 +55,9 @@ export function persistBrowserPages(d: PagePersistDeps): () => void {
   const handle = (s: BrowserViewState) => {
     const before = saved.get(s.id) ?? { url: "", title: "", favicon: "" };
     const favicon = s.favicon ?? (s.url === before.url ? before.favicon : "");
+    const failed = s.error != null;
     if (s.loading || s.url === "" || s.title === "") return;
-    if (s.url === before.url && s.title === before.title && favicon === before.favicon) {
+    if (s.url === before.url && s.title === before.title && favicon === before.favicon && failed === (before.failed === true)) {
       clearTimeout(timers.get(s.id)); // back to what is saved: a pending write would only undo it
       timers.delete(s.id);
       return;
@@ -59,7 +65,7 @@ export function persistBrowserPages(d: PagePersistDeps): () => void {
     clearTimeout(timers.get(s.id));
     timers.set(s.id, setTimeout(() => {
       timers.delete(s.id);
-      const next = { url: s.url, title: s.title, favicon };
+      const next = { url: s.url, title: s.title, favicon, ...(failed ? { failed } : {}) };
       saved.set(s.id, next);
       void d.server.update(s.id, next).catch(() => { /* row may be mid-delete */ });
     }, debounceMs));

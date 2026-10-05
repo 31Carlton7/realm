@@ -261,11 +261,25 @@ html, body, #root { height: 100%; margin: 0; color: var(--rl-text-bright); font:
    ground. On non-mac the BrowserWindow keeps its opaque backgroundColor and this composes to the
    old dark frame. */
 html, body { background: transparent; }
-/* The arrow, not the hand. A Mac app points with the arrow at every control it draws — a button, a
-   row, a tab, a disclosure — and keeps the hand for a LINK, where the click leaves the thing you are
-   looking at. The hand on every button is the single loudest tell that a window is a web page, so the
-   only rules left asking for it are the two that are links (`.md .md-path`, `.page-row-link`). */
-button { font: inherit; color: inherit; background: none; border: none; cursor: default; padding: 0; }
+button { font: inherit; color: inherit; background: none; border: none; padding: 0; }
+/* The hand over everything a click acts on — the owner's call (10-05: "use cursor pointer for buttons
+   and wherever it makes sense"), which gives up the Mac's arrow over controls on purpose. ONE rule, by
+   what an element IS — its tag or its role — so a control written tomorrow points the same way with no
+   rule of its own, and `:where` holds it at no specificity, so the few things a press means something
+   else on (a drag handle's grab, a divider's resize, a picture's zoom) say so in their own rule and
+   win. A label points only round a box or a radio, where a click on its words is a click on the
+   control; round a text field it is the field's caption. */
+:where(button, a[href], summary, select, [role="button"], [role="link"], [role="tab"], [role="menuitem"],
+  [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"],
+  input:is([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"]),
+  label:has(input:is([type="checkbox"], [type="radio"]))) { cursor: pointer; }
+/* …and the arrow wherever a click does nothing: a control that is off, the words beside one, and
+   everything in a fieldset that is. */
+:where(:disabled, [aria-disabled="true"], label:has(input:disabled)) { cursor: default; }
+/* A field takes the I-beam wherever it stands. `cursor` inherits, so a rename field inside a sidebar
+   row that points, or a search inside a label, would point too. */
+:where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"]),
+  textarea, [contenteditable="true"]) { cursor: text; }
 /* Chrome is not text. A double-click on a button's label, or a drag that starts on a sidebar row,
    selects the words on it in a browser and does nothing in an AppKit window, and ⌘A sweeping the
    whole interface blue is the same tell at full size. Content — the transcript, documents, code,
@@ -527,7 +541,8 @@ kbd { font: 11px var(--font-mono); }
    the active fill once chosen, the column's own group labels — so it reads as the same sidebar listing
    something else, under a Back where the profile switcher was. The spaces stay mounted, hidden. */
 .sb-list[hidden] { display: none; }
-.sb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* The slot under Back scrolls a rail longer than the column, and dissolves on the list's own depths. */
+.sb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; --fade-h: 44px; --fade-top-h: 12px; }
 .sb-page-head { flex: none; display: flex; align-items: center; padding: 6px 16px 0; }
 .sb-page-back { flex: none; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
@@ -974,7 +989,7 @@ kbd { font: 11px var(--font-mono); }
    (`usePickerScroller`). The skill picker's depth, for the reason it has the model picker's. */
 .mention-list { flex: 1; min-height: 0; max-height: min(40vh, 280px); overflow-y: auto; padding: 6px;
   --fade-h: 28px; --fade-top-h: 28px; scroll-padding-block: 28px; }
-.mention-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle; cursor: default;
+.mention-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle;
   transition: background-color var(--dur-hover) ease; }
 .mention-row[data-active] { background: var(--hover); }
 /* The `@` list's rows (mention-sources.ts): a mark — an app's own icon, a file's type, a skill's
@@ -1051,9 +1066,13 @@ kbd { font: 11px var(--font-mono); }
 .terminal-dock .terminal-pane { flex: 1; min-height: 0; }
 /* From the edge it docks to, so it reads as arriving from beside the pane rather than fading in
    over it. Enter only: the panel is removed on toggle, and an exit that had to be awaited would
-   make the button feel unresponsive on the way out. */
-@keyframes rl-summary-in { from { translate: 12px 0; opacity: 0; } to { translate: 0 0; opacity: 1; } }
-@keyframes rl-dock-up { from { translate: 0 12px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+   make the button feel unresponsive on the way out.
+   It travels the gap it rests at and no further, so its first frame is flush with that edge. From
+   12px out to rest 8px in, the summary's first frames hung 4px past the window's edge — and a window
+   that could not run the animation (occluded, throttled) left it there: measured at 1404 in a 1400px
+   window. */
+@keyframes rl-summary-in { from { translate: var(--sidebar-inset) 0; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+@keyframes rl-dock-up { from { translate: 0 var(--sidebar-inset); opacity: 0; } to { translate: 0 0; opacity: 1; } }
 .summary-panel-head {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 8px 8px 14px;
 }
@@ -1191,7 +1210,7 @@ kbd { font: 11px var(--font-mono); }
   --fade-h: 28px; --fade-top-h: 28px; scroll-padding-block: 28px; }
 .skill-picker-group + .skill-picker-group { margin-top: 6px; }
 .skill-picker-group-label { padding: 5px 8px 3px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
-.skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle; cursor: default;
+.skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle;
   transition: background-color var(--dur-hover) ease; }
 .skill-picker-row[data-active] { background: var(--hover); }
 .skill-picker-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -1218,7 +1237,7 @@ kbd { font: 11px var(--font-mono); }
    second box beside a search box is two search boxes as far as the eye is concerned. */
 .skills-filter-toggle {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 0 4px;
-  font-size: 13px; color: var(--rl-text-dim); white-space: nowrap; cursor: default;
+  font-size: 13px; color: var(--rl-text-dim); white-space: nowrap;
 }
 .skills-filter-toggle:hover { color: var(--rl-text-bright); }
 
@@ -1231,7 +1250,7 @@ kbd { font: 11px var(--font-mono); }
    it in place — nothing is hidden, it is just not shouted. */
 .skill-desc {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  padding: 0; border: none; background: none; text-align: left; cursor: default;
+  padding: 0; border: none; background: none; text-align: left;
   font: inherit; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim);
   transition: color var(--dur-hover) ease;
 }
@@ -1242,7 +1261,7 @@ kbd { font: 11px var(--font-mono); }
 .skill-more { opacity: 0; transition: opacity var(--dur-hover) ease; }
 .skill-row:hover .skill-more, .skill-more:focus-visible, .skill-row:focus-within .skill-more { opacity: 1; }
 .skills-details > summary {
-  list-style: none; cursor: default; width: fit-content; padding: 2px 0;
+  list-style: none; width: fit-content; padding: 2px 0;
   font-size: 13px; color: var(--rl-text-faint);
 }
 .skills-details > summary::-webkit-details-marker { display: none; }
@@ -1265,7 +1284,7 @@ kbd { font: 11px var(--font-mono); }
 
 /* The row's name is the door. Nothing else about the row changes — the name has always been the
    thing a reader would click, and it is now a button that says so under the pointer. */
-.skill-open { padding: 0; border: none; background: none; text-align: left; cursor: default;
+.skill-open { padding: 0; border: none; background: none; text-align: left;
   font: inherit; font-size: 14px; font-weight: var(--fw-label); color: var(--rl-text-bright);
   transition: color var(--dur-hover) ease; }
 .skill-open:hover { color: var(--rl-accent); }
@@ -1277,7 +1296,7 @@ kbd { font: 11px var(--font-mono); }
 /* The document's headings, in the rail's column and on the rail's metrics. Capped to the body's own
    height and scrolling inside that, so a skill with forty sections does not push the page taller
    than the pane. */
-.skill-toc { max-height: 100%; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; }
+.skill-toc { max-height: calc(100% - var(--page-head-top, 0px)); overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; --fade-h: 24px; --fade-top-h: 24px; }
 .skill-toc-link { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none;
   transition: color var(--dur-hover) ease; }
 /* A sub-heading is indented and quieter — the shape of the document, not a second list of peers. */
@@ -1293,7 +1312,7 @@ kbd { font: 11px var(--font-mono); }
 /* The switch NAMES its state here rather than carrying `aria-pressed`, which is the rule a toggle
    follows in this app: one or the other, never both. */
 .skill-head-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
-  color: var(--rl-text-dim); white-space: nowrap; cursor: default; }
+  color: var(--rl-text-dim); white-space: nowrap; }
 /* Which agents in this space are actually given it — a value in the facts grid, so it wears the
    grid's own metrics and only the marks are its own. */
 .skill-fact-agents { display: flex; flex-wrap: wrap; gap: 2px 12px; }
@@ -1324,7 +1343,7 @@ kbd { font: 11px var(--font-mono); }
 .skill-files-head { margin: 0; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .skill-file-row { flex-direction: column; align-items: stretch; gap: 6px; }
 .skill-file-name { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: none; background: none;
-  font: inherit; text-align: left; cursor: default; color: var(--rl-text-bright);
+  font: inherit; text-align: left; color: var(--rl-text-bright);
   transition: color var(--dur-hover) ease; }
 .skill-file-name[data-inert] { cursor: default; color: var(--rl-text-faint); }
 .skill-file-name code { font: 12px var(--font-mono); }
@@ -1353,7 +1372,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-group-label { padding: 8px 8px 4px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
 /* One line per model. The name is the row's one unbounded item and takes the slack; everything at
    the end is fixed and drawn only when it has something to say. */
-.mp-row { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 6px 0 8px; --btn-h: 32px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; cursor: default;
+.mp-row { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 6px 0 8px; --btn-h: 32px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-row[data-active] { background: var(--hover); }
 .mp-row-mark { flex: none; }
@@ -1369,14 +1388,14 @@ kbd { font: 11px var(--font-mono); }
    the pointer: the lit mark is the route a click or Enter takes, and pressing another runs it there. */
 .mp-ways { display: flex; gap: 2px; padding: 2px; border-radius: var(--r-chip); corner-shape: squircle; background: var(--hover-2); }
 .mp-way { display: grid; place-items: center; width: 24px; height: 20px; padding: 0; border: 0; border-radius: calc(var(--r-chip) - 2px); corner-shape: squircle;
-  background: none; cursor: default; transition: background-color var(--dur-hover) ease; }
+  background: none; transition: background-color var(--dur-hover) ease; }
 .mp-way:hover { background: var(--hover); }
 .mp-way[aria-pressed="true"] { background: var(--surface); box-shadow: var(--rl-edge); }
 /* The ⌘-digit badge on a favourite. */
 .mp-kbd { flex: none; padding: 1px 5px; border-radius: var(--r-chip); background: var(--hover-2); color: var(--rl-text-faint);
   font-size: 11px; font-family: inherit; letter-spacing: .02em; }
 .mp-star { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--r-chip);
-  background: none; color: var(--rl-text-faint); cursor: default; transition: color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+  background: none; color: var(--rl-text-faint); transition: color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
 .mp-star:hover { background: var(--hover-2); color: var(--rl-text-bright); }
 .mp-star[aria-pressed="true"] { color: var(--rl-accent); }
 /* Hugeicons ships stroke-only glyphs, so "starred" is the same star with its path filled. */
@@ -1406,7 +1425,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-seg { flex: 1; min-width: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px;
   padding: 2px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--hover); }
 .mp-seg-opt { padding: 3px 2px; border-radius: calc(var(--r-ctl) - 2px); corner-shape: squircle; border: 0; background: none; font: inherit;
-  font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; cursor: default; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+  font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-seg-opt:hover { color: var(--rl-text-bright); }
 .mp-seg-opt[aria-pressed="true"] { background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--rl-edge); }
 /* Fast mode: its name on the label column's edge, the bolt the chip wears beside it, the switch at
@@ -1854,7 +1873,8 @@ kbd { font: 11px var(--font-mono); }
 .ip-emoji-groups { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px 8px; }
 .ip-emoji-group-btn { padding: 3px 7px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 11px; color: var(--rl-text-dim); background: var(--rl-panel); }
 .ip-emoji-group-btn[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
-.ip-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; max-height: min(46vh, 300px); overflow-y: auto; }
+.ip-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; max-height: min(46vh, 300px); overflow-y: auto;
+  --fade-h: 24px; --fade-top-h: 24px; scroll-padding-block: 24px; }
 .ip-emoji { font-size: 18px; }
 .ip-empty { padding: 14px 6px; text-align: center; font-size: 12px; color: var(--rl-text-dim); width: 100%; }
 .ip-generate { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
@@ -1936,6 +1956,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    its bar back on a Mac that draws classic ones — under a 28px row of tabs that bar would be the
    tallest thing in the bar. The strip keeps none either way. */
 :root:not([data-overlay-scrollbars]) .pane-tabs[data-dissolve-x] { scrollbar-width: none; }
+/* The same for every other strip that keeps no bar — the documents pane's open files, a page's rail
+   lying down in a narrow pane (and a skill's contents, which keep none standing up either), the
+   activity calendar: the dissolve hands each its bar back, and each already says it runs on by fading. */
+:root:not([data-overlay-scrollbars]) :is(.documents-tabs, .page-rail, .cal-scroll):is([data-dissolve], [data-dissolve-x]) { scrollbar-width: none; }
 .pane-tabs-add { flex: none; color: var(--rl-text-faint); }
 .pane-tabs-add[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* A width rather than a flex basis: the strip is sized from its tabs now that the "+" follows them, and
@@ -2320,7 +2344,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The brief and the report are PROSE — what the parent wrote and what came back — on the app's one
    markdown treatment, capped so neither buries the working between them. */
 .subagent-prose { font-size: 13px; color: var(--rl-text-dim); }
-.subagent-brief .subagent-prose, .subagent-report .subagent-prose { max-height: 200px; overflow-y: auto; overscroll-behavior: contain; }
+.subagent-prose-scroll { max-height: 200px; overflow-y: auto; overscroll-behavior: contain; --fade-top-h: 16px; --fade-h: 24px; }
 .subagent-report[data-error] .subagent-head { color: var(--rl-danger); }
 .subagent-steps { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .subagent-empty { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-faint); }
@@ -2411,7 +2435,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .machine-starting { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px;
   color: var(--rl-terminal-ink-dim); font-size: 13px; pointer-events: none; }
 
-.machine-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px; }
+.machine-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px; --fade-h: 24px; --fade-top-h: 24px; }
 .machine-rest, .machine-connect { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 380px; }
 .machine-title { margin: 0; font-size: 18px; font-weight: var(--fw-title); letter-spacing: -0.01em; color: var(--rl-text-bright); }
 /* Mono, because it is machine state: an address and a port. */
@@ -2539,7 +2563,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .browser-suggest { flex: none; display: flex; flex-direction: column; gap: 1px; padding: 2px 8px 6px;
   border-bottom: var(--hairline-w) solid var(--rl-hairline); }
 .browser-suggest-row { display: flex; align-items: center; gap: 8px; min-width: 0; height: 28px; padding: 0 10px;
-  border-radius: var(--r-ctl); color: var(--rl-text-faint); font-size: 13px; cursor: default; }
+  border-radius: var(--r-ctl); color: var(--rl-text-faint); font-size: 13px; }
 .browser-suggest-row[aria-selected="true"] { background: var(--rl-hover); }
 .browser-suggest-title { flex: 0 1 auto; max-width: 60%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
 .browser-suggest-url { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
@@ -2561,7 +2585,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* A blank tab's tools (NewTabPage): one column of rows, set high in the pane rather than centred in
    it — the address field it continues is at the top, and a list floated to the middle of a tall
    pane reads as an empty state rather than as the next thing to pick. Scrolls past a short pane. */
-.new-tab { position: absolute; inset: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center;
+.new-tab { position: absolute; inset: 0; overflow-y: auto; --fade-top-h: 24px; --fade-h: 28px; display: flex; flex-direction: column; align-items: center;
   gap: 20px; padding: 48px 16px 24px; }
 .new-tab-section { width: min(360px, 100%); display: flex; flex-direction: column; gap: 6px; }
 .new-tab-label { margin: 0 0 0 10px; font-size: 12px; font-weight: var(--fw-title); color: var(--rl-text-dim); }
@@ -2577,7 +2601,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    left-aligned column at a reading measure, set a little above the middle of the pane — the address
    that failed is already in the bar above it. Scrolls in a pane too short to hold it. Content, not
    chrome: the code and the reason can be selected and copied. */
-.browser-error { position: absolute; inset: 0; overflow-y: auto; display: flex; }
+.browser-error { position: absolute; inset: 0; overflow-y: auto; display: flex; --fade-top-h: 24px; --fade-h: 28px; }
 .browser-error-body { margin: auto; width: min(480px, 100%); padding: 32px 24px 12%; display: flex; flex-direction: column; align-items: flex-start;
   animation: rl-error-in var(--dur-enter) var(--ease-fade); }
 @keyframes rl-error-in { from { opacity: 0; } to { opacity: 1; } }
@@ -2769,7 +2793,7 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
    change at once both ways, as any choice from a row of them does. Each draws its shape standing
    before a letter, in the face the shape will stand in: the UI face, or a terminal's code face. */
 .caret-shapes { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; margin: 0; padding: 0; border: 0; }
-.caret-shape { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-panel); cursor: default; }
+.caret-shape { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-panel); }
 .caret-shape:hover { background: var(--rl-hover); }
 .caret-shape[data-selected] { background: var(--rl-hover); box-shadow: inset 0 0 0 2px var(--rl-accent); }
 .caret-shape input { position: absolute; opacity: 0; pointer-events: none; }
@@ -2917,11 +2941,16 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 
 /* ── Sheets / palette (raised) ─────────────────────────────────────────── */
 .sheet-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: var(--scrim); }
-.sheet { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; border-radius: var(--r-float); background: var(--surface); color: var(--rl-text-bright);
+/* A column: the head and the foot hold, and the body between them scrolls and dissolves at its ends.
+   The panel itself never scrolls — a mask takes everything the element paints, and on the panel that
+   is its shadow and its corners. The head is the dialog's title and its close, the foot its decision,
+   and a sheet that scrolled them away lost both exactly when it grew long enough to need them. */
+.sheet { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); display: flex; flex-direction: column; overflow: hidden;
+  border-radius: var(--r-float); background: var(--surface); color: var(--rl-text-bright);
   box-shadow: var(--shadow-overlay); outline: none; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 6px; }
 .sheet-head h3 { margin: 0; font-size: 15px; font-weight: var(--fw-title); }
-.sheet-body { padding: 8px 18px 18px; }
+.sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 18px 18px; --fade-top-h: 24px; --fade-h: 28px; }
 /* The sheet's decision, held at the end of what it is a decision about. Its own hairline, because
    a bar of buttons flush against scrolling prose reads as the last paragraph of it. */
 .sheet-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px;
@@ -3026,8 +3055,8 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .palette-input { display: flex; align-items: center; gap: 10px; padding: 14px 18px; color: var(--rl-text-dim); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
 .palette-input kbd { padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); } /* kbd chips keep line-strong (§3) */
-.palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
-.palette-opt { --fill: transparent; background: var(--fill); display: flex; align-items: center; gap: 10px; padding: 8px 10px; --btn-h: 34px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; cursor: default; }
+.palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; --fade-h: 24px; --fade-top-h: 24px; scroll-padding-block: 24px; }
+.palette-opt { --fill: transparent; background: var(--fill); display: flex; align-items: center; gap: 10px; padding: 8px 10px; --btn-h: 34px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; }
 .palette-opt.selected, .palette-opt:hover { --fill: var(--hover); }
 .palette-opt.disabled { opacity: .45; cursor: default; }
 .palette-sec { padding: 8px 10px 3px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
@@ -3053,7 +3082,7 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .spaces-search { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: var(--hairline-w) solid var(--rl-hairline); color: var(--rl-text-dim); }
 .spaces-search input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
 .spaces-search kbd { padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); }
-.spaces-list { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px 14px; }
+.spaces-list { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px 14px; --fade-top-h: 24px; --fade-h: 28px; }
 .spaces-section + .spaces-section { margin-top: 14px; }
 .spaces-section-head { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
 .spaces-section-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
@@ -3347,6 +3376,18 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 }
 [data-dissolve-x~="start"] { --dissolve-start: var(--fade-w, 28px); }
 [data-dissolve-x~="end"] { --dissolve-end: var(--fade-w, 28px); }
+/* Both at once, for a scroller that can run out either way — Settings' rail stands its lists up as a
+   column wide and lays them down as a strip narrow. The two masks are intersected, so each pair of
+   ends answers for itself; either rule alone would replace the other's mask outright. */
+[data-dissolve][data-dissolve-x] {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--dissolve-top), #000 calc(100% - var(--dissolve-bottom)), transparent),
+    linear-gradient(to right, transparent 0, #000 var(--dissolve-start), #000 calc(100% - var(--dissolve-end)), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--dissolve-top), #000 calc(100% - var(--dissolve-bottom)), transparent),
+    linear-gradient(to right, transparent 0, #000 var(--dissolve-start), #000 calc(100% - var(--dissolve-end)), transparent);
+  mask-composite: intersect;
+  transition: --dissolve-top var(--dur-fast) ease, --dissolve-bottom var(--dur-fast) ease,
+    --dissolve-start var(--dur-fast) ease, --dissolve-end var(--dur-fast) ease;
+}
 
 /* The thumb is held clear of the mask beside the scrollbar rules, where the reasoning about
    Chromium's two scrollbar APIs already lives — see `[data-dissolve]` down there. */
@@ -3391,6 +3432,9 @@ a.msg-chip:hover { background: color-mix(in oklab, var(--accent-tint), var(--rl-
 .msg-user-row[data-from] { gap: 3px; }
 .msg-user-row[data-from] .msg-user { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 30%, transparent); }
 .msg-user-from { font-size: 11px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding-right: 2px; }
+/* A scheduled run's name sits as close to its bubble as an attribution does, without the ring: the
+   words in it are the person's own, written into the task, and only the clock sent them. */
+.msg-user-row[data-scheduled] { gap: 3px; }
 /* When the message was sent (Transcript.tsx), under the bubble at its edge — shown to the pointer and
    to the keyboard, never at rest, where a clock time under every message would be the loudest column
    in a quiet log. It keeps its line while hidden, so nothing moves as it appears; the hover lands at
@@ -3510,7 +3554,7 @@ a.msg-chip:hover { background: color-mix(in oklab, var(--accent-tint), var(--rl-
    tooltip says what a click does. */
 button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: var(--r-chip);
   background: var(--rl-raised); color: inherit; vertical-align: baseline; }
-.md .md-path { cursor: pointer; text-decoration: none;
+.md .md-path { text-decoration: none;
   transition: color var(--dur-hover) ease; }
 .md .md-path:hover { color: var(--rl-accent); text-decoration: none; }
 .md .md-path:focus-visible { outline: 2px solid color-mix(in srgb, var(--rl-accent) 55%, transparent); outline-offset: 1px; }
@@ -3518,7 +3562,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    file type's mark, then the path and the line — and otherwise a link like any other here: the
    accent and the label weight, no box, the underline on hover. Inline, so a long path wraps with the
    sentence; the mark sits on the text's x-height rather than its baseline. */
-.md .md-file { color: var(--rl-accent); font-weight: var(--fw-label); border-radius: var(--r-chip); cursor: pointer; }
+.md .md-file { color: var(--rl-accent); font-weight: var(--fw-label); border-radius: var(--r-chip); }
 .md .md-file:hover .md-file-name { text-decoration: underline; text-underline-offset: 2px; }
 .md .md-file:focus-visible { outline: 2px solid color-mix(in srgb, var(--rl-accent) 55%, transparent); outline-offset: 1px; }
 .md-file-mark { display: inline-block; margin-right: 4px; vertical-align: -2px; }
@@ -3576,7 +3620,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .thinking-toggle:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
 .md.thinking-body { margin-top: 4px; padding: 8px 10px; border-left: 2px solid var(--rl-line); color: var(--rl-text-dim); }
 .msg-error { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: var(--r-ctl); color: var(--rl-danger); background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); }
-.msg-error pre { margin: 0; white-space: pre-wrap; font: 12px var(--font-mono); max-height: 240px; overflow: auto; }
+.msg-error pre { margin: 0; white-space: pre-wrap; font: 12px var(--font-mono); max-height: 240px; overflow: auto; --fade-h: 24px; --fade-top-h: 16px; }
 /* The message and, when Realm knows one, the command that fixes it — stacked in one column beside
    the glyph so the command aligns with the sentence it answers rather than with the icon. */
 .msg-error-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
@@ -3607,7 +3651,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    above. Bounded like every other drawn surface — the delegation caps keep this list short, but the
    prompter is below it and must not be pushed off the pane by a list that got long anyway. */
 .delegation-list { margin-left: 15px; padding-left: 12px; border-left: var(--hairline-w) solid var(--line); display: flex; flex-direction: column; gap: 1px;
-  max-height: 132px; overflow-y: auto; }
+  max-height: 132px; overflow-y: auto; --fade-h: 16px; --fade-top-h: 16px; }
 .delegation-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 26px; padding: 3px 8px;
   border-radius: var(--r-ctl); text-align: left; font-size: 12px; color: var(--ink); }
 .delegation-item:hover { background: var(--rl-hover); }
@@ -3691,10 +3735,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagents-chooser { width: 300px; max-width: calc(100vw - 24px); padding: 6px; gap: 2px; }
 .subagents-chooser-search { display: flex; align-items: center; gap: 8px; padding: 4px 8px 6px; color: var(--ink-3); }
 .subagents-chooser-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
-.subagents-chooser-list { max-height: 320px; overflow-y: auto; overscroll-behavior: contain; }
+.subagents-chooser-list { max-height: 320px; overflow-y: auto; overscroll-behavior: contain; --fade-h: 24px; --fade-top-h: 24px; scroll-padding-block: 24px; }
 .subagents-chooser-head { display: flex; align-items: baseline; gap: 6px; padding: 8px 8px 4px; font-size: 12px; font-weight: var(--fw-title); color: var(--ink-2); }
 .subagents-chooser-note { font-size: 12px; font-weight: var(--fw-medium); color: var(--ink-3); }
-.subagents-chooser-row { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 8px; border-radius: var(--r-ctl); font-size: 13px; color: var(--ink); cursor: default; }
+.subagents-chooser-row { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 8px; border-radius: var(--r-ctl); font-size: 13px; color: var(--ink); }
 .subagents-chooser-row[data-active] { background: var(--rl-hover); }
 .subagents-chooser-row[aria-disabled="true"] { color: var(--ink-3); }
 .subagents-chooser-row > svg { flex: none; }
@@ -3924,8 +3968,54 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-copy:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .tool-expand { align-self: flex-start; margin-top: 4px; font-size: 11px; color: var(--rl-text-dim); padding: 2px 6px; border-radius: var(--r-chip); background: var(--rl-raised); }
 .tool-expand:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.tool-well, .tool-body pre, .permission-details pre { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font: 12px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
+.tool-well, .tool-body pre, .permission-details pre { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font: 12px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto;
+  --fade-h: 24px; --fade-top-h: 16px; }
 .tool-body pre[data-error] { color: var(--rl-danger); }
+
+/* ── A view an MCP server drew (MCP Apps, panes/app-view/AppView.tsx) ──────────
+   The server's drawing, framed. Realm's ground goes round it and the frame is inset in it — the
+   machine screen's rule for content that paints itself — so the curve belongs to the ground and the
+   frame keeps its own square edge, clear of it. The ground is the surface a fenced block stands on and
+   wears the same signature corner, with no ring: where the curve goes the ring comes off. A view that
+   asked for no border (`prefersBorder: false`) stands on the column with no ground at all. */
+.app-view { margin: 4px 0 8px; padding: 0 8px 8px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); }
+.app-view[data-border="none"] { background: none; padding-left: 0; padding-right: 0; }
+.app-view-head { display: flex; align-items: center; gap: 6px; min-height: 36px; padding-left: 6px; color: var(--ink-2); font-size: 12px; }
+.app-view-mark { flex: none; color: var(--ink-3); }
+.app-view-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-label); }
+.app-view-where { color: var(--ink-3); white-space: nowrap; }
+.app-view-actions { margin-left: auto; display: flex; gap: 2px; }
+/* No colour of its own: a view that paints nothing shows the ground it was laid on. */
+.app-view-frame { display: block; width: 100%; border: 0; background: transparent; }
+.app-view-loading { display: grid; place-items: center; color: var(--ink-3); font-size: 12px; }
+.app-view[data-elsewhere] { padding-bottom: 0; }
+.app-view[data-state="unavailable"] { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; }
+.app-view-note { margin: 0; flex: 1; min-width: 0; color: var(--ink-2); font-size: 12px; }
+/* As a tab, the whole pane — detached from its edges at the sidebar's inset, as the machine screen is,
+   so the view reads as something set on the page rather than as the page. */
+.app-view-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.app-view[data-mode="tab"] { flex: 1; display: flex; flex-direction: column; min-height: 0; margin: var(--sidebar-inset); padding: 12px;
+  border-radius: var(--r-squircle-screen); corner-shape: squircle; }
+.app-view[data-mode="tab"] .app-view-frame { flex: 1; min-height: 0; }
+.app-view[data-mode="tab"] .app-view-loading { flex: 1; }
+/* What a view asked to do, held for the user (ViewRequestCard.tsx). The request card's shell — a
+   raised surface with the lift every card that waits on an answer wears — set under the frame and
+   outside it, where nothing the view draws can reach. */
+.app-view-request { margin-top: 8px; padding: 14px; border-radius: var(--r-panel); background: var(--rl-raised); box-shadow: var(--shadow-card);
+  display: flex; flex-direction: column; gap: 8px; }
+.app-view-request-title { margin: 0; color: var(--ink); font-size: 14px; line-height: 20px; font-weight: var(--fw-label); }
+.app-view-request-note { margin: 0; color: var(--ink-2); font-size: 12px; }
+.app-view-request-well { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font: 12px var(--font-mono);
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; color: var(--ink-2); --fade-h: 24px; --fade-top-h: 16px; }
+/* A message is read as prose: the words the agent would be handed, whole. */
+.app-view-request-quote { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font-size: 13px; line-height: 18px;
+  white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+.app-view-request-link { margin: 0; font: 12px var(--font-mono); color: var(--ink-2); overflow-wrap: anywhere; }
+/* The card's mono runs give up the app's tracking, for the reason the list at the top of this file
+   gives: Chromium drops a monospace face's ligatures on any tracked run. */
+.app-view-request-well, .app-view-request-link { letter-spacing: normal; }
+.app-view-request-host { color: var(--rl-text-bright); font-weight: var(--fw-title); }
+.app-view-request-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ── Inline UI in the transcript (Plan 24 W1) ──────────────────────────────────
    A tool card's body used to be two `<pre>`s: `JSON.stringify(input, null, 2)` and the raw result
@@ -3960,7 +4050,8 @@ button.edit-file:hover { background: var(--rl-hover); }
 
 /* A file, with a line-number rail (rich/ToolViews.tsx CodeBlock). The rail is its own column and
    neither column wraps, so the numbers stay in register while the code scrolls under them. */
-.code-block { display: flex; align-items: stretch; background: var(--rl-frame); border-radius: var(--r-chip); overflow: hidden; max-height: 420px; overflow-y: auto; }
+.code-block { display: flex; align-items: stretch; background: var(--rl-frame); border-radius: var(--r-chip); overflow: hidden; max-height: 420px; overflow-y: auto;
+  --fade-h: 24px; --fade-top-h: 16px; }
 .code-gutter { flex: none; padding: 8px 8px 8px 10px; text-align: right; white-space: pre; user-select: none;
   font: 12px/1.65 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint);
   background: var(--inset); position: sticky; left: 0; }
@@ -4024,7 +4115,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 .cmd-meta { display: flex; gap: 8px; padding: 0 10px 7px 28px; font-size: 11px; color: var(--rl-text-faint); }
 .cmd-cwd { font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .term-out { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-terminal-bg); color: var(--ink-2);
-  font: 12px/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+  font: 12px/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; --fade-h: 24px; --fade-top-h: 16px; }
 /* Shown only where the payload carried a code (Codex's `[exit N]`); §3 status-pill treatment. */
 .term-exit { display: inline-block; margin-top: 6px; padding: 2px 7px; border-radius: var(--r-chip);
   font: 11px var(--font-mono); color: var(--rl-success); background: var(--green-tint); }
@@ -4088,7 +4179,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 /* The permission card's preview of what it is about to approve. Given the card's own width and no
    inner card of its own — it is the subject of the question, not an attachment to it. */
 .permission-preview { margin: 2px 0 2px; }
-.permission-preview .fd-file, .permission-preview .code-block { max-height: 300px; overflow: auto; }
+.permission-preview .fd-file, .permission-preview .code-block { max-height: 300px; overflow: auto; --fade-h: 24px; --fade-top-h: 16px; }
 
 /* ── Markdown: callouts, task lists, tables, math ─────────────────────────── */
 /* GitHub admonitions (`> [!WARNING]`). Left rail in the state's own colour, header in the same —
@@ -4139,7 +4230,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 .permission-head .status-pill { margin-left: auto; font-weight: 400; }
 .permission-tool { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .permission-tool code { font: 12px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
-.permission-details summary { font-size: 11px; color: var(--rl-text-dim); cursor: default; }
+.permission-details summary { font-size: 11px; color: var(--rl-text-dim); }
 .permission-details pre { margin-top: 6px; }
 
 /* Numbered options: kbd chip, label, shortcut hint; the selected row is an --rl-active pill (§2.7 —
@@ -4409,7 +4500,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    moves to the next line whole when the line breaks, and only a name longer than the line wraps
    inside itself. The focus ring is the global one. */
 .hero-greeting-place { padding: 0; border: 0; background: none; font: inherit; letter-spacing: inherit;
-  color: var(--rl-accent); text-align: inherit; cursor: pointer; border-radius: var(--r-chip); }
+  color: var(--rl-accent); text-align: inherit; border-radius: var(--r-chip); }
 .hero-greeting-place:hover { text-decoration: underline; text-decoration-thickness: 0.06em; text-underline-offset: 0.14em; }
 /* The greeting nods when its emphasised word is clicked (Composer.tsx sets the mark). Pivoting on
    the baseline, so the line dips on the ruler it sits on rather than swinging around its middle;
@@ -4494,11 +4585,11 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
 .composer-queue-item .queue-send { flex: none; padding: 2px 7px; border: 0; border-radius: var(--r-chip);
   background: transparent; color: var(--rl-text-dim); font-size: 11px; font-weight: var(--fw-label);
-  cursor: default; transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
+  transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
 .composer-queue-item .queue-send:hover { background: var(--surface); color: var(--rl-text-bright); }
 .composer-queue-item .queue-drop { flex: none; display: flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-chip); background: transparent;
-  color: var(--rl-text-faint); cursor: default; transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
+  color: var(--rl-text-faint); transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
 .composer-queue-item .queue-drop:hover { background: var(--surface); color: var(--rl-text-bright); }
 
 /* Row 1 — pending attachments (Ara refresh §3: the context chips left this row for the control row;
@@ -4520,7 +4611,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-ref-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-ref-remove { display: grid; place-items: center; flex: none; width: 18px; height: 18px;
   border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none;
-  color: var(--rl-text-faint); cursor: default; transition: color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+  color: var(--rl-text-faint); transition: color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
 .composer-ref-remove:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .composer-attach-item { display: contents; }
 /* Attachment tiles (composer + sent message). An attachment is SHOWN, not named: the tile is a
@@ -4557,7 +4648,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    kind of thing. It fills the tile rather than wrapping it so that `.attach-art`'s `inset: 0` still
    resolves against the 44px square, and so the remove button — a SIBLING, never a child — keeps the
    corner to itself. */
-.attach-open { position: absolute; inset: 0; display: block; padding: 0; border: none; background: none; cursor: default; }
+.attach-open { position: absolute; inset: 0; display: block; padding: 0; border: none; background: none; }
 /* A file that opens in the lightbox says so: zoom-in is the cursor for a picture that gets bigger in
    place, and it would be a lie on the PDF that leaves for Preview. The mark lands only once main has
    confirmed the file, which is also when the lightbox becomes the branch that runs. */
@@ -4745,7 +4836,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    rung when the pointer lets go (`.icon-swap`'s transition list carries the mark). */
 :is(.ch-mention, .ch-mention-stale, .ch-element)[data-hot] .chip-mark { opacity: 0; transition-duration: 0s; }
 .chip-remove { position: absolute; z-index: 2; display: grid; place-items: center; width: 16px; height: 16px; padding: 0;
-  border: none; border-radius: 50%; background: transparent; color: var(--accent-ink); cursor: default; }
+  border: none; border-radius: 50%; background: transparent; color: var(--accent-ink); }
 .chip-remove[data-kind="mention-stale"] { color: var(--rl-warning); }
 .chip-remove:hover { color: var(--rl-text-bright); }
 /* The same chip in the log wears the same mark and the same pill (`.msg-chip`). */
@@ -4865,7 +4956,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 /* One-time bypass confirm (U-M7): warning-toned status pill (§3 formula), clickable, gone in 5s. */
 /* The confirm STEP for the chip above, so it wears the chip's tone: "Allow everything?" leading to a
    red chip through an orange button would read as two different warnings about one decision. */
-.bypass-confirm { color: var(--rl-danger); background: var(--red-tint); cursor: default; }
+.bypass-confirm { color: var(--rl-danger); background: var(--red-tint); }
 .bypass-confirm:hover { background: color-mix(in srgb, var(--red) 24%, transparent); }
 /* Narrow panes, in the order the row can afford to lose things. Every threshold is the pane width at
    which the branch would otherwise be squeezed under its floor, read off a measured sweep rather than
@@ -4951,7 +5042,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-todos-clip { overflow: hidden; min-height: 0; }
 /* Bounded, or a twenty-step plan eats the transcript it is supposed to sit above. `contain` because
    running off the end of the list must not carry the scroll into the log behind it. */
-.composer-todos .todo-list { margin-top: 8px; max-height: 248px; overflow-y: auto; overscroll-behavior: contain; }
+.composer-todos .todo-list { margin-top: 8px; max-height: 248px; overflow-y: auto; overscroll-behavior: contain; --fade-h: 24px; --fade-top-h: 16px; }
 
 /* ── Running agents: a count in the session's bar, and the list it opens ──────────────
    A chip in the bar's meta rather than a strip on the prompter: the agents a session has working are
@@ -4968,7 +5059,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 /* Bounded for a fan-out of twenty: the list scrolls inside the popover, and running off its end must
    not carry the scroll into the transcript under it. */
-.agents-pop .delegation-list { margin: 0; padding: 0; border: none; max-height: 280px; overflow-y: auto; overscroll-behavior: contain; }
+.agents-pop .delegation-list { margin: 0; padding: 0; border: none; max-height: 280px; overflow-y: auto; overscroll-behavior: contain; --fade-h: 24px; --fade-top-h: 24px; }
 /* The row whose agent the drawer is showing. It needs to be told apart from a HOVERED row, and the
    active fill alone cannot do it — `--rl-active` and `--rl-hover` are one rung apart, so the two read
    as the same state and the pointer decides which. The fill says "this one", and the mark going
@@ -5195,6 +5286,18 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   --sq-radius-top: var(--r-squircle-screen);
   --sq-radius-bottom: var(--r-squircle-screen);
 }
+/* A view an MCP server drew, for the machine screen's reason: a frame paints itself and cannot be
+   painted behind, so the curve goes on the ground it is laid into. */
+:root[data-squircle] .app-view,
+:root[data-squircle] .app-view[data-mode="tab"] {
+  border-radius: 0;
+  background: paint(rl-squircle);
+  --sq-fill: var(--surface);
+  --sq-radius-top: var(--r-squircle-card);
+  --sq-radius-bottom: var(--r-squircle-card);
+}
+:root[data-squircle] .app-view[data-mode="tab"] { --sq-radius-top: var(--r-squircle-screen); --sq-radius-bottom: var(--r-squircle-screen); }
+:root[data-squircle] .app-view[data-border="none"] { --sq-fill: transparent; }
 /* Realm's own frame, for a device it ships no picture of. The one painted surface whose radius is
    not a rung off the ladder:
    it is the screen's own corner plus the border between them, so the pane hands it in as
@@ -5556,7 +5659,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .app[data-first-run] > .main::before, .app[data-first-run] > .main::after { display: none; }
 .onboarding-stage {
   position: relative; flex: 1; min-height: 0; overflow: auto; display: grid; justify-items: center;
-  align-content: safe center; padding: 56px 24px 40px;
+  align-content: safe center; padding: 56px 24px 40px; --fade-top-h: 24px; --fade-h: 40px;
 }
 .onboarding-stage::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 44px; -webkit-app-region: drag; }
 .onboarding { position: relative; width: min(640px, 100%); display: flex; flex-direction: column; gap: 30px;
@@ -5591,7 +5694,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   transition: box-shadow var(--dur-hover) ease;
 }
 .agent-card[data-selected] { box-shadow: inset 0 0 0 1.5px var(--rl-accent); }
-.agent-card-pick { display: flex; align-items: center; gap: 12px; padding: 16px 16px 10px; cursor: default; }
+.agent-card-pick { display: flex; align-items: center; gap: 12px; padding: 16px 16px 10px; }
 .agent-card-pick > input { position: absolute; opacity: 0; pointer-events: none; }
 .agent-card:has(.agent-card-pick > input:focus-visible) { box-shadow: inset 0 0 0 2px var(--rl-accent); }
 .agent-card-mark { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-ctl); corner-shape: squircle;
@@ -5623,7 +5726,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .onboarding-more[aria-expanded="true"] svg { rotate: 180deg; }
 .onboarding-others { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); gap: 2px 8px; margin: -4px 0 0 34px; }
 .onboarding-other { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle;
-  font-size: 13px; color: var(--rl-text-dim); cursor: default; }
+  font-size: 13px; color: var(--rl-text-dim); }
 .onboarding-other:hover { background: var(--rl-hover); }
 .onboarding-other[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
 .onboarding-other input { margin: 0; accent-color: var(--rl-accent); }
@@ -5758,7 +5861,7 @@ select { appearance: none; padding-right: 22px;
   .menu-list, .mention-list, .skill-picker-list, .mp-list, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
-  .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
+  .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre, .app-view-request-well,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display,
   /* the diff pane */
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
@@ -5766,12 +5869,12 @@ select { appearance: none; padding-right: 22px;
   .cp-list, .activity-list, .task-detail-result, .notif-feed, .delegation-list,
   .lecture-list, .install-cmd code, .code-preview, .cli-job-output,
   /* documents — the home's lists, and the new code file's languages, included */
-  .documents-tabs, .documents-picker, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
+  .documents-picker-list, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
   .docs-home-scroll, .code-file-languages,
   /* the prompter — only the pinned strips' copies of the lists are bounded enough to scroll */
   .composer-todos .todo-list, .agents-pop .delegation-list,
   /* the sub-agent panel: the column itself, and the two prose panels it caps */
-  .subagent-body, .subagent-prose,
+  .subagent-body, .subagent-prose-scroll,
   /* a session's Agents tab: its list of sub-agents, and the composer's model chooser */
   .subagents-scroll, .subagents-chooser-list,
   /* the Google Fonts browser's result list */
@@ -6186,7 +6289,7 @@ select { appearance: none; padding-right: 22px;
 .diff-review-note { margin: 0; font-size: 12px; color: var(--rl-text-faint); }
 .diff-review-title { font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .diff-review-dim { color: var(--rl-text-faint); }
-.diff-review-body { overflow-y: auto; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
+.diff-review-body { overflow-y: auto; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); --fade-h: 24px; --fade-top-h: 16px; }
 
 /* Commit dock: the prompter's card (§4), one size down. No fill behind it and no rule above it —
    the list already dissolves into the dock through the fade, and a divider would draw that seam a
@@ -6234,7 +6337,7 @@ select { appearance: none; padding-right: 22px;
 /* Checkpoints (W4). Same vocabulary as the worktree sheet — hazard in danger ink, caveats in faint,
    the stale-count warning in amber — because they are the same question asked about a different
    destructive act, and two different-looking confirms would teach the user to stop reading. */
-.cp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; }
+.cp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; --fade-h: 24px; --fade-top-h: 24px; }
 .cp-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--r-ctl); corner-shape: squircle; }
 .cp-row:hover { background: var(--rl-hover); }
 /* The undo point is the one row whose meaning differs from its neighbours, so it is the one row that
@@ -6301,7 +6404,10 @@ select { appearance: none; padding-right: 22px;
    full-width blocks would otherwise auto-place into the grid's existing two columns, landing the
    SECOND one beside the first in the narrow right column instead of below it (spec review defect 3;
    confirmed in-browser: circuit banner + tools is the routine Retry case, not an edge case). */
-.mcp-row > .mcp-circuit, .mcp-row > .mcp-form, .mcp-row > .mcp-tools { grid-column: 1 / -1; }
+.mcp-row > .mcp-circuit, .mcp-row > .mcp-form, .mcp-row > .mcp-tools, .mcp-row > .mcp-views { grid-column: 1 / -1; }
+/* A server's views switch (MCP Apps), under its name like the tools list — the server's own setting,
+   kept off the actions column, where Enabled is the space's. */
+.mcp-views { display: flex; align-items: center; padding: 2px 0 0 15px; }
 .mcp-enable { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
 /* What a provider cannot do on this Mac, where its switch would be. It is the one item on the row that
    runs long, so it is the one that yields: it wraps inside a measure of its own rather than taking the
@@ -6326,7 +6432,7 @@ select { appearance: none; padding-right: 22px;
 .sandbox-posture {
   display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: baseline;
   padding: 10px 12px; background: var(--rl-frame); border-radius: var(--r-panel);
-  corner-shape: squircle; cursor: default; }
+  corner-shape: squircle; }
 .sandbox-posture[data-selected] { background: var(--rl-raised); }
 .sandbox-posture input { grid-row: 1; }
 .sandbox-posture-name { grid-row: 1; font-size: 13px; }
@@ -6365,7 +6471,7 @@ select { appearance: none; padding-right: 22px;
 /* `.chip-filter` rides `.btn-quiet`'s hover/press feel (see the §6 transition lists above); this only
    adds the toggled-on look, echoing `.icon-choice[data-selected]`'s accent-ring treatment. */
 .chip-filter[aria-pressed="true"] { color: var(--rl-accent); background: var(--rl-active); box-shadow: inset 0 0 0 1px var(--rl-accent); }
-.activity-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 420px; overflow-y: auto; }
+.activity-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 420px; overflow-y: auto; --fade-h: 24px; --fade-top-h: 24px; }
 /* `.activity-row-main` layers onto `.tool-row` (full-width pressable row, no press-scale — see the §6
    comment above `.tool-row` in the transitions block) with its own column grid. */
 .activity-row-main { display: grid; grid-template-columns: 56px 1fr auto 52px 18px; gap: 10px; }
@@ -6385,7 +6491,7 @@ select { appearance: none; padding-right: 22px;
 .settings-tabs { display: flex; gap: 2px; margin: 0 0 12px; padding: 2px; border: none; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-hover); }
 /* One line per option, always: a fieldset sizes to its min-content in a flex row, so a segment free to
    wrap broke "For 5 minutes" over two lines beside a label that had the room to give. */
-.settings-tab { flex: 1; text-align: center; padding: 6px 12px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 13px; white-space: nowrap; color: var(--rl-text-dim); cursor: default; }
+.settings-tab { flex: 1; text-align: center; padding: 6px 12px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 13px; white-space: nowrap; color: var(--rl-text-dim); }
 .settings-tab:hover { color: var(--rl-text-bright); }
 .settings-tab[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); font-weight: var(--fw-label); }
 .settings-tab input { position: absolute; opacity: 0; pointer-events: none; }
@@ -6457,7 +6563,7 @@ select { appearance: none; padding-right: 22px;
 .settings-row.memory-space:not([data-open]) { padding: 0; }
 .memory-space-head {
   display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 14px 16px;
-  border: none; border-radius: inherit; background: none; font: inherit; text-align: left; cursor: default;
+  border: none; border-radius: inherit; background: none; font: inherit; text-align: left;
 }
 .memory-space:not([data-open]) .memory-space-head:hover { background: var(--rl-hover); }
 .memory-space-head:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
@@ -6625,7 +6731,7 @@ select { appearance: none; padding-right: 22px;
 .laya-reason { font: 12px/1.5 var(--font-mono); color: var(--rl-text-bright); overflow-wrap: anywhere; }
 .settings-row-main > .laya-meter { flex-basis: 100%; margin-top: 4px; }
 .settings-row-main > .install-cmd, .settings-row-main > .laya-output { flex-basis: 100%; }
-.laya-output > summary { font-size: 12px; color: var(--rl-text-dim); cursor: default; }
+.laya-output > summary { font-size: 12px; color: var(--rl-text-dim); }
 .laya-output > pre { max-height: 180px; margin: 6px 0 0; }
 
 .settings-agent-row { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; }
@@ -6645,7 +6751,7 @@ select { appearance: none; padding-right: 22px;
 .switch {
   appearance: none; flex: none; width: 34px; height: 20px; margin: 0; border-radius: 999px;
   background: var(--mark); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-line-strong);
-  position: relative; cursor: default;
+  position: relative;
   /* Two rungs, because these are two different events: the TRACK's fill is hover feedback and rides
      the hover rung with every other fill in the app, while the knob below is a state change and
      stays on press. Both were on press, which is what made a hover read as a flick. */
@@ -6683,7 +6789,7 @@ select { appearance: none; padding-right: 22px;
      the corner is a superellipse rather than a rounded square, which is the point. */
   appearance: none; flex: none; width: 16px; height: 16px; margin: 0;
   border: 1.5px solid var(--rl-line-strong); border-radius: var(--r-chip); corner-shape: squircle;
-  background: var(--field); cursor: default; position: relative;
+  background: var(--field); position: relative;
   transition: background var(--dur-press) var(--ease-out-strong),
               border-color var(--dur-press) var(--ease-out-strong);
 }
@@ -6718,7 +6824,7 @@ select { appearance: none; padding-right: 22px;
 
 
 .memory-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.settings-inline-toggle { display: flex; align-items: flex-start; gap: 10px; cursor: default; }
+.settings-inline-toggle { display: flex; align-items: flex-start; gap: 10px; }
 .settings-source-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 6px 0; }
 .settings-source-row[data-missing] .env-path { color: var(--rl-text-faint); }
 
@@ -6750,15 +6856,17 @@ select { appearance: none; padding-right: 22px;
 .page:has(.page-rail) { --page-measure: 968px; }   /* + the 180px rail and its 20px gap */
 .page:has(.page-content[data-wide]) { --page-measure: 1348px; }  /* the Tasks lens's own 1100px cap */
 /* `width: 100%` is load-bearing: an auto cross-axis margin switches off a flex item's stretch, so
-   without it each band would shrink to fit its own longest line instead of filling the cap. */
-.page-head, .page-body { width: 100%; max-width: var(--page-measure); margin-inline: auto; }
-/* A page's title sits where its CONTENT starts, not where the window does. On a railed page the
-   content column begins past the rail, and a title left-aligned to the window instead pointed at the
-   tab list rather than at the thing it names. The two rail measurements are variables so the indent
-   and the rail can never drift apart. */
+   without it the band would shrink to fit its own longest line instead of filling the cap. */
+.page-body { width: 100%; max-width: var(--page-measure); margin-inline: auto; }
 .page { --page-rail-w: 180px; --page-rail-gap: 20px; }
-.page-head { flex: none; display: flex; align-items: baseline; gap: 12px; padding: 24px 24px 18px; }
-.page:has(.page-rail) .page-head { padding-left: calc(24px + var(--page-rail-w) + var(--page-rail-gap)); }
+/* A page's head is the first thing IN its column (`PageScroll`), and scrolls away with what it names:
+   pinned above the column it read as a sticky header on every page (the owner, 10-05: "the header
+   shouldn't be sticky at all"). There it already starts where the content does — past the rail, over
+   the thing it names, which a head above the column had to be indented to reach — so it carries only
+   the band above and below the title. The rail beside the column starts level with that band. */
+.page { --page-head-top: 24px; }
+.page-head { display: flex; align-items: baseline; gap: 12px; padding: var(--page-head-top) 0 18px; }
+.page-body > .page-rail { margin-top: var(--page-head-top); }
 .page-glyph { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-ctl);
   background: color-mix(in srgb, currentColor 14%, transparent); }
 .page-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
@@ -6808,8 +6916,9 @@ select { appearance: none; padding-right: 22px;
 /* Nine pages under five headings are taller than the page at the smallest window the app allows
    (530px against 479 at 600), so the lists scroll under a search that stays put rather than the
    last pages falling off the bottom with nothing to scroll them back. */
-.page-rail.settings-rail { min-height: 0; max-height: 100%; }
-.settings-rail-lists { display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
+.page-rail.settings-rail { min-height: 0; max-height: calc(100% - var(--page-head-top, 0px)); }
+.settings-rail-lists { display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain;
+  --fade-h: 24px; --fade-top-h: 24px; }
 .settings-search { flex: none; }
 /* `--field` is the canvas itself on the light face (both 0.961), so a field laid on this page's
    ground had no edge at all there. The raised surface is the step the light cards already take off
@@ -6825,6 +6934,7 @@ select { appearance: none; padding-right: 22px;
 @container (max-width: 640px) {
   .page-rail.settings-rail { flex-direction: column; gap: 8px; overflow: visible; max-height: none; }
   .settings-rail-lists { flex-direction: row; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
+  :root:not([data-overlay-scrollbars]) .settings-rail-lists[data-dissolve-x] { scrollbar-width: none; }
   /* Each headed list keeps its own width in the strip. Left to shrink (`.page-rail-list` is
      `min-width: 0`), the lists squeezed to the strip's width and their tabs ran over each other. */
   .settings-rail-lists > .page-rail-list { flex: none; }
@@ -6834,7 +6944,7 @@ select { appearance: none; padding-right: 22px;
 .settings-result { padding: 0; }
 .settings-result-hit {
   flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 12px; padding: 12px 14px;
-  border: none; border-radius: inherit; background: none; color: inherit; font: inherit; text-align: left; cursor: default;
+  border: none; border-radius: inherit; background: none; color: inherit; font: inherit; text-align: left;
   transition: background-color var(--dur-hover) ease;
 }
 .settings-result-hit > .settings-row-name { flex: 1; min-width: 0; }
@@ -6889,7 +6999,8 @@ select { appearance: none; padding-right: 22px;
    its trailing action fall under the title instead of crushing it, and every row's action cluster
    takes its own line rather than pinching the text it acts on down to one character per line. */
 @container (max-width: 640px) {
-  .page-head, .page:has(.page-rail) .page-head { flex-wrap: wrap; gap: 10px; padding: 14px 16px 10px; }
+  .page-body { --page-head-top: 14px; }
+  .page-head { flex-wrap: wrap; gap: 10px; padding: var(--page-head-top) 0 10px; }
   /* Only the trailing action is meant to fall to a second line. Given a shrinkable basis the title
      stays beside its glyph; left at `auto` its full text is the basis, and the glyph ended up
      stranded alone on the first line. */
@@ -6926,7 +7037,7 @@ select { appearance: none; padding-right: 22px;
 .page-empty p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--rl-text-dim); }
 .page-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .page-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; text-align: left;
-  border: none; border-radius: var(--r-ctl); corner-shape: squircle; background: none; color: var(--rl-text-dim); font-size: 13px; cursor: default; }
+  border: none; border-radius: var(--r-ctl); corner-shape: squircle; background: none; color: var(--rl-text-dim); font-size: 13px; }
 .page-row:hover { background: var(--rl-hover); }
 /* The TITLE is the row's elastic column — it claims the free space and ellipsises, and everything
    after it packs against the right edge. It used to size to its content while `.page-row-dim` and
@@ -6938,7 +7049,7 @@ select { appearance: none; padding-right: 22px;
 .page-row-dim { flex: none; display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--rl-text-faint); }
 .page-row-dim + .page-row-dim { margin-left: 2px; } /* + the row's own 8px gap = the 10px these want */
 /* The Tasks lens's parent-session link (Plan 13 W2): a dim inline link inside the row button. */
-.page-row-link { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.page-row-link { text-decoration: underline; text-underline-offset: 2px; }
 .page-row-link:hover { color: var(--rl-text-dim); }
 .page-row .cp-kind { flex: none; }
 /* A ship row (Plan 14 W1) is a RECORD, not a door: no hover invitation, no pointer — only its PR
@@ -7063,8 +7174,6 @@ select { appearance: none; padding-right: 22px;
 
 /* The Schedule a task modal. Its body scrolls between a head and a foot that stay put, as Codex's
    does, so Create is reachable however long the instructions grow. */
-.sheet:has(.sched-modal) { display: flex; flex-direction: column; overflow: hidden; }
-.sheet:has(.sched-modal) > .sheet-body { flex: 1; min-height: 0; overflow-y: auto; }
 .sched-modal { display: flex; flex-direction: column; gap: 12px; }
 /* The two text fields wear the card's own fill and rim, so the form reads as one set of surfaces. */
 .sched-modal-name, .sched-modal-goal { width: 100%; padding: 0 14px; border-radius: var(--r-panel); border: var(--hairline-w) solid var(--rl-card-rim);
@@ -7110,7 +7219,7 @@ select { appearance: none; padding-right: 22px;
 .agents-dot[data-status="idle"] { background: var(--rl-success); }
 .agents-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .agents-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; text-align: left; font: inherit; border: none;
-  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); color: var(--rl-text-bright); cursor: default;
+  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); color: var(--rl-text-bright);
   transition: background var(--dur-hover) ease; }
 .agents-row:hover { background: var(--rl-hover); }
 .agents-row:is([data-pressed], :active:focus-visible) { background: var(--hover-2); }
@@ -7159,7 +7268,7 @@ select { appearance: none; padding-right: 22px;
 .agents-head-actions { flex: none; display: flex; align-items: center; gap: 8px; align-self: center; }
 .agents-views { display: flex; gap: 2px; padding: 2px; border-radius: var(--r-ctl); background: var(--rl-frame); }
 .agents-view { padding: 3px 10px; font-size: 12px; font-weight: var(--fw-medium); border: none; border-radius: var(--r-chip);
-  background: transparent; color: var(--rl-text-dim); cursor: default;
+  background: transparent; color: var(--rl-text-dim);
   transition: background var(--dur-hover) ease, color var(--dur-hover) ease; }
 .agents-view:hover { color: var(--rl-text-bright); }
 /* One appearance for "this one is on", carried by the fill alone — the label names the VIEW, and
@@ -7171,7 +7280,7 @@ select { appearance: none; padding-right: 22px;
 .agent-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
 .agent-tile { display: flex; flex-direction: column; align-items: stretch; gap: 5px; padding: 10px 12px; text-align: left;
   font: inherit; border: none; border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame);
-  color: var(--rl-text-bright); cursor: default;
+  color: var(--rl-text-bright);
   transition: background var(--dur-hover) ease; }
 .agent-tile:hover { background: var(--rl-hover); }
 .agent-tile:is([data-pressed], :active:focus-visible) { background: var(--hover-2); }
@@ -7229,7 +7338,7 @@ select { appearance: none; padding-right: 22px;
 .office-ask-input:focus { border-color: var(--rl-accent); }
 .office-themes { display: flex; flex-wrap: wrap; gap: 4px; }
 .office-theme { padding: 3px 9px; font-size: 12px; font-weight: var(--fw-medium); border: none;
-  border-radius: var(--r-chip); background: var(--rl-hover); color: var(--rl-text-dim); cursor: default;
+  border-radius: var(--r-chip); background: var(--rl-hover); color: var(--rl-text-dim);
   transition: background var(--dur-hover) ease, color var(--dur-hover) ease; }
 .office-theme:hover:not(:disabled) { background: var(--rl-active); color: var(--rl-text-bright); }
 .office-theme:disabled { opacity: 0.45; cursor: default; }
@@ -7265,7 +7374,7 @@ select { appearance: none; padding-right: 22px;
    forgets renders its hint at the weight of typed text, and the user reads a brief nobody wrote. */
 .fan-out-brief::placeholder { color: var(--rl-text-faint); }
 .fan-out-row { display: grid; grid-template-columns: 6rem 1fr; gap: 12px; }
-.fan-out-switch { display: flex; align-items: flex-start; gap: 9px; cursor: default; }
+.fan-out-switch { display: flex; align-items: flex-start; gap: 9px; }
 .fan-out-switch > input { flex: none; margin-top: 2px; }
 .fan-out-switch > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .fan-out-switch strong { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
@@ -7311,7 +7420,7 @@ select { appearance: none; padding-right: 22px;
   position: relative; display: flex; flex-direction: column; gap: 6px;
   width: 100%; aspect-ratio: 1; padding: 14px 14px 12px; text-align: left; font: inherit; border: none; overflow: hidden;
   border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-tile);
-  box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-card-rim); cursor: default;
+  box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-card-rim);
   transition: background var(--dur-hover) ease;
 }
 /* Every card opens, so every card answers the mouse — the preview is where "what can Realm do with
@@ -7361,7 +7470,7 @@ select { appearance: none; padding-right: 22px;
 .library-row {
   display: grid; grid-template-columns: 32px minmax(0, 1.4fr) minmax(0, 1fr) auto; align-items: center; gap: 12px;
   width: 100%; min-height: 44px; padding: 6px 10px; text-align: left; font: inherit; border: none;
-  border-radius: var(--r-ctl); corner-shape: squircle; background: none; cursor: default;
+  border-radius: var(--r-ctl); corner-shape: squircle; background: none;
 }
 .library-row:hover { background: var(--rl-hover); }
 .library-row:is([data-pressed], :active:focus-visible) { background: var(--rl-active); }
@@ -7404,7 +7513,7 @@ select { appearance: none; padding-right: 22px;
   --btn-h: 30px;
   display: inline-flex; align-items: center; gap: 6px; height: var(--btn-h); padding: 0 12px;
   border: none; border-radius: calc(var(--btn-h) / 2);
-  background: none; color: var(--rl-text-dim); font: inherit; font-size: 13.5px; cursor: default;
+  background: none; color: var(--rl-text-dim); font: inherit; font-size: 13.5px;
   transition: background var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .filter-chip:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
@@ -7444,7 +7553,7 @@ select { appearance: none; padding-right: 22px;
 .task-detail-goal { color: var(--rl-text-dim); }
 /* The result is the run's whole deliverable, so it scrolls rather than truncating — a report the
    user is waiting for must never be cut off by its container. */
-.task-detail-result { max-height: 260px; overflow-y: auto; color: var(--rl-text-bright); }
+.task-detail-result { max-height: 260px; overflow-y: auto; color: var(--rl-text-bright); --fade-h: 24px; --fade-top-h: 16px; }
 .task-detail-error { color: var(--rl-danger); }
 .task-detail-ask { padding: 10px; border: 1px solid var(--rl-accent); border-radius: var(--r-ctl);
   background: color-mix(in srgb, var(--rl-accent) 8%, transparent); }
@@ -7519,7 +7628,7 @@ select { appearance: none; padding-right: 22px;
    brightened ink and its dot, which is what it always actually read by. */
 .notif-row {
   display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 11px 12px;
-  text-align: left; color: var(--rl-text-dim); font: inherit; cursor: default;
+  text-align: left; color: var(--rl-text-dim); font: inherit;
   background: transparent; border: none; border-radius: var(--r-ctl); corner-shape: squircle;
   transition: background var(--dur-press) var(--ease-out-strong);
 }
@@ -7634,7 +7743,7 @@ select { appearance: none; padding-right: 22px;
 /* The prose, folded. Open by default only when the engine wants something from you — which is the
    whole of how this page stopped being a wall: a ready engine is a title and some chips. */
 .engine-details > summary {
-  list-style: none; cursor: default; font-size: 13px; color: var(--rl-text-dim);
+  list-style: none; font-size: 13px; color: var(--rl-text-dim);
   padding: 2px 0; width: fit-content;
 }
 .engine-details > summary::-webkit-details-marker { display: none; }
@@ -7673,7 +7782,7 @@ select { appearance: none; padding-right: 22px;
 .cli-job-state { flex: 1; min-width: 0; font-size: 12px; color: var(--rl-text-dim); }
 .cli-job[data-state="failed"] .cli-job-state { color: var(--rl-warning); }
 .cli-job-output { margin: 0; max-height: 180px; overflow: auto; font: 11px/1.5 var(--font-mono);
-  color: var(--rl-text-dim); white-space: pre-wrap; word-break: break-word; user-select: text; }
+  color: var(--rl-text-dim); white-space: pre-wrap; word-break: break-word; user-select: text; --fade-h: 24px; --fade-top-h: 16px; }
 .tcc-row { align-items: flex-start; }
 .tcc-row .btn-quiet { flex: none; margin-top: 1px; }
 .tcc-state { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
@@ -7714,7 +7823,7 @@ select { appearance: none; padding-right: 22px;
    lists them. The summary IS the row (label, line, caret), so the card's rhythm holds whether it is
    open or shut, and the body indents to the label's own edge. */
 .settings-disclosure { display: block; padding: 0; }
-.settings-disclosure > summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; list-style: none; cursor: default; border-radius: inherit; }
+.settings-disclosure > summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; list-style: none; border-radius: inherit; }
 .settings-disclosure > summary::-webkit-details-marker { display: none; }
 .settings-disclosure > summary:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
 .settings-disclosure-caret { flex: none; color: var(--rl-text-faint); transition: rotate var(--dur-hover) ease; }
@@ -7751,7 +7860,7 @@ select { appearance: none; padding-right: 22px;
 
 .import-group { border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-ctl); background: var(--rl-raised); }
 .import-group + .import-group { margin-top: 6px; }
-.import-group > summary { display: flex; align-items: center; gap: 10px; padding: 7px 10px; cursor: default; font-size: 12px; }
+.import-group > summary { display: flex; align-items: center; gap: 10px; padding: 7px 10px; font-size: 12px; }
 .import-group > summary::-webkit-details-marker { display: none; }
 .import-group > summary strong { flex: none; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .import-group > summary .muted { flex: 1; min-width: 0; }
@@ -7796,7 +7905,7 @@ select { appearance: none; padding-right: 22px;
    chrome, and the tabs' own pill shapes already say where they end. */
 .documents-tabs {
   display: flex; align-items: center; gap: 2px; padding: 6px 8px; overflow-x: auto;
-  flex: 0 0 auto; overflow-y: hidden;
+  flex: 0 0 auto; overflow-y: hidden; scrollbar-width: none;
 }
 .documents-tab { display: flex; align-items: center; border-radius: var(--r-ctl); corner-shape: squircle; flex: 0 0 auto;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
@@ -7880,14 +7989,17 @@ select { appearance: none; padding-right: 22px;
 /* The open-a-file panel: a floating surface card over the editor, on the same shadow and the same
    entrance as every other popover in the app — not a flat strip welded under the tab bar. */
 .documents-topbar { position: relative; flex: 0 0 auto; }
+/* The rows scroll INSIDE the surface, under its head, so the dissolve fades rows and never the
+   picker's own corner and shadow. */
 .documents-picker {
   position: absolute; z-index: 30; top: calc(100% + 4px); left: 12px; right: 12px; max-height: 60vh;
-  overflow: auto; padding: 4px; border-radius: var(--r-panel); background: var(--surface);
+  display: flex; flex-direction: column; overflow: hidden; padding: 4px; border-radius: var(--r-panel); background: var(--surface);
   box-shadow: var(--shadow-overlay); animation: rl-menu-in var(--dur-pop) var(--spring-smooth);
 }
 .documents-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 4px 6px 6px 10px; font-family: var(--font-mono); }
-.documents-picker-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.documents-picker-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; --fade-h: 24px; --fade-top-h: 24px; scroll-padding-block: 24px; }
 .documents-picker-list button {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; text-align: left;
   border-radius: var(--r-chip); color: var(--rl-text-bright); font-size: 13px;
@@ -7927,7 +8039,7 @@ select { appearance: none; padding-right: 22px;
 .docs-home-open {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px;
   text-align: left; border-radius: var(--r-ctl); corner-shape: squircle; font-size: 13px; color: var(--rl-text-bright);
-  cursor: default; transition: background-color var(--dur-hover) ease;
+  transition: background-color var(--dur-hover) ease;
 }
 .docs-home-open:hover { background: var(--rl-hover); }
 .docs-home-open:is([data-pressed], :active:focus-visible) { background: var(--rl-active); }
@@ -7959,7 +8071,7 @@ select { appearance: none; padding-right: 22px;
 .code-file-head { font-size: 12px; line-height: 16px; font-weight: var(--fw-title); color: var(--rl-text-dim); }
 .code-file-name > .search-field { --search-h: 30px; }
 .code-file-languages { flex: 0 1 auto; min-height: 0; max-height: 224px; overflow-y: auto; --fade-h: 24px; --fade-top-h: 24px; }
-.code-file-language { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: var(--r-chip); font-size: 13px; color: var(--rl-text-bright); cursor: default; }
+.code-file-language { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: var(--r-chip); font-size: 13px; color: var(--rl-text-bright); }
 .code-file-language:hover { background: var(--hover); }
 .code-file-language[aria-selected="true"] { background: var(--rl-active); }
 .code-file-language-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -8095,7 +8207,7 @@ select { appearance: none; padding-right: 22px;
   color: var(--rl-text-faint); }
 .sheet-lede { margin: 0; font-size: 13px; color: var(--rl-text-dim); line-height: 1.5; }
 .sheet-lede code { font-size: 12px; }
-.lecture-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; }
+.lecture-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; --fade-h: 24px; --fade-top-h: 24px; }
 .lecture-row {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl); corner-shape: squircle;
   background: none; color: var(--rl-text-bright); font: inherit; text-align: left;
@@ -8142,7 +8254,7 @@ select { appearance: none; padding-right: 22px;
 .media-play {
   position: absolute; inset: 0; margin: auto; width: 52px; height: 52px; display: grid; place-items: center;
   border: none; border-radius: var(--r-pill); color: #fff; background: rgb(0 0 0 / .55);
-  backdrop-filter: blur(8px); cursor: default;
+  backdrop-filter: blur(8px);
   transition: transform var(--dur-swap) var(--ease-out-strong), background-color var(--dur-swap) var(--ease-out-strong);
 }
 .media-play:hover { transform: scale(1.06); background: rgb(0 0 0 / .7); }
@@ -8160,7 +8272,7 @@ select { appearance: none; padding-right: 22px;
 .media-video:focus-within .media-controls { opacity: 1; }
 .media-btn {
   display: grid; place-items: center; width: 22px; height: 22px; flex: none;
-  border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit; cursor: default;
+  border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit;
   transition: background-color var(--dur-hover) ease;
 }
 .media-btn:hover { background: rgb(255 255 255 / .18); }
@@ -8171,7 +8283,7 @@ select { appearance: none; padding-right: 22px;
    --media-progress rather than by a second element: one box means the knob can never drift out of
    register with the fill. */
 .media-scrub {
-  appearance: none; flex: 1 1 auto; min-width: 0; height: 3px; border-radius: var(--r-pill); cursor: default;
+  appearance: none; flex: 1 1 auto; min-width: 0; height: 3px; border-radius: var(--r-pill);
   background: linear-gradient(to right, #fff var(--media-progress, 0%), rgb(255 255 255 / .3) var(--media-progress, 0%));
 }
 .media-scrub::-webkit-slider-thumb {
@@ -8193,7 +8305,7 @@ select { appearance: none; padding-right: 22px;
 .media-action {
   flex: none; display: inline-flex; align-items: center; gap: 4px; margin-left: auto;
   padding: 2px 5px; border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none;
-  color: var(--rl-text-faint); font: inherit; font-size: 11px; cursor: default;
+  color: var(--rl-text-faint); font: inherit; font-size: 11px;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .media-action + .media-action { margin-left: 0; }
@@ -8410,7 +8522,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
  */
 .slider-row input[type="range"] {
   appearance: none; -webkit-appearance: none;
-  flex: 1; min-width: 0; max-width: 260px; height: 20px; margin: 0; background: none; cursor: default;
+  flex: 1; min-width: 0; max-width: 260px; height: 20px; margin: 0; background: none;
 }
 .slider-row input[type="range"]::-webkit-slider-runnable-track {
   height: 6px; border-radius: 999px;
@@ -8443,7 +8555,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    about. Their own rule rather than a shared class because the engines' sits inside a card and
    these sit in the page column, so only the words are the same, not the metrics. */
 .theme-detail > summary, .theme-other > summary {
-  list-style: none; cursor: default; width: fit-content; padding: 4px 0;
+  list-style: none; width: fit-content; padding: 4px 0;
   font-size: 13px; color: var(--rl-text-dim);
 }
 .theme-detail > summary::-webkit-details-marker, .theme-other > summary::-webkit-details-marker { display: none; }
@@ -8458,7 +8570,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .theme-other { display: flex; flex-direction: column; }
 
 .mode-card {
-  display: flex; flex-direction: column; gap: 7px; padding: 7px; cursor: default;
+  display: flex; flex-direction: column; gap: 7px; padding: 7px;
   border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-panel);
   transition: box-shadow var(--dur-hover) ease;
 }
@@ -8502,7 +8614,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    is whatever the user left the split at. */
 .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 8px; margin: 0; padding: 0; border: 0; }
 .theme-card {
-  display: flex; flex-direction: column; gap: 8px; padding: 10px; cursor: default;
+  display: flex; flex-direction: column; gap: 8px; padding: 10px;
   border: 1px solid; border-radius: var(--r-panel); corner-shape: squircle; box-shadow: var(--shadow-card-lift);
   transition: box-shadow var(--dur-hover) ease;
 }
@@ -8559,7 +8671,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .font-browser { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding: 10px;
   border-radius: var(--r-panel); background: var(--rl-frame); }
 .font-results { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none;
-  max-height: 220px; overflow-y: auto; overscroll-behavior: contain; }
+  max-height: 220px; overflow-y: auto; overscroll-behavior: contain; --fade-h: 24px; --fade-top-h: 24px; }
 .font-results li { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 13px; }
 .font-result-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
 .font-result-cat { flex: none; font-size: 11px; color: var(--rl-text-faint); }
@@ -8572,7 +8684,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .theme-override { display: flex; align-items: center; gap: 6px; }
 .theme-override > span { font-size: 13px; color: var(--rl-text-dim); }
 .theme-override input[type="color"] {
-  width: 26px; height: 26px; padding: 2px; flex: none; cursor: default;
+  width: 26px; height: 26px; padding: 2px; flex: none;
   border-radius: var(--r-chip); border: var(--hairline-w) solid var(--rl-line); background: var(--rl-panel);
 }
 .theme-override .hex { width: 82px; text-transform: lowercase; }
@@ -8618,7 +8730,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    rule comes after the instant list, so a `transition` here handed the fade back to every segment. */
 .seg-opt {
   padding: 3px 9px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
-  border-radius: var(--r-chip); corner-shape: squircle; cursor: default; white-space: nowrap;
+  border-radius: var(--r-chip); corner-shape: squircle; white-space: nowrap;
 }
 .seg-opt input { position: absolute; opacity: 0; pointer-events: none; }
 .seg-opt:hover { color: var(--rl-text-bright); }
@@ -8818,7 +8930,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .budget-thresholds { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; border: none; }
 .budget-thresholds legend { float: left; margin-right: 8px; padding: 0; font-size: 12.5px; color: var(--rl-text-dim); }
 .budget-threshold { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 12.5px;
-  color: var(--rl-text-dim); border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-pill); cursor: default;
+  color: var(--rl-text-dim); border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-pill);
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .budget-threshold input { position: absolute; opacity: 0; pointer-events: none; }
 .budget-threshold[data-selected] { background: var(--rl-hover); color: var(--rl-text-bright); }
@@ -9022,7 +9134,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
    or edge of its own until it is the choice — then the same 2px accent ring the theme cards wear. */
 .app-icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 4px; max-width: 560px; margin: 0; padding: 0; border: 0; }
 .app-icon-opt { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px 6px;
-  border-radius: var(--r-panel); cursor: default; transition: background-color var(--dur-hover) ease; }
+  border-radius: var(--r-panel); transition: background-color var(--dur-hover) ease; }
 .app-icon-opt:hover { background: var(--rl-hover); }
 .app-icon-opt[data-selected] { background: var(--rl-hover); box-shadow: inset 0 0 0 2px var(--rl-accent); }
 .app-icon-opt input { position: absolute; opacity: 0; pointer-events: none; }

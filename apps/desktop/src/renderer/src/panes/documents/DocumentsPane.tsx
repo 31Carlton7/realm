@@ -6,6 +6,7 @@ import {
 } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
 import { useApp } from "../../state/store";
+import { useDissolve } from "../../components/ScrollFades";
 import type { PaneProps } from "../registry";
 import { useScrollMemory } from "../scroll-memory";
 import {
@@ -369,8 +370,10 @@ function TabStrip({ tabs, active, buffers, home, onHome, onSelect, onClose, menu
   onSelect: (p: string) => void; onClose: (p: string) => void;
   menu: ReactNode;
 }) {
+  const strip = useRef<HTMLDivElement>(null);
+  useDissolve(strip, "x");
   return (
-    <div className="documents-tabs" role="tablist" aria-label="Open documents">
+    <div className="documents-tabs" ref={strip} role="tablist" aria-label="Open documents">
       <div className="documents-tab documents-home-tab" role="tab" aria-selected={home} data-active={home || undefined}>
         <button className="documents-tab-label" onClick={onHome} aria-label="Files" title="This session's files, the Library and search (⌘P)">
           <Icon name="home" size={12} />
@@ -554,6 +557,8 @@ function FilePicker({ documentsId, onOpen, onDismiss }: {
   onDismiss: () => void;
 }) {
   const listDocumentEntries = useApp((s) => s.listDocumentEntries);
+  const list = useRef<HTMLUListElement>(null);
+  useDissolve(list);
   const [dir, setDir] = useState("");
   const [entries, setEntries] = useState<DocumentEntry[]>([]);
 
@@ -573,7 +578,7 @@ function FilePicker({ documentsId, onOpen, onDismiss }: {
         <button type="button" className="icon-btn" aria-label="Close picker" onClick={onDismiss}><Icon name="close" size={12} /></button>
       </div>
 
-      <ul className="documents-picker-list">
+      <ul className="documents-picker-list" ref={list}>
         {parent !== null && (
           <li><button onClick={() => setDir(parent)}>../</button></li>
         )}

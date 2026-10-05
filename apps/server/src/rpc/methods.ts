@@ -76,6 +76,7 @@ import type { ShipsStore } from "../store/ships";
 import type { PortAllocator } from "../workspace/ports";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import type { LayaService } from "../laya/service";
+import type { AppViewService } from "../apps/service";
 import { NotFoundError, RpcError } from "../store/rows";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
@@ -96,6 +97,8 @@ export type Deps = {
   agentRuns: AgentRunService;
   laya: LayaService;
   agentSignIn: AgentSignInService;
+  /** The views MCP servers draw for tool calls (MCP Apps). */
+  appViews: AppViewService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -451,6 +454,12 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
   });
+  // A server's views, on or off everywhere. `mcp.changed` is what tells a view already on screen.
+  reg("mcp.setShowViews", (p) => {
+    d.mcp.setShowsViews(p.id, p.show);
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
   // Promote is effective-set neutral and demote strips siblings (`McpService.promote`/`demote` doc
   // comments), but visibility moves for every space of the profile either way — and a pre-scoping row
   // leaves other profiles' lists on promote — so every space re-lists and every session is nudged.
@@ -497,6 +506,9 @@ export function registerMethods(d: Deps): void {
     try { return { tools: (await d.hub.tools(p.id)).map((t) => ({ name: t.name, description: t.description })), error: null }; }
     catch (e) { return { tools: [], error: e instanceof Error ? e.message : String(e) }; }
   });
+  reg("apps.view", (p) => d.appViews.open(p.viewId));
+  reg("apps.release", (p) => { d.appViews.release(p.url); return { ok: true as const }; });
+  reg("apps.callTool", (p) => d.appViews.callTool(p.viewId, p.name, p.arguments));
   reg("mcp.setAllowedTools", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     d.mcp.setAllowedTools(p.spaceId, p.id, p.tools);

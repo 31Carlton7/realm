@@ -24,7 +24,7 @@ import { capabilitiesContext } from "../mcp/capabilities";
 import type { MemoryService } from "../memory/service";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
-import type { MemorySources } from "@realm/contracts";
+import type { AppViewRef, MemorySources } from "@realm/contracts";
 import { SecretAnswers } from "./secret-answers";
 
 /**
@@ -39,7 +39,10 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
   mentionRefs?: MentionRef[];
   /** Written by the session's own goal rather than typed. Rides to the transcript event and nowhere
    *  else: what the AGENT is handed is the same prompt either way. */
-  goal?: "continuation" | "budget" };
+  goal?: "continuation" | "budget";
+  /** A scheduled task's run, and the note the run appended to the task's instructions — the same
+   *  transcript-only ride as `goal`: the agent is handed the text, note and all. */
+  scheduled?: { task: string; note: string } };
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
@@ -199,6 +202,14 @@ export class SessionService {
       onUsage(sessionId: string, reading: SessionEventPayload<"usage">): void;
       onError(sessionId: string): void;
       onSettled(sessionId: string, opts: { interrupted: boolean }): Promise<unknown>;
+    };
+    /** The views MCP servers draw for tool calls (`apps/views.ts`): told every call the agent
+     *  reports, and asked, when its result arrives, for the view that call drew. Optional — without
+     *  it a tool result is only ever its text. */
+    views?: {
+      noteCall(sessionId: string, toolUseId: string, name: string, input: Record<string, unknown>): void;
+      claim(sessionId: string, toolUseId: string): AppViewRef | null;
+      forget(sessionId: string): void;
     };
   }) {}
 
@@ -469,7 +480,8 @@ export class SessionService {
     // Named things ride beside the text, as the chips they were; their files are not `attachments`,
     // which stay the files the user attached — the chip already shows a mentioned file.
     const refs = this.mentionedRefs(msg);
-    this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}), ...(refs.length ? { refs } : {}) }));
+    this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}),
+      ...(msg.scheduled ? { scheduled: msg.scheduled } : {}), ...(refs.length ? { refs } : {}) }));
     await handle.send(this.resolveMentions(id, msg));
   }
 
@@ -848,6 +860,8 @@ export class SessionService {
     this.d.browserPermissions?.release(id);
     // …and so does the computer use its mentions granted.
     this.d.computerGrants?.release(id);
+    // Its views are stored rows that go with it; what was still waiting for a result goes now.
+    this.d.views?.forget(id);
     // Its masked answers have nothing left to be kept out of, and its questions nobody left to answer.
     this.secrets.forget(id);
     for (const [requestId, a] of this.asked) if (a.sessionId === id) this.asked.delete(requestId);
@@ -1371,13 +1385,27 @@ export class SessionService {
     this.d.rpc.broadcast("session.event", { ...stored, ephemeral: false });
   }
 
+  /**
+   * A tool call the agent reports is remembered, and its result comes back carrying the view the call
+   * drew (MCP Apps), when it drew one. The agent's harness reports only the text; the gateway is what
+   * saw the server answer with a view, and `views` is where the two meet (see `AppViews`).
+   */
+  private withView(id: string, ev: SessionEvent): SessionEvent {
+    if (!this.d.views) return ev;
+    if (ev.type === "tool_call") { this.d.views.noteCall(id, ev.payload.toolUseId, ev.payload.name, ev.payload.input); return ev; }
+    if (ev.type !== "tool_result" || ev.payload.view) return ev;
+    const view = this.d.views.claim(id, ev.payload.toolUseId);
+    return view ? { ...ev, payload: { ...ev.payload, view } } : ev;
+  }
+
   private onEvent(id: string, raw: SessionEvent): void {
     if (this.closing) return; // shutdown: the row keeps its last real status; markStaleOnBoot resets it
     const before = this.d.sessions.get(id);
     if (!before) return; // deleted underneath a still-draining pump
     // First, before anything reads it: a masked answer quoted back by the agent never reaches the log,
-    // the feed or another window. A no-op for every session that was never asked a secret.
-    const ev = this.secrets.scrub(id, raw);
+    // the feed or another window. A no-op for every session that was never asked a secret. Then the
+    // view a call drew, if it drew one, rides on its result from here on.
+    const ev = this.withView(id, this.secrets.scrub(id, raw));
     if (ev.type === "permission_request" && ev.payload.ask) this.asked.set(ev.payload.requestId, { sessionId: id, card: ev.payload.ask });
     else if (ev.type === "permission_response") this.asked.delete(ev.payload.requestId);
     // BEFORE the status update below, so the hook sees the row's PREVIOUS status — a settle is a

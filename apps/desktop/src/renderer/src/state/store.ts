@@ -1,7 +1,7 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
 import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape } from "@realm/contracts";
 import { destinationTarget, pageHidesSidebar, pageItemId } from "./page-item";
-import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
+import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
 import { attachmentDisposition } from "@realm/contracts";
 import { VIEWER_SLOT, ownerOf, type Marking, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
 import type { PickedElement } from "@realm/contracts";
@@ -590,6 +590,8 @@ export type Api = {
   updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
   removeMcpServer(id: string): Promise<void>;
   setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** `mcp.setShowViews` — whether Realm draws a server's views, in every space. */
+  setMcpShowViews(id: string, show: boolean): Promise<void>;
   /** `mcp.promote` / `mcp.demote` — move a server's defining scope (W2 RPCs, W4 UI). */
   promoteMcpServer(spaceId: string, id: string): Promise<void>;
   demoteMcpServer(spaceId: string, id: string): Promise<void>;
@@ -2468,6 +2470,9 @@ export type AppState = {
   /** The session's Agents tab, as a tab of its side pane the way its other tools open — with the
    *  composer started from `plan`, or the row for `childId` brought into view, when asked. */
   openAgentsTab(sessionId: string, ask?: { plan?: string; childId?: string }): Promise<void>;
+  /** A view an MCP server drew for one of the session's tool calls, as a tab of the session's side
+   *  pane — the one it has, or a new one. Never a split: a view is the session's, not the layout's. */
+  openAppView(sessionId: string, view: AppViewRef): Promise<void>;
   /** The tab has taken what it was asked for; a remount must not take it again. */
   clearAgentsAsk(sessionId: string): void;
   /** `delegation.models`, for the composer. Not held in the store: it is read when the tab mounts. */
@@ -2741,6 +2746,8 @@ export type AppState = {
   updateMcpServer(input: UpdateMcpServerInput): Promise<McpServer>;
   removeMcpServer(id: string): Promise<void>;
   setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
+  /** Show or stop showing a server's views (MCP Apps) — the server's switch, the same in every space. */
+  setMcpShowViews(id: string, show: boolean): Promise<void>;
   /** Move a server's defining scope into `spaceId`'s profile, then re-read (guarded like any refresh). */
   promoteMcpServer(spaceId: string, id: string): Promise<void>;
   /** Pin a profile-scoped server to `spaceId` alone, then re-read. */
@@ -6695,6 +6702,18 @@ await get().refreshCustomThemes().catch(() => {});
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
       },
+      async openAppView(sessionId, view) {
+        const sid = get().sessions[sessionId]?.spaceId ?? get().allSessions[sessionId]?.spaceId;
+        if (!sid) return;
+        // One tab per view, found by its id: a second Open goes to the tab that is already there.
+        let itemId = get().items.find((i) => i.kind === "app-view" && i.refId === view.viewId)?.id;
+        if (!itemId) {
+          const created = await api.createItem(sid, "app-view", `${view.serverName} · ${view.tool}`, view.viewId);
+          itemId = created.id;
+        }
+        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
+        await adoptItem(sid, itemId, null, { sessionId });
+      },
       clearAgentsAsk(sessionId) {
         if (!get().agentsAsk[sessionId]) return;
         const { [sessionId]: _taken, ...agentsAsk } = get().agentsAsk;
@@ -7392,6 +7411,10 @@ await get().refreshCustomThemes().catch(() => {});
       async setMcpEnabled(spaceId, id, enabled) {
         await api.setMcpEnabled(spaceId, id, enabled);
         set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, enabled } : x)) });
+      },
+      async setMcpShowViews(id, show) {
+        await api.setMcpShowViews(id, show);
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, showViews: show } : x)) });
       },
       // Promote/demote re-read rather than patch: the scope AND the enabled flag can both change
       // shape server-side (demotion retires overrides), and the refresh guard already protects a

@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Lecture } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useApp } from "../state/store";
 import { Sheet } from "./Sheet";
+import { useDissolve } from "./ScrollFades";
 
 /**
  * Start a lecture (Plan 22 W3). One field — the topic — because everything else is derived: the
@@ -55,6 +56,8 @@ export function WrapUpLectureSheet() {
   const run = useApp((s) => s.run);
   const [lectures, setLectures] = useState<Lecture[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const scroller = useRef<HTMLUListElement>(null);
+  useDissolve(scroller);
   useEffect(() => {
     let cancelled = false;
     void listLectures().then((l) => { if (!cancelled) setLectures(l); }).catch(() => { if (!cancelled) setLectures([]); });
@@ -79,7 +82,7 @@ export function WrapUpLectureSheet() {
           <p className="muted">No lecture files yet. Start one with “New lecture”, or import a recording from Plynn.</p>
         )}
         {lectures !== null && lectures.length > 0 && (
-          <ul className="lecture-list" aria-label="Lectures">
+          <ul className="lecture-list" ref={scroller} aria-label="Lectures">
             {lectures.map((l) => (
               <li key={l.path}>
                 <button type="button" className="lecture-row" disabled={busy !== null} onClick={() => pick(l)}>

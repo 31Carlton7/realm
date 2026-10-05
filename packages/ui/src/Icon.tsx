@@ -54,6 +54,8 @@ import {
   ReactIcon, ThirdBracketSquareIcon, Html5Icon, Css3Icon, SqlIcon, Pdf01Icon, Xml01Icon, Svg01Icon, FileZipIcon, FileScriptIcon,
   // A turn's edits, put back (EditSummary.tsx).
   Undo02Icon,
+  // A view an MCP server drew (AppView.tsx), as a tab and under its tool call.
+  WebDesign01Icon,
   // The media viewer's zoom out, beside `add` for zoom in (components/viewer/ViewerStage.tsx).
   MinusSignIcon,
 } from "@hugeicons-pro/core-stroke-rounded";
@@ -160,6 +162,9 @@ export const icons = {
   /* A session's own sub-agents: one box handing work down to two. Not the page's bot — the page is
      every agent there is, and this is the tree under one session, which is the thing the shape says. */
   agents: HierarchySquare02Icon,
+  /* A window with a layout drawn in it: an interface somebody else made. Not `browser`'s globe, which
+     is a page anywhere on the web, and not `layout`, which is Realm arranging its own panes. */
+  "app-view": WebDesign01Icon,
   /* A face in a circle, set apart from `profile-page`'s bare figure: the profile is a scope (its
      skills, connections and memory), and this page is the person. */
   "you-page": UserCircleIcon,

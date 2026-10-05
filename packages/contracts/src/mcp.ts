@@ -40,8 +40,12 @@ export const MCP_SECRET_STORAGE_NOTE =
 
 /** One tool from an upstream server's cached `tools/list` — name and description only. No input
  *  schema: the gateway forwards calls verbatim rather than validating against a cached copy that can
- *  go stale the moment the upstream server changes it. */
-export const McpToolSchema = z.object({ name: z.string(), description: z.string() });
+ *  go stale the moment the upstream server changes it.
+ *
+ *  `view` is the `ui://` resource the tool draws its result in (MCP Apps), and `appOnly` marks a tool
+ *  only that view may call, which the agent is never shown. Both absent on every tool that declares
+ *  no view, and on every cache written before Realm read them. */
+export const McpToolSchema = z.object({ name: z.string(), description: z.string(), view: z.string().optional(), appOnly: z.boolean().optional() });
 export type McpTool = z.infer<typeof McpToolSchema>;
 
 /** Where a remote server's OAuth connection stands. `reconnect_needed` is the one state a UI must badge:
@@ -123,6 +127,9 @@ export const McpServerSchema = z.object({
   /** Where this server is defined (W2). Space-scoped with `spaceId: null` = a pre-scoping row, listed
    *  in every space under the per-space enabled-set exactly as before the model existed. */
   scope: ItemScopeSchema,
+  /** Whether Realm draws the views this server ships (MCP Apps). The server's own switch, on unless
+   *  someone turned it off; it is the same in every space, as the server's tools are. */
+  showViews: z.boolean().default(true),
   createdAt: z.number().int(),
 });
 export type McpServer = z.infer<typeof McpServerSchema>;

@@ -4,6 +4,8 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerConfig } from "@realm/adapters";
+import { callableByApp, visibleToModel } from "@realm/contracts";
+import type { DrawnView } from "../apps/views";
 import type { RpcServer } from "../rpc/server";
 import type { SessionsStore } from "../store/sessions";
 import type { McpCallLogStore, McpServerRow, McpServersStore } from "../store/mcp";
@@ -150,6 +152,12 @@ export class McpGateway {
      * otherwise write down verbatim. Unwired, records are kept as they are.
      */
     redact?: (sessionId: string, text: string) => string;
+    /**
+     * Where a call that drew a view is reported (MCP Apps): the registry that pairs it with the
+     * agent's own record of the call (`apps/views.ts`). Unwired, calls draw no views — a tool's text
+     * result is all anyone sees, exactly as before.
+     */
+    views?: { drew(sessionId: string, v: DrawnView): void };
   }) {}
 
   /** The restriction for one session, `null` meaning unrestricted. One read path shared by
@@ -471,7 +479,9 @@ export class McpGateway {
       let tools: McpLiveTool[];
       try { tools = await this.d.hub.tools(id); } catch { return []; }
       const allowed = this.d.mcp.allowedTools(spaceId, id);
-      const visible = allowed ? tools.filter((t) => allowed.includes(t.name)) : tools;
+      // A tool only its view may call is never the agent's to see (MCP Apps: the host MUST leave a
+      // tool out of the agent's list when its visibility does not include the model).
+      const visible = tools.filter((t) => visibleToModel(t.ui) && (!allowed || allowed.includes(t.name)));
       return visible.map((t): Tool => ({ name: `${row.name}__${t.name}`, description: t.description, inputSchema: t.inputSchema ?? { type: "object" } }));
     }));
     this.relisted(sessionId);
@@ -571,13 +581,31 @@ export class McpGateway {
         `mcp: "${tool}" on "${serverName}" is not enabled for this space — turn it on in Space Settings → MCP → ${serverName}.`,
         `blocked: tool not in this space's allowlist`);
     }
+    // The tool as the server listed it: whether the agent may call it at all, and whether its result
+    // is drawn in a view. Not knowing (the server would not list) is not a refusal — the call goes
+    // ahead and fails, or not, the ordinary way.
+    const live = await this.d.hub.toolOf(serverId, tool).catch(() => null);
+    if (live && !visibleToModel(live.ui)) {
+      return this.blocked(sessionId, serverId, serverName, tool, argsJson,
+        `mcp: "${tool}" on "${serverName}" is for that server's view to call, not the agent.`,
+        "blocked: a view-only tool");
+    }
     const start = Date.now();
     try {
       // Compressed HERE and not one layer down in the hub: the hub is row-keyed and session-blind,
       // and this is the seam that knows a result is on its way to an agent's context rather than,
       // say, to a live-check. Realm's own in-process providers above are deliberately not put
       // through it — they already choose and clip their own output shape.
-      const result = compressToolResult(await this.d.hub.call(serverId, tool, args, { sessionId }));
+      const raw = await this.d.hub.call(serverId, tool, args, { sessionId });
+      const result = compressToolResult(raw);
+      // A tool with a view drew one, for a server whose views are on: the view gets the server's
+      // whole result, not the compressed one the agent reads. Its template is read now, in the
+      // background, so the view has it by the time the transcript asks.
+      const resourceUri = live?.ui?.resourceUri;
+      if (resourceUri && this.d.views && this.d.mcp.showsViews(serverId)) {
+        this.d.views.drew(sessionId, { serverId, serverName, tool, fullName, def: live.def, resourceUri, input: isObject(args) ? args : {}, result: raw });
+        void this.d.hub.uiResource(serverId, resourceUri).catch(() => {});
+      }
       // `isError: true` is a normal, successfully round-tripped MCP result — the call reached the
       // server and the SERVER reported a problem. It still counts as `ok: false` in Activity: from the
       // user's perspective a failed tool call is a failed tool call, whether the failure came back as a
@@ -595,6 +623,44 @@ export class McpGateway {
       // A thrown hub failure is already sanitized (see `hub.ts`'s `sanitize()`). Surfacing it as an
       // `isError: true` CallToolResult rather than letting it propagate as a JSON-RPC protocol error
       // gives the agent the same shape of failure it would get from any other failed tool call.
+      return errorResult(message);
+    }
+  }
+
+  /**
+   * A view's own call to its server (MCP Apps `tools/call`), made once the user clicked to allow it.
+   *
+   * The same policy the agent's calls meet, asked again now rather than trusted from when the view was
+   * drawn: the server must still be on in the session's space, and the tool in its allowlist. Then the
+   * spec's own rule — the tool's visibility must include `app` — and its server is the view's own,
+   * because the view's server is the only one this is ever asked about. It lands in Activity under
+   * the session like any call, its summary saying the view made it. The result goes back to the view
+   * whole; nothing is compressed, because no agent reads it.
+   */
+  async callForView(sessionId: string, serverId: string, tool: string, args: Record<string, unknown>): Promise<CallToolResult> {
+    const session = this.d.sessions.get(sessionId);
+    const row = this.d.servers.get(serverId);
+    const argsJson = JSON.stringify(args);
+    if (!session || !row) return errorResult("mcp: this view's session or server no longer exists.");
+    if (!this.d.mcp.effectiveServerIds(session.spaceId).includes(serverId)) {
+      return this.blocked(sessionId, serverId, row.name, tool, argsJson, `mcp: "${row.name}" is turned off in this space.`, "blocked: a view's call, server off in this space");
+    }
+    const allowed = this.d.mcp.allowedTools(session.spaceId, serverId);
+    if (allowed && !allowed.includes(tool)) {
+      return this.blocked(sessionId, serverId, row.name, tool, argsJson, `mcp: "${tool}" on "${row.name}" is not enabled for this space.`, "blocked: a view's call, tool not in this space's allowlist");
+    }
+    const live = await this.d.hub.toolOf(serverId, tool).catch(() => null);
+    if (!live || !callableByApp(live.ui)) {
+      return this.blocked(sessionId, serverId, row.name, tool, argsJson, `mcp: "${row.name}" has no tool "${tool}" its view may call.`, "blocked: a view's call to a tool not open to views");
+    }
+    const start = Date.now();
+    try {
+      const result = await this.d.hub.call(serverId, tool, args, { sessionId });
+      this.record(sessionId, serverId, row.name, tool, argsJson, result.isError !== true, Date.now() - start, truncate(`From its view: ${summarize(result)}`));
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.record(sessionId, serverId, row.name, tool, argsJson, false, Date.now() - start, truncate(`From its view: ${message}`));
       return errorResult(message);
     }
   }
@@ -675,6 +741,8 @@ function providerVisible(name: string, toolset: SessionToolset): boolean {
 }
 
 const errorResult = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
+
+const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
 const escapeHtml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
