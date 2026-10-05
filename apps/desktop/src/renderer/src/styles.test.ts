@@ -2325,6 +2325,17 @@ describe("a side pane's tab strip", () => {
     expect(room).toBe(3);
     expect(reach).toBeLessThanOrEqual(room);
   });
+
+  it("draws a focused tab's ring inside the tab, where the strip's clip cannot cut it", () => {
+    /* The strip is exactly one tab tall and clips like any scroller, so the app's ring — 1px outside
+       the label — lost its top and bottom and read as two accent bars. THE MUTANT: the global ring
+       left to the label. The tab draws it instead, inset by its own width. */
+    const ring = bodiesFor(".pane-tab:has(> .pane-tab-label:focus-visible)").join(" ");
+    const width = Number(/outline: (\d+)px solid var\(--rl-accent\)/.exec(ring)?.[1]);
+    expect(width).toBeGreaterThan(0);
+    expect(ring).toContain(`outline-offset: -${width}px`);
+    expect(bodiesFor(".pane-tab-label:focus-visible").join(" ")).toContain("outline: none");
+  });
 });
 
 describe("dividers", () => {

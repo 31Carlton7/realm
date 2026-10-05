@@ -313,6 +313,19 @@ async function main() {
   }
   await show(sim.itemId);
 
+  // A tab focused from the keyboard wears a whole ring, inside the strip's clip.
+  await scrollStrip("start");
+  await c.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
+  await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
+  const ring = await evalIn(c, `(() => { const label = document.querySelector(${JSON.stringify(sel(".pane-tab[data-active] .pane-tab-label"))}); label.focus();
+    const tab = label.closest('.pane-tab'), t = getComputedStyle(tab), l = getComputedStyle(label);
+    return { visible: label.matches(':focus-visible'), tab: [t.outlineStyle, t.outlineWidth, t.outlineOffset].join(' '), label: l.outlineStyle,
+      inside: tab.getBoundingClientRect().height <= document.querySelector(${JSON.stringify(sel(".pane-tabs"))}).clientHeight }; })()`);
+  check("a tab focused from the keyboard wears its ring inside itself, where the strip cannot cut it", ring.visible && ring.tab === "solid 2px -2px" && ring.label === "none" && ring.inside, ring);
+  await sleep(500);
+  await shoot(c, "strip-focus-dark", sel(".panel-bar"), 6);
+  await evalIn(c, `document.activeElement?.blur(), true`);
+
   await setTheme(c, "light");
   await scrollStrip("start");
   await shoot(c, "strip-many-start-light", sel(".panel-bar"), 6);

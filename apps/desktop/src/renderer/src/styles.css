@@ -1980,6 +1980,12 @@ button.panel-title:hover { background: var(--rl-hover); }
    3px past the last tab, and a scroller counts that as more of itself: a strip of two tabs that fit
    measured 3px of slack, enough for its far end to dissolve over nothing. */
 .pane-tab > .icon-btn::after { inset: -3px; }
+/* A tab's focus ring is drawn INSIDE it. The strip is a scroller exactly one tab tall, so the ring the
+   label drew outside itself lost its top and bottom to the strip's clip and arrived as two accent bars
+   either side of the title. On the tab rather than the label, so it follows the tab's corners. */
+.pane-tab:has(> .pane-tab-label:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: -2px;
+  animation: rl-focus-ring var(--dur-slow) var(--spring-smooth); }
+.pane-tab-label:focus-visible { outline: none; }
 /* The strip takes drops itself (reorder, join), so the pane's drop zones start under its bar. */
 .panel[data-tabbed] > .drop-overlay { top: 40px; }
 
