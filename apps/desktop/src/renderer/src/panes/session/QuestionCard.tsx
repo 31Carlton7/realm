@@ -578,7 +578,9 @@ export function AnsweredQuestion({ card, decision, answers, enter = false }: {
   const skipped = decision === "deny" || !answers || Object.keys(answers).length === 0;
   const outcome = card.refused ? "Declined by Realm" : skipped ? (card.mode === "question" ? "Skipped" : "Declined") : null;
   return (
-    <div className="question-answered" role="group" aria-label={askerLine(card.asker, true)} data-enter={enter || undefined}>
+    /* data-no-agent, like the live card's: it holds nothing to press today, and a record of what the
+       user answered is the last place an agent should be able to act if it ever grows a control. */
+    <div className="question-answered" role="group" aria-label={askerLine(card.asker, true)} data-no-agent="answered question" data-enter={enter || undefined}>
       <div className="question-answered-head">
         <Icon name={askerIcon(card.asker)} size={14} colored />
         <span className="question-from-name">{askerLine(card.asker, true)}</span>

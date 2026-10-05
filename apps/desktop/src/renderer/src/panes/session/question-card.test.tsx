@@ -74,6 +74,22 @@ describe("the card names who is asking", () => {
     const { el } = mount(cardOf([db()]));
     expect(el).toHaveAttribute("data-no-agent", "question");
   });
+
+  it.each([
+    ["choice", db()], ["multi", db({ kind: "multi" })], ["confirm", { kind: "confirm" }], ["text", { kind: "text", secret: true }],
+    ["time", { kind: "time" }], ["file", { kind: "file" }],
+    ["model", { kind: "model", options: [{ value: "m", label: "M", agent: "claude", own: true }], rows: [{ id: "1", label: "Step" }] }],
+    ["branch", { kind: "branch", options: [{ value: "main", label: "main" }] }],
+    ["link", { kind: "link", url: "https://example.com/x" }],
+  ] as const)("puts every control of a %s question under the no-agent claim", (_kind, q) => {
+    // THE MUTANT: a body that renders a control outside the card's root — a portal, a sibling — and
+    // an agent could press it. app-drive refuses an act by `closest("[data-no-agent]")`, so that is
+    // exactly what is asked of every control here.
+    const { el } = mount(cardOf([q as Partial<AskQuestion>]));
+    const controls = [...el.ownerDocument.querySelectorAll("button, input, textarea, [role=option]")];
+    expect(controls.length).toBeGreaterThan(0);
+    for (const c of controls) expect(c.closest("[data-no-agent]"), c.outerHTML.slice(0, 80)).not.toBeNull();
+  });
 });
 
 describe("a choice", () => {
