@@ -77,16 +77,6 @@ export function parseCaretPrefs(raw: unknown, legacy: { editorBlink?: unknown } 
   };
 }
 
-/**
- * A terminal's cursor shape, as `terminals.cursorStyle` stores it. That key held xterm's three words
- * before it held a caret shape, and two of them are shapes already; the third, `bar`, is xterm's
- * name for a line. Anything else is the block every terminal on this Mac starts with.
- */
-export function terminalCaretShape(raw: unknown): CaretShape {
-  if (raw === "bar") return "line";
-  return isCaretShape(raw) ? raw : "block";
-}
-
 /** What Settings says. Names, not descriptions: the tiles draw the shapes, and the field above them
  *  shows the animation running, so the words only have to say which is which. */
 export const CARET_COPY = {

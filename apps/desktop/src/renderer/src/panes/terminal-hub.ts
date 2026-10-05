@@ -1,6 +1,6 @@
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_STYLE_DEFAULT, type TerminalCursorStyle, type EventName, type EventPayload, type MethodName, type MethodParams, type MethodResult } from "@realm/contracts";
+import { TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_STYLE_DEFAULT, type CaretShape, type TerminalCursorStyle, type EventName, type EventPayload, type MethodName, type MethodParams, type MethodResult } from "@realm/contracts";
 import { rpc } from "../rpc/client";
 import { TerminalBuffer } from "./terminal-buffer";
 import { replayString, terminalStateWord, type TerminalStateWord } from "./terminal-replay";
@@ -17,7 +17,10 @@ export type TerminalLike = {
   /** xterm's live options bag. Optional because the only things the hub writes back into it are the
    *  code face, the cursor and the colours, and a fake that cares about none of them should not have
    *  to carry one. */
-  options?: { fontFamily?: string; fontSize?: number; cursorBlink?: boolean; cursorStyle?: TerminalCursorStyle; theme?: ITheme; minimumContrastRatio?: number };
+  options?: { fontFamily?: string; fontSize?: number; cursorBlink?: boolean; cursorStyle?: TerminalCursorStyle; cursorWidth?: number; theme?: ITheme; minimumContrastRatio?: number };
+  /** xterm's escape-sequence parser, for the one sequence the hub answers itself (see `acquire`).
+   *  Optional for the options' reason: a fake that never hears a program has nothing to parse. */
+  parser?: { registerCsiHandler(id: { intermediates?: string; final: string }, fn: (params: (number | number[])[]) => boolean): { dispose(): void } };
 };
 export type FitLike = { fit(): void };
 export type TerminalFactory = () => { term: TerminalLike; fit: FitLike };
@@ -96,6 +99,20 @@ const defaultFactory: TerminalFactory = () => {
   return { term, fit };
 };
 
+/**
+ * Each caret shape as the nearest of xterm's three, and the width xterm gives a bar.
+ *
+ * The rest of the shape — a pill's round ends, a beam's soft ones, a soft block, an outline, a thin
+ * underline — the stylesheet draws on the cell xterm marks as the cursor (`.terminal-host[data-caret]`).
+ * A soft block and an outline are a BAR to xterm for that reason: of its three, the bar is the one that
+ * leaves the character under it in its own colour.
+ */
+export const XTERM_CURSOR: Record<CaretShape, { style: TerminalCursorStyle; width: number }> = {
+  line: { style: "bar", width: 2 }, "line-thin": { style: "bar", width: 1 }, pill: { style: "bar", width: 3 }, beam: { style: "bar", width: 3 },
+  block: { style: "block", width: 1 }, "block-soft": { style: "bar", width: 1 }, "block-outline": { style: "bar", width: 1 },
+  underline: { style: "underline", width: 1 }, "underline-thin": { style: "underline", width: 1 },
+};
+
 /** Where this client got to in one terminal's output. */
 type Cursor = { runId: string; seq: number };
 
@@ -123,10 +140,12 @@ export class TerminalHub {
   private catchingUp = new Map<string, { runId: string; seq: number; data: string }[]>();
   /** Terminals whose pane is currently showing a replayed screen and nothing since. */
   private replayed = new Set<string>();
-  /** Whether a terminal's cursor blinks (Settings ▸ General). Held here rather than read at construction
-   *  because it has to reach the terminals that are ALREADY open — see `setCursorBlink`. */
+  /** Whether a terminal's cursor blinks (Settings ▸ Appearance ▸ Cursor). Held here rather than read at
+   *  construction because it has to reach the terminals that are ALREADY open — see `setCursorBlink`. */
   private cursorBlink = TERMINALS_CURSOR_BLINK_DEFAULT;
-  private cursorStyle: TerminalCursorStyle = TERMINALS_CURSOR_STYLE_DEFAULT;
+  /** The cursor's shape, and the one of xterm's three it is drawn on. */
+  private cursorShape: CaretShape = TERMINALS_CURSOR_STYLE_DEFAULT;
+  private cursorStyle: TerminalCursorStyle = XTERM_CURSOR[TERMINALS_CURSOR_STYLE_DEFAULT].style;
   private notRunning = new Set<string>();
   private stateListeners = new Set<(terminalId: string) => void>();
   /** Terminals that have produced any output (data, exit banner, dead-terminal notice) — drives the
@@ -276,6 +295,8 @@ export class TerminalHub {
     if (term.options) { term.options.cursorBlink = this.cursorBlink; term.options.cursorStyle = this.cursorStyle; Object.assign(term.options, terminalColors(this.doc)); }
     const host = this.doc.createElement("div");
     host.className = "terminal-host";
+    if (term.options) term.options.cursorWidth = XTERM_CURSOR[this.cursorShape].width;
+    host.dataset.caret = this.cursorShape;
     const buf = this.buffer(terminalId);
     let announcedDead = false;
     const call = (method: MethodName, params: MethodParams<MethodName>) => {
@@ -301,6 +322,16 @@ export class TerminalHub {
             term.onData((d) => call("terminals.write", { terminalId, data: d })),
             term.onResize(({ cols, rows }) => call("terminals.resize", { terminalId, cols, rows })),
           );
+          /* A program may set the cursor itself (DECSCUSR), and xterm writes what it asked for over the
+             preference. Its shape is the program's to choose, so the stylesheet draws that plainly while
+             it holds (`data-caret-program`); and asking for the DEFAULT back (0) gets this setting
+             again, where xterm alone would answer with a blinking block whatever the setting says. */
+          const decscusr = term.parser?.registerCsiHandler({ intermediates: " ", final: "q" }, (params) => {
+            if ((typeof params[0] === "number" ? params[0] : 0) !== 0) { host.dataset.caretProgram = ""; return false; }
+            this.applyCursor(entry);
+            return true;
+          });
+          if (decscusr) entry.subs.push(decscusr);
           buf.attach((d) => term.write(d));
           try { fit.fit(); } catch { /* not measurable yet */ }
           call("terminals.resize", { terminalId, cols: term.cols, rows: term.rows });
@@ -349,14 +380,27 @@ export class TerminalHub {
    *  blinking cursor is not part of the cell metrics. */
   setCursorBlink(on: boolean) {
     this.cursorBlink = on;
-    for (const e of this.entries.values()) if (e.term.options) e.term.options.cursorBlink = on;
+    for (const e of this.entries.values()) this.applyCursor(e);
   }
 
   /** Live for the same reason the blink is — and no re-fit for the same reason either: a cursor's
    *  shape is drawn inside one cell and changes none of the grid's metrics. */
-  setCursorStyle(style: TerminalCursorStyle) {
-    this.cursorStyle = style;
-    for (const e of this.entries.values()) if (e.term.options) e.term.options.cursorStyle = style;
+  setCursorStyle(shape: CaretShape) {
+    this.cursorShape = shape;
+    this.cursorStyle = XTERM_CURSOR[shape].style;
+    for (const e of this.entries.values()) this.applyCursor(e);
+  }
+
+  /** The preference, whole, onto one terminal — over whatever a program last asked xterm for, because
+   *  the preference changing (or a program asking for the default) is the newer word. */
+  private applyCursor(e: { term: TerminalLike; host: HTMLElement }) {
+    if (e.term.options) {
+      e.term.options.cursorStyle = this.cursorStyle;
+      e.term.options.cursorWidth = XTERM_CURSOR[this.cursorShape].width;
+      e.term.options.cursorBlink = this.cursorBlink;
+    }
+    e.host.dataset.caret = this.cursorShape;
+    delete e.host.dataset.caretProgram;
   }
 
   /** The colours, re-read off the theme and pushed into every live terminal: a terminal opened in the

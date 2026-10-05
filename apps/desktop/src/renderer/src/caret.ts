@@ -197,9 +197,10 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
     if (!el) return;
     ro?.observe(el);
     // The ancestors that clip what they hold: a field scrolled out of a pane is out of sight.
+    const clips = (v: string) => v !== "" && v !== "visible";
     for (let a = el.parentElement; a && a !== doc.body; a = a.parentElement) {
       const cs = win.getComputedStyle(a);
-      if (cs.overflowX !== "visible" || cs.overflowY !== "visible") clippers.push(a);
+      if (clips(cs.overflowX) || clips(cs.overflowY)) clippers.push(a);
     }
   };
 
@@ -222,7 +223,7 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
 
   /** Something is drawn over the field where the caret would stand — a popover, a sheet, a toast. */
   const covered = (el: HTMLElement, x: number, y: number): boolean => {
-    const hit = doc.elementFromPoint(x, y);
+    const hit = doc.elementFromPoint?.(x, y);
     const owner = sources.get(el)?.host ?? el;
     return !hit || !(owner === hit || owner.contains(hit));
   };

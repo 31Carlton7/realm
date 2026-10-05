@@ -2599,6 +2599,157 @@ button.panel-title:hover { background: var(--rl-hover); }
   to { opacity: 1; transform: translateX(-50%); }
 }
 
+/* ── The caret (v2) ─────────────────────────────────────────────────────────
+   The text cursor, as Settings ▸ Appearance ▸ Cursor has it (caret.ts): one drawn caret over whichever
+   field has the keyboard, with that field's own caret transparent for exactly as long as the drawn one
+   stands in for it (`data-rl-caret`). Everything paints in `--caret` — the accent, or the ink of the
+   text — and a solid block redraws the character under it in `--caret-ink`, the ground behind it.
+
+   One tempo, the platform's own blink: half a second shown, half gone. The fades share it, so going
+   from Blink to Smooth fade changes how the caret goes out and not how often, and Pulse breathes at
+   a little over twice it, slow enough to read as rest rather than as a signal. A loop period is a
+   tempo, not the duration of a change, so it is a property here and not a rung of the motion ladder.
+   A glide IS a change, on the drag rung — quick enough that typing never waits on it. Reduce motion
+   and Low power hold every caret still (`data-caret-still`); a window nobody is typing in shows no
+   drawn caret at all, as it shows none of the platform's. */
+:root { --caret: var(--rl-accent); --caret-ink: var(--rl-accent-contrast); --caret-tempo: 1s;
+  --caret-motion: none; --caret-motion-x: none; --caret-block: none; }
+:root[data-caret-colour="text"] { --caret: var(--rl-text-bright); --caret-ink: var(--rl-panel); }
+/* `-x` is an underline's: it expands across, where a bar and a block expand up and down. `block` is a
+   terminal's block, which xterm draws and which goes out by its colours rather than its opacity. */
+:root[data-caret-animation="blink"] { --caret-motion: rl-caret-blink var(--caret-tempo) step-end infinite;
+  --caret-motion-x: var(--caret-motion); --caret-block: rl-caret-block-blink var(--caret-tempo) step-end infinite; }
+:root[data-caret-animation="smooth"] { --caret-motion: rl-caret-smooth var(--caret-tempo) ease-in-out infinite;
+  --caret-motion-x: var(--caret-motion); --caret-block: rl-caret-block-smooth var(--caret-tempo) ease-in-out infinite; }
+:root[data-caret-animation="phase"] { --caret-motion: rl-caret-phase var(--caret-tempo) ease-in-out infinite;
+  --caret-motion-x: var(--caret-motion); --caret-block: rl-caret-block-phase var(--caret-tempo) ease-in-out infinite; }
+:root[data-caret-animation="expand"] { --caret-motion: rl-caret-expand var(--caret-tempo) ease-in-out infinite;
+  --caret-motion-x: rl-caret-expand-x var(--caret-tempo) ease-in-out infinite; --caret-block: rl-caret-block-expand var(--caret-tempo) ease-in-out infinite; }
+:root[data-caret-animation="pulse"] { --caret-motion: rl-caret-pulse calc(var(--caret-tempo) * 2.4) ease-in-out infinite;
+  --caret-motion-x: var(--caret-motion); --caret-block: rl-caret-block-pulse calc(var(--caret-tempo) * 2.4) ease-in-out infinite; }
+/* Ten blinks after the caret last moved, then still: the blink is for finding the caret again, and
+   someone reading what they wrote has already found it. */
+:root[data-caret-animation="rest"] { --caret-motion: rl-caret-blink var(--caret-tempo) step-end 10;
+  --caret-motion-x: var(--caret-motion); --caret-block: rl-caret-block-blink var(--caret-tempo) step-end 10; }
+@keyframes rl-caret-blink { 50% { opacity: 0; } }
+@keyframes rl-caret-smooth { 0%, 30% { opacity: 1; } 55%, 70% { opacity: 0; } }
+@keyframes rl-caret-phase { 0%, 10% { opacity: 1; } 45%, 55% { opacity: 0; } 90% { opacity: 1; } }
+@keyframes rl-caret-expand { 0%, 10% { clip-path: inset(0); } 45%, 55% { clip-path: inset(50% 0); } 90% { clip-path: inset(0); } }
+@keyframes rl-caret-expand-x { 0%, 10% { clip-path: inset(0); } 45%, 55% { clip-path: inset(0 50%); } 90% { clip-path: inset(0); } }
+@keyframes rl-caret-pulse { 50% { opacity: .35; } }
+/* The platform's caret, wherever it is still the one drawn — an email or a number field, an input
+   method composing, the thin blinking line that IS the platform's — in the same colour; and none at
+   all while the drawn one stands in for it. */
+input, textarea, [contenteditable] { caret-color: var(--caret); }
+:is(input, textarea, [contenteditable])[data-rl-caret] { caret-color: transparent; }
+/* Over the sheets, the palette and quick chat, whose fields it is drawn in; under the toasts, the
+   popovers and the tooltip, which float over a field — and anything else drawn over the caret's spot
+   hides it (caret.ts asks the window what is there). */
+.caret-layer { position: fixed; inset: 0; z-index: 80; pointer-events: none; overflow: hidden; contain: strict; }
+.caret-layer:not([data-shown]) { display: none; }
+.caret-clip { position: absolute; left: 0; top: 0; overflow: hidden; }
+.caret-layer .caret { position: absolute; left: 0; top: 0; background: var(--caret); animation: var(--caret-motion); }
+:root[data-caret^="underline"] .caret-layer .caret { animation: var(--caret-motion-x); }
+:root:is([data-caret="pill"], [data-caret="beam"]) .caret-layer .caret { border-radius: var(--r-pill); }
+/* A bar that thins to nothing at both ends: read as light, not as a rule. */
+:root[data-caret="beam"] .caret-layer .caret { background: linear-gradient(transparent, var(--caret) 24%, var(--caret) 76%, transparent); }
+:root[data-caret^="block"] .caret-layer .caret { border-radius: var(--r-sm); }
+:root[data-caret="block-soft"] .caret-layer .caret { background: color-mix(in oklab, var(--caret) 34%, transparent); }
+:root[data-caret="block-outline"] .caret-layer .caret { background: none; box-shadow: inset 0 0 0 1px var(--caret); }
+.caret-glyph { display: none; }
+:root[data-caret="block"] .caret-glyph { display: block; white-space: pre; color: var(--caret-ink); }
+.caret-layer .caret[data-glide] { transition: transform var(--dur-drag) var(--ease-out-strong), width var(--dur-drag) var(--ease-out-strong), height var(--dur-drag) var(--ease-out-strong); }
+:root[data-caret-still] .caret-layer .caret { animation: none; transition: none; }
+/* Where a plain field is measured: a copy standing exactly on it, invisible and inert. */
+.caret-mirror { position: fixed; left: 0; top: 0; margin: 0; box-sizing: border-box; border-style: solid; border-color: transparent;
+  transform-origin: 0 0; overflow: hidden; visibility: hidden; pointer-events: none; contain: strict; white-space: pre-wrap; }
+
+/* The code editor's primary caret is the drawn one (CodeEditor.tsx says where it is), so CodeMirror's
+   own steps aside while it is drawn; the cursors CodeMirror alone draws take the caret's colour
+   (code-theme.ts). */
+.cm-editor[data-rl-caret] .cm-cursor-primary { visibility: hidden; }
+
+/* A terminal's cursor. xterm's DOM renderer marks the cursor's cell — focused or not, blinking or not,
+   which of its three shapes — and leaves the mark off a cursor a program has hidden, so the cell IS
+   the cursor's place and the rest of the shape is drawn on it: a bar and an underline on its
+   `::before`, xterm's own paint taken off, and xterm's block in the caret's colours. xterm writes its
+   rules into the page after this sheet, scoped to a class of its own, so these carry one class more
+   than its and answer its `!important` with one. While a program holds a shape of its own
+   (`data-caret-program`, terminal-hub.ts) the refinements stand down and what it asked for is drawn
+   plainly. A blinking cursor moves as the caret does, or blinks plainly where the caret is Solid. */
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor:is(.xterm-cursor-bar, .xterm-cursor-underline) {
+  position: relative; z-index: 0; box-shadow: none !important; border-bottom-style: none !important; animation: none !important; }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor:is(.xterm-cursor-bar, .xterm-cursor-underline)::before {
+  content: ""; position: absolute; pointer-events: none; background: var(--caret); }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before { left: 0; top: 0; bottom: 0; width: 2px; }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-underline::before { left: 0; right: 0; bottom: 0; height: 2px; }
+.terminal-host[data-caret="line-thin"]:not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before { width: 1px; }
+.terminal-host:is([data-caret="pill"], [data-caret="beam"]):not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before {
+  width: 3px; border-radius: var(--r-pill); }
+.terminal-host[data-caret="beam"]:not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before {
+  background: linear-gradient(transparent, var(--caret) 24%, var(--caret) 76%, transparent); }
+.terminal-host:is([data-caret="block-soft"], [data-caret="block-outline"]):not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before {
+  right: 0; width: auto; border-radius: var(--r-sm); }
+/* Behind the character, which keeps its own colour: the cell is its own stacking context above. */
+.terminal-host[data-caret="block-soft"]:not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before {
+  z-index: -1; background: color-mix(in oklab, var(--caret) 34%, transparent); }
+.terminal-host[data-caret="block-outline"]:not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before {
+  background: none; box-shadow: inset 0 0 0 1px var(--caret); }
+.terminal-host[data-caret="underline-thin"]:not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-underline::before { height: 1px; }
+.terminal-host[data-caret] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block { background-color: var(--caret); color: var(--caret-ink); }
+.terminal-host[data-caret] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block:not(.xterm-cursor-blink) { background-color: var(--caret) !important; color: var(--caret-ink) !important; }
+.terminal-host[data-caret] .xterm .xterm-rows .xterm-cursor.xterm-cursor-outline { outline-color: var(--caret); }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink:is(.xterm-cursor-bar, .xterm-cursor-underline)::before { animation: var(--caret-motion); }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink.xterm-cursor-underline::before { animation: var(--caret-motion-x); }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink.xterm-cursor-block { animation: var(--caret-block) !important; }
+:root[data-caret-animation="solid"] .terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink:is(.xterm-cursor-bar, .xterm-cursor-underline)::before {
+  animation: rl-caret-blink var(--caret-tempo) step-end infinite; }
+:root[data-caret-animation="solid"] .terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink.xterm-cursor-block {
+  animation: rl-caret-block-blink var(--caret-tempo) step-end infinite !important; }
+/* An expanding block shrinks its fill toward the middle of the cell, the character back in its own
+   ink as the fill leaves it. */
+:root[data-caret-animation="expand"] .terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink.xterm-cursor-block {
+  background-color: transparent; background-image: linear-gradient(var(--caret), var(--caret)); background-repeat: no-repeat; background-position: center; }
+:root[data-caret-still] .terminal-host .xterm-cursor, :root[data-caret-still] .terminal-host .xterm-cursor::before { animation: none !important; }
+@keyframes rl-caret-block-blink { 50% { background-color: transparent; color: inherit; } }
+@keyframes rl-caret-block-smooth { 0%, 30% { background-color: var(--caret); color: var(--caret-ink); } 55%, 70% { background-color: transparent; color: inherit; } }
+@keyframes rl-caret-block-phase { 0%, 10% { background-color: var(--caret); color: var(--caret-ink); } 45%, 55% { background-color: transparent; color: inherit; } 90% { background-color: var(--caret); color: var(--caret-ink); } }
+@keyframes rl-caret-block-expand { 0%, 10% { background-size: 100% 100%; color: var(--caret-ink); } 45%, 55% { background-size: 100% 0%; color: inherit; } 90%, 100% { background-size: 100% 100%; color: var(--caret-ink); } }
+@keyframes rl-caret-block-pulse { 50% { background-color: color-mix(in oklab, var(--caret) 35%, transparent); } }
+
+/* Settings ▸ Appearance ▸ Cursor (CaretSettings.tsx). The tiles are the app icon picker's grammar at a
+   control's size — no fill until the pointer is on one, the 2px accent ring for the choice — and
+   change at once both ways, as any choice from a row of them does. Each draws its shape standing
+   before a letter, in the face the shape will stand in: the UI face, or a terminal's code face. */
+.caret-shapes { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; margin: 0; padding: 0; border: 0; }
+.caret-shape { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-panel); cursor: default; }
+.caret-shape:hover { background: var(--rl-hover); }
+.caret-shape[data-selected] { background: var(--rl-hover); box-shadow: inset 0 0 0 2px var(--rl-accent); }
+.caret-shape input { position: absolute; opacity: 0; pointer-events: none; }
+.caret-shape:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.caret-sample { font: var(--fw-medium) 15px/20px var(--font-ui); color: var(--rl-text-dim); white-space: pre; }
+.caret-shapes[data-mono] .caret-sample { font: 13px/20px var(--font-mono); }
+/* Untracked, as every surface in the code face is (the list at the top of this sheet says why). */
+.caret-shapes[data-mono] .caret-sample { letter-spacing: normal; }
+.caret-shape[data-selected] .caret-sample { color: var(--rl-text-bright); }
+.caret-sample-at { position: relative; border-radius: var(--r-sm); }
+.caret-sample-at:is([data-shape^="line"], [data-shape="pill"], [data-shape="beam"], [data-shape^="underline"])::before {
+  content: ""; position: absolute; background: var(--caret); }
+.caret-sample-at:is([data-shape^="line"], [data-shape="pill"], [data-shape="beam"])::before { top: 0; bottom: 0; left: -1px; width: 2px; }
+.caret-sample-at[data-shape="line-thin"]::before { left: 0; width: 1px; }
+.caret-sample-at:is([data-shape="pill"], [data-shape="beam"])::before { left: -1.5px; width: 3px; border-radius: var(--r-pill); }
+.caret-sample-at[data-shape="beam"]::before { background: linear-gradient(transparent, var(--caret) 24%, var(--caret) 76%, transparent); }
+.caret-sample-at[data-shape^="underline"]::before { left: 0; right: 0; bottom: 0; height: 2px; }
+.caret-sample-at[data-shape="underline-thin"]::before { height: 1px; }
+.caret-sample-at[data-shape="block"] { background: var(--caret); color: var(--caret-ink); }
+.caret-sample-at[data-shape="block-soft"] { background: color-mix(in oklab, var(--caret) 34%, transparent); }
+.caret-sample-at[data-shape="block-outline"] { box-shadow: inset 0 0 0 1px var(--caret); }
+/* The preview, in the prompter's own type, so the caret is tried where it is most often seen. */
+.caret-preview { display: block; width: 100%; box-sizing: border-box; margin: 0; padding: 10px 12px; resize: none;
+  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-ctl); background: var(--field); color: var(--rl-text-bright);
+  font: var(--fw-medium) 15px/1.55 var(--font-ui); }
+.caret-preview:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+
 /* ── The tooltip (v2) ───────────────────────────────────────────────────────
    One layer for the window (tooltips.ts): the `title` every control carries, in the app's own type a
    fifth of a second after the pointer arrives, where the system's grey box took a second and a half.
@@ -3414,7 +3565,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagents-compose { position: relative; display: flex; flex-direction: column; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface); }
 .subagents-compose:focus-within { box-shadow: 0 0 0 1px var(--line-strong); }
 .subagents-work { display: block; width: 100%; min-height: 64px; max-height: 220px; field-sizing: content; padding: 13px 16px 6px; border: none; outline: none; resize: none;
-  background: transparent; font: inherit; font-size: 14px; line-height: 20px; color: var(--ink); caret-color: var(--rl-accent); }
+  background: transparent; font: inherit; font-size: 14px; line-height: 20px; color: var(--ink); caret-color: var(--caret); }
 .subagents-work::placeholder { color: var(--ink-3); }
 .subagents-tasks { display: flex; flex-direction: column; gap: 4px; padding: 2px 12px 4px; }
 .subagents-task { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); align-items: center; gap: 10px; }
@@ -4169,7 +4320,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .composer-highlight { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
   font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px;
   white-space: pre-wrap; overflow-wrap: break-word; color: var(--rl-text-bright); }
-.composer-input { border: none; outline: none; resize: none; background: transparent; color: transparent; font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px; min-height: 44px; max-height: 186px; caret-color: var(--rl-accent); position: relative; z-index: 1; }
+.composer-input { border: none; outline: none; resize: none; background: transparent; color: transparent; font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px; min-height: 44px; max-height: 186px; caret-color: var(--caret); position: relative; z-index: 1; }
 /* The glyphs are the mirror's job. `-webkit-text-fill-color` is what actually hides them in Chromium;
    `color` alone still paints the text on some platforms. The placeholder has to opt back IN, since it
    has no mirror behind it — the mirror is empty in exactly the state the placeholder shows. */
@@ -5699,7 +5850,7 @@ select { appearance: none; padding-right: 22px;
   background: var(--surface); box-shadow: var(--shadow-card); }
 .commit-card:focus-within { box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-card); }
 .commit-message { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright);
-  font: inherit; font-size: 14px; line-height: 1.5; padding: 12px 14px 4px; caret-color: var(--rl-accent); }
+  font: inherit; font-size: 14px; line-height: 1.5; padding: 12px 14px 4px; caret-color: var(--caret); }
 .commit-message::placeholder { color: var(--rl-text-faint); }
 .diff-commit-bar { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 8px 8px; }
 .diff-staged-count { flex: 1; min-width: 0; padding-left: 6px; font-size: 12px; color: var(--rl-text-faint);

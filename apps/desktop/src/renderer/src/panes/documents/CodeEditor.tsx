@@ -8,10 +8,31 @@ import {
   highlightSpecialChars, keymap, lineNumbers, rectangularSelection,
 } from "@codemirror/view";
 import { EDITOR_CURSOR_BLINK_RATE } from "@realm/contracts";
+import { caretMoved, registerCaretSource } from "../../caret";
+import type { CaretSpot } from "../../caret-geometry";
 import { codeLanguageFor, type CodeLanguage } from "./code-languages";
 import { loadCodeMode } from "./code-modes";
 import { realmCodeTheme } from "./code-theme";
 import { useScrollMemory } from "../scroll-memory";
+
+/**
+ * Where CodeMirror's primary caret is: the head of the main selection, from CodeMirror's own layout,
+ * on the side of a soft wrap CodeMirror itself draws it (the range's `assoc`), and the character after
+ * it for a block to cover. Nothing while the selection is a range — the platform hides its caret then
+ * too.
+ */
+function codeMirrorCaret(view: EditorView): CaretSpot | null {
+  const sel = view.state.selection.main;
+  if (!sel.empty) return null;
+  const at = view.coordsAtPos(sel.head, sel.assoc || 1);
+  if (!at) return null;
+  const pair = view.state.sliceDoc(sel.head, sel.head + 2);
+  const next = (pair.codePointAt(0) ?? 0) > 0xffff ? pair : pair.slice(0, 1);
+  const glyph = next === "\n" ? "" : next;
+  const end = glyph ? view.coordsAtPos(sel.head + glyph.length, -1) : null;
+  const width = end && Math.abs(end.top - at.top) < 1 ? end.left - at.left : view.defaultCharacterWidth;
+  return { x: at.left, top: at.top, height: at.bottom - at.top, glyph, glyphWidth: width };
+}
 
 /**
  * The source editor for a `code` document (CodeMirror 6).
@@ -42,7 +63,8 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
   revealLine?: number | null;
   /** Where the reader was in this file, across the unmount a space switch causes (scroll-memory.ts). */
   scrollKey?: string | null;
-  /** Whether the caret pulses. CodeMirror draws its own, so unlike the prompter's it can be told. */
+  /** Whether the cursors CodeMirror still draws itself — a second selection's — blink. The primary
+   *  caret is the app's, and moves as Settings ▸ Appearance ▸ Cursor says. */
   blinkCaret?: boolean;
 }) {
   const host = useRef<HTMLDivElement | null>(null);
@@ -121,6 +143,8 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
           ]),
           perFile.current.of(perFileConfig.current),
           realmCodeTheme(),
+          // The app's caret stands where CodeMirror says its own is, so it is told whenever that moves.
+          EditorView.updateListener.of((u) => { if (u.selectionSet || u.docChanged || u.geometryChanged) caretMoved(); }),
           EditorView.updateListener.of((u) => {
             if (!u.docChanged) return;
             const next = u.state.doc.toString();
@@ -131,6 +155,9 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
       }),
     });
     view.current = v;
+    /* CodeMirror lays out its own lines, so it says where its caret is rather than being mirrored, and
+       its own primary cursor steps aside while the app's is drawn there (`.cm-editor[data-rl-caret]`). */
+    const offCaret = registerCaretSource(v.contentDOM, { host: v.dom, measure: () => codeMirrorCaret(v) });
     /* The scroller is CodeMirror's own element, not one React rendered, so the hook cannot be
        attached as a ref and is called by hand. Its ref-callback cleanup is real (it removes the
        scroll listener and the settle loop) and is simply not in the hook's `void` return type. */
@@ -138,6 +165,7 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
     return () => {
       // `void` in the hook's return type, a real cleanup at runtime — checked rather than cast twice.
       if (typeof detach === "function") detach();
+      offCaret();
       v.destroy();
       view.current = null;
       lastEmitted.current = null;

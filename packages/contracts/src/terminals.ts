@@ -1,3 +1,5 @@
+import { isCaretShape, type CaretShape } from "./caret";
+
 /**
  * Terminal scrollback: whether Realm keeps what your shells printed, across a restart.
  *
@@ -23,32 +25,35 @@ export const TERMINALS_HISTORY_COPY = {
  * Whether a terminal's cursor blinks.
  *
  * On by default, because a blinking block is what every terminal emulator on this Mac draws and it
- * is how you find the caret in a wall of output. It is also the one piece of the app that animates
- * forever, which is exactly why it needs a switch: a blink in the corner of the eye is the kind of
- * motion that stops being information and starts being a distraction, and design.md's reduced-motion
- * rule cannot help here — this is xterm's own timer, not a CSS animation.
+ * is how you find the cursor in a wall of output. HOW it blinks is the app's caret animation
+ * (Appearance ▸ Cursor, `caret.ts`), so a terminal fades where the prompter fades — and where that
+ * animation is Solid this switch still means what it says, a plain blink: someone who wants the caret
+ * they type with to hold still may well want the one marking a shell's output to blink.
  *
- * Scope is honest and narrow: the TERMINAL's cursor. The prompter's caret is the platform's, and
- * Chromium exposes no way to stop it blinking until `caret-animation` lands (139; this app ships on
- * 138), so a switch claiming to cover it would be a switch that lies about half of what it names.
+ * The blink is a CSS animation on the cell xterm's DOM renderer marks as the cursor, so Reduce motion
+ * and Low power hold it still along with everything else in the window.
  */
 export const TERMINALS_CURSOR_BLINK_KEY = "terminals.cursorBlink";
 export const TERMINALS_CURSOR_BLINK_DEFAULT = true;
 
 export const TERMINALS_CURSOR_BLINK_COPY = {
   label: "Blink the terminal cursor",
-  detail: "The block cursor in a terminal pane pulses so it is findable in a screen of output. Turn it off for a cursor that sits still.",
+  detail: "With the animation above, or a plain blink where that is Solid.",
 } as const;
 
 /**
- * What shape a terminal's cursor is.
+ * What shape a terminal's cursor is: any caret shape, its own choice rather than the text caret's.
  *
- * The three every terminal emulator offers, and the three xterm draws. A block is the default
- * because it is what a TUI is drawn against — a full-cell cursor is the one that reads correctly on
- * top of a character — while a bar is what someone coming from an editor expects, and an underline
- * is the one that never hides the glyph it is standing on.
+ * A block is the default because it is what a TUI is drawn against — a full-cell cursor is the one
+ * that reads correctly on top of a character — while a line is what someone coming from an editor
+ * expects, and an underline is the one that never hides the glyph it is standing on.
  *
- * Its own setting rather than a mode of the blink: a bar that does not blink and a blinking block
+ * xterm draws three shapes itself, and `TerminalCursorStyle` is its word for them: the hub hands
+ * xterm the nearest of the three and the stylesheet draws the rest of the shape on the cell xterm
+ * marks. A program may ask for one of the three too (DECSCUSR), and has it until it asks for the
+ * default back — which is this setting again, not xterm's blinking block.
+ *
+ * Its own setting rather than a mode of the blink: a line that does not blink and a blinking block
  * are both things people ask for, and folding them into one control would make half the pairs
  * unreachable.
  */
@@ -56,15 +61,16 @@ export const TERMINAL_CURSOR_STYLES = ["block", "bar", "underline"] as const;
 export type TerminalCursorStyle = (typeof TERMINAL_CURSOR_STYLES)[number];
 
 export const TERMINALS_CURSOR_STYLE_KEY = "terminals.cursorStyle";
-export const TERMINALS_CURSOR_STYLE_DEFAULT: TerminalCursorStyle = "block";
+export const TERMINALS_CURSOR_STYLE_DEFAULT: CaretShape = "block";
 
-export const isTerminalCursorStyle = (x: unknown): x is TerminalCursorStyle =>
-  typeof x === "string" && (TERMINAL_CURSOR_STYLES as readonly string[]).includes(x);
+/** The stored shape. The key held xterm's three words before it held a caret shape, and two of them
+ *  are shapes already; the third, `bar`, is xterm's name for a line. Anything else is the default. */
+export function terminalCaretShape(raw: unknown): CaretShape {
+  if (raw === "bar") return "line";
+  return isCaretShape(raw) ? raw : TERMINALS_CURSOR_STYLE_DEFAULT;
+}
 
-export const TERMINALS_CURSOR_STYLE_COPY = {
-  label: "Terminal cursor",
-  options: { block: "Block", bar: "Bar", underline: "Underline" },
-} as const;
+export const TERMINALS_CURSOR_STYLE_COPY = { label: "Terminal cursor" } as const;
 
 /**
  * Which side of a session pane its terminal (⌘J) opens on.

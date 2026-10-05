@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CARET_ANIMATIONS, CARET_COPY, CARET_DEFAULT, CARET_SHAPES, parseCaretPrefs, terminalCaretShape } from "./caret";
+import { CARET_ANIMATIONS, CARET_COPY, CARET_DEFAULT, CARET_SHAPES, parseCaretPrefs } from "./caret";
+import { terminalCaretShape } from "./terminals";
 
 describe("parseCaretPrefs", () => {
   it("is the default for a home that has never said anything", () => {

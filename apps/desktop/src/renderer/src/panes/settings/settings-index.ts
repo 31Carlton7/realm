@@ -1,6 +1,6 @@
 import type { IconName } from "@realm/ui";
 import {
-  AGENT_META, EDITOR_CURSOR_BLINK_COPY, KEY_COMMANDS, NOTIFICATION_CATEGORIES, SELECTABLE_AGENT_KINDS,
+  AGENT_META, CARET_COPY, KEY_COMMANDS, NOTIFICATION_CATEGORIES, SELECTABLE_AGENT_KINDS,
   TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_STYLE_COPY, TERMINALS_HISTORY_COPY, type NotificationCategory,
 } from "@realm/contracts";
 
@@ -90,8 +90,6 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "sidebar-activity-order", tab: "general", section: "Sidebar", label: "Sort spaces by activity", terms: "order drag strip" },
   { id: "confirm-delete", tab: "general", section: "Deleting", label: "Ask before deleting", terms: "confirm delete trash" },
   { id: "terminal-history", tab: "general", section: "Terminals", label: TERMINALS_HISTORY_COPY.label, terms: "output history restart" },
-  { id: "terminal-cursor-blink", tab: "general", section: "Terminals", label: TERMINALS_CURSOR_BLINK_COPY.label, terms: "caret" },
-  { id: "terminal-cursor-style", tab: "general", section: "Terminals", label: TERMINALS_CURSOR_STYLE_COPY.label, terms: "caret block bar underline shape" },
   { id: "terminal-dock", tab: "general", section: "Terminals", label: "Session terminal", terms: "bottom right position dock place shell" },
   { id: "updates", tab: "general", section: "Updates", label: "Check for updates", terms: "version restart install" },
   { id: "prevent-sleep", tab: "general", section: "Power", label: "Keep the Mac awake while agents work", terms: "sleep caffeinate battery idle" },
@@ -116,8 +114,14 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "line-height", tab: "appearance", section: "Text", label: "Line height", terms: "leading spacing" },
   { id: "code-font", tab: "appearance", section: "Text", label: "Code font", terms: "monospace typeface family" },
   { id: "code-font-size", tab: "appearance", section: "Text", label: "Code font size", terms: "text bigger smaller larger terminal px" },
-  { id: "editor-caret-blink", tab: "appearance", section: "Text", label: EDITOR_CURSOR_BLINK_COPY.label, terms: "cursor" },
   { id: "font-library", tab: "appearance", section: "Text", label: "Add a font from Google Fonts", terms: "download install typeface family" },
+  { id: "caret-preview", tab: "appearance", section: "Cursor", label: "Try the cursor", terms: "caret preview type field" },
+  { id: "caret-shape", tab: "appearance", section: "Cursor", label: CARET_COPY.shape.label, terms: "caret line thin pill beam block outline underline prompter field editor" },
+  { id: "caret-animation", tab: "appearance", section: "Cursor", label: CARET_COPY.animation.label, terms: "caret blink smooth fade phase expand pulse solid still rest" },
+  { id: "caret-glide", tab: "appearance", section: "Cursor", label: CARET_COPY.glide.label, terms: "caret smooth movement slide" },
+  { id: "caret-colour", tab: "appearance", section: "Cursor", label: CARET_COPY.colour.label, terms: "caret color accent ink" },
+  { id: "terminal-cursor-style", tab: "appearance", section: "Cursor", label: TERMINALS_CURSOR_STYLE_COPY.label, terms: "terminals caret block bar line underline shape" },
+  { id: "terminal-cursor-blink", tab: "appearance", section: "Cursor", label: TERMINALS_CURSOR_BLINK_COPY.label, terms: "terminals caret" },
 
   // Keys: every command a chord can be bound to, under the group the page lists it in.
   { id: "keys", tab: "keys", label: "Shortcuts", terms: "keyboard keybindings hotkeys chord" },

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE } from "@realm/ui";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, EDITOR_CURSOR_BLINK_COPY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS, GENERATED_CREDENTIAL_NOTE, type BrowserCredential } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, CARET_COPY, CARET_KEY, CARET_SHAPES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS, GENERATED_CREDENTIAL_NOTE, type BrowserCredential } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, macRow, notification, profile, space, type FakeData } from "../../state/store.test-fakes";
@@ -1347,45 +1347,52 @@ describe("terminal scrollback", () => {
     expect(api.calls).toContain("setSetting:ui.confirmDelete=false");
   });
 
-  it("offers the three cursor shapes every terminal has, as their own control", async () => {
-    /* THE folded-control mutant: one list of Block / Bar / Underline / Off. A bar that holds still
-       and a block that pulses are both things people ask for, and half the pairs become unreachable. */
-    const { store, api } = await mount();
-    fireEvent.click(screen.getByRole("radio", { name: "General" }));
-    const sel = screen.getByRole("combobox", { name: "Terminal cursor" }) as HTMLSelectElement;
-    expect(sel.value).toBe("block");
-    expect(Array.from(sel.options).map((o) => o.value)).toEqual(["block", "bar", "underline"]);
-    // The blink is still its own switch beside it.
-    expect(screen.getByRole("switch", { name: TERMINALS_CURSOR_BLINK_COPY.label })).toBeInTheDocument();
-
-    fireEvent.change(sel, { target: { value: "bar" } });
-    await waitFor(() => expect(store.getState().terminalCursorStyle).toBe("bar"));
-    expect(api.calls).toContain("setSetting:terminals.cursorStyle=bar");
-  });
-
-  it("gives the code editor's caret its own switch, and says why the prompter's is not in it", async () => {
-    /* VS Code splits `editor.cursorBlinking` from `terminal.integrated.cursorBlinking`, and so does
-       this: the two carets are in different places doing different jobs. THE MUTANT: one switch for
-       both, which is a switch that lies about half of what it names — and a third of what a reader
-       would assume, since the prompter's caret is Chromium's and cannot be told at all on 138. */
+  it("gives a terminal every caret shape as its own control, beside its own blink, in Appearance ▸ Cursor", async () => {
+    /* THE folded-control mutant: one list of shapes for the text caret and a terminal's cursor both. A
+       block is what a full-screen program is drawn against and a line is what an editor trains you to
+       look for, and someone wanting both is why a terminal has a control of its own. */
     const { store, api } = await mount();
     fireEvent.click(screen.getByRole("radio", { name: "Appearance" }));
-    const sw = screen.getByRole("switch", { name: EDITOR_CURSOR_BLINK_COPY.label });
-    expect(sw).toBeChecked();
-    expect(screen.getByText(/prompter's caret is the system's/)).toBeInTheDocument();
+    const terminal = within(screen.getByRole("group", { name: "Terminal cursor" }));
+    expect(terminal.getAllByRole("radio")).toHaveLength(CARET_SHAPES.length);
+    expect(terminal.getByRole("radio", { name: "Block" })).toBeChecked();
+    expect(within(screen.getByRole("group", { name: "Cursor shape" })).getByRole("radio", { name: "Line" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: TERMINALS_CURSOR_BLINK_COPY.label })).toBeInTheDocument();
 
-    fireEvent.click(sw);
-    await waitFor(() => expect(store.getState().editorCursorBlink).toBe(false));
-    expect(api.calls).toContain("setSetting:editor.cursorBlink=false");
+    fireEvent.click(terminal.getByRole("radio", { name: "Pill" }));
+    await waitFor(() => expect(store.getState().terminalCursorStyle).toBe("pill"));
+    expect(api.calls).toContain("setSetting:terminals.cursorStyle=pill");
+    expect(store.getState().caret.shape).toBe("line");
+    // Nothing about a cursor is left on General, where the terminal's two rows used to be.
+    fireEvent.click(screen.getByRole("radio", { name: "General" }));
+    expect(screen.queryByRole("group", { name: "Terminal cursor" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: TERMINALS_CURSOR_BLINK_COPY.label })).toBeNull();
   });
 
-  it("the cursor blinks until you say otherwise, and the switch says which cursor", async () => {
-    /* The one thing in the app that animates forever, and there was no way to stop it. Defaulted ON
-       because that is what every terminal on this Mac draws — and named for the TERMINAL's cursor,
-       because the prompter's caret is the platform's and Chromium cannot be told to hold it still
-       until `caret-animation` (139; this app is on 138). A switch that claimed both would lie. */
+  it("keeps the caret's shape, animation, glide and colour as one stored preference, with no second switch over it", async () => {
+    /* THE in-memory mutant: the tiles move the caret on screen and nothing is written, so the next
+       launch is back to a blinking line. THE leftover mutant: the code editor's old blink switch still
+       on the page — a second control over a caret that is now this one, doing nothing. */
     const { store, api } = await mount();
-    fireEvent.click(screen.getByRole("radio", { name: "General" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Appearance" }));
+    expect(screen.queryByRole("switch", { name: /editor caret/i })).toBeNull();
+    fireEvent.click(within(screen.getByRole("group", { name: "Cursor shape" })).getByRole("radio", { name: "Outline block" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Cursor animation" }), { target: { value: "smooth" } });
+    fireEvent.click(screen.getByRole("switch", { name: CARET_COPY.glide.label }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Cursor colour" })).getByRole("radio", { name: "Text" }));
+    const chosen = { shape: "block-outline", animation: "smooth", glide: true, colour: "text" };
+    await waitFor(() => expect(store.getState().caret).toEqual(chosen));
+    expect(api.data.settings[CARET_KEY]).toEqual(chosen);
+    const again = createAppStore(api);
+    await again.getState().boot();
+    expect(again.getState().caret).toEqual(chosen);
+  });
+
+  it("the terminal's cursor blinks until you say otherwise, and the switch says which cursor", async () => {
+    /* The one thing a terminal animates forever. Defaulted ON because that is what every terminal on
+       this Mac draws, and named for the TERMINAL's cursor: the caret everywhere else is the row above. */
+    const { store, api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "Appearance" }));
     const sw = screen.getByRole("switch", { name: TERMINALS_CURSOR_BLINK_COPY.label });
     expect(sw).toBeChecked();
 

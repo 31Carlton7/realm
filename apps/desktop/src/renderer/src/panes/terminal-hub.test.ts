@@ -49,8 +49,11 @@ const settled = () => new Promise<void>((r) => setTimeout(r, 0));
 
 function fakeTerm() {
   const writes: string[] = []; let dataFn: ((d: string) => void) | null = null; let disposed = false; let opened: HTMLElement | null = null;
-  const term: TerminalLike & { writes: string[]; typed(d: string): void; disposed(): boolean; openedIn(): HTMLElement | null } = {
-    cols: 80, rows: 24, writes, options: { fontFamily: "start" },
+  /** The CSI handlers registered on it, by their final byte — what a program's escape would reach. */
+  const csi = new Map<string, (params: (number | number[])[]) => boolean>();
+  const term: TerminalLike & { writes: string[]; csi: typeof csi; typed(d: string): void; disposed(): boolean; openedIn(): HTMLElement | null } = {
+    cols: 80, rows: 24, writes, csi, options: { fontFamily: "start" },
+    parser: { registerCsiHandler: (id, fn) => { csi.set(`${id.intermediates ?? ""}${id.final}`, fn); return { dispose() { csi.delete(`${id.intermediates ?? ""}${id.final}`); } }; } },
     open: (el) => { opened = el; }, write: (d) => { writes.push(d); }, dispose: () => { disposed = true; }, focus: () => {},
     onData: (fn) => { dataFn = fn; return { dispose() { dataFn = null; } }; },
     onResize: () => ({ dispose() {} }),
@@ -385,10 +388,10 @@ describe("the code face reaches a terminal that is already open", () => {
 
   it("pushes the cursor's SHAPE the same way, and keeps it independent of the blink", () => {
     /* THE folded-control mutant lives in Settings, but its consequence would land here: a shape and
-       a blink that could not disagree. A bar that holds still is a pair somebody wants. */
+       a blink that could not disagree. A line that holds still is a pair somebody wants. */
     const { hub, terms } = setup();
     hub.acquire("a");
-    hub.setCursorStyle("bar");
+    hub.setCursorStyle("line");
     hub.setCursorBlink(false);
     expect(terms.map((t) => t.options!.cursorStyle)).toEqual(["bar"]);
     expect(terms.map((t) => t.options!.cursorBlink)).toEqual([false]);
@@ -398,6 +401,53 @@ describe("the code face reaches a terminal that is already open", () => {
     hub.acquire("b");
     expect(terms.at(-1)!.options!.cursorStyle).toBe("bar");
     expect(terms.at(-1)!.options!.cursorBlink).toBe(false);
+  });
+
+  it("hands xterm the nearest of its three shapes and the stylesheet the shape itself", () => {
+    /* THE nearest-only mutant: tell xterm "bar" and stop there, and a pill, a beam, a soft block and an
+       outline all come out as the same two-pixel line. The host carries the shape so the stylesheet can
+       draw the rest of it on the cell xterm marks. A soft block and an outline are a BAR to xterm, the
+       one of its three that leaves the character under it in its own colour. */
+    const { hub, terms } = setup();
+    const a = hub.acquire("a");
+    const seen = (shape: Parameters<typeof hub.setCursorStyle>[0]) => {
+      hub.setCursorStyle(shape);
+      return [terms[0]!.options!.cursorStyle, terms[0]!.options!.cursorWidth, a.host.dataset.caret];
+    };
+    expect(seen("pill")).toEqual(["bar", 3, "pill"]);
+    expect(seen("line-thin")).toEqual(["bar", 1, "line-thin"]);
+    expect(seen("block-soft")).toEqual(["bar", 1, "block-soft"]);
+    expect(seen("block-outline")).toEqual(["bar", 1, "block-outline"]);
+    expect(seen("block")).toEqual(["block", 1, "block"]);
+    expect(seen("underline-thin")).toEqual(["underline", 1, "underline-thin"]);
+    // And a terminal opened after the change starts out marked, not only the ones already open.
+    hub.setCursorStyle("beam");
+    expect(hub.acquire("b").host.dataset.caret).toBe("beam");
+    expect(terms[1]!.options!.cursorWidth).toBe(3);
+  });
+
+  it("lets a program set its own cursor, and gives back the setting when it asks for the default", () => {
+    /* xterm writes a program's DECSCUSR over the preference, and its answer to "the default" (0) is a
+       blinking block — so a vim that tidies up on exit left every terminal a blinking block, whatever
+       Settings said. THE xterm-default mutant: return false for 0, and xterm's block comes back. */
+    const { hub, terms } = setup();
+    const container = document.createElement("div"); document.body.appendChild(container);
+    const e = hub.acquire("a");
+    e.attach(container);
+    hub.setCursorStyle("pill");
+    hub.setCursorBlink(false);
+    const decscusr = terms[0]!.csi.get(" q")!;
+    expect(decscusr).toBeTypeOf("function");
+
+    // A bar asked for: xterm applies it (the handler declines), and the stylesheet draws it plainly.
+    expect(decscusr([6])).toBe(false);
+    expect(e.host.dataset.caretProgram).toBe("");
+    // xterm would now have written its own answer over ours — say so, then ask for the default back.
+    Object.assign(terms[0]!.options!, { cursorStyle: "block", cursorBlink: true });
+    expect(decscusr([0])).toBe(true);
+    expect([terms[0]!.options!.cursorStyle, terms[0]!.options!.cursorWidth, terms[0]!.options!.cursorBlink]).toEqual(["bar", 3, false]);
+    expect(e.host.dataset.caretProgram).toBeUndefined();
+    container.remove();
   });
 
   it("pushes a changed face into every live terminal and re-fits the opened ones", () => {
