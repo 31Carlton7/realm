@@ -120,7 +120,7 @@ export function delegatedChildIds(b: ToolBlock): string[] {
  *  screen leaves nothing to be beside, so the child opens beside the focused pane; a child this
  *  window holds no item for (another space) is revealed. One way in, for the control and for the
  *  call's own rows, because it is one object. */
-function useOpenChild(): (childId: string) => void {
+export function useOpenChild(): (childId: string) => void {
   const items = useApp((s) => s.items);
   const sessions = useApp((s) => s.sessions);
   const openInSidePane = useApp((s) => s.openInSidePane);

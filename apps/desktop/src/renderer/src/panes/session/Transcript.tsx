@@ -12,6 +12,7 @@ import { sourcesFor, type Source } from "./message-sources";
 import { PendingRequest } from "./PendingRequest";
 import { PlanCard } from "./PlanCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
+import { LeadSessionContext } from "./DelegationLine";
 import { finishedAt, finishedOn, formatDuration, groupTranscript, withEnter } from "./tool-group";
 import { blockKey, lastUserMessage, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { useDissolve } from "../../components/ScrollFades";
@@ -128,8 +129,10 @@ function UserAttachments({ attachments }: { attachments: readonly { path: string
  * strip that appeared, changed and disappeared as the sentence completed would be worse than one
  * that waits for the full stop.
  */
-function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetry, retryBusy, rating, onRate, onPath, sources = NO_SOURCES }: {
+function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetry, retryBusy, rating, onRate, onPath, onImplementWith, sources = NO_SOURCES }: {
   text: string; streaming: boolean; enter: boolean; cwd: string | null;
+  /** Hand this answer to other models as the work to build — see `Transcript`'s prop. */
+  onImplementWith?: (text: string) => void;
   /** A file path in the prose was clicked. Absent in the read-only mounts, which leave paths as
    *  plain text rather than drawing a control that opens nothing. */
   onPath?: (path: string, at: HTMLElement) => void;
@@ -151,7 +154,8 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
       data-state={streaming ? "streaming" : "complete"} aria-busy={streaming}>
       <Markdown className="msg-assistant" text={text} cite={cite} onPath={onPath} arrive />
       <MediaStrip files={files} />
-      {actions && !streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate} />}
+      {actions && !streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate}
+        onImplementWith={onImplementWith && (() => onImplementWith(text))} />}
       {!streaming && sources.length > 0 && <MessageSources sources={sources} />}
     </div>
   );
@@ -160,8 +164,14 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, onExpandPlan, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, onQuote }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
+  /** The session this log is — what a sub-agent's line links back to (its row in this session's
+   *  Agents tab). Null in the read-only mounts, where the line reads and links nowhere. */
+  sessionId?: string | null;
+  /** Hand a plan, or an answer, to other models: the Agents tab, opened with it. Absent in the
+   *  read-only mounts, which draw no button for it rather than a dead one. */
+  onImplementWith?: (text: string) => void;
   /** Ask the last user message again. Offered on the newest assistant message only: "retry" names
    *  the turn that just finished, and a button on message three of forty would silently act on
    *  message forty instead. Absent in the read-only mounts the suite and the fork preview use. */
@@ -357,6 +367,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
           asserted (see `selection-bar-live.mjs`). */}
       <SelectionBar scrollRef={ref} wrapRef={wrap} onQuote={onQuote} />
       <div className="transcript" ref={ref} onScroll={onScroll} role="log" aria-live="polite" aria-label="Transcript">
+        <LeadSessionContext.Provider value={sessionId}>
         <div className="transcript-col">
         {groupTranscript(transcript.blocks).map((it) => {
           if (it.kind === "group")
@@ -386,7 +397,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                   : b.text && <UserText text={b.text} mentionIds={mentionIds} />}
               </div>);
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
-              actions={settled && key === lastAssistantKey} onPath={onPath}
+              actions={settled && key === lastAssistantKey} onPath={onPath} onImplementWith={onImplementWith}
               onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy}
               rating={transcript.feedback[b.messageId] ?? null}
               onRate={onRate && ((r) => onRate(b.messageId, r))}
@@ -394,7 +405,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter}
-              onExpand={onExpandPlan && (() => onExpandPlan(b.planId))} />;
+              onExpand={onExpandPlan && (() => onExpandPlan(b.planId))} onImplementWith={onImplementWith} />;
             // A failure Realm knows the answer to says the answer here, under the message, because
             // this is where the reader is already looking. The command is offered to copy and
             // nothing more: the transcript is content, and the controls that act on this session —
@@ -477,6 +488,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             to count. */}
         <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} written={transcript.summary?.text ?? null} />
         </div>
+        </LeadSessionContext.Provider>
       </div>
       {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={12} /> New messages</button>}
     </div>

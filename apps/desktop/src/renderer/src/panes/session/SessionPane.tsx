@@ -122,6 +122,7 @@ function useSessionActions(item: Item): BarAction[] {
   });
   const summaryLive = useSummaryLive(item);
   const openDocuments = useApp((s) => s.openDocuments);
+  const openAgentsTab = useApp((s) => s.openAgentsTab);
   const newBrowser = useApp((s) => s.newBrowser);
   const newMachine = useApp((s) => s.newMachine);
   const newSimulator = useApp((s) => s.newSimulator);
@@ -159,6 +160,13 @@ function useSessionActions(item: Item): BarAction[] {
          home. */
       onSelect: () => run(() => openDocuments(environmentId, null, { sessionId: id })),
     });
+    /* This session's sub-agents and the composer that hands them work — a tab of the side pane like
+       the documents before it, because what is in it is this session's and nobody else's. */
+    list.push({
+      id: "agents", label: "Agents", title: "Sub-agents", icon: "agents",
+      aria: `Open the sub-agents of ${item.title}`,
+      onSelect: () => run(() => openAgentsTab(id)),
+    });
     /* The last three take no precondition and are always offered, on one reasoning: each opens a
        PLACE YOU GO rather than a view of this session's checkout, so gating any of them on an
        environment would be gating it on something it has nothing to do with. The simulator in
@@ -181,7 +189,7 @@ function useSessionActions(item: Item): BarAction[] {
       onSelect: () => run(() => newSimulator(null, { sessionId: id })),
     });
     return list;
-  }, [id, item.title, dock, terminalDock, environmentId, summaryLive, toggleSessionDock, showSessionTerminal, openDocuments, newBrowser, newMachine, newSimulator, run]);
+  }, [id, item.title, dock, terminalDock, environmentId, summaryLive, toggleSessionDock, showSessionTerminal, openDocuments, openAgentsTab, newBrowser, newMachine, newSimulator, run]);
 }
 
 /**
@@ -288,6 +296,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const respondPermission = useApp((s) => s.respondPermission);
   const setParkedPermission = useApp((s) => s.setParkedPermission);
   const openSheet = useApp((s) => s.openSheet);
+  const openAgentsTabFor = useApp((s) => s.openAgentsTab);
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const setSessionAgent = useApp((s) => s.setSessionAgent);
   const setSessionMode = useApp((s) => s.setSessionMode);
@@ -596,6 +605,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
+        // A plan, or an answer, handed to other models: this session's Agents tab, with it as the work.
+        onImplementWith={peek ? undefined : (text) => run(() => openAgentsTabFor(id, { plan: text }))}
+        sessionId={id}
         mode={sessionModeOf(session.permissionMode)}
         eggs={easterEggs} packLabels={packLabels}
         onPath={(p, at) => setPathMenu({ path: p, at })}

@@ -8,6 +8,7 @@ import { ToolInputBody, ToolResultBody } from "./rich/ToolViews";
 import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolMediaPath, toolResultView } from "./rich/tool-view";
 import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
 import { ChildSessions, delegatedChildIds } from "./DelegatedRuns";
+import { DelegationLine, isDelegationLine } from "./DelegationLine";
 import { useElapsed } from "./use-elapsed";
 
 type ToolState = "running" | "ok" | "error" | "none";
@@ -83,6 +84,14 @@ function expand(e: ReactMouseEvent<HTMLButtonElement>, next: boolean): boolean {
   return next;
 }
 
+type ToolCardProps = {
+  block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean;
+  /** The calls a sub-agent made under this one (`groupTranscript`). Empty for every card but a
+   *  Task/Agent one whose child did some work — and empty via `withEnter`'s shared array, which is
+   *  what keeps the memo above holding for the other 299 cards. */
+  nested?: readonly ToolStep[];
+};
+
 /** A tool call the agent made: BUI ThinkingState's coding-row shape (Plan 9 W2) — a leading status
  *  glyph whose spinner→muted-check progression is the block's REAL settled state (result present),
  *  never a clock; the tool name; the target as a mono chip (ToolChips' chip language); measured
@@ -92,14 +101,18 @@ function expand(e: ReactMouseEvent<HTMLButtonElement>, next: boolean): boolean {
  *  the block ARRAY on each update but keeps every settled block's object, so a card whose call has
  *  landed compares equal on all four props and is skipped — a 300-call transcript stops re-deriving
  *  300 summaries and edit stats behind an assistant message that is still typing. `enter` is stable
- *  for a key's whole life (transcript-enter.ts), so memoizing cannot strand a card mid-animation. */
-export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = false, nested }: {
-  block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean;
-  /** The calls a sub-agent made under this one (`groupTranscript`). Empty for every card but a
-   *  Task/Agent one whose child did some work — and empty via `withEnter`'s shared array, which is
-   *  what keeps the memo above holding for the other 299 cards. */
-  nested?: readonly ToolStep[];
-}) {
+ *  for a key's whole life (transcript-enter.ts), so memoizing cannot strand a card mid-animation.
+ *
+ *  A call that starts a Realm sub-agent is drawn as its line instead (DelegationLine) — a different
+ *  component rather than a branch inside this one, because a call can turn from one into the other
+ *  when a refusal lands, and the two hold different hooks. */
+export const ToolCard = memo(function ToolCard(props: ToolCardProps) {
+  return isDelegationLine(props.block)
+    ? <DelegationLine block={props.block} sessionStatus={props.sessionStatus} enter={props.enter} />
+    : <ToolCardBody {...props} />;
+});
+
+function ToolCardBody({ block, sessionStatus, enter = false, nested }: ToolCardProps) {
   const [open, setOpen] = useState(false);
   const everOpened = useRef(false);
   everOpened.current ||= open;
@@ -177,7 +190,7 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
       </div>
     </div>
   );
-});
+}
 
 /** The collapsed row's duration (Ara refresh §4: `Worked for <duration> ›`). While the run is still
  *  working it ticks live off the group's own first timestamp; once settled it freezes on the ledger's
