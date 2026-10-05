@@ -163,12 +163,20 @@ export function isSecretPath(path: string): boolean {
  * drives says so — that road is straighter than reading a window and clicking it — when the CLI's
  * skill is there to say how (`macSkill`).
  */
-export function mentionRefContext(refs: readonly MentionRef[], opts: { macSkill?: string | null } = {}): string {
+export function mentionRefContext(refs: readonly MentionRef[], opts: {
+  macSkill?: string | null;
+  /** Files that are not on disk any more, so were not attached — said, rather than left to fail. */
+  missing?: ReadonlySet<string>;
+  /** Files withheld because they exist to hold a secret (`isSecretPath`). */
+  withheld?: ReadonlySet<string>;
+} = {}): string {
   const files = refs.filter((r) => r.kind === "file" || r.kind === "library");
   const apps = refs.filter((r): r is Extract<MentionRef, { kind: "app" }> => r.kind === "app");
+  const note = (path: string) => opts.withheld?.has(path) ? " (not attached: Realm does not hand over files that hold secrets)"
+    : opts.missing?.has(path) ? " (not on disk any more, so not attached)" : "";
   let out = "";
   if (files.length > 0) {
-    out += `\n\nFiles the user mentioned, one per chip above:\n${files.map((r) => `  ${elementChipToken(r.label)} — ${r.path}`).join("\n")}\n`;
+    out += `\n\nFiles the user mentioned, one per chip above:\n${files.map((r) => `  ${elementChipToken(r.label)} — ${r.path}${note(r.path)}`).join("\n")}\n`;
   }
   if (apps.length > 0) {
     out += `\n\nMac apps the user mentioned, one per chip above:\n${apps.map((r) => `  ${elementChipToken(r.label)} — ${r.name}, ${r.bundleId}`).join("\n")}\n`

@@ -63,6 +63,7 @@ import { createMachineAgentProvider } from "./machines/agent-tools";
 import { createSimulatorAgentProvider } from "./simulators/agent-tools";
 import { MachineAllowlist } from "./machines/allowlist";
 import { ComputerAppAllowlist } from "./computer/allowlist";
+import { ComputerSessionGrants } from "./computer/session-grants";
 import { BrowserAgentService, createRealmAgentProvider, REALM_AGENT_PROVIDER_NAME } from "./browsers/browser-agent";
 import { DelegationEngine } from "./delegation/engine";
 import { announceDelegation } from "./delegation/announce";
@@ -102,6 +103,7 @@ import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, fakeStandIn, type
 import { GitInfoService } from "./workspace/git-info";
 import { GitDiffService } from "./workspace/git-diff";
 import { ProjectSearchService } from "./workspace/grep";
+import { MentionFiles } from "./workspace/mention-files";
 import { GitWriteService } from "./workspace/git-write";
 import { PortAllocator } from "./workspace/ports";
 import { WorktreeService } from "./workspace/worktrees";
@@ -749,6 +751,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
   const computerAllowlist = new ComputerAppAllowlist({ settings });
+  /* Computer use a mention gave one session (`@Messages`), for that app and no other. Written by the
+     session service when the message is delivered, read by the computer provider on every list and
+     call, and gone with the session or the process. */
+  const computerGrants = new ComputerSessionGrants();
   /* Laya in shadow: asked about every computer, device and page step, heard by nobody,
      and logged beside what actually happened (docs/superpowers/specs/2026-09-29-laya-local-decisions.md).
      The service owns the runtime and the log; the shadow is the observer the acting tools report to. */
@@ -848,7 +854,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     queued: (sessionId) => sessions.queuedFor(sessionId).length > 0,
     log: (line) => console.log(line),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, titleGenerator: opts.titleGenerator, summaries, planLimits, documents, goals,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, summaries, planLimits, documents, goals,
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
@@ -935,7 +941,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
   // The one provider a space has to switch ON: it reaches every app on the Mac.
-  mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist, observe: layaShadow.observe, assist: layaAssist }));
+  mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist, grants: computerGrants, observe: layaShadow.observe, assist: layaAssist }));
   /* The `realm-terminal` provider: a pty an agent can type into and read back. On by default, and
      the reasoning is the blast radius — every harness already has a shell tool, so this adds no
      ability to run commands that was not there. What it adds is a terminal that TALKS BACK, which is
@@ -1075,9 +1081,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   } });
   // Two shell-outs for two labels: asked for together so boot waits once, not twice.
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
+  // One searcher for ⌘P and the `@` list's Files, so the two read a checkout the same way.
+  const projectSearch = new ProjectSearchService();
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch: new ProjectSearchService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock

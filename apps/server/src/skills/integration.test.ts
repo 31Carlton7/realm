@@ -268,15 +268,17 @@ describe("@-mention resolution at send (W4)", () => {
     c.close();
   });
 
+  // These three name `notes` rather than `mac`: `@mac` is @Mac, which an unresolvable mention hands
+  // over by its instructions instead (sessions/mention-refs.test.ts) — every OTHER skill degrades.
   it("a skill disabled between typing and sending degrades to plain text without the @ — never a resolution, never a literal @name", async () => {
     const { c, sp, home, claude } = await boot();
-    skill(join(home, "skills"), "mac");
+    skill(join(home, "skills"), "notes");
     skill(join(home, "skills"), "other"); // keeps the library non-empty, so the session still starts injected
-    await c.call("skills.setEnabled", { spaceId: sp.id, id: "mac", enabled: false });
+    await c.call("skills.setEnabled", { spaceId: sp.id, id: "notes", enabled: false });
     const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude" })).result;
-    await send(c, session.id, "@mac go", ["mac"]);
+    await send(c, session.id, "@notes go", ["notes"]);
     await waitFor(() => claude.sent.length === 1);
-    expect(claude.sent[0]).toEqual({ text: "mac go", attachments: [] });
+    expect(claude.sent[0]).toEqual({ text: "notes go", attachments: [] });
     c.close();
   });
 
@@ -307,11 +309,11 @@ describe("@-mention resolution at send (W4)", () => {
 
   it("never resolves for an agent with no skills route: a Cursor session strips the @ and sends no skill", async () => {
     const { c, sp, home, cursor } = await boot();
-    skill(join(home, "skills"), "mac");
+    skill(join(home, "skills"), "notes");
     const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "acp:cursor" })).result;
-    await send(c, session.id, "@mac go", ["mac"]);
+    await send(c, session.id, "@notes go", ["notes"]);
     await waitFor(() => cursor.sent.length === 1);
-    expect(cursor.sent[0]).toEqual({ text: "mac go", attachments: [] });
+    expect(cursor.sent[0]).toEqual({ text: "notes go", attachments: [] });
     c.close();
   });
 
@@ -321,10 +323,10 @@ describe("@-mention resolution at send (W4)", () => {
     await send(c, session.id, "go", []); // adapter starts with an empty library: no injection
     await waitFor(() => claude.sent.length === 1);
     expect(claude.starts[0]!.skills).toBeUndefined();
-    skill(join(home, "skills"), "mac"); // enabled-by-default, but this live handle never saw it
-    await send(c, session.id, "@mac go", ["mac"]);
+    skill(join(home, "skills"), "notes"); // enabled-by-default, but this live handle never saw it
+    await send(c, session.id, "@notes go", ["notes"]);
     await waitFor(() => claude.sent.length === 2);
-    expect(claude.sent[1]).toEqual({ text: "mac go", attachments: [] });
+    expect(claude.sent[1]).toEqual({ text: "notes go", attachments: [] });
     c.close();
   });
 });

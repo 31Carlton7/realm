@@ -13,6 +13,10 @@ import type { McpService } from "./service";
 
 const SUMMARY_MAX = 200;
 const truncate = (s: string): string => (s.length > SUMMARY_MAX ? s.slice(0, SUMMARY_MAX) : s);
+/** How long `refreshTools` waits for a session's agent to read its tool list again. Long enough for
+ *  a client that honours `tools/list_changed` to round-trip on this Mac; short enough that one that
+ *  ignores it costs a pause the first time, never a hang. */
+const RELIST_WAIT_MS = 1_500;
 
 /** Who is calling a provider tool — the gateway's own session attribution, handed through so a
  *  provider can raise `permission_request` on the RIGHT session and scope policy per space. */
@@ -109,6 +113,8 @@ export class McpGateway {
   /** Reverse index for auth: bearer token → session id. Kept in lockstep with `sessions` by `register`/
    *  `release` — never written anywhere else. */
   private readonly tokenToSession = new Map<string, string>();
+  /** Who is waiting for a session's next `tools/list` — see `refreshTools`. */
+  private readonly relistWaiters = new Map<string, Set<() => void>>();
 
   constructor(private readonly d: {
     hub: McpHub; mcp: McpService; sessions: SessionsStore; calls: McpCallLogStore; rpc: RpcServer; servers: McpServersStore;
@@ -252,6 +258,32 @@ export class McpGateway {
     for (const entry of this.sessions.values()) {
       if (entry.spaceId === spaceId) void entry.server?.sendToolListChanged().catch(() => {});
     }
+  }
+
+  /**
+   * One session's tool list changed under it — a mention granted it computer use for an app — so
+   * tell its agent, and resolve once the agent has listed again (or `RELIST_WAIT_MS` has passed).
+   *
+   * Waited on because the change and the message that caused it arrive together: the turn that
+   * message starts must not be planned against the list from before it. A session whose agent has
+   * not connected yet resolves at once — its first list will be read fresh.
+   */
+  async refreshTools(sessionId: string, timeoutMs: number = RELIST_WAIT_MS): Promise<void> {
+    const server = this.sessions.get(sessionId)?.server;
+    if (!server) return;
+    await new Promise<void>((resolve) => {
+      const waiters = this.relistWaiters.get(sessionId) ?? new Set<() => void>();
+      this.relistWaiters.set(sessionId, waiters);
+      const done = () => {
+        clearTimeout(timer);
+        waiters.delete(done);
+        if (waiters.size === 0 && this.relistWaiters.get(sessionId) === waiters) this.relistWaiters.delete(sessionId);
+        resolve();
+      };
+      const timer = setTimeout(done, timeoutMs);
+      waiters.add(done);
+      void server.sendToolListChanged().catch(done);
+    });
   }
 
   /** The hub's own signal that a cached tool list changed (a `tools/list_changed` from upstream, or a
@@ -425,7 +457,7 @@ export class McpGateway {
         return tools.map((t): Tool => ({ ...t, name: `${p.name}__${t.name}` }));
       } catch { return []; }
     }));
-    if (Array.isArray(toolset)) return { tools: perProvider.flat() };
+    if (Array.isArray(toolset)) { this.relisted(sessionId); return { tools: perProvider.flat() }; }
     const perServer = await Promise.all(this.d.mcp.effectiveServerIds(spaceId).map(async (id): Promise<Tool[]> => {
       const row = this.d.servers.get(id);
       if (!row) return [];
@@ -435,7 +467,13 @@ export class McpGateway {
       const visible = allowed ? tools.filter((t) => allowed.includes(t.name)) : tools;
       return visible.map((t): Tool => ({ name: `${row.name}__${t.name}`, description: t.description, inputSchema: t.inputSchema ?? { type: "object" } }));
     }));
+    this.relisted(sessionId);
     return { tools: [...perProvider.flat(), ...perServer.flat()] };
+  }
+
+  /** A session just read its tool list: whoever `refreshTools` left waiting for that can go on. */
+  private relisted(sessionId: string): void {
+    for (const done of [...(this.relistWaiters.get(sessionId) ?? [])]) done();
   }
 
   /**

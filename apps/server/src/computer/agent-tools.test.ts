@@ -27,6 +27,8 @@ function setup(over: {
   allowed?: string[];
   observe?: ActObserver;
   assist?: LayaAssist;
+  /** The apps the user mentioned, per session — computer use for those in a space that is off. */
+  grants?: Record<string, { bundleId: string; name: string }[]>;
 } = {}) {
   const allowed = new Set(over.allowed ?? []);
   const added: { spaceId: string; bundleId: string }[] = [];
@@ -58,6 +60,7 @@ function setup(over: {
     },
     ...(over.observe ? { observe: over.observe } : {}),
     ...(over.assist ? { assist: over.assist } : {}),
+    ...(over.grants ? { grants: { apps: (sessionId: string) => over.grants![sessionId] ?? [] } } : {}),
   });
   return { provider, gates, ops, added };
 }
@@ -90,6 +93,67 @@ describe("realm-computer provider", () => {
   it("rejects an unknown tool by name", async () => {
     const { provider } = setup();
     expect(text(await provider.call(ctx, "computer_explode", {}))).toMatch(/unknown tool/);
+  });
+});
+
+/**
+ * A mention's door: `@TextEdit` in a message, in a space that never switched computer use on. What
+ * must die: the tools appearing for a session nobody mentioned an app in, a snapshot of an app the
+ * user did not name (it READS that app's window), an act on one, and the mention standing in for the
+ * card — the gate must still be asked, under the same per-app key, with the same options.
+ */
+describe("computer use granted by a mention", () => {
+  const TEXTEDIT = [{ bundleId: "com.apple.TextEdit", name: "TextEdit" }];
+  const MAIL_SNAPSHOT = { ...SNAPSHOT, snapshotId: "ax_mail", bundleId: "com.apple.mail", appName: "Mail" };
+
+  it("offers the tools to the mentioning session and to no other in the space", async () => {
+    const { provider } = setup({ enabled: false, grants: { s1: TEXTEDIT } });
+    expect((await provider.tools(ctx)).map((t) => t.name)).toEqual(["computer_list_apps", "computer_snapshot", "computer_act", "computer_do"]);
+    expect(await provider.tools({ sessionId: "s2", spaceId: "sp1" })).toEqual([]);
+    expect(text(await provider.call({ sessionId: "s2", spaceId: "sp1" }, "computer_snapshot", { bundleId: "com.apple.TextEdit" }))).toMatch(/off for this space/);
+  });
+
+  it("reads and drives the mentioned app, through the same card as ever", async () => {
+    const s = setup({ enabled: false, grants: { s1: TEXTEDIT }, ops: { computerSnapshot: SNAPSHOT, computerAct: { ok: true, detail: "clicked" } } });
+    const r = await snapshotThenAct(s, { kind: "click", index: 0 });
+    expect(r.isError).toBe(false);
+    // THE bypass mutant: a mention that skipped the card. Same key, still asked under bypass.
+    expect(s.gates).toHaveLength(1);
+    expect(s.gates[0]!.toolKey).toBe("computer_act:com.apple.TextEdit");
+    expect(s.gates[0]!.opts?.promptUnderBypass).toBe(true);
+  });
+
+  it("refuses to snapshot an app nobody mentioned, or whatever is frontmost, before the helper reads it", async () => {
+    const s = setup({ enabled: false, grants: { s1: TEXTEDIT }, ops: { computerSnapshot: MAIL_SNAPSHOT } });
+    const mail = await s.provider.call(ctx, "computer_snapshot", { bundleId: "com.apple.mail" });
+    expect(mail.isError).toBe(true);
+    expect(text(mail)).toMatch(/only for the apps the user mentioned — TextEdit \(com\.apple\.TextEdit\)/);
+    expect(text(await s.provider.call(ctx, "computer_snapshot", {}))).toMatch(/Name one of them by bundleId/);
+    // THE read-first mutant: refusing after the snapshot came back would already have read the window.
+    expect(s.ops.filter((o) => o.op === "computerSnapshot")).toEqual([]);
+  });
+
+  it("refuses a walk in an app nobody mentioned before any snapshot or card", async () => {
+    const s = setup({ enabled: false, grants: { s1: TEXTEDIT }, ops: { computerSnapshot: MAIL_SNAPSHOT } });
+    const r = await s.provider.call(ctx, "computer_do", { bundleId: "com.apple.mail", intent: "send it", path: ["Send"] });
+    expect(text(r)).toMatch(/That one was not mentioned/);
+    expect(s.ops).toEqual([]);
+    expect(s.gates).toEqual([]);
+  });
+
+  it("lists only the mentioned apps among what is running", async () => {
+    const { provider } = setup({ enabled: false, grants: { s1: TEXTEDIT }, ops: { computerListApps: { accessibility: true, screenRecording: true, apps: [
+      { pid: 1, bundleId: "com.apple.mail", name: "Mail", frontmost: true, hidden: false },
+      { pid: 2, bundleId: "com.apple.TextEdit", name: "TextEdit", frontmost: false, hidden: false },
+    ] } } });
+    const out = text(await provider.call(ctx, "computer_list_apps", {}));
+    expect(out).toContain("com.apple.TextEdit — TextEdit");
+    expect(out).not.toContain("com.apple.mail");
+  });
+
+  it("leaves a space that switched computer use on exactly as it was", async () => {
+    const s = setup({ enabled: true, grants: { s1: TEXTEDIT }, ops: { computerSnapshot: MAIL_SNAPSHOT } });
+    expect((await s.provider.call(ctx, "computer_snapshot", { bundleId: "com.apple.mail" })).isError).toBe(false);
   });
 });
 
