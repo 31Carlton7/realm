@@ -39,6 +39,24 @@ const SURFACES = [
     file: "apps/desktop/src/renderer/src/panes/session/Composer.tsx",
     on: "bypass-confirm",
   },
+  /* The three that start paid work in the user's name: an agent pressing them could hand work to
+     other models nobody asked for. Opening the Agents tab with a plan is the first step of that, so
+     its two doors are guarded as well as the send that completes it. */
+  {
+    what: "the Agents tab's Build with composer",
+    file: "apps/desktop/src/renderer/src/panes/agents-tab/AgentsTab.tsx",
+    on: 'className="subagents-compose"',
+  },
+  {
+    what: "a plan's Implement with…",
+    file: "apps/desktop/src/renderer/src/panes/session/PlanCard.tsx",
+    on: "plan-implement-with",
+  },
+  {
+    what: "an answer's Implement with…",
+    file: "apps/desktop/src/renderer/src/panes/session/MessageActions.tsx",
+    on: "msg-implement-with",
+  },
 ];
 
 describe("surfaces no agent may act in", () => {
