@@ -122,10 +122,12 @@ function charBox(root: Node, n: number, backwards = false): CharBox | null {
 
 export type CaretLayer = { configure(prefs: CaretPrefs): void; uninstall(): void };
 
-/** Why a frame is drawn. A MOVE is the caret going somewhere — it may glide there, and it restarts
- *  the blink so the caret is visible where it lands. A PLACE is anything else — focus, a scroll, a
- *  resize — and puts it there at once. FOLLOW is a frame spent following a field that is moving. */
-const MOVE = 1, PLACE = 2, FOLLOW = 4;
+/** Why a frame is drawn. A MOVE is the caret going somewhere — it may glide there, and it restarts the
+ *  blink so the caret is visible where it lands. A PLACE is anything that may have moved the field —
+ *  focus, a resize, an animation on something that holds it — and if the field did move, the caret is
+ *  put where it now is at once. A SCROLL moves the text under a caret whose field stays put, so nothing
+ *  glides through one either. FOLLOW is a frame spent following a field that is moving. */
+const MOVE = 1, PLACE = 2, FOLLOW = 4, SCROLL = 8;
 /** How many frames a moving field is followed for at most, and how many it must hold still for. */
 const FOLLOW_MAX = 90, FOLLOW_QUIET = 3;
 
@@ -169,6 +171,9 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
   let pointerY: number | null = null;
   let clippers: Element[] = [];
   let shownIn: HTMLElement | null = null;
+  /** Where the field was when the caret was last drawn in it, to tell a caret moving through the text
+   *  from a field moving under it. */
+  let shownAt = "";
   let raf = 0, why = 0, following = 0, quiet = 0, lastKey = "";
   const ro = typeof win.ResizeObserver === "function" ? new win.ResizeObserver(() => schedule(PLACE)) : null;
   const motion = win.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
@@ -316,8 +321,21 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
     glyph.textContent = spot.glyph;
   };
 
-  /** Restart the blink, so a caret that has just moved is visible where it landed. */
-  const restart = () => { for (const a of caret.getAnimations?.() ?? []) a.currentTime = 0; };
+  /**
+   * Restart the blink, so a caret that has just moved is visible where it landed: the running animation
+   * rewound, which costs nothing. One that has run its course (Blink, then rest) is gone — Blink cancels
+   * a CSS animation that finishes — so the stylesheet is asked for it again instead, across one read of
+   * the caret's own box, which the layer's containment keeps to the caret.
+   */
+  const restart = () => {
+    if (!caret.getAnimations) return;
+    const live = caret.getAnimations().filter((a) => "animationName" in a);
+    if (live.length > 0) { for (const a of live) a.currentTime = 0; return; }
+    if (win.getComputedStyle(caret).animationName === "none") return;
+    caret.style.animationName = "none";
+    void caret.offsetWidth;
+    caret.style.animationName = "";
+  };
 
   const draw = (reason: number): string => {
     const target = resolve();
@@ -337,8 +355,9 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
     const area = visibleArea(target);
     const cx = box.left + box.width / 2, cy = box.top + box.height / 2;
     if (!area || !contains(area, cx, cy) || covered(target, cx, cy)) { hide(); return key; }
-    // A glide is for the caret moving through the text; anything that moved the field puts it there.
-    const glide = drawnCaret(prefs, still).glide && reason === MOVE && shownIn === target;
+    // A glide is the caret moving through the text, in a field that has not moved under it.
+    const glide = drawnCaret(prefs, still).glide && (reason & MOVE) !== 0 && (reason & SCROLL) === 0
+      && shownIn === target && shownAt === key;
     caret.toggleAttribute("data-glide", glide);
     clip.style.transform = `translate(${area.left}px, ${area.top}px)`;
     clip.style.width = `${area.width}px`;
@@ -350,6 +369,7 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
     if (!layer.hasAttribute("data-shown")) layer.setAttribute("data-shown", "");
     else if (reason & MOVE) restart();
     shownIn = target;
+    shownAt = key;
     return key;
   };
 
@@ -397,6 +417,11 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
   const onFocus = () => { syncMark(); schedule(PLACE); };
   const onCompose = (e: CompositionEvent) => { composing = e.type !== "compositionend"; syncMark(); schedule(PLACE); };
   const onPlace = () => schedule(PLACE);
+  /** A scroll that carries the field: the page's, or a scroller holding it — not the transcript's beside it. */
+  const onScroll = (e: Event) => {
+    const t = e.target;
+    if (field && (t === doc || (t instanceof win.Element && t.contains(field)))) schedule(PLACE | SCROLL);
+  };
   /** An animation or transition on something that holds the field, which may carry it with it. */
   const onMotion = (e: Event) => {
     const t = e.target;
@@ -417,7 +442,7 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
   doc.addEventListener("compositionstart", onCompose, capture);
   doc.addEventListener("compositionupdate", onCompose, capture);
   doc.addEventListener("compositionend", onCompose, capture);
-  doc.addEventListener("scroll", onPlace, capture);
+  doc.addEventListener("scroll", onScroll, capture);
   for (const type of ["transitionrun", "transitionend", "animationstart", "animationend"]) doc.addEventListener(type, onMotion, capture);
   win.addEventListener("resize", onPlace);
   win.addEventListener("focus", onFocus);
@@ -445,7 +470,7 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
       doc.removeEventListener("compositionstart", onCompose, capture);
       doc.removeEventListener("compositionupdate", onCompose, capture);
       doc.removeEventListener("compositionend", onCompose, capture);
-      doc.removeEventListener("scroll", onPlace, capture);
+      doc.removeEventListener("scroll", onScroll, capture);
       for (const type of ["transitionrun", "transitionend", "animationstart", "animationend"]) doc.removeEventListener(type, onMotion, capture);
       win.removeEventListener("resize", onPlace);
       win.removeEventListener("focus", onFocus);

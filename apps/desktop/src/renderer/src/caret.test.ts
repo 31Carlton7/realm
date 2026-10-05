@@ -320,6 +320,24 @@ describe("where it is drawn", () => {
     expect(drawn().glide).toBe(false);
   });
 
+  it("still glides when something that does not move the field lands in the same frame", () => {
+    /* Measured in the real window: a focus ring finishing on the prompter (an animationend on the field
+       itself) arrived in the frame of the next arrow key, and THE any-placement mutant took the glide
+       away for a field that had not moved a pixel. Only the field moving, or a scroll, may do that. */
+    stubGeometry();
+    install({ glide: true });
+    const input = boxed(field("<input>")) as HTMLInputElement;
+    input.value = "abcdef";
+    input.focus();
+    input.setSelectionRange(1, 1);
+    flush();
+    input.setSelectionRange(3, 3);
+    document.dispatchEvent(new Event("selectionchange"));
+    input.dispatchEvent(new Event("animationend", { bubbles: true }));
+    flush();
+    expect(drawn()).toMatchObject({ shown: true, glide: true, left: 123 });
+  });
+
   it("does not glide under reduced motion, which a glide is", () => {
     vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), media: q, addEventListener() {}, removeEventListener() {} }));
     stubGeometry();

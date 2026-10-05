@@ -2642,10 +2642,11 @@ button.panel-title:hover { background: var(--rl-hover); }
    all while the drawn one stands in for it. */
 input, textarea, [contenteditable] { caret-color: var(--caret); }
 :is(input, textarea, [contenteditable])[data-rl-caret] { caret-color: transparent; }
-/* Over the sheets, the palette and quick chat, whose fields it is drawn in; under the toasts, the
-   popovers and the tooltip, which float over a field — and anything else drawn over the caret's spot
-   hides it (caret.ts asks the window what is there). */
-.caret-layer { position: fixed; inset: 0; z-index: 80; pointer-events: none; overflow: hidden; contain: strict; }
+/* Over every layer that can hold a field — a sheet, the palette, quick chat, a popover's search — since
+   a field drawn over the caret would hide it from the person typing in it. What floats over a field
+   hides its caret the other way: caret.ts asks the window what is at the caret's spot, and draws
+   nothing under a toast, a menu or a sheet that covers it. */
+.caret-layer { position: fixed; inset: 0; z-index: 130; pointer-events: none; overflow: hidden; contain: strict; }
 .caret-layer:not([data-shown]) { display: none; }
 .caret-clip { position: absolute; left: 0; top: 0; overflow: hidden; }
 .caret-layer .caret { position: absolute; left: 0; top: 0; background: var(--caret); animation: var(--caret-motion); }
