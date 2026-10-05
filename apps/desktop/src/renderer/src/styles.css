@@ -609,6 +609,14 @@ kbd { font: 11px var(--font-mono); }
    (`data-first-leaf`, PaneHost) or a page's — starts its own content past the lights, back, forward
    and the toggle. On the column's own timing, so its title travels with the edge rather than jumping
    to where it will end up at the click. */
+/* ── The side panes' toggle (SidePaneToggle), at the window's top right ──
+   Codex's panel toggle: window chrome on the top row's far end, its bar's own 12px in, lit while the
+   side panes are out. The bar under it — whichever pane is at the window's top right — leaves it room
+   (`data-top-right`, PaneHost), and the bar's action budget follows, since it measures the bar's
+   content box. Above the panes' bars in the document, so its button wins their drag regions. */
+.window-trail { position: fixed; z-index: 36; top: 0; right: 12px; height: var(--frame-top); display: flex; align-items: center; }
+.window-trail button { -webkit-app-region: no-drag; }
+.panel[data-top-right] > .panel-bar { padding-right: calc(12px + 28px + 6px); }
 .panel[data-first-leaf] > .panel-bar, .page-overlay-bar { transition: padding-left var(--dur-move) var(--ease-in-out-strong); }
 .app[data-sidebar-collapsed] .panel[data-first-leaf] > .panel-bar, .app[data-sidebar-collapsed] .page-overlay-bar {
   padding-left: calc(var(--lead-end) - var(--rail-w)); }

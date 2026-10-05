@@ -4,6 +4,7 @@ import { bannerFor, type DaemonUiState } from "./components/daemon-banner";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { Rail } from "./components/sidebar/Rail";
 import { WindowLead } from "./components/sidebar/WindowLead";
+import { SidePaneToggle } from "./components/SidePaneToggle";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { NewProfileSheet } from "./components/profiles/NewProfileSheet";
 import { ProfileWindowBridge } from "./components/profiles/ProfileWindowBridge";
@@ -80,6 +81,7 @@ export function AppShell() {
       <main className="main"><Main /><PageOverlay /></main>
       {/* After the panes: see WindowLead on why document order is what keeps its buttons clickable. */}
       <WindowLead folded={folded} />
+      <SidePaneToggle />
     </div>
   );
 }
@@ -358,6 +360,7 @@ export function Main() {
   const resizeSplit = useApp((s) => s.resizeSplit);
   const equalizeSplit = useApp((s) => s.equalizeSplit);
   const zoomedLeafId = useApp((s) => s.view?.zoomedLeafId ?? null);
+  const sidePanesHidden = useApp((s) => s.sidePanesHidden);
   const focusPaneFull = useApp((s) => s.focusPaneFull);
   const unfocusPane = useApp((s) => s.unfocusPane);
   const run = useApp((s) => s.run);
@@ -374,7 +377,7 @@ export function Main() {
     <>
       <ErrorBar />
       <PaneHost layout={layout ?? emptyLayout()} items={items} focusedLeafId={focusedLeafId}
-        zoomedLeafId={zoomedLeafId}
+        zoomedLeafId={zoomedLeafId} sidePanesHidden={sidePanesHidden}
         onZoom={(leafId) => run(() => focusPaneFull(leafId))}
         onUnzoom={() => run(() => unfocusPane())}
         onFocus={focusLeaf}
