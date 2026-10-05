@@ -106,6 +106,17 @@ describe("reads are held, and Refresh reads again", () => {
 });
 
 describe("searching", () => {
+  it("asks GitHub for each section's own requests — the team's without those asked of me by name, so none is listed twice", async () => {
+    const { gh, rpc } = await boot();
+    for (const section of ["authored", "review", "team"]) await rpc.call("codeReview.list", { section });
+    const queries = ghCalls(gh, (a) => a[1] === "graphql").map((c) => c.args.find((a) => a.startsWith("q="))?.slice(2));
+    expect(queries).toEqual([
+      "is:pr is:open archived:false author:@me sort:updated-desc",
+      "is:pr is:open archived:false user-review-requested:@me sort:updated-desc",
+      "is:pr is:open archived:false review-requested:@me -user-review-requested:@me sort:updated-desc",
+    ]);
+  });
+
   it("searches the requests I am part of for plain words, and takes GitHub's qualifiers as typed", () => {
     expect(searchQuery("tokenizer")).toBe("is:pr archived:false involves:@me sort:updated-desc tokenizer");
     expect(searchQuery("repo:acme/widgets parser")).toBe("is:pr repo:acme/widgets parser");
