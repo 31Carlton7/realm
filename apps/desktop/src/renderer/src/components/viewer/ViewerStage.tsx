@@ -3,7 +3,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Pointer
 import { basenameOf, isPlayablePath, mediaUrl } from "@realm/contracts";
 import { MediaFrame } from "../../panes/session/media/MediaView";
 import { useMediaFile } from "../../panes/session/media/use-media";
-import type { ViewerFile } from "../../state/viewer";
+import { useApp } from "../../state/store";
+import type { Mark, ViewerFile } from "../../state/viewer";
+import { MARK_SCREEN_WIDTH, pointsAttr } from "./markup";
 import { MAX_ZOOM, MIN_ZOOM, anchoredScroll, clampZoom, scaleOf, stepZoom, zoomLabel, type Size, type Zoom } from "./zoom";
 
 /** A key the viewer may take only when nobody is typing: a field, the scrubber, a menu's list keep it. */
@@ -36,7 +38,7 @@ export function ViewerStage({ file, gone, version, onBackdrop }: {
   const v = version === null ? "" : `?v=${version}`;
   if (gone) return <StageNote onBackdrop={onBackdrop}>This file is no longer on disk.</StageNote>;
   if (media === undefined) return <div className="media-viewer-stage" onClick={onBackdrop} />;
-  if (media?.kind === "image") return <ZoomPicture key={file.path} src={mediaUrl(media.path) + v} alt={name} onBackdrop={onBackdrop} />;
+  if (media?.kind === "image") return <ZoomPicture key={file.path} src={mediaUrl(media.path) + v} alt={name} onBackdrop={onBackdrop} markPath={file.path} />;
   if (media) {
     return (
       <div className="media-viewer-stage" onClick={(e) => { if (e.target === e.currentTarget) onBackdrop(); }}>
@@ -79,15 +81,21 @@ function DocumentPicture({ path, name, version, onBackdrop }: { path: string; na
       </StageNote>
     );
   }
-  return <ZoomPicture key={`${path}:${version ?? ""}`} src={still} alt={`Preview of ${name}`} onBackdrop={onBackdrop} page />;
+  return <ZoomPicture key={`${path}:${version ?? ""}`} src={still} alt={`Preview of ${name}`} onBackdrop={onBackdrop} page markPath={path} />;
 }
 
 /**
  * A picture that fits the window, never above its own size, and zooms: the − and + under it, ⌘ or a
  * pinch with the wheel round the pointer, a double-click between fit and actual size, and the keys
  * every image viewer has (+, −, 0). Past the window it pans — by scrolling, or by dragging it.
+ *
+ * And it takes marks, Codex's Markup: with the pen down a drag draws on the picture, in the picture's
+ * own pixels so a mark stays where it was put at any zoom, and the next question carries a copy of
+ * the file with the marks on it (`markup.ts`). `markPath` is the file the marks are of.
  */
-function ZoomPicture({ src, alt, onBackdrop, page = false }: { src: string; alt: string; onBackdrop: () => void; page?: boolean }) {
+function ZoomPicture({ src, alt, onBackdrop, page = false, markPath = null }: {
+  src: string; alt: string; onBackdrop: () => void; page?: boolean; markPath?: string | null;
+}) {
   const scroller = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<Size>({ w: 0, h: 0 });
   const [natural, setNatural] = useState<Size | null>(null);
@@ -155,6 +163,49 @@ function ZoomPicture({ src, alt, onBackdrop, page = false }: { src: string; alt:
   const w = natural ? Math.round(natural.w * scale) : 0;
   const h = natural ? Math.round(natural.h * scale) : 0;
   const pans = natural !== null && (w > box.w + 1 || h > box.h + 1);
+
+  const marking = useApp((s) => (markPath && s.viewer?.marking?.path === markPath ? s.viewer.marking : null));
+  const setViewerMarks = useApp((s) => s.setViewerMarks);
+  const drawing = marking?.drawing ?? false;
+  /** The line under the pen, kept here until it is lifted: a store write per pointer move would
+   *  re-render the whole viewer, prompter and exchange included, sixty times a second. */
+  const [stroke, setStroke] = useState<Mark | null>(null);
+  const frame = useRef<HTMLDivElement>(null);
+  const onImage = (e: ReactPointerEvent): [number, number] => {
+    const r = frame.current!.getBoundingClientRect();
+    return [Math.round(((e.clientX - r.left) / scale) * 10) / 10, Math.round(((e.clientY - r.top) / scale) * 10) / 10];
+  };
+  const pen = drawing ? {
+    onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      e.stopPropagation(); e.preventDefault();
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* jsdom */ }
+      setStroke({ points: [onImage(e)], width: Math.round((MARK_SCREEN_WIDTH / scale) * 10) / 10 });
+    },
+    onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!stroke) return;
+      e.stopPropagation();
+      const p = onImage(e), last = stroke.points[stroke.points.length - 1]!;
+      // A point per two screen pixels is a smooth line; one per event is thousands of them.
+      if (Math.hypot(p[0] - last[0], p[1] - last[1]) * scale < 2) return;
+      setStroke({ ...stroke, points: [...stroke.points, p] });
+    },
+    onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!stroke || !marking) return;
+      e.stopPropagation();
+      setViewerMarks({ ...marking, marks: [...marking.marks, stroke] });
+      setStroke(null);
+    },
+    // A click on the picture while drawing is a dot, never a reason to close what was drawn on.
+    onClick: (e: React.MouseEvent) => e.stopPropagation(),
+  } : {};
+  const togglePen = () => {
+    if (!markPath || !natural) return;
+    if (!marking) setViewerMarks({ path: markPath, natural, marks: [], drawing: true });
+    else if (!drawing) setViewerMarks({ ...marking, drawing: true });
+    // The pen put away with nothing drawn is no marking at all.
+    else setViewerMarks(marking.marks.length > 0 ? { ...marking, drawing: false } : null);
+  };
   /* Dragging pans a picture bigger than the window. A press that never moved is a click, which on the
      ground around the picture closes the viewer and on the picture does nothing. */
   const drag = useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(null);
@@ -174,26 +225,37 @@ function ZoomPicture({ src, alt, onBackdrop, page = false }: { src: string; alt:
   const onClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const moved = drag.current?.moved ?? false;
     drag.current = null;
-    if (!moved && !(e.target instanceof HTMLImageElement)) onBackdrop();
+    // Marks on the picture are work, and a stray click on the ground beside it must not take them.
+    if (!moved && !(e.target instanceof HTMLImageElement) && !marking?.marks.length) onBackdrop();
   };
 
   if (failed) return <StageNote onBackdrop={onBackdrop}>This picture could not be read.</StageNote>;
   return (
     <div className="media-viewer-stage media-viewer-picture" data-page={page || undefined}>
-      <div ref={scroller} className="media-viewer-canvas" data-pans={pans || undefined}
+      <div ref={scroller} className="media-viewer-canvas" data-pans={pans || undefined} data-drawing={drawing || undefined}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onClick={onClick}
         onDoubleClick={(e) => {
-          if (!(e.target instanceof HTMLImageElement)) return;
+          if (drawing || !(e.target instanceof HTMLImageElement)) return;
           const r = e.currentTarget.getBoundingClientRect();
           zoomTo(zoom === "fit" ? 1 : "fit", { x: e.clientX - r.left, y: e.clientY - r.top });
         }}>
         <div className="media-viewer-canvas-inner" style={natural ? { width: Math.max(box.w, w), height: Math.max(box.h, h) } : undefined}>
           {/* Sized from its own pixels once they are known, and held back until then: before its load a
               picture has no size to fit, and a frame of it at full size would flash past. */}
-          <img className="media-viewer-img" src={src} alt={alt} draggable={false}
-            style={natural ? { width: w, height: h, maxWidth: "none", maxHeight: "none" } : { visibility: "hidden" }}
-            onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-            onError={() => setFailed(true)} />
+          <div ref={frame} className="media-viewer-frame" {...pen}>
+            <img className="media-viewer-img" src={src} alt={alt} draggable={false}
+              style={natural ? { width: w, height: h, maxWidth: "none", maxHeight: "none" } : { visibility: "hidden" }}
+              onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+              onError={() => setFailed(true)} />
+            {/* The marks, in the picture's own pixels, laid over it at whatever size it is shown. */}
+            {natural && marking && (
+              <svg className="media-viewer-marks" viewBox={`0 0 ${natural.w} ${natural.h}`} style={{ width: w, height: h }} aria-hidden="true">
+                {[...marking.marks, ...(stroke ? [stroke] : [])].map((m, i) => (
+                  <polyline key={i} points={pointsAttr(m.points.length > 1 ? m : { ...m, points: [m.points[0]!, m.points[0]!] })} strokeWidth={m.width} />
+                ))}
+              </svg>
+            )}
+          </div>
         </div>
       </div>
       {/* The readout names the scale and is the way between fit and actual size, which is what a
@@ -211,6 +273,21 @@ function ZoomPicture({ src, alt, onBackdrop, page = false }: { src: string; alt:
           disabled={!natural || scale >= MAX_ZOOM - 0.001} onClick={() => zoomTo(stepZoom(scale, 1))}>
           <Icon name="add" size={14} />
         </button>
+        {markPath && (
+          <>
+            <span className="media-viewer-tools-sep" aria-hidden="true" />
+            <button type="button" className="icon-btn" aria-label="Mark up" aria-pressed={drawing} disabled={!natural}
+              title="Draw on the picture — a copy with your marks goes with the next question" onClick={togglePen}>
+              <Icon name="pen" size={14} />
+            </button>
+            {marking && marking.marks.length > 0 && (
+              <button type="button" className="icon-btn" aria-label="Undo the last mark" title="Undo the last mark"
+                onClick={() => setViewerMarks({ ...marking, marks: marking.marks.slice(0, -1) })}>
+                <Icon name="undo" size={14} />
+              </button>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

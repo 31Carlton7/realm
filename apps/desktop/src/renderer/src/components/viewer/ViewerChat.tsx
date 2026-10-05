@@ -6,6 +6,7 @@ import { Transcript } from "../../panes/session/Transcript";
 import { useMediaFiles } from "../../panes/session/media/use-media";
 import { FALLBACK_AGENT, useApp, type PickedAttachment } from "../../state/store";
 import { VIEWER_SLOT, exchangeResults, exchangeStart, ownerOf, type ViewerFile, type ViewerState } from "../../state/viewer";
+import { composeMarks, markedName } from "./markup";
 import { ViewerShowContext } from "./open";
 
 const NO_ATTACHMENTS: PickedAttachment[] = [];
@@ -67,8 +68,29 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
   const toggleModelFavorite = useApp((s) => s.toggleModelFavorite);
   const closeViewer = useApp((s) => s.closeViewer);
   const revealSession = useApp((s) => s.revealSession);
+  const setViewerMarks = useApp((s) => s.setViewerMarks);
+  const toast = useApp((s) => s.toast);
   const run = useApp((s) => s.run);
   const [sends, setSends] = useState(0);
+
+  /* Marks on the file go as a copy of it with the marks drawn in, attached beside the file itself —
+     made at the send, from what is on the stage then. A copy that cannot be made stops the send and
+     gives the words back: a question about "the part I circled" without the circle is not the
+     question that was asked. */
+  const marks = viewer.marking?.path === file.path && viewer.marking.marks.length > 0 ? viewer.marking : null;
+  const ask = (text: string) => run(async () => {
+    if (marks) {
+      const copy = await composeMarks(file.path, marks.natural, marks.marks);
+      if (!copy) {
+        setDraft(VIEWER_SLOT, text);
+        toast({ tone: "warning", text: `Your marks could not be drawn onto a copy of ${file.name ?? basenameOf(file.path)}, so the question was not sent.` });
+        return;
+      }
+      await attachFiles(VIEWER_SLOT, [copy]);
+      setViewerMarks(null);
+    }
+    await sendFromViewer(text);
+  });
 
   /* No session yet: the prompter still has to say which agent and model the first send will start,
      and the picker is how that is chosen — so it is handed a session the size of that choice. */
@@ -144,6 +166,7 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
             file came from — a way into it, too — or, with none, the session a send will start. */}
         <div className="media-viewer-owner">
           <Icon name={AGENT_META[kind].icon} size={12} colored className="media-viewer-owner-mark" />
+
           {owner ? (
             <button type="button" className="media-viewer-owner-name" onClick={openOwner}
               title={`Open ${owner.title} — your questions and the answers stay in its transcript`}>
@@ -152,6 +175,8 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
           ) : (
             <span className="media-viewer-owner-name" title="Your first question starts a session of its own there">New session in {spaceName}</span>
           )}
+          {/* The one outcome the prompter cannot show as a chip: marks are not a file until the send. */}
+          {marks && <span className="media-viewer-marks-note">· with your marks, as {markedName(file.path)}</span>}
         </div>
         <Composer compact session={session} status={status} gitInfo={null} hero={false} spaceName=""
           placeholder={`Ask about ${name}, or ask for a change`}
@@ -160,7 +185,7 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
           onAttachPick={() => run(() => attachFromPicker(VIEWER_SLOT))}
           onAttachFiles={(files) => run(() => attachFiles(VIEWER_SLOT, files))}
           onRemoveAttachment={(path) => (path === file.path ? detachViewerFile(path) : removeAttachment(VIEWER_SLOT, path))}
-          onSend={(text) => { setSends((n) => n + 1); run(() => sendFromViewer(text)); }}
+          onSend={(text) => { setSends((n) => n + 1); ask(text); }}
           onStop={() => { if (ownerId) run(() => interruptSession(ownerId)); }}
           onOptions={(o) => { if (owner) run(() => setSessionOptions(owner.id, o)); }}
           onPickModel={(pick, modelId) => {

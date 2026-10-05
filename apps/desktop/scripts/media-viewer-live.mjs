@@ -13,7 +13,8 @@
  *   3. The answer's clip: the transcript's own player, with the picture beside it on ← — and the
  *      transcript's video behind the viewer does NOT paint through it (sampled from the composite).
  *   4. The docked prompter: "Make the sky warmer" goes to the session with the picture attached, the
- *      answer appears above the prompter, and the new version it names lands on the stage.
+ *      answer appears above the prompter, and the new version it names lands on the stage. A circle
+ *      drawn on it with the pen goes too, as a copy with the circle in its pixels.
  *   5. The prompter's own chip, the documents pane's home and the Library each open the same viewer.
  * Then the same views in the light face.
  *
@@ -140,6 +141,18 @@ async function key(c, k, code = k, vk = 0) {
   await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: k, code, windowsVirtualKeyCode: vk });
 }
 const escape = (c) => key(c, "Escape", "Escape", 27);
+
+/** A ring drawn on the picture with a real pointer, round a point in its upper right: the gesture a
+ *  person makes to say "this part". */
+async function circle(c) {
+  const r = await evalIn(c, `(() => { const b = document.querySelector('.media-viewer-frame').getBoundingClientRect();
+    return { x: b.left + b.width * 0.7, y: b.top + b.height * 0.35, rad: Math.min(b.width, b.height) * 0.16 }; })()`);
+  const at = (t) => ({ x: r.x + r.rad * Math.cos(t), y: r.y + r.rad * Math.sin(t) });
+  await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...at(0), button: "none" });
+  await c.send("Input.dispatchMouseEvent", { type: "mousePressed", ...at(0), button: "left", buttons: 1, clickCount: 1 });
+  for (let i = 1; i <= 36; i++) await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...at((i / 36) * Math.PI * 2 + 0.2), button: "left", buttons: 1 });
+  await c.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...at(Math.PI * 2 + 0.2), button: "left", buttons: 0, clickCount: 1 });
+}
 
 /** The viewer's own facts, as a person would read them off the screen. */
 const VIEWER = `(() => {
@@ -302,9 +315,18 @@ async function main() {
   check("the answer's clip opens in the viewer's player, beside the picture", v3.count === "2 of 2" && meta.w === 1280 && meta.d === 4, { count: v3.count, meta });
   // The transcript's own video sits under the viewer. Sample the composite there and over the
   // viewer's ground where nothing is behind it: a video layer painting through would add to it.
-  const behind = await evalIn(c, `(() => { const b = document.querySelector('.app .media-strip video').getBoundingClientRect();
-    return { x: Math.round(b.left + b.width / 4), y: Math.round(b.top + b.height / 4), w: Math.round(b.width / 2), h: Math.round(b.height / 2) }; })()`);
-  const control = { x: 30, y: Math.round(behind.y), w: 40, h: Math.max(8, Math.round(behind.h / 2)) };
+  // The spot has to be the viewer's bare ground over the video — not its own player or prompter,
+  // which would be measured instead — so it is found by asking what is on top at each point.
+  const behind = await evalIn(c, `(() => {
+    const b = document.querySelector('.app .media-strip video').getBoundingClientRect();
+    const ground = (x, y) => { const top = document.elementsFromPoint(x, y)[0];
+      return !!top && top.closest('.media-viewer') && !top.closest('img, video, .media-viewer-player, .media-viewer-chat, .media-viewer-tools, .media-viewer-step, .media-viewer-head'); };
+    for (let y = b.top + 6; y < b.bottom - 12; y += 6) for (let x = b.left + 6; x < b.right - 12; x += 6) {
+      if ([[0, 0], [8, 0], [0, 8], [8, 8], [4, 4]].every(([dx, dy]) => ground(x + dx, y + dy))) return { x: Math.round(x), y: Math.round(y), w: 8, h: 8 };
+    }
+    return null; })()`);
+  check("some of the transcript's video lies under the viewer's bare ground, to be sampled", behind !== null, behind);
+  const control = { x: 30, y: Math.round(behind?.y ?? 400), w: 8, h: 8 };
   const sample = async (r) => {
     const { data } = await c.send("Page.captureScreenshot", { format: "png", clip: { x: r.x, y: r.y, width: r.w, height: r.h, scale: 1 } });
     const file = path.join(scratch, `sample-${r.x}-${r.y}.png`);
@@ -312,7 +334,7 @@ async function main() {
     const avg = spawnSync("ffmpeg", ["-v", "error", "-i", file, "-vf", "scale=1:1", "-pix_fmt", "rgb24", "-f", "rawvideo", "-"], { maxBuffer: 1 << 20 });
     return [...avg.stdout];
   };
-  const over = await sample(behind), ground = await sample(control);
+  const over = behind ? await sample(behind) : [0, 0, 0], ground = await sample(control);
   const delta = Math.max(...over.map((x, i) => Math.abs(x - ground[i])));
   check("the transcript's video does not paint through the viewer", delta <= 8, { over, ground, delta, behind });
   await shot(c, "4-video-dark");
@@ -337,6 +359,32 @@ async function main() {
     asked?.event.payload.attachments?.[0]?.path === path.join(root, "hero.png"), asked?.event.payload);
   await sleep(500);
   await shot(c, "5-answer-new-version-dark");
+
+  // ── 4b. Marking it up: a circle drawn on the picture goes as a copy with the circle on it ────────
+  await evalIn(c, click(`.media-viewer-tools button[aria-label="Mark up"]`));
+  await circle(c);
+  const marked = await evalIn(c, `({ marks: document.querySelectorAll('.media-viewer-marks polyline').length,
+    note: document.querySelector('.media-viewer-marks-note')?.textContent ?? null })`);
+  check("the pen draws on the picture, and the prompter says the marks will go", marked.marks === 1 && (marked.note ?? "").includes("hero-warm-marked.png"), marked);
+  await shot(c, "5b-markup-dark");
+  await evalIn(c, fill(".media-viewer textarea.composer-input", "Brighten what I circled"));
+  await key(c, "Enter", "Enter", 13);
+  const withMarks = await until(async () => {
+    const evs = await api.call("sessions.events", { id: lead, afterSeq: 0, limit: 500 });
+    return evs.find((e) => e.event.type === "user_message" && e.event.payload.text === "Brighten what I circled") ?? null;
+  }, 15_000, "the marked question");
+  const sentFiles = withMarks.event.payload.attachments.map((a) => a.path);
+  note("sent with marks", sentFiles);
+  const copy = sentFiles.find((p) => p.endsWith("hero-warm-marked.png"));
+  check("the question carries the file and a copy with the marks drawn on it", sentFiles[0] === path.join(root, "hero-warm.png") && !!copy, sentFiles);
+  if (copy) {
+    // The circle is in the copy's pixels, in the theme's red: count the pixels that are that red.
+    const raw = spawnSync("ffmpeg", ["-v", "error", "-i", copy, "-pix_fmt", "rgb24", "-f", "rawvideo", "-"], { maxBuffer: 1 << 26 }).stdout;
+    let red = 0;
+    for (let i = 0; i < raw.length; i += 3) if (raw[i] > 190 && raw[i + 1] < 110 && raw[i + 2] < 110) red++;
+    check("the copy has the drawn circle in it", red > 500, { red, bytes: raw.length });
+  }
+  check("the marks are put away once they went", await evalIn(c, `document.querySelectorAll('.media-viewer-marks polyline').length === 0`));
   await escape(c);
   await until(() => evalIn(c, `!document.querySelector('.media-viewer')`), 5_000, "closed");
   check("the exchange is in the session's own transcript too", await evalIn(c, `[...document.querySelectorAll('.app .msg-user')].some((m) => m.textContent.includes('Make the sky warmer'))`));
@@ -395,6 +443,10 @@ async function main() {
   await until(async () => { const v = await viewer(c); return v?.thread?.includes("Warmed the sky") && v.name === "hero-warm.png" && v.img?.complete ? v : null; }, 20_000, "the answer, light");
   await sleep(500);
   await shot(c, "12-answer-light");
+  await evalIn(c, click(`.media-viewer-tools button[aria-label="Mark up"]`));
+  await circle(c);
+  await sleep(200);
+  await shot(c, "13-markup-light");
   await escape(c);
 
   check("no page exceptions along the way", c.errors.length === 0, c.errors.slice(0, 3));

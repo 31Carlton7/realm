@@ -3,7 +3,7 @@ import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretS
 import { destinationTarget, pageHidesSidebar, pageItemId } from "./page-item";
 import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
 import { attachmentDisposition } from "@realm/contracts";
-import { VIEWER_SLOT, ownerOf, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
+import { VIEWER_SLOT, ownerOf, type Marking, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
@@ -2353,6 +2353,8 @@ export type AppState = {
   /** Show one file in the viewer that is already open — a picture in its own exchange, clicked —
    *  keeping the exchange and the way back: it is the same look going on, not a new one. */
   showViewerFile(file: ViewerFile): void;
+  /** Start or stop marking up the file on show, or record what has been drawn on it. */
+  setViewerMarks(marking: Marking | null): void;
   /** The person took the viewed file off the next message (its chip's ×). */
   detachViewerFile(path: string): void;
   /** The agent and model the viewer's prompter will make a session with, while it has none. */
@@ -6344,7 +6346,7 @@ await get().refreshCustomThemes().catch(() => {});
         set({ viewer: {
           files: [...files], index: Math.max(0, Math.min(input.index ?? 0, files.length - 1)),
           sessionId, spaceId: (sessionId && get().sessionSpace[sessionId]) || input.spaceId || null,
-          thread: null, detached: null, pick: null, opener: input.opener ?? focused,
+          thread: null, detached: null, pick: null, marking: null, opener: input.opener ?? focused,
         } });
         holdViewerSession();
       },
@@ -6352,8 +6354,8 @@ await get().refreshCustomThemes().catch(() => {});
         const v = get().viewer; if (!v) return;
         const at = v.files.findIndex((f) => f.path === file.path);
         if (at === v.index) return;
-        if (at >= 0) set({ viewer: { ...v, index: at, detached: null } });
-        else set({ viewer: { ...v, files: [...v.files.slice(0, v.index + 1), file, ...v.files.slice(v.index + 1)], index: v.index + 1, detached: null } });
+        if (at >= 0) set({ viewer: { ...v, index: at, detached: null, marking: null } });
+        else set({ viewer: { ...v, files: [...v.files.slice(0, v.index + 1), file, ...v.files.slice(v.index + 1)], index: v.index + 1, detached: null, marking: null } });
         holdViewerSession();
       },
       closeViewer() { if (get().viewer) set({ viewer: null }); },
@@ -6361,7 +6363,7 @@ await get().refreshCustomThemes().catch(() => {});
         const v = get().viewer; if (!v) return;
         const index = Math.max(0, Math.min(v.index + delta, v.files.length - 1));
         if (index === v.index) return;
-        set({ viewer: { ...v, index, detached: null } });
+        set({ viewer: { ...v, index, detached: null, marking: null } });
         holdViewerSession();
       },
       addViewerFiles(paths, show) {
@@ -6370,8 +6372,9 @@ await get().refreshCustomThemes().catch(() => {});
         const fresh = [...new Set(paths)].filter((p) => !known.has(p)).map((path) => ({ path }));
         if (fresh.length === 0) return;
         const files = [...v.files.slice(0, v.index + 1), ...fresh, ...v.files.slice(v.index + 1)];
-        set({ viewer: { ...v, files, ...(show ? { index: v.index + 1, detached: null } : {}) } });
+        set({ viewer: { ...v, files, ...(show ? { index: v.index + 1, detached: null, marking: null } : {}) } });
       },
+      setViewerMarks(marking) { const v = get().viewer; if (v) set({ viewer: { ...v, marking } }); },
       detachViewerFile(path) { const v = get().viewer; if (v) set({ viewer: { ...v, detached: path } }); },
       pickViewerAgent(agentKind, model) { const v = get().viewer; if (v) set({ viewer: { ...v, pick: { agentKind, model } } }); },
       async sendFromViewer(text) {

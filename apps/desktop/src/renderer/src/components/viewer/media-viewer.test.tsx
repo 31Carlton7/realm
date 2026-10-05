@@ -6,9 +6,18 @@ import { resetMediaCache } from "../../panes/session/media/use-media";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
 import { MediaViewer } from "./MediaViewer";
+import { composeMarks } from "./markup";
 import { MediaSessionContext } from "./open";
 import { VIEWER_SLOT } from "../../state/viewer";
 import { fitScale, stepZoom, anchoredScroll } from "./zoom";
+
+// jsdom has no canvas to draw marks into, so the copy is made by a stand-in that says what it was given
+// — a pasted file, with no path, which is the shape a drawn picture reaches the prompter in.
+vi.mock("./markup", async (actual) => ({
+  ...(await actual<typeof import("./markup")>()),
+  composeMarks: vi.fn(async () => Object.assign(new File([new Uint8Array(4)], "hero-marked.png", { type: "image/png" }),
+    { arrayBuffer: async () => new ArrayBuffer(4) })),
+}));
 
 /**
  * The media viewer as a person meets it: opened from a picture, walked with the arrows, zoomed, and
@@ -313,3 +322,86 @@ describe("the prompter docked under it", () => {
     expect(within(dialog).getByText(/that session is gone/)).toBeInTheDocument();
   });
 });
+
+describe("marking up a picture", () => {
+  /** jsdom implements no PointerEvent; a MouseEvent under its name carries the fields React reads. */
+  const pointer = (target: Element, type: string, x: number, y: number) =>
+    fireEvent(target, new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y }));
+  async function openMarkable() {
+    const realm = bridge([media("/work/hero.png")]);
+    const m = await mount([media("/work/hero.png")]);
+    fireEvent.click(await screen.findByRole("button", { name: "Open hero.png larger" }));
+    await waitFor(() => expect(stageImg()).not.toBeNull());
+    loaded(stageImg()!);
+    return { ...m, realm };
+  }
+  const frame = () => viewerEl()!.querySelector(".media-viewer-frame")!;
+  const marksDrawn = () => viewerEl()!.querySelectorAll(".media-viewer-marks polyline").length;
+  const draw = (from: [number, number], to: [number, number]) => {
+    pointer(frame(), "pointerdown", ...from);
+    pointer(frame(), "pointermove", (from[0] + to[0]) / 2, (from[1] + to[1]) / 2);
+    pointer(frame(), "pointermove", ...to);
+    pointer(frame(), "pointerup", ...to);
+  };
+
+  it("draws with the pen down, in the picture's own pixels, and takes the last mark back", async () => {
+    const { store } = await openMarkable();
+    const zoom = within(screen.getByRole("group", { name: "Zoom" }));
+    fireEvent.click(zoom.getByRole("button", { name: "Mark up" }));
+    expect(zoom.getByRole("button", { name: "Mark up" })).toHaveAttribute("aria-pressed", "true");
+    draw([10, 10], [60, 40]);
+    expect(marksDrawn()).toBe(1);
+    // Fit is 100% in a box jsdom never lays out, so the picture's pixels are the screen's here.
+    expect(store.getState().viewer!.marking!.marks[0]!.points.at(-1)).toEqual([60, 40]);
+    // THE MUTANT: no pen — a drag is a pan, and nothing is drawn.
+    fireEvent.click(zoom.getByRole("button", { name: "Undo the last mark" }));
+    expect(marksDrawn()).toBe(0);
+  });
+
+  it("puts the pen away without putting the marks away, and draws nothing while it is away", async () => {
+    await openMarkable();
+    const zoom = within(screen.getByRole("group", { name: "Zoom" }));
+    fireEvent.click(zoom.getByRole("button", { name: "Mark up" }));
+    draw([10, 10], [60, 40]);
+    fireEvent.click(zoom.getByRole("button", { name: "Mark up" }));
+    expect(zoom.getByRole("button", { name: "Mark up" })).toHaveAttribute("aria-pressed", "false");
+    draw([70, 70], [90, 90]);
+    expect(marksDrawn()).toBe(1);
+  });
+
+  it("sends a copy with the marks on it beside the file, says so first, and then puts the marks away", async () => {
+    const { api } = await openMarkable();
+    fireEvent.click(within(screen.getByRole("group", { name: "Zoom" })).getByRole("button", { name: "Mark up" }));
+    draw([10, 10], [60, 40]);
+    expect(within(viewerEl()!).getByText("· with your marks, as hero-marked.png")).toBeInTheDocument();
+    fireEvent.change(prompter(), { target: { value: "Brighten what I circled" } });
+    fireEvent.keyDown(prompter(), { key: "Enter" });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(vi.mocked(composeMarks)).toHaveBeenCalledWith("/work/hero.png", { w: 400, h: 300 }, [expect.objectContaining({ points: expect.any(Array) })]);
+    expect(api.sent[0]!.attachments.map((a) => a.path)).toEqual(["/work/hero.png", "/realm-home/tmp/attachments/aa-hero-marked.png"]);
+    await waitFor(() => expect(marksDrawn()).toBe(0));
+  });
+
+  it("keeps the words, and sends nothing, when the copy cannot be made", async () => {
+    // A question about "the part I circled" without the circle is not the question that was asked.
+    const { api, store } = await openMarkable();
+    vi.mocked(composeMarks).mockResolvedValueOnce(null);
+    fireEvent.click(within(screen.getByRole("group", { name: "Zoom" })).getByRole("button", { name: "Mark up" }));
+    draw([10, 10], [60, 40]);
+    fireEvent.change(prompter(), { target: { value: "Brighten what I circled" } });
+    fireEvent.keyDown(prompter(), { key: "Enter" });
+    await waitFor(() => expect(store.getState().toasts.at(-1)?.text).toMatch(/could not be drawn/));
+    expect(api.sent).toHaveLength(0);
+    expect(prompter().value).toBe("Brighten what I circled");
+    expect(marksDrawn()).toBe(1);
+  });
+
+  it("does not close on a stray click beside a picture that has marks on it", async () => {
+    await openMarkable();
+    fireEvent.click(within(screen.getByRole("group", { name: "Zoom" })).getByRole("button", { name: "Mark up" }));
+    draw([10, 10], [60, 40]);
+    fireEvent.click(viewerEl()!.querySelector(".media-viewer-canvas")!);
+    expect(viewerEl()).not.toBeNull();
+  });
+});
+

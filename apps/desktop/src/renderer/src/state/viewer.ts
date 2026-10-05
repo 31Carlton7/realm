@@ -41,6 +41,13 @@ export type ViewerFile = {
   inPane?: boolean;
 };
 
+/** A mark drawn over a picture: a freehand line in the picture's own pixels, so it stays where it was
+ *  drawn at any zoom, and as wide as it looked when it was drawn. */
+export type Mark = { points: [number, number][]; width: number };
+/** `drawing` is the pen being down on the picture; the marks outlive it, so putting the pen away to
+ *  zoom or to read the picture keeps what was drawn. */
+export type Marking = { path: string; natural: { w: number; h: number }; marks: Mark[]; drawing: boolean };
+
 export type OpenViewerInput = {
   /** The file and its siblings — the strip it sat in, the message's other attachments, the Library's
    *  page — in the order the list shows them, so ←/→ walks them the way the eye just did. */
@@ -82,6 +89,10 @@ export type ViewerState = {
   /** The agent and model a session made on the first send will run, picked in the viewer's own
    *  prompter while there is no session yet. Null takes the last agent used. */
   pick: { agentKind: AgentKind; model: string | null } | null;
+  /** Marking up the file on show: what has been drawn on it so far, and the size of the picture it
+   *  was drawn against. Null is not marking. The marks are the file's, so moving to another file puts
+   *  them away. */
+  marking: Marking | null;
   opener: HTMLElement | null;
 };
 

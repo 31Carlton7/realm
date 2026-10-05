@@ -8146,6 +8146,14 @@ span.media-viewer-from { align-self: center; }
   font-size: 12px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim);
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .media-viewer-zoom:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); transition: none; }
+.media-viewer-tools-sep { flex: none; width: var(--hairline-w); height: 16px; margin: 0 4px; background: var(--line-strong); }
+/* Marks: the picture and its marks are one box, the marks an SVG in the picture's own pixels laid
+   exactly over it. The pen takes the crosshair, the cursor every markup tool draws with. */
+.media-viewer-frame { position: relative; line-height: 0; }
+.media-viewer-canvas[data-drawing] .media-viewer-frame { cursor: crosshair; touch-action: none; }
+.media-viewer-marks { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.media-viewer-marks polyline { fill: none; stroke: var(--rl-danger); stroke-linecap: round; stroke-linejoin: round; }
+.media-viewer-marks-note { flex: none; white-space: nowrap; color: var(--rl-text-dim); }
 /* A video or a sound keeps the transcript's own player, given the window's width. Resting, so no
    shadow: the raised stack drew a dark halo the size of the window round a clip on the dark face. */
 .media-viewer-player { display: flex; justify-content: center; width: min(1200px, 100%); max-height: 100%; }

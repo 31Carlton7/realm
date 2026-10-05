@@ -67,6 +67,14 @@ describe("opening the viewer", () => {
     expect(viewer(store).index).toBe(1);
   });
 
+  it("puts the marks on one file away when another is shown — they are that file's", async () => {
+    const { store } = await mount();
+    store.getState().openViewer({ files: [{ path: "/a.png" }, { path: "/b.png" }] });
+    store.getState().setViewerMarks({ path: "/a.png", natural: { w: 10, h: 10 }, marks: [{ points: [[1, 1]], width: 2 }], drawing: true });
+    store.getState().stepViewer(1);
+    expect(viewer(store).marking).toBeNull();
+  });
+
   it("closes on a profile switch, which takes the workspace it was looking at with it", async () => {
     const { store } = await mount();
     store.getState().openViewer({ files: [{ path: "/a.png" }] });
