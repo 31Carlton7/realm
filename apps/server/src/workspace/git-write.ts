@@ -3,6 +3,7 @@ import type { CommitOutcome, PrOutcome, PushOutcome, ShipResult } from "@realm/c
 import { RpcError } from "../store/rows";
 import { assertRepoRelative, parseStatus } from "./git-diff";
 import { gitCapture, gitReason, GIT_NETWORK_TIMEOUT_MS, type GitResult, type GitRun } from "./git-exec";
+import { parseGitHubRemote } from "./github-remote";
 
 /** Running a program that is not git — `gh`, and only `gh`. Injectable so tests point at a stub
  *  script rather than the real CLI: nothing in this repository's test suite may reach GitHub. */
@@ -314,12 +315,9 @@ export class GitWriteService {
   }
 }
 
-/** `owner/repo` from the four address forms GitHub hands out. Null for anything else — GitLab,
- *  Bitbucket, a bare path — which is a `compare` we must not fabricate. */
-export function parseGitHubRemote(url: string): { owner: string; repo: string } | null {
-  const m = /^(?:https?:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com(?::\d+)?\/)([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(url.trim());
-  return m ? { owner: m[1]!, repo: m[2]! } : null;
-}
+// `owner/repo` from a GitHub remote lives in github-remote.ts: Code review reads it too, and this
+// module may be imported only by the RPC layer and app.ts (delegation/structure.test.ts).
+export { parseGitHubRemote };
 
 /** Branch names may contain `/`, `#` and worse; `#` in particular would truncate the URL. Each path
  *  segment is encoded, and the separators are put back. */
