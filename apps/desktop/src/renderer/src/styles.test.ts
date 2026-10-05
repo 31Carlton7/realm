@@ -4014,3 +4014,28 @@ describe("the focus ring on a painted control", () => {
     expect(bodiesFor(":root[data-squircle] .btn.primary:focus-visible").join(" ")).toContain("--rl-accent-contrast");
   });
 });
+
+describe("the drawn caret (caret.ts)", () => {
+  it("turns a field's own caret off only on the field the layer marks, and paints the platform's in the caret's colour", () => {
+    /* THE always-off mutant: `caret-color: transparent` on every field, and a field the layer cannot
+       stand in for — an email or number input, a composition — has no caret at all. The live check
+       cannot see this one: a thin drawn line and the platform's land on the same pixel. */
+    const off = RULES.filter((r) => /caret-color:\s*transparent/.test(r.body));
+    expect(off.flatMap((r) => r.selectors)).toEqual([":is(input, textarea, [contenteditable])[data-rl-caret]"]);
+    expect(bodiesFor("input").join(" ")).toContain("caret-color: var(--caret)");
+  });
+
+  it("sits over every other layer in the window, since a field drawn over the caret hides it", () => {
+    /* Measured live: at 80 the caret went under a field at 100 — a popover's search — and was drawn
+       where nobody could see it. What floats over a field hides the caret by the hit test instead. */
+    const zOf = (body: string) => Number(body.match(/z-index:\s*(\d+)/)?.[1] ?? NaN);
+    const caret = zOf(bodiesFor(".caret-layer").join(" "));
+    const others = RULES.filter((r) => !r.selectors.includes(".caret-layer")).map((r) => zOf(r.body)).filter((z) => Number.isFinite(z));
+    expect(caret).toBeGreaterThan(Math.max(...others));
+  });
+
+  it("holds every caret still while motion is off, its blink and its glide alike", () => {
+    expect(bodiesFor(":root[data-caret-still] .caret-layer .caret").join(" ")).toMatch(/animation: none;.*transition: none/);
+    expect(bodiesFor(":root[data-caret-still] .terminal-host .xterm-cursor").join(" ")).toContain("animation: none !important");
+  });
+});

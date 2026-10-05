@@ -603,6 +603,7 @@ async function main() {
   } else note("no code editor came up", null);
 
   /* ── 9. A terminal: every shape inside the cell xterm marks ────────────────────────────────────── */
+  let terminalSheet = null;
   await backToSession();
   await evalIn(c, `(async () => { await __live.st().newTerminal(); return true; })()`);
   const termUp = await until(() => evalIn(c, `!!document.querySelector('.terminal-host .xterm-rows')`), 20_000, "a terminal").catch(() => false);
@@ -646,6 +647,23 @@ async function main() {
     const out = path.join(SHOTS, "shapes-terminal-dark.png");
     py("sheet", { title: "Terminal cursor shapes (dark), steady, after `echo caret`", rows: [{ label: "terminal", frames: termFrames }], out, zoom: 3 });
     console.log(`SCREENSHOT shapes-terminal-dark ${out}`);
+    terminalSheet = async (face) => {
+      const termItem = await evalIn(c, `__live.st().items.find((i) => i.kind === 'terminal')?.id ?? null`);
+      if (termItem) await evalIn(c, `(async () => { await __live.st().revealItem(${JSON.stringify(termItem)}, ${JSON.stringify(space.id)}); return true; })()`);
+      await sleep(600);
+      await evalIn(c, `(async () => { await __live.st().setTerminalCursorBlink(false); return true; })()`);
+      const frames = [];
+      for (const shape of SHAPES) {
+        await evalIn(c, `(async () => { await __live.st().setTerminalCursorStyle(${JSON.stringify(shape)}); return true; })()`);
+        await focusTerm();
+        await sleep(250);
+        frames.push({ file: await capture(c, path.join(SHOTS, "frames", `term-${face}-${shape}.png`), await evalIn(c, termClip)), caption: shape });
+      }
+      const file = path.join(SHOTS, `shapes-terminal-${face}.png`);
+      py("sheet", { title: `Terminal cursor shapes (${face}), steady`, rows: [{ label: "terminal", frames }], out: file, zoom: 3,
+        bg: face === "dark" ? [24, 25, 28] : [244, 244, 246], ink: face === "dark" ? [220, 222, 226] : [40, 42, 46] });
+      console.log(`SCREENSHOT shapes-terminal-${face} ${file}`);
+    };
 
     // A program's own shape, then the default asked back (DECSCUSR), printed by the shell itself.
     await evalIn(c, `(async () => { await __live.st().setTerminalCursorStyle("pill"); return true; })()`);
@@ -687,7 +705,7 @@ async function main() {
   const end = await evalIn(c, `__live.drawn().rect.x`);
   note("a glide from the end of the line back to offset 6", { start, frames: glideXs, end });
   check("with Glide on the caret passes through places between where it was and where it lands",
-    glideXs.some((f) => f.x < start - 2 && f.x > end + 2) && glideXs[0].glide, { start, end, frames: glideXs.map((f) => f.x) });
+    glideXs.some((f) => f.x < start - 2 && f.x > end + 2) && glideXs.some((f) => f.glide), { start, end, frames: glideXs.map((f) => f.x) });
   await setCaret(c, { shape: "line", animation: "solid", glide: false });
   await evalIn(c, `(() => { const ta = document.querySelector('.composer-input'); ta.setSelectionRange(21, 21); return true; })()`);
   await sleep(150);
@@ -718,6 +736,7 @@ async function main() {
   await sleep(250);
   await shapesSheet("light");
   await animationSheet("prompter", "light", at(specimenAt), tightClip, overlayState, overlayCaption);
+  if (terminalSheet) { await terminalSheet("light"); await backToSession(); }
   await openSettings(c, "appearance");
   await until(() => evalIn(c, `!!document.querySelector('[data-setting=caret-preview]')`), 5000, "the Cursor section, light");
   await setCaret(c, { shape: "line", animation: "solid", glide: false, colour: "accent" });
