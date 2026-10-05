@@ -380,10 +380,13 @@ describe("BrowserPane", () => {
       expect(f.bounds.at(-1)!.rect).toMatchObject({ y: 40, height: 400 });
       await act(async () => { store.getState().setToastReserve({ x: 300, y: 380, width: 372, height: 388 }); await settle(); });
       expect(f.bounds.at(-1)!.rect).toMatchObject({ x: 10, y: 40, width: 600, height: 340 });
+      // The strip it gave up shows the pane's ground, not the placeholder's page white.
+      expect(document.querySelector(".browser-view-host")).toHaveAttribute("data-yielded");
       // Where the view stands is still all of it: the no-overlay rect is the placeholder's.
       expect(store.getState().browserRects).toEqual([{ itemId: "i1", x: 10, y: 40, width: 600, height: 400 }]);
       await act(async () => { store.getState().setToastReserve(null); await settle(); });
       expect(f.bounds.at(-1)!.rect).toMatchObject({ height: 400 });
+      expect(document.querySelector(".browser-view-host")).not.toHaveAttribute("data-yielded");
     });
 
     it("no page, no rect — the empty state is plain DOM and floats may cover it", async () => {

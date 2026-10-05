@@ -305,18 +305,29 @@ describe("placeTooltip — beside its anchor, or nowhere", () => {
   const tip = { width: 120, height: 24 };
   it("centred under its anchor", () => {
     expect(placeTooltip({ anchor: r(400, 8, 28, 28), size: tip, win: WIN, gap: 6, margin: 6, avoid: [] }))
-      .toEqual({ left: 400 + 14 - 60, top: 42, above: false });
+      .toEqual({ left: 400 + 14 - 60, top: 42, side: "below" });
   });
   it("over it where the window's foot is in the way", () => {
     expect(placeTooltip({ anchor: r(400, 860, 28, 28), size: tip, win: WIN, gap: 6, margin: 6, avoid: [] }))
-      .toEqual({ left: 354, top: 860 - 6 - 24, above: true });
+      .toEqual({ left: 354, top: 860 - 6 - 24, side: "above" });
   });
   it("over it where a browser view is below — a toolbar button sits right on the page", () => {
     // THE mutant: drop `avoid` and the tip is drawn on the page, where the view paints over it.
     const view = r(260, 80, 1180, 820);
     const p = placeTooltip({ anchor: r(400, 46, 28, 28), size: tip, win: WIN, gap: 6, margin: 6, avoid: [view] })!;
-    expect(p.above).toBe(true);
+    expect(p.side).toBe("above");
     expect(intersects(r(p.left, p.top, tip.width, tip.height), view)).toBe(false);
+  });
+  it("beside it where the page is under it and the window's top edge over it — a two-line tip on a browser toolbar", () => {
+    // 46px over the button, a 40px tip and a 6px gap: no room above, and the view below.
+    const view = r(260, 80, 1180, 820);
+    const two = { width: 280, height: 40 };
+    const p = placeTooltip({ anchor: r(300, 46, 28, 28), size: two, win: WIN, gap: 6, margin: 6, avoid: [view] })!;
+    expect(p.side).toBe("right");
+    expect(p.left).toBe(300 + 28 + 6);
+    expect(intersects(r(p.left, p.top, two.width, two.height), view)).toBe(false);
+    // …and to its left where the right is the window's edge.
+    expect(placeTooltip({ anchor: r(1400, 46, 28, 28), size: two, win: WIN, gap: 6, margin: 6, avoid: [view] })!.side).toBe("left");
   });
   it("held inside the window at its edges", () => {
     expect(placeTooltip({ anchor: r(1430, 8, 10, 28), size: tip, win: WIN, gap: 6, margin: 6, avoid: [] })!.left).toBe(1440 - 6 - 120);

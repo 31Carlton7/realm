@@ -477,7 +477,10 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     const sync = () => {
       if (!created || disposed) return;
       const r = el.getBoundingClientRect();
-      host.setBounds(browserId, yieldViewTo({ x: r.x, y: r.y, width: r.width, height: r.height }, reserveRef.current), window.devicePixelRatio,
+      const bounds = yieldViewTo({ x: r.x, y: r.y, width: r.width, height: r.height }, reserveRef.current);
+      // The strip given up shows the pane's ground rather than the placeholder's page white (styles.css).
+      el.toggleAttribute("data-yielded", bounds.height < r.height);
+      host.setBounds(browserId, bounds, window.devicePixelRatio,
         shouldShowView({ paneVisible: visibleRef.current, pageOverlay: overlayRef.current,
           dragging: flags.dragging, settled: flags.settled, hasUrl: flags.hasUrl }));
       // W2's no-overlay registration: the rect the native view paints (or will paint — transient

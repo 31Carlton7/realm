@@ -1,4 +1,4 @@
-import { placeTooltip, type Rect } from "./state/no-overlay";
+import { placeTooltip, type Rect, type TooltipSide } from "./state/no-overlay";
 
 /**
  * The app's tooltip (v2): ONE layer that shows the `title` every control already carries, in the app's
@@ -18,9 +18,9 @@ import { placeTooltip, type Rect } from "./state/no-overlay";
  * never takes the pointer. Keyboard focus shows it too, when the focus is the visible kind.
  *
  * Where it goes is `placeTooltip`'s: under the element, over it where the window's foot or a browser
- * view is in the way below. A native view composites over anything in its rectangle, so where neither
- * side is clear the element is handed BACK to the system's tooltip — which macOS draws above every view
- * — rather than shown somewhere nobody can see it.
+ * view is in the way below, beside it where both are. A native view composites over anything in its
+ * rectangle, so where no side is clear the element is handed BACK to the system's tooltip — which macOS
+ * draws above every view — rather than shown somewhere nobody can see it.
  *
  * A title ending in a chord in brackets — "Search (⌘K)" — shows the chord as a key; `data-shortcut`
  * states one outright.
@@ -54,7 +54,7 @@ type Hold = {
    *  while it still says what the hold wrote. */
   carries: "aria-label" | "aria-description" | null;
 };
-type Spot = { left: number; top: number; above: boolean };
+type Spot = { left: number; top: number; side: TooltipSide };
 
 export function installTooltips(doc: Document, opts: { avoid?: () => readonly Rect[] } = {}): () => void {
   const win = doc.defaultView!;
@@ -178,7 +178,7 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
     if (!spot) { handBack(h.el); return; }
     tip.style.left = `${spot.left}px`;
     tip.style.top = `${spot.top}px`;
-    tip.dataset.side = spot.above ? "above" : "below";
+    tip.dataset.side = spot.side;
     tip.toggleAttribute("data-instant", instant);
     // The side decides which way it arrives from, so it has to be the style it leaves FROM: one
     // style recalc between the side and the open.

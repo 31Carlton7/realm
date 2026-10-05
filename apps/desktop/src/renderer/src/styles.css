@@ -2421,6 +2421,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* At a device size (Plan 26 W7e) the view is narrower than its host, and white beside a white page
    would hide the device's edge. The pane's own ground frames it instead. */
 .browser-view-host[data-device] { background: var(--rl-panel); }
+/* The strip the view gives up while the window's toasts hold its corner (`yieldViewTo`) is the pane's
+   own ground too: white under a toast would read as the page's foot, with the toast stuck to it. */
+.browser-view-host[data-yielded] { background: var(--rl-panel); }
 /* Before the first navigation there is no view to match — the new-tab page sits on the panel tone. */
 .browser-pane:has(.new-tab) .browser-view-host { background: var(--rl-panel); }
 /* A blank tab's tools (NewTabPage): one column of rows, set high in the pane rather than centred in
@@ -2479,6 +2482,8 @@ button.panel-title:hover { background: var(--rl-hover); }
   opacity: 0; visibility: hidden; translate: 0 -2px;
   transition: opacity var(--dur-press) var(--ease-fade), visibility 0s linear var(--dur-press); }
 .tooltip[data-side="above"] { translate: 0 2px; }
+.tooltip[data-side="right"] { translate: -2px 0; }
+.tooltip[data-side="left"] { translate: 2px 0; }
 .tooltip[data-open] { opacity: 1; visibility: visible; translate: 0 0;
   transition: opacity var(--dur-fast) var(--ease-out-strong), translate var(--dur-fast) var(--ease-out-strong); }
 .tooltip[data-instant] { transition: none; }
@@ -2503,9 +2508,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 .toast { position: absolute; left: 0; right: 0; bottom: 0; overflow: hidden; pointer-events: auto;
   --toast-y: 0px; --toast-scale: 1; --toast-h: auto; --toast-life: 6000ms; --toast-tone: var(--rl-accent);
   height: var(--toast-h); transform: translateY(var(--toast-y)) scale(var(--toast-scale)); transform-origin: 50% 0;
-  border-radius: var(--r-panel); background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--shadow-raised);
+  border-radius: var(--r-panel); background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--shadow-card);
   transition: transform var(--dur-move) var(--spring-smooth), height var(--dur-base) var(--ease-out-strong);
   animation: rl-toast-rise var(--dur-slow) var(--spring-smooth); }
+/* The front one floats on the raised stack, as a menu does. The ones tucked behind it take the card's:
+   three toasts each casting the raised stack's widest layer pooled into a dark cloud over the corner. */
+.toast[data-front] { box-shadow: var(--shadow-raised); }
 .toast[data-tone="error"] { --toast-tone: var(--rl-danger); }
 .toast[data-tone="warning"] { --toast-tone: var(--rl-warning); }
 .toast[data-tone="success"] { --toast-tone: var(--rl-success); }
