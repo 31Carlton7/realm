@@ -1202,6 +1202,9 @@ export const Methods = {
   "mcp.remove": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Turn one server on or off for one space. Sessions already running keep the set they started with. */
   "mcp.setEnabled": { params: z.object({ spaceId: IdSchema, id: IdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /** Whether Realm draws the views a server ships (MCP Apps) — the server's own switch, in every space
+   *  at once. Off, its calls carry text only, and its views already in transcripts stop showing. */
+  "mcp.setShowViews": { params: z.object({ id: IdSchema, show: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
   /**
    * Move a server's defining scope from space level to `spaceId`'s profile (W2). Effective-set neutral
    * at the moment it runs: every space of the profile where the server was not enabled gets a per-space

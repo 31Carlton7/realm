@@ -454,6 +454,12 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
   });
+  // A server's views, on or off everywhere. `mcp.changed` is what tells a view already on screen.
+  reg("mcp.setShowViews", (p) => {
+    d.mcp.setShowsViews(p.id, p.show);
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
   // Promote is effective-set neutral and demote strips siblings (`McpService.promote`/`demote` doc
   // comments), but visibility moves for every space of the profile either way — and a pre-scoping row
   // leaves other profiles' lists on promote — so every space re-lists and every session is nudged.

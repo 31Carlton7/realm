@@ -1648,6 +1648,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
       data.mcpServers[i] = { ...data.mcpServers[i]!, enabled };
     },
+    setMcpShowViews: async (id, show) => {
+      calls.push(`setMcpShowViews:${id}=${show}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, showViews: show };
+    },
     promoteMcpServer: async (spaceId, id) => {
       calls.push(`promoteMcpServer:${spaceId}:${id}`);
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);

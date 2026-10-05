@@ -45,6 +45,27 @@ describe("McpSection", () => {
     await waitFor(() => expect(api.calls).toContain("setMcpEnabled:s1:m1=false"));
   });
 
+  it("says when a server ships views, and its Show views switch is on until turned off — for the server, in every space", async () => {
+    // THE MUTANT: no switch, or one wired per space. A person who wants Figma's views gone wants
+    // them gone everywhere they use Figma, and can only say so where the row is.
+    const viewing = mcpServer("m1", { name: "charts", enabled: true, tools: [{ name: "show_chart", description: "", view: "ui://charts/bar.html" }, { name: "refresh_chart", description: "", view: "ui://charts/bar.html", appOnly: true }] });
+    const plain = mcpServer("m2", { name: "plain", enabled: true, tools: [mcpTool("echo")] });
+    const { api } = await mount({ mcpServers: [viewing, plain] });
+    const row = (await screen.findByText("charts")).closest(".mcp-row") as HTMLElement;
+    expect(within(row).getByText("Views")).toBeInTheDocument();
+    const show = within(row).getByRole("switch", { name: "Show charts's views" });
+    expect(show).toBeChecked();
+    // A tool only the view may call says so in the tools list, where its allowlist box is.
+    expect(within(row).getByRole("checkbox", { name: /refresh_chart/ }).closest("label")?.textContent).toContain("For its view");
+    fireEvent.click(show);
+    await waitFor(() => expect(api.calls).toContain("setMcpShowViews:m1=false"));
+    await waitFor(() => expect(within(row).getByRole("switch", { name: "Show charts's views" })).not.toBeChecked());
+    // A server that ships none says nothing about them, and offers no switch for what it does not have.
+    const other = screen.getByText("plain").closest(".mcp-row") as HTMLElement;
+    expect(within(other).queryByText("Views")).toBeNull();
+    expect(within(other).queryByRole("switch", { name: /views/ })).toBeNull();
+  });
+
   it("toggling a tool checkbox sends the explicit allowlist; re-checking everything restores null", async () => {
     const srv = mcpServer("m1", { name: "srv1", enabled: true, tools: [mcpTool("a"), mcpTool("b")] });
     const { api } = await mount({ mcpServers: [srv] });
