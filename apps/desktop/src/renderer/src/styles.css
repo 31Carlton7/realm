@@ -2295,9 +2295,11 @@ button.panel-title:hover { background: var(--rl-hover); }
    faint text under AA on the light face. Written per colour because xterm writes it per colour; the
    default ink's rule leaves out every coloured span, and a span xterm coloured inline (truecolor, or
    a colour its contrast floor corrected) gets no dimming from xterm at all in its DOM renderer, so it
-   takes the same share as an opacity. The 240 colours past the sixteen keep xterm's own half. */
+   takes the same share on its glyphs' fill — `currentColor` there is the span's own inline colour.
+   Never as an opacity: xterm.css pins `.xterm-dim` to 1, because an opacity dims the cell's
+   background with its text. The 240 colours past the sixteen keep xterm's own half. */
 .terminal-host .xterm .xterm-rows .xterm-dim:not([class*="xterm-fg-"]) { color: color-mix(in srgb, var(--term-fg, currentColor) var(--term-dim, 50%), transparent); }
-.terminal-host .xterm-rows .xterm-dim:is([style^="color:"], [style*=";color:"]) { opacity: var(--term-dim, 1); }
+.terminal-host .xterm-rows .xterm-dim:is([style^="color:"], [style*=";color:"]) { -webkit-text-fill-color: color-mix(in srgb, currentColor var(--term-dim, 100%), transparent); }
 .terminal-host .xterm-rows .xterm-fg-0.xterm-dim { color: color-mix(in srgb, var(--term-ansi-0, currentColor) var(--term-dim, 50%), transparent); }
 .terminal-host .xterm-rows .xterm-fg-1.xterm-dim { color: color-mix(in srgb, var(--term-ansi-1, currentColor) var(--term-dim, 50%), transparent); }
 .terminal-host .xterm-rows .xterm-fg-2.xterm-dim { color: color-mix(in srgb, var(--term-ansi-2, currentColor) var(--term-dim, 50%), transparent); }
