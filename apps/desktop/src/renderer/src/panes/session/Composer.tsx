@@ -308,8 +308,12 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
  * Plugins section: Realm has no plugin system, and parity with Codex's menu is not a reason to
  * invent one.
  */
-function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, connectors, onOpened, onManageConnections, modeRows, btnRef }: {
+function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, connectors, onOpened, onManageConnections, modeRows, btnRef, compact = false }: {
   onAttachPick: () => void; onAddFolder: () => void;
+  /** The compact prompter's: what goes with this message, and nothing about where or how the session
+   *  runs — a folder linked to the space, a mode, the space's connectors are all chips this prompter
+   *  does not carry, and their rows here would be controls that do nothing. */
+  compact?: boolean;
   /** Open the skill picker. Offered only when `canSkills` — an item that would silently do nothing
    *  (a Cursor session, a machine with no skills anywhere) is never grown. */
   onSkills: () => void; canSkills: boolean;
@@ -336,12 +340,14 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, conn
   const items: MenuItem[] = [
     { kind: "header", label: "Add" },
     { label: "Files…", icon: <Icon name="attach" size={16} />, detail: "Attach to this message", kbd: "⌘U", onSelect: onAttachPick },
-    { label: "Folder…", icon: <Icon name="folder" size={16} />, detail: "Link a folder to this space", onSelect: onAddFolder },
+    ...(compact ? [] : [{ label: "Folder…", icon: <Icon name="folder" size={16} />, detail: "Link a folder to this space", onSelect: onAddFolder } as MenuItem]),
     ...(canSkills ? [{ label: "Skills", icon: <Icon name="sparkles" size={16} />, detail: "Turn one on, or mention it", onSelect: onSkills } as MenuItem] : []),
     /* A goal arms the box instead of opening anything — the objective is the argument, and there is
        nothing to pick from — which is the same gesture `/goal` already is, reached by someone who
        does not know the command exists. */
     ...(onGoal ? [{ label: "Goal…", icon: <Icon name="target" size={16} />, detail: "Keep working toward an objective", onSelect: onGoal } as MenuItem] : []),
+  ];
+  if (!compact) items.push(
     { kind: "header", label: "Mode" },
     ...modeRows,
     { kind: "header", label: "Connectors" },
@@ -357,13 +363,13 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, conn
     }),
     { label: "Manage connections…", icon: <Icon name="plug" size={16} />, onSelect: onManageConnections,
       detail: connectors === null ? "Loading…" : enabled.length === 0 ? "None enabled in this space" : undefined },
-  ];
+  );
   return (
     <>
       {/* Toggle, mirroring ChipMenu: the Menu ignores pointerdown on its own anchor, so closing by a
           second click is this handler's job. Enter/Space come for free on a real button. */}
       <button ref={btn} type="button" className="icon-btn composer-attach" aria-label="Add"
-        title="Add files, a folder, skills or a goal, and set the mode" aria-haspopup="menu" aria-expanded={open}
+        title={compact ? "Add files" : "Add files, a folder, skills or a goal, and set the mode"} aria-haspopup="menu" aria-expanded={open}
         onClick={() => { if (!open) onOpened(); setOpen(!open); }}>
         <Icon name="add" size={16} />
       </button>
@@ -1401,7 +1407,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               onGoal={slashCommands.some((c) => c.id === "goal") ? armGoal : null}
               connectors={connectors} onOpened={() => onConnectorsOpened?.()}
               onManageConnections={() => onManageConnections?.()}
-              modeRows={modeRows} btnRef={plusRef} />
+              modeRows={modeRows} btnRef={plusRef} compact={compact} />
             {/* Left group order (prompter rework): "+" · permission · mode · branch. The permission
                 and mode chips sit against the attach button; the git chip trails them. */}
             {/* In Plan and in Ask the permission mode is not in effect — Claude's `plan` replaces it
