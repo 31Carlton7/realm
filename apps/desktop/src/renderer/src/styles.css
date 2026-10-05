@@ -3379,6 +3379,9 @@ a.msg-chip:hover { background: color-mix(in oklab, var(--accent-tint), var(--rl-
 .msg-user-row[data-from] { gap: 3px; }
 .msg-user-row[data-from] .msg-user { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 30%, transparent); }
 .msg-user-from { font-size: 11px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding-right: 2px; }
+/* A scheduled run's name sits as close to its bubble as an attribution does, without the ring: the
+   words in it are the person's own, written into the task, and only the clock sent them. */
+.msg-user-row[data-scheduled] { gap: 3px; }
 /* When the message was sent (Transcript.tsx), under the bubble at its edge — shown to the pointer and
    to the keyboard, never at rest, where a clock time under every message would be the loudest column
    in a quiet log. It keeps its line while hidden, so nothing moves as it appears; the hover lands at

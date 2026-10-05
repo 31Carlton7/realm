@@ -94,6 +94,22 @@ describe("a task fired from the Scheduled page", () => {
     ears.close();
   });
 
+  it("hands the agent its unattended rules after the instructions, and says on the message which part they are", async () => {
+    /* The transcript draws the task's name above the bubble and keeps the note out of it, which it can
+       only do if the message says what the note is. THE mutant: the field dropped on its way to the
+       event — every scheduled run's first bubble then ends in "Nobody is watching this run…". */
+    const { spaceId } = await boot();
+    const schedule = app.schedules.create(task(spaceId));
+    const runId = app.schedules.runNow(schedule.id).lastRunId!;
+    await settled(runId);
+    const [first] = app.sessions.events(runOf(runId).sessionId!, 0, 500).filter((e) => e.event.type === "user_message")
+      .map((e) => e.event.payload as { text: string; scheduled?: { task: string; note: string } });
+    expect(first!.scheduled?.task).toBe("Migration");
+    expect(first!.scheduled?.note).toMatch(/^\(Scheduled task "Migration"\. Nobody is watching this run/);
+    // …and the agent was handed both, the instructions first.
+    expect(first!.text).toBe(`${GOAL}\n\n${first!.scheduled!.note}`);
+  });
+
   it("lists the run under its task, and only there", async () => {
     const { spaceId } = await boot();
     const a = app.schedules.create(task(spaceId, { title: "A" }));

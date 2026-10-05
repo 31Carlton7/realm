@@ -9,7 +9,10 @@ export type Block =
    *  user typed it — the ordinary case — and the pane must not attribute those to anyone. */
   | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; goal?: "continuation" | "budget";
       /** What the message's `@[…]` chips named, so each keeps its mark in the log. */
-      refs?: MentionRef[]; ts: number }
+      refs?: MentionRef[];
+      /** A scheduled task's run began here (the event's `scheduled`). `text` is the task's instructions
+       *  alone: the note Realm appended for the agent is taken out of it, and kept here. */
+      scheduled?: { task: string; note: string }; ts: number }
   | { kind: "assistant"; messageId: string; text: string; streaming: boolean; ts: number }
   | { kind: "thinking"; messageId: string; text: string; ts: number }
   /** `parentToolUseId` is the Task/Agent call this one was made UNDER — Claude's
@@ -215,6 +218,13 @@ const dropPending = (blocks: Block[]): Block[] => {
 
 const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for (let i = blocks.length - 1; i >= 0; i--) if (pred(blocks[i]!)) return i; return -1; };
 
+/** A scheduled run's message without the note Realm appended for the agent, or the blank line it was
+ *  joined on with. What came after it — a reply to a run that stopped to ask — stays. */
+const withoutNote = (text: string, note: string): string => {
+  const at = text.indexOf(note);
+  return at < 0 ? text : text.slice(0, at).trimEnd() + text.slice(at + note.length);
+};
+
 /** What the agent said or did, as opposed to the seams and marks Realm draws around it. */
 const AGENT_OUTPUT = new Set<Block["kind"]>(["assistant", "thinking", "tool", "error", "plan"]);
 
@@ -264,7 +274,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       // reader has already seen.
       const open = t.run ? null : unsettledTurn(t.blocks);
       if (open) blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
-      blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ts: e.ts });
+      const scheduled = e.payload.scheduled;
+      blocks.push({ kind: "user", text: scheduled ? withoutNote(e.payload.text, scheduled.note) : e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ...(scheduled ? { scheduled } : {}), ts: e.ts });
       return { ...t, blocks, promptHint: null };
     }
     case "assistant_delta": {
