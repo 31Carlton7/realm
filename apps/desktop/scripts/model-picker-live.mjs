@@ -35,6 +35,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { buildFixture } from "../../server/scripts/fixtures/code-review-fixture.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9341), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8907);
@@ -67,12 +68,16 @@ async function until(fn, ms, tag) {
   }
 }
 
-/** The stub CLIs. `acp` decides whether the ACP agents are installed (the fake ACP agent) or not. */
-function stubs(dir, { acp }) {
+/** The stub CLIs. `acp` decides whether the ACP agents are installed (the fake ACP agent) or not;
+ *  `claudeCli` makes Claude the fake CLI that speaks the SDK's own protocol, so a session can run. */
+function stubs(dir, { acp, claudeCli = false }) {
   fs.mkdirSync(dir, { recursive: true });
   const node = process.execPath;
   const write = (name, body) => { const p = path.join(dir, name); fs.writeFileSync(p, body); fs.chmodSync(p, 0o755); return p; };
-  const claude = write("claude", `#!/bin/bash\ncase "$1" in\n  --version) echo "2.1.281 (Claude Code)";;\n  auth) echo '{"loggedIn": true}';;\n  *) exit 1;;\nesac\n`);
+  const fakeClaude = path.join(repoRoot, "packages/adapters/src/claude/fixtures/fake-claude-cli.mjs");
+  const claude = claudeCli
+    ? write("claude", `#!/bin/bash\nexec "${node}" "${fakeClaude}" "$@"\n`)
+    : write("claude", `#!/bin/bash\ncase "$1" in\n  --version) echo "2.1.281 (Claude Code)";;\n  auth) echo '{"loggedIn": true}';;\n  *) exit 1;;\nesac\n`);
   const fakeCodex = path.join(repoRoot, "packages/adapters/src/codex/fixtures/fake-codex-server.mjs");
   const codex = write("codex", `#!/bin/bash\ncase "$1" in\n  login) echo "Logged in using ChatGPT";;\n  *) exec "${node}" "${fakeCodex}" "$@";;\nesac\n`);
   const fakeAcp = path.join(repoRoot, "packages/adapters/src/acp/fixtures/fake-acp-agent.mjs");
@@ -150,9 +155,12 @@ async function shoot(c, name, clip) {
   console.log(`SHOT ${file}`);
 }
 
+/** Which prompter's chip the helpers below work through: the session pane's unless a phase says. */
+let CHIP = '.composer button[aria-label="Model"]';
+
 /** The picker and its chip in one frame, with a margin of the surface around them. */
 async function shootPicker(c, name) {
-  const p = await box(c, ".model-picker"), k = await box(c, '.composer button[aria-label="Model"]');
+  const p = await box(c, ".model-picker"), k = await box(c, CHIP);
   if (!p || !k) return;
   const x = Math.min(p.x, k.x) - 16, y = Math.min(p.y, k.y) - 16;
   await shoot(c, name, { x, y, width: Math.max(p.x + p.width, k.x + k.width) + 16 - x, height: Math.max(p.y + p.height, k.y + k.height) + 16 - y });
@@ -166,7 +174,7 @@ const keyWindow = (c) => evalIn(c, `(() => { const r = document.documentElement;
  *  a person's would — rather than wherever an earlier hover put it. */
 const openPicker = async (c) => {
   if (await evalIn(c, `!!document.querySelector('.model-picker')`)) return;
-  const k = await box(c, '.composer button[aria-label="Model"]');
+  const k = await box(c, CHIP);
   const at = { x: k.x + k.width / 2, y: k.y + k.height / 2 };
   await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
   await c.send("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1 });
@@ -174,8 +182,11 @@ const openPicker = async (c) => {
   await until(() => evalIn(c, `(() => { const p = document.querySelector('.model-picker'); return !!p && getComputedStyle(p).visibility === 'visible'; })()`), 5000, "picker");
   await sleep(350); // the arrival spring
 };
+/** A real Escape, to whatever has the keyboard — the picker's search field — so the picker answers it
+ *  before anything behind it can: one dispatched on `window` reaches every window listener at once,
+ *  and on the Code review page one of those closes the request. */
 const closePicker = async (c) => {
-  await evalIn(c, `window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true`);
+  for (const type of ["rawKeyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
   await until(() => evalIn(c, `!document.querySelector('.model-picker')`), 3000, "picker closed").catch(() => null);
   await sleep(200);
 };
@@ -340,7 +351,7 @@ const clickAt = async (c, x, y) => {
   await c.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
   await sleep(250);
 };
-const chipOf = (c) => evalIn(c, `(() => { const b = document.querySelector('.composer button[aria-label="Model"]');
+const chipOf = (c) => evalIn(c, `(() => { const b = document.querySelector(${JSON.stringify(CHIP)});
   return { text: b.querySelector('.chip-label')?.textContent ?? '', effort: b.querySelector('.chip-effort')?.textContent ?? null, title: b.title,
     fast: !!b.querySelector('.chip-fast') }; })()`);
 /** Tab from the search field, which the picker opens holding, until the track has the keyboard.
@@ -610,10 +621,171 @@ async function longList() {
   }
 }
 
+/**
+ * The owner's own session, as it was when the card would not answer them: a Claude session that has
+ * RUN, on Opus 5.5 as their ⌘1 favourite, with the prompter docked under a transcript and narrow
+ * enough that Permissions folds into the picker's foot. The CLI is the fake that speaks the SDK's
+ * protocol and answers with the real CLI's model list, so the session is live the way theirs was and
+ * every change goes through the running CLI's flag layer.
+ */
+async function ownerReal() {
+  const journalFile = path.join(scratch, "claude-journal.jsonl");
+  const { c, api, home, sessionId } = await boot({ ...stubs(path.join(scratch, "bin-real"), { acp: false, claudeCli: true }), FAKE_CLAUDE_JOURNAL: journalFile }, "real");
+  const mine = async () => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sessionId);
+  const flagWrites = () => { try { return fs.readFileSync(journalFile, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.subtype === "apply_flag_settings").map((r) => r.settings); } catch { return []; } };
+  const replies = async () => (await api.call("sessions.events", { id: sessionId, afterSeq: 0 })).map((e) => e.event)
+    .filter((e) => e.type === "assistant_text").map((e) => e.payload.text);
+  const send = async (text) => {
+    const before = (await replies()).length;
+    await evalIn(c, `(() => { const t = document.querySelector('.composer textarea'); t.focus();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(t, ${JSON.stringify(text)});
+      t.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+    await sleep(200);
+    await key(c, "Enter");
+    return until(async () => { const r = await replies(); return r.length > before ? r.at(-1) : null; }, 20000, `reply to ${text}`).catch(() => null);
+  };
+  try {
+    await setTheme(c, api, "dark");
+    check("real: Opus 5.5 is a row to pick", await pickRow(c, "Claude Opus 5.5"));
+    await openPicker(c);
+    await hover(c, "Claude Opus 5.5");
+    await evalIn(c, `(() => { document.querySelector('.mp-row[data-active] .mp-star')?.click(); return true; })()`);
+    await sleep(300);
+    await closePicker(c);
+    const first = await send("hello");
+    check("real: the session runs on the CLI, on Opus 5.5 at its default", /^Ran on claude-opus-5-5: effort high, fast off\./.test(first ?? ""), first);
+    // Narrow enough that the control row folds Permissions into the picker, as the owner's did, and
+    // short enough that the picker opens up over the prompter from a chip near the window's foot.
+    let width = 0;
+    for (const w of [900, 800, 720, 660, 600]) {
+      await c.send("Emulation.setDeviceMetricsOverride", { width: w, height: 640, deviceScaleFactor: 2, mobile: false });
+      await sleep(700);
+      width = w;
+      if (await evalIn(c, `!!document.querySelector('.composer-opts[data-collapsed]')`)) break;
+    }
+    console.log("FOLDED AT", width);
+    check("real: the prompter is docked under the transcript", (await evalIn(c, `document.querySelector('.session-pane')?.dataset.composer`)) === "docked");
+    check("real: the control row folded Permissions away", await evalIn(c, `!!document.querySelector('.composer-opts[data-collapsed]')`));
+    await openPicker(c);
+    let card = await runCard(c);
+    check("real: the card is drawn, with Permissions under it", cardIsDrawn(card) && await evalIn(c, `!!document.querySelector('.mp-foot .mp-seg-group[aria-label="Permissions"]')`), card);
+    // What a press at each control actually lands on.
+    const hits = await evalIn(c, `(() => { const at = (x, y) => { const e = document.elementFromPoint(x, y); return e ? (e.closest('.model-picker') ? 'picker:' + (e.className || e.tagName) : 'OUTSIDE:' + (e.closest('[class]')?.className ?? e.tagName)) : null; };
+      const b = (s) => document.querySelector(s)?.getBoundingClientRect();
+      const mid = (r) => r && at(r.x + r.width / 2, r.y + r.height / 2);
+      const dots = [...document.querySelectorAll('.mp-track-dot')].map((d) => mid(d.getBoundingClientRect()));
+      return { bolt: mid(b('.mp-bolt')), dots, perms: mid(b('.mp-foot .mp-seg-opt')) }; })()`);
+    console.log("HITS", JSON.stringify(hits));
+    check("real: a press on the bolt and on every dot lands on the card", /^picker:/.test(hits.bolt ?? "") && hits.dots.every((d) => /^picker:/.test(d ?? "")), hits);
+    await shootPicker(c, "real-dark-picker");
+
+    await clickAt(c, card.dots.at(-1), card.track.box.cy);
+    check("real: a press on the last dot sets Max on the session", await until(async () => (await mine())?.effort === "max", 5000, "max").then(() => true, () => false), (await mine())?.effort);
+    card = await runCard(c);
+    check("real: the card names Max", card?.level === "Max" && card.track.now === card.track.max, card && { level: card.level, now: card.track.now });
+    await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+    check("real: a press on the bolt asks for fast mode", await until(async () => (await mine())?.fastMode === true, 5000, "fast").then(() => true, () => false), (await mine())?.fastMode);
+    card = await runCard(c);
+    check("real: the bolt shows it pressed", card?.bolt?.pressed === "true", card?.bolt);
+    check("real: both reached the running CLI's flag layer", JSON.stringify(flagWrites()) === JSON.stringify([{ effortLevel: "max" }, { fastMode: true }]), flagWrites());
+    await shootPicker(c, "real-dark-max-fast");
+    await closePicker(c);
+    const second = await send("again");
+    check("real: the next turn runs at Max with fast mode on", /effort max, fast on\./.test(second ?? ""), second);
+    await setTheme(c, api, "light");
+    await openPicker(c);
+    await shootPicker(c, "real-light-max-fast");
+    await closePicker(c);
+    const errs = c.errors.filter((e) => !e.includes("Autofill"));
+    check("real: no renderer console errors", errs.length === 0, errs.slice(0, 5));
+    c.close(); api.close();
+  } finally {
+    await stop(home);
+  }
+}
+
+/**
+ * The owner's own case: the question box under a pull request in Code review, a prompter with no
+ * session behind it until the first question, on Opus 5.5. Its card was drawn and dropped every
+ * press — the draft held the model picked and nothing else. Run against the fake gh and the fake
+ * Claude CLI, so the question's answer says what the session it started actually ran at.
+ */
+async function review() {
+  const ghDir = path.join(scratch, "gh");
+  fs.mkdirSync(ghDir, { recursive: true });
+  const fixturePath = path.join(ghDir, "fixture.json");
+  fs.writeFileSync(fixturePath, JSON.stringify({ ...buildFixture(), auth: "ready" }));
+  const ghBin = path.join(ghDir, "gh");
+  fs.writeFileSync(ghBin, `#!/bin/sh\nFAKE_GH_FIXTURE='${fixturePath}' FAKE_GH_LOG='${path.join(ghDir, "calls.jsonl")}' exec '${process.execPath}' '${path.join(repoRoot, "apps/server/scripts/fixtures/fake-gh.mjs")}' "$@"\n`);
+  fs.chmodSync(ghBin, 0o755);
+  const { c, api, home } = await boot({ ...stubs(path.join(scratch, "bin-review"), { acp: false, claudeCli: true }), REALM_GH_BIN: ghBin }, "review");
+  const TITLE = "Stream the tokenizer instead of buffering its input";
+  const openReview = async () => {
+    await evalIn(c, `(() => { const b = [...document.querySelectorAll('.app-rail button')].find((x) => x.getAttribute('aria-label') === 'Code review');
+      if (b.getAttribute('aria-pressed') !== 'true') b.click(); return true; })()`);
+    await until(() => evalIn(c, `[...document.querySelectorAll('.cr-row')].some((r) => r.textContent.includes(${JSON.stringify(TITLE)}))`), 20000, "the request's row");
+    await evalIn(c, `(() => { [...document.querySelectorAll('.cr-row')].find((r) => r.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
+    await until(() => evalIn(c, `!!document.querySelector(${JSON.stringify(CHIP)})`), 20000, "the question box");
+    await sleep(800);
+  };
+  const thread = async () => (await api.call("codeReview.thread", { ref: { owner: "acme", repo: "widgets", number: 42 } })).sessionId;
+  try {
+    await setTheme(c, api, "dark");
+    CHIP = '.cr-ask .composer button[aria-label="Model"]';
+    await c.send("Emulation.setDeviceMetricsOverride", { width: 1180, height: 760, deviceScaleFactor: 2, mobile: false });
+    await openReview();
+    check("review: Opus 5.5 is a row to pick in the question box", await pickRow(c, "Claude Opus 5.5"));
+    check("review: there is no session behind the box yet", (await thread()) === null);
+    await openPicker(c);
+    let card = await runCard(c);
+    check("review: the box's picker draws the card", cardIsDrawn(card) && card.level === "High" && card.model === "Opus 5.5", card);
+    await shootPicker(c, "review-dark-before");
+    await clickAt(c, card.dots.at(-1), card.track.box.cy);
+    card = await runCard(c);
+    check("review: a press on the last dot moves the card to Max", card?.level === "Max" && card.track.now === card.track.max, card && { level: card.level, now: card.track.now });
+    check("review: …and the chip wears it", (await chipOf(c)).effort === "Max", await chipOf(c));
+    await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+    card = await runCard(c);
+    check("review: a press on the bolt asks for fast mode", card?.bolt?.pressed === "true" && card.note === "Fast mode is asked for — the first turn checks it.", card?.bolt);
+    await shootPicker(c, "review-dark-after");
+    await closePicker(c);
+    await evalIn(c, `(() => { const t = document.querySelector('.cr-ask .composer textarea'); t.focus();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(t, 'Is the stream right?');
+      t.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+    await sleep(200);
+    await key(c, "Enter");
+    const sid = await until(thread, 20000, "the request's session").catch(() => null);
+    const row = sid ? (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sid) : null;
+    check("review: the first question starts its session at Max, fast, on Opus 5.5", row?.effort === "max" && row.fastMode === true && row.model === "claude-opus-5-5", row && { effort: row.effort, fastMode: row.fastMode, model: row.model });
+    const reply = sid ? await until(async () => (await api.call("sessions.events", { id: sid, afterSeq: 0 })).map((e) => e.event)
+      .filter((e) => e.type === "assistant_text").map((e) => e.payload.text).at(-1) ?? null, 20000, "the answer").catch(() => null) : null;
+    check("review: …and its first turn ran that way", /^Ran on claude-opus-5-5: effort max, fast on\./.test(reply ?? ""), reply);
+    await sleep(600);
+    await shoot(c, "review-dark-answered");
+    await setTheme(c, api, "light");
+    await openReview();
+    await openPicker(c);
+    card = await runCard(c);
+    check("review: carried on, the box's card reads the session's own Max and fast mode", card?.level === "Max" && card.bolt?.pressed === "true", card && { level: card.level, bolt: card.bolt });
+    await shootPicker(c, "review-light-after");
+    await closePicker(c);
+    const errs = c.errors.filter((e) => !e.includes("Autofill"));
+    check("review: no renderer console errors", errs.length === 0, errs.slice(0, 5));
+    c.close(); api.close();
+  } finally {
+    CHIP = '.composer button[aria-label="Model"]';
+    await stop(home);
+  }
+}
+
 process.on("SIGINT", () => { void stop(null).then(() => process.exit(130)); });
+const only = (process.env.LIVE_ONLY ?? "").split(",").filter(Boolean);
+const wanted = (name) => only.length === 0 || only.includes(name);
 try {
-  await owner();
-  await longList();
+  if (wanted("owner")) await owner();
+  if (wanted("long")) await longList();
+  if (wanted("real")) await ownerReal();
+  if (wanted("review")) await review();
 } catch (e) {
   console.error("ERROR", e.message);
   process.exitCode = 1;
@@ -622,4 +794,6 @@ try {
   if (!process.env.LIVE_SHOTS) console.log(`screenshots in ${shots}`);
   fs.rmSync(path.join(scratch, "owner-home"), { recursive: true, force: true });
   fs.rmSync(path.join(scratch, "long-home"), { recursive: true, force: true });
+  fs.rmSync(path.join(scratch, "real-home"), { recursive: true, force: true });
+  fs.rmSync(path.join(scratch, "review-home"), { recursive: true, force: true });
 }

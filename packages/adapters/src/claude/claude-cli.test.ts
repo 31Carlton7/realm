@@ -62,4 +62,17 @@ describe("a Claude session on the real SDK", () => {
     expect(init?.type === "init" && init.payload.effortModels?.["claude-haiku-4-5"]).toEqual([]);
     await h.dispose(); await pump;
   }, 30_000);
+
+  it("starts a session asked for fast mode and a level before its first turn at both", async () => {
+    // The first turn is the one a person switched them on for; the flag layer a live query writes
+    // to does not exist until the process does, so these go in at start (`settings`, `--effort`).
+    const a = new ClaudeAdapter();
+    const h = a.start({ cwd: dir, mcpServers: [], model: "claude-opus-5-5", effort: "max", fastMode: true, env: { FAKE_CLAUDE_JOURNAL: journalFile } });
+    const evs: SessionEvent[] = [];
+    const pump = (async () => { for await (const e of h.events) evs.push(e); })();
+    await h.send({ text: "first", attachments: [] });
+    await until(() => texts(evs).length === 1);
+    expect(texts(evs)[0]).toMatch(/^Ran on claude-opus-5-5: effort max, fast on\./);
+    await h.dispose(); await pump;
+  }, 30_000);
 });

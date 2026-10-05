@@ -16,10 +16,11 @@
  *   - `system/init` opens the first turn, not the process: in streaming input mode the CLI says who
  *     it is only once there is a message to answer.
  *
- * `apply_flag_settings` merges into a flag layer the way the CLI's does (null deletes a key), and the
- * turn's reply says what that layer holds — `effort <level>, fast <on|off>` — so the transcript shows
- * what a turn actually ran under. `fast_mode_state` on the result is `on` only where the model's row
- * says it can and the layer asked.
+ * The flag layer starts from `--settings` — the SDK serialises `query()`'s inline `settings` into that
+ * one argument as JSON — and `--effort`; `apply_flag_settings` merges into it the way the CLI's does
+ * (null deletes a key). The turn's reply says what the layer holds — `effort <level>, fast <on|off>` —
+ * so the transcript shows what a turn actually ran under. `fast_mode_state` on the result is `on`
+ * only where the model's row says it can and the layer asked.
  *
  * FAKE_CLAUDE_JOURNAL=<file> appends every control request as a JSON line, for a check to read back.
  * FAKE_CLAUDE_MUTE=<subtype,…> leaves those control requests unanswered (a CLI that hangs on one).
@@ -51,7 +52,8 @@ const arg = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1
 const sessionId = randomUUID();
 const muted = new Set((process.env.FAKE_CLAUDE_MUTE ?? "").split(",").filter(Boolean));
 let model = arg("--model") ?? "default";
-const flags = { ...(arg("--effort") ? { effortLevel: arg("--effort") } : {}) };
+const inline = (() => { try { const v = arg("--settings"); return v && v.trim().startsWith("{") ? JSON.parse(v) : {}; } catch { return {}; } })();
+const flags = { ...inline, ...(arg("--effort") ? { effortLevel: arg("--effort") } : {}) };
 let introduced = false;
 
 const write = (msg) => process.stdout.write(`${JSON.stringify(msg)}\n`);
