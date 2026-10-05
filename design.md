@@ -736,6 +736,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   its time — and is never folded into the ledger. A fan-out is two starts and a wait in a row, which
   is a run, and a settled run collapses to "Worked for 8s": the one thing a reader of a delegation
   came for, hidden behind the one line that says nothing about it.
+- A question is one card whichever agent or server asked it, and it says who is asking first —
+  "Codex asks", "Linear's MCP server asks" — because the same question means something different from
+  each. What a field offers comes from Realm's own sources (the model catalog, the checkout, the
+  workspace), never from the asker, and every label is drawn as text. Answered, it stays where it was
+  asked as the question and its answer, a masked answer only ever its mark.
 - A closing line names the WORK, not the residue. "This session produced 1 file · 4 attached" is
   true and tells a reader coming back nothing; the ask, the files that changed, whether anything
   ran or failed, and then what came out is the shape of an answer. Derive it from the transcript

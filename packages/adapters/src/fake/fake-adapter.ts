@@ -1,4 +1,4 @@
-import { newId, sessionEvent, type AgentKind, type AgentModel, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { AGENT_META, askCardFromAskUserQuestion, loggableAnswers, newId, normalizeAnswers, sessionEvent, type AgentKind, type AgentModel, type AskAnswers, type AskCard, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import type { AgentAdapter, AgentHandle, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 import { gatewayClient } from "./gateway-call";
@@ -24,6 +24,9 @@ export type FakeStep =
   | { kind: "rateLimit"; payload: SessionEventPayload<"rate_limit"> };
 export type FakeScript = { on: string; emit: FakeStep[] }[];
 
+/** A scripted `AskUserQuestion` is asked the way Claude's is, by the agent that is really asking. */
+const FAKE_ASKER = { kind: "agent", name: AGENT_META.fake.label, agent: "fake" } as const;
+
 /** Scripted adapter for tests and UI development. Messages matching `on` replay the scripted steps; others echo. */
 export class FakeAdapter implements AgentAdapter {
   readonly kind = "fake" as const;
@@ -37,6 +40,7 @@ export class FakeAdapter implements AgentAdapter {
   start(opts: StartOptions): AgentHandle {
     const q = new AsyncQueue<SessionEvent>();
     const pending = new Map<string, (d: PermissionDecision) => void>();
+    const asks = new Map<string, AskCard>();
     const delay = this.cfg.delayMs ?? 0;
     const sleep = () => new Promise((r) => setTimeout(r, delay));
     let disposed = false;
@@ -55,10 +59,12 @@ export class FakeAdapter implements AgentAdapter {
     }));
     q.push(sessionEvent("status", { status: "idle" }));
 
-    const resolvePermission = (requestId: string, decision: PermissionDecision) => {
+    const resolvePermission = (requestId: string, decision: PermissionDecision, answers?: AskAnswers) => {
       const res = pending.get(requestId); if (!res) return;
       pending.delete(requestId);
-      q.push(sessionEvent("permission_response", { requestId, decision }));
+      const ask = asks.get(requestId); asks.delete(requestId);
+      const given = ask && answers ? normalizeAnswers(ask, answers) : undefined;
+      q.push(sessionEvent("permission_response", { requestId, decision, ...(ask && given ? { answers: loggableAnswers(ask, given) } : {}) }));
       res(decision);
     };
     const denyAllPending = () => { for (const id of [...pending.keys()]) resolvePermission(id, "deny"); };
@@ -107,8 +113,10 @@ export class FakeAdapter implements AgentAdapter {
           q.push(sessionEvent("tool_call", { toolUseId, name: st.name, input: st.input, parentToolUseId: null }));
           if (st.needsPermission) {
             const requestId = newId();
+            const ask = st.name === "AskUserQuestion" ? askCardFromAskUserQuestion(st.input, FAKE_ASKER) : null;
+            if (ask) asks.set(requestId, ask);
             q.push(sessionEvent("status", { status: "waiting_permission" }));
-            q.push(sessionEvent("permission_request", { requestId, toolName: st.name, input: st.input, title: `Allow ${st.name}?`, suggestions: [] }));
+            q.push(sessionEvent("permission_request", { requestId, toolName: st.name, input: st.input, title: `Allow ${st.name}?`, suggestions: [], ...(ask ? { ask } : {}) }));
             const decision = await new Promise<PermissionDecision>((res) => pending.set(requestId, res));
             if (disposed) return;
             if (interrupted) break;

@@ -38,6 +38,7 @@ import { FailoverPolicySchema } from "./failover";
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
+import { AskAnswersSchema } from "./ui-ask";
 import { TerminalProgramSchema } from "./terminal-programs";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
@@ -1774,10 +1775,11 @@ export const Methods = {
    *  going nowhere else — there is no endpoint behind this and no aggregate anywhere. `rating: null`
    *  retracts an earlier one. */
   "sessions.recordFeedback": { params: z.object({ id: IdSchema, messageId: z.string().min(1), rating: z.enum(["up", "down"]).nullable() }), result: z.object({ ok: z.literal(true) }) },
-  /** `answers` rides along only for question-shaped tools (AskUserQuestion): question text -> chosen
-   *  label, multi-select comma-joined. Deliberately a record of strings rather than a free-form input
-   *  override — the UI answers a question, it never gets to rewrite the tool's arguments. */
-  "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: z.record(z.string()).optional() }), result: z.object({ ok: z.literal(true) }) },
+  /** `answers` rides along only for a question: question id -> what was chosen or typed, several as a
+   *  list. Deliberately a record of strings rather than a free-form input override — the UI answers a
+   *  question, it never gets to rewrite the tool's arguments — and each answer is held to the card it
+   *  was asked with before it goes anywhere (`normalizeAnswers`). */
+  "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: AskAnswersSchema.optional() }), result: z.object({ ok: z.literal(true) }) },
   /** `fastMode` is a REQUEST — see `Session.fastMode`. The server records it and hands it to the
    *  adapter; whether the harness honours it comes back on the `usage` event. */
   "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional(), fastMode: z.boolean().optional() }), result: SessionSchema },

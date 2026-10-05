@@ -3944,6 +3944,128 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .question-continue { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-label); }
 .question-continue kbd { opacity: .7; }
 
+/* One card for every asker. Who is asking comes first, on the caption rung in the secondary ink —
+   an agent by its own mark, a server by the plug every Connection wears — because the same question
+   means something different from Codex than from a server you connected last week. The question
+   itself stays the heading. The tag is the asker's own word for the question, set as text after a
+   dot: a pill there would be metadata dressed as a control. */
+.question-head { align-items: center; }
+.question-from { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.question-from > svg { flex: none; }
+.question-from-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.question-tag { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
+.question-tag::before { content: "·"; margin-right: 6px; }
+.question-message, .question-detail { margin: 0; font-size: 13px; line-height: 18px; color: var(--ink-2); text-wrap: pretty; }
+.question-detail { margin-top: -6px; }
+.question-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.question-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.question-option-note { flex: none; font-size: 12px; color: var(--ink-3); }
+.question-empty { margin: 0; padding: 8px; font-size: 13px; color: var(--ink-3); }
+/* A long list's filter, and the file field's search: the field fill, the accent ring on focus. */
+.question-filter { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: var(--r-ctl); corner-shape: squircle;
+  background: var(--field); color: var(--ink-3); }
+.question-filter:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.question-filter input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
+.question-filter input::placeholder { color: var(--ink-3); }
+
+/* Choices with pictures are TILES: the picture is what is being chosen, so it gets the room, and the
+   label sits under it with its number. The well inside is concentric with the tile, and the picture
+   wears the app's image edge — drawn over it, so the picture cannot cover its own outline. */
+.question-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.question-tile { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 6px; border-radius: var(--r-panel); corner-shape: squircle;
+  text-align: left; font-size: 13px; color: var(--ink-2);
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.question-tile:hover { background: var(--hover); color: var(--ink); }
+.question-tile[data-selected] { background: var(--hover-2); color: var(--ink); }
+.question-tile[data-picked] { color: var(--ink); }
+.question-tile-pic { position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3; overflow: hidden;
+  border-radius: calc(var(--r-panel) - 6px); background: var(--inset); color: var(--ink-3); }
+.question-tile-pic::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 var(--hairline-w) var(--line-strong); pointer-events: none; }
+.question-tile-pic img { width: 100%; height: 100%; object-fit: cover; }
+.question-tile-label { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 2px; }
+.question-tile-label .question-num { align-self: center; }
+.question-tile-label .question-option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.question-tile .question-option-desc { padding: 0 2px; }
+
+/* A typed answer: the field fill, and a padlock for a secret — whose destination is said under it. */
+.question-text { display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--field); color: var(--ink-3); }
+.question-text:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.question-text-input { flex: 1; min-width: 0; height: 34px; padding: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 14px; color: var(--ink); color-scheme: inherit; }
+textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; resize: vertical; line-height: 20px; }
+.question-text-input::placeholder { color: var(--ink-3); }
+.question-note { margin: -4px 0 0; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.question-warn { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; line-height: 16px; color: var(--rl-warning); }
+.question-warn > svg { flex: none; }
+
+/* "Who builds each step?": a row per step, each wearing a model chip — the model a person would read
+   off the prompter, by its harness's mark — defaulted to the session's own. The step is the data of
+   unbounded length, so it takes the slack; the chip keeps its width until its label must give. */
+.question-models { display: flex; flex-direction: column; gap: 2px; }
+.question-model-row { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 36px; padding: 2px 4px 2px 8px; border-radius: var(--r-ctl); }
+.question-model-row[data-solo] { padding-left: 0; }
+.question-model-step { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; color: var(--ink); text-wrap: pretty; }
+/* The chip is the prompter's model chip set in a row: the harness's own mark carries the colour, the
+   name is the answer in the primary ink, and a hairline says it is a control. Not the accent — every
+   row has a pick, so a tinted chip on each would spend the accent on three resting values. */
+.question-model-row .question-num { align-self: center; }
+.question-model-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; max-width: 60%; height: 28px; padding: 0 8px 0 9px;
+  border-radius: var(--r-chip); corner-shape: squircle; background: transparent; color: var(--ink);
+  box-shadow: inset 0 0 0 var(--hairline-w) var(--line-strong);
+  font-size: 13px; font-weight: var(--fw-medium);
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.question-model-row[data-solo] .question-model-chip { max-width: 100%; }
+.question-model-chip:hover, .question-model-chip[aria-expanded="true"] { background: var(--rl-hover); }
+.question-model-chip > svg { flex: none; }
+.question-model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.question-model-own { flex: none; font-weight: var(--fw-body); color: var(--ink-3); }
+.question-model-caret { color: var(--ink-3); }
+/* A branch is an identifier, and reads as one. */
+.question-body[data-kind="branch"] .question-option-label { font: 13px/18px var(--font-mono); }
+
+/* The file field: the workspace's own paths, matched characters set in the bright ink as ⌘P does. */
+.question-file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--font-mono); color: var(--ink-2); }
+.question-file-path mark { background: transparent; color: var(--rl-text-bright); font-weight: var(--fw-title); }
+.question-file-picks { display: flex; flex-wrap: wrap; gap: 6px; }
+.question-file-pick { display: inline-flex; align-items: center; gap: 6px; height: 26px; max-width: 100%; padding: 0 8px; border-radius: var(--r-chip);
+  background: var(--accent-tint); color: var(--accent-ink); font: 12px var(--font-mono); }
+.question-file-pick > svg { flex: none; }
+
+/* A page to open: the WHOLE address, never a link, with the host in the bright ink and everything else
+   quiet — the host is what says whose page this is. */
+.question-link { margin: 0; padding: 8px 10px; border-radius: var(--r-ctl); background: var(--field); font: 12px/18px var(--font-mono); color: var(--ink-3); overflow-wrap: anywhere; }
+.question-link-host { color: var(--rl-text-bright); font-weight: var(--fw-title); }
+/* A question after the fact: the card's own shell, at rest — no lift, nothing to press — with each
+   question over what was answered. The answer is the thing a reader comes back for, so it takes the
+   primary ink and the question the secondary; an outcome with no answer under it says so in words. */
+.question-answered { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r-panel); background: var(--surface); }
+.question-answered-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.question-answered-head > svg { flex: none; }
+.question-answered-outcome { flex: none; margin-left: auto; color: var(--ink-3); }
+.question-answered-row dd.question-answered-why { font-weight: var(--fw-body); text-wrap: pretty; }
+.question-answered-list { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.question-answered-row { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.question-answered-row dt { font-size: 13px; line-height: 18px; color: var(--ink-2); text-wrap: pretty; }
+.question-answered-row dd { margin: 0; min-width: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-medium); color: var(--ink); overflow-wrap: anywhere; }
+.question-answered-none { font-weight: var(--fw-body); color: var(--ink-3); }
+.question-answered-text { white-space: pre-wrap; }
+.question-answered-secret { letter-spacing: 1px; color: var(--ink-2); }
+.question-answered-path { font: 12px/18px var(--font-mono); color: var(--ink); }
+.question-answered-choice { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; }
+.question-answered-choice .question-tile-pic { flex: none; width: 44px; aspect-ratio: 4 / 3; border-radius: var(--r-sm); }
+.question-answered-model { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; }
+.question-answered-model > svg { flex: none; }
+.question-answered-steps { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 0; padding: 0; list-style: none; counter-reset: step; }
+.question-answered-steps li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; counter-increment: step; }
+.question-answered-steps li > span:first-child { min-width: 0; font-weight: var(--fw-body); color: var(--ink-2); }
+.question-answered-steps li > span:first-child::before { content: counter(step) ". "; color: var(--ink-3); }
+.question-answered-steps .question-answered-model { flex: none; max-width: 55%; }
+
+/* The card's mono runs give up the app's tracking, for the reason the list at the top of this file
+   gives: Chromium drops a monospace face's ligatures on any tracked run. */
+.question-file-path, .question-file-pick, .question-link, .question-answered-path, .question-body[data-kind="branch"] .question-option-label {
+  letter-spacing: normal;
+}
+
 /* ── The prompter (§4): one floating card, two states, one element moving ─ */
 /* The dock carries geometry + position for BOTH states; the greeting hangs off it
    absolutely so the hero→docked move is a single transform transition (§6: 320ms, interruptible). */

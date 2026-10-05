@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter, HIDDEN_ANSWER, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, fastModeByModel } from "./claude-adapter";
-import type { SessionEvent } from "@realm/contracts";
+import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, fastModeByModel } from "./claude-adapter";
+import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
@@ -205,6 +205,35 @@ describe("ClaudeAdapter", () => {
     expect(JSON.stringify(got)).not.toContain("sk-live-1234");
     // …while the agent, who asked for it, is handed the real value.
     expect(handed[0]).toMatchObject({ behavior: "allow", updatedInput: { answers } });
+  });
+  it("marks AskUserQuestion as a question Claude asked, and hands several picks back comma-joined", async () => {
+    const handed: unknown[] = [];
+    const input = { questions: [
+      { question: "Which?", header: "Pick", multiSelect: true, options: [{ label: "A" }, { label: "B" }], allowOther: false },
+      { question: "Where?", header: "Region", multiSelect: false, options: [{ label: "us" }], allowOther: false },
+    ] };
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "AskUserQuestion", permissionInput: input, permissionResults: handed }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"),
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "allow", { "Which?": ["A", "B"], "Where?": "eu" }); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    const req = got.find((e) => e.type === "permission_request");
+    expect(req?.type === "permission_request" && req.payload.ask).toMatchObject({ asker: { kind: "agent", name: "Claude" }, mode: "question" });
+    // "eu" was never offered and the question takes no answer of its own: it does not reach Claude.
+    expect(handed[0]).toMatchObject({ behavior: "allow", updatedInput: { answers: { "Which?": "A, B" } } });
+    expect((handed[0] as { updatedInput: { answers: Record<string, string> } }).updatedInput.answers).not.toHaveProperty("Where?");
+  });
+  it("never marks another tool a question, whatever its arguments look like", async () => {
+    // THE MUTANT: build the card from the input's shape alone. A Bash call whose arguments carry a
+    // `questions` array would then draw as a question, and answering it would allow the command.
+    const input = { command: "rm -rf /", questions: [{ question: "Pick?", options: [{ label: "A" }] }] };
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Bash", permissionInput: input }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"),
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "deny"); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    const req = got.find((e) => e.type === "permission_request");
+    expect(req?.type === "permission_request" && req.payload.ask).toBeUndefined();
   });
   it("concurrent canUseTool calls: one waiting_permission → running transition for the whole batch", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Read", concurrentPermissions: 2 }) as never });

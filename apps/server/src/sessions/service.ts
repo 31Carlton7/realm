@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -25,6 +25,7 @@ import type { MemoryService } from "../memory/service";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
 import type { MemorySources } from "@realm/contracts";
+import { SecretAnswers } from "./secret-answers";
 
 /**
  * One message as the prompter hands it over. `elements` are the browser-pane elements the user picked
@@ -132,6 +133,11 @@ export class SessionService {
    */
   private rewindTurns = new Map<string, SendMessage>();
   private closing = false;
+  /** The questions open right now, by requestId, from whichever feed raised them — what an answer is
+   *  read against to learn which of it is masked. */
+  private asked = new Map<string, { sessionId: string; card: AskCard }>();
+  /** Masked answers, kept out of every event and call record (see `secret-answers.ts`). */
+  private secrets = new SecretAnswers();
   /** Set while the daemon is going quiet for a handoff. See `ensureLive` for the rule that matters. */
   private draining = false;
   constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
@@ -147,7 +153,7 @@ export class SessionService {
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
-    browserPermissions?: { owns(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision): void; release(sessionId: string): void };
+    browserPermissions?: { owns(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string): void; release(sessionId: string): void };
     /** Computer use granted by a mention, per session (`computer/session-grants.ts`): what an
      *  `@Messages` in a delivered message writes, and what a deleted session takes with it. Optional —
      *  a harness without it treats an app mention as text and grants nothing. */
@@ -631,16 +637,27 @@ export class SessionService {
     this.d.failover?.cancel(id);
     await this.live.get(id)?.handle.interrupt();
   }
-  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): void {
+  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers): void {
     this.get(id);
+    // A masked answer is remembered BEFORE it goes anywhere, so the first event to quote it back — the
+    // agent's tool result, often the very next thing on the wire — already finds it scrubbed.
+    const asked = this.asked.get(requestId);
+    if (asked && asked.sessionId === id && answers && decision !== "deny") this.secrets.rememberFrom(id, asked.card, answers);
     // Browser-tool permission requests (Plan 11 W3) are raised by the SERVER, not the adapter — the
     // broker owns their requestIds and routes the answer back to the blocked tool call. Deliberately
     // BEFORE the live-handle check: the prompt blocks an MCP call inside the gateway, which stays
-    // answerable even if the adapter process died while the card sat unanswered.
-    if (this.d.browserPermissions?.owns(requestId)) { this.d.browserPermissions.resolve(requestId, decision); return; }
+    // answerable even if the adapter process died while the card sat unanswered. Questions Realm
+    // asks itself (`ui_ask`, an MCP server's elicitation) ride the same route, answers and all.
+    if (this.d.browserPermissions?.owns(requestId)) { this.d.browserPermissions.resolve(requestId, decision, answers, id); return; }
     const l = this.live.get(id);
     if (!l) throw new RpcError("SESSION_NOT_LIVE", "the agent is not running; the request is stale (send a message to resume)");
     l.handle.respondPermission(requestId, decision, answers);
+  }
+
+  /** `text` with every masked answer this session was given replaced by the mark — what the gateway
+   *  runs a call's record through before Activity keeps it. */
+  scrubSecrets(id: string, text: string): string {
+    return this.secrets.scrubText(id, text);
   }
 
   /**
@@ -819,6 +836,9 @@ export class SessionService {
     this.d.browserPermissions?.release(id);
     // …and so does the computer use its mentions granted.
     this.d.computerGrants?.release(id);
+    // Its masked answers have nothing left to be kept out of, and its questions nobody left to answer.
+    this.secrets.forget(id);
+    for (const [requestId, a] of this.asked) if (a.sessionId === id) this.asked.delete(requestId);
     // And its browser-agent state (W5): as a parent, its run is cancelled; as a child, its persisted
     // record and act budget are forgotten — the restriction dies with the session.
     this.d.browserAgents?.release(id);
@@ -1316,10 +1336,15 @@ export class SessionService {
     this.d.rpc.broadcast("session.event", { ...stored, ephemeral: false });
   }
 
-  private onEvent(id: string, ev: SessionEvent): void {
+  private onEvent(id: string, raw: SessionEvent): void {
     if (this.closing) return; // shutdown: the row keeps its last real status; markStaleOnBoot resets it
     const before = this.d.sessions.get(id);
     if (!before) return; // deleted underneath a still-draining pump
+    // First, before anything reads it: a masked answer quoted back by the agent never reaches the log,
+    // the feed or another window. A no-op for every session that was never asked a secret.
+    const ev = this.secrets.scrub(id, raw);
+    if (ev.type === "permission_request" && ev.payload.ask) this.asked.set(ev.payload.requestId, { sessionId: id, card: ev.payload.ask });
+    else if (ev.type === "permission_response") this.asked.delete(ev.payload.requestId);
     // BEFORE the status update below, so the hook sees the row's PREVIOUS status — a settle is a
     // transition, and only this side of the update still knows both ends of it.
     this.d.notifications?.handleSessionEvent(before, ev);

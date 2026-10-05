@@ -44,6 +44,8 @@ import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
+import { createUiAgentProvider, listBranches } from "./ui/agent-tools";
+import { createHubElicitation } from "./mcp/elicitation";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
 import { DecisionLog } from "./laya/log";
@@ -85,7 +87,7 @@ import { ThemesService } from "./themes/service";
 import { FontsService } from "./fonts/service";
 import { McpServersStore, McpCallLogStore } from "./store/mcp";
 import { McpService, oauthStatusOf } from "./mcp/service";
-import { McpHub } from "./mcp/hub";
+import { McpHub, type HubElicit } from "./mcp/hub";
 import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
 import type { AgentKind, McpServerStatus } from "@realm/contracts";
@@ -371,6 +373,41 @@ export function defaultAdapters(): AdapterRegistry {
         options: [{ label: "us-east-1" }, { label: "eu-west-1" }] },
       { question: "Paste the deploy token.", header: "Token", multiSelect: false, secret: true, options: [] },
     ] } }],
+  }, {
+    // `realm-ui`'s card, called for real through this session's gateway the way an agent calls it. The
+    // fields only Realm can fill have nothing else to pose for: pictures resolved in the workspace (the
+    // live check writes `mockups/*.png` into the space's folder), a model per plan step from the
+    // catalog, and a file, a branch, a time and a masked token in one card.
+    on: "ask with pictures", emit: [{ kind: "call", tool: "realm-ui__ui_ask", input: { questions: [
+      { id: "look", prompt: "Which look should the settings page take?", header: "Design", kind: "choice", options: [
+        { label: "Calm", description: "Hairlines and quiet ink", image: "mockups/calm.png" },
+        { label: "Bold", description: "Big type, strong contrast", image: "mockups/bold.png" },
+        { label: "Dense", description: "Everything on one screen", image: "mockups/dense.png" }] },
+      { id: "extras", prompt: "What should ship with it?", header: "Scope", kind: "multi", options: [
+        { label: "Keyboard shortcuts" }, { label: "A preview of the dark face" }, { label: "Export settings" }] },
+    ] } }],
+  }, {
+    on: "ask who builds", emit: [
+      { kind: "text", text: "The plan has three steps. Pick who builds each one, and I'll start the sub-agents on those models." },
+      { kind: "call", tool: "realm-ui__ui_ask", input: { questions: [{ id: "builders", prompt: "Who builds each step?", header: "Plan", kind: "model",
+        rows: ["Write the migration that stores the theme", "Add the toggle to Settings ▸ App", "Write the tests for both"] }] } },
+    ],
+  }, {
+    on: "ask about the release", emit: [{ kind: "call", tool: "realm-ui__ui_ask", input: { message: "A few things before I cut the release.", questions: [
+      { id: "changelog", prompt: "Which file holds the changelog?", kind: "file" },
+      { id: "base", prompt: "Which branch should the release go on?", kind: "branch" },
+      { id: "when", prompt: "When should it go out?", kind: "time" },
+      { id: "token", prompt: "Paste the deploy token.", header: "Token", kind: "text", secret: true },
+    ] } }],
+  }, {
+    // An MCP server's own questions, asked mid-call through the hub: the live check connects
+    // `mcp/fixtures/elicit-stdio.mjs` as a Connection named "Linear", whose tools ask with a form, a
+    // page to open, and a form asking for a key that Realm must decline.
+    on: "file the Linear issue", emit: [{ kind: "call", tool: "Linear__create_issue", input: { title: "Dark mode toggle" } }],
+  }, {
+    on: "connect Linear", emit: [{ kind: "call", tool: "Linear__connect_workspace", input: {} }],
+  }, {
+    on: "set the Linear key", emit: [{ kind: "call", tool: "Linear__set_api_key", input: {} }],
   }, {
     // The fallback, which is the half of the gate worth being able to see: a question offering
     // neither an option nor free text cannot be answered, so it must arrive as an ordinary
@@ -696,8 +733,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       gateway?.notifyToolsChanged();
     },
   });
+  // A server's question mid-call goes to the broker's card, which is built further down; nothing asks
+  // before a session has made a call, by which point it exists.
+  let hubElicit: HubElicit | null = null;
   const mcpHub = new McpHub({
     servers: mcpServersStore,
+    elicit: (r) => (hubElicit ? hubElicit(r) : Promise.resolve({ action: "decline" as const })),
     // The OAuth seam. `McpOauth` sanitizes its own errors — the hub cannot redact a token that only ever
     // existed inside an error thrown in here (see the seam's own doc comment in `hub.ts`).
     authHeaders: (row) => oauth.headers(row),
@@ -764,7 +805,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       // put per-tool delegation policy in the gateway, which is exactly where it does not belong.
       const spentChild = agentRuns?.isChild(sessionId) && !agentRuns.canDelegate(sessionId);
       return spentChild || reviews?.isChild(sessionId) ? { exclude: [REALM_AGENT_PROVIDER_NAME] } : null;
-    } });
+    },
+    // Activity keeps no masked answer: what a session was told in secret is scrubbed from its calls.
+    redact: (sessionId, text) => sessionService?.scrubSecrets(sessionId, text) ?? text });
   gateway = mcpGateway;
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
@@ -825,6 +868,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       layaShadow.permissionEvent(sessionId, ev);
     },
   });
+  hubElicit = createHubElicitation({ broker: browserBroker, serverName: (id) => mcpServersStore.get(id)?.name ?? null });
   const artifacts = new ArtifactsStore(db, settings);
   const sessionEvents = new SessionEventsStore(db, artifacts);
   // Hoisted: `defaultAdapters()` builds live adapter instances, and failover must check membership
@@ -960,6 +1004,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     timeouts: opts.ask?.timeouts,
   });
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
+  /* `realm-ui`: questions asked on Realm's own card, with fields only Realm can fill. On by default and
+     in every mode — it can only ask, and an answer is the user's click. The model field offers what a
+     sub-agent can be put on, from the same catalog `delegation.models` answers with. */
+  const agentRunsForUi = agentRuns;
+  mcpGateway.registerProvider(createUiAgentProvider({
+    mcp, broker: browserBroker, session: (id) => sessions.get(id), models: (id) => agentRunsForUi.catalogFor(id), branches: listBranches,
+  }));
   // The one provider a space has to switch ON: it reaches every app on the Mac.
   mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist, grants: computerGrants, observe: layaShadow.observe, assist: layaAssist }));
   /* The `realm-terminal` provider: a pty an agent can type into and read back. On by default, and

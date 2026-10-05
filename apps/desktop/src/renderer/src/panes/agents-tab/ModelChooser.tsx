@@ -24,16 +24,24 @@ type Row = { key: string; label: string; kind: AgentKind; ready: boolean; own: b
  * A harness that cannot run right now keeps its rows, marked and unpickable, rather than vanishing:
  * a model missing from the list reads as Realm not knowing it, when the fix is a sign-in.
  */
-export function ModelChooser({ anchor, models, own, picked, onToggle, onClose }: {
+export function ModelChooser({ anchor, models, own, picked, onToggle, onClose, label = "Models for sub-agents", noAgent, align = "left" }: {
   anchor: RefObject<HTMLElement | null>;
   models: readonly DelegableModel[];
   own: { kind: AgentKind; label: string };
   picked: ReadonlySet<string>;
   onToggle: (key: string) => void;
   onClose: () => void;
+  /** The panel's accessible name. */
+  label?: string;
+  /** Set where the chooser answers for the user — a question's model field. It is portalled out of
+   *  the card that carries `data-no-agent`, so it has to carry the claim itself. */
+  noAgent?: string;
+  /** Which edge of the anchor the panel lines up with: a chip at the right of a card opens the panel
+   *  over the card rather than off its edge. */
+  align?: "left" | "right";
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef: anchor, align: "left", placement: "up", onClose, returnFocusRef: anchor, exit: true });
+  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef: anchor, align, placement: "up", onClose, returnFocusRef: anchor, exit: true });
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const rows = useMemo(() => {
@@ -67,7 +75,7 @@ export function ModelChooser({ anchor, models, own, picked, onToggle, onClose }:
     visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom left" };
 
   return createPortal(
-    <div ref={ref} role="dialog" aria-label="Models for sub-agents" className="menu subagents-chooser" style={style}
+    <div ref={ref} role="dialog" aria-label={label} className="menu subagents-chooser" data-no-agent={noAgent} style={style}
       data-closing={closing || undefined} inert={closing} onKeyDown={onKey}>
       <div className="subagents-chooser-search">
         <Icon name="search" size={14} />

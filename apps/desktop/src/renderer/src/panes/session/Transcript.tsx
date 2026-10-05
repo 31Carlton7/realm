@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type SessionStatus } from "@realm/contracts";
+import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type SessionStatus, type AskAnswers } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { fileMark } from "./mention-sources";
 import { CommandCopy } from "../../components/CommandCopy";
@@ -12,6 +12,7 @@ import { MessageSources } from "./MessageSources";
 import { sourcesFor, type Source } from "./message-sources";
 import { PendingRequest } from "./PendingRequest";
 import { PlanCard } from "./PlanCard";
+import { AnsweredQuestion } from "./QuestionCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
 import { LeadSessionContext } from "./DelegationLine";
 import { finishedAt, finishedOn, formatDuration, groupTranscript, withEnter } from "./tool-group";
@@ -187,7 +188,7 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
 export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote }: {
-  transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
+  transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
   /** The session this log is — what a sub-agent's line links back to (its row in this session's
    *  Agents tab). Null in the read-only mounts, where the line reads and links nowhere. */
   sessionId?: string | null;
@@ -431,6 +432,9 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter}
               onExpand={onExpandPlan && (() => onExpandPlan(b.planId))} onImplementWith={onImplementWith} />;
+            // Drawn once it is answered. While it waits, the live card at the foot of the column IS the
+            // question, and a second copy of it here would be two places to answer one thing.
+            case "question": return b.decision ? <AnsweredQuestion key={key} card={b.card} decision={b.decision} answers={b.answers} enter={enter} /> : null;
             // A failure Realm knows the answer to says the answer here, under the message, because
             // this is where the reader is already looking. The command is offered to copy and
             // nothing more: the transcript is content, and the controls that act on this session —

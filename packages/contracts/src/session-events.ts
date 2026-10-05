@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PlanAlertSchema, PlanLimitsUnavailableSchema, PlanWindowSchema } from "./plan-limits";
 import { MentionRefSchema } from "./mention-refs";
+import { AskAnswersSchema, AskCardSchema } from "./ui-ask";
 
 const P = {
   /** `from` is present ONLY when another session delivered this message (Plan 20's interjection).
@@ -54,10 +55,16 @@ const P = {
      *  whose notification carried no summary — never defaulted to a sentence Realm made up. */
     summary: z.string().optional(),
   }),
-  permission_request: z.object({ requestId: z.string(), toolName: z.string(), input: z.record(z.unknown()), title: z.string(), suggestions: z.array(z.unknown()) }),
-  /** `answers` present only for question-shaped tools (AskUserQuestion): question text -> chosen label.
-   *  Persisted so a replayed transcript records what was actually answered, not just that it was allowed. */
-  permission_response: z.object({ requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: z.record(z.string()).optional() }),
+  /** `ask` is present when the request is a QUESTION rather than a permission — from any of the four
+   *  feeds `ui-ask.ts` describes — and it is Realm's own: an adapter or the server writes it, never an
+   *  agent's arguments, which is what makes it safe to route the card on. Optional, so every request
+   *  ever persisted still parses. */
+  permission_request: z.object({ requestId: z.string(), toolName: z.string(), input: z.record(z.unknown()), title: z.string(), suggestions: z.array(z.unknown()),
+    ask: AskCardSchema.optional() }),
+  /** `answers` present only for a question: its id (Claude's: the question text) -> what was chosen or
+   *  typed, several as a list. Persisted so a replayed transcript records what was actually answered,
+   *  not just that it was allowed — and so a masked answer is only ever `HIDDEN_ANSWER` here. */
+  permission_response: z.object({ requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: AskAnswersSchema.optional() }),
   status: z.object({ status: z.enum(["idle", "running", "waiting_permission", "error", "ended"]),
     /** The turn ended because the USER pressed stop, not because the agent finished or failed.
      *  Present only on the settle that an interrupt produced. It is what lets the transcript say

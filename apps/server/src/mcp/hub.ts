@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { ToolListChangedNotificationSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
+import { ElicitRequestSchema, ToolListChangedNotificationSchema, type CallToolResult, type ElicitRequest, type ElicitResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { McpServerStatus } from "@realm/contracts";
 import { RpcError } from "../store/rows";
@@ -33,6 +33,44 @@ export type McpLiveTool = { name: string; description: string; inputSchema: Tool
  *  success, of any kind, resets the count to zero. */
 const CIRCUIT_THRESHOLD = 3;
 
+/** How long a server has to answer a call, counting only the time it is working — the SDK's own
+ *  default, kept. Time the user spends answering the server's question is not the server's. */
+const CALL_TIMEOUT_MS = 60_000;
+/** The SDK's own clock for a call, which knows nothing of questions: a ceiling behind ours, so a call
+ *  that asks twice and waits on both is not cut off by it. */
+const CALL_CEILING_MS = 60 * 60_000;
+
+/**
+ * A call's working time: runs while the server works, stops while the user answers its question,
+ * and fires once the server has had its whole allowance. Pauses nest — a server may ask twice.
+ */
+class CallClock {
+  private timer: NodeJS.Timeout | null = null;
+  private left: number;
+  private since = 0;
+  private paused = 0;
+  private stopped = false;
+  constructor(ms: number, private readonly expire: () => void) { this.left = ms; this.run(); }
+  pause(): void {
+    if (this.stopped || this.paused++ > 0 || !this.timer) return;
+    clearTimeout(this.timer); this.timer = null;
+    this.left -= Date.now() - this.since;
+  }
+  resume(): void {
+    if (this.stopped || this.paused === 0 || --this.paused > 0) return;
+    this.run();
+  }
+  stop(): void { this.stopped = true; if (this.timer) clearTimeout(this.timer); this.timer = null; }
+  private run(): void { this.since = Date.now(); this.timer = setTimeout(this.expire, Math.max(0, this.left)); }
+}
+
+/** One call on its way to a server, and who made it — what an elicitation is routed by. */
+type OpenCall = { serverId: string; sessionId: string | null; clock: CallClock };
+
+/** What the hub hands a server's question to (`elicitation.ts`): the server, the session whose call
+ *  it interrupted, the request itself, and the server withdrawing it. */
+export type HubElicit = (r: { serverId: string; sessionId: string; params: ElicitRequest["params"]; signal: AbortSignal }) => Promise<ElicitResult>;
+
 type Entry = {
   status: UpstreamStatus;
   client: Client | null;
@@ -62,6 +100,7 @@ type Entry = {
  */
 export class McpHub {
   private readonly entries = new Map<string, Entry>();
+  private readonly open = new Set<OpenCall>();
   /** Set once by `close()`. A connect that resolves after this flips (it started before shutdown, the
    *  handshake just took a while) must be reaped, not adopted — see `connect()`'s post-resolve check. */
   private closed = false;
@@ -89,6 +128,14 @@ export class McpHub {
      *  and the circuit breaker below still run for real — this swaps out only the wire, never the hub's
      *  own logic. */
     makeTransport?: (row: McpServerRow, headers: Record<string, string>) => Transport | Promise<Transport>;
+    /**
+     * Where a server's question goes (MCP elicitation): onto the card of the session whose call it
+     * came in the middle of. Absent, the hub declares no elicitation at all — a client that says it
+     * can ask the user and then cannot is worse than one that says nothing.
+     */
+    elicit?: HubElicit;
+    /** Test seam for `CALL_TIMEOUT_MS`. */
+    callTimeoutMs?: number;
   }) {}
 
   /**
@@ -120,11 +167,18 @@ export class McpHub {
 
   /** Forwards a call verbatim — no argument validation against the cached tool list, which can go
    *  stale the moment an upstream server changes its schema (see `McpToolSchema`'s own doc comment for
-   *  why the cache carries no input schema to validate against in the first place). */
-  async call(id: string, tool: string, args: unknown): Promise<CallToolResult> {
+   *  why the cache carries no input schema to validate against in the first place). `caller` is the
+   *  session making it: what a question the server asks mid-call is routed to. */
+  async call(id: string, tool: string, args: unknown, caller?: { sessionId: string }): Promise<CallToolResult> {
     const { client, entry } = await this.ensureClient(id);
+    const ms = this.d.callTimeoutMs ?? CALL_TIMEOUT_MS;
+    const abort = new AbortController();
+    const clock = new CallClock(ms, () => abort.abort(new Error(`the server did not answer ${tool} within ${Math.round(ms / 1000)}s`)));
+    const open: OpenCall = { serverId: id, sessionId: caller?.sessionId ?? null, clock };
+    this.open.add(open);
     try {
-      const result = (await client.callTool({ name: tool, arguments: args as Record<string, unknown> | undefined })) as CallToolResult;
+      const result = (await client.callTool({ name: tool, arguments: args as Record<string, unknown> | undefined }, undefined,
+        { signal: abort.signal, timeout: CALL_CEILING_MS })) as CallToolResult;
       // `isError: true` is a normal, successfully round-tripped MCP result (the tool ran and reported a
       // problem) — it counts as a working connection, same as any other resolved call. Only a REJECTED
       // `callTool()` (transport/protocol failure, not a tool-level error) reaches the catch below and
@@ -134,7 +188,30 @@ export class McpHub {
     } catch (err) {
       this.recordFailure(id, entry);
       throw sanitize(id, err, entry.redact);
+    } finally {
+      clock.stop();
+      this.open.delete(open);
     }
+  }
+
+  /**
+   * A server asking the user something in the middle of a call (MCP elicitation).
+   *
+   * The protocol does not say which call a question belongs to, and one client serves every session,
+   * so the question goes to the session with a call open on this server — and only when there is
+   * exactly one. Two sessions mid-call, or a call nobody owns, and Realm cannot tell whose question
+   * it is: it declines rather than put it in front of the wrong person. While it waits, the calls it
+   * interrupts stop their clocks, so a person thinking is not a server timing out.
+   */
+  private async onElicit(id: string, params: ElicitRequest["params"], signal: AbortSignal): Promise<ElicitResult> {
+    const calls = [...this.open].filter((c) => c.serverId === id);
+    const sessions = new Set(calls.map((c) => c.sessionId));
+    const [sessionId] = sessions;
+    if (!this.d.elicit || sessions.size !== 1 || !sessionId) return { action: "decline" };
+    for (const c of calls) c.clock.pause();
+    try { return await this.d.elicit({ serverId: id, sessionId, params, signal }); }
+    catch { return { action: "cancel" }; }
+    finally { for (const c of calls) c.clock.resume(); }
   }
 
   /** Closes the circuit and drops the client; the next `tools()`/`call()` reconnects from scratch. */
@@ -221,8 +298,11 @@ export class McpHub {
 
   private async connect(id: string, entry: Entry, row: McpServerRow): Promise<Client> {
     try {
-      const client = new Client({ name: "realm-hub", version: "1.0.0" });
+      // Elicitation, in both of MCP's modes, when there is somewhere to send it: a form becomes the
+      // question card, a page to open becomes a card that names its host and opens on a click.
+      const client = new Client({ name: "realm-hub", version: "1.0.0" }, this.d.elicit ? { capabilities: { elicitation: { form: {}, url: {} } } } : undefined);
       client.setNotificationHandler(ToolListChangedNotificationSchema, () => this.onToolsChanged(id));
+      if (this.d.elicit) client.setRequestHandler(ElicitRequestSchema, (request, extra) => this.onElicit(id, request.params, extra.signal));
       await client.connect(await this.buildTransport(row, entry));
       // The handshake just resolved, but `invalidate()`/`retry()`/`close()` may have raced it — this
       // entry may no longer be the hub's live state for `id`, or the hub may be shutting down entirely.

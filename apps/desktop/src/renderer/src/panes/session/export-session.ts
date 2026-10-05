@@ -97,6 +97,18 @@ function sectionFor(b: Block): string | null {
       if (b.steps?.length) lines.push("", ...b.steps.map((s) => `- [${s.status === "completed" ? "x" : " "}] ${s.text}${s.status === "in_progress" ? " _(in progress)_" : ""}`));
       return lines.join("\n");
     }
+    // The question and what was answered, as the transcript draws it — a masked answer is already
+    // only the mark, so nothing secret can reach a file from here.
+    case "question": {
+      if (!b.decision) return null;
+      const lines = [`## Question — ${b.card.asker.kind === "server" ? `${b.card.asker.name}'s MCP server` : b.card.asker.name}`];
+      if (b.card.refused) return [...lines, "", `_Declined by Realm: ${b.card.refused}_`].join("\n");
+      for (const q of b.card.questions) {
+        const a = b.answers?.[q.id];
+        lines.push("", `**${q.prompt}**`, a === undefined ? "_Not answered_" : Array.isArray(a) ? a.join(", ") : a);
+      }
+      return lines.join("\n");
+    }
     case "error": return `> **Error:** ${b.message.split("\n").join("\n> ")}`;
     // Exported, because it is the one line that explains why the voice below it is not the voice
     // above it. A reader handed this file has no other way to tell.
