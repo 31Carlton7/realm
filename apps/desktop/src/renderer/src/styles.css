@@ -489,6 +489,10 @@ kbd { font: 11px var(--font-mono); }
 /* A page over the panes covers their bars too; their titles would show through the page's own bar,
    which is clear so that the head row under it is the chrome everywhere else in the row (below). */
 :root:has(.page-overlay) .main .panel-bar { visibility: hidden; }
+/* …and so would the dividers between them: below the head row the page's ground covers them, but in
+   the row the bar is clear, and a split's divider ran on up through it as a stray rule beside the
+   page's name. */
+:root:has(.page-overlay) .main .resize-handle { visibility: hidden; }
 /* ── The sidebar's head row (Plan 27) ──
    Its toggle, search and a new session at the column's far end, in the traffic lights' 40px band — the
    band the first pane's bar sits in, so the row reads as one line across the window. The band's start
@@ -583,8 +587,10 @@ kbd { font: 11px var(--font-mono); }
    sidebar's side of the seam, below the head row only, cast onto the surface they rise from and so
    under the sidebar's rows like any shadow. Its own step per face, because black on the light ground
    loses more of itself at the same alpha (design.md: do not assume the light face mirrors the dark). */
-:root { --seam-shade: oklch(0 0 0 / 0.18); --seam-w: 8px; }
-:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.05); }
+/* Set by measurement, to the depth Codex's own sheet shadow has on its light face (6 levels of 255
+   at the edge): at 5% black the light face measured 11 there, which is a shadow rather than a hint. */
+:root { --seam-shade: oklch(0 0 0 / 0.14); --seam-w: 8px; }
+:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.03); }
 .sidebar { background:
   linear-gradient(to left, var(--seam-shade), transparent) right top var(--frame-top) / var(--seam-w) 100% no-repeat,
   linear-gradient(var(--chrome-tint), var(--chrome-tint)) top / 100% var(--frame-top) no-repeat,

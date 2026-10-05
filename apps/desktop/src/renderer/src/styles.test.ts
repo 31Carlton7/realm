@@ -1166,6 +1166,12 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(handedAtClick).toEqual([]);
   });
 
+  it("a page hides the panes' bars and their dividers, which would otherwise run up through its clear bar", () => {
+    // Reported in the live check: a split's divider drawn as a stray rule across the page's top row.
+    expect(bodiesFor(":root:has(.page-overlay) .main .panel-bar").join(" ")).toContain("visibility: hidden");
+    expect(bodiesFor(":root:has(.page-overlay) .main .resize-handle").join(" ")).toContain("visibility: hidden");
+  });
+
   it("the panes stand a hair above the sidebar: a light shade on its side of the seam, below the head row", () => {
     /* The owner, 10-04: a very, very light shadow where the panes meet the sidebar, so the panes read
        as a surface a step above it, as Codex's content card does. Drawn on the sidebar's own ground —
