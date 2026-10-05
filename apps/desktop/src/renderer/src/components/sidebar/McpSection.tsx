@@ -236,15 +236,6 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
             onChange={(e) => run(() => setMcpEnabled(spaceId, server.id, e.target.checked))} />
           Enabled
         </label>
-        {/* The server's own switch, not this space's: a view is the vendor's drawing, and whether to
-            see it is a choice about the vendor. On until someone turns it off. */}
-        {hasViews && (
-          <label className="mcp-enable" title={`Whether Realm shows ${server.name}'s views, in every space. Off, its tools answer in text only.`}>
-            <input type="checkbox" role="switch" className="switch" aria-label={`Show ${server.name}'s views`} checked={server.showViews}
-              onChange={(e) => run(() => setMcpShowViews(server.id, e.target.checked))} />
-            Show views
-          </label>
-        )}
         <button type="button" className="btn-quiet" onClick={runTest}>Test</button>
         {/* Never a bare "Edit" on an inherited row — in-place editing is the mutant §2 forbids. Since
             Plan 14 W2 the defining scope has a real page, so "Edit in profile" JUMPS there (primary);
@@ -274,6 +265,18 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
         <MoveScopeConfirm direction={inherited ? "demote" : "promote"} name={server.name} profileName={profileName}
           onCancel={() => setConfirmMove(false)}
           onConfirm={() => { setConfirmMove(false); run(() => (inherited ? demoteMcpServer : promoteMcpServer)(spaceId, server.id)); }} />
+      )}
+      {/* The server's own switch, not this space's — a view is the vendor's drawing, and whether to see
+          it is a choice about the vendor — so it sits on a line of its own, apart from Enabled, whose
+          scope is the space. On until someone turns it off. */}
+      {hasViews && (
+        <div className="mcp-views">
+          <label className="mcp-enable" title={`Whether Realm shows ${server.name}'s views, in every space. Off, its tools answer in text only.`}>
+            <input type="checkbox" role="switch" className="switch" aria-label={`Show ${server.name}'s views`} checked={server.showViews}
+              onChange={(e) => run(() => setMcpShowViews(server.id, e.target.checked))} />
+            Show views
+          </label>
+        </div>
       )}
       {server.status === "circuit_open" && (
         <div className="mcp-circuit">

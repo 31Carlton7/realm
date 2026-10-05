@@ -26,7 +26,7 @@ export function ViewRequestCard({ request, serverName, onAllow, onDeny }: {
     <div className="app-view-request" role="group" aria-label={`Request from ${serverName}'s view`} data-no-agent="view request">
       <p className="app-view-request-title">{copy.title}</p>
       {request.kind === "tool" && <pre className="app-view-request-well">{JSON.stringify(request.arguments, null, 2)}</pre>}
-      {request.kind === "message" && <pre className="app-view-request-well app-view-request-text">{request.text}</pre>}
+      {request.kind === "message" && <p className="app-view-request-quote">{request.text}</p>}
       {request.kind === "link" && <LinkLine url={request.url} />}
       <p className="app-view-request-note">{copy.note}</p>
       <div className="app-view-request-actions">

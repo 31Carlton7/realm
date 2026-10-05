@@ -3683,8 +3683,12 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .app-view-request-well { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font: 12px var(--font-mono);
   white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; color: var(--ink-2); }
 /* A message is read as prose: the words the agent would be handed, whole. */
-.app-view-request-text { font: 13px/18px var(--font-sans); color: var(--ink); }
+.app-view-request-quote { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font-size: 13px; line-height: 18px;
+  white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
 .app-view-request-link { margin: 0; font: 12px var(--font-mono); color: var(--ink-2); overflow-wrap: anywhere; }
+/* The card's mono runs give up the app's tracking, for the reason the list at the top of this file
+   gives: Chromium drops a monospace face's ligatures on any tracked run. */
+.app-view-request-well, .app-view-request-link { letter-spacing: normal; }
 .app-view-request-host { color: var(--rl-text-bright); font-weight: var(--fw-title); }
 .app-view-request-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
@@ -5527,7 +5531,7 @@ select { appearance: none; padding-right: 22px;
   .menu-list, .mention-list, .skill-picker-list, .mp-list, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
-  .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
+  .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre, .app-view-request-well,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display,
   /* the diff pane */
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
@@ -6065,7 +6069,10 @@ select { appearance: none; padding-right: 22px;
    full-width blocks would otherwise auto-place into the grid's existing two columns, landing the
    SECOND one beside the first in the narrow right column instead of below it (spec review defect 3;
    confirmed in-browser: circuit banner + tools is the routine Retry case, not an edge case). */
-.mcp-row > .mcp-circuit, .mcp-row > .mcp-form, .mcp-row > .mcp-tools { grid-column: 1 / -1; }
+.mcp-row > .mcp-circuit, .mcp-row > .mcp-form, .mcp-row > .mcp-tools, .mcp-row > .mcp-views { grid-column: 1 / -1; }
+/* A server's views switch (MCP Apps), under its name like the tools list — the server's own setting,
+   kept off the actions column, where Enabled is the space's. */
+.mcp-views { display: flex; align-items: center; padding: 2px 0 0 15px; }
 .mcp-enable { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
 /* What a provider cannot do on this Mac, where its switch would be. It is the one item on the row that
    runs long, so it is the one that yields: it wraps inside a measure of its own rather than taking the

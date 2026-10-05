@@ -14,6 +14,7 @@
  *     cookies, a popup, top navigation, an undeclared domain, a declared loopback one), read back
  *     from inside its frame over the frame's own DevTools target;
  *   - the view's requests — a tool call, a message, a link — each held on Realm's card until clicked;
+ *   - the server's row on Connections, which says it ships views, with the switch that hides them;
  *
  * and captures each in the dark face and the light one. The fake agent is the only engine: nothing is
  * billed. Ports are env-overridable; it touches only its own scratch directory and stops only the
@@ -253,6 +254,50 @@ async function main() {
   const asked = await evalIn(chart.c, `Math.ceil(document.body.getBoundingClientRect().height)`);
   check("the frame takes the height the view says it needs, within the compact cap", height === Math.min(asked, 400), { height, asked });
   const inline = await bothFaces(c, "01-inline-view", ".tool-card:has(.app-view)", { pad: 20 });
+
+  // ── 1b. What the view asks for, held on Realm's card until clicked ─────────────────────────────
+  const press = (label) => evalIn(c, `(() => { const b = [...document.querySelectorAll(".app-view-request button")].find((x) => x.textContent === ${js(label)});
+    if (!b) throw new Error("no button " + ${js(label)}); b.click(); return true; })()`);
+  const cardText = () => evalIn(c, `document.querySelector(".app-view-request")?.textContent ?? null`);
+  const viewCalls = async () => (await api.call("mcp.calls.list", { sessionId: session.id })).calls.filter((k) => k.tool === "refresh_chart");
+  const barsBefore = await evalIn(chart.c, `[...document.querySelectorAll("#chart .bar b")].map((b) => b.textContent).join(",")`);
+  await evalIn(chart.c, `(() => { document.getElementById("refresh").click(); return true; })()`);
+  await until(cardText, 8000, "the tool-call card");
+  check("a view's tool call waits on Realm's card, which names the server, the tool and its arguments",
+    (await cardText()).includes("The view from Charts asks to run refresh_chart.") && (await cardText()).includes('"title": "Bundle size by release"'));
+  check("…a card no agent may press", (await evalIn(c, `document.querySelector(".app-view-request")?.getAttribute("data-no-agent")`)) === "view request");
+  await sleep(1500);
+  check("with no click, nothing is called and the view is unchanged", (await viewCalls()).length === 0
+    && (await evalIn(chart.c, `[...document.querySelectorAll("#chart .bar b")].map((b) => b.textContent).join(",")`)) === barsBefore);
+  const toolCard = await bothFaces(c, "04-held-tool-call", ".tool-card:has(.app-view-request)", { pad: 20 });
+  await press("Run refresh_chart");
+  await until(async () => (await evalIn(chart.c, `[...document.querySelectorAll("#chart .bar b")].map((b) => b.textContent).join(",")`)) !== barsBefore, 10_000, "the view to redraw");
+  const ran = await viewCalls();
+  check("on the click the server runs it, Activity says the view made the call, and the view redraws", ran.length === 1 && ran[0].ok && ran[0].resultSummary.startsWith("From its view:"), ran.map((k) => k.resultSummary));
+  check("…and the agent was told nothing", (await events()).filter((e) => e.type === "tool_call" && e.payload.name.includes("refresh_chart")).length === 0);
+
+  const userTurns = async () => (await events()).filter((e) => e.type === "user_message").length;
+  const turnsBefore = await userTurns();
+  await evalIn(chart.c, `(() => { document.getElementById("ask").click(); return true; })()`);
+  await until(async () => (await cardText())?.includes("wrote a message for the agent"), 8000, "the message card");
+  check("words for the agent wait on the card, shown whole", (await cardText()).includes("Which release grew the most in Bundle size by release, and why?"));
+  const messageCard = await bothFaces(c, "05-held-message", ".tool-card:has(.app-view-request)", { pad: 20 });
+  await press("Put in the prompter");
+  await until(() => evalIn(c, `document.querySelector(".composer-input")?.value.includes("Which release grew the most") || null`), 5000, "the prompter to take it");
+  await sleep(800);
+  check("on the click they go into the prompter — and are not sent", (await userTurns()) === turnsBefore);
+  await evalIn(c, `(() => { const ta = document.querySelector(".composer-input"); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(ta, ""); ta.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+
+  await evalIn(chart.c, `(() => { document.getElementById("docs").click(); return true; })()`);
+  await until(async () => (await cardText())?.includes("asks to open a page"), 8000, "the link card");
+  check("a page to open waits on the card, its whole address shown with the host set apart",
+    (await evalIn(c, `document.querySelector(".app-view-request-host")?.textContent`)) === "example.com" && !(await evalIn(c, `!!document.querySelector(".app-view-request a")`)));
+  await sleep(600);
+  check("…and opens nothing until clicked", (await evalIn(c, `window.__opened.length`)) === 0);
+  const linkCard = await bothFaces(c, "06-held-link", ".tool-card:has(.app-view-request)", { pad: 20 });
+  await press("Open example.com");
+  check("on the click it opens in the browser", (await evalIn(c, `window.__opened.join()`)) === "https://example.com/releases/sizes");
+  await until(() => evalIn(chart.c, `document.getElementById("note").textContent === "Opened." || null`), 5000, "the view to hear it");
   chart.c.close();
 
   // ── 2. The same view as a tab of the session's side pane ──────────────────────────────────────
@@ -297,7 +342,23 @@ async function main() {
   await until(async () => (await events()).filter((e) => e.type === "tool_result").at(-1)?.payload.content.includes("1301"), 15_000, "the sum");
   check("a tool with no view draws none", !(await events()).filter((e) => e.type === "tool_result").at(-1)?.payload.view);
 
-  console.log(JSON.stringify({ shots: path.relative(repoRoot, shots), inline, tab, probed }, null, 1));
+  // ── 5. The server's row on Connections: it ships views, and a switch to show them ─────────────
+  await evalIn(c, `(() => { [...document.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === "Connections" || b.title?.startsWith("Connections")).click(); return true; })()`);
+  await until(() => evalIn(c, `[...document.querySelectorAll(".mcp-row")].some((r) => r.textContent.includes("Charts"))`), 10_000, "the Charts row");
+  const SWITCH = `input[aria-label="Show Charts's views"]`;
+  const rowSel = `.mcp-row:has(${SWITCH})`;
+  check("the row says the server ships views, and its Show views switch is on", await evalIn(c, `(() => { const r = document.querySelector(${js(rowSel)});
+    return !!r && [...r.querySelectorAll(".env-kind")].some((k) => k.textContent === "Views") && r.querySelector(${js(SWITCH)}).checked; })()`));
+  await evalIn(c, `(() => { document.querySelector(${js(rowSel)}).scrollIntoView({ block: "center" }); return true; })()`);
+  const connections = await bothFaces(c, "07-connections-row", null);
+  await evalIn(c, `(() => { document.querySelector(${js(SWITCH)}).click(); return true; })()`);
+  await until(async () => (await api.call("mcp.list", { spaceId: space.id })).servers.find((x) => x.name === "Charts")?.showViews === false || null, 5000, "the switch to land");
+  await until(() => evalIn(c, `document.querySelectorAll("iframe.app-view-frame").length === 0 || null`), 8000, "every view to go");
+  check("switched off, every view of the server leaves the window at once", await evalIn(c, `document.querySelectorAll("iframe.app-view-frame").length === 0`));
+  await evalIn(c, `(() => { document.querySelector(${js(SWITCH)}).click(); return true; })()`);
+  await until(async () => (await api.call("mcp.list", { spaceId: space.id })).servers.find((x) => x.name === "Charts")?.showViews === true || null, 5000, "the switch back on");
+
+  console.log(JSON.stringify({ shots: path.relative(repoRoot, shots), inline, toolCard, messageCard, linkCard, tab, probed, connections }, null, 1));
   console.log(`${results.filter((r) => r.ok).length}/${results.length} checks passed`);
   api.close();
   c.close();
