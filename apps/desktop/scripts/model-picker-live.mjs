@@ -150,9 +150,15 @@ async function shootPicker(c, name) {
 const keyWindow = (c) => evalIn(c, `(() => { const r = document.documentElement; r.removeAttribute('data-window-inactive');
   new MutationObserver(() => r.removeAttribute('data-window-inactive')).observe(r, { attributes: true, attributeFilter: ['data-window-inactive'] }); return true; })()`);
 
+/** Opens the picker with a real click on the chip, which also leaves the pointer resting there — as
+ *  a person's would — rather than wherever an earlier hover put it. */
 const openPicker = async (c) => {
   if (await evalIn(c, `!!document.querySelector('.model-picker')`)) return;
-  await evalIn(c, `document.querySelector('.composer button[aria-label="Model"]').click(); true`);
+  const k = await box(c, '.composer button[aria-label="Model"]');
+  const at = { x: k.x + k.width / 2, y: k.y + k.height / 2 };
+  await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
+  await c.send("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1 });
+  await c.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1 });
   await until(() => evalIn(c, `(() => { const p = document.querySelector('.model-picker'); return !!p && getComputedStyle(p).visibility === 'visible'; })()`), 5000, "picker");
   await sleep(350); // the arrival spring
 };
