@@ -69,7 +69,7 @@ text in it. In the lead's transcript each sub-agent is a quiet line of its own �
 · Write the tests", its model, its time — rather than folded into a "Worked for 8s" that hides the
 one thing a reader of a delegation came for.
 
-**Every agent asks you things on one card.** A question looks the same whichever agent or server
+**Every agent's questions come on one card.** A question looks the same whichever agent or server
 asks it, and says who is asking first — "Codex asks", "Linear's MCP server asks" — because the same
 question means something different from each. What it offers comes from Realm, never from the asker:
 options, with pictures as tiles; several at once; text, masked when it is a secret; yes or no; a
@@ -87,15 +87,15 @@ password is declined without being put to you.
 **The transcript says when, and what each turn changed.** A message you send shows the time it was
 sent as you point at it, and the keyboard can reach it too. A finished turn is dated the same way —
 a clock time today, Yesterday 7:38 PM, then the date, with the full date and time in the tooltip —
-where it showed a bare time that read the same a minute or a week later, and a turn that failed says
-Failed after 4s instead of the playful past tense, which read as a job done. A file the agent names
-that is really in its checkout becomes a link, and opens in Documents beside the session at the line
-it named. A turn that changed files ends with an Edited 3 files card: each file and its counts, in
-the order it was edited, measured by git as the turn settled rather than taken from what its tool
-calls claimed; Review, which opens that turn's diff as the side pane's Changes tab; and Undo,
-offered only where a checkpoint takes back exactly that turn and nothing after it — where Realm took
-none, the card says so. A tool call that edits a file now names it the same way for Claude, Codex
-and the ACP agents: the file's mark, its path, its counts.
+where it used to show a bare time that read the same a minute or a week later, and a turn that
+failed says Failed after 4s instead of the playful past tense, which read as a job done. A file the
+agent names that is really in its checkout becomes a link, and opens in Documents beside the session
+at the line it named. A turn that changed files ends with an Edited 3 files card: each file and its
+counts, in the order it was edited, measured by git as the turn settled rather than taken from what
+its tool calls claimed; Review, which opens that turn's diff as the side pane's Changes tab; and
+Undo, offered only where a checkpoint takes back exactly that turn and nothing after it — where
+Realm took none, the card says so. A tool call that edits a file now names it the same way for
+Claude, Codex and the ACP agents: the file's mark, its path, its counts.
 
 **A track down every transcript's edge, and turns you can keep.** A session pane has a tick down its
 left edge for each prompt, placed where the prompt sits in the log, the one being read in ink and a
@@ -107,14 +107,14 @@ Saved lists every turn saved in the profile, with the answer each began with, a 
 prompt in its session.
 
 **A Connection can show its own views, and they act only on your click.** An MCP server that ships
-views, as MCP Apps describes them, now has them drawn: compact under the tool call that made one, or
-as a tab beside the session. Each runs in a sandboxed frame on an origin of its own, out of reach of
-Realm and of every other view. What a view asks to do waits on a card Realm draws outside the frame,
-where the view can neither reach nor imitate it, and only your click answers: running one of its
-server's tools, writing a message for the agent — which goes into the prompter for you to read,
-change and send yourself — or opening a page in your browser. The Connection's row says when its
-server ships views, with a Show views switch, on until you turn it off and the same in every space;
-off, its tools answer in text.
+views, as the MCP Apps extension describes them, now has them drawn: compact under the tool call
+that made one, or as a tab beside the session. Each runs in a sandboxed frame on an origin of its
+own, out of reach of Realm and of every other view. What a view asks to do waits on a card Realm
+draws outside the frame, where the view can neither reach nor imitate it, and only your click
+answers: running one of its server's tools, writing a message for the agent — which goes into the
+prompter for you to read, change and send yourself — or opening a page in your browser. The
+Connection's row says when its server ships views, with a Show views switch, on until you turn it
+off and the same in every space; off, its tools answer in text.
 
 ### The window
 
@@ -215,8 +215,8 @@ credentials file passed for a sign-in.
 
 **Notices are toasts, and tooltips come at once.** A failed action or a refused file was a red bar
 across the top of the window that stayed until you closed it. It is a toast at the window's foot
-now, as is a browser pane's receipt, and a toast says its piece, runs a thin line along its foot
-while it is up and leaves when the line reaches the end. Toasts stack, the newest in front and two
+now, and so is a browser pane's receipt: a toast says its piece, runs a thin line along its foot
+while it is up, and leaves when the line reaches the end. Toasts stack, the newest in front and two
 tucked behind it, and fan out under the pointer; the pointer on them, the keyboard in them or Realm
 not being the app in front stops every clock, so one you are reading or copying from never leaves.
 They move along the foot clear of a browser pane, which would paint over them, and lift over a
@@ -235,8 +235,8 @@ the prompter's caret could not be held still, because it was the platform's; Rea
 the platform's own pixel, and steps aside where the platform's would, for a selection, an input
 method composing or a window that is not in front. Under Reduce motion it holds solid rather than
 stopping mid-blink. A terminal's cursor takes any of those shapes as a setting of its own, with its
-own blink, drawn on the terminal's own cursor cell, and the code editor's own blink switch is the
-animation now.
+own blink, drawn on the terminal's own cursor cell, and the code editor, which had a blink switch of
+its own, follows the animation.
 
 **Everything that scrolls fades at its ends, nothing sticks, and everything you can click points.**
 Every list, page, popover, sheet, strip of tabs and capped well of output dissolves where it has
@@ -510,9 +510,10 @@ agent drives, or a passkey prompt, finds the window that holds its pane.
 
 ### Smaller changes and fixes
 
-- Claude's weekly and five-hour limits read right. The stream reports them as a fraction and a time
-  in seconds, and both were read as if already a percent and milliseconds, so an 86% week showed as
-  "Weekly limit at 1%", resetting on a day in January 1970.
+- Claude's weekly and five-hour limits read right. The readings Claude Code sends during a turn give
+  the share used as a fraction and the reset in seconds, and both were read as if they were already
+  a percent and milliseconds, so an 86% week showed as "Weekly limit at 1%", resetting on a day in
+  January 1970.
 - The question and plan cards are as off-limits to an agent driving the window as the permission
   card was: one could answer a question another session had put to you, or press Implement this plan
   and take a session out of Plan. Build with and Implement with…, which start paid work in your
