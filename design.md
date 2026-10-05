@@ -493,17 +493,18 @@ acronym that is uppercase anyway (a file extension on a tile).
   reasons it is not are worth telling apart, because one may resolve itself and another never
   will. Say nothing in the ordinary cases: a note that appears every time is a note nobody
   reads by the third session.
-- A list of things reached through several routes lists each thing under EVERY route that offers it.
-  The model picker groups by harness; once Cursor's catalog arrived, a Claude model both could run
-  resolved to the session's harness alone and vanished from the other heading, so a Cursor session
-  showed an empty Claude group and the only way to Fable-through-Claude was to pick it under Cursor
-  and change the route afterwards. Deduplicating the OBJECT (one favourite, one catalog entry, one
-  tick) is right; deduplicating its PLACEMENTS is what emptied the group. Refine the route in the
-  detail pane; do not make the list hide it.
+- A thing reached through several routes is listed ONCE, under the route a click takes, and its
+  other routes ride on its own row as one click each. The model picker first hid a second route
+  (Fable through Claude was reachable only by picking it under Cursor and re-routing in a detail
+  pane), then listed Fable under both headings, which read as two models and still chose the route
+  in a second place. Deduplicate the object AND its placements; never make a route a second step.
 - Offer a capability only where its OWNER has said it exists. A table in the app goes stale,
   and a control offered on a guess is one whose only outcome is a refusal. Where the owner has
   said nothing, show nothing — not a disabled control, which invites a user to work out how to
-  enable something nobody has claimed.
+  enable something nobody has claimed. The one exception is a REQUEST Realm can make and the owner
+  will answer: fast mode before a session's first turn is a switch that says "checked on the first
+  turn", because waiting for the answer made it unreachable for exactly the turn it was wanted on.
+  Where the owner said no, say which of its models say yes.
 - A link is shown as what it points AT. A pasted Slack permalink is ninety characters of nothing
   a person reads; its meaning is "this thread", and the chip says that: the app's mark, then a
   name (a thread's timestamp, an issue key, a page title). Only where Realm can name the link — a
@@ -527,6 +528,11 @@ acronym that is uppercase anyway (a file extension on a tile).
   invisible until someone reached the same thing twice. Share the surface, not just the predicate:
   a list that knows more — where the file came from — adds a row to it, and a list that knows less
   draws that row not at all rather than half-filled.
+- A surface anchored to a control opens whole on ONE side of it: capped at the roomier side, with
+  its one flexible part (a list) giving way, or it lands on the control that opened it or runs off
+  the window — the model picker did both from a mid-window prompter. And anything in it that changes
+  with the highlight holds a fixed height: a surface that grows upward moves every row above a
+  taller line, and the row under the pointer with them.
 - Two overlays that both answer Escape answer it in MOUNT order, not stacking order, because both
   listen on the window. The one underneath was registered first and wins, so `stopPropagation` from
   the top surface cannot save it: expanding a picture out of a sheet closed the sheet too. A full
