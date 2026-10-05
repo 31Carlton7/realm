@@ -1352,6 +1352,18 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
   });
 
+  it("the window never scrolls: the shell is clipped at its own edges, without becoming a scroller", () => {
+    /* Measured live (10-05): a page rising in from 6px under its place overran the window's foot, the
+       document became scrollable by those 6px, and a classic scrollbar took 15px off the whole app
+       until the rise ended — the Agents page's centred column jumped 7.5px. THE MUTANTS: no clip (the
+       scrollbar back), or `hidden`, which makes the shell a scroll container for every sticky header
+       inside it. */
+    const shell = bodiesFor(".app").join(" ");
+    expect(shell).toContain("overflow: clip");
+    expect(shell).not.toMatch(/overflow: (hidden|auto|scroll)/);
+    expect(bodiesFor(".page-overlay").join(" ")).toContain("animation: rl-page-in");
+  });
+
   it("navigation lands the column at once: the cut takes the motion off everything on the column's clock", () => {
     /* The owner, 10-05, with a video: a page with no sidebar drew itself at once while the spaces
        folded shut beside it, and a page whose sections take the column unfolded them beside a page

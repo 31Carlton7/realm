@@ -328,8 +328,12 @@ kbd { font: 11px var(--font-mono); }
 
 /* ── Sidebar (one step darker than the content ground, behind a 1px divider) ── */
 /* position: relative for the collapsed corner below, which is the only thing in the shell that is
-   placed against the WINDOW rather than flowed. */
-.app { position: relative; display: flex; height: 100%; background: transparent; }
+   placed against the WINDOW rather than flowed. Clipped at the window's own edges, which nothing in it
+   is drawn past: a page rising in (`rl-page-in`, 6px under its place) overran the bottom, the window
+   itself became scrollable for it, and a classic scrollbar took 15px off the whole app for the length
+   of the rise — the page's centred column jumped 7.5px as it went (measured 10-05). `clip`, not
+   `hidden`: it makes no scroller, so nothing sticky inside finds a new one. */
+.app { position: relative; display: flex; height: 100%; background: transparent; overflow: clip; }
 /* §5 + Plan 9 W1: the sidebar paints the BUI window ground (--page) over the macOS vibrancy material
    — the app's one adjustable ground, composed in tokens.css so the user's setting and
    prefers-reduced-transparency both reach it. --page flips with data-mode, so one rule serves both
