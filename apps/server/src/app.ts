@@ -329,6 +329,14 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "tool", name: "Bash", input: { command: "pnpm vitest run migrations" }, result: "Tests  12 passed (12)" },
       { kind: "text", paceMs: 110, text: "Wrote the migration and tested it against a fixture of the previous schema. All twelve migration tests pass." },
     ],
+  }, {
+    // An app mention gives the session computer use for that app alone. The scripted agent reaches
+    // for it as a real one would — a real call through its gateway, so the scoped grant is the
+    // production path — and only to LIST what is running: it clicks nothing, ever.
+    on: "what is open in", emit: [
+      { kind: "text", text: "Checking what is running, through the computer use that mention gave this session." },
+      { kind: "call", tool: "realm-computer__computer_list_apps", input: {} },
+    ],
   }, { on: "plan", emit: [
     { kind: "text", text: "Here is how I would go about it." },
     { kind: "plan", planId: "fake-plan", text: "## Rework the mapper\n\n1. Carry the plan as its own event.\n2. Draw it as a plan.", steps: [
