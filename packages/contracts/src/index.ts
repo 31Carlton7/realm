@@ -17,6 +17,7 @@ export * from "./keybindings";
 export * from "./key-event";
 export * from "./project-search";
 export * from "./mentions";
+export * from "./mention-refs";
 export * from "./mcp";
 export * from "./memory";
 export * from "./session-events";

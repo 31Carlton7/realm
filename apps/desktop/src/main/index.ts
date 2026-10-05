@@ -4,7 +4,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
 import { daemonStatePath, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
@@ -45,6 +45,7 @@ import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
 import { SleepGuard } from "./sleep-guard";
 import { installedEditors, openInEditor } from "./editors";
+import { InstalledApps, applicationDirs } from "./installed-apps";
 import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
 import { registerNativeMenus } from "./native-menu";
 import { attachTextContextMenu } from "./text-context-menu";
@@ -1311,6 +1312,33 @@ ipcMain.handle("editors:list", () => installedEditors());
 // The path as the transcript shows it, resolved the way Reveal resolves it: `~/…` is this account's
 // home and a relative path is the session's working directory's (`base`).
 ipcMain.handle("editors:open", async (_e, id: unknown, path: unknown, base?: unknown): Promise<boolean> => openInEditor(id, await existingPath(path, base)));
+
+/**
+ * The prompter's `@` list, Apps group: what is installed, and each app's own icon (installed-apps.ts).
+ *
+ * `REALM_APPS_DIRS` points the scan at other folders (colon-separated) and drops the Dock order
+ * unless `REALM_DOCK_PLIST` names one: a live check seeds a scratch Applications folder rather than
+ * listing — let alone mentioning — the apps of whoever's Mac it runs on.
+ */
+const installedApps = new InstalledApps({
+  dirs: () => process.env.REALM_APPS_DIRS?.split(":").filter(Boolean) ?? applicationDirs(homedir()),
+  dockPlist: () => (process.env.REALM_APPS_DIRS ? process.env.REALM_DOCK_PLIST ?? null : join(homedir(), "Library", "Preferences", "com.apple.dock.plist")),
+  // A row draws the icon at 16 points, 32 pixels here; past 64 the PNG is scaled down before it
+  // crosses, since a 1024-pixel chunk is all some icons have.
+  toDataUrl: (png, px) => {
+    if (px <= 64) return `data:image/png;base64,${Buffer.from(png).toString("base64")}`;
+    const img = nativeImage.createFromBuffer(Buffer.from(png));
+    return img.isEmpty() ? null : img.resize({ width: 64, height: 64, quality: "best" }).toDataURL();
+  },
+  // An app whose icon lives only in its asset catalog: Quick Look renders a bundle as its icon.
+  fallbackIcon: async (appPath) => {
+    const img = await nativeImage.createThumbnailFromPath(appPath, { width: 64, height: 64 }).catch(() => null);
+    return img && !img.isEmpty() ? img.toDataURL() : null;
+  },
+});
+ipcMain.handle("apps:list", () => installedApps.list());
+ipcMain.handle("apps:icons", (_e, paths: unknown) =>
+  installedApps.icons(Array.isArray(paths) ? paths.filter((p): p is string => typeof p === "string").slice(0, 64) : []));
 
 /** Attachment thumbnails. An attached file can only ever be NAMED in the renderer unless the pixels
  *  get there somehow: the renderer has no filesystem access (contextIsolation), and the page's CSP is

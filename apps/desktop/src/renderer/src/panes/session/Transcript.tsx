@@ -1,7 +1,8 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { LINK_SERVICE_META, chipRuns, mediaCandidatesIn, type SessionMode, type SessionStatus } from "@realm/contracts";
+import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type SessionStatus } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
+import { fileMark } from "./mention-sources";
 import { CommandCopy } from "../../components/CommandCopy";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
@@ -40,6 +41,7 @@ function Thinking({ text, enter }: { text: string; enter?: boolean }) {
 /** Stable empty default: a fresh array per render would re-run the label memo every keystroke. */
 const NO_PACK_LABELS: readonly RunLabel[] = [];
 const NO_MENTIONS: readonly string[] = [];
+const NO_APP_ICONS: Readonly<Record<string, string | null>> = {};
 const NO_SOURCES: readonly Source[] = [];
 
 /**
@@ -79,22 +81,42 @@ function GoalTurn({ kind, text }: { kind: "continuation" | "budget"; text: strin
   );
 }
 
-function UserText({ text, mentionIds }: { text: string; mentionIds: readonly string[] }) {
+/** What a named thing's chip says under the pointer: where the file is, what the app mention did. */
+function refTitle(ref: MentionRef): string {
+  return ref.kind === "app" ? `${ref.name} — computer use for this session (${ref.bundleId})` : ref.path;
+}
+
+function UserText({ text, mentionIds, refs, appIcons }: { text: string; mentionIds: readonly string[]; refs?: readonly MentionRef[]; appIcons: Readonly<Record<string, string | null>> }) {
   const runs = useMemo(() => chipRuns(text, mentionIds), [text, mentionIds]);
+  const byLabel = useMemo(() => new Map((refs ?? []).map((r) => [r.label, r])), [refs]);
   return (
     <div className="msg-user">
-      {runs.map((r, i) => (r.chip
-        // A mention shows the characters the user typed, `@` included: the sigil is part of what they
-        // wrote and part of what the agent was told. An element chip shows its label alone, because
-        // `@[` and `]` are delimiters rather than content — the full token stays on the title.
-        ? <span key={i} className="msg-chip" data-kind={r.chip.kind} data-service={r.chip.service} title={r.chip.kind === "link" ? r.chip.url : r.text}>
+      {runs.map((r, i) => {
+        if (!r.chip) return r.text;
+        // A named file or app rides an element's `@[…]` token; the message's own refs say which.
+        const ref = r.chip.kind === "element" ? byLabel.get(r.chip.label) ?? null : null;
+        const appIcon = ref?.kind === "app" ? appIcons[ref.path] : null;
+        const icon = r.chip.kind === "link" && r.chip.service ? LINK_SERVICE_META[r.chip.service].icon
+          : ref ? (ref.kind === "app" ? "pointer" : fileMark(ref.path))
+          : r.chip.kind === "element" ? "target"
+          : r.text === `@${MAC_SKILL_ID}` ? "apple" : "sparkles";
+        return (
+          // A mention shows the characters the user typed, `@` included: the sigil is part of what they
+          // wrote and part of what the agent was told. An element chip shows its label alone, because
+          // `@[` and `]` are delimiters rather than content — the full token stays on the title.
+          <span key={i} className="msg-chip" data-kind={r.chip.kind} data-service={r.chip.service} data-ref={ref?.kind}
+            title={r.chip.kind === "link" ? r.chip.url : ref ? refTitle(ref) : r.text}>
             {/* Every chip is an icon and a name: a skill's spark, a picked element's target, a link's
-                app mark — the same picture the composer drew before send. The sigils are delimiters,
-                not content, and stay on the title; a link's URL does too. */}
-            <Icon name={r.chip.kind === "link" && r.chip.service ? LINK_SERVICE_META[r.chip.service].icon : r.chip.kind === "element" ? "target" : "sparkles"} size={12} className="msg-chip-mark" />
+                app mark, a file's type, an app's own icon, @mac's Apple mark — the same picture the
+                composer drew before send. The sigils are delimiters, not content, and stay on the
+                title; a link's URL does too. */}
+            {appIcon
+              ? <img src={appIcon} alt="" className="msg-chip-mark msg-chip-app" draggable={false} />
+              : <Icon name={icon} size={12} className="msg-chip-mark" />}
             {r.chip.kind === "mention" ? r.text : r.chip.label}
           </span>
-        : r.text))}
+        );
+      })}
     </div>
   );
 }
@@ -164,7 +186,7 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
   /** The session this log is — what a sub-agent's line links back to (its row in this session's
    *  Agents tab). Null in the read-only mounts, where the line reads and links nowhere. */
@@ -198,6 +220,9 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
    *  the same scan the composer uses. Empty means nothing chips, which is the honest state for a
    *  session whose agent Realm cannot inject skills into at all. */
   mentionIds?: readonly string[];
+  /** App icons by bundle path, for the chips of the apps a message named. Absent draws each with
+   *  computer use's pointer instead — the read-only mounts have no icon cache to read. */
+  appIcons?: Readonly<Record<string, string | null>>;
   /** Open one plan in full. Absent in the read-only mounts, which have no sheet host to open into,
    *  and the card then draws no Expand button rather than a dead one. */
   onExpandPlan?: (planId: string) => void;
@@ -394,7 +419,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                     send that lost its words rather than one that carried only files. */}
                 {b.goal
                   ? <GoalTurn kind={b.goal} text={b.text} />
-                  : b.text && <UserText text={b.text} mentionIds={mentionIds} />}
+                  : b.text && <UserText text={b.text} mentionIds={mentionIds} refs={b.refs} appIcons={appIcons} />}
               </div>);
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
               actions={settled && key === lastAssistantKey} onPath={onPath} onImplementWith={onImplementWith}

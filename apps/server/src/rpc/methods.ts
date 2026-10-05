@@ -70,6 +70,7 @@ import type { PlynnService } from "../school/plynn";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
 import type { ProjectSearchService } from "../workspace/grep";
+import type { MentionFiles } from "../workspace/mention-files";
 import type { GitWriteService } from "../workspace/git-write";
 import type { ShipsStore } from "../store/ships";
 import type { PortAllocator } from "../workspace/ports";
@@ -86,7 +87,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -153,6 +154,8 @@ export function registerMethods(d: Deps): void {
   reg("workspace.fileDiff", (p) => d.gitDiff.file(p.cwd, p.path, p.staged));
   reg("project.grep", (p) => d.projectSearch.grep(p.cwd, p.query, { limit: p.limit }));
   reg("project.files", (p) => d.projectSearch.files(p.cwd, p.query, p.limit));
+  // The session's own checkout, resolved here from the row — never a directory the caller names.
+  reg("mentions.files", (p) => d.mentionFiles.files(d.sessions.get(p.sessionId).cwd, p.query, p.limit));
   // Realm just changed this working tree, so the numbers `workspace.gitInfo` is holding for it are
   // wrong. Invalidating here (rather than trusting the 3s TTL) is what makes the composer's chips
   // and the diff pane agree the moment an action finishes.
@@ -950,7 +953,7 @@ export function registerMethods(d: Deps): void {
   // `userDispatched` (W2's ⌘⇧↩) maps to the ONE origin a client may claim; the agent origins are
   // recorded by the server-side tools that create those children, never over RPC.
   reg("sessions.create", (p) => { refuseWhileDraining("start a session"); return d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }); });
-  reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs }, p.delivery); return { ok: true as const }; });
+  reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs: p.mentionRefs }, p.delivery); return { ok: true as const }; });
   reg("sessions.dequeue", async (p) => { d.sessions.dequeue(p.id, p.queuedId); return { ok: true as const }; });
   reg("limits.get", async () => ({ limits: d.planLimits.list() }));
   reg("sessions.releaseQueued", async (p) => { await d.sessions.releaseQueued(p.id, p.queuedId); return { ok: true as const }; });

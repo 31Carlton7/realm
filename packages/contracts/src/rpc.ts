@@ -30,6 +30,7 @@ import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
+import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
 import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAxTreeSchema, SimulatorCameraSourceSchema, SimulatorDeviceSchema, SimulatorEventSchema, SimulatorSchema, SimulatorStateSchema, SimulatorPlatformSchema, SimulatorUiStateSchema } from "./simulator";
 import { GoalSchema, GoalStatusSchema } from "./goal";
 import { UnlockedEggPackSchema } from "./egg-pack";
@@ -1395,6 +1396,24 @@ export const Methods = {
     }),
     result: ProjectFilesResultSchema,
   },
+  /**
+   * The prompter's `@` list, Files group: the SESSION's checkout ranked against what follows the `@`.
+   *
+   * By session rather than by `cwd`, unlike `project.files`: the list is "this session's workspace",
+   * and a client-supplied directory is one more thing a caller could point somewhere else. The paths
+   * are the ones `project.files` would rank, minus the files that exist to hold a secret
+   * (`isSecretPath`) — a mention hands a file to the agent, and the keys are the one thing it must
+   * never make easy to hand over. The listing is cached briefly per checkout, so a word typed after
+   * the `@` costs one ranking per keystroke rather than one `git ls-files`.
+   */
+  "mentions.files": {
+    params: z.object({
+      sessionId: IdSchema,
+      query: z.string().max(PROJECT_QUERY_MAX).default(""),
+      limit: z.number().int().min(1).max(PROJECT_FILES_LIMIT_MAX).default(MENTION_FILES_LIMIT),
+    }),
+    result: ProjectFilesResultSchema,
+  },
   /** `git add` for exactly these paths — per file, not per hunk. See git-write.ts for why. */
   "workspace.stage": { params: z.object({ cwd: z.string(), paths: z.array(z.string()).min(1) }), result: z.object({ ok: z.literal(true) }) },
   /** Take these paths back out of the index. Never touches the working tree. */
@@ -1734,7 +1753,7 @@ export const Methods = {
    *  `elements` is OPTIONAL rather than defaulted, and the prompter omits the key outright when the
    *  draft has no element chips — so a message that never touched a browser pane puts exactly the
    *  bytes on this wire that it always has. */
-  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
+  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), mentionRefs: z.array(MentionRefSchema).max(MAX_MENTION_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
     .refine((p) => p.text.length > 0 || p.attachments.length > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ ok: z.literal(true) }) },
   /** Drop one message off the queue before its turn comes. `queuedId` rather than an index: the queue
    *  drains on its own as turns settle, so an index the prompter read a moment ago may already name a

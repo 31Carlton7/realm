@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref, EditorId, InstalledEditor } from "@realm/contracts";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
@@ -47,6 +47,12 @@ contextBridge.exposeInMainWorld("realm", {
   /** Settings ▸ General ▸ Power. Main holds the blocker; this only tells it the switch moved. */
   power: {
     preventSleep: (on: boolean): Promise<void> => ipcRenderer.invoke("power:prevent-sleep", on),
+  },
+  /** The apps installed on this Mac and their icons, for the prompter's `@` list. `icons` answers only
+   *  for bundles main's own scan found; any other path is simply absent from the answer. */
+  apps: {
+    list: (): Promise<InstalledApp[]> => ipcRenderer.invoke("apps:list"),
+    icons: (paths: string[]): Promise<Record<string, string | null>> => ipcRenderer.invoke("apps:icons", paths),
   },
   /** The code editors installed on this Mac, and opening a path in one (the transcript's path menu). */
   editors: {

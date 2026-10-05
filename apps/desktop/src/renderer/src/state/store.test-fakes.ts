@@ -2,7 +2,7 @@
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
-import { artifactTypeOf, basenameOf, expandCommand, mimeForPath, nextFireOf } from "@realm/contracts";
+import { artifactTypeOf, basenameOf, expandCommand, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
@@ -246,6 +246,12 @@ export type FakeData = {
   /** The code editors `editors.list` reports as installed. None by default — a test that wants the
    *  path menu's editor item says which. */
   editors?: InstalledEditor[];
+  /** What main's app scan lists for the `@` list, and the icons it answers by bundle path. None by
+   *  default: a test that is not about apps should see no Apps group at all. */
+  installedApps?: InstalledApp[];
+  appIcons?: Record<string, string>;
+  /** Each session's checkout, as `mentions.files` ranks it. Keyed by session id. */
+  workspaceFiles?: Record<string, string[]>;
   /** What `cli.status` answers. Empty by default: a test that is not about the CLI manager should
    *  see no install or update offers at all. */
   cliStatus?: CliStatus[];
@@ -343,7 +349,7 @@ export type FakeApi = Api & {
   destroyedBrowserViews: string[];
   /** Every `sendMessage`, with the attachments that actually went on the wire. `mentions` is present
    *  only when non-empty, so mention-free assertions stay byte-for-byte what they always were. */
-  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer" }[];
+  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[] }[];
   /** What `scripts.save` was handed, verbatim — the fields a form sends are the thing worth
    *  asserting, and the `calls` log only carries an id. */
   savedScripts: { spaceId: string; script: ScriptInput }[];
@@ -379,7 +385,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   const calls: string[] = [];
   const disposed: string[] = [];
   const destroyedBrowserViews: string[] = [];
-  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer" }[] = [];
+  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[] }[] = [];
   /** What `scripts.save` was handed, verbatim. A typed capture beside `sent`, because the fields a
    *  form sends are the thing worth asserting and the `calls` log only carries an id. */
   const savedScripts: { spaceId: string; script: ScriptInput }[] = [];
@@ -456,6 +462,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     pixelSpriteJson: overrides.pixelSpriteJson ?? "{}",
     failover: overrides.failover ?? DEFAULT_FAILOVER_POLICY,
     editors: overrides.editors ?? [],
+    installedApps: overrides.installedApps ?? [],
+    appIcons: overrides.appIcons ?? {},
+    workspaceFiles: overrides.workspaceFiles ?? {},
     laya: overrides.laya ?? { mode: "off", installed: false, runtime: { state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }, stepsLogged: 0, dir: "/Users/u/Realm/laya", assist: { available: false, reason: "No checkpoint has been evaluated yet. Train Laya on this Mac first; Assist unlocks when one scores 95% on held-out steps.", threshold: null, accuracy: null } },
     cliStatus: overrides.cliStatus ?? [],
     // The model catalog the picker's detail pane reads. Empty by default because that is the state
@@ -935,9 +944,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.sessions = data.sessions.filter((x) => x.id !== id);
       for (const [sid, rows] of Object.entries(data.items)) data.items[sid] = rows.filter((x) => x.refId !== id);
     },
-    sendMessage: async (id, text, attachments, mentions, elements, delivery, sessionRefs) => {
+    sendMessage: async (id, text, attachments, mentions, elements, delivery, sessionRefs, mentionRefs) => {
       calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
-      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
+      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(mentionRefs?.length ? { mentionRefs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
+    },
+    mentionFiles: async (sessionId, query, limit) => {
+      calls.push(`mentionFiles:${sessionId}:${query}`);
+      return { hits: rankPaths(data.workspaceFiles[sessionId] ?? [], query, limit ?? 8), truncated: false, source: "git" };
     },
     forkSession: async (checkpointId, agentKind) => {
       // The kind rides the call log, because "which agent did the fork land on" is the whole of what
@@ -1346,6 +1359,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     setReducedMotion: async (pref) => { calls.push(`setReducedMotion:${pref}`); },
     setPreventSleep: async (on) => { calls.push(`setPreventSleep:${on}`); },
     listEditors: async () => { calls.push("listEditors"); return [...data.editors]; },
+    installedApps: async () => { calls.push("installedApps"); return [...data.installedApps]; },
+    appIcons: async (paths) => {
+      calls.push(`appIcons:${paths.join(",")}`);
+      // Main answers only for bundles its own scan found, which is what the fake's list stands for.
+      return Object.fromEntries(paths.filter((p) => data.installedApps.some((a) => a.path === p)).map((p) => [p, data.appIcons[p] ?? null]));
+    },
     openInEditor: async (id, path, base) => { calls.push(`openInEditor:${id}:${path}${base ? `@${base}` : ""}`); return data.editors.some((e) => e.id === id); },
     probeAgents: async (force) => {
       calls.push(`probeAgents:${force}`);

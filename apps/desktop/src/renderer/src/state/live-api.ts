@@ -136,9 +136,10 @@ export const liveApi = (): Api => ({
   memorySources: (sessionId) => rpc().call("memory.sources", { sessionId }),
   // `elements` is omitted rather than sent empty: a message with no element chips must put exactly
   // the bytes on this wire that it did before chips existed.
-  sendMessage: async (id, text, attachments, mentions, elements, delivery, sessionRefs) => {
-    await rpc().call("sessions.send", { id, text, attachments, mentions, ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
+  sendMessage: async (id, text, attachments, mentions, elements, delivery, sessionRefs, mentionRefs) => {
+    await rpc().call("sessions.send", { id, text, attachments, mentions, ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(mentionRefs?.length ? { mentionRefs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
   },
+  mentionFiles: (sessionId, query, limit) => rpc().call("mentions.files", { sessionId, query, ...(limit ? { limit } : {}) }),
   interruptSession: async (id) => { await rpc().call("sessions.interrupt", { id }); },
   dequeuePrompt: async (id, queuedId) => { await rpc().call("sessions.dequeue", { id, queuedId }); },
   releaseQueuedPrompt: async (id, queuedId) => { await rpc().call("sessions.releaseQueued", { id, queuedId }); },
@@ -218,6 +219,8 @@ export const liveApi = (): Api => ({
   setBadgeCount: (count) => window.realm.notify.badge(count),
   setReducedMotion: (pref) => window.realm.motion?.set(pref) ?? Promise.resolve(),
   setPreventSleep: (on) => window.realm.power?.preventSleep(on) ?? Promise.resolve(),
+  installedApps: () => window.realm.apps?.list() ?? Promise.resolve([]),
+  appIcons: (paths) => window.realm.apps?.icons(paths) ?? Promise.resolve({}),
   listEditors: () => window.realm.editors?.list() ?? Promise.resolve([]),
   openInEditor: (id, path, base) => window.realm.editors?.open(id, path, base) ?? Promise.resolve(false),
   gitInfo: (cwd) => rpc().call("workspace.gitInfo", { cwd }),

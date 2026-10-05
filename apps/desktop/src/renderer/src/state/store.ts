@@ -1,5 +1,6 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
 import { destinationTarget, pageHidesSidebar, pageItemId } from "./page-item";
+import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
@@ -373,7 +374,9 @@ export type Api = {
   memorySources(sessionId: string): Promise<MemorySources>;
   /** `mentions` are the skill ids the draft's `@`-tokens were recognised as; the server re-validates
    *  and resolves them so a raw `@name` never reaches an agent (contracts/mentions.ts). */
-  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[], elements?: ElementChip[], delivery?: "auto" | "queue" | "steer", sessionRefs?: SessionRef[]): Promise<void>;
+  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[], elements?: ElementChip[], delivery?: "auto" | "queue" | "steer", sessionRefs?: SessionRef[], mentionRefs?: MentionRef[]): Promise<void>;
+  /** `mentions.files` — the session's checkout ranked for the `@` list, secrets left out server-side. */
+  mentionFiles(sessionId: string, query: string, limit?: number): Promise<ProjectFilesResult>;
   interruptSession(id: string): Promise<void>;
   /** `sessions.dequeue` — drop a queued message before its turn comes. */
   dequeuePrompt(id: string, queuedId: string): Promise<void>;
@@ -540,6 +543,10 @@ export type Api = {
   setReducedMotion(pref: ReducedMotionPref): Promise<void>;
   /** Tell main the keep-awake switch moved; main holds the blocker while a session works. */
   setPreventSleep(on: boolean): Promise<void>;
+  /** The apps installed on this Mac (main's scan), for the `@` list. [] without the bridge. */
+  installedApps(): Promise<InstalledApp[]>;
+  /** Those apps' own icons by bundle path. Main answers only for bundles its scan found. */
+  appIcons(paths: string[]): Promise<Record<string, string | null>>;
   /** The code editors installed on this Mac. */
   listEditors(): Promise<InstalledEditor[]>;
   /** Open an existing path in one of them; false when main refused (not installed, no such path). */
@@ -1357,6 +1364,13 @@ export type AppState = {
   /** Per session: the link chips a draft holds (`@[ENG-123]` standing for a Linear URL), keyed the
    *  way `draftElements` is and kept alive by the same rule. Expanded to markdown links at send. */
   draftLinks: Record<string, LinkChip[]>;
+  /** Per session: what the draft's `@[…]` tokens for files, Library items and apps stand for, kept
+   *  alive by the rule the other sidecars follow — an entry lives while its token does. */
+  draftRefs: Record<string, MentionRef[]>;
+  /** The apps on this Mac as main last listed them, or null before the `@` list first asked. */
+  installedApps: InstalledApp[] | null;
+  /** App icons by bundle path: a data URL, or null for an app whose icon main could not read. */
+  appIcons: Record<string, string | null>;
   /** The skills library by space id (`skills.list`) — what the mention picker offers. Refreshed when a
    *  skills-capable session opens and on `skills.changed`. */
   spaceSkills: Record<string, Skill[]>;
@@ -1734,6 +1748,9 @@ export type AppState = {
   /** One page of the Library's file index. Not cached in the store: the page owns its own cursor,
    *  filter and query, and those belong to one component's scroll position rather than to the app. */
   libraryArtifacts(query: LibraryQuery): Promise<{ entries: LibraryEntry[]; total: number }>;
+  /** The `@` list's Files: the session's checkout ranked against a query. Not cached here either — the
+   *  server keeps the listing, and the answer belongs to the keystroke that asked. */
+  mentionFiles(sessionId: string, query: string): Promise<ProjectFilesResult>;
   /** Re-read one space's projects, or every space of the active profile's. */
   refreshProjects(spaceId?: string | null): Promise<void>;
   /** Re-read one space's checkouts, or every space of the active profile's. */
@@ -2134,6 +2151,15 @@ export type AppState = {
    *  (`describeLink`) — in which case the paste goes through as text. The composer inserts the
    *  token at its caret; this only owns the sidecar, which is why it does not touch the draft. */
   addLinkChip(sessionId: string, url: string): LinkChip | null;
+  /** Name a file, a Library item or an app in a draft: the sidecar entry for an `@[label]` token, under
+   *  the first of `candidates` no other chip in the draft wears. Answers that label — the composer
+   *  writes the token, this only owns what it stands for. */
+  addMentionRef(sessionId: string, ref: UnlabelledRef, candidates: readonly string[]): string;
+  /** Ask main what is installed. Cheap to repeat: main keeps its scan and re-reads only a folder
+   *  that changed. */
+  loadInstalledApps(): Promise<void>;
+  /** Fetch the icons of these apps that are not already held. */
+  ensureAppIcons(paths: readonly string[]): Promise<void>;
   /** Connect one of the marketplace's apps to a space: create its MCP server row (once) and start
    *  OAuth, handing back the URL to open. */
   connectApp(spaceId: string, connectorId: string, client?: { clientId: string; clientSecret?: string }): Promise<{ authUrl: string }>;
@@ -3379,13 +3405,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const cwd = get().sessions[sessionId]?.cwd;
       if (cwd) get().run(() => get().refreshGitInfo(cwd));
     };
+    /** App icons asked of main and not yet answered, so a list re-rendering while they are on their
+     *  way does not ask for them again. */
+    const iconsInFlight = new Set<string>();
     /** The skill ids a session's draft may mention RIGHT NOW: enabled + valid in its space, and only
-     *  for an agent Realm can inject skills into. Empty for a Cursor (or fake) session — which is what
-     *  keeps mentions from ever being offered, or recognised, there (W4). */
+     *  for an agent Realm can inject skills into — save `mac`, below. Otherwise empty for a Cursor (or
+     *  fake) session, which is what keeps skill mentions from being offered, or recognised, there (W4). */
     const mentionableIds = (sessionId: string): string[] => {
       const s = get().sessions[sessionId];
-      if (!s || AGENT_SKILL_SUPPORT[s.agentKind] !== "injected") return [];
-      return (get().spaceSkills[s.spaceId] ?? []).filter((k) => k.enabled && k.valid).map((k) => k.id);
+      if (!s) return [];
+      const library = get().spaceSkills[s.spaceId] ?? [];
+      const ids = AGENT_SKILL_SUPPORT[s.agentKind] !== "injected" ? [] : library.filter((k) => k.enabled && k.valid).map((k) => k.id);
+      // @Mac is the one skill every agent can be handed — by its instructions, where it cannot be
+      // invoked — so it is mentionable wherever the space's library holds it, on or off.
+      if (!ids.includes(MAC_SKILL_ID) && library.some((k) => k.id === MAC_SKILL_ID && k.valid)) ids.push(MAC_SKILL_ID);
+      return ids;
     };
     /**
      * W2.4 — the degenerate case, entry side. Every sheet-opening path calls this: when browser
@@ -3869,7 +3903,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       failover: null,
       laya: null,
       spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -4095,6 +4129,7 @@ await get().refreshCustomThemes().catch(() => {});
          open in at most one pane. A store slice would have to hold a cursor, a filter and a query
          that belong to a single component's scroll position. */
       libraryArtifacts: (q) => api.libraryArtifacts(q),
+      mentionFiles: (sessionId, query) => api.mentionFiles(sessionId, query),
       async searchDeep(query) {
         const profileId = get().activeProfileId;
         if (!profileId) return null;
@@ -4800,8 +4835,9 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _de, ...draftElements } = get().draftElements; // likewise
           const { [it.refId]: _dsr, ...draftSessionRefs } = get().draftSessionRefs; // likewise
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
+          const { [it.refId]: _drf, ...draftRefs } = get().draftRefs;
           const { [it.refId]: _ac, ...sessionActivity } = get().sessionActivity;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, sessionUpdatedAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -5180,10 +5216,11 @@ await get().refreshCustomThemes().catch(() => {});
           if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
           refreshGitFor(id); // opening a session refreshes its cwd's git context
-          // …and its space's skills library, when the agent can actually take one — what the prompter's
-          // @-mention picker reads. Skipped for Cursor/fake sessions: no picker, no fetch.
+          // …and its space's skills library — what the prompter's @ list reads. For every agent: one
+          // that cannot be handed skills still gets @Mac, by its instructions, and the list filters
+          // the other skills out by agent itself (SessionPane's `mentionSkills`).
           const opened = get().sessions[id];
-          if (opened && AGENT_SKILL_SUPPORT[opened.agentKind] === "injected") get().run(() => get().refreshSkills(opened.spaceId));
+          if (opened) get().run(() => get().refreshSkills(opened.spaceId));
         /* Unconditional, unlike skills: a user command expands to TEXT in the draft, so it works the
            same for every agent kind — there is no injection the agent has to support. */
         if (opened) get().run(() => get().refreshCommands(opened.spaceId));
@@ -5418,7 +5455,9 @@ await get().refreshCustomThemes().catch(() => {});
         // Read here, synchronously, for the reason the two sidecars above are: the prompter clears
         // the draft behind this call and the references go with it.
         const refs = get().draftSessionRefs[id] ?? [];
-        await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs);
+        // The named files and apps, re-derived from the FINAL text like the elements above.
+        const named = keepLiveRefs(text, get().draftRefs[id] ?? []);
+        await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs, named);
         if (refs.length) set({ draftSessionRefs: { ...get().draftSessionRefs, [id]: [] } });
         // Only AFTER the send lands, and only the ones that went: a rejected send that also emptied the
         // chip row would leave the user with no record of what they had attached, and a file dragged in
@@ -5447,6 +5486,7 @@ await get().refreshCustomThemes().catch(() => {});
         // may already have moved on, but here it is this draft trimmed, and `setDraft` has kept the
         // sidecar in step with it on every keystroke.
         const elements = get().draftElements[sessionId] ?? [];
+        const named = get().draftRefs[sessionId] ?? [];
         const { session, itemId } = await api.createSession({
           spaceId: source.spaceId, agentKind: source.agentKind, environmentId: source.environmentId,
           model: source.model, effort: source.effort, permissionMode: source.permissionMode,
@@ -5455,7 +5495,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (inProfile(source.spaceId)) mergeSession(session);
         // Send FIRST, clear after: a rejected send must leave the draft in the composer (run
         // surfaces the reason), exactly as a failed normal send would.
-        await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, get().draftSessionRefs[sessionId] ?? []);
+        await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, get().draftSessionRefs[sessionId] ?? [], named);
         const sent = new Set(pending.map((a) => a.path));
         const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => !sent.has(a.path));
         set({
@@ -5463,6 +5503,7 @@ await get().refreshCustomThemes().catch(() => {});
           draftMentions: { ...get().draftMentions, [sessionId]: [] },
           draftElements: { ...get().draftElements, [sessionId]: [] },
           draftSessionRefs: { ...get().draftSessionRefs, [sessionId]: [] },
+          draftRefs: { ...get().draftRefs, [sessionId]: [] },
           pendingAttachments: { ...get().pendingAttachments, [sessionId]: left },
         });
         // The new pane arrives beside, quietly. Items are refetched first (the server created the
@@ -5893,20 +5934,46 @@ await get().refreshCustomThemes().catch(() => {});
         const mentions = mentionIds(text, new Set([...mentionableIds(sessionId), ...prev]));
         const elements = keepLiveChips(text, get().draftElements[sessionId] ?? []);
         const links = keepLiveLinks(text, get().draftLinks[sessionId] ?? []);
+        const refs = keepLiveRefs(text, get().draftRefs[sessionId] ?? []);
         set({
           drafts: { ...get().drafts, [sessionId]: text },
           draftMentions: { ...get().draftMentions, [sessionId]: mentions },
           draftElements: { ...get().draftElements, [sessionId]: elements },
           draftLinks: { ...get().draftLinks, [sessionId]: links },
+          draftRefs: { ...get().draftRefs, [sessionId]: refs },
         });
       },
       addLinkChip(sessionId, url) {
         const ref = describeLink(url);
         if (!ref) return null;
-        const taken = [...(get().draftLinks[sessionId] ?? []), ...(get().draftElements[sessionId] ?? [])].map((c) => c.label);
+        const taken = [...(get().draftLinks[sessionId] ?? []), ...(get().draftElements[sessionId] ?? []), ...(get().draftRefs[sessionId] ?? [])].map((c) => c.label);
         const chip: LinkChip = { label: linkChipLabel(ref.label, taken), url: ref.url, service: ref.service };
         set({ draftLinks: { ...get().draftLinks, [sessionId]: [...(get().draftLinks[sessionId] ?? []), chip] } });
         return chip;
+      },
+      addMentionRef(sessionId, ref, candidates) {
+        const current = get().draftRefs[sessionId] ?? [];
+        // The same thing named twice is one entry under one label — the second token is the same chip.
+        const same = current.find((r) => r.kind === ref.kind && (r.kind === "app" ? r.bundleId === (ref as { bundleId?: string }).bundleId : r.path === (ref as { path?: string }).path));
+        if (same) return same.label;
+        const taken = [...current, ...(get().draftLinks[sessionId] ?? []), ...(get().draftElements[sessionId] ?? [])].map((c) => c.label);
+        const label = mentionRefLabel(candidates, taken);
+        set({ draftRefs: { ...get().draftRefs, [sessionId]: [...current, { ...ref, label } as MentionRef] } });
+        return label;
+      },
+      async loadInstalledApps() {
+        set({ installedApps: await api.installedApps().catch(() => get().installedApps ?? []) });
+      },
+      async ensureAppIcons(paths) {
+        const held = get().appIcons;
+        const missing = [...new Set(paths)].filter((p) => !(p in held) && !iconsInFlight.has(p));
+        if (missing.length === 0) return;
+        for (const p of missing) iconsInFlight.add(p);
+        try {
+          const got = await api.appIcons(missing).catch(() => ({} as Record<string, string | null>));
+          // A path main did not answer for is not one of its apps: held as null, so it is not asked again.
+          set({ appIcons: { ...get().appIcons, ...Object.fromEntries(missing.map((p) => [p, got[p] ?? null])) } });
+        } finally { for (const p of missing) iconsInFlight.delete(p); }
       },
       async connectApp(spaceId, connectorId, client) {
         const c = CONNECTORS.find((x) => x.id === connectorId);
