@@ -233,9 +233,9 @@ function EvaluationRow({ laya }: { laya: LayaStatus }) {
 }
 
 /**
- * Screens kept while a person used an app on a device pane — started from that pane's bar, which is
- * why this row says where, rather than offering a Record of its own with no device to point it at. A
- * recording under way is shown with a Stop, as the pane bar's toggle is.
+ * Screens kept while a person used an app on a device pane — started from under that pane's device,
+ * which is why this row says where, rather than offering a Record of its own with no device to point
+ * it at. A recording under way is shown with a Stop, as it is under the device and in the rail.
  */
 function RecordingsRow({ laya }: { laya: LayaStatus }) {
   const stopLayaRecording = useApp((s) => s.stopLayaRecording);
@@ -260,7 +260,7 @@ function RecordingsRow({ laya }: { laya: LayaStatus }) {
         {rec?.lastError && <span className="settings-row-desc laya-reason">Not reading the device: {rec.lastError}</span>}
         {!rec && (
           <span className="settings-row-desc">
-            To record, open an app on a device, choose Record for Laya in its pane's bar, and use the app yourself. Realm reads each new screen of that app and taps nothing.
+            To record, open an app on a device, choose Record my use of this app under it, and use the app yourself. Realm reads each new screen of that app and taps nothing.
           </span>
         )}
       </div>

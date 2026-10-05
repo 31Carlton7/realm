@@ -1,248 +1,232 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { onceExpr, parseOnce, type Schedule } from "@realm/contracts";
+import { parseOnce, sessionEvent, type Run, type Schedule, type StoredSessionEvent } from "@realm/contracts";
 import { createAppStore, StoreContext } from "../../state/store";
-import { fakeApi, item } from "../../state/store.test-fakes";
-import { SchedulesPage, filterSchedules, scheduleState, whenLabel, whenPhrase } from "./SchedulesPage";
+import { fakeApi, item, runRow, session, type FakeData } from "../../state/store.test-fakes";
+import { SchedulesPage } from "./SchedulesPage";
 
 afterEach(() => cleanup());
 
+/** Held on a Monday at noon, so every relative day below reads the same whenever this runs. Only
+ *  `Date` is faked — the timers `waitFor` relies on stay real. */
+const NOW = new Date(2026, 8, 7, 12);
+beforeEach(() => { vi.useFakeTimers({ now: NOW, toFake: ["Date"] }); });
+afterEach(() => { vi.useRealTimers(); });
+
 const DAY = 86_400_000;
 const schedule = (over: Partial<Schedule> = {}): Schedule => ({
-  id: "sch1", spaceId: "s1", title: "Morning triage", goal: "read the new issues",
-  cron: "0 9 * * *", enabled: true, constraints: null,
-  nextRunAt: Date.now() + DAY, lastRunAt: null, lastRunId: null, lastSkippedAt: null,
-  createdAt: 1, updatedAt: 1, ...over,
+  id: "sch1", spaceId: "s1", title: "Morning triage", goal: "Read the new issues and group them by area.",
+  cron: "0 9 * * *", enabled: true, constraints: { agentKind: "fake" },
+  nextRunAt: new Date(2026, 8, 8, 9).getTime(), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
+  newSessionPerRun: true, archiveSucceeded: false, createdAt: 1, updatedAt: 1, ...over,
 });
+const stored = (sessionId: string, seq: number, event: StoredSessionEvent["event"]): StoredSessionEvent => ({ seq, sessionId, event });
 
-async function mount(schedules: Schedule[]) {
-  const api = fakeApi({ schedules });
+async function mount(data: FakeData = {}) {
+  const api = fakeApi(data);
   const store = createAppStore(api);
   await store.getState().boot();
   render(
     <StoreContext.Provider value={store}>
-      <SchedulesPage item={item("i9", "s1", { kind: "schedules-page", refId: "00000000000000000000000006", title: "Scheduled tasks" })} visible />
+      <SchedulesPage item={item("page", "s1", { kind: "schedules-page", refId: "00000000000000000000000006", title: "Scheduled tasks" })} visible focused />
     </StoreContext.Provider>,
   );
-  await waitFor(() => expect(api.calls.some((c) => c.startsWith("listSchedules:"))).toBe(true));
+  await waitFor(() => expect(api.calls).toContain("listSchedules:s2"));
   return { api, store };
 }
 
-const row = () => document.querySelector<HTMLElement>(".sched-row")!;
+const column = () => screen.getByRole("navigation", { name: "Scheduled tasks" });
+const task = (name: string) => within(column()).getByRole("button", { name: new RegExp(`^${name}`) });
 
-describe("whenLabel", () => {
-  const now = new Date(2026, 8, 7, 12).getTime(); // a Monday
-  it("reads a moment the way someone asks about one", () => {
-    expect(whenLabel(new Date(2026, 8, 7, 9).getTime(), now)).toMatch(/^Today at /);
-    expect(whenLabel(new Date(2026, 8, 8, 9).getTime(), now)).toMatch(/^Tomorrow at /);
-    expect(whenLabel(new Date(2026, 8, 6, 9).getTime(), now)).toMatch(/^Yesterday at /);
-    expect(whenLabel(new Date(2026, 8, 10, 9).getTime(), now)).toMatch(/^Thursday at /);
-    expect(whenLabel(new Date(2026, 9, 20, 9).getTime(), now)).toMatch(/^Oct 20 at /);
+describe("the Scheduled page", () => {
+  it("opens on the place to start a task, with the tasks in its own column", async () => {
+    await mount({ schedules: [schedule()] });
+    expect(screen.getByRole("heading", { name: "Schedule a task" })).toBeInTheDocument();
+    expect(within(column()).getByRole("heading", { name: "Scheduled" })).toBeInTheDocument();
+    // The task's second line: when it runs next, then how often.
+    expect(within(column()).getByText("Tomorrow 9:00 AM · Daily")).toBeInTheDocument();
   });
 
-  it("lowers the relative words inside a sentence and leaves the proper nouns alone", () => {
-    // THE MUTANT: `whenLabel(...).toLowerCase()`, which is what the row used to do. It reads fine
-    // while every next run is within a day — true of any cron schedule — and a one-shot armed a
-    // fortnight out turns it into "Next sep 30", which is not a date anyone writes.
-    expect(whenPhrase(new Date(2026, 8, 8, 9).getTime(), now)).toBe("tomorrow at 9:00 am");
-    expect(whenPhrase(new Date(2026, 9, 20, 13).getTime(), now)).toBe("Oct 20 at 1:00 pm");
-    expect(whenPhrase(new Date(2026, 8, 10, 9).getTime(), now)).toBe("Thursday at 9:00 am");
+  it("lists every task the profile has, whichever space it runs in, soonest first", async () => {
+    // THE MUTANT: list the vantage space alone. A task moved to another space through the modal would
+    // vanish from the page it was just edited on.
+    await mount({ schedules: [
+      schedule({ id: "a", title: "Later", nextRunAt: new Date(2026, 8, 9, 9).getTime() }),
+      schedule({ id: "b", title: "Sooner", spaceId: "s2", nextRunAt: new Date(2026, 8, 7, 18).getTime() }),
+      schedule({ id: "c", title: "Paused", enabled: false, nextRunAt: null }),
+    ] });
+    await waitFor(() => expect(within(column()).getAllByRole("listitem").length).toBeGreaterThan(2));
+    const names = [...column().querySelectorAll(".sched-task-name")].map((n) => n.textContent);
+    expect(names).toEqual(["Sooner", "Later", "Paused"]);
+    expect(within(column()).getByText("Paused · Daily")).toBeInTheDocument();
+  });
+
+  it("searches what a task does, not only what it is called", async () => {
+    await mount({ schedules: [schedule(), schedule({ id: "b", title: "Digest", goal: "Summarise the week." })] });
+    fireEvent.click(within(column()).getByRole("button", { name: "Search" }));
+    fireEvent.change(screen.getByLabelText("Search tasks"), { target: { value: "issues" } });
+    expect(column().querySelectorAll(".sched-task")).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText("Search tasks"), { target: { value: "zzz" } });
+    expect(within(column()).getByText("No task matches that.")).toBeInTheDocument();
   });
 });
 
-describe("the Scheduled tasks page", () => {
-  it("lists what is armed, with the recurrence read back in words", () => {
-    return mount([schedule()]).then(() => {
-      expect(screen.getByText("Morning triage")).toBeInTheDocument();
-      expect(screen.getByText("Every day at 09:00")).toBeInTheDocument();
-      expect(within(row()).getByText(/^Next /)).toBeInTheDocument();
+describe("a task's runs", () => {
+  const GOAL = "Read the new issues and group them by area.";
+  const ran = (id: string, at: number, extra: Partial<Run> = {}) =>
+    runRow(id, "s1", { scheduleId: "sch1", state: "succeeded", createdAt: at, startedAt: at, sessionId: `se-${id}`, ...extra });
+  const seed = (unreadSeen: number): FakeData => ({
+    schedules: [schedule({ lastRunAt: NOW.getTime() - DAY, lastRunId: "r1" })],
+    runs: { s1: [ran("r1", NOW.getTime() - DAY)] },
+    sessions: [session("se-r1", "s1", { lastEventSeq: 2, seenSeq: unreadSeen, dispatchedBy: { sessionId: null, kind: "run" } })],
+    sessionEvents: { "se-r1": [
+      stored("se-r1", 1, sessionEvent("user_message", { text: GOAL, attachments: [] })),
+      stored("se-r1", 2, sessionEvent("assistant_text", { messageId: "m1", text: "Grouped twelve issues into four areas." })),
+    ] },
+  });
+
+  it("marks a task whose run nobody has read, and opening the run reads it", async () => {
+    // THE MUTANT: the sidebar's `isUnread`, which treats a session never opened as caught up — every
+    // run a clock starts is one, so the mark would never appear at all.
+    const { api } = await mount(seed(0));
+    await waitFor(() => expect(within(task("Morning triage")).getByLabelText("1 unread")).toBeInTheDocument());
+    fireEvent.click(task("Morning triage"));
+    // The task opens on its latest run: the run's own session, its first message the instructions.
+    await waitFor(() => expect(screen.getByText("Grouped twelve issues into four areas.")).toBeInTheDocument());
+    expect(screen.getAllByText(GOAL).length).toBeGreaterThan(0);
+    await waitFor(() => expect(api.calls).toContain("markSessionSeen:se-r1@2"));
+    await waitFor(() => expect(within(column()).queryByLabelText(/unread/i)).toBeNull());
+  });
+
+  it("puts the task's card beside the run: what it is told, when, and on what model", async () => {
+    await mount(seed(2));
+    fireEvent.click(task("Morning triage"));
+    const card = await screen.findByRole("complementary", { name: "Morning triage details" });
+    expect(within(card).getByText("Every day at 9:00 AM")).toBeInTheDocument();
+    expect(within(card).getByText(GOAL)).toBeInTheDocument();
+    expect(within(card).getByText("Fake agent · Fake")).toBeInTheDocument();
+    expect(within(card).getByText(/^0 outputs$/)).toBeInTheDocument();
+  });
+
+  it("lists three runs under an open task, and the rest behind Show older", async () => {
+    const runs = [0, 1, 2, 3, 4].map((i) => ran(`r${i}`, NOW.getTime() - (i + 1) * DAY));
+    await mount({ schedules: [schedule()], runs: { s1: runs } });
+    fireEvent.click(task("Morning triage"));
+    const list = await screen.findByRole("list", { name: "Runs of Morning triage" });
+    await waitFor(() => expect(within(list).getAllByRole("button").filter((b) => b.classList.contains("sched-run"))).toHaveLength(3));
+    fireEvent.click(within(list).getByRole("button", { name: "Show older" }));
+    await waitFor(() => expect([...list.querySelectorAll(".sched-run")]).toHaveLength(5));
+  });
+});
+
+describe("the Schedule a task modal", () => {
+  const open = async () => {
+    fireEvent.click(within(column()).getByRole("button", { name: "New task" }));
+    return screen.findByRole("dialog", { name: "Schedule a task" });
+  };
+
+  it("keeps Create off until the task has a name, instructions and a first run", async () => {
+    await mount();
+    const dialog = await open();
+    const create = within(dialog).getByRole("button", { name: "Create" });
+    expect(create).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("Task name"), { target: { value: "Nightly" } });
+    expect(create).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("Instructions"), { target: { value: "Sweep the inbox." } });
+    expect(create).toBeEnabled();
+    expect(within(dialog).getByText("First run tomorrow at 9:00 am.")).toBeInTheDocument();
+    // A hand-written expression that never fires says so and turns the button back off.
+    fireEvent.change(within(dialog).getByLabelText("Repeat"), { target: { value: "custom" } });
+    fireEvent.change(within(dialog).getByLabelText("Cron expression"), { target: { value: "0 9 30 2 *" } });
+    expect(within(dialog).getByText(/will never run/)).toBeInTheDocument();
+    expect(create).toBeDisabled();
+  });
+
+  it("creates exactly what the menus say, instructions verbatim, and lands on the new task", async () => {
+    const { store } = await mount();
+    const dialog = await open();
+    // Ends in a newline on purpose: an instruction is sent as typed, and a trim would be a rewrite.
+    const goal = "Plan the release, then have GPT-6 Luna implement it with sub-agents.\n\n  Keep notes in docs/release.md.\n";
+    fireEvent.change(within(dialog).getByLabelText("Task name"), { target: { value: "  Release prep  " } });
+    fireEvent.change(within(dialog).getByLabelText("Instructions"), { target: { value: goal } });
+    fireEvent.change(within(dialog).getByLabelText("Repeat"), { target: { value: "weekly" } });
+    fireEvent.change(within(dialog).getByLabelText("Day"), { target: { value: "5" } });
+    fireEvent.change(within(dialog).getByLabelText("Time"), { target: { value: "16:00" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Advanced" }));
+    fireEvent.click(within(dialog).getByRole("switch", { name: "Start each run in a new session" }));
+    fireEvent.click(within(dialog).getByRole("switch", { name: "Archive successful runs" }));
+    fireEvent.change(within(dialog).getByLabelText("Space"), { target: { value: "s2" } });
+    // Offered once the agents have answered their probe, as the prompter's picker is.
+    await within(dialog).findByRole("option", { name: "Fake" });
+    fireEvent.change(within(dialog).getByLabelText("Model"), { target: { value: "fake|fake" } });
+    fireEvent.change(within(dialog).getByLabelText("Effort"), { target: { value: "high" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(store.getState().schedules.s2).toHaveLength(1));
+    expect(store.getState().schedules.s2![0]).toMatchObject({
+      title: "Release prep", goal, cron: "0 16 * * 5", newSessionPerRun: false, archiveSucceeded: true,
+      constraints: { agentKind: "fake", model: "fake", effort: "high" },
     });
+    // The modal is gone and the page is on the task it made, which has not run yet.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByRole("heading", { name: "No runs yet" })).toBeInTheDocument();
   });
 
-  it("says Paused rather than inventing a next time for a schedule that is off", async () => {
-    // A switch that leaves a next time on screen looks like it did nothing.
-    await mount([schedule({ enabled: false, nextRunAt: null })]);
-    expect(within(row()).getByText("Paused")).toBeInTheDocument();
-    expect(within(row()).queryByText(/^Next /)).toBeNull();
+  it("schedules a single run when Repeat task is off", async () => {
+    const { store } = await mount();
+    const dialog = await open();
+    fireEvent.change(within(dialog).getByLabelText("Task name"), { target: { value: "Ship it" } });
+    fireEvent.change(within(dialog).getByLabelText("Instructions"), { target: { value: "Open the PR." } });
+    fireEvent.click(within(dialog).getByRole("switch", { name: "Repeat task" }));
+    expect(within(dialog).queryByLabelText("Repeat")).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: "2026-09-30" } });
+    fireEvent.change(within(dialog).getByLabelText("Time"), { target: { value: "13:00" } });
+    expect(within(dialog).getByText(/^Runs once, /)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(store.getState().schedules.s1).toHaveLength(1));
+    expect(parseOnce(store.getState().schedules.s1![0]!.cron)).toBe(new Date(2026, 8, 30, 13).getTime());
   });
 
-  it("names a firing that was missed, instead of letting the last result stand in for it", async () => {
-    // The named mutant: showing `lastRunAt` alone. A laptop that slept through Monday would then
-    // present the previous week's result as this week's.
-    await mount([schedule({ lastRunAt: Date.now() - 8 * DAY, lastSkippedAt: Date.now() - DAY })]);
-    expect(within(row()).getByText(/^Missed /)).toBeInTheDocument();
-    expect(within(row()).getByText(/^Last ran /)).toBeInTheDocument();
+  it("opens a suggestion with its instructions already written", async () => {
+    await mount();
+    fireEvent.click(within(column()).getByRole("button", { name: /^Weekly review/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Schedule a task" });
+    expect(within(dialog).getByLabelText<HTMLInputElement>("Task name").value).toBe("Weekly review");
+    expect(within(dialog).getByLabelText<HTMLTextAreaElement>("Instructions").value).toContain("agent_peers");
+    expect(within(dialog).getByLabelText<HTMLSelectElement>("Repeat").value).toBe("weekly");
+    expect(within(dialog).getByRole("button", { name: "Create" })).toBeEnabled();
   });
+});
 
-  it("pausing writes through the store rather than only flipping a checkbox", async () => {
-    const { api } = await mount([schedule()]);
-    fireEvent.click(screen.getByRole("switch", { name: "Morning triage is on" }));
+describe("the task's card", () => {
+  it("edits the task in the same modal, opened on what the task holds", async () => {
+    const { api, store } = await mount({ schedules: [schedule({ cron: "1 8 * * 2" })] });
+    fireEvent.click(task("Morning triage"));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Morning triage" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit task" });
+    // 8:01 is off the menu's half-hour grid, and it opens as 8:01 rather than as the nearest step.
+    expect(within(dialog).getByLabelText<HTMLSelectElement>("Time").value).toBe("08:01");
+    expect(within(dialog).getByLabelText<HTMLSelectElement>("Repeat").value).toBe("weekly");
+    fireEvent.change(within(dialog).getByLabelText("Time"), { target: { value: "09:30" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(api.calls).toContain("updateSchedule:sch1"));
+    await waitFor(() => expect(store.getState().schedules.s1![0]!.cron).toBe("30 9 * * 2"));
   });
 
-  it("Run now goes through the method that leaves the clock alone", async () => {
-    const { api } = await mount([schedule()]);
-    fireEvent.click(screen.getByRole("button", { name: "Run Morning triage now" }));
+  it("runs the task now through the method that leaves its clock alone, and opens the run it made", async () => {
+    const { api } = await mount({ schedules: [schedule()] });
+    fireEvent.click(task("Morning triage"));
+    fireEvent.click(await screen.findByRole("button", { name: "More for Morning triage" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Run now" }));
     await waitFor(() => expect(api.calls).toContain("runScheduleNow:sch1"));
+    // The run is listed under its task and open beside its card — still starting, here.
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Starting…" })).toBeInTheDocument());
+    expect(within(screen.getByRole("list", { name: "Runs of Morning triage" })).getByText("Starting")).toBeInTheDocument();
   });
 
-  it("deleting takes two clicks", async () => {
-    const { api } = await mount([schedule()]);
-    fireEvent.click(screen.getByRole("button", { name: "Delete Morning triage" }));
-    expect(api.calls).not.toContain("deleteSchedule:sch1");
-    fireEvent.click(screen.getByRole("button", { name: "Really delete Morning triage?" }));
-    await waitFor(() => expect(api.calls).toContain("deleteSchedule:sch1"));
-  });
-
-  it("previews the first run before it is saved, and refuses to save an expression that never fires", async () => {
-    // Showing the first occurrence is the only way to tell a right expression from a plausible one
-    // at the moment you are writing it — which for unattended work is the last honest chance.
-    await mount([]);
-    fireEvent.click(screen.getByRole("button", { name: /New schedule/ }));
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Nightly" } });
-    fireEvent.change(screen.getByLabelText("What should it do?"), { target: { value: "sweep" } });
-    expect(screen.getByText(/^First run /)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create schedule" })).toBeEnabled();
-
-    fireEvent.change(screen.getByLabelText("Cron expression"), { target: { value: "0 9 30 2 *" } }); // February 30th
-    expect(screen.getByText(/will never run/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create schedule" })).toBeDisabled();
-  });
-
-  it("creates through the store and shows the new row", async () => {
-    const { api } = await mount([]);
-    fireEvent.click(screen.getByRole("button", { name: /New schedule/ }));
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Nightly" } });
-    fireEvent.change(screen.getByLabelText("What should it do?"), { target: { value: "sweep the inbox" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create schedule" }));
-    await waitFor(() => expect(api.calls).toContain("createSchedule:s1"));
-    await waitFor(() => expect(screen.getByText("Nightly")).toBeInTheDocument());
-  });
-
-});
-
-describe("a schedule that runs once", () => {
-  const MOMENT = new Date(2026, 8, 30, 13).getTime();
-  // Held the day before MOMENT, which is a date: on the real clock it ran out on 2026-09-30, and a
-  // one-shot is only ever picked ahead of now. Only `Date` is held — the timers `waitFor` uses stay real.
-  beforeEach(() => { vi.useFakeTimers({ now: new Date(2026, 8, 29, 9), toFake: ["Date"] }); });
-  afterEach(() => { vi.useRealTimers(); });
-
-  it("keeps its moment on screen after it has fired, when there is no next time left to show", async () => {
-    // THE MUTANT: read the moment out of `nextRunAt`. A fired one-shot has none, and the row would
-    // fall back to "No further runs" — losing the one fact it was ever about.
-    await mount([schedule({ cron: onceExpr(MOMENT), nextRunAt: null, lastRunAt: MOMENT })]);
-    expect(within(row()).getByText("Once, on Sep 30 at 1:00 PM")).toBeInTheDocument();
-    expect(within(row()).getByText("No further runs")).toBeInTheDocument();
-  });
-
-  it("offers a date picker rather than asking anyone to write the token by hand", async () => {
-    // `once:1790773200000` is a storage format. The form writes it; nobody should have to know it.
-    await mount([]);
-    fireEvent.click(screen.getByRole("button", { name: /New schedule/ }));
-    fireEvent.change(screen.getByLabelText("When"), { target: { value: "once" } });
-    expect(screen.queryByLabelText("Cron expression")).toBeNull();
-    const picker = screen.getByLabelText<HTMLInputElement>("Date and time");
-    expect(picker.type).toBe("datetime-local");
-    // Tomorrow at 09:00, for the reason @daily is not midnight: this starts an agent.
-    expect(picker.value).toMatch(/T09:00$/);
-    expect(screen.getByText(/^Runs once, /)).toBeInTheDocument();
-  });
-
-  it("refuses to save a moment that has already passed, and says so in those terms", async () => {
-    // "Check the five fields" would send someone hunting for a syntax error in a date that is
-    // simply behind them.
-    await mount([]);
-    fireEvent.click(screen.getByRole("button", { name: /New schedule/ }));
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ship it" } });
-    fireEvent.change(screen.getByLabelText("What should it do?"), { target: { value: "open the PR" } });
-    fireEvent.change(screen.getByLabelText("When"), { target: { value: "once" } });
-    expect(screen.getByRole("button", { name: "Create schedule" })).toBeEnabled();
-
-    fireEvent.change(screen.getByLabelText("Date and time"), { target: { value: "2020-01-02T09:00" } });
-    expect(screen.getByText(/already passed/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create schedule" })).toBeDisabled();
-  });
-
-  it("stores the picked moment as the expression, and leaves a cron behind when switched back", async () => {
-    const { api, store } = await mount([]);
-    fireEvent.click(screen.getByRole("button", { name: /New schedule/ }));
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ship it" } });
-    fireEvent.change(screen.getByLabelText("What should it do?"), { target: { value: "open the PR" } });
-    fireEvent.change(screen.getByLabelText("When"), { target: { value: "once" } });
-    fireEvent.change(screen.getByLabelText("Date and time"), { target: { value: "2026-09-30T13:00" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create schedule" }));
-    await waitFor(() => expect(api.calls).toContain("createSchedule:s1"));
-    expect(parseOnce(store.getState().schedules.s1![0]!.cron)).toBe(MOMENT);
-  });
-
-  it("hands Custom a cron expression rather than the token it was holding", async () => {
-    // THE MUTANT: leave the expression alone when Custom is picked. The box it reveals would be
-    // holding `once:…`, which is not something anyone can edit as a cron.
-    await mount([]);
-    fireEvent.click(screen.getByRole("button", { name: /New schedule/ }));
-    fireEvent.change(screen.getByLabelText("When"), { target: { value: "once" } });
-    fireEvent.change(screen.getByLabelText("When"), { target: { value: "custom" } });
-    expect(screen.getByLabelText<HTMLInputElement>("Cron expression").value).not.toContain("once:");
-    expect(screen.getByText(/^First run /)).toBeInTheDocument();
-  });
-});
-
-describe("filtering a list of schedules", () => {
-  const active = schedule({ id: "a", title: "Morning triage", goal: "read the new issues", enabled: true, nextRunAt: Date.now() + DAY });
-  const paused = schedule({ id: "p", title: "Weekly digest", goal: "summarise the week", enabled: false, nextRunAt: null });
-  const done = schedule({ id: "d", title: "Launch checklist", goal: "ship v2", enabled: true, nextRunAt: null });
-
-  it("tells a finished schedule apart from a paused one", () => {
-    /* Neither is going to fire again, and calling both "not active" would hide a task that has
-       quietly finished for good behind one a user is deliberately holding — which is exactly the
-       state where a silent failure goes unnoticed for weeks. */
-    expect(scheduleState(active)).toBe("active");
-    expect(scheduleState(paused)).toBe("paused");
-    expect(scheduleState(done)).toBe("completed");
-    // A paused schedule is paused whatever its next time says — the switch wins.
-    expect(scheduleState(schedule({ enabled: false, nextRunAt: Date.now() + DAY }))).toBe("paused");
-  });
-
-  it("searches what a schedule DOES, not only what it was called", () => {
-    // A user hunting for the schedule that reads their issues remembers the goal, not the title
-    // they typed at 11pm three months ago.
-    const all = [active, paused, done];
-    expect(filterSchedules(all, "all", "issues").map((s) => s.id)).toEqual(["a"]);
-    expect(filterSchedules(all, "all", "MORNING").map((s) => s.id)).toEqual(["a"]);
-    // The cron's plain-English reading is searchable too, because that is how the row reads it out.
-    expect(filterSchedules(all, "all", "").map((s) => s.id)).toEqual(["a", "p", "d"]);
-  });
-
-  it("applies the filter and the query together, so the chip counts cannot lie", () => {
-    // THE mutant: count off the unfiltered list. A chip reading "Paused 1" beside a list of none is
-    // a chip lying about what clicking it will show.
-    const all = [active, paused, done];
-    expect(filterSchedules(all, "paused", "").map((s) => s.id)).toEqual(["p"]);
-    expect(filterSchedules(all, "paused", "issues")).toEqual([]);
-  });
-
-  it("empties the list rather than the page when nothing matches", async () => {
-    await mount([active, paused]);
-    fireEvent.change(screen.getByLabelText("Search schedules"), { target: { value: "zzz" } });
-    expect(await screen.findByText("No schedule here matches that.")).toBeTruthy();
-    // Not the empty-state paragraph: telling a user with two schedules that they have none is worse
-    // than telling them their search found nothing.
-    expect(screen.queryByText(/Nothing is scheduled here yet/)).toBeNull();
-    expect(document.querySelectorAll(".sched-row")).toHaveLength(0);
-  });
-
-  it("hides the whole filter bar on a page with nothing to filter", async () => {
-    await mount([]);
-    expect(screen.queryByLabelText("Search schedules")).toBeNull();
-    expect(screen.getByText(/Nothing is scheduled here yet/)).toBeTruthy();
-  });
-
-  it("narrows the list to the chip that was clicked", async () => {
-    await mount([active, paused, done]);
-    expect(document.querySelectorAll(".sched-row")).toHaveLength(3);
-    fireEvent.click(screen.getByRole("button", { name: /^Paused/ }));
-    expect(document.querySelectorAll(".sched-row")).toHaveLength(1);
-    expect(screen.getByText("Weekly digest")).toBeTruthy();
+  it("names a run that was missed, instead of letting the last one stand in for it", async () => {
+    await mount({ schedules: [schedule({ lastRunAt: NOW.getTime() - 8 * DAY, lastSkippedAt: NOW.getTime() - DAY })] });
+    fireEvent.click(task("Morning triage"));
+    const card = await screen.findByRole("complementary", { name: "Morning triage details" });
+    expect(within(card).getByText(/^Missed a run yesterday 12:00 PM$/)).toBeInTheDocument();
   });
 });

@@ -1434,8 +1434,9 @@ export const Methods = {
   /** Fire once, now, WITHOUT moving the schedule's own clock — see `ScheduleService.runNow`. Answers
    *  the schedule, whose `lastRunId` now names the run this created. */
   "schedules.runNow": { params: z.object({ id: IdSchema }), result: ScheduleSchema },
+  /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
-    params: z.object({ spaceId: IdSchema, states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
+    params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
     result: z.object({ runs: z.array(RunSchema), nextCursor: z.string().nullable() }),
   },
   /** One run plus its full attempt log, oldest attempt first. Null result = no such run (a run the

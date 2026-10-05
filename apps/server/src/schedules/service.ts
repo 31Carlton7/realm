@@ -1,6 +1,6 @@
 import {
-  CreateScheduleSchema, SCHEDULE_CATCHUP_MS, SCHEDULE_TICK_MS, isOnce, nextFireOf, parseOnce,
-  type CreateScheduleInput, type Schedule, type UpdateScheduleInput,
+  CreateScheduleSchema, SCHEDULE_CATCHUP_MS, SCHEDULE_TICK_MS, isOnce, isRunLive, nextFireOf, parseOnce,
+  type CreateScheduleInput, type Run, type Schedule, type UpdateScheduleInput,
 } from "@realm/contracts";
 import type { SchedulesStore } from "../store/schedules";
 import type { RunService } from "../runs/service";
@@ -44,8 +44,12 @@ export class ScheduleService {
 
   constructor(private readonly d: {
     store: SchedulesStore;
-    runs: Pick<RunService, "create">;
+    runs: Pick<RunService, "create" | "latestForSchedule">;
     rpc: Pick<RpcServer, "broadcast">;
+    /** Put a session away, or bring it back — its sidebar row's archive flag (`runSettled`). */
+    archiveSession?: (sessionId: string, archived: boolean) => void;
+    /** Whether a space exists, for an edit that moves a schedule into one. */
+    spaceExists?: (spaceId: string) => boolean;
     /** Test seam only — production leaves this alone and uses the real clock. */
     clock?: () => number;
   }) {}
@@ -114,8 +118,27 @@ export class ScheduleService {
     }
   }
 
-  /** One firing: create the run, record what it produced, tell the clients. */
+  /**
+   * One firing: create the run, record what it produced, tell the clients.
+   *
+   * A schedule that continues one session hands the run the session its last run left, and is the
+   * one case a firing can be refused for something other than age: while that run is still live —
+   * working, or `blocked` on a person — the session is mid-conversation, and a second turn sent into
+   * it would be settled as the first one's answer. The occurrence is skipped and written down, like a
+   * missed one, rather than forking the conversation the schedule was asked to keep.
+   */
   private fire(schedule: Schedule, dueAt: number, at: number): void {
+    let sessionId: string | null = null;
+    if (!schedule.newSessionPerRun) {
+      const last = this.d.runs.latestForSchedule(schedule.id);
+      if (last && isRunLive(last.state)) {
+        this.d.store.recordFiring(schedule.id, { at, runId: null, skipped: true });
+        this.announce(schedule.spaceId);
+        return;
+      }
+      // A session belongs to a space, so a schedule moved since its last run starts afresh there.
+      sessionId = last?.spaceId === schedule.spaceId ? last.sessionId : null;
+    }
     const { run } = this.d.runs.create({
       spaceId: schedule.spaceId,
       goal: schedule.goal,
@@ -129,9 +152,23 @@ export class ScheduleService {
       // No deadline: a run's bound is wall-clock and a schedule has no opinion about how long its
       // work should take. Cancelling one is a thing a person does, in the runs list.
       deadlineAt: null,
+      scheduleId: schedule.id,
+      sessionId,
     });
     this.d.store.recordFiring(schedule.id, { at, runId: run.id, skipped: false });
     this.announce(schedule.spaceId);
+  }
+
+  /**
+   * A run this schedule fired is over. With "archive successful runs" on, a success puts its session
+   * away and anything else brings it back — so a schedule that continues one session shows it again
+   * the moment a run in it fails, which is the run a person has to come back to.
+   */
+  runSettled(run: Run): void {
+    if (!run.scheduleId || !run.sessionId) return;
+    const schedule = this.d.store.get(run.scheduleId);
+    if (!schedule?.archiveSucceeded) return;
+    this.d.archiveSession?.(run.sessionId, run.state === "succeeded");
   }
 
   /* ── the API ───────────────────────────────────────────────────────────── */
@@ -157,7 +194,11 @@ export class ScheduleService {
     // that changes the expression must be.
     const cron = input.cron ?? before.cron;
     if (nextFireOf(cron, this.now()) === null) throw this.unfireable(cron);
+    if (input.spaceId !== undefined && input.spaceId !== before.spaceId && this.d.spaceExists && !this.d.spaceExists(input.spaceId))
+      throw new NotFoundError("space", input.spaceId);
     const next = this.d.store.update(input.id, input)!;
+    // A move is a change to BOTH spaces' lists: the old one loses the row, the new one gains it.
+    if (next.spaceId !== before.spaceId) this.announce(before.spaceId);
     this.announce(next.spaceId);
     return next;
   }
@@ -181,6 +222,10 @@ export class ScheduleService {
   runNow(id: string): Schedule {
     const schedule = this.d.store.get(id);
     if (!schedule) throw new NotFoundError("schedule", id);
+    // The clock records a skip when the conversation is still busy; a person who clicked is told.
+    const last = schedule.newSessionPerRun ? null : this.d.runs.latestForSchedule(id);
+    if (last && isRunLive(last.state))
+      throw new RpcError("SCHEDULE_BUSY", "this task continues one session, and its last run is still going — let it finish, or start each run in a new session");
     const at = this.now();
     this.fire(schedule, at, at);
     return this.d.store.get(id)!;

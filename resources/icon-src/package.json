@@ -2,10 +2,10 @@
   "name": "realm-icon-src",
   "private": true,
   "type": "module",
-  "description": "The Realm app icon. The shipped icon (resources/icon.png + icon.icns) and the Dock alternates Settings offers are generated artwork laid onto the macOS icon grid by compose-alternates.py (python3 + Pillow + iconutil), which also builds the .icns. app-icon.svg / mark.svg remain the mark's geometry \u2014 the reference every generation was given \u2014 and render.mjs still renders the flat vector icon from them. vgpu and pngjs are for render-candidates.mjs / render-dock.mjs, which draw the WGSL studies in candidates/. Not part of the pnpm workspace.",
+  "description": "The Realm app icon and the Dock alternates Settings offers. icons.mjs is the source: one vector drawing on the macOS icon grid, built from mark.svg's geometry, in nine colourings. render.mjs renders every size natively through headless Chrome and writes resources/icon.png, resources/icon.icns (iconutil) and the renderer's 256 px pictures; `--sheet <file>` draws all of them at 128 and 32 px on light and dark. vgpu and pngjs are for render-candidates.mjs / render-dock.mjs, which draw the WGSL studies in candidates/. Not part of the pnpm workspace.",
   "scripts": {
     "render": "node render.mjs",
-    "compose": "python3 compose-alternates.py"
+    "sheet": "node render.mjs --sheet sheet.png"
   },
   "dependencies": {
     "pngjs": "^7.0.0",

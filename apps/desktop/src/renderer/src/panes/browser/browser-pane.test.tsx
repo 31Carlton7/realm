@@ -14,7 +14,12 @@ import { gridPreset } from "@realm/contracts";
 
 type StateMsg = BrowserViewState;
 
-function fakeBridges(row: Partial<Browser> = {}) {
+/**
+ * `ready`: whether main's first word about a view with a page is that the page is up — what an adopted
+ * view on a loaded page says, and what every test not about loading wants. False leaves the view
+ * where a new one starts, on its way, until the test says otherwise.
+ */
+function fakeBridges(row: Partial<Browser> = {}, { ready = true }: { ready?: boolean } = {}) {
   const r: Browser = { id: "b1", spaceId: "s1", url: "", title: "Browser", favicon: "", createdAt: 0, updatedAt: 0, ...row };
   const calls: string[] = [];
   const bounds: { id: string; rect: DOMRectReadOnly | { x: number; y: number; width: number; height: number }; dpr: number; visible: boolean }[] = [];
@@ -47,7 +52,11 @@ function fakeBridges(row: Partial<Browser> = {}) {
   /** The armed annotation's resolver — pending until the user presses Send in the page's toolbar. */
   let annotateResolve: ((r: BrowserAnnotateResult) => void) | null = null;
   const host: BrowserHostBridge = {
-    create: async (id, url, list) => { calls.push(`create:${id}:${url}:${JSON.stringify(list)}`); },
+    create: async (id, url, list) => {
+      calls.push(`create:${id}:${url}:${JSON.stringify(list)}`);
+      // Main answers a create with the view's state, as `BrowserPaneHost.create` does.
+      if (url !== "") emitState({ id, url, ready, loading: !ready });
+    },
     destroy: async (id) => { calls.push(`destroy:${id}`); },
     retain: async (id) => { calls.push(`retain:${id}`); },
     navigate: async (id, input) => { calls.push(`navigate:${id}:${input}`); return input.trim() === "" ? null : `https://${input}`; },
@@ -97,6 +106,11 @@ function fakeBridges(row: Partial<Browser> = {}) {
     recent: async (spaceId) => { calls.push(`recent:${spaceId}`); return recentPages; },
     clearHistory: async (profileId) => { calls.push(`clear-history:${profileId}`); },
   };
+  /** A page that is up unless the test says otherwise: no error, and something to show. */
+  function emitState(s: Partial<StateMsg>) {
+    const full: StateMsg = { id: "b1", url: "", title: "", loading: false, canGoBack: false, canGoForward: false, device: null, favicon: null, error: null, ready: true, ...s };
+    for (const cb of cbs) cb(full);
+  }
   const bridges: BrowserBridges = { host, server };
   return {
     bridges, calls, bounds, updates,
@@ -130,8 +144,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
       for (const cb of passkeyCbs) cb(full);
     },
     emit: (s: Partial<StateMsg>) => {
-      const full: StateMsg = { id: "b1", url: "", title: "", loading: false, canGoBack: false, canGoForward: false, device: null, favicon: null, ...s };
-      for (const cb of cbs) cb(full);
+      emitState(s);
     },
   };
 }
@@ -292,6 +305,95 @@ describe("BrowserPane", () => {
     expect(f.bounds.at(-1)!.visible).toBe(true);
   });
 
+  describe("before a page has drawn, and a page that did not load", () => {
+    const REFUSED = { code: -102, name: "ERR_CONNECTION_REFUSED", url: "http://localhost:3000/" };
+    const host = (container: HTMLElement) => container.querySelector(".browser-view-host") as HTMLElement;
+
+    it("keeps the view hidden until main says the page has something to show", async () => {
+      /* A WebContentsView paints opaque white before anything has loaded into it, which is the lighter
+         slab under the toolbar this exists to keep off the screen. THE mutant: drop `ready` from the
+         verdict, and the view is up the moment there is an address. */
+      const f = fakeBridges({ url: "http://localhost:3000/" }, { ready: false });
+      setBrowserBridgesForTests(f.bridges);
+      const { container } = render(<BrowserPane item={browserItem()} visible />);
+      await settle();
+      expect(f.bounds.every((b) => !b.visible)).toBe(true);
+      // Nothing of its own is painted either: the host is the pane's ground until the page is up.
+      expect(host(container)).not.toHaveAttribute("data-page");
+      await act(async () => { f.emit(state({ url: "http://localhost:3000/", ready: true })); await vi.advanceTimersByTimeAsync(20); });
+      expect(f.bounds.at(-1)!.visible).toBe(true);
+      expect(host(container)).toHaveAttribute("data-page");
+    });
+
+    it("shows the spiral while the first page is on its way, and nothing once it is up", async () => {
+      const f = fakeBridges({ url: "http://localhost:3000/" }, { ready: false });
+      setBrowserBridgesForTests(f.bridges);
+      const { container } = render(<BrowserPane item={browserItem()} visible />);
+      await settle();
+      expect(container.querySelector(".browser-connecting .reach-mark[data-busy]")).not.toBeNull();
+      act(() => f.emit(state({ url: "http://localhost:3000/", ready: true })));
+      expect(container.querySelector(".browser-connecting")).toBeNull();
+    });
+
+    it("a first load that was stopped shows neither the spiral nor an error page", async () => {
+      // Stopping is not failing: Chromium reports no error, and the pane must not invent one.
+      const f = fakeBridges({ url: "http://localhost:3000/" }, { ready: false });
+      setBrowserBridgesForTests(f.bridges);
+      const { container } = render(<BrowserPane item={browserItem()} visible />);
+      await settle();
+      act(() => f.emit(state({ url: "http://localhost:3000/", ready: false, loading: false })));
+      expect(container.querySelector(".browser-connecting")).toBeNull();
+      expect(screen.queryByRole("region", { name: "This site can't be reached" })).toBeNull();
+    });
+
+    it("draws the error page where the view would be, keeps the view hidden, and keeps the address", async () => {
+      const f = fakeBridges({ url: "http://localhost:3000/" }, { ready: false });
+      setBrowserBridgesForTests(f.bridges);
+      const { container } = render(<BrowserPane item={browserItem()} visible />);
+      await settle();
+      await act(async () => { f.emit(state({ url: REFUSED.url, title: "localhost:3000", ready: false, error: REFUSED })); await vi.advanceTimersByTimeAsync(20); });
+      const page = screen.getByRole("region", { name: "This site can't be reached" });
+      expect(within(page).getByText("localhost refused to connect.")).toBeInTheDocument();
+      expect(within(page).getByText("Checking that a server is running on port 3000")).toBeInTheDocument();
+      expect(within(page).getByText("ERR_CONNECTION_REFUSED")).toBeInTheDocument();
+      expect(screen.getByLabelText("Address")).toHaveValue(REFUSED.url);
+      // A DOM page under a live view is a page nobody sees: the view must be down while it is up.
+      expect(f.bounds.at(-1)!.visible).toBe(false);
+      expect(host(container)).not.toHaveAttribute("data-page");
+      // …and there is nothing on the error document to pick from.
+      expect(screen.getByLabelText("Pick an element")).toBeDisabled();
+    });
+
+    it("Reload retries the failed address, and the page stays up with its mark busy while it does", async () => {
+      const f = fakeBridges({ url: REFUSED.url }, { ready: false });
+      setBrowserBridgesForTests(f.bridges);
+      const { container } = render(<BrowserPane item={browserItem()} visible />);
+      await settle();
+      act(() => f.emit(state({ url: REFUSED.url, error: REFUSED, ready: false })));
+      fireEvent.click(within(screen.getByRole("region", { name: "This site can't be reached" })).getByRole("button", { name: "Reload" }));
+      expect(f.calls).toContain("nav:b1:reload");
+      // The retry is in flight: the error document is still what the view holds, so the page stays.
+      act(() => f.emit(state({ url: REFUSED.url, error: REFUSED, ready: false, loading: true })));
+      expect(container.querySelector(".browser-error .reach-mark[data-busy]")).not.toBeNull();
+      expect(within(screen.getByRole("region", { name: "This site can't be reached" })).getByRole("button", { name: "Reload" })).toHaveAttribute("aria-busy", "true");
+      // The server came up: the page goes and the view comes back.
+      await act(async () => { f.emit(state({ url: REFUSED.url, title: "My app", ready: true })); await vi.advanceTimersByTimeAsync(20); });
+      expect(screen.queryByRole("region", { name: "This site can't be reached" })).toBeNull();
+      expect(f.bounds.at(-1)!.visible).toBe(true);
+    });
+
+    it("a certificate failure wears the padlock and offers nothing past it but Reload", async () => {
+      const f = fakeBridges({ url: "https://127.0.0.1:8893/" }, { ready: false });
+      setBrowserBridgesForTests(f.bridges);
+      const { container } = render(<BrowserPane item={browserItem()} visible />);
+      await settle();
+      act(() => f.emit(state({ url: "https://127.0.0.1:8893/", ready: false, error: { code: -202, name: "ERR_CERT_AUTHORITY_INVALID", url: "https://127.0.0.1:8893/" } })));
+      const page = screen.getByRole("region", { name: "Your connection isn't private" });
+      expect(container.querySelector(".browser-error .lock-mark")).not.toBeNull();
+      expect(within(page).getAllByRole("button").map((b) => b.textContent)).toEqual(["Reload"]);
+    });
+  });
+
   describe("no-overlay registration (W2)", () => {
     const mountWithStore = (f: ReturnType<typeof fakeBridges>) => {
       setBrowserBridgesForTests(f.bridges);
@@ -440,8 +542,8 @@ describe("BrowserPane", () => {
 });
 
 describe("shouldShowView", () => {
-  it("requires all five conditions", () => {
-    const base = { paneVisible: true, pageOverlay: false, dragging: false, settled: true, hasUrl: true };
+  it("requires every condition", () => {
+    const base = { paneVisible: true, pageOverlay: false, dragging: false, settled: true, hasUrl: true, ready: true, failed: false };
     expect(shouldShowView(base)).toBe(true);
     expect(shouldShowView({ ...base, paneVisible: false })).toBe(false);
     expect(shouldShowView({ ...base, dragging: true })).toBe(false);
@@ -452,6 +554,10 @@ describe("shouldShowView", () => {
        does. The measured symptom: opening Settings with a browser behind it left the page readable
        only where the browser did not happen to be. */
     expect(shouldShowView({ ...base, pageOverlay: true })).toBe(false);
+    // Nothing of the page's own to show yet, or an error document: the pane's ground or its error
+    // page are what is meant to be seen there, and the view would cover either.
+    expect(shouldShowView({ ...base, ready: false })).toBe(false);
+    expect(shouldShowView({ ...base, failed: true })).toBe(false);
   });
 });
 

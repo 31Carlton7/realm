@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref, EditorId, InstalledEditor } from "@realm/contracts";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref, EditorId, InstalledEditor } from "@realm/contracts";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
@@ -9,7 +9,7 @@ const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`
 const port = arg("realm-port");
 export type PickedFile = { path: string; mime: string; name: string; size: number };
 export type ScrollPhaseMessage = { phase: string; momentum: string; dx: number; dy: number; ts: number };
-export type BrowserViewState = { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; device: "phone" | "tablet" | "desktop" | null; favicon: string | null };
+export type BrowserViewState = { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; device: "phone" | "tablet" | "desktop" | null; favicon: string | null; error: BrowserLoadError | null; ready: boolean };
 contextBridge.exposeInMainWorld("realm", {
   port: port === undefined ? NaN : Number(port), home: arg("realm-home") ?? "",
   /** The RPC token, offered as the `realm.<token>` subprotocol on every dial. Realm's socket binds

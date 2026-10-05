@@ -133,6 +133,9 @@ describe("§6 motion ladder", () => {
     // grain's drift: an ambient tempo an order of magnitude off the slowest rung, and putting it on
     // the ladder would invite a UI transition to reach for it.
     for (const period of ["0.9s", "1.4s", "3.6s", "24s", "40ms"]) bare.delete(period);
+    // Nor is a threshold: 600ms is how long a browser pane's first page has to keep a person waiting
+    // before its spinner comes up at all — a page that answers sooner never shows one.
+    bare.delete("600ms");
     // Zero is not a rung either: it is the absence of a duration, written where a hover or a press
     // has to land on the frame the pointer did (the Press rule).
     bare.delete("0s");
@@ -2436,6 +2439,21 @@ describe("squircle surfaces", () => {
 /** Light mode is a real mode, not a filter over the dark one. These pin the colours that were being
  *  written as dark-tuned literals in `styles.css` — one layer below the token ramps, where a sweep of
  *  tokens.css cannot see them — and, just as importantly, the ones that deliberately do NOT flip. */
+/* The owner's report: the band behind the address field and the arrows was a different colour from
+   the rest of the browser pane, and both from the session pane. The pane's chrome paints nothing, so it
+   is the session pane's ground; the view's host painted the opaque panel tone under a new tab and round
+   a device box, which beside the translucent band read as a lighter strip. THE mutants: a `background`
+   back on the host's own rule, or on the chrome. Only the page's white, and only while the page shows. */
+describe("the browser pane is one ground", () => {
+  it("paints nothing behind its chrome or in the view's rectangle, but the page's white while a page shows", () => {
+    for (const sel of [".browser-pane", ".browser-chrome", ".browser-view-host", ".new-tab", ".browser-error", ".browser-connecting"]) {
+      for (const body of RULES.filter((r) => partsOf(r).includes(sel)).map((r) => r.body)) expect(body, sel).not.toMatch(/(^|;|\s)background(-color)?:/);
+    }
+    const painted = RULES.filter((r) => /(^|;|\s)background(-color)?:/.test(r.body)).flatMap(partsOf).filter((s) => s.includes(".browser-view-host"));
+    expect(painted).toEqual([".browser-view-host[data-page]:not([data-device])"]);
+  });
+});
+
 describe("light mode", () => {
   const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
   const lightBlocks = [...tokens.matchAll(/:root\[data-mode="light"\]\s*\{([^}]*)\}/g)].map((m) => m[1]!).join("\n");
@@ -2469,10 +2487,12 @@ describe("light mode", () => {
     [".sim-ax-label", "on the device's own screen"],
     // Matching the native WebContentsView's own opaque white, so the sliver it trails during a
     // resize cannot flash the panel tone through the gap.
-    [".browser-view-host", "the browser view's own ground"],
+    [".browser-view-host[data-page]:not([data-device])", "the browser view's own ground"],
     // White on a red fill, the same as white on the accent fill (--rl-accent-contrast), which is
     // deliberately one value for both modes.
     [".btn.destructive", "ink on a filled control"],
+    // The stop square on the rail's recording light: white on the same red fill, for the same reason.
+    [".rail-recording-stop", "ink on a filled control"],
     // The base half of a pair: the rule immediately below it flips the outline for light mode.
     [".md img", "paired with a light override"],
     // The base half of a pair, like `.md img` above it: a Quick Look render is a picture on the
@@ -3548,6 +3568,19 @@ describe("the machine pane's screen", () => {
     expect(suspended).toContain("background: transparent");
     expect(suspended).toMatch(/box-shadow:\s*inset/);
     expect(bodiesFor('.status-dot[data-status="machine-off"]').join(" ")).toContain("background: var(--rl-text-faint)");
+  });
+
+  it("puts a recording for Laya in the in-flight ping family, in red, and in both lists", () => {
+    // Red is what a recording light is everywhere; the ring has to survive reduced motion and leave
+    // when the window goes quiet, which only a name in every list gets it.
+    expect(bodiesFor('.status-dot[data-status="recording"]').join(" ")).toContain("background: var(--rl-danger)");
+    expect(bodiesFor('.status-dot[data-status="recording"]::after').join(" ")).toContain("--ring: var(--rl-danger)");
+    const ping = RULES.filter((r) => /animation:\s*rl-ping/.test(r.body)).flatMap(partsOf);
+    expect(ping).toContain('.status-dot[data-status="recording"]::after');
+    const reduced = RULES.filter((r) => /animation:\s*none/.test(r.body)).flatMap(partsOf);
+    expect(reduced).toContain('.status-dot[data-status="recording"]::after');
+    const quiet = RULES.filter((r) => /display:\s*none/.test(r.body)).flatMap(partsOf);
+    expect(quiet).toContain(':root[data-quiet] .status-dot[data-status="recording"]::after');
   });
 
   it("puts `booting` in the in-flight ping family rather than giving it a second animation", () => {

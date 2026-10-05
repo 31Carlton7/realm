@@ -1,6 +1,6 @@
 import { WebContentsView, screen, session, type BrowserWindow, type WebContents } from "electron";
-import { FAVICON_MAX_BYTES } from "@realm/contracts";
-import { BrowserPaneHost, FAVICON_FETCH_MS, browserUserAgent, createFaviconResolver, isFindShortcut, readCapped, shownPage, type FaviconFetch, type ViewFactory } from "./browser-host";
+import { FAVICON_MAX_BYTES, type BrowserLoadError } from "@realm/contracts";
+import { BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, browserUserAgent, createFaviconResolver, isFindShortcut, readCapped, shownPage, type FaviconFetch, type ViewFactory } from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
 import { refuseCapture } from "./capture-guard";
 import type { CdpBinding } from "./browser-agent-host";
@@ -145,14 +145,25 @@ export function electronViewFactory(
     /* Realm's `about:blank` bootstrap (above) commits a history entry like any page does, so the first
        real page had a Back — and a row in the back menu and in History — that went to a blank view the
        address bar still named as the page. Once the first real page commits, the bootstrap entry goes.
+       A first page that FAILS commits an entry as well — its error page's — so that counts too.
        Registered ahead of the state events below, so the state they send already has no Back. */
-    const dropBootstrapEntry = (_e: unknown, url: string) => {
-      if (url === "about:blank") return;
-      wc.off("did-navigate", dropBootstrapEntry);
+    let bootstrapEntry = !!installPasskeysFor;
+    const dropBootstrapEntry = (url: string) => {
+      if (!bootstrapEntry || url === "about:blank") return;
+      bootstrapEntry = false;
       const history = wc.navigationHistory;
       if (history.getActiveIndex() > 0 && history.getEntryAtIndex(0)?.url === "about:blank") history.removeEntryAtIndex(0);
     };
-    if (installPasskeysFor) wc.on("did-navigate", dropBootstrapEntry);
+    wc.on("did-navigate", (_e, url) => dropBootstrapEntry(url));
+    wc.on("did-fail-provisional-load", (_e, _code, _name, url, isMainFrame) => { if (isMainFrame) dropBootstrapEntry(url); });
+
+    /* Whether there is a page to show, and whether the one the view is on failed (`PageLoad`) — what
+       keeps the view's blank white off the screen. Ahead of the state events too. */
+    const pageLoad = new PageLoad();
+    wc.on("did-fail-provisional-load", (_e, code, name, url, isMainFrame) => { if (isMainFrame) pageLoad.failed(code, name, url); });
+    wc.on("did-navigate", (_e, url) => pageLoad.committed(url));
+    wc.on("dom-ready", () => pageLoad.settled(wc.getURL()));
+    wc.on("did-stop-loading", () => pageLoad.settled(wc.getURL()));
 
     /* The page's icon. A new document drops the last one's — registered ahead of the state events, so
        the state they send already has none — and the icons it offers (Electron fires this after load,
@@ -175,7 +186,7 @@ export function electronViewFactory(
 
     const stateEvents = [
       "did-start-loading", "did-stop-loading", "did-navigate", "did-navigate-in-page",
-      "page-title-updated", "did-fail-load",
+      "page-title-updated", "did-fail-load", "did-fail-provisional-load", "dom-ready",
     ] as const;
     for (const ev of stateEvents) wc.on(ev as Parameters<typeof wc.on>[0], () => hooks.emitState());
     wc.on("found-in-page", (_e, r) => hooks.found({ activeMatchOrdinal: r.activeMatchOrdinal, matches: r.matches, finalUpdate: r.finalUpdate }));
@@ -186,21 +197,25 @@ export function electronViewFactory(
       if (isFindShortcut(input, process.platform)) { e.preventDefault(); hooks.findShortcut(); }
     });
 
+    const loadURL = (url: string) => {
+      wanted = url;
+      // Queued behind the passkey install rather than racing it: a page that runs its own scripts
+      // first is a page whose passkey button is already broken.
+      void ready.then(() => {
+        if (wc.isDestroyed() || wanted !== url) return;
+        wc.loadURL(url).catch(() => { /* did-fail-provisional-load reports honestly */ });
+      });
+    };
+
     return {
       setBounds: (r) => view.setBounds(r),
       setVisible: (v) => view.setVisible(v),
-      loadURL: (url) => {
-        wanted = url;
-        // Queued behind the passkey install rather than racing it: a page that runs its own scripts
-        // first is a page whose passkey button is already broken.
-        void ready.then(() => {
-          if (wc.isDestroyed() || wanted !== url) return;
-          wc.loadURL(url).catch(() => { /* did-fail-load reports honestly */ });
-        });
-      },
+      loadURL,
       goBack: () => wc.navigationHistory.goBack(),
       goForward: () => wc.navigationHistory.goForward(),
-      reload: () => wc.reload(),
+      // A first page stopped before it committed leaves the view on the bootstrap `about:blank`, and a
+      // reload of that reloads nothing. The bar names the page that was asked for, so that is Reload's.
+      reload: () => { if (wc.getURL() === "about:blank" && wanted !== null && wanted !== "about:blank") loadURL(wanted); else wc.reload(); },
       stop: () => wc.stop(),
       canGoBack: () => wc.navigationHistory.canGoBack(),
       canGoForward: () => wc.navigationHistory.canGoForward(),
@@ -215,6 +230,8 @@ export function electronViewFactory(
       getTitle: () => shownPage({ url: wc.getURL(), title: wc.getTitle() }, wanted).title,
       isLoading: () => wc.isLoading(),
       getFavicon: () => favicon,
+      getLoadError: () => pageLoad.error,
+      isReady: () => pageLoad.ready,
       findInPage: (text, opts) => { wc.findInPage(text, opts); },
       stopFindInPage: () => wc.stopFindInPage("clearSelection"),
       getZoomFactor: () => wc.getZoomFactor(),
@@ -246,9 +263,10 @@ export type BrowserPane = {
    *  per view; null when the view is gone or the attach was refused (DevTools already attached). */
   attachCdp(id: string): CdpBinding | null;
   hasView(id: string): boolean;
-  /** Trustworthy page identity, straight off the webContents — never page-authored text — and
-   *  whether it is still loading, which is what the pane's own spinner shows. */
-  pageState(id: string): { url: string; title: string; loading: boolean } | null;
+  /** Trustworthy page identity, straight off the webContents — never page-authored text — whether it
+   *  is still loading, which is what the pane's own spinner shows, and why it did not load, if it did
+   *  not: the page Realm draws in its place is not in the page's DOM for an agent to read. */
+  pageState(id: string): { url: string; title: string; loading: boolean; error: BrowserLoadError | null } | null;
   /** browser id for a WebContents id — how the partition-wide download handler finds its pane. */
   browserIdForWebContents(webContentsId: number): string | null;
   /** Re-request a URL as a download, on the view's own session so its cookies apply (Plan 23 W4's
@@ -301,7 +319,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     hasView: (id) => { const wc = views.get(id); return !!wc && !wc.isDestroyed(); },
     pageState: (id) => {
       const wc = views.get(id);
-      return wc && !wc.isDestroyed() ? { url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading() } : null;
+      return wc && !wc.isDestroyed() ? { url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), error: host.loadErrorOf(id) } : null;
     },
     browserIdForWebContents: (webContentsId) => {
       for (const [id, wc] of views) if (!wc.isDestroyed() && wc.id === webContentsId) return id;

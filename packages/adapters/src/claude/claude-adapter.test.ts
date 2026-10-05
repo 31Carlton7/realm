@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode } from "./claude-adapter";
+import { ClaudeAdapter, HIDDEN_ANSWER, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode } from "./claude-adapter";
 import type { SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
@@ -12,6 +12,10 @@ type FakeOpts = {
   concurrentPermissions?: number;
   /** abort the canUseTool signal instead of waiting for a response */
   abortPermission?: boolean;
+  /** the tool input canUseTool is asked about (default `{ file_path }`) */
+  permissionInput?: unknown;
+  /** record what each canUseTool call resolved with — what the agent itself was handed */
+  permissionResults?: unknown[];
   /** throw from the generator after this many fixture messages */
   throwAfter?: number;
   /** write these lines to options.stderr before the first message */
@@ -52,9 +56,10 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
           asked = true;
           const cut = options.canUseTool as (n: string, i: unknown, o: unknown) => Promise<{ behavior: string }>;
           const ac = new AbortController();
-          const asks = Array.from({ length: opts.concurrentPermissions ?? 1 }, (_, i) => cut(opts.permissionOnTool!, { file_path: `a${i}` }, { signal: ac.signal, title: `Read a${i}?` }));
+          const asks = Array.from({ length: opts.concurrentPermissions ?? 1 }, (_, i) => cut(opts.permissionOnTool!, opts.permissionInput ?? { file_path: `a${i}` }, { signal: ac.signal, title: `Read a${i}?` }));
           if (opts.abortPermission) setTimeout(() => ac.abort(), 5);
           const rs = await Promise.all(asks); const r = rs[0]!;
+          opts.permissionResults?.push(...rs);
           if (r.behavior === "deny") { yield { type: "result", subtype: "success", session_id: "sess_1", uuid: "r", duration_ms: 1, duration_api_ms: 1, is_error: false, num_turns: 1, result: "denied", stop_reason: "end_turn", total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0 }, modelUsage: {}, permission_denials: [] }; break; }
         }
         if ((m as { type: string }).type === "result" && opts.errorResult) { yield { ...(m as object), subtype: "error_during_execution", is_error: true, errors: ["turn failed"] }; break; }
@@ -181,6 +186,25 @@ describe("ClaudeAdapter", () => {
     expect(statuses(got)).toEqual(["running", "waiting_permission", "running", "idle"]);
     const resp = got.find((e) => e.type === "permission_response");
     expect(resp?.type === "permission_response" && resp.payload.decision).toBe("deny");
+  });
+  it("a masked answer reaches the agent and never Realm's log", async () => {
+    const handed: unknown[] = [];
+    const input = { questions: [
+      { question: "API key?", header: "Key", options: [], multiSelect: false, secret: true },
+      { question: "Name?", header: "Name", options: [], multiSelect: false },
+    ] };
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "AskUserQuestion", permissionInput: input, permissionResults: handed }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const answers = { "API key?": "sk-live-1234", "Name?": "Ada" };
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"),
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "allow", answers); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    const resp = got.find((e) => e.type === "permission_response");
+    // The persisted, broadcast event keeps the ordinary answer and only a mark for the masked one…
+    expect(resp?.type === "permission_response" && resp.payload.answers).toEqual({ "API key?": HIDDEN_ANSWER, "Name?": "Ada" });
+    expect(JSON.stringify(got)).not.toContain("sk-live-1234");
+    // …while the agent, who asked for it, is handed the real value.
+    expect(handed[0]).toMatchObject({ behavior: "allow", updatedInput: { answers } });
   });
   it("concurrent canUseTool calls: one waiting_permission → running transition for the whole batch", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Read", concurrentPermissions: 2 }) as never });

@@ -1,18 +1,17 @@
 /**
  * Live check for the USER's element picker, against a real Chrome.
  *
- *   BrowserAgentHost.pickElement → webContents.debugger CDP (Overlay) → a real WebContentsView
+ *   BrowserAgentHost.pickElement → webContents.debugger CDP → Realm's injected overlay → a real WebContentsView
  *
  * Everything asserted here is a claim about Chrome's behaviour that no unit test against fake CDP
  * payloads can settle, and each one is load-bearing for a comment in `browser-agent.ts`:
  *
- *   1. inspect mode CONSUMES the picking click — the page's own handler never runs, so aiming at a
- *      link does not navigate. This is the whole reason Overlay was chosen over an injected listener.
+ *   1. the overlay CONSUMES the picking click — the page's own handler never runs, so aiming at a
+ *      link does not navigate. Taken in the capture phase, ahead of anything the page registered.
  *   2. The picker's own binding carries the pick back, `resolvePickedNode` turns the stamped
  *      attribute into a backendNodeId the ordinary describe path resolves, and the page-side read
  *      produces a selector that finds the node again.
- *   3. The injected overlay does NOT come down on its own — a picker that does not disarm
- *      keeps eating the user's clicks. (If this one ever flips, the comment must flip with it.)
+ *   3. The injected overlay comes down on its own at the pick — the page has its very next click.
  *   4. `disarmElementPick` actually gives the page its clicks back.
  *
  * Run:  apps/desktop/node_modules/.bin/electron apps/desktop/scripts/element-picker-live.cjs
@@ -112,7 +111,7 @@ async function main() {
   // Created blank and navigated directly: `normalizeAddress` prefixes anything that is not http(s)
   // or about:blank, which is right for an address bar and wrong for a `data:` URL this file authors.
   // The picker is indifferent to how the page arrived.
-  pane.host.create("b1", "about:blank", null);
+  pane.host.create("b1", "about:blank", null, "persist:picker-live"); // a jar of its own, in the scratch userData
   pane.host.setBounds("b1", { x: 0, y: 0, width: 800, height: 600 }, 1, true);
   await sleep(500);
   const view = win.contentView.children.find((c) => c.webContents);

@@ -5,7 +5,7 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
 import { ANNOTATE_BINDING, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { axElementAt, readAxSnapshot } from "./device-ax";
@@ -86,9 +86,9 @@ export type BrowserAgentHostDeps = {
   touch(browserId: string): void;
   /** BrowserPaneHost.navigate — the SAME normalization + allowlist every other navigation obeys. */
   navigate(browserId: string, url: string): string | null;
-  /** Trustworthy page identity (webContents.getURL/getTitle — never page-authored text), and whether
-   *  the page is still loading (`isLoading()`, the pane's own spinner). */
-  pageState(browserId: string): { url: string; title: string; loading?: boolean } | null;
+  /** Trustworthy page identity (webContents.getURL/getTitle — never page-authored text), whether
+   *  the page is still loading (`isLoading()`, the pane's own spinner), and why it did not load. */
+  pageState(browserId: string): { url: string; title: string; loading?: boolean; error?: BrowserLoadError | null } | null;
   /** The clock a page's network quiet is measured on. A test seam; `Date.now` otherwise. */
   now?: () => number;
   /**
@@ -478,7 +478,7 @@ export class BrowserAgentHost {
         if (!state || !this.d.hasView(browserId)) return { open: false, url: "", title: "", element: null } satisfies BrowserDescribeResult;
         let element: BrowserDescribeResult["element"] = null;
         if (typeof params.ref === "number") element = await this.describeElement(browserId, params.ref).catch(() => null);
-        return { open: true, url: state.url, title: state.title, element } satisfies BrowserDescribeResult;
+        return { open: true, url: state.url, title: state.title, element, ...(state.error ? { loadError: state.error } : {}) } satisfies BrowserDescribeResult;
       }
       case "navigate": {
         // Straight to the pane host: normalization and the per-space origin allowlist live there,
@@ -489,6 +489,12 @@ export class BrowserAgentHost {
         const entry = this.ensure(browserId);
         // Sampled before the capture: it is the state the page was in as the read began.
         const page = this.pageActivity(entry, browserId);
+        // A page that did not load is Chromium's empty error document, and what the pane draws in its
+        // place is Realm's own page, which is not in that DOM — so a capture would come back as a page
+        // with nothing on it. The failure goes in its own field rather than into the page's text: it
+        // is Realm's statement, and the text is the site's.
+        const failed = this.d.pageState(browserId)?.error ?? null;
+        if (failed) return { url: failed.url, title: "", text: "", elementCount: 0, elements: [], page, loadError: failed } satisfies BrowserSnapshotResult;
         const result = await buildSnapshot(entry.binding.send, entry.lastSnapshot);
         entry.lastSnapshot = result.index;
         const { index: _index, ...rest } = result;
@@ -507,6 +513,9 @@ export class BrowserAgentHost {
         const entry = this.ensure(browserId);
         if (kind === "console") return { text: entry.consoleLines.join("\n") };
         if (kind === "network") return { text: this.formatNetwork(entry) };
+        // The snapshot's reason: the page's text is the error document's, which is nothing.
+        const failed = this.d.pageState(browserId)?.error ?? null;
+        if (failed) return { text: "", loadError: failed } satisfies BrowserReadResult;
         return { text: await readPageText(entry.binding.send) };
       }
       case "act": {
@@ -737,7 +746,8 @@ export class BrowserAgentHost {
         const entry = this.ensure(browserId);
         const shot = (await entry.binding.send("Page.captureScreenshot", { format: "jpeg", quality: 70 })) as { data?: string };
         if (!shot.data) throw new Error("screenshot produced no data");
-        return { data: shot.data, mimeType: "image/jpeg" };
+        const failed = this.d.pageState(browserId)?.error ?? null;
+        return { data: shot.data, mimeType: "image/jpeg", ...(failed ? { loadError: failed } : {}) } satisfies BrowserScreenshotResult;
       }
       default:
         throw new Error(`unknown browser host op "${op}"`);

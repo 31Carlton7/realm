@@ -117,7 +117,9 @@ export function PlanDecision({ onDecide, autoFocus = false, enter = false, ownsE
   ownsEscape?: boolean;
 }) {
   return (
-    <div className="plan-decision" role="group" aria-label="Plan approval" data-enter={enter || undefined}
+    /* data-no-agent, for PermissionCard's reason: approving a plan takes the session out of Plan, so
+       an agent able to press "Implement this plan" through `app_act` could grant itself edits. */
+    <div className="plan-decision" role="group" aria-label="Plan approval" data-no-agent="plan approval" data-enter={enter || undefined}
       onKeyDown={(e) => { if (e.key === "Escape" && ownsEscape) { e.preventDefault(); e.stopPropagation(); onDecide("deny"); } }}>
       <span className="plan-decision-ask">Ready to build this?</span>
       <div className="plan-decision-actions">

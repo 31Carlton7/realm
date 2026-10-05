@@ -30,6 +30,12 @@ export type CreateRunInput = {
   dedupeKey: string | null;
   maxAttempts: number;
   deadlineAt: number | null;
+  /** The schedule firing it, when one is (`ScheduleService.fire`). */
+  scheduleId?: string | null;
+  /** A session for the first attempt to continue rather than starting one — a schedule's last run's,
+   *  when the schedule continues one conversation. Dispatch falls back to a fresh session when it is
+   *  gone or runs another agent. */
+  sessionId?: string | null;
 };
 
 /**
@@ -67,7 +73,7 @@ export class RunService {
   constructor(private readonly d: {
     store: RunsStore;
     settings: SettingsLike;
-    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt">;
+    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt" | "setOptions">;
     rpc: Pick<RpcServer, "broadcast">;
     environments: EnvironmentDeps;
     skills: Pick<SkillsService, "list" | "discardStage">;
@@ -76,6 +82,9 @@ export class RunService {
       runBlockResolved(runId: string, outcome: string): void;
       runDone(input: { spaceId: string; sessionId: string | null; runId: string; title: string; body: string | null }): void;
     };
+    /** Told of every run that reaches a terminal state, after it is written — the scheduler's hook
+     *  for what a schedule does once its run is over (archiving a success). */
+    onSettled?: (run: Run) => void;
     /** Worker kind when the run named none: claude in production; tests override to the fake. */
     fallbackKind?: AgentKind;
     /** Test seam only — production leaves this alone and uses the real clock. */
@@ -141,7 +150,7 @@ export class RunService {
 
   /* -------------------------------------- read paths ----------------------------------------- */
 
-  list(p: { spaceId: string; states: RunState[]; cursor: string | null; limit: number }): { runs: Run[]; nextCursor: string | null } {
+  list(p: { spaceId: string; scheduleId?: string | null; states: RunState[]; cursor: string | null; limit: number }): { runs: Run[]; nextCursor: string | null } {
     return this.d.store.list(p);
   }
 
@@ -149,6 +158,9 @@ export class RunService {
     const run = this.d.store.get(id);
     return run ? { run, attempts: this.d.store.attempts(id) } : null;
   }
+
+  /** The newest run a schedule fired — what one that continues a single session continues from. */
+  latestForSchedule(scheduleId: string): Run | null { return this.d.store.latestForSchedule(scheduleId); }
 
   /* ------------------------------------- entry points ---------------------------------------- */
 
@@ -179,6 +191,7 @@ export class RunService {
       // cutting a second worktree for one goal.
       environmentId: null,
       constraints, dedupeKey: input.dedupeKey, maxAttempts: input.maxAttempts, deadlineAt: input.deadlineAt,
+      scheduleId: input.scheduleId ?? null, sessionId: input.sessionId ?? null,
     });
     if (!created) {
       const existing = input.dedupeKey ? this.d.store.findLiveByDedupeKey(input.spaceId, input.dedupeKey) : null;
@@ -189,6 +202,7 @@ export class RunService {
         const retry = this.d.store.create({
           spaceId: input.spaceId, title, goal: input.goal, agentKind, environmentId: null,
           constraints, dedupeKey: input.dedupeKey, maxAttempts: input.maxAttempts, deadlineAt: input.deadlineAt,
+          scheduleId: input.scheduleId ?? null, sessionId: input.sessionId ?? null,
         });
         if (!retry) throw new RpcError("RUN_DEDUPE", "a live run with this dedupe key already exists in this space");
         this.broadcast(retry);
@@ -293,14 +307,18 @@ export class RunService {
 
       // Resume the run's existing session when it has one (the whole reason a restart is survivable:
       // SessionService restarts the adapter with `resume: providerSessionId`), otherwise create one.
+      // A session handed over at create — a schedule continuing its last conversation — is resumed
+      // the same way, but only while it still runs this run's agent: a transcript is tied to the
+      // agent that wrote it, so a schedule moved to another agent starts that agent a session.
       let sessionId = run.sessionId;
       let createdItemId: string | null = null;
-      if (sessionId && !this.sessionExists(sessionId)) sessionId = null;
+      if (sessionId && !this.sessionRuns(sessionId, run.agentKind)) sessionId = null;
+      const model = run.constraints?.model ?? null, effort = run.constraints?.effort ?? null;
       if (!sessionId) {
         try {
           const created = this.d.sessions.create({
             spaceId: run.spaceId, agentKind: run.agentKind, projectId: null, environmentId: env.value.environmentId,
-            model: null, effort: null,
+            model, effort,
             // Never `bypassPermissions` — it is not in a run's vocabulary at all (contracts/runs.ts).
             permissionMode: run.constraints?.permissionMode ?? "default",
             title: clip(run.title, 40),
@@ -316,26 +334,38 @@ export class RunService {
           this.settle(id, "failed", { error: why });
           return;
         }
-        // Persisted BEFORE the first send: `ensureLive` reads the preamble and the skill narrowing
-        // off this record when it starts the adapter, so the record must exist first.
-        const record: RunWorkerRecord = { runId: id, goal: run.goal, skills: skills.value };
-        this.d.settings.set(workerKey(sessionId), record);
+      } else if (model !== null || effort !== null) {
+        // A resumed session runs on what the run asks for NOW — a schedule's model edited since the
+        // session began is the one its next run is owed.
+        await this.d.sessions.setOptions(sessionId, { ...(model !== null ? { model } : {}), ...(effort !== null ? { effort } : {}) });
+        if (this.closing) return;
       }
+      // Persisted BEFORE the first send: `ensureLive` reads the preamble and the skill narrowing off
+      // this record when it starts the adapter, so the record must exist first. Written on a resumed
+      // session too, so a session that has served one run and now serves the next names the run it
+      // is working for — `release` fails THAT run if the session is deleted.
+      const record: RunWorkerRecord = { runId: id, goal: run.goal, skills: skills.value };
+      this.d.settings.set(workerKey(sessionId), record);
 
       this.d.store.openAttempt({ runId: id, n: run.attempt, sessionId });
       const dispatched = this.d.store.update(id, { sessionId, environmentId: env.value.environmentId })!;
-      if (createdItemId) {
+      if (createdItemId && run.scheduleId === null) {
         // The `agentOpened` idiom: the worker streams into its own pane, because a run the user
         // cannot watch is the thing this whole design refuses to ship. Deliberately WITHOUT the
         // `session.agentSettled` half the delegation tools send: a worker is nobody's sub-agent, no
         // transcript receives its report, and a run can stop at `blocked` and resume in this same
         // session — so its pane is the user's to close, not Realm's to take back.
+        //
+        // Not for a run a schedule fired. That one arrives on a clock, while the person is in the
+        // middle of something else, and a pane opening beside their work is the interruption the
+        // Scheduled page exists to replace: the run lands under its task there, unread until opened.
         this.d.rpc.broadcast("session.agentOpened", { spaceId: run.spaceId, sessionId, itemId: createdItemId });
       }
       this.broadcast(dispatched);
 
+      const brief = run.scheduleId !== null ? scheduledMessage(run.title, run.goal) : workerMessage(run.goal);
       try {
-        await this.d.sessions.send(sessionId, { text: note ? `${workerMessage(run.goal)}\n\nThe person supervising this run replied:\n\n${note}` : workerMessage(run.goal), attachments: [] });
+        await this.d.sessions.send(sessionId, { text: note ? `${brief}\n\nThe person supervising this run replied:\n\n${note}` : brief, attachments: [] });
       } catch (e) {
         if (this.closing) return;
         const why = `the run's session could not be started: ${errorMessage(e)}`;
@@ -456,6 +486,7 @@ export class RunService {
       body: firstLine(run.error ?? run.result ?? ""),
     });
     this.broadcast(run);
+    this.d.onSettled?.(run);
     return run;
   }
 
@@ -473,8 +504,9 @@ export class RunService {
     return run.deadlineAt !== null && this.now() >= run.deadlineAt;
   }
 
-  private sessionExists(sessionId: string): boolean {
-    try { this.d.sessions.get(sessionId); return true; } catch { return false; }
+  /** The session still exists and runs `kind` — the condition for a run to resume it. */
+  private sessionRuns(sessionId: string, kind: AgentKind): boolean {
+    try { return this.d.sessions.get(sessionId).agentKind === kind; } catch { return false; }
   }
 
   /**
@@ -529,6 +561,20 @@ function workerMessage(goal: string): string {
     goal,
     "",
     `When done — or when you need a person — reply with a concise final report (using \`${RUN_BLOCK_SENTINEL}\` if you are stuck). That report is stored as this run's result.`,
+  ].join("\n");
+}
+
+/**
+ * The message a SCHEDULED run's session receives: the task's instructions first and verbatim, because
+ * that is what the person wrote and what the Scheduled page shows as the run's first message, then
+ * the unattended rules in a line. The preamble carries those rules as well, but an agent with no
+ * context channel (`AGENT_MEMORY_CHANNEL`) reads only this — so they cannot live in the preamble alone.
+ */
+function scheduledMessage(title: string, goal: string): string {
+  return [
+    goal,
+    "",
+    `(Scheduled task "${title}". Nobody is watching this run: end with a short, self-contained report of what you did — it is kept as the run's result. If you need a person, end with a line starting \`${RUN_BLOCK_SENTINEL}\` and what you need.)`,
   ].join("\n");
 }
 

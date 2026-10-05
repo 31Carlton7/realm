@@ -32,11 +32,18 @@ export type ViewSyncFlags = {
   /** The view has something on it. Before the first navigation the pane shows its DOM empty state
    *  and the native view stays hidden — no about:blank flash over a themed pane. */
   hasUrl: boolean;
+  /** Main says the page has a document of its own to show (`BrowserViewState.ready`). Until then the
+   *  view is the blank white a WebContentsView paints before anything has loaded into it, and the
+   *  pane shows its own ground instead. */
+  ready: boolean;
+  /** The page did not load (`BrowserViewState.error`). The view holds Chromium's empty error document;
+   *  the pane draws the error page in its place, and a view left showing would cover it. */
+  failed: boolean;
 };
 
 /** THE visibility verdict, sent to main with every bounds sync. */
 export function shouldShowView(f: ViewSyncFlags): boolean {
-  return f.paneVisible && !f.pageOverlay && !f.dragging && f.settled && f.hasUrl;
+  return f.paneVisible && !f.pageOverlay && !f.dragging && f.settled && f.hasUrl && f.ready && !f.failed;
 }
 
 /** Is this drag one of ours? Existing items and the new-session row carry custom MIME types;

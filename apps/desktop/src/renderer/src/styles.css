@@ -36,13 +36,13 @@
 .file-preview-path, .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .mention-row-id,
 .msg-error pre, .office-drawn-size, .office-kept, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
-.sched-cron-input, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
+.sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
-.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code {
+.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code {
   letter-spacing: normal;
 }
 
@@ -1641,7 +1641,8 @@ kbd { font: 11px var(--font-mono); }
 :root[data-quiet] .permission-dot,
 :root[data-quiet] .gen-glow,
 :root[data-quiet] .drive-frame-glow,
-:root[data-quiet] .wash[data-grain] { animation-play-state: paused !important; }
+:root[data-quiet] .wash[data-grain],
+:root[data-quiet] .reach-mark[data-busy] .reach-mark-pulse { animation-play-state: paused !important; }
 
 /* The ping is the exception to the pause: frozen mid-flight it leaves a static ring standing around
    the dot at whatever radius it had reached, which reads as a rendering fault rather than as a state.
@@ -1649,7 +1650,8 @@ kbd { font: 11px var(--font-mono); }
 :root[data-quiet] .status-dot[data-status="running"]::after,
 :root[data-quiet] .status-dot[data-status="waiting_permission"]::after,
 :root[data-quiet] .status-dot[data-status="driving"]::after,
-:root[data-quiet] .status-dot[data-status="machine-booting"]::after { display: none; }
+:root[data-quiet] .status-dot[data-status="machine-booting"]::after,
+:root[data-quiet] .status-dot[data-status="recording"]::after { display: none; }
 
 /* The other thing that must NOT freeze: a transition the user is looking at mid-flight when the
    window loses focus would stick half-open. Transitions are not animations, so they are unaffected
@@ -1803,6 +1805,41 @@ kbd { font: 11px var(--font-mono); }
   --fill: transparent; color: var(--rl-text-dim); font-size: 12px; box-shadow: none; }
 .sim-frame-opt:hover { --fill: var(--rl-hover); color: var(--rl-text-bright); }
 .sim-frame-opt[aria-checked="true"] { --fill: var(--rl-accent); color: var(--rl-accent-contrast); }
+/* ── Recording the device for Laya ──
+   Its own row under the device's buttons (LayaRecord.tsx). What it records is the person's use of the
+   app on the device, so it sits with the device, where it has the room to say so in words — the bar
+   shares its width with the side pane's tabs, which keep it. */
+.sim-record { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 6px var(--sidebar-inset) 0; }
+.sim-record-start { --btn-h: 26px; height: var(--btn-h); display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 12px 0 9px; font-size: 12px; }
+/* The recording itself, in the frame choice's pill: the live mark, what is being kept and how much,
+   and Stop — the state and the control that ends it as one object. What is kept takes the slack and
+   gives it back first; the count and Stop keep their width. */
+.sim-recording { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 3px 3px 3px 12px;
+  border-radius: 999px; background: var(--rl-raised); box-shadow: var(--shadow-card);
+  font-size: 12px; line-height: 16px; }
+.sim-recording-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
+.sim-recording-count { flex: none; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sim-recording-stop { --btn-h: 24px; height: var(--btn-h); flex: none; padding: 0 12px; border-radius: 999px; font-size: 12px; }
+.sim-record-note { margin: 0; max-width: 62ch; text-align: center; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+/* What a recording keeps, said before it starts. A glyph beside each fact's name, the grammar
+   Settings' sections use, so five short paragraphs are found by shape before they are read — and no
+   tile round the glyph, which is the coloured-square icon design.md refuses. */
+.laya-record-facts { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.laya-record-fact { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 12px; align-items: start; }
+.laya-record-fact > svg { margin-top: 1px; color: var(--rl-text-dim); }
+.laya-record-fact-title { display: block; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.laya-record-fact-body { margin: 2px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.laya-record-fact-body code { font-size: 12px; overflow-wrap: anywhere; }
+.laya-record-refused { margin: 16px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-danger); }
+/* The same recording at the foot of the rail (RailRecording.tsx), for while the device is out of
+   sight: a recording light with the stop square every Mac and phone draws on one, so the disc is the
+   state and its Stop at once. Still, unlike the row above: that one pings, and two moving marks for
+   one fact is the sidebar dots' mistake. */
+.rail-recording-disc { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--rl-danger); }
+.rail-recording-stop { width: 8px; height: 8px; border-radius: 2px; background: #ffffff; }
 
 .sim-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px; }
 .sim-rest { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 380px; }
@@ -2518,15 +2555,18 @@ button.panel-title:hover { background: var(--rl-hover); }
 .browser-suggest-row[aria-selected="true"] { background: var(--rl-hover); }
 .browser-suggest-title { flex: 0 1 auto; max-width: 60%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
 .browser-suggest-url { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
-/* The placeholder the native view is bounds-synced onto. Painted the view's own opaque white so the
-   sliver the view trails behind during a resize never flashes the panel tone (research: do NOT
-   debounce the sync; match the colours instead). Pages are their own light world. */
-.browser-view-host { position: relative; flex: 1; min-width: 0; min-height: 0; background: #fff; }
-/* At a device size (Plan 26 W7e) the view is narrower than its host, and white beside a white page
-   would hide the device's edge. The pane's own ground frames it instead. */
-.browser-view-host[data-device] { background: var(--rl-panel); }
-/* Before the first navigation there is no view to match — the new-tab page sits on the panel tone. */
-.browser-pane:has(.new-tab) .browser-view-host { background: var(--rl-panel); }
+/* The placeholder the native view is bounds-synced onto. It paints NOTHING, so from the toolbar down
+   the pane is the session pane's ground — the one translucent sheet `.main` lays under every pane. It
+   was the opaque `--rl-panel` under a new tab, a device box and anything else with no page on it, and
+   beside the toolbar's translucent band that read as a lighter strip across the top of the pane on
+   every face, worst on a themed one. A page that has not drawn yet, or did not load, is not shown at
+   all (the view is hidden), so there is no blank white to match either.
+   While a page IS on screen it wears the view's own opaque white, so the sliver the view trails behind
+   during a resize never flashes the ground (research: do NOT debounce the sync; match the colours
+   instead). Pages are their own light world. At a device size (Plan 26 W7e) the view is narrower than
+   its host and white beside a white page would hide the device's edge, so the ground frames it. */
+.browser-view-host { position: relative; flex: 1; min-width: 0; min-height: 0; }
+.browser-view-host[data-page]:not([data-device]) { background: #fff; }
 /* A blank tab's tools (NewTabPage): one column of rows, set high in the pane rather than centred in
    it — the address field it continues is at the top, and a list floated to the middle of a tall
    pane reads as an empty state rather than as the next thing to pick. Scrolls past a short pane. */
@@ -2541,6 +2581,52 @@ button.panel-title:hover { background: var(--rl-hover); }
 .new-tab-row > svg { flex: none; color: var(--rl-text-dim); }
 .new-tab-row:hover:not(:disabled) { background: var(--rl-hover); }
 .new-tab-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A page that did not load (BrowserErrorPage), on the pane's ground like the new tab beside it, in the
+   shape every browser has taught: a glyph, what happened, why, what to try, the code, and Reload. One
+   left-aligned column at a reading measure, set a little above the middle of the pane — the address
+   that failed is already in the bar above it. Scrolls in a pane too short to hold it. Content, not
+   chrome: the code and the reason can be selected and copied. */
+.browser-error { position: absolute; inset: 0; overflow-y: auto; display: flex; }
+.browser-error-body { margin: auto; width: min(480px, 100%); padding: 32px 24px 12%; display: flex; flex-direction: column; align-items: flex-start;
+  animation: rl-error-in var(--dur-enter) var(--ease-fade); }
+@keyframes rl-error-in { from { opacity: 0; } to { opacity: 1; } }
+.browser-error-title { margin: 20px 0 0; font-size: 20px; line-height: 28px; font-weight: var(--fw-title); color: var(--rl-text-bright); text-wrap: balance; }
+.browser-error-reason { margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--rl-text-dim); text-wrap: pretty; }
+.browser-error-reason + .browser-error-reason { margin-top: 4px; }
+.browser-error-try { margin-top: 16px; font-size: 14px; line-height: 20px; color: var(--rl-text-dim); }
+.browser-error-try p { margin: 0; }
+.browser-error-try ul { margin: 4px 0 0; padding-left: 20px; list-style: disc; }
+/* Mono, because it is machine state; the quiet tier, because it is for whoever wants to look it up. */
+.browser-error-code { margin: 16px 0 0; font: 12px/16px var(--font-mono); color: var(--rl-text-faint); }
+.browser-error-reload { margin-top: 24px; }
+/* The first page on its way (BrowserConnecting): the mark, small, in the middle of the ground — held
+   back 600ms, a threshold rather than a rung (styles.test.ts names it), so that a page which answers
+   at once never shows it and the wait has to be one a person would notice before it says anything. */
+.browser-connecting { position: absolute; inset: 0; display: grid; place-items: center; padding-bottom: 12%; pointer-events: none;
+  animation: rl-connecting-in var(--dur-fast) var(--ease-fade) 600ms both; }
+@keyframes rl-connecting-in { from { opacity: 0; } to { opacity: 1; } }
+/* The marks (BrowserErrorPage.tsx), drawn in the stroke of one hand. The spiral is the accent's one
+   appearance on the page; the padlock is danger, because a certificate Realm will not trust is a state,
+   not a mood. The spiral draws itself in once, from the middle out. While a load is in flight it dims
+   and a pulse runs out along it, looping until the load settles, and the line lights back up. Only
+   then: an error page can sit for hours, and a loop that kept running under `opacity: 0` would spend a
+   core on a pane nobody is looking at (the power audit's finding, § Quiet). */
+.reach-mark, .lock-mark { flex: none; overflow: visible; }
+.reach-mark path, .lock-mark :is(path, rect) { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.reach-mark { color: var(--rl-accent); }
+.lock-mark { color: var(--rl-danger); }
+.reach-mark-line { stroke-dasharray: 100; animation: rl-reach-draw var(--dur-move) var(--ease-out-strong) both; transition: opacity var(--dur-swap) var(--ease-fade); }
+.reach-mark-pulse { stroke-dasharray: 16 100; stroke-dashoffset: 16; opacity: 0; }
+.reach-mark[data-busy] .reach-mark-line { opacity: .3; }
+.reach-mark[data-busy] .reach-mark-pulse { opacity: 1; animation: rl-reach-pulse 1.4s linear infinite; }
+@keyframes rl-reach-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes rl-reach-pulse { from { stroke-dashoffset: 16; } to { stroke-dashoffset: -100; } }
+@media (prefers-reduced-motion: reduce) {
+  /* Simply drawn: nothing dims and nothing runs along it. The first page's mark goes altogether, since
+     a spinner frozen in place reads as a hang (A-L5) — the toolbar's Stop still says a load is on. */
+  .reach-mark[data-busy] .reach-mark-line { opacity: 1; }
+  .reach-mark-pulse, .browser-connecting { display: none; }
+}
 
 .error-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 8px 6px; padding: 6px 10px; border-radius: var(--r-ctl);
   background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); color: var(--rl-danger); font-size: 12px; -webkit-app-region: no-drag; }
@@ -2852,7 +2938,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 .status-dot[data-status="running"]::after,
 .status-dot[data-status="waiting_permission"]::after,
 .status-dot[data-status="driving"]::after,
-.status-dot[data-status="machine-booting"]::after {
+.status-dot[data-status="machine-booting"]::after,
+.status-dot[data-status="recording"]::after {
   content: ""; position: absolute; inset: -3px; border-radius: 50%;
   border: 1px solid color-mix(in srgb, var(--ring) 60%, transparent);
   animation: rl-ping var(--ring-rate) var(--ease-out-strong) infinite;
@@ -2875,6 +2962,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    reaching a machine is something a person is waiting on. */
 .status-dot[data-status="machine-booting"] { background: var(--rl-accent); }
 .status-dot[data-status="machine-booting"]::after { --ring: var(--rl-accent); --ring-rate: 0.9s; }
+/* A recording for Laya (LayaRecord.tsx) is an act in progress — Realm keeping what a person does — so
+   it joins the family, in the red every recording light is, at the slow rate: nobody waits on it. */
+.status-dot[data-status="recording"] { background: var(--rl-danger); }
+.status-dot[data-status="recording"]::after { --ring: var(--rl-danger); --ring-rate: 1.8s; }
 /* Ends at scale(1) rather than growing past the authored box: the halo the reduced-motion reader
    sees is the same 13px circle the ping resolves to, so the two forms are the same shape. */
 @keyframes rl-ping { from { transform: scale(.45); opacity: .85; } 70%, to { transform: scale(1); opacity: 0; } }
@@ -2885,7 +2976,8 @@ button.panel-title:hover { background: var(--rl-hover); }
   .status-dot[data-status="running"]::after,
   .status-dot[data-status="waiting_permission"]::after,
   .status-dot[data-status="driving"]::after,
-  .status-dot[data-status="machine-booting"]::after { animation: none; }
+  .status-dot[data-status="machine-booting"]::after,
+  .status-dot[data-status="recording"]::after { animation: none; }
 }
 /* The one loading spinner — the G5 "Idling" orb (components/Spinner.tsx builds the dots and their
    nine poses). Nothing here rotates: each dot walks its own pre-projected pose table, so the whole
@@ -3309,9 +3401,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    against a height the list does not have.
    The tool card's half addresses DIRECT children: a card now contains its sub-agent's cards, and a
    descendant selector would have opening the parent unfold every body beneath it. */
-.tool-body-wrap, .sb-section-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
-.tool-card[data-open] > .tool-body-wrap, .sb-section-wrap[data-open] { grid-template-rows: 1fr; }
-.tool-body-clip, .sb-section-clip { overflow: hidden; min-height: 0; }
+.tool-body-wrap, .sb-section-wrap, .sched-runs-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
+.tool-card[data-open] > .tool-body-wrap, .sb-section-wrap[data-open], .sched-runs-wrap[data-open] { grid-template-rows: 1fr; }
+.tool-body-clip, .sb-section-clip, .sched-runs-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] > .tool-body-wrap .tool-body { opacity: 1; }
 
 /* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the collapsed row is
@@ -4976,12 +5068,15 @@ select { appearance: none; padding-right: 22px;
   .subagent-body, .subagent-prose,
   /* the Google Fonts browser's result list */
   .font-results,
-  /* a blank browser tab's tools, in a pane short enough to need it */
-  .new-tab,
+  /* a blank browser tab's tools, in a pane short enough to need it, and the page a failed load leaves */
+  .new-tab, .browser-error,
   /* a machine's resting bodies — the connect form, and the failure's own detail well */
   .machine-body,
   /* and a simulator's, which is the device picker and the same kind of failure well */
-  .sim-body
+  .sim-body,
+  /* Scheduled tasks: the page's column and a task's card — and a sheet that scrolls its body between
+     a head and a foot that stay put, which the Schedule a task modal does */
+  .sched-col-body, .sched-card, .sheet-body
 ) { scrollbar-width: thin; }
 /* The sidebar's list is the one scroller that cannot take the standard properties, and it is worth
    the fork because two separate things go wrong without it.
@@ -5256,7 +5351,7 @@ select { appearance: none; padding-right: 22px;
 /* `.switch` is deliberately NOT here. A squircle is a corner treatment, and a pill has no corners —
    applying one to `border-radius: 999px` clamps the superellipse to half the box and turns the
    track into a lozenge, which is what made the control read as a bug rather than a switch. */
-.summary-row, .sched-row, .suggestion-title, .field input, .field select, .field textarea {
+.summary-row, .suggestion-title, .field input, .field select, .field textarea {
   corner-shape: squircle;
 }
 .drop-zone { transition: opacity var(--dur-drag) linear; }
@@ -6149,10 +6244,142 @@ select { appearance: none; padding-right: 22px;
    test could have caught it). Both columns are `flex: 1 1 <basis>`, so the panel drops under the
    list when the pane cannot hold them side by side. */
 /* ── Scheduled tasks (SchedulesPage.tsx) ─────────────────────────────────
-   A list of rows, not a table: each schedule is three lines of prose (what it is, what it does, when
-   it next runs) plus a cluster of verbs, and a grid would spend its widest column on a goal that
-   wants to wrap. Rows separate by their own card, so no rule is drawn between them. */
-.schedules-page .page-head .sched-new { margin-left: auto; align-self: center; }
+   Codex's layout. The page carries its own column — the tasks, their runs, the suggestions — on the
+   frame's ground beside the work, the step a sidebar stands at, and beside it what is selected: a
+   run's session in the real session pane, with the task's card docked at the top right. The column
+   wears the sidebar's row anatomy (rows 8px in from a 16px inset, the active fill once chosen,
+   nothing lit under a passing pointer), so it reads as the same column listing tasks. */
+.schedules-page { flex-direction: row; }
+.sched-col { flex: none; width: 272px; min-height: 0; display: flex; flex-direction: column;
+  background: var(--rl-frame); border-right: var(--hairline-w) solid var(--rl-line); }
+.sched-col-head { flex: none; display: flex; align-items: center; gap: 4px; padding: 16px 12px 6px 24px; }
+.sched-col-title { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title);
+  color: var(--rl-text-bright); }
+.sched-col-search { flex: none; padding: 4px 16px 6px; }
+.sched-col-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column;
+  padding: 4px 16px 24px; --fade-top-h: 12px; --fade-h: 34px; }
+.sched-col-body > .group-label { padding-top: 14px; }
+.sched-col-note { margin: 0; padding: 4px 8px; font-size: 13px; color: var(--rl-text-faint); }
+/* A command rather than a row: the column's New space line, in its place and its ink. */
+.sched-new { flex: none; display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 5px 8px;
+  border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.sched-new:hover { color: var(--rl-text-bright); }
+.sched-tasks, .sched-runs, .sched-suggested, .sched-card-facts, .sched-card-list { list-style: none; margin: 0; padding: 0; }
+.sched-tasks, .sched-suggested { display: flex; flex-direction: column; gap: 2px; }
+/* A task: its name and the line under it are one hit, and folding its runs is a second, at the far
+   end — shown for the open task, and for any task under the pointer or the keyboard. */
+.sched-task-row { position: relative; display: flex; align-items: center; border-radius: var(--r-ctl); corner-shape: squircle; }
+.sched-task[data-active] > .sched-task-row { background: var(--rl-active); }
+.sched-task-hit { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; text-align: left;
+  border-radius: var(--r-ctl); corner-shape: squircle; }
+.sched-task-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sched-task-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.sched-task-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 16px;
+  color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.sched-task-disclose { flex: none; margin-right: 4px; opacity: 0; }
+.sched-task-row:hover .sched-task-disclose, .sched-task-disclose:focus-visible, .sched-task-disclose[aria-expanded="true"] { opacity: 1; }
+/* A task's runs, one step in: each is a time, a word where the time alone would not say it, and
+   the same marks the sidebar draws for a session's state and for something unread. */
+.sched-runs { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px 12px; }
+.sched-run { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 5px 8px; text-align: left;
+  border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.sched-run[data-active] { background: var(--rl-active); color: var(--rl-text-bright); }
+.sched-run-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sched-run-state { flex: none; font-size: 12px; font-weight: var(--fw-body); color: var(--rl-text-faint); }
+.sched-run-state[data-mark="error"] { color: var(--rl-danger); }
+.sched-run-state[data-mark="waiting_permission"] { color: var(--rl-warning); }
+/* A line of text on the runs' column, not a row: it cannot be mistaken for a run. */
+.sched-older { padding: 4px 8px; border-radius: var(--r-ctl); font-size: 13px; color: var(--rl-text-faint); }
+.sched-older:hover { color: var(--rl-text-dim); }
+.sched-suggestion { width: 100%; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; text-align: left;
+  border-radius: var(--r-ctl); corner-shape: squircle; }
+.sched-suggestion-name { font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.sched-suggestion-blurb { font-size: 12px; line-height: 16px; color: var(--rl-text-faint);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+.sched-main { flex: 1; min-width: 0; min-height: 0; display: flex; container: sched-main / inline-size; }
+.sched-empty { margin: auto; max-width: 420px; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.sched-empty-mark { color: var(--rl-text-faint); }
+.sched-empty-title { margin: 6px 0 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.sched-empty-line { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: balance; }
+.sched-empty .btn { margin-top: 12px; }
+.sched-view { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; }
+.sched-view-session { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.sched-details-toggle { display: none; }
+/* The task's card. A group of facts, so a card in Codex's grammar — a step above the ground under a
+   rim the rung lighter than both — and docked rather than floating, so it casts nothing. As tall as
+   what it holds, capped at the view it stands in. */
+.sched-card { flex: none; align-self: flex-start; width: 300px; max-height: calc(100% - 24px); overflow-y: auto; margin: 12px 12px 12px 0;
+  padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 10px;
+  border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.sched-card-head { display: flex; align-items: flex-start; gap: 2px; margin: -4px -8px -6px 0; }
+.sched-card-name { flex: 1; min-width: 0; margin: 4px 0 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-label);
+  color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.sched-card-when { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-faint); }
+.sched-card-goal { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: pre-wrap; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+/* The one rule inside the card, between what the task is and what it works with — Codex's. */
+.sched-card-facts { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.sched-card-fact { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.sched-card-fact > svg { flex: none; color: var(--rl-text-faint); }
+.sched-card-fact[data-tone="warn"], .sched-card-fact[data-tone="warn"] > svg { color: var(--rl-warning); }
+.sched-card-sub { display: flex; align-items: center; justify-content: space-between; margin: 2px -8px 0 0; font-size: 13px; color: var(--rl-text-faint); }
+.sched-card-list { display: flex; flex-direction: column; gap: 2px; }
+.sched-card-list > li { min-width: 0; }
+.sched-card-source, .sched-card-link { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 26px; font-size: 13px; color: var(--rl-text-dim); }
+.sched-card-link { width: 100%; padding: 0; text-align: left; border-radius: var(--r-chip); }
+.sched-card-link:hover { color: var(--rl-text-bright); }
+.sched-card-quiet { color: var(--rl-text-faint); }
+.sched-card-source > svg, .sched-card-link > svg { flex: none; color: var(--rl-text-faint); }
+/* Narrow, a docked card would leave the transcript a column nobody can read, so it folds behind a
+   button and opens OVER the run — a floating panel now, so it takes the overlay's shadow. A task with
+   no runs has nothing to cover, and stands its card above its one line instead. */
+@container sched-main (max-width: 760px) {
+  .sched-details-toggle { display: grid; position: absolute; top: 8px; right: 8px; z-index: 2; }
+  .sched-view:not([data-task]) .sched-card { position: absolute; z-index: 2; top: 44px; right: 8px; margin: 0;
+    width: min(300px, calc(100% - 16px)); max-height: calc(100% - 56px);
+    background: var(--surface); border-color: transparent; box-shadow: var(--shadow-overlay); }
+  .sched-view:not([data-task]):not([data-details]) .sched-card { display: none; }
+  .sched-view[data-task] { flex-direction: column-reverse; justify-content: flex-end; }
+  .sched-view[data-task] .sched-card { width: auto; margin: 12px; }
+}
+
+/* The Schedule a task modal. Its body scrolls between a head and a foot that stay put, as Codex's
+   does, so Create is reachable however long the instructions grow. */
+.sheet:has(.sched-modal) { display: flex; flex-direction: column; overflow: hidden; }
+.sheet:has(.sched-modal) > .sheet-body { flex: 1; min-height: 0; overflow-y: auto; }
+.sched-modal { display: flex; flex-direction: column; gap: 12px; }
+/* The two text fields wear the card's own fill and rim, so the form reads as one set of surfaces. */
+.sched-modal-name, .sched-modal-goal { width: 100%; padding: 0 14px; border-radius: var(--r-panel); border: var(--hairline-w) solid var(--rl-card-rim);
+  background: var(--rl-card); color: var(--rl-text-bright); font: inherit; font-size: 14px; outline: none;
+  transition: box-shadow var(--dur-hover) ease; }
+.sched-modal-name { height: 44px; }
+.sched-modal-goal { display: block; min-height: 120px; padding: 12px 14px; line-height: 20px; resize: vertical; }
+.sched-modal-name::placeholder, .sched-modal-goal::placeholder { color: var(--rl-text-faint); }
+.sched-modal-name:focus, .sched-modal-goal:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.sched-modal .settings-row { min-height: 48px; padding: 8px 12px 8px 16px; }
+/* A row with another under it hands its bottom edge to that row's inset divider. Left on, the two
+   lines stack into one twice as heavy that runs the card's full width — measured, 2px at the ends
+   and 4px through the middle. */
+.sched-modal .settings-row:has(+ .settings-row) { border-bottom-color: transparent; }
+/* A setting's value, as Codex sets it: quiet text at the row's end that is a menu, the control's ring
+   only under the pointer. Still a native select — a Mac menu, type-to-select and all. */
+.sched-select { flex: none; max-width: 60%; field-sizing: content; border-color: transparent; background-color: transparent; color: var(--rl-text-dim);
+  transition: background-color var(--dur-hover) ease; }
+.sched-select:hover, .sched-select:focus-visible { background-color: var(--rl-hover); }
+.sched-cron, .sched-date { flex: none; height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
+  background: var(--field); color: var(--rl-text-bright); outline: none; }
+.sched-cron { width: 168px; font-family: var(--font-mono); font-size: 13px; }
+.sched-date { font: inherit; font-size: 13px; }
+.sched-cron:focus, .sched-date:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.sched-modal-when { margin: -4px 4px 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.sched-modal-when[data-invalid] { color: var(--rl-warning); }
+.sched-modal-advanced { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin: 0 0 -4px 10px; padding: 2px 4px;
+  border-radius: var(--r-chip); font-size: 13px; color: var(--rl-text-faint); }
+.sched-modal-advanced:hover { color: var(--rl-text-dim); }
+.sched-modal-advanced svg { transition: transform var(--dur-pop) var(--ease-out-strong); }
+.sched-modal-advanced[aria-expanded="true"] svg { transform: rotate(180deg); }
 /* ── The Agents page: every session, by what it needs from you ─────────────
    A list of cards under state headings, not a table: each row is a title over two machine names,
    and the heading is the fact the page exists for. The dot beside the heading is the same colour
@@ -6470,46 +6697,6 @@ select { appearance: none; padding-right: 22px;
 .filter-chip-count { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .filter-chip[data-selected] .filter-chip-count { color: var(--rl-text-dim); }
 
-/* Meshed, like every other list of one thing in the app — see `.settings-row`. */
-.sched-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
-.sched-row { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px;
-  border: none; border-radius: 0; corner-shape: squircle; background: var(--rl-frame); }
-.sched-list > li:first-child .sched-row { border-start-start-radius: var(--r-panel); border-start-end-radius: var(--r-panel); }
-.sched-list > li:last-child .sched-row { border-end-start-radius: var(--r-panel); border-end-end-radius: var(--r-panel); }
-.sched-list > li + li .sched-row::before {
-  content: ""; position: absolute; inset: 0 0 auto 14px; height: var(--hairline-w); background: var(--rl-hairline);
-}
-/* A paused schedule is quieter, not struck through: it is armed-but-waiting, and the row still has
-   to be readable enough to edit. */
-.sched-row:not([data-enabled]) { opacity: .62; }
-.sched-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.sched-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.sched-name { font-size: 14px; font-weight: var(--fw-strong); color: var(--rl-text-bright); }
-/* The recurrence, in mono where it is an expression and in prose where it is a sentence — the one
-   element takes both, because `describeCron` decides which and the reader should not have to. */
-.sched-cron { font-size: 12px; color: var(--rl-text-dim); }
-.sched-goal { margin: 0; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); max-width: 68ch;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.sched-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
-.sched-next { color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
-/* A missed firing is the one thing on this row that is a problem, so it is the one thing wearing a
-   state colour — and it carries a glyph too, because colour alone never says it. */
-.sched-skipped { display: inline-flex; align-items: center; gap: 4px; color: var(--rl-warning); }
-.sched-actions { display: flex; align-items: center; gap: 2px; flex: none; }
-.sched-toggle { margin: 0 6px 0 0; }
-.sched-confirm { width: auto; padding: 0 8px; font-size: 11px; }
-.sched-form { display: flex; flex-direction: column; gap: 12px; padding: 14px;
-  border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-panel); background: var(--rl-panel); margin-bottom: 8px; }
-.sched-when { display: flex; gap: 8px; align-items: center; }
-.sched-when select { flex: 1 1 auto; min-width: 0; }
-/* Mono, and never narrower than the five fields it holds: this is machine state the user is typing. */
-.sched-cron-input { flex: 0 0 168px; font-family: var(--font-mono); font-size: 12px; }
-/* The native picker, sized to the date it shows rather than to the cron box it replaces — it is a
-   date, not machine state, so it keeps the interface font. */
-.sched-once-input { flex: 0 0 auto; font-size: 12px; }
-.sched-preview { margin: 0; font-size: 12px; color: var(--rl-text-faint); }
-.sched-preview[data-invalid] { color: var(--rl-warning); }
-.sched-form-actions { display: flex; gap: 8px; }
 
 .task-lens-list { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 .task-lens-new { display: flex; flex-direction: column; gap: 6px; }

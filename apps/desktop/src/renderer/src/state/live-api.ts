@@ -257,6 +257,7 @@ export const liveApi = (): Api => ({
   updateSchedule: (input) => rpc().call("schedules.update", input),
   deleteSchedule: (id) => rpc().call("schedules.delete", { id }),
   runScheduleNow: (id) => rpc().call("schedules.runNow", { id }),
+  listScheduleRuns: (spaceId, scheduleId, cursor, limit) => rpc().call("runs.list", { spaceId, scheduleId, cursor, limit }),
   listRuns: (spaceId, states, cursor = null, limit) => rpc().call("runs.list", { spaceId, ...(states ? { states } : {}), cursor, ...(limit !== undefined ? { limit } : {}) }),
   createRun: ({ spaceId, goal, title }) => rpc().call("runs.create", { spaceId, goal, ...(title ? { title } : {}) }),
   getRun: (id) => rpc().call("runs.get", { id }),

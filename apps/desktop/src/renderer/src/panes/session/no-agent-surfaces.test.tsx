@@ -6,9 +6,10 @@ import { NO_AGENT_ATTR } from "@realm/contracts";
 /**
  * Which of Realm's own surfaces an agent may never act in.
  *
- * `app_act` can press any button in this window, and two of them grant things: the permission card
- * answers one request, and the bypass confirmation escalates the session to a mode where nothing is
- * asked again. An agent able to press either could approve the work it is blocked on. `app-drive.ts`
+ * `app_act` can press any button in this window, and some of them grant things: the permission card
+ * answers one request, the bypass confirmation escalates the session to a mode where nothing is
+ * asked again, the plan approval takes a session out of Plan, and a question card answers for the
+ * user. An agent able to press any of them could approve the work it is blocked on. `app-drive.ts`
  * refuses anything inside an element carrying `data-no-agent`, and this is the list of what carries
  * it — written down here so that removing one is a visible act rather than a silent regression in a
  * file about layout.
@@ -38,6 +39,16 @@ const SURFACES = [
     what: "the bypassPermissions confirmation",
     file: "apps/desktop/src/renderer/src/panes/session/Composer.tsx",
     on: "bypass-confirm",
+  },
+  {
+    what: "a question put to the user",
+    file: "apps/desktop/src/renderer/src/panes/session/QuestionCard.tsx",
+    on: 'className="question-card"',
+  },
+  {
+    what: "the plan approval",
+    file: "apps/desktop/src/renderer/src/panes/session/PlanCard.tsx",
+    on: 'className="plan-decision"',
   },
 ];
 

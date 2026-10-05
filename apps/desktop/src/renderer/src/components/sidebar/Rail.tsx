@@ -4,6 +4,7 @@ import type { DestinationPageKind } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { Avatar } from "../Avatar";
 import { Menu } from "../Menu";
+import { RailRecording } from "./RailRecording";
 import { waitingCount } from "./model";
 import { useChord } from "./use-sidebar-model";
 
@@ -11,9 +12,9 @@ import { useChord } from "./use-sidebar-model";
  * The rail: the app's destinations as a column of icons at the window's left edge (Plan 27).
  *
  * The sidebar beside it gets you to your work; the rail gets you to the app's pages — Home (the
- * Agents page), Library, Connections, Scheduled tasks and the notifications — and at its foot to a
- * newer Realm and to the person (their page, Settings). It is never collapsed: ⌘B folds the sidebar
- * away and leaves this, so Home's count is always on screen.
+ * Agents page), Library, Connections, Scheduled tasks and the notifications — and at its foot to the
+ * Stop of a recording for Laya, a newer Realm, and the person (their page, Settings). It is never
+ * collapsed: ⌘B folds the sidebar away and leaves this, so Home's count is always on screen.
  *
  * As narrow as its icons and an even margin round them, Codex's: the traffic lights are wider than it
  * and run on across the top row, which is the window's (WindowLead) rather than this column's. Nothing
@@ -35,6 +36,8 @@ export function Rail() {
         <RailPage kind="notifications-page" label="Notifications" count={unread} countLabel={`${unread} unread`} />
       </div>
       <div className="rail-foot">
+        {/* The two that wear a state, then the person, at the very foot as Codex keeps them. */}
+        <RailRecording />
         <RailUpdate />
         <RailYou />
       </div>

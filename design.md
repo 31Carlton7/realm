@@ -60,11 +60,14 @@ Inspect the existing implementation before designing.
 - Shared theme derivation: `packages/ui/src/theme.ts` and `packages/ui/src/themes.ts`
 - Marketing tokens and prose styles: `site/app/globals.css`
 - App icon and landing shader: `resources/icon-src/` and `site/lib/realm-liquid-glass.ts`
-- The app icon and its Dock alternates are generated artwork on the mark's geometry, laid onto the
-  macOS grid by `resources/icon-src/compose-alternates.py`: only the BODY is taken from a generation,
-  cut to the continuous corner and given the grid's own shadow, so pictures from different prompts sit
-  together as one set. A running Mac app can change only its own Dock tile — the Finder keeps the
-  bundle's icon — and Settings says so rather than implying more.
+- The app icon and its Dock alternates are one vector drawing in nine colourings
+  (`resources/icon-src/icons.mjs`): the mark's own geometry on the macOS grid, rendered natively at
+  every size. An icon lives in a row of other apps' icons, so it is lit the way the Dock lights
+  Apple's — a graded body, a soft edge, one short shadow, a little light from above — and not as a
+  render: the generated set's chrome, candy plastic and bright bevel outshone every icon beside it.
+  A picture with no source can only be regenerated, never adjusted, which is why the colourings are
+  data. A running Mac app can change only its own Dock tile — the Finder keeps the bundle's icon — and
+  Settings says so rather than implying more.
 
 When the landing mark is presented as glass, derive its surface field from the approved vector rather
 than inventing geometry around it. Refraction and edge highlights must respond to that field, and
@@ -205,6 +208,11 @@ Rules:
   never rounded to it: an edge rounded outward covers the pixel next door, and the pixel next door
   is usually the only boundary the layout has. Losing a hairline of page content at the edge is
   invisible; losing a divider is not.
+- What stands in for a page — a new tab, a page on its way, a page that did not load — is the pane's
+  own DOM with the view hidden, never a document loaded into the view. The view is opaque, because
+  pages assume a white canvas, so anything drawn inside it is a slab of another colour under the
+  pane's translucent chrome; the browser pane's "lighter strip" was its host painting the panel tone
+  where the view would be. The view comes back once its page has something of its own to show.
 - Contrast claims about a hairline are pixel measurements, not stylesheet readings. What `8% white`
   comes to depends on the ground it lands on, and no amount of reading the CSS will tell you. Take
   the mean luminance either side of the line and the line itself, in both faces, with the line
@@ -538,6 +546,12 @@ acronym that is uppercase anyway (a file extension on a tile).
   Escape as Deny or Skip, and that is the card's whole surface; carried onto a page or popover whose
   Escape means "leave", the same key denied a request the person had only looked at. A surface that
   hosts a card catches Escape before the card does and leaves; a field being typed in keeps its own.
+- A control that starts keeping what a person does says so in words and asks first. Record for Laya
+  was a ring among a pane bar's icons that recorded on the click; it is now "Record my use of this
+  app…", and its sheet says what is kept and what is left out — read from the code that keeps it,
+  not from what it is for — where it goes, how big it gets and how it ends, and only Start records.
+  While it runs, its Stop is on the thing being recorded and at the foot of the rail, because a
+  recording goes on while its pane is out of sight.
 - Destructive actions must name their target and distinguish removing from a layout from deleting the
   underlying object.
 
@@ -622,6 +636,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   unbounded length, so they keep the width and the shown item's own actions go to its menu. The
   agents still working are a count in the session's bar, and their list previews one on request;
   a tab dragged to an edge is how something becomes part of the user's own layout.
+- Work a clock starts is not work the person started. A scheduled run lands under its task on the
+  Scheduled page, unread until its session is read, rather than opening a pane beside whatever the
+  person is doing — and for it "never opened" is what unread means, where for a session somebody
+  started it means nothing was missed.
 - Pane focus, selection, zoom, navigation history, and group state must remain visibly distinct.
 - Empty panes should offer the shortest honest path to useful work.
 - Several agents need one page that answers "what should I look at": every session across every

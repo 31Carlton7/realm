@@ -7,6 +7,7 @@ import type { PaneProps } from "../registry";
 import { useAppStoreMaybe, type AppState, type BrowserActionTick } from "../../state/store";
 import { announceHistoryCleared, cancelViewRelease, getBrowserBridges, onHistoryCleared, scheduleViewRelease } from "./browser-client";
 import { NewTabPage } from "./NewTabPage";
+import { BrowserConnecting, BrowserErrorPage } from "./BrowserErrorPage";
 import { PageIcon } from "../../components/PageIcon";
 import { browserMenuItems, parseBrowserMenuChoice, type BrowserMenuChoice } from "./browser-menu";
 import { sessionForPick } from "./pick-target";
@@ -128,10 +129,10 @@ function usePasskeyNotice(browserId: string) {
 /**
  * The element picker's pane-side half.
  *
- * The picker is armed and disarmed here, but nothing about it is drawn here: the highlight is
- * Chrome's own overlay, inside the view, which is the only way to point at something in a rectangle
- * React cannot paint into (W2's no-overlay invariant). All this owns is the toolbar button's lit
- * state and where the result goes.
+ * The picker is armed and disarmed here, but nothing about it is drawn here: the outline is drawn by
+ * the page itself (Realm's overlay, injected by main — browser-agent.ts), which is the only way to
+ * point at something in a rectangle React cannot paint into (W2's no-overlay invariant). All this owns
+ * is the toolbar button's lit state and where the result goes.
  *
  * The result goes into a SESSION's composer, chosen structurally by `sessionForPick` — a pick that
  * lands nowhere says so rather than being quietly dropped, because the user's evidence that it
@@ -434,6 +435,11 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const hasUrl = url !== "";
   /** No page, and the row has said so: a new tab, which shows the new-tab page where the view would be. */
   const blank = !hasUrl && initialUrl !== null;
+  /** The page did not load, so the pane draws its error page where the view would be. */
+  const loadError = state?.error ?? null;
+  const ready = state?.ready === true;
+  /** The view is what is on screen in the host: a page that loaded and has something to show. */
+  const showsPage = hasUrl && ready && loadError === null;
   const recent = useRecentVisits(item.spaceId, blank && visible);
   const { actions, driving } = useAgentWatch(store, browserId);
   const downloads = useBlockedDownloads(browserId, item.spaceId);
@@ -463,14 +469,14 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     const el = hostRef.current!;
     let disposed = false;
     let created = false;
-    const flags = { dragging: false, settled: false, hasUrl: false };
+    const flags = { dragging: false, settled: false, hasUrl: false, ready: false, failed: false };
 
     const sync = () => {
       if (!created || disposed) return;
       const r = el.getBoundingClientRect();
       host.setBounds(browserId, { x: r.x, y: r.y, width: r.width, height: r.height }, window.devicePixelRatio,
         shouldShowView({ paneVisible: visibleRef.current, pageOverlay: overlayRef.current,
-          dragging: flags.dragging, settled: flags.settled, hasUrl: flags.hasUrl }));
+          dragging: flags.dragging, settled: flags.settled, hasUrl: flags.hasUrl, ready: flags.ready, failed: flags.failed }));
       // W2's no-overlay registration: the rect the native view paints (or will paint — transient
       // hides like drags and the mount settle KEEP the rect registered, because the view returns to
       // exactly this rect and a surface placed "over" it during the blink would be covered the
@@ -493,6 +499,8 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       if (s.id !== browserId || disposed) return;
       setState(s);
       flags.hasUrl = s.url !== "";
+      flags.ready = s.ready === true;
+      flags.failed = s.error != null;
       schedule();
     });
 
@@ -741,14 +749,14 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
             rectangle, so a picker that opened a panel would open it underneath the page. */}
         <button className="icon-btn browser-pick" aria-label="Pick an element" aria-pressed={picker.armed}
           title="Pick an element to send to the prompter"
-          disabled={!hasUrl} onClick={() => { void picker.toggle(); }}>
+          disabled={!showsPage && !picker.armed} onClick={() => { void picker.toggle(); }}>
           <Icon name="target" size={14} />
         </button>
         {/* The picker kept armed: pins stay on the page until Send, and the page's own toolbar is
             where they are counted and sent — this button only says the mode is on, and ends it. */}
         <button className="icon-btn browser-annotate" aria-label="Annotate" aria-pressed={annotate.armed}
           title="Annotate: pin elements on the page, then send them together"
-          disabled={!hasUrl} onClick={() => { void annotate.toggle(); }}>
+          disabled={!showsPage && !annotate.armed} onClick={() => { void annotate.toggle(); }}>
           <Icon name="pin" size={14} />
         </button>
         <form className="browser-address" data-loading={state?.loading || undefined}
@@ -893,11 +901,13 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       )}
       {/* At a device size main narrows the view to the device's box, centred here; the ground beside it
           is the pane's, so the box reads as a device rather than as a page with white margins. */}
-      <div className="browser-view-host" ref={hostRef} data-device={state?.device ?? undefined}>
+      <div className="browser-view-host" ref={hostRef} data-device={state?.device ?? undefined} data-page={showsPage || undefined}>
         {/* A blank tab is a new tab: the tools beside the address field, in place of an empty page.
-            Only while there is no page — the native view is hidden until one loads, so this is the
-            one thing that can be drawn in this rectangle at all. */}
+            Only while there is no page — the native view is hidden until one loads, so this and the
+            two below are the only things that can be drawn in this rectangle at all. */}
         {blank && <NewTabPage itemId={item.id} recent={recent} onVisit={visit} />}
+        {loadError && <BrowserErrorPage error={loadError} busy={state?.loading === true} onReload={() => nav("reload")} />}
+        {hasUrl && !loadError && !ready && state?.loading === true && <BrowserConnecting />}
       </div>
     </div>
   );
