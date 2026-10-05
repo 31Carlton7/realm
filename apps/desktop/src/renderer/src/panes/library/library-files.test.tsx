@@ -9,6 +9,7 @@ import { breakableName } from "../../components/FileCard";
 import { allOnScreen } from "../../components/on-screen.test-fakes";
 import { resetMediaCache } from "../session/media/use-media";
 import { fakeApi, item, session, space, type FakeData } from "../../state/store.test-fakes";
+import { MediaViewer } from "../../components/viewer/MediaViewer";
 
 /** The preload bridge, as the preview and the cards see it. jsdom has none, so every capability the
  *  Library offers has to be stubbed here — and a stub that is MISSING is itself the interesting case,
@@ -49,6 +50,7 @@ async function mount(over: FakeData = {}) {
   render(
     <StoreContext.Provider value={store}>
       <LibraryPage item={item("i1", "s1", { kind: "library-page", refId: PAGE_REF_IDS["library-page"], title: "Library" })} visible />
+      <MediaViewer />
     </StoreContext.Provider>,
   );
   return { api, store };
@@ -265,16 +267,19 @@ describe("the Library's file browser", () => {
 });
 
 describe("previewing a file from the Library", () => {
-  /** Open the card for `path` and wait for the preview's own stat to land. */
+  /** Open the card for `path` and wait for the viewer's own stat to land. */
   async function openCard(path: string) {
     fireEvent.click(await screen.findByTitle(path));
-    return screen.findByRole("dialog");
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByRole("button", { name: "Close" });
+    return dialog;
   }
 
-  it("routes the preview's Open the same way a session summary does, and no other way", async () => {
-    /* The one rule this preview exists to keep: a file must not open two different ways depending on
-       which list it was reached from. `isOpenableArtifact` IS the summary's `documentKindFor(path)
-       !== "unsupported"`, so a `.md` goes to the documents pane and a `.zip` goes to the OS. */
+  it("routes the viewer's Open the same way a session summary does, and no other way", async () => {
+    /* The one rule the viewer keeps from the preview it replaced: a file must not open two different
+       ways depending on which list it was reached from. `isOpenableArtifact` IS the summary's
+       `documentKindFor(path) !== "unsupported"`, so a `.md` goes to the documents pane and a `.zip`
+       goes to the OS. */
     const realm = bridge();
     const { api } = await mount({ artifacts: [
       file({ id: "report.md", path: "/tmp/report.md" }),
@@ -283,27 +288,25 @@ describe("previewing a file from the Library", () => {
     await openCard("/tmp/report.md");
     fireEvent.click(await screen.findByRole("button", { name: "Open in the documents pane" }));
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("openDocumentPath"))).toBe(true));
+    // Going to the pane is leaving the viewer.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
     await openCard("/tmp/archive.zip");
     fireEvent.click(await screen.findByRole("button", { name: "Open with the default app" }));
     await waitFor(() => expect(realm.openAttachment).toHaveBeenCalledWith("/tmp/archive.zip"));
   });
 
-  it("wears Finder's own icon on Reveal in Finder, and falls back rather than waiting on it", async () => {
-    /* The mark is Apple's, so it is read off THIS machine at runtime rather than shipped with the
-       app. A machine that cannot produce it (or has not yet) still gets a usable menu — the item
-       draws Realm's folder glyph instead of holding the menu back for a picture. */
-    bridge();
+  it("draws Reveal in Finder as Realm's folder, at the weight of the glyphs beside it", async () => {
+    /* Finder's own icon was right in the preview's MENU, where a row is found by its picture. In the
+       viewer's row of quiet marks the full-colour face was the one that shouted. THE MUTANT: put the
+       face back — the button grows an <img>, and the head reads as an advert for the Finder. */
+    const realm = bridge();
     await mount({ artifacts: [file({ id: "report.md", path: "/tmp/report.md" })] });
-    await openCard("/tmp/report.md");
-    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
-    const item = await screen.findByRole("menuitem", { name: "Reveal in Finder" });
-    await waitFor(() => expect(item.querySelector("img.menu-icon-img")).not.toBeNull());
-
-    // THE MUTANT: draw the slot only on the item that has an icon. Every other label then starts
-    // 24px to its left and the menu reads as broken rather than as emphasised.
-    const copyPath = screen.getByRole("menuitem", { name: "Copy path" });
-    expect(copyPath.querySelector(".menu-icon")).not.toBeNull();
+    const dialog = await openCard("/tmp/report.md");
+    const reveal = within(dialog).getByRole("button", { name: "Reveal in Finder" });
+    expect(reveal.querySelector("svg")).not.toBeNull();
+    expect(reveal.querySelector("img")).toBeNull();
+    expect(realm.files.finderIcon).not.toHaveBeenCalled();
   });
 
   it("saves a copy, reveals and copies the path through the bridge that can do all three", async () => {
@@ -314,12 +317,11 @@ describe("previewing a file from the Library", () => {
     const writeText = vi.fn();
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     await mount({ artifacts: [file({ id: "report.md", path: "/tmp/report.md" })] });
-    await openCard("/tmp/report.md");
-
-    for (const label of ["Save a copy…", "Reveal in Finder", "Copy path"]) {
-      fireEvent.click(screen.getByRole("button", { name: "More actions" }));
-      fireEvent.click(await screen.findByRole("menuitem", { name: label }));
-    }
+    const dialog = await openCard("/tmp/report.md");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save a copy…" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reveal in Finder" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "More actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy path" }));
     expect(realm.files.saveCopy).toHaveBeenCalledWith("/tmp/report.md");
     expect(realm.files.reveal).toHaveBeenCalledWith("/tmp/report.md");
     expect(writeText).toHaveBeenCalledWith("/tmp/report.md");
@@ -335,8 +337,8 @@ describe("previewing a file from the Library", () => {
       items: { s1: [item("i1", "s1")], s2: [item("i2", "s2", { kind: "session", refId: "se2" })] },
       artifacts: [file({ id: "far.md", path: "/tmp/far.md", sessionId: "se2", spaceId: "s2", sessionTitle: "The other space" })],
     });
-    const sheet = await openCard("/tmp/far.md");
-    fireEvent.click(within(sheet).getByRole("button", { name: "Made in The other space" }));
+    const dialog = await openCard("/tmp/far.md");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Made in The other space" }));
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
     // The switch is only half of it: the session's own pane has to end up in the layout, or the jump
     // has left the user in a space they did not ask for with nothing opened.
@@ -350,29 +352,26 @@ describe("previewing a file from the Library", () => {
        learn the session is gone than the sentence that replaces it. */
     bridge();
     await mount({ artifacts: [file({ id: "orphan.md", path: "/tmp/orphan.md", sessionId: "deleted", sessionTitle: "A session since deleted" })] });
-    const sheet = await openCard("/tmp/orphan.md");
-    expect(await within(sheet).findByText(/that session is gone/)).toBeTruthy();
-    expect(within(sheet).queryByRole("button", { name: /Made in A session since deleted/ })).toBeNull();
+    const dialog = await openCard("/tmp/orphan.md");
+    expect(await within(dialog).findByText(/that session is gone/)).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: /Made in A session since deleted/ })).toBeNull();
   });
 
-  it("expands into the transcript's own lightbox, and Escape comes back to the preview", async () => {
-    /* Two things at once. The lightbox is the transcript's — a second image viewer here would be a
-       fork of the one component this whole preview exists to reuse. And it REPLACES the sheet rather
-       than stacking on it: both listen for Escape on `window` in the capture phase and the sheet is
-       mounted first, so drawing them together made one press close both and turned "expand" into a
-       one-way trip out of the preview. */
+  it("opens a picture straight into the viewer, with the page's other files beside it", async () => {
+    /* There is no sheet in front of the picture any more, and nothing to expand: the card opens the
+       viewer, which IS the picture at the window's size. The page's other files are its siblings, in
+       the page's order, so → walks the grid the way the eye just did. */
     bridge({ media: { stat: async (c: readonly string[]) => c.map((path) => ({ path, mime: "image/png", kind: "image", size: 4096 })),
                       poster: async () => null, reveal: vi.fn(), open: vi.fn() } });
-    await mount({ artifacts: [file({ id: "shot.png", ext: "png", path: "/tmp/shot.png", kind: "upload" })] });
+    const { store } = await mount({ artifacts: [
+      file({ id: "shot.png", ext: "png", path: "/tmp/shot.png", kind: "upload", ts: 2 }),
+      file({ id: "notes.md", path: "/tmp/notes.md", ts: 1 }),
+    ] });
     await openCard("/tmp/shot.png");
-    fireEvent.click(await screen.findByRole("button", { name: "Expand" }));
-
-    await waitFor(() => expect(document.querySelector(".media-lightbox")).toBeTruthy());
-    expect(document.querySelector(".sheet")).toBeNull();
-
+    await waitFor(() => expect(document.querySelector(".media-viewer-img")).not.toBeNull());
+    expect(store.getState().viewer!.files.map((f) => f.path)).toEqual(["/tmp/shot.png", "/tmp/notes.md"]);
     fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(document.querySelector(".media-lightbox")).toBeNull());
-    expect(await screen.findByRole("dialog", { name: "shot.png" })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("draws no actions at all for a file that is no longer on disk", async () => {

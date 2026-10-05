@@ -29,6 +29,7 @@ import { useSelectInRealm } from "../../app-pick/start";
 import { PathMenu, asRef } from "./PathMenu";
 import { useSpaceTint } from "../../components/sidebar/use-sidebar-model";
 import type { SlashCommand } from "./slash-commands";
+import { MediaSessionContext } from "../../components/viewer/open";
 
 /** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
  *  re-render (and warn) forever. */
@@ -786,7 +787,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       )}
     </div>
   );
-  return body;
+  // What this pane shows — its transcript's media, its prompter's chips — is asked about in this session.
+  return <MediaSessionContext.Provider value={id}>{body}</MediaSessionContext.Provider>;
 }
 
 /** The drawer's empty-state hint names where the shell opened — the session's cwd, by basename. */

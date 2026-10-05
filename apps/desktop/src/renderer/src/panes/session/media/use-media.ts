@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MAX_MEDIA_CANDIDATES, type MediaFile } from "@realm/contracts";
 
 /**
@@ -104,6 +104,19 @@ export function useMediaFiles(candidates: readonly string[]): MediaFile[] {
     out.push(file);
   }
   return out;
+}
+
+/**
+ * One path's answer, with the wait kept apart from the miss: the file, `null` for "not media, or not
+ * there", and `undefined` while main has not said. The media viewer needs the difference — it draws a
+ * picture for the first, a preview or a sentence for the second, and nothing yet for the third,
+ * where a list that can draw nothing either way does not.
+ */
+export function useMediaFile(path: string | null): MediaFile | null | undefined {
+  const candidates = useMemo(() => (path ? [path] : []), [path]);
+  useResolveMedia(candidates);
+  if (!path) return null;
+  return resolved.has(path) ? resolved.get(path) ?? null : undefined;
 }
 
 /** A video's poster frame, cached the same way and for the same reason. Null until QuickLook

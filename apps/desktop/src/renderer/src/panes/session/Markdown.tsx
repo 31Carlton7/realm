@@ -1,13 +1,14 @@
 import DOMPurify from "dompurify";
 import { brandMarks, type BrandName } from "@realm/ui";
-import { LINK_SERVICE_META, describeLink, type LinkService } from "@realm/contracts";
+import { LINK_SERVICE_META, describeLink, type LinkService, type MediaFile } from "@realm/contracts";
 import { marked } from "marked";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { grammarFor, highlightToHtml } from "./rich/highlight";
 import { mathExtension } from "./rich/math";
 import { mediaExtension, mediaRefsIn } from "./media/md-media";
-import { MediaFrame, MediaLightbox } from "./media/MediaView";
+import { MediaFrame } from "./media/MediaView";
+import { useOpenViewer } from "../../components/viewer/open";
 import { useMediaByCandidate } from "./media/use-media";
 import { markPaths } from "./file-paths";
 import { markFileRefs, useFileLinks, type FileLinkContext } from "./file-links";
@@ -310,14 +311,19 @@ function useMediaPortals(body: React.RefObject<HTMLDivElement | null>, html: str
   // Keyed by the candidate, not the resolved path: the placeholder holds `~/out/clip.mp4` and main
   // answers `/Users/me/out/clip.mp4`, so a by-path lookup would find nothing for every `~` embed.
   const byCandidate = useMediaByCandidate(refs.map((r) => r.path));
-  const [open, setOpen] = useState<import("@realm/contracts").MediaFile | null>(null);
+  const open = useOpenViewer();
+  // Every embed main confirmed, in the order the prose has them: an answer showing three renders
+  // opens on the one clicked, and ← and → walk the other two.
+  const shown = refs.flatMap(({ path }) => { const f = byCandidate.get(path); return f ? [f] : []; });
+  const expand = (file: MediaFile) => open?.({
+    files: shown.map((f) => ({ path: f.path, mime: f.mime })), index: Math.max(0, shown.findIndex((f) => f.path === file.path)),
+  });
   return (
     <>
       {refs.map(({ path, el }) => {
         const file = byCandidate.get(path);
-        return file ? createPortal(<MediaFrame file={file} onExpand={() => setOpen(file)} />, el, file.path) : null;
+        return file ? createPortal(<MediaFrame file={file} onExpand={open ? () => expand(file) : undefined} />, el, file.path) : null;
       })}
-      {open && <MediaLightbox file={open} onClose={() => setOpen(null)} />}
     </>
   );
 }

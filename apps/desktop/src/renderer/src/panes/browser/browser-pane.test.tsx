@@ -472,6 +472,23 @@ describe("BrowserPane", () => {
       expect(store.getState().browserRects).toHaveLength(1);
     });
 
+    /* The media viewer covers the whole window, as a page covers the panes — and a view left
+       showing would paint straight through the picture being looked at. THE MUTANT: leave the
+       viewer out of the overlay selector. */
+    it("hides the view while the media viewer is up, and shows it again when it closes", async () => {
+      const shows: boolean[] = [];
+      const f = fakeBridges({ url: "https://example.com" });
+      f.bridges.host.setBounds = (_id, _rect, _dpr, show) => { shows.push(show); };
+      const { store } = mountWithStore(f);
+      await settle();
+      expect(shows.at(-1)).toBe(true);
+      await act(async () => { store.getState().openViewer({ files: [{ path: "/tmp/shot.png" }] }); await settle(); });
+      expect(shows.at(-1)).toBe(false);
+      expect(store.getState().browserRects).toEqual([]);
+      await act(async () => { store.getState().closeViewer(); await settle(); });
+      expect(shows.at(-1)).toBe(true);
+    });
+
     /* The window's toasts, with no clear spot along its foot, hold a corner — and the view under it
        gives that corner up for as long as they are up. THE mutant: send the placeholder's rect as it
        is, and the view paints over the toast that is the only thing the window is trying to say. */

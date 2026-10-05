@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { chordsForCommand, displayKeyChord, documentKindFor, type DocumentKind, type LibraryEntry } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { TYPE_ICON } from "../../components/FileCard";
-import { FilePreview } from "../../components/FilePreview";
 import { fileDragProps, quickLookOnSpace } from "../../components/file-actions";
 import { useDissolve } from "../../components/ScrollFades";
 import { SEARCH_DEBOUNCE_MS, relTime } from "../../components/CommandPalette";
@@ -61,13 +60,13 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
   const attachPaths = useApp((s) => s.attachPaths);
   const removeAttachment = useApp((s) => s.removeAttachment);
   const openDestinationPage = useApp((s) => s.openDestinationPage);
+  const openViewer = useApp((s) => s.openViewer);
   const keybindings = useApp((s) => s.keybindings);
   const run = useApp((s) => s.run);
 
   const [query, setQuery] = useState("");
   const [lists, setLists] = useState<Lists | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  const [preview, setPreview] = useState<HomeFile | null>(null);
   const [codePrompt, setCodePrompt] = useState<ReadonlySet<string> | null>(null);
   const search = useRef<HTMLInputElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -122,12 +121,23 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
       else run(() => attachPaths(sessionId, [f.abs!]));
     },
   } : null);
-  /* A file inside the checkout that the pane has a view for opens HERE, as a tab. Anything else — a
-     file in another space's checkout, a download the user attached, an archive — opens the preview
-     every other list of files opens, which says what Realm can do with it. */
+  /* A file inside the checkout that the pane has an editor or a page for opens HERE, as a tab. A
+     picture, a video or a sound opens in the media viewer, which is where media is looked at — with
+     this session's prompter under it — and so does anything else, a file in another space's checkout,
+     a download the user attached, an archive: the viewer every other list of files opens, which says
+     what Realm can do with it. Beside it, the home's other files the viewer would show, so ← and →
+     walk the list as it reads. */
+  const inPane = (f: HomeFile) => f.rel !== null && documentKindFor(f.rel) !== "unsupported";
+  const opensHere = (f: HomeFile) => inPane(f) && f.type !== "image" && f.type !== "video" && f.type !== "audio";
   const open = (f: HomeFile) => {
-    if (f.rel !== null && documentKindFor(f.rel) !== "unsupported") onOpen(f.rel);
-    else if (f.abs) setPreview(f);
+    if (opensHere(f)) { onOpen(f.rel!); return; }
+    if (!f.abs) return;
+    const shown = [...(sections?.session ?? []), ...(sections?.library ?? []), ...(sections?.checkout ?? [])]
+      .filter((x) => x.abs && !opensHere(x));
+    openViewer({
+      files: shown.map((x) => ({ path: x.abs!, name: x.name, from: x.from, inPane: inPane(x) })),
+      index: Math.max(0, shown.findIndex((x) => x.key === f.key)), sessionId, spaceId,
+    });
   };
 
   const searching = lists !== null && lists.forQuery !== "";
@@ -244,9 +254,6 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
         )}
       </div>
 
-      {preview?.abs && (
-        <FilePreview path={preview.abs} from={preview.from} inPane={false} onClose={() => setPreview(null)} />
-      )}
       {codePrompt && (
         <CodeFilePrompt anchorRef={codeButton} taken={codePrompt}
           onCreate={(name) => { setCodePrompt(null); onNewFile(name); }} onClose={() => setCodePrompt(null)} />

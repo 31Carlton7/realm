@@ -30,7 +30,9 @@ export function keyContext(s: AppState, target: EventTarget | null): KeyContext 
      other half of it, published so a `when` clause can say "only in a terminal". */
   const terminalFocus = target instanceof HTMLElement && target.closest(".xterm") !== null;
   return {
-    overlayOpen: s.paletteOpen || s.spacesOpen || sheetOpen,
+    // The media viewer covers the window as the palette does: a pane behind it is not the one a chord
+    // should split, close or move off — and a space switched under it would be shown nowhere.
+    overlayOpen: s.paletteOpen || s.spacesOpen || sheetOpen || s.viewer !== null,
     paletteOpen: s.paletteOpen,
     spacesOpen: s.spacesOpen,
     sheetOpen,
