@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { PAGE_REF_IDS } from "@realm/contracts";
+import { PAGE_REF_IDS, type DestinationPageKind } from "@realm/contracts";
 /* The pane components register themselves by side effect (`panes/index.ts`); the overlay renders
    through the same registry, so a test that never imports them gets the placeholder. */
 import "../panes";
@@ -28,21 +28,46 @@ afterEach(() => cleanup());
 
 describe("app-level pages over the workspace", () => {
 
-  it("closes on the TRASH, because a page has nothing under it to keep", async () => {
+  it("draws no close in any page's bar — the page is left the way it was reached", async () => {
+    /* The owner, 10-05: "Remove the close button in library, connections, sched tasks, and
+       notification and profile and settings. (Can nav this with the sidebar)." Every destination page
+       wears the one bar, so every one of them is asked. THE mutant: the × put back, on any of them. */
+    const { store } = await mount();
+    // Every destination there is, read off the contract: a page added or retired later is still asked.
+    for (const kind of Object.keys(PAGE_REF_IDS) as DestinationPageKind[]) {
+      act(() => store.getState().openDestinationPage(kind));
+      const bar = document.querySelector(".page-overlay-bar")!;
+      expect(bar, kind).not.toBeNull();
+      expect(within(bar as HTMLElement).queryAllByRole("button"), kind).toEqual([]);
+      expect(bar.querySelector("[title*='Close']"), kind).toBeNull();
+    }
+    act(() => store.getState().openProfilePage());
+    expect(within(document.querySelector(".page-overlay-bar") as HTMLElement).queryAllByRole("button")).toEqual([]);
+    act(() => store.getState().openSpacePage("s1"));
+    expect(within(document.querySelector(".page-overlay-bar") as HTMLElement).queryAllByRole("button")).toEqual([]);
+  });
+
+  it("goes back from the rail's lit button, pressed again", async () => {
+    // Connections takes the sidebar away, so the rail is the way back from it — a lit control says
+    // the state and undoes it.
     const { store } = await mount();
     fireEvent.click(screen.getByRole("button", { name: "Connections" }));
-    const dialog = await screen.findByRole("dialog", { name: "Connections" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close Connections" }));
+    await screen.findByRole("dialog", { name: "Connections" });
+    expect(screen.getByRole("button", { name: "Connections" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Connections" }));
     await waitFor(() => expect(overlay()).toBeNull());
     expect(store.getState().pageOverlay).toBeNull();
   });
 
-  it("closes on Escape", async () => {
+  it("goes back to where you were on Escape, leaving the workspace under it as it was", async () => {
     const { store } = await mount();
+    const before = { layout: store.getState().layout, focused: store.getState().focusedLeafId };
     fireEvent.click(screen.getByRole("button", { name: "Library" }));
     await screen.findByRole("dialog", { name: "Library" });
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(store.getState().pageOverlay).toBeNull());
+    expect(store.getState().layout).toEqual(before.layout);
+    expect(store.getState().focusedLeafId).toBe(before.focused);
   });
 
   it("shows ONE page at a time — a second destination replaces the first", async () => {
@@ -98,7 +123,7 @@ describe("the page about you", () => {
     act(() => store.getState().openDestinationPage("you-page"));
     const dialog = await screen.findByRole("dialog", { name: "You" });
     expect(within(dialog).getByRole("heading", { level: 1, name: "Carlton" })).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Close You" })).toBeInTheDocument();
+    expect(within(dialog.querySelector(".page-overlay-bar") as HTMLElement).getByText("You")).toBeInTheDocument();
   });
 });
 

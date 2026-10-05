@@ -160,7 +160,8 @@ async function main() {
   await until(() => evalIn(c, `!!document.querySelector('input[name=settings-terminal-dock][value=bottom]')`), 5000, "the Session terminal choice");
   await evalIn(c, `(() => { document.querySelector('input[name=settings-terminal-dock][value=bottom]').click(); return true; })()`);
   await sleep(300);
-  await evalIn(c, `(() => { document.querySelector('.page-overlay button[aria-label^="Close"]').click(); return true; })()`);
+  // Escape puts the page away — its bar draws no close of its own.
+  for (const type of ["keyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await until(() => evalIn(c, `!document.querySelector('.settings-page-pane')`), 5000, "back to the workspace");
 
   /* ── Open the terminal dock ───────────────────────────────────────────────────────────────── */

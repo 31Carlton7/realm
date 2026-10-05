@@ -1183,11 +1183,12 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
   });
 
-  it("a page's bar moves the window, as the pane bars it covers do, and its close button still clicks", () => {
+  it("a page's bar moves the window, as the pane bars it covers do, and anything put in it still clicks", () => {
     /* A page (Connections, Library, Settings…) covers the pane host, whose panes — and with them their
        draggable bars — are hidden while it is up. Its own bar is the window's top row then, and with
-       no region of its own the band held still everywhere but the sidebar's head (reported 10-04).
-       THE mutants: the bar's `drag` dropped, or its buttons left inside it. */
+       no region of its own the band held still everywhere but the sidebar's head (reported 10-04). It
+       holds only the page's name now (page-overlay.test.tsx), and stays a drag region all the way
+       across. THE mutants: the bar's `drag` dropped, or a button put back in it left inside it. */
     expect(bodiesFor(".page-overlay-bar").join(" ")).toContain("-webkit-app-region: drag");
     expect(bodiesFor(".page-overlay-bar button").join(" ")).toContain("-webkit-app-region: no-drag");
   });
@@ -2572,9 +2573,9 @@ describe("dividers", () => {
     // beside it. Ruling them apart drew a line across a panel with one thing in it.
     expect(bodiesFor(".md-code-head").join(" ")).not.toMatch(/border-bottom: var\(--hairline-w\) solid/);
     /* Same reading, two more bars that lost theirs: a page overlay's bar and the terminal dock's
-       hold the thing's own name and the control that closes it — chrome FOR the surface below, not a
-       section beside it. Each page also opens with its own heading, so the rule was a second edge
-       under a title that already had one. */
+       hold the thing's own name (the dock's, the control that closes it too) — chrome FOR the surface
+       below, not a section beside it. Each page also opens with its own heading, so the rule was a
+       second edge under a title that already had one. */
     for (const sel of [".page-overlay-bar", ".terminal-dock-bar"])
       expect(bodiesFor(sel).join(" "), sel).not.toMatch(/border-bottom/);
     // Footers hold their place while the body scrolls past them.

@@ -17,8 +17,9 @@ import { useApp } from "../state/store";
  * keep, and no reason to outlive the moment you are looking at it.
  *
  * So it is an overlay, and one at a time. It covers the pane host and nothing else — the rail and the
- * sidebar stay reachable, because the buttons that open these pages are in the rail and a cover that
- * hid them would make the only way out the one control this draws. It is drawn inside the panes' own
+ * sidebar stay reachable, because they are the way out: a session in the sidebar, the column's Back, the
+ * lit rail button pressed again, or Escape. Its bar draws no close of its own (the owner, 10-05: "Remove
+ * the close button… Can nav this with the sidebar"). It is drawn inside the panes' own
  * column (AppShell's `.main`) rather than over the window, so its box is the panes' box in every frame:
  * when the sidebar opens or closes, the page, its bar and the panes under it move as one.
  *
@@ -32,9 +33,9 @@ export function PageOverlay() {
   const cut = useArrivesWithSidebar(page !== null, sidebarGone);
   const ref = useRef<HTMLDivElement>(null);
 
-  /* Escape closes, and nothing else does from the keyboard. Registered while the overlay is up, so
-     it cannot answer for a sheet opened over it: a sheet mounts later and its own handler runs
-     first (App's own note about mount-order precedence). */
+  /* Escape goes back to where you were, and nothing else does from the keyboard. Registered while the
+     overlay is up, so it cannot answer for a sheet opened over it: a sheet mounts later and its own
+     handler runs first (App's own note about mount-order precedence). */
   useEffect(() => {
     if (!page) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
@@ -54,15 +55,12 @@ export function PageOverlay() {
     // drawn in the sidebar's column (page-nav.tsx) — a modal claim would hide them from a screen reader.
     <div className="page-overlay" role="dialog" aria-label={PAGE_LABEL[page.kind] ?? "Page"} ref={ref} tabIndex={-1}
       data-cut={cut || undefined}>
+      {/* The page's name and nothing else. A page is a destination, left the way it was reached — the
+          sidebar or the rail beside it — or with Escape. A × here was one more way out, at the far
+          end of the bar from the ones the page was reached by. */}
       <header className="page-overlay-bar">
         <Icon name={page.kind} size={14} className="page-overlay-mark" />
         <span className="page-overlay-title">{PAGE_LABEL[page.kind] ?? "Page"}</span>
-        {/* The trash, and only the trash. A page has nothing under it to keep, so there is no second
-            "close but keep it somewhere" to offer — which is exactly why it stopped being a pane. */}
-        <button type="button" className="icon-btn" aria-label={`Close ${PAGE_LABEL[page.kind] ?? "page"}`}
-          title="Close (Esc)" onClick={close}>
-          <Icon name="trash" size={14} />
-        </button>
       </header>
       <div className="page-overlay-body">
         <InPageOverlay value={true}><PaneFor item={item} visible focused /></InPageOverlay>
