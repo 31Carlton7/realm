@@ -494,6 +494,39 @@ describe("§6 motion table", () => {
   });
 });
 
+describe("the scroll track (ScrollTrack.tsx)", () => {
+  it("lies over the log's own padding, and takes the pointer only where its ticks are", () => {
+    const track = bodiesFor(".scroll-track").join(" ");
+    expect(track).toContain("position: absolute");
+    expect(track).toContain("pointer-events: none");
+    expect(bodiesFor(".track-tick").join(" ")).toContain("pointer-events: auto");
+  });
+
+  /* THE mutant: a longer lit tick, a wider gap before the edit dot, or a track that starts further in.
+     Any of them puts a resting mark over the first letters of every line in a narrow pane. */
+  it("ends every resting mark inside the transcript's side padding, in the narrowest pane", () => {
+    const px = (body: string, re: RegExp) => Number(body.match(re)?.[1]);
+    const start = px(bodiesFor(".scroll-track").join(" "), /--track-x: clamp\((\d+)px/);
+    const lit = px(bodiesFor(".track-tick[data-current] .track-line").join(" "), /width: (\d+)px/);
+    const dot = bodiesFor(".track-tick[data-edited] .track-line::after").join(" ");
+    const pad = px(bodiesFor(".transcript").join(" "), /padding: \d+px (\d+)px/);
+    expect(start + lit + px(dot, /left: calc\(100% \+ (\d+)px\)/) + px(dot, /width: (\d+)px/)).toBeLessThan(pad);
+  });
+
+  it("rests as a mark a rung heavier on the light face, and comes up at once under the pointer", () => {
+    expect(bodiesFor(".track-line").join(" ")).toContain("background: var(--tick)");
+    expect(bodiesFor(':root[data-mode="light"] .scroll-track').join(" ")).toContain("--tick: var(--overlay-darken-500)");
+    expect(bodiesFor(".scroll-track:is(:hover, :focus-within) .track-line").join(" ")).toContain("transition-duration: 0s");
+  });
+
+  it("puts up its card the way the tooltip comes and goes, and the card never takes the pointer", () => {
+    const card = bodiesFor(".track-card").join(" ");
+    expect(card).toContain("pointer-events: none");
+    expect(card).toContain(`opacity ${dur("--dur-press")}`);
+    expect(bodiesFor(".track-card[data-open]").join(" ")).toContain(`opacity ${dur("--dur-fast")}`);
+  });
+});
+
 describe("Ara refresh §3/§4 geometry", () => {
   it("the user message is Ara's signature: raised card, the prompter's curve, 14px 16px padding, 85% wide, left-aligned text", () => {
     // The radius moved off the circular ladder onto the squircle one: a sent message is the same

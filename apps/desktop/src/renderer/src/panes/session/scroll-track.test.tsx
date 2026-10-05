@@ -80,8 +80,8 @@ const turns = (n: number): Block[] => Array.from({ length: n }, (_, i): Block[] 
 const model = (blocks: Block[], extra: Partial<TranscriptModel> = {}): TranscriptModel =>
   ({ blocks, run: null, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {}, summary: null, promptHint: null, ...extra });
 
-function mount(transcript: TranscriptModel, opts: { track?: boolean } = {}) {
-  const r = render(<Transcript sessionStatus="idle" onDecide={() => {}} transcript={transcript} track={opts.track ?? true} />);
+function mount(transcript: TranscriptModel) {
+  const r = render(<Transcript sessionStatus="idle" onDecide={() => {}} transcript={transcript} track />);
   // The stylesheet's padding, which jsdom does not load — read on the next measurement.
   document.querySelector<HTMLElement>(".transcript")!.style.paddingTop = "44px";
   return r;
@@ -121,9 +121,9 @@ describe("the scroll track", () => {
     expect(ticks().map((t) => t.getAttribute("aria-label"))).toEqual(["Prompt 1", "Prompt 2", "Prompt 3", "Prompt 4", "Prompt 5"]);
   });
 
-  it("is only drawn where it is asked for — the quick chat's window has no room for one", () => {
+  it("is only drawn where it is asked for — the quick chat, which does not ask, has no room for one", () => {
     stage({ rows: [0, 900], height: 2000 });
-    mount(model(turns(2)), { track: false });
+    render(<Transcript sessionStatus="idle" onDecide={() => {}} transcript={model(turns(2))} />);
     expect(screen.queryByRole("toolbar", { name: "Prompts" })).toBeNull();
   });
 
