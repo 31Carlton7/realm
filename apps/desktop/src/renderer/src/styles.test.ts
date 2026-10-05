@@ -2372,7 +2372,8 @@ describe("the browser pane is one ground", () => {
       for (const body of RULES.filter((r) => partsOf(r).includes(sel)).map((r) => r.body)) expect(body, sel).not.toMatch(/(^|;|\s)background(-color)?:/);
     }
     const painted = RULES.filter((r) => /(^|;|\s)background(-color)?:/.test(r.body)).flatMap(partsOf).filter((s) => s.includes(".browser-view-host"));
-    expect(painted).toEqual([".browser-view-host[data-page]:not([data-device])"]);
+    // Not while the window's toasts hold the view's foot either: the strip it gives up is the ground.
+    expect(painted).toEqual([".browser-view-host[data-page]:not([data-device]):not([data-yielded])"]);
   });
 });
 
@@ -2409,7 +2410,7 @@ describe("light mode", () => {
     [".sim-ax-label", "on the device's own screen"],
     // Matching the native WebContentsView's own opaque white, so the sliver it trails during a
     // resize cannot flash the panel tone through the gap.
-    [".browser-view-host[data-page]:not([data-device])", "the browser view's own ground"],
+    [".browser-view-host[data-page]:not([data-device]):not([data-yielded])", "the browser view's own ground"],
     // White on a red fill, the same as white on the accent fill (--rl-accent-contrast), which is
     // deliberately one value for both modes.
     [".btn.destructive", "ink on a filled control"],
