@@ -1,4 +1,6 @@
-import type { Layout } from "@realm/contracts";
+import { useMemo } from "react";
+import { findLeaf, type Layout } from "@realm/contracts";
+import { useApp } from "../../state/store";
 
 /**
  * The layout, as rectangles.
@@ -49,6 +51,34 @@ export function paneMapOf(layout: Layout, itemId: string): PaneRect[] | null {
   return rects.some((r) => r.active) ? rects : null;
 }
 
+/**
+ * The layout as the window draws it, which the stored tree is not always: one pane filling the window
+ * under pane focus (⌘⇧F) is that pane alone, and while the toggle at the window's top right has the
+ * side panes put away (`sidePanesHidden`) they are not drawn and their main panes take their room
+ * (PaneHost) — so a column that loses its side pane is its main pane, and the shares left in a split
+ * are the shares of what is still in it. The owner, 10-05: a session filling the window wore a
+ * half-lit glyph for a side pane the toggle had put away.
+ *
+ * Null when nothing in it is drawn, which the view's shape (a main pane in every column) never leaves.
+ */
+export function layoutOnScreen(layout: Layout, { zoomedLeafId = null, sidePanesHidden = false }:
+  { zoomedLeafId?: string | null; sidePanesHidden?: boolean } = {}): Layout | null {
+  const root = (zoomedLeafId ? findLeaf(layout, zoomedLeafId) : null) ?? layout;
+  if (!sidePanesHidden) return root;
+  const drawn = (n: Layout): Layout | null => {
+    if (n.type === "leaf") return n;
+    const kept = n.children.flatMap((c, i) => {
+      // A side pane is put away where PaneHost puts it away: as a split's child, never the whole view.
+      const shown = c.type === "leaf" ? (c.tabs ? null : c) : drawn(c);
+      return shown ? [{ child: shown, size: n.sizes[i] ?? 0 }] : [];
+    });
+    if (kept.length === 0) return null;
+    if (kept.length === 1) return kept[0]!.child;
+    return { ...n, children: kept.map((k) => k.child), sizes: kept.map((k) => k.size) };
+  };
+  return drawn(root);
+}
+
 /** The glyph's drawing box, and the gap between panes, in its own units. A 24-unit box at a 12px
  *  render is two units per CSS pixel — enough that a 1-unit gutter is one device pixel on retina
  *  rather than a blur across two. */
@@ -60,13 +90,20 @@ const GLYPH_GAP = 1;
 const GLYPH_MIN = 1.5;
 
 /**
- * A small picture of the arrangement, with this item's pane lit.
+ * A small picture of the arrangement on screen, with this item's pane lit — none for a pane that
+ * fills the window, or one the window is not drawing (`layoutOnScreen`).
  *
  * An `<svg>` rather than a CSS grid of spans, because the thing being drawn is not a grid: rects can
  * sit at any fraction of the box, which is what lets an arbitrary tree be drawn exactly.
  */
 export function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }) {
-  const rects = paneMapOf(layout, itemId);
+  // Read here rather than handed in, so every list that draws the glyph pictures the same window.
+  const zoomedLeafId = useApp((s) => s.view?.zoomedLeafId ?? null);
+  const sidePanesHidden = useApp((s) => s.sidePanesHidden);
+  const rects = useMemo(() => {
+    const shown = layoutOnScreen(layout, { zoomedLeafId, sidePanesHidden });
+    return shown ? paneMapOf(shown, itemId) : null;
+  }, [layout, itemId, zoomedLeafId, sidePanesHidden]);
   if (!rects) return null;
   return (
     <svg className="item-glyph" viewBox={`0 0 ${GLYPH_BOX} ${GLYPH_BOX}`} width="12" height="12" aria-hidden="true">

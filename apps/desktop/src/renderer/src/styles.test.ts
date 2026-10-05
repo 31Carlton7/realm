@@ -1353,6 +1353,40 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
   });
 
+  it("the window never scrolls: the shell is clipped at its own edges, without becoming a scroller", () => {
+    /* Measured live (10-05): a page rising in from 6px under its place overran the window's foot, the
+       document became scrollable by those 6px, and a classic scrollbar took 15px off the whole app
+       until the rise ended — the Agents page's centred column jumped 7.5px. THE MUTANTS: no clip (the
+       scrollbar back), or `hidden`, which makes the shell a scroll container for every sticky header
+       inside it. */
+    const shell = bodiesFor(".app").join(" ");
+    expect(shell).toContain("overflow: clip");
+    expect(shell).not.toMatch(/overflow: (hidden|auto|scroll)/);
+    expect(bodiesFor(".page-overlay").join(" ")).toContain("animation: rl-page-in");
+  });
+
+  it("navigation lands the column at once: the cut takes the motion off everything on the column's clock", () => {
+    /* The owner, 10-05, with a video: a page with no sidebar drew itself at once while the spaces
+       folded shut beside it, and a page whose sections take the column unfolded them beside a page
+       already drawn. A change navigation makes is a cut (App.tsx, `useSidebarCut`), and under it
+       nothing that moves with the column moves — the column, the bars that make room for the lead and
+       the toggle arriving in the lead — while the person's own toggle keeps all of it (above). Read
+       off the rule set, so a part given the column's timing later is held to the cut as well.
+       THE MUTANTS: any one of them left moving, or the page that takes the sidebar with it still
+       rising in over the panes taking its room. */
+    const onTheColumnsClock = RULES.filter((r) => /transition: (--sidebar-open|padding-left) var\(--dur-move\) var\(--ease-in-out-strong\)/.test(r.body))
+      .flatMap(partsOf);
+    expect(onTheColumnsClock).toEqual(expect.arrayContaining([".sidebar", ".panel[data-first-leaf] > .panel-bar", ".page-overlay-bar"]));
+    for (const sel of onTheColumnsClock) {
+      const cut = RULES.filter((r) => partsOf(r).some((p) => p === `.app[data-sidebar-cut] > ${sel}` || p === `.app[data-sidebar-cut] ${sel}`));
+      expect(cut.map((r) => r.body).join(" "), sel).toContain("transition: none");
+    }
+    expect(bodiesFor(".window-lead > .icon-btn").join(" ")).toContain("animation: rl-lead-in");
+    expect(bodiesFor(".app[data-sidebar-cut] > .window-lead > .icon-btn").join(" ")).toContain("animation: none");
+    expect(bodiesFor(".page-overlay").join(" ")).toContain("animation: rl-page-in");
+    expect(bodiesFor(".page-overlay[data-cut]").join(" ")).toContain("animation: none");
+  });
+
   it("the left chrome's edge is a BORDER on .main, in both states", () => {
     /* Measured live (`sidebar-edge-live.mjs`): as an inset box-shadow this line computed perfectly
        and painted nothing at all. An inset shadow sits below the element's children, and `.main`'s

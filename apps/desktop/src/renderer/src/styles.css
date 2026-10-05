@@ -342,8 +342,12 @@ kbd { font: 11px var(--font-mono); }
 
 /* ── Sidebar (one step darker than the content ground, behind a 1px divider) ── */
 /* position: relative for the collapsed corner below, which is the only thing in the shell that is
-   placed against the WINDOW rather than flowed. */
-.app { position: relative; display: flex; height: 100%; background: transparent; }
+   placed against the WINDOW rather than flowed. Clipped at the window's own edges, which nothing in it
+   is drawn past: a page rising in (`rl-page-in`, 6px under its place) overran the bottom, the window
+   itself became scrollable for it, and a classic scrollbar took 15px off the whole app for the length
+   of the rise — the page's centred column jumped 7.5px as it went (measured 10-05). `clip`, not
+   `hidden`: it makes no scroller, so nothing sticky inside finds a new one. */
+.app { position: relative; display: flex; height: 100%; background: transparent; overflow: clip; }
 /* §5 + Plan 9 W1: the sidebar paints the BUI window ground (--page) over the macOS vibrancy material
    — the app's one adjustable ground, composed in tokens.css so the user's setting and
    prefers-reduced-transparency both reach it. --page flips with data-mode, so one rule serves both
@@ -641,6 +645,14 @@ kbd { font: 11px var(--font-mono); }
 .panel[data-first-leaf] > .panel-bar, .page-overlay-bar { transition: padding-left var(--dur-move) var(--ease-in-out-strong); }
 .app[data-sidebar-collapsed] .panel[data-first-leaf] > .panel-bar, .app[data-sidebar-collapsed] .page-overlay-bar {
   padding-left: calc(var(--lead-end) - var(--rail-w)); }
+/* …and none of it moves when navigation is what changed the column (`data-sidebar-cut`, App.tsx): a
+   page with no use for the spaces, a page whose sections take the column, a page put away. The column,
+   the bars that make room for the lead and the lead's toggle all land in the frame the page does —
+   animated, the spaces folded shut beside a page already drawn and the page jumped left after them
+   (10-05). Only the person's own toggle is drawn moving. */
+.app[data-sidebar-cut] > .sidebar, .app[data-sidebar-cut] .panel[data-first-leaf] > .panel-bar,
+.app[data-sidebar-cut] .page-overlay-bar { transition: none; }
+.app[data-sidebar-cut] > .window-lead > .icon-btn { animation: none; }
 .rail-nav { display: flex; gap: 2px; }
 .rail-nav-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-ctl); corner-shape: squircle;
   color: var(--rl-text-faint); }
@@ -2126,6 +2138,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* A rise and a fade, not a slide: the page replaces what was there rather than arriving from a
    direction, and a horizontal move would imply it came from the sidebar it is not part of. */
 @keyframes rl-page-in { from { translate: 0 6px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+/* …except a page that opens or closes the sidebar as it arrives (PageOverlay, `data-cut`): the column
+   goes in that frame, and through a page still fading in the panes under it were seen taking its room. */
+.page-overlay[data-cut] { animation: none; }
 /* One bar, carrying what the overlay IS and the way out. The hairline is earned here — the page's
    own scroller genuinely passes under it. */
 /* No rule under it. The bar holds the page's own name and the control that closes it — chrome FOR
