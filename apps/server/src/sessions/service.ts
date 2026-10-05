@@ -1,5 +1,5 @@
-import { realpathSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, fastSupportKey, newId, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type ElementChip, type Environment, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent } from "@realm/contracts";
+import { realpathSync, statSync } from "node:fs";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -32,6 +32,10 @@ import type { MemorySources } from "@realm/contracts";
  * appended, fenced, to the text the ADAPTER sees — the same split mentions already follow.
  */
 export type SendMessage = { text: string; attachments: { path: string; mime: string }[]; mentions?: string[]; elements?: ElementChip[]; sessionRefs?: SessionRef[];
+  /** What the message's `@[…]` chips name — files, Library items, apps (`mention-refs.ts`). Files
+   *  are attached for the adapter; apps are granted computer use for this session; all of them are
+   *  recorded on the transcript so its chips keep their marks. */
+  mentionRefs?: MentionRef[];
   /** Written by the session's own goal rather than typed. Rides to the transcript event and nowhere
    *  else: what the AGENT is handed is the same prompt either way. */
   goal?: "continuation" | "budget" };
@@ -144,6 +148,10 @@ export class SessionService {
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
     browserPermissions?: { owns(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision): void; release(sessionId: string): void };
+    /** Computer use granted by a mention, per session (`computer/session-grants.ts`): what an
+     *  `@Messages` in a delivered message writes, and what a deleted session takes with it. Optional —
+     *  a harness without it treats an app mention as text and grants nothing. */
+    computerGrants?: { grant(sessionId: string, apps: readonly { bundleId: string; name: string }[]): boolean; release(sessionId: string): void };
     /** Plan 11 W5 (+ Plan 13 W1): delegation hooks — in production one closure fanning out to BOTH
      *  delegation registries (browser-agent children and agent_run children). `parentInterrupted`
      *  cancels a session's in-flight delegated run when THAT session is interrupted; `release`
@@ -429,6 +437,9 @@ export class SessionService {
     // It reports its own failures and returns null — a checkpoint is a safety net, and a safety net
     // that can refuse a message is a worse failure than not having one.
     if (opts.checkpoint !== false) await this.checkpointTurn(id, msg.text);
+    // An app the message mentions is granted BEFORE the handle starts, so a session that starts on
+    // this message lists the computer tools from its first read of them.
+    await this.grantMentionedApps(id, msg);
     const handle = this.ensureLive(id);
     // A start that carried a restore's fork can be refused at fork time, before the model sees a word
     // of this message — so the message is held until that boot proves itself, and re-sent plainly if it
@@ -441,8 +452,32 @@ export class SessionService {
     this.d.failover?.turnStarted(id, msg);
     this.maybeTitleFrom(id, msg.text);
     // The transcript records what the USER wrote — `@mac` and all. Only the wire below is rewritten.
-    this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}) }));
+    // Named things ride beside the text, as the chips they were; their files are not `attachments`,
+    // which stay the files the user attached — the chip already shows a mentioned file.
+    const refs = this.mentionedRefs(msg);
+    this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}), ...(refs.length ? { refs } : {}) }));
     await handle.send(this.resolveMentions(id, msg));
+  }
+
+  /** The refs the message really carries: a declared ref whose `@[label]` is not in the text is a
+   *  claim the sentence does not make — the same rule mentions follow. */
+  private mentionedRefs(msg: SendMessage): MentionRef[] {
+    return (msg.mentionRefs ?? []).filter((r) => msg.text.includes(elementChipToken(r.label)));
+  }
+
+  /**
+   * Computer use for the apps this message mentions, for this session (`ComputerSessionGrants`).
+   *
+   * A session already running is told its tool list changed, and the message waits — briefly — for
+   * its agent to read the new one: otherwise the turn this message starts could begin with a tool
+   * list that does not have the tools the message says it has. An agent that does not re-read on the
+   * notification costs that wait once, and sees the tools from its next start.
+   */
+  private async grantMentionedApps(id: string, msg: SendMessage): Promise<void> {
+    const apps = this.mentionedRefs(msg).filter((r): r is Extract<MentionRef, { kind: "app" }> => r.kind === "app");
+    if (apps.length === 0 || !this.d.computerGrants) return;
+    const added = this.d.computerGrants.grant(id, apps.map((a) => ({ bundleId: a.bundleId, name: a.name })));
+    if (added && this.live.has(id)) await this.d.gateway.refreshTools(id);
   }
 
   /**
@@ -482,19 +517,25 @@ export class SessionService {
    */
   private resolveMentions(id: string, msg: SendMessage): UserMessage {
     const declared = [...new Set(msg.mentions ?? [])].filter((m) => SkillIdSchema.safeParse(m).success);
-    // Both blocks ride the same way and in this order: what the user picked ON a page, then who
-    // else they pointed at. Appended to the user's own text rather than sent as a system note,
-    // because all three agent wires take one markdown string and nothing else.
-    const context = elementContext(msg.elements ?? []) + sessionRefContext(msg.sessionRefs ?? []);
-    const base = { text: msg.text + context, attachments: msg.attachments };
-    if (declared.length === 0) return base;
-    const tokens = scanMentions(msg.text, declared);
-    if (tokens.length === 0) return base;
-    const text = stripMentionAts(msg.text, tokens) + context;
     const s = this.get(id);
+    const tokens = declared.length > 0 ? scanMentions(msg.text, declared) : [];
+    const refs = this.mentionedRefs(msg);
+    // The `mac` skill's row, read only when something here needs it: an app the CLI drives is pointed
+    // at it, and an @mac that does not resolve natively is handed over by it.
+    const macCalled = tokens.some((t) => t.id === MAC_SKILL_ID);
+    const library = refs.some((r) => r.kind === "app") || macCalled || (tokens.length > 0 && AGENT_SKILL_SUPPORT[s.agentKind] === "injected")
+      ? this.d.skills.list(s.spaceId).skills : [];
+    const mac = library.find((x) => x.id === MAC_SKILL_ID && x.valid);
+    const files = this.refAttachments(refs);
+    // The blocks ride the same way and in this order: what the user picked ON a page, who else they
+    // pointed at, then the files and apps they named. Appended to the user's own text rather than
+    // sent as a system note, because all three agent wires take one markdown string and nothing else.
+    const context = elementContext(msg.elements ?? []) + sessionRefContext(msg.sessionRefs ?? [])
+      + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld });
+    const attachments = [...msg.attachments, ...files.attach];
+    if (tokens.length === 0) return { text: msg.text + context, attachments };
     let skill: SkillMention | undefined;
     if (AGENT_SKILL_SUPPORT[s.agentKind] === "injected" && this.live.get(id)?.skillsInjected) {
-      const library = this.d.skills.list(s.spaceId).skills;
       for (const t of tokens) {
         const k = library.find((x) => x.id === t.id && x.enabled && x.valid);
         // The path goes out CANONICALIZED: Codex matches a skill input item against the skills it
@@ -504,7 +545,36 @@ export class SessionService {
         if (k) { skill = { id: k.id, name: k.name, path: this.canonical(k.path) }; break; }
       }
     }
-    return { text, attachments: msg.attachments, ...(skill ? { skill } : {}) };
+    // @Mac when it could not be invoked natively — switched off in this space, an agent with no way
+    // to be handed skills, or another skill took the message's one slot — is handed over by its
+    // instructions for this session instead, and the space's switch is left as it was.
+    const macNote = macCalled && skill?.id !== MAC_SKILL_ID && mac ? macSkillContext(this.canonical(mac.path)) : "";
+    return { text: stripMentionAts(msg.text, tokens) + context + macNote, attachments, ...(skill ? { skill } : {}) };
+  }
+
+  /**
+   * The mentioned files, as the adapter attaches them — so an image reaches Claude as an image and a
+   * PDF reaches it as a path, exactly as one dragged onto the prompter does.
+   *
+   * Each is looked at first, because an attachment that is gone fails the whole turn in the adapter:
+   * a file deleted between the pick and the send is left out and SAID to be missing in the block,
+   * and an image over the inlining cap goes as its path alone. A file that exists to hold a secret is
+   * never attached however it was named — the picker never offers one, and this is the copy of that
+   * rule that holds for a request the picker did not make.
+   */
+  private refAttachments(refs: readonly MentionRef[]): { attach: Attachment[]; missing: Set<string>; withheld: Set<string> } {
+    const attach: Attachment[] = [];
+    const missing = new Set<string>(), withheld = new Set<string>();
+    for (const r of refs) {
+      if (r.kind === "app") continue;
+      if (isSecretPath(r.path)) { withheld.add(r.path); continue; }
+      let st;
+      try { st = statSync(r.path); } catch { missing.add(r.path); continue; }
+      const mime = st.isDirectory() ? DIRECTORY_MIME : mimeForPath(r.path);
+      if (isImageMime(mime) && st.size > MAX_ATTACHMENT_BYTES) continue;
+      if (!attach.some((a) => a.path === r.path)) attach.push({ path: r.path, mime });
+    }
+    return { attach, missing, withheld };
   }
 
   /** Best-effort realpath. A file that cannot be resolved (racing deletion) keeps its library path —
@@ -747,6 +817,8 @@ export class SessionService {
     this.d.gateway.release(id);
     // Same idempotence: a deleted session's pending browser prompts resolve deny, its grants die.
     this.d.browserPermissions?.release(id);
+    // …and so does the computer use its mentions granted.
+    this.d.computerGrants?.release(id);
     // And its browser-agent state (W5): as a parent, its run is cancelled; as a child, its persisted
     // record and act budget are forgotten — the restriction dies with the session.
     this.d.browserAgents?.release(id);
@@ -811,7 +883,7 @@ export class SessionService {
   async closeAll(): Promise<void> {
     this.closing = true;
     this.d.failover?.close();
-    for (const id of [...this.live.keys()]) { await this.stop(id); this.d.gateway.release(id); this.d.browserPermissions?.release(id); }
+    for (const id of [...this.live.keys()]) { await this.stop(id); this.d.gateway.release(id); this.d.browserPermissions?.release(id); this.d.computerGrants?.release(id); }
   }
   /**
    * Boot: no adapter survives a restart. Live statuses become idle; `ended` (an adapter that exited — after `error` on a

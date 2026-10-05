@@ -101,6 +101,7 @@ describe("searching", () => {
     expect(found).toEqual([
       "Keep terminal scrollback, in General ▸ Terminals",
       "Session terminal, in General ▸ Terminals",
+      "Terminal colours, in General ▸ Terminals",
       "Terminal cursor, in Appearance ▸ Cursor",
       "Blink the terminal cursor, in Appearance ▸ Cursor",
     ]);

@@ -1,4 +1,4 @@
-import { LINK_SERVICE_META, elementChipToken, scanElementChips, type LinkChip , type SessionRef } from "@realm/contracts";
+import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
 import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
@@ -7,7 +7,8 @@ import { useFileDrop } from "../../components/use-file-drop";
 import { useItemDrop } from "../../components/use-item-drop";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
-import { MentionPicker, filterMentionSkills, mentionQueryAt } from "./MentionPicker";
+import { MentionPicker, mentionOptionId, mentionQueryAt } from "./MentionPicker";
+import { fileMark, labelCandidatesFor, mentionOptions, mentionRows, refFor, useMentionAnswers, type MentionRow, type MentionSources } from "./mention-sources";
 import { SlashPicker } from "./SlashPicker";
 import { filterSlashCommands, slashCallIn, slashQueryAt, type SlashCommand } from "./slash-commands";
 import { effortLevels, fastModeAvailability, formatEffort, modelRows, type FastMode } from "./model-catalog";
@@ -35,6 +36,10 @@ const NO_COMMANDS: SlashCommand[] = [];
 /** Stable empty default, for the same reason. */
 const NO_GREETINGS: readonly string[] = [];
 const NO_FAST_SUPPORT: Record<string, boolean> = {};
+const NO_ICONS: Readonly<Record<string, string | null>> = {};
+/** "Messages", "Messages and Mail", "Messages, Mail and Notes". */
+const listNames = (names: readonly string[]): string =>
+  names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
 /** Branch + diff chips (W3): still the one way IN to the diff pane. The cwd and environment chips
  *  that used to lead this group are retired outright (prompter rework): the folder and the checkout
@@ -184,6 +189,7 @@ function QueueRow({ kind, queued, onRelease, onDrop }: { kind: AgentKind; queued
  */
 /** Stable, so a Composer with no references does not get a new array on every render. */
 const NO_SESSION_REFS: readonly SessionRef[] = [];
+const NO_REFS: readonly MentionRef[] = [];
 const NO_SPACES: readonly { id: string; name: string }[] = [];
 
 function SessionRefRow({ refs, onRemove }: { refs: readonly SessionRef[]; onRemove: (sessionId: string) => void }) {
@@ -400,7 +406,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, links, onLinkPaste, quote = null, compact = false }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, quote = null, compact = false }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -549,6 +555,12 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   links?: readonly LinkChip[];
   /** A pasted URL Realm can name becomes a chip through this; null means "paste it as text". */
   onLinkPaste?: (url: string) => LinkChip | null;
+  /** Everything the `@` list reads beyond the skills: the checkout's files, the Library, the apps on
+   *  this Mac and @Mac (`mention-sources.ts`). Absent, `@` offers the skills alone, as it always did. */
+  mentions?: MentionSources & { addRef(ref: UnlabelledRef, candidates: readonly string[]): string };
+  /** The draft's named files and apps (store `draftRefs`): what an `@[label]` token stands for, so the
+   *  mirror can wear the right mark on it. */
+  refs?: readonly MentionRef[];
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
@@ -650,10 +662,21 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     const el = ta.current, m = hl.current;
     if (el && m) { m.scrollTop = el.scrollTop; m.scrollLeft = el.scrollLeft; }
   };
-  const liveMentionIds = useMemo(() => mentionSkills.map((s) => s.id), [mentionSkills]);
+  /* @Mac colours as a mention wherever the space has the skill, on or off and whatever the agent —
+     it is handed over by its instructions where it cannot be invoked (`macSkillContext`). */
+  const macSkill = mentions ? mentions.mac : mentionSkills.find((s) => s.id === MAC_SKILL_ID) ?? null;
+  const liveMentionIds = useMemo(() => {
+    const ids = mentionSkills.map((s) => s.id);
+    return macSkill && !ids.includes(MAC_SKILL_ID) ? [...ids, MAC_SKILL_ID] : ids;
+  }, [mentionSkills, macSkill]);
   /** Which `@[label]` tokens are LINK chips, by label — the mirror wears the app's mark on those. */
   const linkByLabel = useMemo(() => new Map((links ?? []).map((l) => [l.label, l])), [links]);
   const linkOf = (tokenText: string): LinkChip | null => { const c = scanElementChips(tokenText)[0]; return c ? linkByLabel.get(c.label) ?? null : null; };
+  /** Which `@[label]` tokens name a file, a Library item or an app — the mirror wears its mark. */
+  const refByLabel = useMemo(() => new Map(refs.map((r) => [r.label, r])), [refs]);
+  const refOf = (tokenText: string): MentionRef | null => { const c = scanElementChips(tokenText)[0]; return c ? refByLabel.get(c.label) ?? null : null; };
+  /** An app chip whose app macOS will not let Realm drive — said by its tone, and by the note below. */
+  const appBlocked = mentions?.accessibility === false;
   // Coloured as a mention only if `scanMentions` resolves it — the same call the server re-runs on the
   // sent text. Stale ids get the warning tone the note below the card already explains.
   /* The command ids the mirror may colour — the same list the picker offers, so a run and the popover
@@ -784,13 +807,26 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    *  three lines selected, or the next ⌘⇧8 would undo only the line the caret collapsed onto. */
   const pendingSel = useRef<{ start: number; end: number } | null>(null);
   const mentionToken = useMemo(
-    () => (mentionSkills.length > 0 ? mentionQueryAt(draft, Math.min(caret, draft.length)) : null),
-    [mentionSkills.length, draft, caret],
+    () => (mentionSkills.length > 0 || mentions ? mentionQueryAt(draft, Math.min(caret, draft.length)) : null),
+    [mentionSkills.length, mentions, draft, caret],
   );
-  const mentionMatches = useMemo(
-    () => (mentionToken ? filterMentionSkills(mentionSkills, mentionToken.query) : []),
-    [mentionSkills, mentionToken],
-  );
+  // The two kinds that are asked over the wire — the checkout's files, the Library — for the query
+  // being typed; everything else is ranked here, from what the pane already holds.
+  const answers = useMentionAnswers(mentions, mentionToken ? mentionToken.query : null);
+  const mentionMatches = useMemo((): MentionRow[] => {
+    if (!mentionToken) return [];
+    const options = mentionOptions({ mac: macSkill, skills: mentionSkills, files: answers.files, cwd: mentions?.cwd ?? session.cwd,
+      library: answers.library, apps: mentions?.apps ?? [] });
+    return mentionRows(options, mentionToken.query, { accessibility: mentions?.accessibility ?? null });
+  }, [mentionToken, macSkill, mentionSkills, answers, mentions, session.cwd]);
+  /* The icons the list and the draft's chips are about to draw, fetched once each. Keyed on the
+     paths' string so a re-render with the same rows asks for nothing. */
+  const iconPaths = useMemo(() => [...new Set([
+    ...mentionMatches.flatMap((r) => (r.kind === "app" ? [r.app.path] : [])),
+    ...refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])),
+  ])].join("\n"), [mentionMatches, refs]);
+  const ensureIcons = mentions?.ensureIcons;
+  useEffect(() => { if (iconPaths) ensureIcons?.(iconPaths.split("\n")); }, [iconPaths, ensureIcons]);
   const mentionOpen = mentionToken !== null && mentionMatches.length > 0 && mentionDismissed !== mentionToken.start;
   // Leaving the token (or deleting it) clears the dismissal, so a fresh `@` in the same spot reopens.
   useEffect(() => { if (mentionToken === null && mentionDismissed !== null) setMentionDismissed(null); }, [mentionToken, mentionDismissed]);
@@ -816,11 +852,21 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     onDraftChange(edit.text);
     pendingSel.current = { start: edit.start, end: edit.end };
   }, [quote, draft, onDraftChange]);
-  /** Insert `@id ` over the WHOLE token (start..end, not start..caret — `@ma|c` must not leave a
-   *  stray `c`). The trailing space is the canonical delimiter the send-time scan expects. */
-  const pickMention = (s: Skill) => {
+  /** Insert the picked row's token over the WHOLE token typed (start..end, not start..caret — `@ma|c`
+   *  must not leave a stray `c`): `@id ` for a skill and for @Mac, `@[label] ` for a file, a Library
+   *  item or an app, whose entry the store keeps beside the text. The trailing space is the canonical
+   *  delimiter the send-time scan expects. */
+  const pickMention = (row: MentionRow) => {
     if (!mentionToken) return;
-    const insert = `@${s.id} `;
+    let token: string;
+    if (row.kind === "skill") token = `@${row.skill.id}`;
+    else if (row.kind === "mac") token = `@${MAC_SKILL_ID}`;
+    else {
+      const ref = refFor(row);
+      if (!ref || !mentions) return;
+      token = elementChipToken(mentions.addRef(ref, labelCandidatesFor(row)));
+    }
+    const insert = `${token} `;
     onDraftChange(draft.slice(0, mentionToken.start) + insert + draft.slice(mentionToken.end));
     const pos = mentionToken.start + insert.length;
     pendingSel.current = { start: pos, end: pos };
@@ -1229,6 +1275,17 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             <span className="attach-note-files">{staleMentions.map((m) => `@${m}`).join(", ")}</span>
           </p>
         )}
+        {/* An app in the draft that macOS will not let Realm drive. The mention still grants computer
+            use, and the agent would be refused at its first look — the one moment that is worth
+            knowing before send, which is now. The chip wears the warning tone for the same reason. */}
+        {appBlocked && refs.some((r) => r.kind === "app") && (
+          <p className="composer-attach-note composer-mention-note" data-disposition="ignored">
+            <Icon name="alert" size={12} className="attach-note-glyph" />
+            {/* The apps by name, in the sentence: an app's name is a name, not an identifier to set
+                in mono after a colon. */}
+            <span>Computer use cannot drive {listNames(refs.flatMap((r) => (r.kind === "app" ? [r.name] : [])))} until macOS gives Realm Accessibility — grant it in Settings ▸ Computer use.</span>
+          </p>
+        )}
         {/* The mirror and the textarea are one control in two layers, so they share a positioned box.
             aria-hidden on the mirror: it is a duplicate of text the textarea already exposes. It is
             also where the app's caret reads its place (`data-caret-mirror`, caret.ts): laid out glyph
@@ -1246,14 +1303,21 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                  inside room: a run may not carry padding, but `@[` and `]` are glyph widths of their
                  own, and the mark hangs in the first of them. A command keeps its `/` — that IS the
                  mark of a command, and it is part of what was typed. */
-              const icon = link ? LINK_SERVICE_META[link.service].icon : s.kind === "element" ? "target"
-                : s.kind === "mention" || s.kind === "mention-stale" ? "sparkles" : null;
+              /* A named file wears its type, an app its own icon (the pointer of computer use until the
+                 icon has arrived), and @mac the Apple mark — the special row, special in the text too. */
+              const ref = s.kind === "element" && !link ? refOf(s.text) : null;
+              const appIcon = ref?.kind === "app" ? mentions?.appIcons[ref.path] : null;
+              const icon = link ? LINK_SERVICE_META[link.service].icon
+                : ref ? (ref.kind === "app" ? "pointer" : fileMark(ref.path))
+                : s.kind === "element" ? "target"
+                : s.kind === "mention" || s.kind === "mention-stale" ? (s.text === `@${MAC_SKILL_ID}` ? "apple" : "sparkles") : null;
               const bracketed = s.kind === "element"; // `@[…]`, where a mention is a bare `@`
               const open = bracketed ? 2 : 1;
               const at = segStarts[i]!;
               const chip = isChipKind(s.kind);
               return (
-                <span key={i} className={`ch-${s.kind}`} data-service={link?.service}
+                <span key={i} className={`ch-${s.kind}`} data-service={link?.service} data-ref={ref?.kind}
+                  data-warn={(ref?.kind === "app" && appBlocked) || undefined}
                   data-chip={chip ? at : undefined}
                   data-name={chip && icon ? (bracketed ? s.text.slice(open, -1) : s.text.slice(open)) : undefined}
                   data-hot={(chip && at === hotChip?.start) || undefined}
@@ -1263,7 +1327,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                     /* The sigil and the name's first glyph are held on one line (`.chip-lead`): the
                        mark is an out-of-flow box, and the line breaker may break after one where the
                        textarea, reading one word, never would. */
-                    ? <><span className="chip-lead"><span className="chip-sigil">{s.text.slice(0, open)}<Icon name={icon} size={12} className="chip-mark" /></span>{s.text.slice(open, open + 1)}</span>{bracketed ? s.text.slice(open + 1, -1) : s.text.slice(open + 1)}{bracketed && <span className="chip-sigil">]</span>}</>
+                    ? <><span className="chip-lead"><span className="chip-sigil">{s.text.slice(0, open)}{appIcon
+                        ? <img src={appIcon} alt="" className="chip-mark chip-app" draggable={false} />
+                        : <Icon name={icon} size={12} className="chip-mark" />}</span>{s.text.slice(open, open + 1)}</span>{bracketed ? s.text.slice(open + 1, -1) : s.text.slice(open + 1)}{bracketed && <span className="chip-sigil">]</span>}</>
                     : s.text}
                 </span>
               );
@@ -1292,7 +1358,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             aria-describedby={hint ? hintId : undefined}
             aria-controls={slashOpen ? "slash-list" : mentionOpen ? "mention-list" : undefined}
             aria-activedescendant={slashOpen ? `slash-${slashMatches[slashCur]!.id}`
-              : mentionOpen ? `mention-${mentionMatches[mentionCur]!.id}` : undefined} />
+              : mentionOpen ? mentionOptionId(mentionMatches[mentionCur]!.key) : undefined} />
           {/* The hovered chip's × — its mark, turned into a button for as long as the pointer is on
               the chip. Out of the tab order: it exists only under a pointer, and the keyboard already
               has the chip whole (a click or an arrow selects it, ⌫ takes an element chip in one). */}
@@ -1311,7 +1377,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             onPick={pickSlash} onHover={setSlashActive} onClose={() => setSlashDismissed(true)} />
         )}
         {mentionOpen && (
-          <MentionPicker skills={mentionMatches} activeIndex={mentionCur} anchorRef={ta}
+          <MentionPicker rows={mentionMatches} activeIndex={mentionCur} anchorRef={ta} appIcons={mentions?.appIcons ?? NO_ICONS}
             onPick={pickMention} onHover={setMentionActive}
             onClose={() => setMentionDismissed(mentionToken.start)} />
         )}

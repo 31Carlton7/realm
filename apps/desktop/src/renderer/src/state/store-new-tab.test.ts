@@ -81,8 +81,7 @@ describe("a new tab in a side pane", () => {
 });
 
 /**
- * The new-tab page's tools (W6): each opens where the blank tab stood and the blank tab goes; Files
- * opens the ⌘P palette, and the file picked there takes the tab's place.
+ * The new-tab page's tools (W6): each opens where the blank tab stood and the blank tab goes.
  */
 describe("a tool picked on a new tab", () => {
   /** The lead's side pane with Job 1 and a fresh blank tab after it, showing. */
@@ -150,82 +149,6 @@ describe("a tool picked on a new tab", () => {
     expect(findLeafOfItem(store.getState().layout!, docs)!.id).toBe(before);
     expect(store.getState().focusedLeafId).toBe(before);
     expect(side(store).tabs).toEqual(["i-br"]);
-  });
-
-  it("Files opens the ⌘P palette, and the file picked there takes the blank tab's place", async () => {
-    // THE MUTANT: open the picked file the ordinary way — it joins the strip, and the blank tab the
-    // person was replacing stays.
-    const { api, store, blank } = await withNewTab();
-    await store.getState().openFromNewTab(blank, "files");
-    expect(store.getState()).toMatchObject({ paletteOpen: true, paletteMode: "files", paletteReplaces: blank });
-    await store.getState().openDocumentPath("README.md");
-    store.getState().setPaletteOpen(false);
-    expect(kindOf(store, side(store).itemId!)).toBe("documents");
-    expect(side(store).tabs).toHaveLength(2);
-    expect(api.calls).toContain(`deleteItem:${blank}`);
-    expect(store.getState().paletteReplaces).toBeNull();
-  });
-
-  it("places the picked file even when the server's broadcast of the open beats the call's answer", async () => {
-    // It does, on the wire: the server broadcasts `documents.openRequested` while answering, and the
-    // palette has closed by then — it closes as the row is picked. THE MUTANT: let that broadcast
-    // open the pane quietly beside the focused one, and the pick finds the file already on screen —
-    // gone to in a split of its own, and never in the tab's place.
-    const { api, store, blank } = await withNewTab();
-    await store.getState().openFromNewTab(blank, "files");
-    api.delays["openDocumentPath:s1"] = 20;
-    const picking = store.getState().openDocumentPath("README.md");
-    store.getState().setPaletteOpen(false);
-    await new Promise((r) => setTimeout(r, 5));
-    const docs = api.data.items.s1!.find((i) => i.kind === "documents")!;
-    await store.getState().applyDocumentOpenRequested({ spaceId: "s1", environmentId: "env-s1", documentsId: docs.refId, itemId: docs.id, path: "README.md" });
-    await picking;
-    const itemId = docs.id;
-    expect(side(store).tabs).toEqual(["i-br", itemId]);
-    const root = store.getState().layout!;
-    expect(root.type === "split" ? root.children : [root]).toHaveLength(2);
-  });
-
-  it("forgets the blank tab when the palette is dismissed and opened again", async () => {
-    // THE MUTANT: clear the mark only on a pick. Dismiss the palette, press ⌘P later, and the file
-    // picked then deletes a tab nobody asked to replace.
-    const { api, store, blank } = await withNewTab();
-    await store.getState().openFromNewTab(blank, "files");
-    store.getState().setPaletteOpen(false);
-    store.getState().setPaletteOpen(true, "files");
-    expect(store.getState().paletteReplaces).toBeNull();
-    await store.getState().openDocumentPath("README.md");
-    expect(api.calls).not.toContain(`deleteItem:${blank}`);
-  });
-
-  it("forgets it too when something else took the palette down, as a sheet does", async () => {
-    // A sheet closes the palette without going through its own close. THE MUTANT: keep the mark on a
-    // fresh open, and the next ⌘P's pick takes the old blank tab's place.
-    const { store, blank } = await withNewTab();
-    await store.getState().openFromNewTab(blank, "files");
-    store.getState().openSheet({ kind: "activity" });
-    store.getState().closeSheet();
-    store.getState().setPaletteOpen(true, "files");
-    expect(store.getState().paletteReplaces).toBeNull();
-  });
-
-  it("never lets a file opened from elsewhere while the palette is shut take the tab's place", async () => {
-    // THE MUTANT: honour the mark whatever is open. The palette went down under a sheet, and a file
-    // opened from the session's Files panel deletes the new tab.
-    const { api, store, blank } = await withNewTab();
-    await store.getState().openFromNewTab(blank, "files");
-    store.getState().openSheet({ kind: "activity" });
-    await store.getState().openDocumentPath("notes.md");
-    expect(api.calls).not.toContain(`deleteItem:${blank}`);
-  });
-
-  it("keeps the mark across ⌘⇧P, which is the same palette asked a different question", async () => {
-    // THE MUTANT: clear it on every open. Switching from Files to Find in files mid-search, and then
-    // picking a line, would leave the blank tab behind the file it opened.
-    const { store, blank } = await withNewTab();
-    await store.getState().openFromNewTab(blank, "files");
-    store.getState().setPaletteOpen(true, "grep");
-    expect(store.getState().paletteReplaces).toBe(blank);
   });
 });
 

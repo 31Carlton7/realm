@@ -1347,6 +1347,19 @@ describe("terminal scrollback", () => {
     expect(api.calls).toContain("setSetting:ui.confirmDelete=false");
   });
 
+  it("offers Realm's terminal colours or the shell's, Realm's until you choose", async () => {
+    /* THE mutant: read the stored value as anything but the two words, or default it to the shell's —
+       a terminal that has never been told then wears xterm's palette, whose blue and bright black are
+       under AA on Realm's ground. */
+    const { store, api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "General" }));
+    const group = screen.getByRole("group", { name: "Terminal colours" });
+    expect(within(group).getByRole("radio", { name: "Realm's" })).toBeChecked();
+    fireEvent.click(within(group).getByRole("radio", { name: "My shell's" }));
+    await waitFor(() => expect(store.getState().terminalColors).toBe("shell"));
+    expect(api.calls).toContain("setSetting:terminals.colors=shell");
+  });
+
   it("gives a terminal every caret shape as its own control, beside its own blink, in Appearance ▸ Cursor", async () => {
     /* THE folded-control mutant: one list of shapes for the text caret and a terminal's cursor both. A
        block is what a full-screen program is drawn against and a line is what an editor trains you to

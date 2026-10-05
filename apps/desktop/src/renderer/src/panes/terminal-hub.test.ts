@@ -10,10 +10,13 @@ function fakeTransport() {
   const calls: { method: string; params: unknown }[] = [];
   const printed = new Map<string, { runId: string; seq: number; chunks: { seq: number; data: string }[] }>();
   const reads: { read?: Partial<ReadResult> } = {};
+  /** What `terminals.programs` answers: every terminal running something other than its shell. */
+  const programs: Record<string, unknown> = {};
   const transport: HubTransport = {
     on: (event, fn) => { const s = listeners.get(event) ?? new Set(); s.add(fn as Listener); listeners.set(event, s); return () => s.delete(fn as Listener); },
     call: async (method, params) => {
       calls.push({ method, params });
+      if (method === "terminals.programs") return { ...programs };
       if (method !== "terminals.read") return { ok: true };
       const p = params as { terminalId: string; cursor: { runId: string; seq: number } | null };
       const rec = printed.get(p.terminalId) ?? { runId: "r1", seq: 0, chunks: [] };
@@ -33,7 +36,7 @@ function fakeTransport() {
   };
   const emit = (event: string, payload: unknown) => { for (const fn of listeners.get(event) ?? []) fn(payload); };
   const count = (event: string) => listeners.get(event)?.size ?? 0;
-  return { transport, emit, emitData, calls, count, reads };
+  return { transport, emit, emitData, calls, count, reads, programs };
 }
 
 type ReadResult = { runId: string; seq: number; live: string; truncated: boolean; running: boolean; history: { data: string; cols: number; rows: number } | null };
@@ -319,26 +322,52 @@ describe("catching up on output that arrived with nobody listening", () => {
 
 describe("a terminal's colours", () => {
   const root = document.documentElement;
-  const light = () => root.setAttribute("data-mode", "light");
-  const alpha = (hex: string | undefined) => hex?.slice(7);
-  afterEach(() => { root.removeAttribute("data-mode"); root.style.removeProperty("--rl-text-bright"); });
+  /* Realm's light tokens, as tokens.css states them — jsdom loads no stylesheet, so a test that wants
+     the light face has to say what its ground and inks are. */
+  const LIGHT = { "--canvas": "oklch(0.985 0.002 264)", "--ink": "oklch(0.235 0.006 264)", "--ink-2": "oklch(0.459 0.01 264)", "--accent": "oklch(0.6 0.2 256)" };
+  const light = () => { root.setAttribute("data-mode", "light"); for (const [k, v] of Object.entries(LIGHT)) root.style.setProperty(k, v); };
+  afterEach(() => {
+    root.removeAttribute("data-mode"); root.removeAttribute("data-theme");
+    for (const k of Object.keys(LIGHT)) root.style.removeProperty(k);
+  });
+
+  it("draws Realm's sixteen on a transparent ground that carries the canvas's own colour", () => {
+    // THE MUTANT: the old transparent BLACK. xterm draws inverse video in it, measures its contrast
+    // floor against it and answers a program's OSC 11 with it — a TUI that asked was told black.
+    const { theme, minimumContrastRatio, vars } = terminalColors();
+    expect(theme.background).toBe("#1c1d1f00");
+    expect(theme.blue).toBe("#5293e9");
+    expect(theme.brightBlack).toBe("#8f9299");
+    expect(theme.foreground).toBe("#f2f3f4");
+    // Low in the dark face: a prompt's own colours were picked for a dark ground.
+    expect(minimumContrastRatio).toBe(3);
+    expect(vars["--term-dim"]).toBe("65%");
+    expect(vars["--term-ansi-4"]).toBe("#5293e9");
+  });
 
   it("draws the light face in the app's ink, and holds a program's own colours to AA there", () => {
     // xterm's defaults are light-on-black. THE MUTANTS: leave the ink to xterm, and the light face's
     // near-white ground carries white text; drop the contrast floor, and a yellow picked for a black
     // ground is printed on a white one.
-    root.style.setProperty("--rl-text-bright", "#202124");
     light();
     const { theme, minimumContrastRatio } = terminalColors();
-    expect(theme.foreground).toBe("#202124");
-    expect(theme.cursor).toBe("#202124");
+    expect(theme.foreground).toBe("#1d1e21");
+    expect(theme.cursor).toBe("#1d1e21");
+    expect(theme.background).toBe("#f9fafb00");
+    expect(theme.blue).toBe("#1364ce");
     expect(minimumContrastRatio).toBe(4.5);
   });
 
-  it("leaves the dark face to xterm's own palette, which was drawn for it", () => {
-    const { theme, minimumContrastRatio } = terminalColors();
-    expect(theme).toEqual({ background: "#00000000" });
+  it("hands back xterm's own palette for My shell's, with no floor on the dark face", () => {
+    const { theme, minimumContrastRatio } = terminalColors(document, "shell");
+    expect(theme.blue).toBe("#3465a4");
+    expect(theme.foreground).toBe("#ffffff");
     expect(minimumContrastRatio).toBe(1);
+  });
+
+  it("wears a themed palette's own port, read off the theme the face is wearing", () => {
+    root.setAttribute("data-theme", "dracula");
+    expect(terminalColors().theme.green).toBe("#50fa7b");
   });
 
   it("are a terminal's from the moment it is acquired, and follow the face into the ones already open", () => {
@@ -347,13 +376,87 @@ describe("a terminal's colours", () => {
     // you.
     const { hub, terms } = setup();
     hub.acquire("a");
-    expect(terms[0]!.options!.theme).toEqual({ background: "#00000000" });
+    expect(terms[0]!.options!.theme!.background).toBe("#1c1d1f00");
     light();
     hub.refreshColors();
-    expect(terms[0]!.options!.theme!.background).toBe("#ffffff00");
+    expect(terms[0]!.options!.theme!.background).toBe("#f9fafb00");
     expect(terms[0]!.options!.minimumContrastRatio).toBe(4.5);
     hub.acquire("b");
-    expect(terms[1]!.options!.theme!.background).toBe("#ffffff00");
+    expect(terms[1]!.options!.theme!.background).toBe("#f9fafb00");
+  });
+
+  it("gives every host the colours faint text is mixed from, and carries the scheme into open terminals", () => {
+    // THE next-terminal-only mutant again, for the Settings pair: a terminal open when "My shell's" is
+    // chosen has to change too, palette and the faint text drawn from it both.
+    const { hub, terms } = setup();
+    const e = hub.acquire("a");
+    expect(e.host.style.getPropertyValue("--term-dim")).toBe("65%");
+    expect(e.host.style.getPropertyValue("--term-ansi-1")).toBe("#ed7471");
+    hub.setColorScheme("shell");
+    expect(terms[0]!.options!.theme!.red).toBe("#cc0000");
+    expect(e.host.style.getPropertyValue("--term-ansi-1")).toBe("#cc0000");
+    hub.acquire("b");
+    expect(terms[1]!.options!.theme!.red).toBe("#cc0000");
+  });
+});
+
+describe("what a terminal is running", () => {
+  const claude = { id: "claude", label: "claude", mark: "claude", agent: true };
+  const settle = () => new Promise<void>((r) => setTimeout(r, 0));
+
+  it("is read once, when something first asks, then kept by terminal.program", async () => {
+    // A tab that is not showing may name a terminal whose agent started before this window listened,
+    // so the first listener reads where every terminal already is.
+    const { hub, programs, emit, calls, count } = setup();
+    programs.t1 = claude;
+    expect(count("terminal.program")).toBe(0); // nothing asked yet: nothing subscribed
+    let told = 0;
+    hub.onProgramChange(() => { told++; });
+    hub.onProgramChange(() => {});
+    expect(hub.programsKnown).toBe(false);
+    await settle();
+    expect(calls.filter((c) => c.method === "terminals.programs")).toHaveLength(1);
+    expect(count("terminal.program")).toBe(1);
+    expect(hub.program("t1")).toEqual(claude);
+    expect(hub.programsKnown).toBe(true);
+    expect(told).toBe(2); // t1's program, and the read landing
+    emit("terminal.program", { terminalId: "t1", program: null });
+    expect(hub.program("t1")).toBeNull();
+    emit("terminal.program", { terminalId: "t2", program: { id: "python", label: "python3", mark: "python", agent: false } });
+    expect(hub.program("t2")).toMatchObject({ label: "python3" });
+    emit("terminal.program", { terminalId: "t2", program: { id: "python", label: "python3", mark: "python", agent: false } });
+    expect(told).toBe(4); // the same program said twice is one change
+  });
+
+  it("drops what a terminal was running when it exits, and when it is disposed", async () => {
+    const { hub, programs, emit } = setup();
+    programs.t1 = claude; programs.t2 = claude;
+    hub.onProgramChange(() => {});
+    hub.acquire("t1");
+    await settle();
+    emit("terminal.exit", { terminalId: "t1", exitCode: 0 });
+    expect(hub.program("t1")).toBeNull();
+    hub.dispose("t2");
+    expect(hub.program("t2")).toBeNull();
+  });
+
+  it("re-reads on reconnect, taking back what changed while the socket was down", async () => {
+    const { hub, programs } = setup();
+    programs.t1 = claude;
+    hub.onProgramChange(() => {});
+    await settle();
+    delete programs.t1;
+    programs.t3 = claude;
+    hub.resyncAll();
+    await settle();
+    expect(hub.program("t1")).toBeNull();
+    expect(hub.program("t3")).toEqual(claude);
+  });
+
+  it("asks nothing and throws nothing where the transport cannot subscribe — a component test", () => {
+    const hub = new TerminalHub({ on: () => { throw new Error("rpc() called outside the app"); }, call: async () => ({}) });
+    expect(() => hub.onProgramChange(() => {})).not.toThrow();
+    expect(hub.program("t1")).toBeNull();
   });
 });
 
@@ -365,7 +468,19 @@ describe("the code face reaches a terminal that is already open", () => {
     // one surface that ignores the code font.
     expect(terminalFont()).toContain("JetBrains Mono");
     document.documentElement.style.setProperty("--font-mono", "ui-monospace, Menlo, monospace");
-    expect(terminalFont()).toBe("ui-monospace, Menlo, monospace");
+    expect(terminalFont().startsWith("ui-monospace, Menlo, monospace,")).toBe(true);
+    document.documentElement.style.removeProperty("--font-mono");
+  });
+
+  it("keeps the prompt-icon faces behind the code face, whichever face that is", () => {
+    // A p10k prompt in a nerdfont mode draws its branch and folder in private-use codepoints, which
+    // no code face carries: without these the icons are empty boxes. THE mutant: put them first, and
+    // they become the face every letter is measured and drawn in.
+    for (const face of ['"JetBrains Mono", monospace', "ui-monospace, Menlo, monospace"]) {
+      document.documentElement.style.setProperty("--font-mono", face);
+      expect(terminalFont().startsWith(face)).toBe(true);
+      expect(terminalFont()).toMatch(/"MesloLGS NF"$/);
+    }
     document.documentElement.style.removeProperty("--font-mono");
   });
 
@@ -462,7 +577,7 @@ describe("the code face reaches a terminal that is already open", () => {
 
     document.documentElement.style.setProperty("--font-mono", "ui-monospace, Menlo, monospace");
     hub.refreshFont();
-    expect(terms.map((t) => t.options!.fontFamily)).toEqual(["ui-monospace, Menlo, monospace", "ui-monospace, Menlo, monospace"]);
+    expect(terms.map((t) => t.options!.fontFamily?.split(",").slice(0, 3).join(","))).toEqual(["ui-monospace, Menlo, monospace", "ui-monospace, Menlo, monospace"]);
     // The cell size is measured off the face, so an opened terminal has to re-measure or the grid is
     // the wrong shape and the pty was resized to a lie. A detached one has nothing to measure yet.
     expect(fits).toEqual([0]);

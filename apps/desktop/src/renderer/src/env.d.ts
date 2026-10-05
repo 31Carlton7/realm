@@ -52,6 +52,12 @@ interface Window {
     motion?: { set(pref: import("@realm/contracts").ReducedMotionPref): Promise<void> };
     /** Settings ▸ General ▸ Power: tells main the keep-awake switch moved. */
     power?: { preventSleep(on: boolean): Promise<void> };
+    /** The apps installed on this Mac and their icons (the prompter's `@` list). Optional like every
+     *  late bridge: jsdom has none, and a renderer without it simply lists no apps. */
+    apps?: {
+      list(): Promise<import("@realm/contracts").InstalledApp[]>;
+      icons(paths: string[]): Promise<Record<string, string | null>>;
+    };
     /** The code editors installed on this Mac, and opening a path in one. */
     editors?: {
       list(): Promise<import("@realm/contracts").InstalledEditor[]>;

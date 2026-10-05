@@ -68,6 +68,15 @@ export const LibraryQuerySchema = z.object({
    *  every profile's files, so a Work window's Library listed what Personal's sessions made. Null is
    *  every profile, for a caller that genuinely wants the whole home. */
   profileId: z.string().nullable().default(null),
+  /** One session's files — what the documents pane lists under "This session". Null is every
+   *  session the other two scope fields allow. */
+  sessionId: z.string().nullable().default(null),
+  /** One row per FILE, at the moment it was last touched, rather than one per event that touched it.
+   *  The Library's grid is a record of moments (a file made, a file handed over); a list of files to
+   *  open is not, and a file edited nine times there was nine rows of the same name. Keyset paging
+   *  runs over the collapsed list, so a page boundary never surfaces an older row of a file already
+   *  shown. */
+  perFile: z.boolean().default(false),
   kind: z.enum(ARTIFACT_KINDS).nullable().default(null),
   /** The broad type a file reads as (`artifactTypeOf`), answered from the stored extension — so a type
    *  narrows the whole index, never only the page already in the renderer. Null is every type. */

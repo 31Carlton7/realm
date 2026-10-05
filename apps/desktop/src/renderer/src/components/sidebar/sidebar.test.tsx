@@ -76,14 +76,21 @@ describe("the list", () => {
     expect(head("Versed").querySelector(".sb-space-icon circle")).not.toBeNull();
   });
 
-  it("ends with New space, which opens the sheet — and only under Spaces", async () => {
-    const { store } = await mount(home());
-    const row = screen.getByRole("button", { name: "New space" });
-    expect(row.closest(".space-body")!.lastElementChild).toBe(row);
-    fireEvent.click(row);
+  it("keeps New space at the column's foot, outside the list, however long the list and in either reading", async () => {
+    // The owner, 10-04: "the button disappears when the list is too long". THE MUTANT: New space back
+    // at the list's end, inside the scroller, where thirty spaces carry it out of the column.
+    const many = Array.from({ length: 30 }, (_, i) => space(`m${i}`, "p1", `Space ${i + 1}`));
+    const { store, container } = await mount(home({ spaces: many }));
+    const row = () => screen.getByRole("button", { name: "New space" });
+    expect(container.querySelectorAll(".sb-section")).toHaveLength(30);
+    expect(row().closest(".space-body")).toBeNull();
+    expect(row().closest(".sb-foot")!.previousElementSibling).toHaveClass("space-body");
+    fireEvent.click(row());
     await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-space" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Recent" }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "New space" })).toBeNull());
+    act(() => store.getState().closeSheet());
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
+    expect(row().closest(".sb-foot")).not.toBeNull();
   });
 });
 
@@ -430,16 +437,20 @@ describe("Pinned", () => {
 
 describe("the list's fade", () => {
   it("is nothing but the scroller — no band element sits beside or inside it", async () => {
-    // The dissolve is a mask on .space-body (pinned in styles.test.ts). The named mutant is the old
-    // `.space-fade` sibling coming back: a backdrop-filter band over this translucent column blurs
-    // the window's own transparency into a dark smudge.
+    // The dissolve is the shared mask on .space-body, which marks itself `data-dissolve` (pinned in
+    // styles.test.ts). The named mutant is the old `.space-fade` sibling coming back: a
+    // backdrop-filter band over this translucent column blurs the window's own transparency into a
+    // dark smudge. THE second mutant: the scroller left unmarked, which leaves it no dissolve at all.
     const { container } = await mount();
     const body = container.querySelector(".space-body")!;
     expect(body.parentElement).toHaveClass("sb-list");
+    expect(body).toHaveAttribute("data-dissolve");
     expect(container.querySelector(".space-fade")).toBeNull();
-    // Everything that scrolls is inside it: Needs you, Pinned, the lens and the sections alike.
+    // Everything that scrolls is inside it: Needs you, Pinned, the list's head and the sections alike —
+    // and New space is not, pinned below it.
     expect(body.querySelector(".sb-lens")).not.toBeNull();
     expect(body.querySelector(".sb-sections")).not.toBeNull();
+    expect(body.querySelector(".sb-new-space")).toBeNull();
   });
 });
 

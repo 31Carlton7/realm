@@ -45,6 +45,10 @@ import {
   HierarchySquare02Icon,
   // The window's two panel toggles: the sidebar on the left, the side pane on the right.
   LayoutLeftIcon, LayoutRightIcon,
+  // What a terminal is running, beside its tab's title (terminal-programs.ts in contracts).
+  JavaScriptIcon, Typescript01Icon, PythonIcon, GemIcon, JavaIcon, PhpIcon, PackageIcon, ServerStack01Icon, DatabaseIcon,
+  // A device's own toolbar (SimulatorBar.tsx): turning it, selecting its elements, its volume down.
+  ScreenRotationIcon, CursorRectangleSelection01Icon, VolumeLowIcon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
@@ -176,6 +180,17 @@ export const icons = {
      ruled off at its side. `sidebar` is the older glyph with list rows drawn in the panel — at 14px
      beside the traffic lights the rows were a smudge, and the bare rule is the cleaner mark. */
   panelLeft: LayoutLeftIcon, panelRight: LayoutRightIcon,
+  /* What a terminal's foreground program is, when it is a tool rather than an agent (an agent wears
+     its vendor's mark). The language for a runtime — node is the JS square, deno the TS one, Ruby a
+     gem — and the job for the rest: a package manager is a parcel, which is also what a dev server
+     started through one wears, and a container runtime is the server stack it stands for. */
+  javascript: JavaScriptIcon, typescript: Typescript01Icon, python: PythonIcon, gem: GemIcon, java: JavaIcon, php: PhpIcon,
+  package: PackageIcon, serverStack: ServerStack01Icon, database: DatabaseIcon,
+  /* A device's own controls. Rotate is a phone turning between two arrows — the `reload` arrow it wore
+     says "load again". The elements overlay is a selection drawn over the screen, the pointer in a
+     dashed box. Volume down is the speaker with one wave: the struck-through one it borrowed from
+     playback says mute, which is a different button. */
+  rotate: ScreenRotationIcon, select: CursorRectangleSelection01Icon, volumeLow: VolumeLowIcon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

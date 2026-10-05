@@ -89,3 +89,28 @@ export const TERMINALS_DOCK_DEFAULT: TerminalDockEdge = "right";
 
 export const isTerminalDockEdge = (x: unknown): x is TerminalDockEdge =>
   typeof x === "string" && (TERMINAL_DOCK_EDGES as readonly string[]).includes(x);
+
+/**
+ * Whose colours a terminal is drawn in.
+ *
+ * Realm's, by default: sixteen colours drawn for the pane's own ground, per face and per themed
+ * palette, each held to the contrast the app's text is. A powerlevel10k prompt keeps its own look
+ * under either answer — its 256-colour and truecolor codes never pass through the sixteen.
+ *
+ * "My shell's" is xterm's own palette, the one a shell configured in another terminal app expects —
+ * for someone whose prompt or tools were tuned against it. Anything the shell sets itself with OSC 4
+ * rules under both.
+ */
+export const TERMINAL_COLOR_SCHEMES = ["realm", "shell"] as const;
+export type TerminalColorScheme = (typeof TERMINAL_COLOR_SCHEMES)[number];
+
+export const TERMINALS_COLORS_KEY = "terminals.colors";
+export const TERMINALS_COLORS_DEFAULT: TerminalColorScheme = "realm";
+
+export const isTerminalColorScheme = (x: unknown): x is TerminalColorScheme =>
+  typeof x === "string" && (TERMINAL_COLOR_SCHEMES as readonly string[]).includes(x);
+
+export const TERMINALS_COLORS_COPY = {
+  label: "Terminal colours",
+  options: { realm: "Realm's", shell: "My shell's" },
+} as const;

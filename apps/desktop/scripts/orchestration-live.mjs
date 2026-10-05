@@ -211,6 +211,31 @@ async function main() {
   await sleep(400);
   note("grounds before the first turn", await grounds(c));
   await shot(c, "1-tab-empty");
+  // The empty state is one composition centred both ways in the space above the composer, at a
+  // narrow pane and a wide one, in both faces — measured, because a centre is a number.
+  const mode = await evalIn(c, `document.documentElement.dataset.mode`);
+  for (const [tag, width, face] of [["1b-empty-narrow", 1100, "dark"], ["1c-empty-narrow-light", 1100, "light"], ["1d-empty-wide", 2200, "dark"], ["1e-empty-wide-light", 2200, "light"]]) {
+    await c.send("Emulation.setDeviceMetricsOverride", { width, height: VIEWPORT.height, deviceScaleFactor: 2, mobile: false });
+    await evalIn(c, `(() => { document.documentElement.dataset.mode = ${JSON.stringify(face)}; return true; })()`);
+    await sleep(500);
+    const m = await evalIn(c, `(() => {
+      const box = document.querySelector('.subagents-scroll'), e = document.querySelector('.subagents-empty');
+      const slot = document.querySelector('.subagents')?.closest('.pane-slot');
+      if (!box || !e || !slot) return null;
+      const b = box.getBoundingClientRect(), r = e.getBoundingClientRect(), st = getComputedStyle(box), s = slot.getBoundingClientRect();
+      const top = b.top + parseFloat(st.paddingTop), bottom = b.bottom - parseFloat(st.paddingBottom);
+      const left = b.left + parseFloat(st.paddingLeft), right = b.right - parseFloat(st.paddingRight);
+      // Against the PANE as well as the column: a column narrower than its pane centres its content in
+      // the wrong place while measuring perfectly against itself.
+      return { pane: Math.round(s.width), column: Math.round(b.width), dx: +((r.left + r.right) / 2 - (s.left + s.right) / 2).toFixed(1), dy: +((r.top + r.bottom) / 2 - (top + bottom) / 2).toFixed(1),
+        lines: Math.round(e.querySelector('.subagents-empty-line').getBoundingClientRect().height / 18) }; })()`);
+    note(`empty state, ${tag}`, m);
+    check(`the tab fills its pane, and the empty state is centred both ways in it (${tag})`, !!m && m.column === m.pane && Math.abs(m.dx) <= 1.5 && Math.abs(m.dy) <= 1.5, m);
+    await shot(c, tag);
+  }
+  await c.send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 2, mobile: false });
+  await evalIn(c, `(() => { document.documentElement.dataset.mode = ${JSON.stringify(mode ?? "dark")}; return true; })()`);
+  await sleep(300);
 
   // ── 2. Build with: two models, split, sent ─────────────────────────────────────────────────
   check("GPT-6 Luna is offered as a chip", await evalIn(c, clickText(".subagents-pick", "GPT-6 Luna")));

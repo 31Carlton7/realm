@@ -1,6 +1,7 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
 import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape } from "@realm/contracts";
 import { destinationTarget, pageHidesSidebar, pageItemId } from "./page-item";
+import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
@@ -8,10 +9,10 @@ import {
   allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, openItem as layoutOpen, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   groupsFromLayout, SpaceGroupsSchema,
-  columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type StoredView, type WindowView,
+  columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, primaryLeaves, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type StoredView, type WindowView,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
@@ -223,7 +224,7 @@ export type Api = {
   renameDocumentFile(documentsId: string, from: string, to: string): Promise<{ path: string }>;
   /** Plan 22 (school workflows): previews, guide progress, lectures, the Plynn handoff. */
   previewInfo(): Promise<{ port: number; token: string }>;
-  openDocumentPath(spaceId: string, path: string, environmentId?: string): Promise<{ documentsId: string; itemId: string; environmentId: string }>;
+  openDocumentPath(spaceId: string, path: string, environmentId?: string): Promise<{ documentsId: string; itemId: string; environmentId: string; path: string }>;
   readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
   recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
   startLecture(spaceId: string, title: string): Promise<StartLectureResult>;
@@ -374,7 +375,9 @@ export type Api = {
   memorySources(sessionId: string): Promise<MemorySources>;
   /** `mentions` are the skill ids the draft's `@`-tokens were recognised as; the server re-validates
    *  and resolves them so a raw `@name` never reaches an agent (contracts/mentions.ts). */
-  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[], elements?: ElementChip[], delivery?: "auto" | "queue" | "steer", sessionRefs?: SessionRef[]): Promise<void>;
+  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[], elements?: ElementChip[], delivery?: "auto" | "queue" | "steer", sessionRefs?: SessionRef[], mentionRefs?: MentionRef[]): Promise<void>;
+  /** `mentions.files` — the session's checkout ranked for the `@` list, secrets left out server-side. */
+  mentionFiles(sessionId: string, query: string, limit?: number): Promise<ProjectFilesResult>;
   interruptSession(id: string): Promise<void>;
   /** `sessions.dequeue` — drop a queued message before its turn comes. */
   dequeuePrompt(id: string, queuedId: string): Promise<void>;
@@ -541,6 +544,10 @@ export type Api = {
   setReducedMotion(pref: ReducedMotionPref): Promise<void>;
   /** Tell main the keep-awake switch moved; main holds the blocker while a session works. */
   setPreventSleep(on: boolean): Promise<void>;
+  /** The apps installed on this Mac (main's scan), for the `@` list. [] without the bridge. */
+  installedApps(): Promise<InstalledApp[]>;
+  /** Those apps' own icons by bundle path. Main answers only for bundles its scan found. */
+  appIcons(paths: string[]): Promise<Record<string, string | null>>;
   /** The code editors installed on this Mac. */
   listEditors(): Promise<InstalledEditor[]>;
   /** Open an existing path in one of them; false when main refused (not installed, no such path). */
@@ -729,12 +736,14 @@ export const PERSIST_DEBOUNCE_MS = 300;
 /** Where a pane a person opened goes when no pane was named: in place (false), beside the focused
  *  pane (true), or into the side pane of the session whose bar asked for it. */
 export type Beside = boolean | { sessionId: string };
-/** Which question the command palette is asking. One surface, three narrowings: ⌘K searches Realm's
- *  own records, ⌘P the checkout's file names, ⌘⇧F the checkout's contents. */
-export type PaletteMode = "all" | "files" | "grep";
-/** What a blank browser tab's new-tab page offers: the ⌘P palette, and the panes a session opens
- *  beside itself. */
-export type NewTabTool = "files" | "terminal" | "documents" | "simulator" | "machine";
+/** Which question the command palette is asking: ⌘K searches Realm's own records, ⌘⇧P the checkout's
+ *  contents. Finding a file by its NAME is the documents pane's own search (⌘P, `findInDocuments`). */
+export type PaletteMode = "all" | "grep";
+/** What a blank browser tab's new-tab page offers: the panes a session opens beside itself. */
+export type NewTabTool = "terminal" | "documents" | "simulator" | "machine";
+/** What a documents pane is asked from outside it: put the keyboard in its search, or show one of its
+ *  files at a line. `path` is the tab's own name for the file (`documents.openPath` answers it). */
+export type DocumentsAsk = { documentsId: string; seq: number } & ({ search: true } | { path: string; line: number });
 
 /** The space last made current — where a new session goes when no session has focus. Before Plan 27
  *  it was the room the window was in, which is why a home upgraded from rooms migrates from it. */
@@ -1146,6 +1155,10 @@ export type AppState = {
    *  list the handler reads — a hardcoded `⌘T` in a menu becomes a lie the moment someone rebinds it. */
   keybindings: readonly Keybinding[];
   paletteOpen: boolean;
+  /** The last thing a documents pane was asked to do from outside it — ⌘P's "search here", a line to
+   *  show — numbered so asking twice is two asks. Held here rather than sent to the pane because the
+   *  pane may not exist yet when it is asked: the open that makes it is the same gesture. */
+  documentsAsk: DocumentsAsk | null;
   /** The space overview (⌘⇧Space): every space across every profile, sectioned. Its own flag rather
    *  than a `Sheet`, for the same reason `paletteOpen` is — it must toggle from its own hotkey while
    *  open, which the sheet guard in hotkeys.ts forbids. */
@@ -1352,6 +1365,13 @@ export type AppState = {
   /** Per session: the link chips a draft holds (`@[ENG-123]` standing for a Linear URL), keyed the
    *  way `draftElements` is and kept alive by the same rule. Expanded to markdown links at send. */
   draftLinks: Record<string, LinkChip[]>;
+  /** Per session: what the draft's `@[…]` tokens for files, Library items and apps stand for, kept
+   *  alive by the rule the other sidecars follow — an entry lives while its token does. */
+  draftRefs: Record<string, MentionRef[]>;
+  /** The apps on this Mac as main last listed them, or null before the `@` list first asked. */
+  installedApps: InstalledApp[] | null;
+  /** App icons by bundle path: a data URL, or null for an app whose icon main could not read. */
+  appIcons: Record<string, string | null>;
   /** The skills library by space id (`skills.list`) — what the mention picker offers. Refreshed when a
    *  skills-capable session opens and on `skills.changed`. */
   spaceSkills: Record<string, Skill[]>;
@@ -1729,6 +1749,9 @@ export type AppState = {
   /** One page of the Library's file index. Not cached in the store: the page owns its own cursor,
    *  filter and query, and those belong to one component's scroll position rather than to the app. */
   libraryArtifacts(query: LibraryQuery): Promise<{ entries: LibraryEntry[]; total: number }>;
+  /** The `@` list's Files: the session's checkout ranked against a query. Not cached here either — the
+   *  server keeps the listing, and the answer belongs to the keystroke that asked. */
+  mentionFiles(sessionId: string, query: string): Promise<ProjectFilesResult>;
   /** Re-read one space's projects, or every space of the active profile's. */
   refreshProjects(spaceId?: string | null): Promise<void>;
   /** Re-read one space's checkouts, or every space of the active profile's. */
@@ -2129,6 +2152,15 @@ export type AppState = {
    *  (`describeLink`) — in which case the paste goes through as text. The composer inserts the
    *  token at its caret; this only owns the sidecar, which is why it does not touch the draft. */
   addLinkChip(sessionId: string, url: string): LinkChip | null;
+  /** Name a file, a Library item or an app in a draft: the sidecar entry for an `@[label]` token, under
+   *  the first of `candidates` no other chip in the draft wears. Answers that label — the composer
+   *  writes the token, this only owns what it stands for. */
+  addMentionRef(sessionId: string, ref: UnlabelledRef, candidates: readonly string[]): string;
+  /** Ask main what is installed. Cheap to repeat: main keeps its scan and re-reads only a folder
+   *  that changed. */
+  loadInstalledApps(): Promise<void>;
+  /** Fetch the icons of these apps that are not already held. */
+  ensureAppIcons(paths: readonly string[]): Promise<void>;
   /** Connect one of the marketplace's apps to a space: create its MCP server row (once) and start
    *  OAuth, handing back the URL to open. */
   connectApp(spaceId: string, connectorId: string, client?: { clientId: string; clientSecret?: string }): Promise<{ authUrl: string }>;
@@ -2146,22 +2178,29 @@ export type AppState = {
      cached copy would be a second answer that can disagree with the one a spawn actually uses. */
   getSandbox(spaceId: string): Promise<SandboxState>;
   setSandbox(spaceId: string, prefs: ExecutionSandboxPrefs | null): Promise<SandboxState>;
-  /** The active space's primary checkout — what ⌘P and ⌘⇧F search. Null before environments land,
+  /** The active space's primary checkout — what ⌘⇧P searches. Null before environments land,
    *  which is a case the palette must say something about rather than showing an empty list. */
   projectCwd(): string | null;
-  searchProjectFiles(query: string): Promise<ProjectFilesResult | null>;
+  /** File names in a checkout: `cwd` when named (a documents pane searches its own), else the active
+   *  space's primary. */
+  searchProjectFiles(query: string, cwd?: string | null): Promise<ProjectFilesResult | null>;
   searchProjectText(query: string): Promise<ProjectGrepResult | null>;
-  /** Which question the palette is asking. ⌘K is "all"; ⌘P and ⌘⇧F open the same surface narrowed. */
+  /** Which question the palette is asking. ⌘K is "all"; ⌘⇧P opens the same surface narrowed. */
   paletteMode: PaletteMode;
   setPaletteOpen(open: boolean, mode?: PaletteMode): void;
-  /** The blank tab a file picked in the palette takes the place of — set when a new-tab page's Files
-   *  opens the palette, honoured only while that palette is up, and gone with it. */
-  paletteReplaces: string | null;
+  /**
+   * ⌘P: the documents pane, with the keyboard in its search — the one place a file is found, opened
+   * or made. The pane of the session the keyboard is in (or the one the focused side pane serves) as
+   * a tab of its side pane, the way its bar's Documents button opens it; with no session, the space's.
+   */
+  findInDocuments(): Promise<void>;
+  /** The pane that acted on `documentsAsk` says so, so a pane that mounts later — the same one, back
+   *  from a space switch — is not asked again. A newer ask than `seq` is left for its own pane. */
+  takeDocumentsAsk(seq: number): void;
   /**
    * A tool picked on a blank browser tab's new-tab page. It opens where the tab stood — a tab of the
-   * same strip, or the pane the browser had — and the blank tab goes. "files" opens the ⌘P palette
-   * instead, and the file picked there takes the tab's place. A terminal starts in, and documents
-   * open on, the checkout of the session the tab's side pane serves.
+   * same strip, or the pane the browser had — and the blank tab goes. A terminal starts in, and
+   * documents open on, the checkout of the session the tab's side pane serves.
    */
   openFromNewTab(itemId: string, tool: NewTabTool): Promise<void>;
   setKeybindings(rules: readonly Keybinding[]): void;
@@ -2245,6 +2284,9 @@ export type AppState = {
   /** Attach files already on disk and already described — a browser pane's screenshot, which main
    *  wrote and measured. Same path as a drop: the same cap, the same dedupe by path. */
   attachPicked(sessionId: string, picked: readonly PickedAttachment[]): void;
+  /** Attach files by path — a file listed by the documents pane, added to the next message. Main
+   *  describes them, as it does a drop; one that is no longer on disk is said, not silently skipped. */
+  attachPaths(sessionId: string, paths: readonly string[]): Promise<void>;
   /** Drop one pending attachment (its chip's ×). Keyed by path, which is unique within the row. */
   removeAttachment(sessionId: string, path: string): void;
   /**
@@ -2294,24 +2336,29 @@ export type AppState = {
   setCommitMessage(cwd: string, text: string): void;
   /** Commit, push and open a PR as one action; stores the outcome for the pane to explain. */
   ship(input: ShipInput): Promise<void>;
-  /** Open (or focus) the diff pane for an environment, in the environment's own space. The pane's
-   *  item has the ENVIRONMENT's id as its refId, so it survives the session that opened it and cannot
-   *  show another checkout's tree. */
+  /** Open (or go to) the diff for an environment, in the environment's own space — as a tab of the
+   *  side pane beside the session working in that checkout (else beside the pane in focus), never as
+   *  a pane of its own. The one way Changes opens, whoever asks. The item has the ENVIRONMENT's id as
+   *  its refId, so it survives the session that opened it and cannot show another checkout's tree. */
   openDiff(environmentId: string, targetLeafId?: string | null): Promise<void>;
   /** Open (or focus) the document workspace for an environment — the `openDiff` gesture, for files.
    *  `environmentId` omitted uses the primary checkout of `spaceId`, else of the current space.
    *  `beside` splits right and opens there instead of taking over the focused pane — the same
    *  argument `newBrowser` takes, and for the same reason: a pane opened FROM another pane is a
-   *  second view, not a replacement for the one you asked from. */
-  openDocuments(environmentId?: string | null, targetLeafId?: string | null, beside?: Beside, spaceId?: string | null): Promise<void>;
+   *  second view, not a replacement for the one you asked from. Answers the workspace it opened. */
+  openDocuments(environmentId?: string | null, targetLeafId?: string | null, beside?: Beside, spaceId?: string | null): Promise<{ documentsId: string; itemId: string } | null>;
   /**
    * Plan 22. Put one file on screen: the server adds it to the workspace's tab strip (creating the
    * workspace when needed) and the item comes into the layout. `documents.openRequested` — which
    * the server broadcasts for this AND for an agent's `docs_open` — is what a mounted pane opens
    * the tab on; `applyDocumentOpenRequested` is the store's half, and it leaves an item that is
    * already on screen alone.
+   *
+   * THE way into the documents pane by path, from anywhere: `at.line` (1-based) puts the cursor on
+   * that line of a code file, which is what a path quoted as `file.ts:42` means. Absolute and `~/`
+   * paths are taken as an agent writes them; the server places them in the workspace.
    */
-  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null): Promise<void>;
+  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null, at?: { line?: number }): Promise<void>;
   applyDocumentOpenRequested(p: { spaceId: string; environmentId: string; documentsId: string; itemId: string; path: string; openedBy?: string }): Promise<void>;
   /** Start a lecture in `spaceId` (else the current space): the dated notes file open in the documents
    *  pane as the main view, and a session beside it to ask things during class. Nothing is sent to
@@ -2532,6 +2579,10 @@ export type AppState = {
   setTerminalHistory(enabled: boolean): Promise<void>;
   setTerminalCursorBlink(on: boolean): Promise<void>;
   setTerminalCursorStyle(style: CaretShape): Promise<void>;
+  /** Realm's sixteen colours or xterm's (Settings ▸ General ▸ Terminals). Reaches live terminals
+   *  through the hub. */
+  terminalColors: TerminalColorScheme;
+  setTerminalColors(scheme: TerminalColorScheme): Promise<void>;
   setCaret(patch: Partial<CaretPrefs>): Promise<void>;
   /** Which edge of a session pane its terminal (⌘J) docks to (Settings ▸ General ▸ Terminals). */
   terminalDock: TerminalDockEdge;
@@ -3356,13 +3407,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const cwd = get().sessions[sessionId]?.cwd;
       if (cwd) get().run(() => get().refreshGitInfo(cwd));
     };
+    /** App icons asked of main and not yet answered, so a list re-rendering while they are on their
+     *  way does not ask for them again. */
+    const iconsInFlight = new Set<string>();
     /** The skill ids a session's draft may mention RIGHT NOW: enabled + valid in its space, and only
-     *  for an agent Realm can inject skills into. Empty for a Cursor (or fake) session — which is what
-     *  keeps mentions from ever being offered, or recognised, there (W4). */
+     *  for an agent Realm can inject skills into — save `mac`, below. Otherwise empty for a Cursor (or
+     *  fake) session, which is what keeps skill mentions from being offered, or recognised, there (W4). */
     const mentionableIds = (sessionId: string): string[] => {
       const s = get().sessions[sessionId];
-      if (!s || AGENT_SKILL_SUPPORT[s.agentKind] !== "injected") return [];
-      return (get().spaceSkills[s.spaceId] ?? []).filter((k) => k.enabled && k.valid).map((k) => k.id);
+      if (!s) return [];
+      const library = get().spaceSkills[s.spaceId] ?? [];
+      const ids = AGENT_SKILL_SUPPORT[s.agentKind] !== "injected" ? [] : library.filter((k) => k.enabled && k.valid).map((k) => k.id);
+      // @Mac is the one skill every agent can be handed — by its instructions, where it cannot be
+      // invoked — so it is mentionable wherever the space's library holds it, on or off.
+      if (!ids.includes(MAC_SKILL_ID) && library.some((k) => k.id === MAC_SKILL_ID && k.valid)) ids.push(MAC_SKILL_ID);
+      return ids;
     };
     /**
      * W2.4 — the degenerate case, entry side. Every sheet-opening path calls this: when browser
@@ -3436,8 +3495,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       latestItemsLoad.set(sid, load);
       return load;
     };
-    /** File picks for a new tab still waiting on the server — see `applyDocumentOpenRequested`. */
-    let newTabPicks = 0;
+    /** The documents pane's asks are numbered so the same ask made twice (⌘P, ⌘P) is two. */
+    let documentsAskSeq = 0;
     /**
      * What a new-tab page opened takes the blank tab's place: into the leaf holding it — a tab of the
      * same strip, where the new tab stood, or the pane itself — and the blank tab goes, since a
@@ -3470,6 +3529,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * not a reason to close what someone is reading.
      */
     const revealPanes = () => { if (get().pageOverlay) set({ pageOverlay: null }); };
+    /** `itemId` as a tab of the side pane of the main pane holding `owner` (an item id): the strip it
+     *  has, or a new one to its right. `openInSidePane`'s body once it has found its session; also what
+     *  the diff uses when the pane in focus is not a session (`openDiff`). */
+    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean } = {}): Promise<boolean> => {
+      const view = viewNow();
+      const layout = layoutOpenInSidePane(view.layout, owner, itemId);
+      if (!layout) return false;
+      const leaf = findLeafOfItem(layout, itemId)!;
+      if (opts.focus) {
+        revealPanes();
+        revealSidePanes();
+        set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
+      } else {
+        set(writeView({ ...view, layout }));
+      }
+      await persist();
+      return true;
+    };
     /** Bring the side panes back if they were put away: a person just asked to look at something in
      *  one (a tool from a session's bar, a tab, a row whose item is a tab), and a keyboard parked in
      *  a pane nobody can see is a click that missed. */
@@ -3824,11 +3901,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidePanesHidden: false, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
-      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
+      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", documentsAsk: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
       spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -3837,7 +3914,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       profileSpaces() { const pid = get().activeProfileId; return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
@@ -3944,6 +4021,8 @@ await get().refreshCustomThemes().catch(() => {});
         const caret = await api.getSetting(CARET_KEY).catch(() => null);
         const editorBlink = caret === null ? await api.getSetting(EDITOR_CURSOR_BLINK_KEY).catch(() => null) : null;
         set({ caret: parseCaretPrefs(caret, { editorBlink }) });
+        const colorScheme = await api.getSetting(TERMINALS_COLORS_KEY).catch(() => null);
+        set({ terminalColors: isTerminalColorScheme(colorScheme) ? colorScheme : TERMINALS_COLORS_DEFAULT });
         const dockEdge = await api.getSetting(TERMINALS_DOCK_KEY).catch(() => null);
         set({ terminalDock: isTerminalDockEdge(dockEdge) ? dockEdge : TERMINALS_DOCK_DEFAULT });
         // Only an explicit `true` keeps a Mac awake: an unset key and a failed read both mean nobody
@@ -4054,6 +4133,7 @@ await get().refreshCustomThemes().catch(() => {});
          open in at most one pane. A store slice would have to hold a cursor, a filter and a query
          that belong to a single component's scroll position. */
       libraryArtifacts: (q) => api.libraryArtifacts(q),
+      mentionFiles: (sessionId, query) => api.mentionFiles(sessionId, query),
       async searchDeep(query) {
         const profileId = get().activeProfileId;
         if (!profileId) return null;
@@ -4500,19 +4580,7 @@ await get().refreshCustomThemes().catch(() => {});
         const owner = await sideOwnerOf(sessionId);
         if (!owner) return false;
         // Read after the walk: it may have fetched, and the view is whatever it is now.
-        const view = viewNow();
-        const layout = layoutOpenInSidePane(view.layout, owner, itemId);
-        if (!layout) return false;
-        const leaf = findLeafOfItem(layout, itemId)!;
-        if (opts.focus) {
-          revealPanes();
-          revealSidePanes();
-          set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
-        } else {
-          set(writeView({ ...view, layout }));
-        }
-        await persist();
-        return true;
+        return openInSidePaneOf(owner, itemId, opts);
       },
       async toggleSidePanes() {
         const layout = get().layout ?? emptyLayout();
@@ -4771,8 +4839,9 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _de, ...draftElements } = get().draftElements; // likewise
           const { [it.refId]: _dsr, ...draftSessionRefs } = get().draftSessionRefs; // likewise
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
+          const { [it.refId]: _drf, ...draftRefs } = get().draftRefs;
           const { [it.refId]: _ac, ...sessionActivity } = get().sessionActivity;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, sessionUpdatedAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -4922,19 +4991,34 @@ await get().refreshCustomThemes().catch(() => {});
       async removeScript(spaceId, id) { await api.removeScript(spaceId, id); await get().refreshScripts(spaceId); },
       async reorderScripts(spaceId, ids) { await api.reorderScripts(spaceId, ids); await get().refreshScripts(spaceId); },
       setPaletteOpen(open, mode = "all") {
-        // A new tab's mark lasts the one palette it was set on: across a ⌘⇧P from Files, which is the
-        // same palette asked a different question, and not into the next one opened.
-        const replaces = open && get().paletteOpen ? get().paletteReplaces : null;
-        set(open ? { paletteOpen: true, paletteMode: mode, paletteReplaces: replaces, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false, paletteMode: "all", paletteReplaces: null });
+        set(open ? { paletteOpen: true, paletteMode: mode, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false, paletteMode: "all" });
+      },
+      async findInDocuments() {
+        // ⌘P from inside ⌘⇧P's field is the same question put to the other surface, so that one goes.
+        if (get().paletteOpen) get().setPaletteOpen(false);
+        const s = get();
+        const focused = itemIdOfLeaf(s.layout, s.focusedLeafId);
+        const here = focused ? s.items.find((i) => i.id === focused) : undefined;
+        let opened: { documentsId: string; itemId: string } | null;
+        if (here?.kind === "documents") opened = { documentsId: here.refId, itemId: here.id };
+        else {
+          // The session the keyboard is in, the one the focused side pane serves, or the first one on
+          // screen — `peekOwner`'s answer, which is also where that session's Documents button opens.
+          const owner = s.peekOwner();
+          const ownerItem = owner ? s.items.find((i) => i.id === owner) : undefined;
+          const session = ownerItem ? s.sessions[ownerItem.refId] : undefined;
+          opened = session
+            ? await get().openDocuments(session.environmentId, null, { sessionId: session.id })
+            : await get().openDocuments(null, null, true);
+        }
+        if (opened) set({ documentsAsk: { documentsId: opened.documentsId, seq: ++documentsAskSeq, search: true } });
+      },
+      takeDocumentsAsk(seq) {
+        if (get().documentsAsk?.seq === seq) set({ documentsAsk: null });
       },
       async openFromNewTab(itemId, tool) {
         // The blank tab's own space: what opens in its place belongs where the tab did.
         const sid = get().items.find((i) => i.id === itemId)?.spaceId ?? get().activeSpaceId; if (!sid) return;
-        if (tool === "files") {
-          get().setPaletteOpen(true, "files");
-          set({ paletteReplaces: itemId });
-          return;
-        }
         // The session the tab's side pane serves, whose checkout the tool opens on. A browser that is
         // a pane of its own serves nobody, and the space's primary checkout is the server's default.
         const owner = findLeafOfItem(get().layout ?? emptyLayout(), itemId)?.owner;
@@ -5136,10 +5220,11 @@ await get().refreshCustomThemes().catch(() => {});
           if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
           refreshGitFor(id); // opening a session refreshes its cwd's git context
-          // …and its space's skills library, when the agent can actually take one — what the prompter's
-          // @-mention picker reads. Skipped for Cursor/fake sessions: no picker, no fetch.
+          // …and its space's skills library — what the prompter's @ list reads. For every agent: one
+          // that cannot be handed skills still gets @Mac, by its instructions, and the list filters
+          // the other skills out by agent itself (SessionPane's `mentionSkills`).
           const opened = get().sessions[id];
-          if (opened && AGENT_SKILL_SUPPORT[opened.agentKind] === "injected") get().run(() => get().refreshSkills(opened.spaceId));
+          if (opened) get().run(() => get().refreshSkills(opened.spaceId));
         /* Unconditional, unlike skills: a user command expands to TEXT in the draft, so it works the
            same for every agent kind — there is no injection the agent has to support. */
         if (opened) get().run(() => get().refreshCommands(opened.spaceId));
@@ -5374,7 +5459,9 @@ await get().refreshCustomThemes().catch(() => {});
         // Read here, synchronously, for the reason the two sidecars above are: the prompter clears
         // the draft behind this call and the references go with it.
         const refs = get().draftSessionRefs[id] ?? [];
-        await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs);
+        // The named files and apps, re-derived from the FINAL text like the elements above.
+        const named = keepLiveRefs(text, get().draftRefs[id] ?? []);
+        await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs, named);
         if (refs.length) set({ draftSessionRefs: { ...get().draftSessionRefs, [id]: [] } });
         // Only AFTER the send lands, and only the ones that went: a rejected send that also emptied the
         // chip row would leave the user with no record of what they had attached, and a file dragged in
@@ -5403,6 +5490,7 @@ await get().refreshCustomThemes().catch(() => {});
         // may already have moved on, but here it is this draft trimmed, and `setDraft` has kept the
         // sidecar in step with it on every keystroke.
         const elements = get().draftElements[sessionId] ?? [];
+        const named = get().draftRefs[sessionId] ?? [];
         const { session, itemId } = await api.createSession({
           spaceId: source.spaceId, agentKind: source.agentKind, environmentId: source.environmentId,
           model: source.model, effort: source.effort, permissionMode: source.permissionMode,
@@ -5411,7 +5499,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (inProfile(source.spaceId)) mergeSession(session);
         // Send FIRST, clear after: a rejected send must leave the draft in the composer (run
         // surfaces the reason), exactly as a failed normal send would.
-        await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, get().draftSessionRefs[sessionId] ?? []);
+        await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, get().draftSessionRefs[sessionId] ?? [], named);
         const sent = new Set(pending.map((a) => a.path));
         const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => !sent.has(a.path));
         set({
@@ -5419,6 +5507,7 @@ await get().refreshCustomThemes().catch(() => {});
           draftMentions: { ...get().draftMentions, [sessionId]: [] },
           draftElements: { ...get().draftElements, [sessionId]: [] },
           draftSessionRefs: { ...get().draftSessionRefs, [sessionId]: [] },
+          draftRefs: { ...get().draftRefs, [sessionId]: [] },
           pendingAttachments: { ...get().pendingAttachments, [sessionId]: left },
         });
         // The new pane arrives beside, quietly. Items are refetched first (the server created the
@@ -5849,20 +5938,46 @@ await get().refreshCustomThemes().catch(() => {});
         const mentions = mentionIds(text, new Set([...mentionableIds(sessionId), ...prev]));
         const elements = keepLiveChips(text, get().draftElements[sessionId] ?? []);
         const links = keepLiveLinks(text, get().draftLinks[sessionId] ?? []);
+        const refs = keepLiveRefs(text, get().draftRefs[sessionId] ?? []);
         set({
           drafts: { ...get().drafts, [sessionId]: text },
           draftMentions: { ...get().draftMentions, [sessionId]: mentions },
           draftElements: { ...get().draftElements, [sessionId]: elements },
           draftLinks: { ...get().draftLinks, [sessionId]: links },
+          draftRefs: { ...get().draftRefs, [sessionId]: refs },
         });
       },
       addLinkChip(sessionId, url) {
         const ref = describeLink(url);
         if (!ref) return null;
-        const taken = [...(get().draftLinks[sessionId] ?? []), ...(get().draftElements[sessionId] ?? [])].map((c) => c.label);
+        const taken = [...(get().draftLinks[sessionId] ?? []), ...(get().draftElements[sessionId] ?? []), ...(get().draftRefs[sessionId] ?? [])].map((c) => c.label);
         const chip: LinkChip = { label: linkChipLabel(ref.label, taken), url: ref.url, service: ref.service };
         set({ draftLinks: { ...get().draftLinks, [sessionId]: [...(get().draftLinks[sessionId] ?? []), chip] } });
         return chip;
+      },
+      addMentionRef(sessionId, ref, candidates) {
+        const current = get().draftRefs[sessionId] ?? [];
+        // The same thing named twice is one entry under one label — the second token is the same chip.
+        const same = current.find((r) => r.kind === ref.kind && (r.kind === "app" ? r.bundleId === (ref as { bundleId?: string }).bundleId : r.path === (ref as { path?: string }).path));
+        if (same) return same.label;
+        const taken = [...current, ...(get().draftLinks[sessionId] ?? []), ...(get().draftElements[sessionId] ?? [])].map((c) => c.label);
+        const label = mentionRefLabel(candidates, taken);
+        set({ draftRefs: { ...get().draftRefs, [sessionId]: [...current, { ...ref, label } as MentionRef] } });
+        return label;
+      },
+      async loadInstalledApps() {
+        set({ installedApps: await api.installedApps().catch(() => get().installedApps ?? []) });
+      },
+      async ensureAppIcons(paths) {
+        const held = get().appIcons;
+        const missing = [...new Set(paths)].filter((p) => !(p in held) && !iconsInFlight.has(p));
+        if (missing.length === 0) return;
+        for (const p of missing) iconsInFlight.add(p);
+        try {
+          const got = await api.appIcons(missing).catch(() => ({} as Record<string, string | null>));
+          // A path main did not answer for is not one of its apps: held as null, so it is not asked again.
+          set({ appIcons: { ...get().appIcons, ...Object.fromEntries(missing.map((p) => [p, got[p] ?? null])) } });
+        } finally { for (const p of missing) iconsInFlight.delete(p); }
       },
       async connectApp(spaceId, connectorId, client) {
         const c = CONNECTORS.find((x) => x.id === connectorId);
@@ -5937,8 +6052,8 @@ await get().refreshCustomThemes().catch(() => {});
         set({ spaceScripts: { ...get().spaceScripts, [spaceId]: scripts } });
       },
       projectCwd: () => Object.values(get().environments).find((e) => e.kind === "primary")?.path ?? null,
-      async searchProjectFiles(query) {
-        const cwd = get().projectCwd(); if (!cwd) return null;
+      async searchProjectFiles(query, cwd = get().projectCwd()) {
+        if (!cwd) return null;
         return api.projectFiles(cwd, query);
       },
       async searchProjectText(query) {
@@ -6078,6 +6193,14 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async attachFromPicker(sessionId) { addAttachments(sessionId, await api.pickFiles()); },
       attachPicked(sessionId, picked) { addAttachments(sessionId, picked); },
+      async attachPaths(sessionId, paths) {
+        const described = await api.describePaths([...paths]);
+        // Main describes only what is on disk, so a missing file comes back as nothing at all — said
+        // here, rather than as a click that added no chip.
+        const gone = paths.filter((p) => !described.some((d) => d.path === p));
+        if (gone.length > 0) get().toast({ tone: "warning", text: `No longer on disk: ${gone.map((p) => basenameOf(p)).join(", ")}` });
+        addAttachments(sessionId, described);
+      },
       removeAttachment(sessionId, path) {
         const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => a.path !== path);
         set({ pendingAttachments: { ...get().pendingAttachments, [sessionId]: left } });
@@ -6221,61 +6344,66 @@ await get().refreshCustomThemes().catch(() => {});
         if (!env) return;
         // The checkout's own space: a diff of another space's worktree is that space's item.
         const sid = env.spaceId;
-        // One diff pane per environment: a second "show changes" on the same checkout goes to the
-        // pane that already exists rather than accumulating identical panes.
-        const existing = get().items.find((i) => i.kind === "diff" && i.refId === environmentId);
-        // Same eviction bug openItemBeside exists to fix, just triggered by the user instead of an
-        // agent: replacing the focused leaf in place stranded the session with no way back. Open it
-        // beside instead — unless the caller named an explicit target leaf.
-        if (existing) {
-          if (targetLeafId === null) { await get().openItemBeside(existing.id); return; }
-          await get().openItem(existing.id, targetLeafId);
-          return;
+        // One diff per environment: a second "show changes" on the same checkout goes to the one that
+        // already exists rather than accumulating identical tabs.
+        let itemId = get().items.find((i) => i.kind === "diff" && i.refId === environmentId)?.id;
+        if (!itemId) {
+          const title = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? "Changes";
+          const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
+          await loadSpaceItems(sid);
+          if (!inProfile(sid)) return;
+          itemId = created.id;
         }
-        const title = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? "Changes";
-        const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
-        await adoptItem(sid, created.id, targetLeafId, true);
+        if (targetLeafId !== null) { await get().openItem(itemId, targetLeafId); return; }
+        const layout = get().layout ?? emptyLayout();
+        // On screen already — a tab, or a pane someone made of it: go there.
+        if (findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
+        /* A TAB of a side pane, never a column of its own (the owner, 10-04: "the diff changes should
+           also be a tab instead of its own pane"). Beside a session and its browser it was a third
+           column a third of the window wide. Every way in — the session's bar, the branch chip, the
+           summary, a space's page, a transcript's Review — comes through here, so every one of them
+           lands the same way: in the side pane of the session working in this checkout when one is on
+           screen, else of the pane in focus. With nothing on screen to be beside, the empty pane
+           takes it. */
+        const mains = primaryLeaves(layout).map((leaf) => leaf.itemId).filter((id): id is string => id !== null);
+        const items = get().items;
+        const working = mains.find((id) => {
+          const item = items.find((i) => i.id === id);
+          return item?.kind === "session" && get().sessions[item.refId]?.environmentId === environmentId;
+        });
+        const focused = get().focusedLeafId ? columnOf(layout, get().focusedLeafId)?.itemId ?? null : null;
+        const owner = working ?? focused ?? mains[0] ?? null;
+        if (owner && await openInSidePaneOf(owner, itemId, { focus: true })) return;
+        await get().openItem(itemId);
       },
       async openDocuments(environmentId = null, targetLeafId = null, beside = false, spaceId = null) {
         // The checkout's space when one is named; else the session's it is opened beside; else the
         // named or current space, whose primary checkout the server resolves.
         const sid = (environmentId ? get().environments[environmentId]?.spaceId : undefined) ?? spaceFor(spaceId ?? besideSpace(beside));
-        if (!sid) return;
+        if (!sid) return null;
         // No local "is it already open?" check, unlike openDiff: the SERVER enforces one workspace per
         // environment and returns the existing pair, so this call is idempotent and already answers
         // the question. Doing it here as well would need the environment id the caller may not have
         // passed (the primary checkout is resolved server-side) plus a cache of workspace rows to
         // resolve it against — two new pieces of state to keep honest, for an answer already in hand.
-        const { itemId } = await api.createDocuments(sid, environmentId ?? undefined);
+        const made = await api.createDocuments(sid, environmentId ?? undefined);
         const layout = get().layout;
-        if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId, targetLeafId); return; }
-        await adoptItem(sid, itemId, targetLeafId, beside);
+        if (layout && findLeafOfItem(layout, made.itemId)) await get().openItem(made.itemId, targetLeafId);
+        else await adoptItem(sid, made.itemId, targetLeafId, beside);
+        return made;
       },
-      async openDocumentPath(path, environmentId = null, spaceId = null) {
+      async openDocumentPath(path, environmentId = null, spaceId = null, at = {}) {
         const sid = (environmentId ? get().environments[environmentId]?.spaceId : undefined) ?? spaceFor(spaceId);
         if (!sid) return;
-        // Read before the round trip: the palette closes as the pick is made, and its close clears it.
-        // Only while it is open — a sheet or the spaces overview can take the palette down without
-        // clearing it, and a file opened from anywhere else then is not the new tab's pick.
-        const replacing = get().paletteOpen ? get().paletteReplaces : null;
-        if (replacing) newTabPicks++;
-        try {
-          const { itemId } = await api.openDocumentPath(sid, path, environmentId ?? undefined);
-          // Picked from a new-tab page's Files: the documents pane takes the blank tab's place.
-          if (replacing && findLeafOfItem(get().layout ?? emptyLayout(), replacing)) { await replaceNewTab(sid, replacing, itemId); return; }
-          const layout = get().layout;
-          if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
-          await adoptItem(sid, itemId, null);
-        } finally {
-          if (replacing) newTabPicks--;
-        }
+        const opened = await api.openDocumentPath(sid, path, environmentId ?? undefined);
+        // Asked before the pane is brought up, so a pane this open is about to mount finds it there.
+        if (at.line) set({ documentsAsk: { documentsId: opened.documentsId, seq: ++documentsAskSeq, path: opened.path, line: at.line } });
+        const layout = get().layout;
+        if (layout && findLeafOfItem(layout, opened.itemId)) { await get().openItem(opened.itemId); return; }
+        await adoptItem(sid, opened.itemId, null);
       },
       async applyDocumentOpenRequested({ spaceId, itemId, openedBy }) {
         if (!inProfile(spaceId)) return;
-        // This window's own pick for a new tab, still on its way back: `openDocumentPath` puts the
-        // file in the tab's place once its call returns, and this broadcast arrives first. Opened
-        // quietly beside the focused pane here, it would already be somewhere, and be gone to.
-        if (!openedBy && newTabPicks > 0) return;
         const leaf = findLeafOfItem(get().layout ?? emptyLayout(), itemId);
         // On screen in a pane of its own: the pane opens the tab itself.
         if (leaf && !leaf.tabs) return;
@@ -6780,6 +6908,10 @@ await get().refreshCustomThemes().catch(() => {});
       async setTerminalCursorStyle(style) {
         set({ terminalCursorStyle: style });
         await api.setSetting(TERMINALS_CURSOR_STYLE_KEY, style);
+      },
+      async setTerminalColors(scheme) {
+        set({ terminalColors: scheme });
+        await api.setSetting(TERMINALS_COLORS_KEY, scheme);
       },
       async setTerminalDock(edge) {
         set({ terminalDock: edge });

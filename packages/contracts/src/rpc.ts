@@ -30,6 +30,7 @@ import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
+import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
 import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAxTreeSchema, SimulatorCameraSourceSchema, SimulatorDeviceSchema, SimulatorEventSchema, SimulatorSchema, SimulatorStateSchema, SimulatorPlatformSchema, SimulatorUiStateSchema } from "./simulator";
 import { GoalSchema, GoalStatusSchema } from "./goal";
 import { UnlockedEggPackSchema } from "./egg-pack";
@@ -37,6 +38,7 @@ import { FailoverPolicySchema } from "./failover";
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
+import { TerminalProgramSchema } from "./terminal-programs";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -592,6 +594,11 @@ export const Methods = {
   "terminals.prefill": { params: z.object({ terminalId: IdSchema, command: z.string() }), result: z.object({ ok: z.literal(true) }) },
   "terminals.resize": { params: z.object({ terminalId: IdSchema, cols: z.number().int(), rows: z.number().int() }), result: z.object({ ok: z.literal(true) }) },
   "terminals.close":  { params: z.object({ terminalId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** What every live terminal is running, keyed by terminal id — only the ones running something
+   *  other than their shell. A client reads it once on connect and keeps it with `terminal.program`,
+   *  because a tab that is not showing still says what its terminal is running, and that tab's
+   *  terminal may have started its program before this client was listening. */
+  "terminals.programs": { params: z.object({}), result: z.record(IdSchema, TerminalProgramSchema) },
 
   /** The browser trio is row + item only (Plan 11 W1): the native `WebContentsView` lives in Electron
    *  main and is driven over IPC, never through the server. These methods carry only what must survive
@@ -914,8 +921,10 @@ export const Methods = {
    * checkout when omitted), add `path` to its tab strip as the active tab, and broadcast
    * `documents.openRequested` so a mounted pane opens the tab and the store brings the item on screen.
    * The agent-facing `docs_open` tool and the store's own "open this lecture" both come through here.
+   * `path` comes back as the tab now names it — relative to the workspace root, whatever shape the
+   * caller sent — so a caller that wants a LINE of it shown can say which tab the line belongs to.
    */
-  "documents.openPath": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional(), path: z.string() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema, environmentId: IdSchema }) },
+  "documents.openPath": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional(), path: z.string() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema, environmentId: IdSchema, path: z.string() }) },
   /** A guide's quiz history from its sidecar; empty when there is none. */
   "documents.progressRead": { params: z.object({ documentsId: IdSchema, path: z.string() }), result: GuideProgressSchema },
   /** Fold one quiz attempt into the sidecar and return the updated history. */
@@ -1387,6 +1396,24 @@ export const Methods = {
     }),
     result: ProjectFilesResultSchema,
   },
+  /**
+   * The prompter's `@` list, Files group: the SESSION's checkout ranked against what follows the `@`.
+   *
+   * By session rather than by `cwd`, unlike `project.files`: the list is "this session's workspace",
+   * and a client-supplied directory is one more thing a caller could point somewhere else. The paths
+   * are the ones `project.files` would rank, minus the files that exist to hold a secret
+   * (`isSecretPath`) — a mention hands a file to the agent, and the keys are the one thing it must
+   * never make easy to hand over. The listing is cached briefly per checkout, so a word typed after
+   * the `@` costs one ranking per keystroke rather than one `git ls-files`.
+   */
+  "mentions.files": {
+    params: z.object({
+      sessionId: IdSchema,
+      query: z.string().max(PROJECT_QUERY_MAX).default(""),
+      limit: z.number().int().min(1).max(PROJECT_FILES_LIMIT_MAX).default(MENTION_FILES_LIMIT),
+    }),
+    result: ProjectFilesResultSchema,
+  },
   /** `git add` for exactly these paths — per file, not per hunk. See git-write.ts for why. */
   "workspace.stage": { params: z.object({ cwd: z.string(), paths: z.array(z.string()).min(1) }), result: z.object({ ok: z.literal(true) }) },
   /** Take these paths back out of the index. Never touches the working tree. */
@@ -1726,7 +1753,7 @@ export const Methods = {
    *  `elements` is OPTIONAL rather than defaulted, and the prompter omits the key outright when the
    *  draft has no element chips — so a message that never touched a browser pane puts exactly the
    *  bytes on this wire that it always has. */
-  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
+  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), mentionRefs: z.array(MentionRefSchema).max(MAX_MENTION_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
     .refine((p) => p.text.length > 0 || p.attachments.length > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ ok: z.literal(true) }) },
   /** Drop one message off the queue before its turn comes. `queuedId` rather than an index: the queue
    *  drains on its own as turns settle, so an index the prompter read a moment ago may already name a
@@ -1893,6 +1920,10 @@ export const Events = {
    *  pty is (re)spawned, which is exactly when a seq stops meaning anything. */
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string(), runId: z.string(), seq: z.number().int() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
+  /** The terminal's foreground program changed: an agent or a tool started, or the shell came back
+   *  (null). Whole state, like every broadcast but `terminal.data` — a client that missed one reads
+   *  `terminals.programs` and is current again. */
+  "terminal.program": z.object({ terminalId: IdSchema, program: TerminalProgramSchema.nullable() }),
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
   "session.event":    StoredSessionEventSchema.extend({ ephemeral: z.boolean() }),
   "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),
