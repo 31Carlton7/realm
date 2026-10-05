@@ -4,7 +4,9 @@ import { existsSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
+import { sessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
+import { SessionEventsStore } from "../store/sessions";
 import { waitFor } from "../test-utils";
 
 let app: App;
@@ -585,6 +587,35 @@ describe("the page about you over rpc", () => {
     expect((await c.call("avatar.clear", {})).result).toEqual({ path: null });
     expect(existsSync(set.path)).toBe(false);
     await waitFor(() => c.events.some((x) => x.event === "avatar.changed" && x.payload?.path === null));
+    c.close();
+  });
+});
+
+describe("saved turns over rpc", () => {
+  it("sessions.setSaved keeps a prompt by its event and tells every window; sessions.saved and library.saved read it back", async () => {
+    // The mutants this kills are the three `reg(…)` lines and the broadcast: the store's own tests keep
+    // passing without any of them, and a track in another window would go on showing the old set.
+    const { c } = await boot();
+    const [personal] = (await c.call("profiles.list", {})).result;
+    const space = (await c.call("spaces.create", { profileId: personal.id, name: "Versed" })).result;
+    const { session } = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude", title: "Org access" })).result;
+    const log = new SessionEventsStore(app.db);
+    const asked = log.append(session.id, sessionEvent("user_message", { text: "Fix the crash", attachments: [] }, 10)).seq;
+    const answered = log.append(session.id, sessionEvent("assistant_text", { messageId: "m1", text: "Fixed." }, 11)).seq;
+
+    expect((await c.call("sessions.setSaved", { id: session.id, seq: asked, saved: true })).result).toEqual({ seqs: [asked] });
+    await waitFor(() => c.events.some((x) => x.event === "session.saved" && x.payload?.sessionId === session.id && x.payload.seqs.length === 1));
+    expect((await c.call("sessions.saved", { id: session.id })).result).toEqual({ seqs: [asked] });
+    const listed = (await c.call("library.saved", { profileId: personal.id })).result;
+    expect(listed.total).toBe(1);
+    expect(listed.entries[0]).toMatchObject({ sessionId: session.id, seq: asked, text: "Fix the crash", reply: "Fixed.", sessionTitle: "Org access", spaceId: space.id });
+    // An answer is not a prompt, and the refusal saves nothing.
+    expect((await c.call("sessions.setSaved", { id: session.id, seq: answered, saved: true })).error.code).toBe("INVALID_ARGUMENT");
+
+    c.events.length = 0;
+    expect((await c.call("sessions.setSaved", { id: session.id, seq: asked, saved: false })).result).toEqual({ seqs: [] });
+    await waitFor(() => c.events.some((x) => x.event === "session.saved" && x.payload?.sessionId === session.id && x.payload.seqs.length === 0));
+    expect((await c.call("library.saved", { profileId: personal.id })).result).toEqual({ entries: [], total: 0 });
     c.close();
   });
 });

@@ -27,7 +27,7 @@ function fresh() {
   const ask = (sessionId: string, text: string, ts: number, extra: Record<string, unknown> = {}) =>
     events.append(sessionId, sessionEvent("user_message", { text, attachments: [], ...extra } as never, ts)).seq;
   const say = (sessionId: string, text: string, ts: number) => events.append(sessionId, sessionEvent("assistant_text", { messageId: `m${ts}`, text }, ts)).seq;
-  return { db, sessions, events, saved: new SavedTurnsStore(db), work, home: home2, ask, say };
+  return { dir: home, db, sessions, events, saved: new SavedTurnsStore(db), work, home: home2, ask, say };
 }
 
 describe("SavedTurnsStore", () => {
@@ -42,19 +42,23 @@ describe("SavedTurnsStore", () => {
   });
 
   it("survives a reopen of the same home — it is on disk, not in memory", () => {
-    const { db, saved, work, ask } = fresh();
+    const { dir, db, saved, work, ask } = fresh();
     const a = ask(work.session.id, "Fix the crash", 10);
     saved.set(work.session.id, a, true);
-    expect(new SavedTurnsStore(db).forSession(work.session.id)).toEqual([a]);
+    db.close();
+    const again = openDatabase(join(dir, "realm.db"));
+    expect(new SavedTurnsStore(again).forSession(work.session.id)).toEqual([a]);
+    again.close();
   });
 
   it("unsaves, and saving or unsaving twice changes nothing", () => {
     const { db, saved, work, ask } = fresh();
     const a = ask(work.session.id, "Fix the crash", 10);
     saved.set(work.session.id, a, true);
-    const first = (db.prepare("SELECT saved_at FROM saved_turns").get() as { saved_at: number }).saved_at;
+    // Saved long ago: a second save is not a new one, so the turn keeps its place in the Library's list.
+    db.prepare("UPDATE saved_turns SET saved_at = 5").run();
     saved.set(work.session.id, a, true);
-    expect((db.prepare("SELECT COUNT(*) AS n, MIN(saved_at) AS at FROM saved_turns").get() as { n: number; at: number })).toEqual({ n: 1, at: first });
+    expect((db.prepare("SELECT COUNT(*) AS n, MIN(saved_at) AS at FROM saved_turns").get() as { n: number; at: number })).toEqual({ n: 1, at: 5 });
     expect(saved.set(work.session.id, a, false)).toEqual([]);
     expect(saved.set(work.session.id, a, false)).toEqual([]);
   });
