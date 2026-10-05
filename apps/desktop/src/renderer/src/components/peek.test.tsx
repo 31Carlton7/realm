@@ -1,20 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { PAGE_REF_IDS, findSidePane, sessionEvent, type Notification } from "@realm/contracts";
+import { findSidePane, sessionEvent } from "@realm/contracts";
 import { PaneHost } from "./PaneHost";
 import { useItemContextMenu } from "./sidebar/ItemContextMenu";
 import { StoreContext, createAppStore, useApp } from "../state/store";
-import { fakeApi, item, notification, session, space } from "../state/store.test-fakes";
+import { fakeApi, item, session, space } from "../state/store.test-fakes";
 import { registerPane } from "../panes/registry";
 import { SessionPane } from "../panes/session/SessionPane";
-import { NotificationsPage } from "../panes/notifications/NotificationsPage";
 import { setBrowserBridgesForTests } from "../panes/browser/browser-client";
 import { fakeBrowserBridges } from "../panes/browser/browser-bridges.test-fakes";
 
 /**
  * A peek as the person meets it (W11b): the tab marked as one that will not stay, the transcript and
- * its card with no prompter under them, and the two ways in — a session row's menu and a
- * notification row's eye.
+ * its card with no prompter under them, and the way in — a session row's menu.
  */
 
 registerPane("session", SessionPane);
@@ -26,9 +24,8 @@ beforeEach(() => {
 afterEach(() => { cleanup(); setBrowserBridgesForTests(null); vi.unstubAllGlobals(); });
 
 /** The lead focused in Versed; "Other" in Homework, waiting on a card; "Idle" unopened in Versed. */
-async function setup(notifications: Notification[] = []) {
+async function setup() {
   const api = fakeApi({
-    notifications,
     spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework")],
     items: {
       s1: [item("i-lead", "s1", { kind: "session", refId: "lead", title: "Lead" }), item("i-idle", "s1", { kind: "session", refId: "idle", title: "Idle" })],
@@ -137,63 +134,3 @@ describe("the ways in", () => {
   });
 });
 
-/** The Notifications page over the same two spaces, with the lead focused under it. */
-async function feed(notifications: Notification[]) {
-  const ctx = await setup(notifications);
-  const page = item("np", "s1", { kind: "notifications-page", title: "Notifications", refId: PAGE_REF_IDS["notifications-page"] });
-  render(<StoreContext.Provider value={ctx.store}><NotificationsPage item={page} visible /></StoreContext.Provider>);
-  return ctx;
-}
-const eyes = () => screen.queryAllByRole("button", { name: /^Peek at/ }).map((b) => b.getAttribute("aria-label"));
-
-describe("the way in from a notification row", () => {
-  it("peeks at another space's session from the row's eye, which sits beside the row and not in it", async () => {
-    // THE MUTANT: the eye inside the row's button. One click would peek and open the row's sheet at once.
-    const { api, store } = await feed([notification("n-other", { category: "permission", sessionId: "other", spaceId: "s2", refId: "r1", actedAt: null, title: "Other" })]);
-    const eye = await screen.findByRole("button", { name: "Peek at Other" });
-    const row = screen.getByRole("button", { name: "Other" });
-    expect(row.contains(eye)).toBe(false);
-    expect(eye.closest("li")).toBe(row.closest("li"));
-    fireEvent.click(eye);
-    await waitFor(() => expect(store.getState().peek?.item.id).toBe("i-other"));
-    expect(store.getState()).toMatchObject({ activeSpaceId: "s1", notificationsSelectedId: null });
-    // A look at the session is a look at what the row was about, so the row is read, as opening it would make it.
-    await waitFor(() => expect(api.calls).toContain("markNotificationsRead:n-other"));
-  });
-
-  it("offers it only where a peek can land: not on a session open here, a quick chat, or a row with no session", async () => {
-    /* THE MUTANT: a guard of the feed's own — any row that names a session. The eye would then go on a
-       session already open here (a click on the row shows it) and on a quick chat, which has no row
-       anywhere to make a tab of. */
-    await feed([
-      notification("n-lead", { sessionId: "lead", spaceId: "s1", title: "Lead" }),
-      notification("n-idle", { sessionId: "idle", spaceId: "s1", title: "Idle" }),
-      notification("n-chat", { sessionId: "chat", spaceId: "s2", title: "Quick question" }),
-      notification("n-mcp", { category: "mcp_health", sessionId: null, spaceId: null, title: "GitHub" }),
-    ]);
-    await screen.findByRole("button", { name: "Peek at Idle" });
-    expect(eyes()).toEqual(["Peek at Idle"]);
-  });
-
-  it("takes where the session lives now over the space the row was written in", async () => {
-    // THE MUTANT: trust the row's own space. A notification outlives a move, and its eye would be a
-    // second way to reach a pane that is already on screen here.
-    await feed([
-      notification("n-lead", { sessionId: "lead", spaceId: "s2", title: "Lead, before it moved" }),
-      notification("n-idle", { sessionId: "idle", spaceId: "s1", title: "Idle" }),
-    ]);
-    await screen.findByRole("button", { name: "Peek at Idle" });
-    expect(eyes()).toEqual(["Peek at Idle"]);
-  });
-
-  it("offers none with no session on screen to be beside", async () => {
-    const { store } = await setup([notification("n-idle", { sessionId: "idle", spaceId: "s1", title: "Idle" })]);
-    await store.getState().closeFromLayout("i-lead");
-    await store.getState().newTerminal();
-    expect(store.getState().peekOwner()).toBeNull();
-    const page = item("np", "s1", { kind: "notifications-page", title: "Notifications", refId: PAGE_REF_IDS["notifications-page"] });
-    render(<StoreContext.Provider value={store}><NotificationsPage item={page} visible /></StoreContext.Provider>);
-    await screen.findByRole("button", { name: "Idle" });
-    expect(eyes()).toEqual([]);
-  });
-});

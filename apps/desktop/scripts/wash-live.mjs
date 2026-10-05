@@ -336,7 +336,7 @@ async function main() {
     await paletteRow(c, `Palette: ${palette}`);
     await sleep(500);
 
-    for (const [name, sel, re] of [["settings", ".settings-page-pane", "settings"], ["notifications", ".notifications-page-pane", "notification"]]) {
+    for (const [name, sel, re] of [["settings", ".settings-page-pane", "settings"]]) {
       await evalIn(c, `__live.openPage(${JSON.stringify(re)})`);
       await until(() => evalIn(c, `!!document.querySelector('${sel}')`), 15000, `${name} pane`);
       await sleep(450);

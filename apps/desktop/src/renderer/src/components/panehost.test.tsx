@@ -170,7 +170,7 @@ describe("PaneHost", () => {
   describe("closing by delete", () => {
     const kinds = [
       ["settings-page", "Settings"], ["library-page", "Library"], ["connections-page", "Connections"],
-      ["notifications-page", "Notifications"], ["schedules-page", "Scheduled tasks"],
+      ["code-review-page", "Code review"], ["schedules-page", "Scheduled tasks"],
       ["profile-page", "Profile"], ["space-page", "Overview"], ["terminal", "Shell"], ["documents", "Files"],
       ["browser", "Tab"],
     ] as const;

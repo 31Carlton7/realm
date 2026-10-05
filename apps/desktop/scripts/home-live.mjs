@@ -3,10 +3,10 @@
  *
  * Boots the BUILT app on a scratch REALM_HOME and checks, in both faces, in the real window:
  *
- *   1. The rail holds Home, Library, Connections, Scheduled tasks and the bell, and no Agents page.
- *      With a session waiting on you, Home is unlit and wears no count; the session says so in
- *      Needs you, and the bell counts what came in.
- *   2. Home goes back from every page — Library, Connections, Scheduled tasks, Notifications,
+ *   1. The rail holds Home, Library, Connections, Scheduled tasks and Code review, and no Agents page.
+ *      With a session waiting on you, Home is unlit and wears no count, and the session says so in
+ *      Needs you.
+ *   2. Home goes back from every page — Library, Connections, Scheduled tasks, Code review,
  *      Settings, You, a space's Overview and a profile — to the session that was in front, with its
  *      prompter on screen and nothing new made.
  *   3. The foot of Settings ▸ General credits its author, and nobody else.
@@ -14,7 +14,8 @@
  *
  * Ports: LIVE_SERVER_PORT (8813), LIVE_CDP_PORT (9253). Scratch and pictures under LIVE_DIR. Nothing is
  * billed: every session is moved to the fake agent before anything is sent, and nothing is typed into
- * a composer. Kills only what listens on its own ports.
+ * a composer. Nothing reaches GitHub: Code review is handed a gh that is not there, and says so.
+ * Kills only what listens on its own ports.
  */
 import { execSync, spawn } from "node:child_process";
 import { connect } from "node:net";
@@ -183,7 +184,7 @@ const PAGES = [
   ["Library", (c) => evalIn(c, `__live.click("Library")`)],
   ["Connections", (c) => evalIn(c, `__live.click("Connections")`)],
   ["Scheduled tasks", (c) => evalIn(c, `__live.click("Scheduled tasks")`)],
-  ["Notifications", (c) => evalIn(c, `__live.click("Notifications")`)],
+  ["Code review", (c) => evalIn(c, `__live.click("Code review")`)],
   ["Settings", (c) => press(c, { key: ",", code: "Comma", keyCode: 188, meta: true })],
   ["You", async (c) => {
     await evalIn(c, `document.querySelector('.rail-foot .rail-btn[aria-haspopup="menu"]').click(); true`);
@@ -235,7 +236,7 @@ async function boot() {
   const mainLog = fs.createWriteStream(path.join(scratch, "main.log"));
   electron = spawn(electronBin, [wrapper,
     "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"], {
-    env: { ...process.env, REALM_HOME: home, REALM_ENABLE_FAKE_AGENT: "1", REALM_HTML_MENUS: "1",
+    env: { ...process.env, REALM_HOME: home, REALM_ENABLE_FAKE_AGENT: "1", REALM_HTML_MENUS: "1", REALM_GH_BIN: path.join(scratch, "no-gh"),
       REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
       LIVE_USER_DATA: path.join(scratch, "userData"),
@@ -290,15 +291,14 @@ async function main() {
     /* ── 1. The rail ───────────────────────────────────────────────────────────────────────── */
     const rail = await evalIn(c, `__live.rail()`);
     const names = rail.map((b) => b.name);
-    check(`${face}: the rail is Home, Library, Connections, Scheduled tasks and the bell — no Agents page`,
+    check(`${face}: the rail is Home, Library, Connections, Scheduled tasks and Code review — no Agents page`,
       names.length === 5 && names[0] === "Home" && names[1] === "Library" && names[2] === "Connections" && names[3] === "Scheduled tasks"
-        && /^Notifications/.test(names[4]) && !document_has_agents(names), names);
+        && names[4] === "Code review" && !document_has_agents(names), names);
     const homeBtn = rail[0];
     check(`${face}: Home is unlit and wears no count while a session waits on you`, homeBtn.pressed === null && homeBtn.badge === null
       && homeBtn.title === "Back to your sessions", homeBtn);
     const where = await evalIn(c, `__live.where()`);
-    check(`${face}: …the waiting session says so in Needs you, and the bell counts what came in`,
-      where.needsYou.some((t) => t.includes("Wants a yes")) && rail[4].badge !== null, { needsYou: where.needsYou, bell: rail[4] });
+    check(`${face}: …the waiting session says so in Needs you`, where.needsYou.some((t) => t.includes("Wants a yes")), { needsYou: where.needsYou });
     check(`${face}: none of the old page's list, wall or office anywhere in the document`, await evalIn(c, `!document.querySelector(".agents-group, .agent-wall, .agent-office")`));
     await shot(c, `${face}-rail`, await evalIn(c, `(() => { const r = document.querySelector(".app-rail").getBoundingClientRect(); const s = document.querySelector("#app-sidebar").getBoundingClientRect();
       return { x: 0, y: 0, width: Math.round(s.right), height: Math.min(innerHeight, 520) }; })()`));

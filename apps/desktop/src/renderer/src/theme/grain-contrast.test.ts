@@ -76,7 +76,7 @@ const HUE_OFFSETS = [...new Set(Array.from({ length: 600 }, (_, i) =>
 /** The ground under each decorated surface, and whether it is textured. `.page` is --rl-panel, which
  *  the bridge in styles.css resolves to --canvas; `.sheet` is --surface. */
 const SURFACES = [
-  { name: "Settings / Notifications (.page)", ground: "--canvas", grain: false },
+  { name: "a page (.page)", ground: "--canvas", grain: false },
   { name: "first run (.sheet)", ground: "--surface", grain: true },
 ] as const;
 

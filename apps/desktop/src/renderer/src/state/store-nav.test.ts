@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { allItems, navEntry } from "@realm/contracts";
 import { createAppStore } from "./store";
-import { fakeApi, item, notification, session, space, type FakeData } from "./store.test-fakes";
+import { fakeApi, item, session, space, type FakeData } from "./store.test-fakes";
 
 const boot = async (overrides: FakeData = {}) => {
   const api = fakeApi(overrides);
@@ -80,59 +80,6 @@ describe("store — per-pane back/forward", () => {
     expect(store.getState().paneHistory[leaf]?.entries.map((e) => e.itemId) ?? []).not.toContain("i1");
   });
 
-  it("selecting a notification no longer writes a pane trail — the feed is not a pane", async () => {
-    /* Two tests used to live here: one that a selection was a STOP on the pane's back/forward trail
-       and one that re-selecting the same row was not. Both were about a feed that was a layout item.
-       It is an overlay now, so there is no leaf whose arrows could retrace "the list" and "the list
-       with this row open" — and a trail keyed by an item id that is in no pane would be a history
-       nothing could navigate. What survives is the selection itself. */
-    const { store } = await boot({
-      notifications: [notification("n1", { title: "one" }), notification("n2", { title: "two", createdAt: 100 })],
-    });
-    const leaf = focused(store);
-    const before = store.getState().paneHistory[leaf]?.entries.length ?? 0;
-    await store.getState().refreshNotifications();
-
-    store.getState().openDestinationPage("notifications-page");
-    await store.getState().selectNotification("page:notifications-page:00000000000000000000000003", "n1");
-    expect(store.getState().notificationsSelectedId).toBe("n1");
-    await store.getState().selectNotification("page:notifications-page:00000000000000000000000003", "n2");
-    expect(store.getState().notificationsSelectedId).toBe("n2");
-
-    // THE MUTANT: go on calling `navigateInPane`. The focused pane's trail would grow a stop per row
-    // read, and its arrows would step through a history that points at nothing.
-    expect(store.getState().paneHistory[leaf]?.entries.length ?? 0).toBe(before);
-  });
-
-  it("retracing does not re-mark rows read — read state is stamped by opening, not by the arrows", async () => {
-    const { api, store } = await boot({
-      items: { s1: [item("np", "s1", { kind: "notifications-page", title: "Notifications", refId: "00000000000000000000000003" })] },
-      notifications: [notification("n1", { title: "one" })],
-    });
-    const leaf = focused(store);
-    await store.getState().openItem("np", leaf);
-    await store.getState().refreshNotifications();
-    await store.getState().selectNotification("np", "n1");
-    const reads = api.calls.filter((c) => c.startsWith("markNotificationsRead")).length;
-    await store.getState().stepPaneNav(leaf, -1);
-    await store.getState().stepPaneNav(leaf, 1);
-    expect(api.calls.filter((c) => c.startsWith("markNotificationsRead"))).toHaveLength(reads);
-  });
-
-  it("the notifications selection is USER-level: it survives a space switch, unlike the pane it was read in", async () => {
-    const { store } = await boot({
-      items: { s1: [item("np", "s1", { kind: "notifications-page", title: "Notifications", refId: "00000000000000000000000003" })] },
-      notifications: [notification("n1", { title: "one" })],
-    });
-    await store.getState().openItem("np", focused(store));
-    await store.getState().refreshNotifications();
-    await store.getState().selectNotification("np", "n1");
-    await store.getState().selectSpace("s2");
-    expect(store.getState().activeSpaceId).toBe("s2");
-    // The page is one page. Opening it anywhere finds the row you were reading.
-    expect(store.getState().notificationsSelectedId).toBe("n1");
-  });
-
   it("navigateInPane is a no-op for an item that is not on screen — there is no pane to record on", async () => {
     const { store } = await boot({ items: THREE });
     const before = store.getState().paneHistory;
@@ -191,7 +138,7 @@ describe("a page overlay when another space is made current", () => {
        stop — an empty space then shows "open something from the sidebar", which is the screen this
        is meant to avoid. */
     const { store } = await boot({ items: TWO_SPACE_ITEMS, sessions: SESSIONS });
-    store.getState().openDestinationPage("notifications-page");
+    store.getState().openDestinationPage("code-review-page");
     expect(store.getState().pageOverlay).not.toBeNull();
 
     await store.getState().selectSpace("s2");
@@ -212,7 +159,7 @@ describe("a page overlay when another space is made current", () => {
         { type: "leaf", id: "L1", itemId: "i1" }, { type: "leaf", id: "L2", itemId: "i2" }] } }), space("s2", "p1", "Homework")],
     });
     store.getState().focusLeaf("L1");
-    store.getState().openDestinationPage("notifications-page");
+    store.getState().openDestinationPage("code-review-page");
 
     await store.getState().selectSpace("s2");
     expect(store.getState().pageOverlay).toBeNull();
@@ -226,7 +173,7 @@ describe("a page overlay when another space is made current", () => {
        so there is no switch that could land on the newest session first and open a pane nobody asked
        for. THE MUTANT: route it through selectSpace. */
     const { store } = await boot({ items: TWO_SPACE_ITEMS, sessions: SESSIONS });
-    store.getState().openDestinationPage("notifications-page");
+    store.getState().openDestinationPage("code-review-page");
 
     const landed = await store.getState().revealSession("se2", "s2");
     expect(landed).toBe(true);

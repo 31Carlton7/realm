@@ -2397,6 +2397,7 @@ describe("every scroller dissolves", () => {
     ".code-body": "a file's code lines, scrolling sideways (it dissolves downwards where a tool's body caps it)",
     ".fd-body": "a diff's lines, scrolling sideways",
     ".diff-hunks": "a file's patch in the diff pane, scrolling sideways on its own panel",
+    ".cr-diffs": "a pull request's diffs, read line by line to the last character, under file heads that pin to its top",
     ".install-cmd code": "one command to copy, scrolling sideways",
     ".code-preview": "the code font's preview lines, scrolling sideways",
     ".documents-raw": "a document's raw source lines, scrolling sideways",
@@ -3335,15 +3336,6 @@ describe("the page measure", () => {
       .toBeGreaterThan(measure(".page:has(.page-rail)"));
   });
 
-  it("the notifications feed takes the shared reading column, opting out in NEITHER direction", () => {
-    /* Two reversals, and the second is the subtle one. It used to opt out UPWARD, to a 968px
-       two-column page whose detail half stood empty until something was selected. Capping the feed
-       narrower and centring it looked like the fix, and was not: the page then centred the cards and
-       the header independently, leaving the title 76px to the left of the list it names. */
-    expect(decl(".notif-feed", "max-width")).toBe("none");
-    expect(MEASURES.has(".notifications-page-pane")).toBe(false);
-  });
-
   it("no cap can bind inside the narrow pass, so the two never fight", () => {
     // Every measure is wider than the widest pane the responsive rules claim (the notifications
     // split's 760). Below them a page is full-bleed and the cap is inert; above them nothing
@@ -3391,10 +3383,9 @@ describe("narrow panes", () => {
     for (const sel of [".page", ".diff-pane", ".panel"]) {
       expect(bodiesFor(sel).join(" "), sel).toContain("container-type: inline-size");
     }
-    // The notifications page declared its own container first; hoisting it to `.page` is what lets
-    // every page share the breakpoints. A re-declaration would be a second, narrower container
-    // shadowing the shared one.
-    expect(RULES.filter((r) => r.selectors.includes(".notifications-page-pane"))).toHaveLength(0);
+    // Hoisting the container to `.page` is what lets every page share the breakpoints. A page that
+    // re-declared its own would be a second, narrower container shadowing the shared one.
+    expect(RULES.filter((r) => r.selectors.some((sel) => /^\.[\w-]+-page(?:-pane)?$/.test(sel)) && /container-type/.test(r.body))).toHaveLength(0);
   });
 
   it("the edge bands are positioned against the SCROLLER, never against the body the rail shares", () => {

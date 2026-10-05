@@ -60,6 +60,9 @@ try {
     // ages. Only here: every other `createApp` is a test or a script, and gets no probe unless it
     // passes one (see the option's own comment).
     simulatorToolchain: () => toolchainAvailable(),
+    // The Code Review page's `gh`. Only here, for the probe's reason: no other `createApp` may reach
+    // GitHub. `REALM_GH_BIN` points a live check at a fake that serves fixture pull requests.
+    codeReview: { gh: process.env.REALM_GH_BIN || "gh" },
     // Laya's local runtime. Only here: every other `createApp` is a test or a script and gets none, so
     // nothing but this process ever looks for a Python or starts one. Even here nothing downloads
     // until the user clicks Install, and nothing runs until they switch Laya to Shadow.

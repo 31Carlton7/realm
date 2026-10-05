@@ -4,10 +4,10 @@ import {
   ComputerTerminal01Icon, GlobeIcon, SmartPhone01Icon, File01Icon, BrainIcon, LayoutGridIcon,
   Settings01Icon, MoreHorizontalIcon, ChatIcon, Search01Icon, PinIcon, PinOffIcon, ArrowLeft01Icon, ArrowRight01Icon,
   Tick01Icon, PencilEdit02Icon, Sun03Icon, Moon02Icon, RefreshIcon,
-  SentIcon, StopIcon, SparklesIcon, ArrowDown01Icon, ArrowUp01Icon, ArrowDown02Icon, ArrowUp02Icon, CheckmarkCircle02Icon, CancelCircleIcon,
+  SentIcon, StopIcon, SparklesIcon, ArrowDown01Icon, ArrowUp01Icon, ArrowDown02Icon, ArrowUp02Icon, ArrowRight02Icon, CheckmarkCircle02Icon, CancelCircleIcon,
   Alert02Icon, BotIcon, Wrench01Icon, CodeIcon, IdeaIcon, Copy01Icon, Attachment01Icon, Image01Icon,
   Task01Icon, GitBranchIcon, GitCompareIcon, GitCommitIcon, GitPullRequestIcon, LaptopIcon, PlugSocketIcon, QuoteUpIcon,
-  Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Notification02Icon, Download04Icon,
+  Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Download04Icon,
   // Space icon picker's "Default" section (SPACE_ICONS, packages/contracts/src/presets.ts) — every
   // name there must have a matching key below.
   Rocket01Icon, StarIcon, Book01Icon, Camera01Icon, MusicNote01Icon, Shield01Icon, Flag01Icon, Coffee01Icon, RadioButtonIcon, Target01Icon, Compass01Icon,
@@ -58,6 +58,8 @@ import {
   WebDesign01Icon,
   // The media viewer's zoom out, beside `add` for zoom in (components/viewer/ViewerStage.tsx).
   MinusSignIcon,
+  // Code review: a request's state, a fold of unchanged lines, a link to copy, a check still running.
+  GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, UnfoldMoreIcon, Link01Icon, Comment01Icon, ViewOffIcon, DashedLineCircleIcon,
   // A turn saved from the scroll track's card (ScrollTrack.tsx), and the Library's list of them: the
   // plain ribbon, which fills when the turn is saved. `bookmark` stays the space icon it already is.
   Bookmark02Icon,
@@ -90,6 +92,8 @@ export const icons = {
   session: ChatIcon, search: Search01Icon, pin: PinIcon, unpin: PinOffIcon, chevronLeft: ArrowLeft01Icon, chevronRight: ArrowRight01Icon,
   check: Tick01Icon, trash: Cancel01Icon, edit: PencilEdit02Icon, sun: Sun03Icon, moon: Moon02Icon,
   send: SentIcon, stop: StopIcon, sparkles: SparklesIcon, chevronDown: ArrowDown01Icon, chevronUp: ArrowUp01Icon, arrowDown: ArrowDown02Icon, arrowUp: ArrowUp02Icon,
+  // A branch merging into another (Code review's head → base), the pair's own shaft and head.
+  arrowRight: ArrowRight02Icon,
   checkCircle: CheckmarkCircle02Icon, errorCircle: CancelCircleIcon, alert: Alert02Icon, bot: BotIcon, tool: Wrench01Icon, code: CodeIcon, idea: IdeaIcon,
   /* Hermes Agent's glyph (AGENT_META), and the one agent here whose mark is NOT vendored into
      brand-icons.ts. Nous Research publishes no vector for it: the docs site's favicon is the
@@ -154,7 +158,9 @@ export const icons = {
   "space-page": Home01Icon,
   "library-page": BookOpen01Icon,
   "connections-page": PlugSocketIcon,
-  "notifications-page": Notification02Icon,
+  /* Code review: the pull-request mark Codex and GitHub both draw — two commits on a line and the
+     arrow bringing a third across — in this set's own stroke, so it sits in the rail at its weight. */
+  "code-review-page": GitPullRequestIcon,
   "settings-page": Settings01Icon,
   "profile-page": UserIcon,
   "schedules-page": Clock01Icon,
@@ -214,6 +220,14 @@ export const icons = {
   /* A picture's zoom out, the plain bar beside the plain plus — the pair every image viewer's −/+
      is, which a magnifier holding either sign only restates at a size where the sign is a speck. */
   minus: MinusSignIcon,
+  /* A pull request's other states beside `pullRequest` (open): merged, closed unmerged, and a draft —
+     the marks GitHub draws for each, so the state reads by shape before its word. */
+  merged: GitMergeIcon, prClosed: GitPullRequestClosedIcon, prDraft: GitPullRequestDraftIcon,
+  /* Lines a diff folded away, opened in place: the two chevrons pulling apart. */
+  unfold: UnfoldMoreIcon,
+  link: Link01Icon, comment: Comment01Icon, hide: ViewOffIcon,
+  /* A check still running: the circle not yet drawn closed. */
+  pending: DashedLineCircleIcon,
   /* The plain ribbon, outlined until the turn is saved and filled once it is (the model picker's star
      does the same). Bookmark01's band across the top would read as a second, ruled-off control. */
   saved: Bookmark02Icon,

@@ -429,8 +429,6 @@ async function main() {
     await shot(c, `${face}-library-skills-scrolled`);
     if (face === "dark") await audit(c, "library skills");
     await closePage(c);
-    await pageStation(c, face, "Notifications", ".notifications-page-pane", "notifications");
-    await closePage(c);
 
     /* ── A scheduled run, read on the Scheduled page ──────────────────────────────────────────── */
     await evalIn(c, `__live.rail("Scheduled tasks")`);

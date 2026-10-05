@@ -23,6 +23,10 @@ import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
+import {
+  GhStatusSchema, PrDetailSchema, PrFilesSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
+  PR_PATCHES_PER_CALL, ReviewInstructionsSchema, SubmitReviewSchema, SubmittedReviewSchema,
+} from "./code-review";
 import { DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
@@ -1590,6 +1594,53 @@ export const Methods = {
    *  window's pane hears the `review.changed` that follows. */
   "review.dismiss": { params: z.object({ environmentId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
+  /* ── code review (v2): pull requests through the person's own `gh` ───────────────────────────
+     Reads are cached on the server for as long as each is worth (code-review/service.ts); `force`
+     skips the cache, which is what Refresh and "Check again" send. The one write is `submit`, and
+     only the page's Submit button calls it — no agent tool reaches any of these. */
+  /** Whether `gh` is installed and signed in, and as whom. */
+  "codeReview.status": { params: z.object({ force: z.boolean().default(false) }), result: GhStatusSchema },
+  /** One of the page's three lists, a page at a time; `cursor` is the previous page's `nextCursor`. */
+  "codeReview.list": { params: z.object({ section: PrSectionSchema, cursor: z.string().nullable().default(null), force: z.boolean().default(false) }), result: PrPageSchema },
+  /** Pull requests matching what was typed. A pasted link is not a search — the page opens it. */
+  "codeReview.search": { params: z.object({ query: z.string().trim().min(1).max(256), cursor: z.string().nullable().default(null) }), result: PrPageSchema },
+  "codeReview.detail": { params: z.object({ ref: PrRefSchema, force: z.boolean().default(false) }), result: PrDetailSchema },
+  /** The changed files at `headSha`, without their patches — those come a screen at a time. */
+  "codeReview.files": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1) }), result: PrFilesSchema },
+  "codeReview.patches": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1), paths: z.array(z.string()).min(1).max(PR_PATCHES_PER_CALL) }), result: z.object({ patches: z.array(FileDiffSchema) }) },
+  /** A file's lines at `headSha`, for opening an unchanged band. Null for a file GitHub will not
+   *  hand over as text (too large, binary, or gone). */
+  "codeReview.fileLines": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1), path: z.string().min(1) }), result: z.object({ lines: z.array(z.string()).nullable() }) },
+  /** Post a review, exactly as composed — on the owner's click of Submit and nothing else. */
+  "codeReview.submit": { params: SubmitReviewSchema, result: SubmittedReviewSchema },
+  /** The profile's standing review instructions (the gear beside Review with…). */
+  "codeReview.instructions": { params: z.object({ profileId: IdSchema }), result: ReviewInstructionsSchema },
+  /** Refused, not trimmed, past `REVIEW_INSTRUCTIONS_MAX` (INSTRUCTIONS_TOO_LONG). */
+  "codeReview.setInstructions": { params: z.object({ profileId: IdSchema, text: z.string() }), result: ReviewInstructionsSchema },
+  "codeReview.pins": { params: z.object({ profileId: IdSchema }), result: z.object({ pins: z.array(PrSummarySchema) }) },
+  "codeReview.setPinned": { params: z.object({ profileId: IdSchema, pr: PrSummarySchema, pinned: z.boolean() }), result: z.object({ pins: z.array(PrSummarySchema) }) },
+  /**
+   * Review with… — run a read-only reviewer session on the chosen model over the request's diff,
+   * under the profile's saved instructions. Returns as soon as the session exists; its findings land
+   * as `codeReview.reviewChanged`. They are the person's to keep or discard: nothing here posts.
+   */
+  "codeReview.review": { params: z.object({ ref: PrRefSchema, profileId: IdSchema, spaceId: IdSchema, projectId: IdSchema.nullable().default(null), agentKind: AgentKindSchema, model: z.string().nullable().default(null), effort: z.string().nullable().default(null) }), result: PrReviewSchema },
+  /** The request's latest reviewer run, or null. */
+  "codeReview.reviewGet": { params: z.object({ ref: PrRefSchema }), result: z.object({ review: PrReviewSchema.nullable() }) },
+  /** Every space of the profile and its projects, with the GitHub repository each checkout pushes to. */
+  "codeReview.places": { params: z.object({ profileId: IdSchema }), result: z.object({ places: z.array(PrPlaceSchema) }) },
+  /** The session this request's questions went to, while it still exists. */
+  "codeReview.thread": { params: z.object({ ref: PrRefSchema }), result: z.object({ sessionId: IdSchema.nullable(), spaceId: IdSchema.nullable() }) },
+  /**
+   * Ask about this pull request: the question goes to the request's session in the chosen place,
+   * continuing it while it lives there; otherwise a new session starts with the request's context —
+   * its link and summary, its diff as an attached file, and the checkout when the place has the
+   * repository.
+   */
+  "codeReview.ask": { params: z.object({ ref: PrRefSchema, spaceId: IdSchema, projectId: IdSchema.nullable().default(null), agentKind: AgentKindSchema, model: z.string().nullable().default(null), effort: z.string().nullable().default(null), text: z.string().trim().min(1),
+    /** Files the person attached in the prompter, beside the request's own. */
+    attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]) }), result: z.object({ sessionId: IdSchema, itemId: IdSchema.nullable() }) },
+
   /** The delegated runs this session is waiting on right now. The registry is in memory and dies
    *  with the process, so this is a read of live state, not of a table — a pane opened after a run
    *  began has no other way to learn about it, and `delegation.changed` carries it from then on. */
@@ -2033,6 +2084,9 @@ export const Events = {
    *  the fresh result), or was dismissed / cleared by a ship (`review` is null). Diff panes holding
    *  this environment apply the payload directly — no refetch race. */
   "review.changed": z.object({ environmentId: IdSchema, review: ReviewResultSchema.nullable() }),
+  /** A pull request's reviewer run started, moved or settled (`key` is its `prKey`). The page holding
+   *  it applies the payload as is. */
+  "codeReview.reviewChanged": z.object({ key: z.string(), review: PrReviewSchema.nullable() }),
   /** The set of runs a session is waiting on changed — one began, settled, or was collected. Carries
    *  the WHOLE fresh set rather than a delta: the engine's registry is the only copy of this fact,
    *  and a renderer that had to accumulate deltas would drift out of step with it after one dropped

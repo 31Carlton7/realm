@@ -11,10 +11,9 @@ import { useChord } from "./use-sidebar-model";
  * The rail: the app's destinations as a column of icons at the window's left edge (Plan 27).
  *
  * The sidebar beside it gets you to your work; the rail gets you to the app's pages — Library,
- * Connections, Scheduled tasks and the notifications, with Home above them as the way back — and at
- * its foot to the Stop of a recording for Laya, a newer Realm, and the person (their page, Settings).
- * It is never collapsed: ⌘B folds the sidebar away and leaves this, so the bell's count is always on
- * screen.
+ * Connections, Scheduled tasks and Code review, with Home above them as the way back — and at its
+ * foot to the Stop of a recording for Laya, a newer Realm, and the person (their page, Settings). It
+ * is never collapsed: ⌘B folds the sidebar away and leaves this.
  *
  * As narrow as its icons and an even margin round them, Codex's: the traffic lights are wider than it
  * and run on across the top row, which is the window's (WindowLead) rather than this column's. Nothing
@@ -22,7 +21,6 @@ import { useChord } from "./use-sidebar-model";
  * the system's).
  */
 export function Rail() {
-  const unread = useApp((s) => s.notificationsUnread);
   return (
     <nav className="app-rail" aria-label="Destinations">
       <div className="rail-group">
@@ -30,7 +28,7 @@ export function Rail() {
         <RailPage kind="library-page" label="Library" />
         <RailPage kind="connections-page" label="Connections" />
         <RailPage kind="schedules-page" label="Scheduled tasks" />
-        <RailPage kind="notifications-page" label="Notifications" count={unread} countLabel={`${unread} unread`} />
+        <RailPage kind="code-review-page" label="Code review" />
       </div>
       <div className="rail-foot">
         {/* The two that wear a state, then the person, at the very foot as Codex keeps them. */}
@@ -45,7 +43,7 @@ export function Rail() {
 /**
  * Home: the way back to the work from wherever the rail has taken you (`goHome`). Not a page, so not
  * a toggle — it is never lit, and it carries no count: a session that needs you says so on its own
- * row, and the bell keeps the count of what came in.
+ * row, and the Dock's badge keeps the count of what came in while you were away.
  */
 function RailHome() {
   const goHome = useApp((s) => s.goHome);

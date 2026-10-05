@@ -43,7 +43,7 @@
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
 .sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
-.edit-counts {
+.edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where {
   letter-spacing: normal;
 }
 
@@ -5256,6 +5256,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .edit-summary,
 :root[data-squircle] .subagents-compose,
 :root[data-squircle] .diff-review,
+:root[data-squircle] .cr-review,
+:root[data-squircle] .cr-ask-where,
 :root[data-squircle] .composer,
 :root[data-squircle] .composer-drop-hint,
 :root[data-squircle] .composer-todos,
@@ -5599,7 +5601,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    the edge cannot belong to just one of the three. */
 :root[data-squircle] .composer-goal,
 :root[data-squircle] .composer-todos,
-:root[data-squircle] .composer-overstrip {
+:root[data-squircle] .composer-overstrip,
+:root[data-squircle] .cr-ask-where {
   --sq-fill: var(--rl-frame); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
   --sq-radius-bottom: 0px;
 }
@@ -5890,7 +5893,7 @@ select { appearance: none; padding-right: 22px;
   /* the diff pane */
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
   /* page panes */
-  .cp-list, .activity-list, .task-detail-result, .notif-feed, .delegation-list,
+  .cp-list, .activity-list, .task-detail-result, .delegation-list,
   .lecture-list, .install-cmd code, .code-preview, .cli-job-output,
   /* documents — the home's lists, and the new code file's languages, included */
   .documents-picker-list, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
@@ -5912,6 +5915,9 @@ select { appearance: none; padding-right: 22px;
   /* Scheduled tasks: the page's column and a task's card — and a sheet that scrolls its body between
      a head and a foot that stay put, which the Schedule a task modal does */
   .sched-col-body, .sched-card, .sheet-body,
+  /* Code review: the page's column, a request's summary, its diffs and its tree, and the line
+     comments waiting in Submit review */
+  .cr-col-body, .cr-summary, .cr-diffs, .cr-tree-rows, .cr-pending,
   /* the media viewer's zoomed picture, whose bars are where it is in the picture */
   .media-viewer-canvas[data-pans]
 ) { scrollbar-width: thin; }
@@ -7196,6 +7202,283 @@ select { appearance: none; padding-right: 22px;
   .sched-view[data-task] .sched-card { width: auto; margin: 12px; }
 }
 
+/* ── Code review (panes/code-review/) ─────────────────────────────────────
+   Codex's Code Review in Realm's grammar. The page carries its own column — the requests — on the
+   frame's ground, wearing the sidebar's row anatomy as the Scheduled page's column does; beside it
+   the request being read, under one bar: its two tabs at the left, its own actions at the right,
+   ending in Submit review. The prompter is docked at the foot, over the content, which keeps a
+   prompter's height of room under its last line so nothing reads behind it. */
+.code-review-page { flex-direction: row; --cr-ask-room: 156px; --cr-tree-w: 272px; }
+.cr-col { flex: none; width: 300px; min-height: 0; display: flex; flex-direction: column;
+  background: var(--rl-frame); border-right: var(--hairline-w) solid var(--rl-line); }
+.cr-col-head { flex: none; display: flex; align-items: center; gap: 4px; padding: 16px 12px 6px 24px; }
+.cr-col-title { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.cr-col-search { position: relative; flex: none; padding: 4px 16px 6px; }
+.cr-col-search .search-field, .cr-tree-filter .search-field { width: 100%; padding-left: 30px; }
+.cr-col-search-mark { position: absolute; left: 26px; top: 50%; transform: translateY(-50%); color: var(--rl-text-faint); pointer-events: none; }
+.cr-col-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column;
+  padding: 4px 16px 24px; --fade-top-h: 12px; --fade-h: 34px; }
+.cr-section { display: flex; flex-direction: column; }
+.cr-section-label { margin: 0; padding-top: 14px; }
+.cr-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+/* A row is its title and one line under it, one hit — chosen, it takes the active fill; under a
+   passing pointer, nothing (design.md: a sidebar row does not light on hover). */
+.cr-row { width: 100%; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; text-align: left;
+  border-radius: var(--r-ctl); corner-shape: squircle; }
+.cr-row[data-active] { background: var(--rl-active); }
+.cr-row-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.cr-row-open .cr-row-title { display: flex; align-items: center; gap: 6px; }
+/* Who, when, where — the repository yields first: a title and a person are what a row is chosen by. */
+.cr-row-meta { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.cr-row-who, .cr-row-age { flex: none; }
+.cr-row-repo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cr-row-age { font-variant-numeric: tabular-nums; }
+.cr-monogram { flex: none; display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--mark); color: var(--rl-text-bright); font-size: 11px; line-height: 1; font-weight: var(--fw-label); }
+.cr-col-note { margin: 0; padding: 4px 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-faint); }
+.cr-col-note[data-tone="bad"] { color: var(--rl-danger); }
+/* A line of text on the column, not a row: Show more cannot be mistaken for a request. */
+.cr-col-link { align-self: flex-start; padding: 4px 8px; border-radius: var(--r-ctl); font-size: 13px; color: var(--rl-text-faint); }
+.cr-col-link:hover { color: var(--rl-text-dim); }
+.cr-col-note .cr-col-link { padding: 0; color: var(--rl-text-dim); }
+/* The team's list, folded until opened — Codex's "Needs my team's review ›". */
+.cr-section-toggle { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 14px; padding: 4px 8px;
+  border-radius: var(--r-ctl); font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
+.cr-section-toggle:hover { color: var(--rl-text-dim); }
+.cr-section-toggle > svg { transition: transform var(--dur-fast) var(--ease-out-strong); }
+.cr-section-toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
+
+.cr-main { flex: 1; min-width: 0; min-height: 0; display: flex; container: cr-main / inline-size; }
+.cr-empty { margin: auto; max-width: 420px; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.cr-empty-mark { color: var(--rl-text-faint); }
+.cr-empty-title { margin: 6px 0 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.cr-empty-line { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: balance; overflow-wrap: anywhere; }
+.cr-setup { margin: auto; }
+.cr-setup .pane-empty-line { max-width: 440px; }
+.cr-setup-go { gap: 8px; }
+.cr-setup-how { margin: 4px 0 0; max-width: 400px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: balance; }
+.cr-setup-how code { font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-bright); }
+.cr-quiet { font-size: 13px; color: var(--rl-text-faint); }
+
+.cr-view { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.cr-bar { flex: none; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 12px 8px 16px; }
+.cr-bar-spacer { flex: 1; min-width: 0; }
+.cr-bar-group { flex: none; display: inline-flex; align-items: center; gap: 2px; }
+.cr-tabs .seg-opt { display: inline-flex; align-items: center; gap: 6px; }
+.cr-tab-counts { font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
+.cr-tab-counts .diff-add { color: var(--rl-success); }
+.cr-tab-counts .diff-del { color: var(--rl-danger); }
+.cr-review-with { gap: 0; }
+.cr-review-run { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-submit { gap: 6px; }
+.cr-submit-count { min-width: 16px; padding: 0 4px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--rl-accent-contrast) 22%, transparent);
+  font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; }
+/* Narrow, the bar gives up its words before its controls: the model's name goes to the tooltip. */
+@container cr-main (max-width: 720px) {
+  .cr-review-run { max-width: 120px; }
+  .cr-bar { flex-wrap: wrap; row-gap: 6px; }
+}
+
+/* The Summary tab: the description in a reading column, the facts in a column beside it. */
+.cr-summary { flex: 1; min-height: 0; overflow-y: auto; display: flex; justify-content: center; gap: 40px;
+  padding: 8px 28px var(--cr-ask-room); --fade-top-h: 12px; --fade-h: 40px; }
+.cr-summary-main { flex: 1 1 auto; min-width: 0; max-width: 720px; display: flex; flex-direction: column; gap: 18px; }
+.cr-head { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+.cr-head-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cr-pill { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 7px; border-radius: var(--r-pill);
+  font-size: 12px; line-height: 18px; font-weight: var(--fw-label); background: var(--inset); color: var(--rl-text-dim); }
+.cr-pill[data-state="open"] { background: var(--green-tint); color: var(--green); }
+.cr-pill[data-state="merged"] { background: var(--accent-tint); color: var(--rl-accent); }
+.cr-pill[data-state="closed"] { background: var(--red-tint); color: var(--red); }
+.cr-head-repo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.cr-title { margin: 0; font-size: 24px; line-height: 30px; font-weight: var(--fw-title); color: var(--rl-text-bright); text-wrap: balance; overflow-wrap: anywhere; }
+.cr-head-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-faint); }
+.cr-head-author { color: var(--rl-text-bright); font-weight: var(--fw-medium); }
+.cr-head-arrow { color: var(--rl-text-faint); }
+.cr-branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-dim); }
+.cr-body { min-width: 0; }
+.cr-facts { flex: 0 0 260px; align-self: flex-start; display: flex; flex-direction: column; gap: 22px; padding-top: 16px; }
+.cr-fact { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cr-fact-label { margin: 0; display: inline-flex; align-items: center; gap: 4px; align-self: flex-start;
+  font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
+.cr-fact-toggle { padding: 0; border-radius: var(--r-chip); }
+.cr-fact-toggle:hover { color: var(--rl-text-dim); }
+.cr-fact-toggle > svg { transition: transform var(--dur-fast) var(--ease-out-strong); }
+.cr-fact-toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.cr-fact-line { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.cr-fact-line > svg { flex: none; margin-top: 2px; color: var(--rl-text-faint); }
+.cr-fact-line[data-tone="ok"] > svg { color: var(--rl-success); }
+.cr-fact-line[data-tone="bad"] > svg { color: var(--rl-danger); }
+.cr-fact-line[data-tone="wait"] > svg { color: var(--rl-warning); }
+.cr-comments, .cr-reviewers, .cr-checks, .cr-findings, .cr-pending { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.cr-comments { gap: 10px; }
+.cr-comment { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cr-comment-who { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--rl-text-dim); }
+.cr-comment-who .cr-quiet { font-size: 12px; }
+.cr-comment-body { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.cr-reviewers, .cr-checks { gap: 6px; }
+.cr-reviewer, .cr-check { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.cr-reviewer > svg:first-child, .cr-check > svg { flex: none; color: var(--rl-text-faint); }
+.cr-reviewer[data-state="approved"] > svg:first-child, .cr-check[data-state="success"] > svg { color: var(--rl-success); }
+.cr-reviewer[data-state="changes_requested"] > svg:first-child, .cr-check[data-state="failure"] > svg { color: var(--rl-danger); }
+.cr-check[data-state="pending"] > svg, .cr-reviewer[data-state="pending"] > svg:first-child { color: var(--rl-warning); }
+.cr-reviewer-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
+.cr-check a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); text-decoration: none; }
+.cr-check a:hover { color: var(--rl-text-bright); text-decoration: underline; }
+/* Narrow, the facts come first and the description runs under them, one column. */
+@container cr-main (max-width: 900px) {
+  .cr-summary { flex-direction: column-reverse; justify-content: flex-end; gap: 16px; }
+  .cr-summary-main { max-width: none; }
+  .cr-facts { flex: none; align-self: stretch; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; padding-top: 8px; }
+}
+
+/* A reviewer's run: a panel the eye rests in, so the prompter's curve and no ring (design.md). */
+.cr-review { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
+  background: var(--rl-raised); border-radius: var(--r-squircle); corner-shape: squircle; }
+.cr-review-head { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; color: var(--rl-text-dim); }
+.cr-review-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.cr-review[data-state="running"] .cr-review-title { color: var(--rl-text-dim); }
+.cr-review-note { margin: 0; font-size: 13px; color: var(--rl-text-faint); }
+.cr-review-summary { font-size: 14px; line-height: 20px; color: var(--rl-text-dim); }
+.cr-findings { gap: 6px; }
+.cr-finding { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--inset); }
+.cr-finding-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cr-finding-where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; border-radius: var(--r-chip);
+  font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-bright); text-align: left; }
+button.cr-finding-where:hover { text-decoration: underline; }
+.cr-finding-body { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.cr-kept { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--rl-success); }
+.cr-review-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* The Changes tab: the diffs, and the tree of files beside them. */
+.cr-changes { flex: 1; min-height: 0; display: flex; }
+.cr-diffs { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 4px 12px var(--cr-ask-room) 16px; }
+.cr-diffs-none { padding-top: 32px; text-align: center; }
+.cr-file { margin-bottom: 12px; background: var(--surface); box-shadow: var(--shadow-hairline); border-radius: var(--r-panel); }
+/* The file's head scrolls with its file, as every head does (the owner, 10-05), and draws no rule
+   over its own lines: the head and the patch are one panel, and the bands already mark the patch. */
+.cr-file-head { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 6px 0 12px; }
+.cr-file-head .diff-path { font-size: 13px; }
+.cr-file > .diff-note, .cr-file > .diff-loading { padding: 12px; }
+.cr-file > .diff-hunks { box-shadow: none; border-radius: 0 0 var(--r-panel) var(--r-panel); background: transparent; }
+.cr-file-notes { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+
+/* The side-by-side patch (PatchView.tsx): two columns that wrap rather than scroll, so a line keeps
+   its number at the start of the row it began on, and an empty side is hatched. */
+.diff-split { display: flex; flex-direction: column; padding-bottom: 4px; }
+.diff-split-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.diff-split-cell { position: relative; display: flex; align-items: baseline; min-width: 0; font-family: var(--font-mono); font-size: 13px; line-height: 20px; }
+.diff-split-cell + .diff-split-cell { border-left: var(--hairline-w) solid var(--rl-line); }
+.diff-split-cell .diff-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff-split-cell[data-kind="add"] { background: var(--green-tint); }
+.diff-split-cell[data-kind="del"] { background: var(--red-tint); }
+.diff-split-cell[data-kind="add"] :is(.diff-gutter, .diff-mark) { color: var(--green); }
+.diff-split-cell[data-kind="del"] :is(.diff-gutter, .diff-mark) { color: var(--red); }
+.diff-split-cell[data-kind="add"]::before, .diff-split-cell[data-kind="del"]::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; }
+.diff-split-cell[data-kind="add"]::before { background: var(--green); }
+.diff-split-cell[data-kind="del"]::before { background: repeating-linear-gradient(45deg, var(--red) 0, var(--red) 1.5px, transparent 1.5px, transparent 3px); }
+.diff-split-cell[data-kind="empty"] { background: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--mark) 55%, transparent) 5px 6px); }
+/* A line comment starts from the gutter, as GitHub's does: there under the pointer, nowhere at rest. */
+.diff-line-comment { position: absolute; left: 30px; top: 2px; display: grid; place-items: center; width: 16px; height: 16px;
+  border-radius: var(--r-chip); background: var(--rl-accent); color: var(--rl-accent-contrast); opacity: 0; }
+.diff-split-cell:hover .diff-line-comment, .diff-line-comment:focus-visible { opacity: 1; }
+.diff-band { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 4px 12px; text-align: left;
+  background: var(--inset); font-size: 12px; color: var(--rl-text-faint); }
+.diff-band:hover:not(:disabled) { color: var(--rl-text-bright); }
+.diff-band:disabled { cursor: default; }
+.diff-split-note { padding: 2px 12px; font-size: 12px; font-style: italic; color: var(--rl-text-faint); }
+.diff-split-notes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 6px 0; }
+.diff-split-notes > * { grid-column: 2; margin: 0 10px; }
+.diff-split-notes[data-side="LEFT"] > * { grid-column: 1; }
+/* A finding or a comment under its line: a card in Codex's grammar, a step above the patch. */
+.cr-note { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--r-panel); corner-shape: squircle;
+  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.cr-note-body { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.cr-note-actions { display: flex; align-items: center; gap: 6px; }
+.cr-field { width: 100%; padding: 10px 12px; border-radius: var(--r-panel); border: var(--hairline-w) solid var(--rl-card-rim);
+  background: var(--rl-card); color: var(--rl-text-bright); font: inherit; font-size: 14px; line-height: 20px; resize: vertical; outline: none;
+  transition: box-shadow var(--dur-hover) ease; }
+.cr-field::placeholder { color: var(--rl-text-faint); }
+.cr-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+
+.cr-tree { flex: 0 0 var(--cr-tree-w); min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 0 4px; }
+.cr-tree-filter { position: relative; flex: none; }
+.cr-tree-filter .cr-col-search-mark { left: 10px; }
+.cr-tree-rows { flex: 1; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 0 0 16px; --fade-top-h: 12px; --fade-h: 40px; }
+.cr-tree-row { width: 100%; display: flex; align-items: center; gap: 6px; min-height: 28px; padding-right: 8px; text-align: left;
+  border-radius: var(--r-ctl); corner-shape: squircle; font-size: 13px; color: var(--rl-text-dim); }
+.cr-tree-row[data-kind="dir"] { color: var(--rl-text-faint); }
+.cr-tree-row[data-current] { background: var(--rl-active); color: var(--rl-text-bright); }
+.cr-tree-chevron { flex: none; transition: transform var(--dur-fast) var(--ease-out-strong); }
+.cr-tree-row[aria-expanded="true"] .cr-tree-chevron { transform: rotate(90deg); }
+.cr-tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container cr-main (max-width: 760px) { .cr-tree { display: none; } }
+
+/* The prompter, docked at the foot of the request: where the question goes, the exchange it has had,
+   and the card — on the prompter's own column, over the content. Beside the file tree it centres on
+   the diffs and leaves the tree whole: the tree is a list to be read to its last row. */
+.cr-view:has(.cr-tree) { --cr-aside: var(--cr-tree-w); }
+@container cr-main (max-width: 760px) { .cr-view:has(.cr-tree) { --cr-aside: 0px; } }
+.cr-ask { position: absolute; left: calc((100% - var(--cr-aside, 0px)) / 2); bottom: 0; z-index: 2; transform: translateX(-50%);
+  width: min(var(--prompter-w), calc(100% - var(--cr-aside, 0px) - 32px)); display: flex; flex-direction: column; min-height: 0; max-height: 70%; }
+.cr-ask-thread { display: flex; min-height: 0; max-height: 30vh; margin-bottom: 6px; border-radius: var(--r-float);
+  background: var(--surface); box-shadow: var(--shadow-overlay); overflow: hidden; }
+.cr-ask .transcript { padding: 14px 4px 16px; }
+.cr-ask .transcript-wrap { --fade-top-h: 16px; --fade-h: 18px; }
+.cr-ask .transcript-col { max-width: none; }
+.cr-ask .msg-transcript-summary { display: none; }
+/* Where the question goes, on a tab of its own above the card — the over-strip's geometry (frame
+   fill, 10px inset, sliding 10px under the card), which is Codex's "Choose project". It floats over
+   the request, so it needs a ground of its own as the card does. */
+.cr-ask-where { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0;
+  margin: 0 10px -10px; padding: 6px 10px 16px; background: var(--rl-frame); font-size: 12px; color: var(--rl-text-faint);
+  border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; user-select: none; -webkit-user-select: none; }
+.cr-ask .composer-dock { position: relative; z-index: 1; }
+.cr-ask-place { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 60%; padding: 2px 6px; border-radius: var(--r-chip);
+  font-size: 12px; color: var(--rl-text-dim); }
+.cr-ask-place:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.cr-ask-place-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-ask-owner { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding: 0; font-size: 12px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-ask-owner:hover { color: var(--rl-text-bright); text-decoration: underline; }
+.cr-ask-new { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-ask-fold { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: var(--r-chip);
+  font-size: 12px; color: var(--rl-text-faint); }
+.cr-ask-fold:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.cr-ask .composer-dock { width: 100%; margin: 0 0 max(12px, env(safe-area-inset-bottom)); }
+
+/* The two sheets off the bar: how to review (the gear) and Submit review. Popovers, so they grow out
+   of their control on the spring and leave the way they came (the model picker's rule). */
+.cr-pop { z-index: 100; width: 420px; max-width: calc(100vw - 24px); display: flex; flex-direction: column; gap: 12px; padding: 16px;
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-float); box-shadow: var(--shadow-overlay);
+  animation: rl-menu-in var(--dur-pop) var(--spring-smooth); }
+.cr-pop[data-closing] { animation: rl-menu-out var(--dur-press) var(--ease-out-strong) forwards; pointer-events: none; }
+.cr-pop-title { margin: 0; padding: 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.cr-pop-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--rl-text-dim); }
+.cr-select { max-width: 60%; field-sizing: content; border-color: transparent; background-color: transparent; color: var(--rl-text-bright);
+  transition: background-color var(--dur-hover) ease; }
+.cr-select:hover, .cr-select:focus-visible { background-color: var(--rl-hover); }
+.cr-pop-note { margin: -4px 0 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.cr-pop-note[data-tone="bad"] { color: var(--rl-danger); }
+.cr-pop-actions { display: flex; align-items: center; gap: 8px; }
+.cr-pop-label { display: flex; align-items: baseline; justify-content: space-between; font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.cr-pop-label .cr-quiet { font-weight: var(--fw-body); }
+.cr-decision { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; border: none; min-width: 0; }
+.cr-decision > legend { margin-bottom: 6px; }
+.cr-decision-opt { display: flex; align-items: flex-start; gap: 10px; padding: 6px 8px; margin: 0 -8px; border-radius: var(--r-ctl); }
+.cr-decision-opt input { flex: none; margin-top: 3px; }
+.cr-decision-opt[data-disabled] { opacity: .5; }
+.cr-decision-text { display: flex; flex-direction: column; gap: 1px; }
+.cr-decision-name { font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.cr-decision-line { font-size: 13px; line-height: 18px; color: var(--rl-text-faint); }
+.cr-pending { gap: 2px; max-height: 160px; overflow-x: hidden; overflow-y: auto; }
+.cr-pending-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; font-size: 13px; color: var(--rl-text-dim); }
+.cr-pending-where { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-bright); }
+.cr-pending-body { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What Submit will post, said beside it: the decision, the line comments, where, and as whom. */
+.cr-posts { flex: 1; min-width: 0; margin: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+
 /* The Schedule a task modal. Its body scrolls between a head and a foot that stay put, as Codex's
    does, so Create is reachable however long the instructions grow. */
 .sched-modal { display: flex; flex-direction: column; gap: 12px; }
@@ -7229,10 +7512,6 @@ select { appearance: none; padding-right: 22px;
 .sched-modal-advanced:hover { color: var(--rl-text-dim); }
 .sched-modal-advanced svg { transition: transform var(--dur-pop) var(--ease-out-strong); }
 .sched-modal-advanced[aria-expanded="true"] svg { transform: rotate(180deg); }
-/* A session row's eye (W11b) is out of sight until its row is under the pointer or the keyboard. The
-   Notifications page's rows carry it (`PeekButton`). */
-.peek-btn { opacity: 0; transition: opacity var(--dur-hover) var(--ease-out-strong); }
-.notif-cards > li:hover .peek-btn, .notif-cards > li:focus-within .peek-btn { opacity: 1; }
 /* A line of text rather than a row, so it cannot be mistaken for one: the sidebar's Show more. */
 .agents-more { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; padding: 4px 6px; font-size: 12px;
   color: var(--rl-text-dim); border-radius: var(--r-chip); corner-shape: squircle; }
@@ -7461,121 +7740,6 @@ select { appearance: none; padding-right: 22px;
 .task-attempt-outcome { color: var(--rl-text-dim); }
 .task-attempt-outcome[data-outcome="succeeded"] { color: var(--rl-text-bright); }
 .task-attempt-outcome[data-outcome="failed"], .task-attempt-outcome[data-outcome="expired"] { color: var(--rl-danger); }
-
-/* ——— Plan 12 W5: the Notifications page. Quiet feed rows on the page pattern; unread is a dot and a
-   brighter title, never a wash. The inline permission card is the session pane's own component. ——— */
-
-/* The feed is SCANNED, not read: it spends its width on a second column instead of the ~720px
-   reading column the other destination pages cap themselves at (there is no `.page-content` here at
-   all), which is why it shares the rail pages' measure rather than the bare column's. It answers
-   to the PANE's width and not the window's — `.page` is the inline-size container every page shares
-   — because this page is as likely to be half of a split as it is to be the whole screen. */
-
-
-
-
-
-
-
-.notif-detail-title { margin: 0; font-size: 15px; font-weight: var(--fw-title); color: var(--rl-text-bright); overflow-wrap: anywhere; text-wrap: balance; }
-.notif-detail-body { margin: 0; font-size: 13px; line-height: 1.55; color: var(--rl-text-dim); overflow-wrap: anywhere; }
-
-/* Too narrow for two columns: stack them and let the whole body scroll as one, rather than pinching
-   the list and the detail into two unreadable gutters. The threshold is wider than the other pages'
-   640 because this split needs BOTH columns readable at once — the list alone claims up to 480px, so
-   at 640 the detail was a 140px gutter that could not hold a title. */
-/* The narrow pass has nothing left to stack: the split is gone, and one measured column of cards
-   already reflows on its own. */
-.notif-mark-all { flex: none; }
-/* The feed takes the shared reading column — no measure of its own in either direction.
-   It used to opt OUT upward, to a 968px two-column page whose detail half stood empty until
-   something was selected. The first fix opted out downward instead, capping the feed at 560 and
-   centring it, and that was wrong for a subtler reason: the page then centred the cards and the
-   header independently, leaving the title 76px to the left of the list it names. A page whose
-   header and content share one column has neither problem, and is what every other destination
-   page already does. */
-.notif-feed { max-width: none; }
-.notif-unread-count { flex: none; font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
-/* Centred, because an empty feed IS the page, and a sentence pinned to its left reads as a load
-   that has not finished. */
-.notif-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 64px 24px; text-align: center; }
-.notif-empty-line { margin: 0; font-size: 14px; color: var(--rl-text-dim); }
-.notif-empty-sub { margin: 0; font-size: 13px; color: var(--rl-text-faint); text-wrap: balance; }
-.notif-day { display: flex; flex-direction: column; margin-bottom: 20px; }
-.notif-day-label { margin: 0 0 8px; font-size: 11px; font-weight: var(--fw-title); color: var(--rl-text-faint); }
-/* The two sections that are not days. `Needs you` is the only heading on this page that names
-   something still waiting, so it is the only one in full text colour — the day labels stay faint
-   because a date is a divider, not a claim. A hairline under the pinned block separates the questions
-   from the log without a card, a tint or a border around them. */
-.notif-day[data-section="needs-you"] > .notif-day-label { color: var(--rl-text-bright); }
-.notif-day[data-section="needs-you"] { padding-bottom: 20px; border-bottom: var(--hairline-w) solid var(--rl-line); }
-.notif-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-/* A card, not a row: separated by air and a surface rather than by a rule, which is what lets each
-   one carry a body line without the list reading as a wall. */
-/* A notification is a ROW, not a card. It carried `--rl-frame` at rest, which drew a filled tile
-   behind every one of them and turned a day's feed into a wall of stacked boxes — with the unread
-   ones on a second, brighter fill on top, so the only two things worth seeing (unread, selected)
-   competed with a background that was always on. The fill is a state now: nothing at rest, the
-   list's own hover under the pointer, the list's own selection when picked. Unread keeps the
-   brightened ink and its dot, which is what it always actually read by. */
-.notif-row {
-  display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 11px 12px;
-  text-align: left; color: var(--rl-text-dim); font: inherit;
-  background: transparent; border: none; border-radius: var(--r-ctl); corner-shape: squircle;
-  transition: background var(--dur-press) var(--ease-out-strong);
-}
-.notif-row:is([data-pressed], :active:focus-visible) { background: var(--hover-2); }
-.notif-row:hover { background: var(--rl-hover); }
-.notif-row[data-selected] { background: var(--rl-active); }
-/* An unread card is lifted by its SURFACE, not only by a dot — a 6px mark and a colour are the two
-   things design.md will not let carry a state on their own. */
-.notif-row[data-unread] { color: var(--rl-text-bright); }
-.notif-row[data-selected] .notif-title { color: var(--rl-text-bright); }
-.notif-glyph { flex: none; display: inline-flex; margin-top: 2px; color: var(--rl-text-faint); }
-.notif-row[data-unread] .notif-glyph { color: inherit; }
-.notif-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; text-align: left; }
-.notif-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
-.notif-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); margin-top: 6px; }
-/* 13.5px and wrapping. A title clipped mid-word to hold one line stops being a title, and a card
-   has the room for two. */
-.notif-title { flex: 1 1 auto; min-width: 0; font-size: 14px; font-weight: var(--fw-label); overflow-wrap: anywhere; }
-/* The kind, named. The glyph alone made a reader learn nine icons to tell a permission from a
-   finished run. */
-.notif-kind { flex: none; font-size: 11px; color: var(--rl-text-faint); }
-.notif-row[data-unread] .notif-title { color: var(--rl-text-bright); font-weight: var(--fw-title); }
-.notif-time { flex: none; font-size: 11px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-/* A session row's eye (W11b): a sibling over the row's far end, since the row is a button, and in the slot the time and the unread dot hold at rest — they give it
-   up while it shows, and nothing is reserved for it while it does not. Centred on the TITLE's line
-   rather than on the row: a row with a body is taller than its first line, which is where the time
-   and the dot sit. 7px is the row's 11px padding plus half the 20px line, less half the 28px button. */
-.notif-cards > li { position: relative; }
-.notif-line-end { position: absolute; right: 8px; top: 7px; display: flex; align-items: center; }
-.notif-cards > li:has(.peek-btn):hover :is(.notif-time, .notif-dot),
-.notif-cards > li:has(.peek-btn):focus-within :is(.notif-time, .notif-dot) { visibility: hidden; }
-.notif-body { font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); overflow-wrap: anywhere; }
-.notif-inline-card { margin-top: 4px; }
-.notif-sheet { display: flex; flex-direction: column; gap: 10px; }
-/* When, then WHERE. The time and the place are one line of provenance, at the same faint rung — a
-   feed that collects rows from every space under every profile has to say which one this is, and it
-   is context rather than content, so it sits with the timestamp and not with the title. */
-.notif-sheet-when { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 0; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-.notif-sheet-where { display: inline-flex; align-items: center; gap: 4px; color: var(--rl-text-dim); }
-/* The profile qualifies the space, so it is drawn as a chip hanging off it rather than as a third
-   equal fact — two spaces called "Work" is the case this exists for. */
-.notif-sheet-profile { padding: 1px 6px; border-radius: var(--r-chip); corner-shape: squircle; background: var(--inset); color: var(--rl-text-faint); }
-.notif-sheet-read { align-self: center; font-size: 12px; color: var(--rl-text-faint); }
-/* The reply, which is a field and a button and deliberately not a composer: no chip row, no attach
-   button, nothing that would imply the prompter's whole vocabulary works here. */
-.notif-reply { display: flex; align-items: flex-end; gap: 8px; margin-top: 12px; }
-.notif-reply-input { flex: 1; min-width: 0; resize: none; padding: 8px 10px; border-radius: var(--r-ctl); corner-shape: squircle;
-  border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 13px; line-height: 1.5; outline: none; }
-.notif-reply-input:focus { border-color: var(--rl-line-strong); }
-.notif-reply-input::placeholder { color: var(--rl-text-faint); }
-.notif-reply-send { flex: none; }
-
-.notif-jump { align-self: flex-start; height: auto; padding: 0; margin-top: 1px; font-size: 12px; color: var(--rl-text-dim); background: none; border: none; box-shadow: none; }
-.notif-jump:hover:not(:disabled) { color: var(--rl-accent); background: none; text-decoration: underline; }
-.notif-more { align-self: flex-start; margin: 4px 0 12px; }
 
 /* ——— Plan 12 W6: the Settings page. Engines rows carry the vendor mark + a status readout; the
    Permissions tab's state chip only ever wears green on a probe basis (main/tcc.ts's rule). ——— */

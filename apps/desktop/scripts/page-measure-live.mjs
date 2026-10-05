@@ -2,7 +2,7 @@
  * Live check for the page panes' measure (run with: node apps/desktop/scripts/page-measure-live.mjs)
  *
  * Boots the REAL app on a scratch REALM_HOME and measures where a page's parts actually land: the
- * head's glyph, the rail, the reading column, and the notifications split, at pane widths from 340
+ * head's glyph, the rail and the reading column, at pane widths from 340
  * to ~1500. Alignment is the one property jsdom cannot hold an opinion about — it has no layout, so
  * `max-width` and `margin-inline: auto` are to it just two declarations that parse.
  *
@@ -31,7 +31,7 @@ let electron = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Window widths. The sidebar takes 280 of each, so the pane sweeps ~340…~1520 — across the 640px
- *  narrow breakpoint, the notifications page's 760, and both sides of every measure. */
+ *  narrow breakpoint and both sides of every measure. */
 const WIDTHS = [1800, 1400, 1200, 1000, 860, 700, 620];
 
 /** `scrollbar-color`'s second value is the track. Chromium serialises the computed value, so the
@@ -215,8 +215,8 @@ window.__live = window.__live ?? {
       ? { l: Math.min(headSpan.l, bodySpan.l), r: Math.max(headSpan.r, bodySpan.r) } : null;
     return {
       page: p, head: this.box(head), body: this.box(body), headSpan, bodySpan,
-      rail: q('.page-rail'), content: q('.page-content'), split: q('.notif-split'), chips: this.span(page.querySelector('.profile-spaces')),
-      list: q('.notif-list'), detail: q('.notif-detail'), lens: q('.task-lens'), lensDetail: q('.task-detail'),
+      rail: q('.page-rail'), content: q('.page-content'), chips: this.span(page.querySelector('.profile-spaces')),
+      lens: q('.task-lens'), lensDetail: q('.task-detail'),
       gaps: band ? { left: band.l - p.l, right: p.r - band.r } : null,
     };
   },
@@ -268,9 +268,9 @@ window.__live = window.__live ?? {
    *
    *  The reference is therefore read at the SAME y, at the nearest x outside the scroller that the
    *  page shows through: seeThrough walks up from the hit element and takes the point only if
-   *  nothing between it and .page paints a background of its own. .page-body and .notif-detail are
-   *  both transparent, so a usable reference is usually a few pixels away and the wash's own drift
-   *  between the two columns stays inside a unit. */
+   *  nothing between it and .page paints a background of its own. .page-body is transparent, so a
+   *  usable reference is usually a few pixels away and the wash's own drift between the two columns
+   *  stays inside a unit. */
   async gutterPixels(b64, box, gutter, sel) {
     const img = new Image();
     img.src = 'data:image/png;base64,' + b64;
@@ -394,8 +394,7 @@ async function sweep(c, label, tag) {
     console.log(`  pane ${String(r.page.w).padStart(4)}  gaps L${String(r.gaps?.left ?? "-").padStart(4)} R${String(r.gaps?.right ?? "-").padStart(4)}` +
       `  head[${r.headSpan?.l},${r.headSpan?.r}] body[${r.bodySpan?.l},${r.bodySpan?.r}]` +
       (r.rail ? `  rail w${r.rail.w}@${r.rail.l}` : "") +
-      (r.content ? `  content w${r.content.w}@${r.content.l}` : "") +
-      (r.list ? `  list w${r.list.w}@${r.list.l} detail w${r.detail?.w}@${r.detail?.l}` : ""));
+      (r.content ? `  content w${r.content.w}@${r.content.l}` : ""));
   }
   if (tag) {
     await c.send("Emulation.setDeviceMetricsOverride", { width: WIDTHS[0], height: 900, deviceScaleFactor: 1, mobile: false });
@@ -453,23 +452,12 @@ async function main() {
     return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 20000, "composer");
 
-  /* A feed with rows in it. `session_done` is the notification a finished turn raises, and the fake
-     agent finishes one immediately — the page's empty state would measure a single paragraph and
-     say nothing about the split. */
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const first = (await until(async () => {
     const all = await api.call("sessions.listAll", {});
     return all.length ? all : null;
   }, 15000, "a session"))[0];
-  const spaceId = first.spaceId;
-  const TITLES = ["Rename the pane group", "Port the importer", "Trim the transcript", "Fix the diff gutter",
-    "Teach the rail to wrap", "Drop the dead migration", "Seed the scratch repo", "Re-probe the engines",
-    "Widen the commit field", "Collapse the sidebar"];
-  for (const title of TITLES) {
-    const made = await api.call("sessions.create", { spaceId, agentKind: "fake", title });
-    await api.call("sessions.send", { id: made.session.id, text: "hello", attachments: [], mentions: [] });
-  }
   await api.call("sessions.setAgent", { id: first.id, agentKind: "fake" });
   await api.call("sessions.send", { id: first.id, text: "hello", attachments: [], mentions: [] });
   await until(() => evalIn(c, `!!document.querySelector('.app-rail .rail-btn')`), 10000, "the rail");
@@ -521,27 +509,6 @@ async function main() {
   check("settings: a scrolled column dissolves at its ends and nothing but the column is masked",
     fades.every((f) => f.on > 0 && f.over.length === 0), fades.map((f) => ({ width: f.width, on: f.on, over: f.over })));
   await evalIn(c, `__live.settingsTab("Engines")`);
-
-  /* ── Notifications: a two-column split, not a form ───────────────────────────────────────── */
-  await evalIn(c, `__live.destination('Notifications')`);
-  await sleep(500);
-  const notifs = await sweep(c, "Notifications", "wide-notifications");
-  /* The feed is a COLUMN now, not a list beside a detail panel: it opted out of the shared measure
-     upward, to a two-column page whose right half stood empty until something was selected. So what
-     has to hold is what holds for every other page — one column, the shared measure, centred with
-     the head that names it. (These three checks were written against the split and could not go
-     green after it went; `.notif-detail` has not existed since Plan 12's reading-column pass.) */
-  check("notifications: the feed is the shared reading column, at the same measure as every other page",
-    notifs.every((r) => r.content && r.content.w - 8 <= 720),
-    notifs.map((r) => ({ pane: r.page.w, content: r.content?.w })));
-  const nWide = notifs.filter((r) => r.page.w >= 1200);
-  check("notifications: the column is centred as one unit with its head",
-    nWide.length > 0 && nWide.every((r) => Math.abs(r.gaps.left - r.gaps.right) <= 1),
-    nWide.map((r) => ({ pane: r.page.w, l: r.gaps.left, r: r.gaps.right })));
-  const nStack = notifs.filter((r) => r.page.w <= 640);
-  check("notifications: a narrow pane is spent on the feed, not on margins",
-    nStack.length > 0 && nStack.every((r) => r.gaps.left <= 24),
-    nStack.map((r) => ({ pane: r.page.w, l: r.gaps.left })));
 
   /* ── The other three shapes on the same shell ────────────────────────────────────────────── */
   await evalIn(c, `__live.destination('Connections')`);
@@ -664,17 +631,6 @@ async function main() {
     check(`${mode.toLowerCase()}: the bar is the one designed for this scroller — the system's, the dissolve's, or a thin line with no track`,
       barAsDesigned(s), { overlay: s.overlay, dissolve: s.dissolve, color: s.color, width: s.width, gutter: s.gutter });
     await gutter(c, mode, s, await shot(c, `settings-${mode.toLowerCase()}`));
-
-    await evalIn(c, `__live.destination('Notifications')`);
-    await sleep(400);
-    // `.notif-feed`, not `.notif-list`: the feed is one scrolling column now, not a list beside a
-    // detail panel.
-    const n = await evalIn(c, `__live.scroller('.notif-feed')`);
-    check(`${mode.toLowerCase()}: the notifications feed is overflowing too, and its bar is the settings column's`,
-      n && n.overflow > 40 && barAsDesigned(n), n);
-    await gutter(c, mode, n, await shot(c, `notifications-${mode.toLowerCase()}`));
-    await evalIn(c, `__live.destination('Settings')`);
-    await sleep(300);
   }
 
   const errs = c.events.filter((e) => !e.includes("Autofill"));

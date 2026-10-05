@@ -95,7 +95,7 @@ const PALETTE_WIDTH = 560;
 const DESTINATIONS: [DestinationPageKind, string][] = [
   ["library-page", "library"],
   ["connections-page", "connections"],
-  ["notifications-page", "notifications"],
+  ["code-review-page", "code review"],
   ["settings-page", "settings"],
 ];
 

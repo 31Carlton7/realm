@@ -1,5 +1,5 @@
 /**
- * Live check for Plan 26's two leftovers (run with: pnpm build && node apps/desktop/scripts/plan-26-leftovers-live.mjs)
+ * Live check for Plan 26's leftover (run with: pnpm build && node apps/desktop/scripts/plan-26-leftovers-live.mjs)
  *
  * Boots the BUILT app on a scratch REALM_HOME and checks, in the real window:
  *
@@ -9,11 +9,8 @@
  *      main says the tab's own view is the one showing the page. A new blank tab reads the list fresh,
  *      a blank tab kept behind another reads it again when it comes back on screen, and Clear browsing
  *      data from its ⋯ takes the list down.
- *   2. W11b's peek from a notification row. The eye is on the rows whose session a peek can land on,
- *      and not on the lead's, which is on screen. It is not drawn at rest; under the pointer or the
- *      keyboard it takes the slot the time and the unread dot give up, centred on the title's line.
- *      Clicking it opens the session as a peek beside the lead without leaving the space, reads the
- *      row, and is never saved into the layout.
+ *
+ * (Its second part, the peek from a Notifications row, went with that page in v2.)
  *
  * Ports: LIVE_SERVER_PORT (8967), LIVE_CDP_PORT (9367), LIVE_MAIN_INSPECT_PORT (9467), LIVE_SITE_PORT
  * (8977). Screenshots go to LIVE_OUT_DIR (the system temp dir by default). Touches only a scratch dir;
@@ -358,117 +355,6 @@ async function main() {
     picked && cleared?.recent === null && (await recentOnServer()).length === 0, { picked, recent: cleared?.recent, server: await recentOnServer() });
   await shot(c, "new-tab-cleared", await newTabClip(c));
 
-  // ── 2. Peek from a notification row ─────────────────────────────────────────────────────────────
-  const homework = await api.call("spaces.create", { profileId: space.profileId, name: "Homework" });
-  const { session: target } = await api.call("sessions.create", { spaceId: homework.id, agentKind: "fake", title: "Peek target", permissionMode: "default" });
-  await api.call("sessions.send", { id: target.id, text: "ask me", attachments: [], mentions: [] });
-  await until(async () => (await api.call("sessions.get", { id: target.id })).status === "waiting_permission", 20_000, "the peek target waiting on a card");
-  const { session: second, itemId: secondItem } = await api.call("sessions.create", { spaceId: space.id, agentKind: "fake", title: "Second session", permissionMode: "default" });
-  await api.call("sessions.send", { id: second.id, text: "hello", attachments: [], mentions: [] });
-  await api.call("sessions.send", { id: lead.id, text: "hello", attachments: [], mentions: [] });
-  const titles = ["Peek target", "Second session", LEAD];
-  await until(async () => { const { notifications } = await api.call("notifications.list", {}); return titles.every((t) => notifications.some((n) => n.title === t)); }, 20_000, "the three rows");
-
-  await intoLead();
-  await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Notifications')).click(); return true; })()`);
-  await until(() => evalIn(c, `document.querySelectorAll('.notif-cards > li').length >= 3`), 10_000, "the feed");
-  await sleep(800); // every space's rows, for the guard, are read as the page comes up
-  await mouseTo(c, { x: 4, y: WINDOW.height - 4 });
-  await sleep(300);
-  const feed = () => evalIn(c, `[...document.querySelectorAll('.notif-cards > li')].map((li) => {
-    const row = li.querySelector('.notif-row'); const eye = li.querySelector('.peek-btn');
-    const vis = (sel) => { const el = li.querySelector(sel); return el ? getComputedStyle(el).visibility : null; };
-    return { name: row.getAttribute('aria-label'), eye: eye?.getAttribute('aria-label') ?? null, inRow: !!row.querySelector('.peek-btn'),
-      tip: eye?.title ?? null, opacity: eye ? getComputedStyle(eye).opacity : null, time: vis('.notif-time'), dot: vis('.notif-dot') };
-  })`);
-  const rest = await feed();
-  note("the feed at rest", rest);
-  const byName = (rows, name) => rows.find((r) => r.name === name);
-  check("the eye is on the rows a peek can land from — the other space's session and an unopened one — and not on the lead's, which is on screen",
-    byName(rest, "Peek target")?.eye === "Peek at Peek target" && byName(rest, "Second session")?.eye === "Peek at Second session" && byName(rest, LEAD)?.eye === null, rest);
-  check("…beside each row, never inside its button, with the eye's own tooltip",
-    rest.every((r) => !r.inRow) && byName(rest, "Peek target")?.tip === "Peek — look at it beside your session, without opening it", rest);
-  check("…and not drawn at rest, where the time and the unread dot show", rest.filter((r) => r.eye).every((r) => r.opacity === "0" && r.time === "visible" && r.dot !== "hidden"), rest);
-  await shot(c, "notif-rest", await feedClip(c));
-
-  /** One row's geometry: the row, its title's TEXT (not the stretched box), the kind, the eye. */
-  const geometry = (name) => evalIn(c, `(() => {
-    const li = [...document.querySelectorAll('.notif-cards > li')].find((x) => x.querySelector('.notif-row').getAttribute('aria-label') === ${JSON.stringify(name)});
-    const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, cy: r.top + r.height / 2 }; };
-    const title = li.querySelector('.notif-title'); const range = document.createRange(); range.selectNodeContents(title);
-    const first = range.getClientRects()[0];
-    return { row: box(li.querySelector('.notif-row')), eye: box(li.querySelector('.peek-btn')), kind: box(li.querySelector('.notif-kind')),
-      text: { left: first.left, right: first.right, top: first.top, bottom: first.bottom, cy: first.top + first.height / 2 },
-      line: parseFloat(getComputedStyle(title).lineHeight), titleTop: box(title).top };
-  })()`);
-  const g = await geometry("Peek target");
-  await mouseTo(c, { x: g.row.left + 60, y: g.row.top + 12 });
-  await sleep(350);
-  const hover = byName(await feed(), "Peek target");
-  const lineCentre = g.titleTop + g.line / 2;
-  check("under the pointer the eye shows, in the slot the time and the unread dot give up", hover?.opacity === "1" && hover.time === "hidden" && hover.dot === "hidden", hover);
-  check("…8px in from the row's end, centred on the title's line, clear of the title and the kind",
-    Math.abs(g.row.right - g.eye.right - 8) < 0.5 && Math.abs(g.eye.cy - lineCentre) <= 1 && g.text.right < g.eye.left && g.kind.right <= g.eye.left,
-    { rowRight: g.row.right, eye: g.eye, lineCentre, text: g.text, kind: g.kind });
-  await shot(c, "notif-hover", await feedClip(c));
-  await evalIn(c, `(() => { document.documentElement.dataset.mode = "light"; return true; })()`);
-  await sleep(400);
-  await shot(c, "notif-hover-light", await feedClip(c));
-  await evalIn(c, `(() => { document.documentElement.dataset.mode = "dark"; return true; })()`);
-  await sleep(300);
-
-  // The keyboard: the row focused, with the pointer nowhere near it.
-  await mouseTo(c, { x: 4, y: WINDOW.height - 4 });
-  await evalIn(c, `(() => { [...document.querySelectorAll('.notif-row')].find((r) => r.getAttribute('aria-label') === "Second session").focus(); return true; })()`);
-  await sleep(350);
-  const keyed = byName(await feed(), "Second session");
-  check("…and under the keyboard, as under the pointer", keyed?.opacity === "1" && keyed.time === "hidden", keyed);
-  await evalIn(c, `(() => { document.activeElement?.blur(); return true; })()`);
-
-  await mouseTo(c, { x: g.row.left + 60, y: g.row.top + 12 });
-  await sleep(300);
-  await clickAt(c, { x: (g.eye.left + g.eye.right) / 2, y: g.eye.cy });
-  const peekTab = () => evalIn(c, `(() => { const t = document.querySelector('.pane-tab[data-peek] [role=tab]'); return t ? { label: t.getAttribute('aria-label'), selected: t.getAttribute('aria-selected') === 'true' } : null; })()`);
-  const tab = await until(peekTab, 10_000, "the peek's tab").catch(() => null);
-  const overlay = await evalIn(c, `!!document.querySelector('.notifications-page-pane')`);
-  // Nothing switched: the lead's own pane is still on screen, its crumb naming Live. (The focus may be
-  // in the side pane now, which carries no crumb.)
-  const leadCrumb = () => evalIn(c, `[...document.querySelectorAll('.panehost .panel')].find((p) => p.querySelector('.panel-title')?.textContent === ${JSON.stringify(LEAD)})?.querySelector('.panel-crumb')?.getAttribute('aria-label') ?? null`);
-  check("the eye opens the other space's session as a tab of the lead's side pane, the feed out of the way, still beside the lead in Live",
-    tab?.label === "Peek: Peek target" && tab.selected && !overlay && (await leadCrumb()) === "Open Live", { tab, overlay, lead: await leadCrumb() });
-  const peekPane = () => evalIn(c, `(() => { const p = document.querySelector('.session-pane[data-peek]');
-    return p ? { card: !!p.querySelector('.permission-card'), composer: !!p.querySelector('.composer'), bar: p.querySelector('.peek-bar')?.textContent ?? null } : null; })()`);
-  const pane = await until(async () => { const p = await peekPane(); return p?.card ? p : null; }, 10_000, "the peek's card").catch(peekPane);
-  check("…showing its card, no prompter, and which space it is from", pane?.card === true && pane.composer === false && pane.bar === "Peek · HomeworkOpen session", pane);
-  check("…with no browser view over it", (await showing()).length === 0, await views());
-  const readRow = await until(async () => { const { notifications } = await api.call("notifications.list", {}); const n = notifications.find((x) => x.title === "Peek target"); return n?.readAt ? n : null; }, 5_000, "the row read").catch(() => null);
-  check("…and the row it was opened from is read, as opening it would make it", !!readRow, readRow);
-  /** Every item the window's saved view names — on screen or kept in a side pane — as the profile's
-   *  `ui.view:<id>` row has it. */
-  const savedIds = async () => {
-    const { value } = await api.call("settings.get", { key: `ui.view:${space.profileId}` });
-    const walk = (n) => (n.type === "leaf" ? [...(n.tabs ?? []), ...(n.itemId ? [n.itemId] : [])] : n.children.flatMap(walk));
-    const kept = Object.values(value?.sidePanes ?? {}).flatMap((p) => p.tabs);
-    return [...new Set([...(value?.layout ? walk(value.layout) : []), ...kept])];
-  };
-  const targetItem = (await api.call("items.list", { spaceId: homework.id })).find((i) => i.refId === target.id);
-  await sleep(600);
-  const saved = await savedIds();
-  check("…never written into the window's saved view", saved.length > 0 && !saved.includes(targetItem.id), { saved, peek: targetItem.id });
-  await sleep(300);
-  await shot(c, "notif-peeked");
-
-  // A same-space session from its row: the next peek replaces the last.
-  await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Notifications')).click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.notif-cards button[aria-label="Peek at Second session"]')`), 10_000, "the feed again");
-  const g2 = await geometry("Second session");
-  await mouseTo(c, { x: g2.row.left + 60, y: g2.row.top + 12 });
-  await sleep(300);
-  await clickAt(c, { x: (g2.eye.left + g2.eye.right) / 2, y: g2.eye.cy });
-  const tab2 = await until(async () => { const t = await peekTab(); return t?.label === "Peek: Second session" ? t : null; }, 10_000, "the second peek").catch(peekTab);
-  const peeks = await evalIn(c, `document.querySelectorAll('.pane-tab[data-peek]').length`);
-  check("a same-space session's eye peeks at it beside the lead, replacing the last peek", tab2?.label === "Peek: Second session" && peeks === 1 && !(await savedIds()).includes(secondItem), { tab2, peeks });
-
 }
 
 /** The browser pane on screen, from its address field down through the blank tab's last list. */
@@ -477,12 +363,6 @@ async function newTabClip(c) {
     const b = p.getBoundingClientRect(); const s = [...p.querySelectorAll('.new-tab-section')].at(-1)?.getBoundingClientRect();
     return { x: b.left, y: b.top, width: b.width, bottom: s ? s.bottom : b.top + 400 }; })()`);
   return r ? { x: r.x, y: r.y, width: r.width, height: Math.min(r.bottom - r.y + 24, WINDOW.height - r.y), scale: 2 } : undefined;
-}
-
-/** The feed's first rows, for a capture that can be read at a glance. */
-async function feedClip(c) {
-  const r = await evalIn(c, `(() => { const f = document.querySelector('.notif-feed'); if (!f) return null; const b = f.getBoundingClientRect(); return { x: b.left, y: b.top, width: b.width }; })()`);
-  return r ? { x: Math.max(0, r.x - 16), y: Math.max(0, r.y - 8), width: Math.min(r.width + 32, WINDOW.width), height: 260, scale: 2 } : undefined;
 }
 
 /** The window as the renderer draws it. Native browser views are not in a DOM capture, so where the

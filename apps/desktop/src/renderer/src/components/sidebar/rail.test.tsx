@@ -23,7 +23,7 @@ const lead = () => document.querySelector<HTMLElement>(".window-lead")!;
 describe("the rail", () => {
   it("holds the app's destinations as icon buttons, each with a name and a tooltip", async () => {
     await mount();
-    for (const name of ["Home", "Library", "Connections", "Scheduled tasks", "Notifications"]) {
+    for (const name of ["Home", "Library", "Connections", "Scheduled tasks", "Code review"]) {
       const button = within(rail()).getByRole("button", { name });
       expect(button).toHaveAttribute("title");
       expect(button.textContent).toBe(""); // icon only: the name is the accessible name, not a label
@@ -42,6 +42,13 @@ describe("the rail", () => {
     await waitFor(() => expect(store.getState().pageOverlay).toBeNull());
     fireEvent.click(within(rail()).getByRole("button", { name: "Scheduled tasks" }));
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("schedules-page"));
+  });
+
+  it("opens Code review where Notifications was, as its own page", async () => {
+    const { store } = await mount();
+    fireEvent.click(within(rail()).getByRole("button", { name: "Code review" }));
+    await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "code-review-page", refId: PAGE_REF_IDS["code-review-page"] }));
+    expect(within(rail()).queryByRole("button", { name: /notifications/i })).toBeNull();
   });
 
   describe("Home", () => {
@@ -63,7 +70,7 @@ describe("the rail", () => {
       const { store, api } = await working();
       const pages = [
         () => store.getState().openDestinationPage("library-page"), () => store.getState().openDestinationPage("connections-page"),
-        () => store.getState().openDestinationPage("schedules-page"), () => store.getState().openDestinationPage("notifications-page"),
+        () => store.getState().openDestinationPage("schedules-page"), () => store.getState().openDestinationPage("code-review-page"),
         () => store.getState().openDestinationPage("settings-page"), () => store.getState().openDestinationPage("you-page"),
         // Another space's Overview makes that space the current one while it is up.
         () => store.getState().openSpacePage("s2"), () => store.getState().openProfilePage(),

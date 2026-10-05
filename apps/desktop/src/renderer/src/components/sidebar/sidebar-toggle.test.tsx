@@ -95,13 +95,13 @@ describe("sidebar collapse toggle", () => {
 describe("a page with no use for the spaces", () => {
   const shown = () => !document.querySelector(".app")!.hasAttribute("data-sidebar-collapsed");
 
-  it("takes the sidebar away while it is up — Connections, Notifications, Scheduled — and gives it back as it was", async () => {
-    /* The owner, 10-04: no sidebar on Connections or Notifications; and the Scheduled page draws its
-       own column of tasks. The page takes the width right of the rail. THE MUTANTS: a page left out of
+  it("takes the sidebar away while it is up — Connections, Code review, Scheduled — and gives it back as it was", async () => {
+    /* The owner, 10-04: no sidebar on Connections; and the Scheduled and Code review pages draw their
+       own columns, of tasks and of pull requests. The page takes the width right of the rail. THE MUTANTS: a page left out of
        the declaration, or the page writing the person's own collapse setting (so leaving it would not
        bring the sidebar back). */
     const { store, api } = await mountShell();
-    for (const kind of ["connections-page", "notifications-page", "schedules-page"] as const) {
+    for (const kind of ["connections-page", "code-review-page", "schedules-page"] as const) {
       act(() => store.getState().openDestinationPage(kind));
       await waitFor(() => expect(shown(), kind).toBe(false));
       expect(document.getElementById("app-sidebar")).toHaveAttribute("inert");
@@ -194,8 +194,8 @@ describe("what moves the column", () => {
     await act(async () => { await store.getState().toggleSidebar(); });
     expect(shown()).toBe(true);
     expect(cut(), "⌘B on Connections").toBe(false);
-    act(() => store.getState().openDestinationPage("notifications-page"));
+    act(() => store.getState().openDestinationPage("code-review-page"));
     expect(shown()).toBe(false);
-    expect(cut(), "Notifications after it").toBe(true);
+    expect(cut(), "Code review after it").toBe(true);
   });
 });

@@ -25,6 +25,7 @@ export * from "./session-events";
 export * from "./session-facts";
 export * from "./notifications";
 export * from "./review";
+export * from "./code-review";
 export * from "./browser-agent";
 export * from "./browser-upload";
 export * from "./browser-load-error";

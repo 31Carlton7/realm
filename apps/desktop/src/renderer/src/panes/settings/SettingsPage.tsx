@@ -37,7 +37,7 @@ import { CATEGORY_COPY, SETTINGS_GROUPS, searchSettings, settingPlace, settingsT
  * `.page-rail`, under a heading per kind of question (`SETTINGS_GROUPS`), with a search over every
  * row above them.
  *
- * The pane's `item` goes unused like the Notifications page's: nothing here has a per-space vantage —
+ * The pane's `item` goes unused: nothing here has a per-space vantage —
  * engines, app preferences and TCC grants are facts about the machine and the app, not a space.
  */
 
@@ -1439,7 +1439,7 @@ function NotificationsTab() {
             <span className="settings-row-name">Notify me outside Realm</span>
             {/* The two things one switch does. Kept visible: a switch that also counts badges is
                 doing something its label does not say. */}
-            <span className="settings-row-desc">Post a system notification, and count unread ones on the dock icon.</span>
+            <span className="settings-row-desc">Post a system notification, and count them on the Dock until you come back to Realm.</span>
           </div>
           <input type="checkbox" role="switch" className="switch" aria-label="Notify me outside Realm"
             checked={desktopNotifications}

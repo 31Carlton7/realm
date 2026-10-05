@@ -73,6 +73,8 @@ import { announceDelegation } from "./delegation/announce";
 import { AgentRunService } from "./delegation/agent-run";
 import { DelegatedChildren } from "./delegation/children";
 import { ReviewService } from "./delegation/review";
+import { CodeReviewService } from "./code-review/service";
+import { GhClient, ghRunner } from "./code-review/gh";
 import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
@@ -135,7 +137,7 @@ import { userFirstName } from "./user-name";
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
@@ -310,6 +312,27 @@ export function defaultAdapters(): AdapterRegistry {
   // triggers rather than one run: the strip above the prompter shuts itself once every item is done,
   // and both sides of that have to be reachable and holdable long enough to look at.
   if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ delayMs: 15, script: [{
+    // Code Review's "Review with…" (code-review/reviewer.ts) on the live checks' fixture request
+    // (scripts/fixtures/code-review): a summary and three findings in the reply shape the page reads —
+    // two on lines the fixture's diff shows, one off it, so anchored and unanchored both appear.
+    // FIRST, because the prompt carries the whole diff, and a word in it must not match a later entry.
+    on: "Review pull request acme/widgets#42", emit: [
+      { kind: "text", paceMs: 30, text: "I read the tokenizer and parser changes against the new tests.\n\n```realm-review\n" + JSON.stringify({
+        summary: "Streaming the tokenizer drops the 64 KB read buffer and keeps the parser's API as it was. Two risks stand out: a token that ends on a chunk boundary is split in two, and the parser no longer reports an unterminated string.",
+        comments: [
+          { path: "src/tokenizer.ts", line: 14, side: "RIGHT", body: "A token that ends exactly at a chunk boundary is pushed before the next chunk arrives, so `ab|cd` comes out as two tokens. Carry the partial token into the next `feed`." },
+          { path: "src/parser.ts", line: 31, side: "LEFT", body: "This removes the `UnterminatedString` error and nothing replaces it, so a missing quote now reads to the end of the file without a word." },
+          { path: "README.md", line: 400, side: "RIGHT", body: "The README still says the tokenizer buffers its whole input." },
+        ],
+      }) + "\n```" },
+    ],
+  }, {
+    // …and the docked prompter's first question about it, answered the way an agent that read the
+    // attached request would.
+    on: "About pull request acme/widgets#42", emit: [
+      { kind: "text", paceMs: 25, text: "It replaces the tokenizer's 64 KB read buffer with a stream: `Tokenizer.feed` takes chunks as they arrive and yields each token as soon as it is complete. The parser's public API is unchanged, so no caller has to move. The one change in behaviour is error reporting — an unterminated string used to throw `UnterminatedString`, and that check is gone." },
+    ],
+  }, {
     // Work handed to other models: the Agents tab's "Build with…" message, played the way an
     // orchestrating agent plays it — a word on the split, a real `agent_start` per model through
     // this session's own gateway, one `agent_wait`, and the report. FIRST, because a message that
@@ -561,6 +584,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Plan 20's interjection: only timeouts, because an ask spawns nothing and so has no kind to fall
    *  back to. The behaviour suite needs sub-second budgets to exercise the timeout path. */
   ask?: { timeouts?: { budgetMs: number; pollMs: number } };
+  /** The Code Review page's `gh`: the command to run, and the reviewer's settle budget. Only
+   *  `main.ts` names the real one; left out, the page reads "not installed" and nothing is spawned —
+   *  which is what keeps every suite that builds an app away from GitHub. A live check passes a fake. */
+  codeReview?: { gh?: string; timeouts?: { budgetMs: number; pollMs: number } };
   /** CLI manager knobs, injected for the same reason `titleGenerator` is omitted: a suite must never
    *  reach a package registry, and it must read a PATH the test built rather than the developer's own
    *  machine. Production callers pass neither and get the process environment and real fetch. */
@@ -832,6 +859,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let agentRuns: AgentRunService | null = null;
   let reviews: ReviewService | null = null;
   let asks: AskService | null = null;
+  let codeReview: CodeReviewService | null = null;
   // Declared here and built after `modelCatalog` (which it prices with), then read back through the
   // session-event hook below — the same forward-reference `runs` takes, for the same reason.
   let usage: UsageService | null = null;
@@ -865,7 +893,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       // express "this provider, but only four of its tools", and inventing a shape that could would
       // put per-tool delegation policy in the gateway, which is exactly where it does not belong.
       const spentChild = agentRuns?.isChild(sessionId) && !agentRuns.canDelegate(sessionId);
-      return spentChild || reviews?.isChild(sessionId) ? { exclude: [REALM_AGENT_PROVIDER_NAME] } : null;
+      return spentChild || reviews?.isChild(sessionId) || codeReview?.isReviewer(sessionId) ? { exclude: [REALM_AGENT_PROVIDER_NAME] } : null;
     },
     // Activity keeps no masked answer: what a session was told in secret is scrubbed from its calls.
     redact: (sessionId, text) => sessionService?.scrubSecrets(sessionId, text) ?? text });
@@ -1000,8 +1028,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
-      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); },
-      extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id),
+      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); },
+      extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id) ?? codeReview?.extraSystemContext(id),
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
     } });
   sessionService = sessions;
@@ -1065,6 +1093,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     timeouts: opts.ask?.timeouts,
   });
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
+  /* The Code Review page's server side: `gh` behind a cache, and the reviewer a person runs from the
+     page on the same engine as every other delegated run — read-only, depth-1 (the toolset closure
+     above takes the delegation tools off it), and with no path from its findings to a posted review. */
+  codeReview = new CodeReviewService({
+    gh: opts.codeReview?.gh ? new GhClient(ghRunner(opts.codeReview.gh)) : null,
+    settings, rpc, sessions, engine: delegationEngine, spaces, projects, profiles, git: gitCapture, home: opts.home,
+    timeouts: opts.codeReview?.timeouts,
+  });
   /* `realm-ui`: questions asked on Realm's own card, with fields only Realm can fill. On by default and
      in every mode — it can only ask, and an answer is the user's click. The model field offers what a
      sub-agent can be put on, from the same catalog `delegation.models` answers with. */
@@ -1222,6 +1258,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     libraryFiles: new LibraryFilesStore(db, opts.home),
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
+    codeReview,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
        and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —
        a daemon with nothing to do must not be held open by its own timer. */
@@ -1284,6 +1321,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
     schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
+    codeReview?.close(); // and a reviewer settling now must not write its findings to one
     summaries?.close(); // a debounced recap must not fire onto a closing handle, or outlive the process
     terminals.closeAll();
     cliInstaller.disposeAll();
@@ -1311,7 +1349,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   };
 
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, gateway: mcpGateway,
+    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, codeReview, gateway: mcpGateway,
     close: closeApp,
   };
 }
