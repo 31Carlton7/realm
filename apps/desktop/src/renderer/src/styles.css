@@ -1287,6 +1287,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-about { flex: none; box-sizing: border-box; height: calc(17px * 3 + 16px); padding: 6px 14px 10px; display: flex; flex-direction: column; }
 .mp-about-note { margin: 0; font-size: 12px; line-height: 17px; color: var(--rl-text-dim);
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.mp-about-name { margin-right: 6px; color: var(--rl-text-bright); font-weight: var(--fw-label); }
 .mp-about-note[data-tone="warning"] { color: var(--rl-warning); }
 .mp-about-note svg { display: inline-block; vertical-align: -1px; margin-right: 5px; }
 .mp-about-specs { margin: auto 0 0; font-size: 12px; line-height: 17px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums;

@@ -7,7 +7,7 @@ import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import {
   agentRowHint, chipLabel, fastModeHint, fastModeShown, fastModeUntried, filterRows, flatten, formatEffort, groupRows,
-  modelAbout, modelIdOn, modelLabel, type FastMode, type ModelRow,
+  isHarnessDefault, modelAbout, modelIdOn, modelLabel, type FastMode, type ModelRow,
 } from "./model-catalog";
 
 export { formatEffort };
@@ -316,10 +316,15 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
  */
 function About({ row, route, info }: { row: ModelRow; route: AgentKind; info: Record<string, ModelInfo> }) {
   const { note, warning, specs, billing } = modelAbout(row, route, info);
+  // Led by the model's name: the strip sits under whichever row the list happens to end on, and it
+  // is about the highlighted one, which may be a screen away.
+  const name = isHarnessDefault(row) ? AGENT_META[route].label : modelLabel({ ...row, kind: route });
   return (
     <div className="mp-about">
       <p className="mp-about-note" data-tone={warning ? "warning" : undefined} title={warning ?? note}>
-        {warning && <Icon name="alert" size={12} />}{warning ?? note}
+        {warning
+          ? <><Icon name="alert" size={12} />{warning}</>
+          : <><span className="mp-about-name">{name}</span>{note}</>}
       </p>
       <p className="mp-about-specs" title={billing}>{specs ?? billing}</p>
     </div>
