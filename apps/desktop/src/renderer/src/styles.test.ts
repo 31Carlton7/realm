@@ -1175,15 +1175,21 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(":root:has(.page-overlay) .main .resize-handle").join(" ")).toContain("visibility: hidden");
   });
 
-  it("the panes stand a hair above the sidebar: a light shade on its side of the seam, below the head row", () => {
-    /* The owner, 10-04: a very, very light shadow where the panes meet the sidebar, so the panes read
-       as a surface a step above it, as Codex's content card does. Drawn on the sidebar's own ground —
-       under its rows, the surface the panes rise from — at the column's right edge and below the
-       40px head row, which is chrome on both sides and casts nothing. Its own alpha per face: the
-       same black reads far heavier on the light ground. THE mutants: the shade over the head row, or
-       one value for both faces. */
-    const column = bodiesFor(".sidebar").join(" ");
-    expect(column).toContain("linear-gradient(to left, var(--seam-shade), transparent) right top var(--frame-top) / var(--seam-w) 100% no-repeat");
+  it("the sidebar stands a hair above the panes: its edge casts a light shade onto them, below the head row", () => {
+    /* The owner, 10-04: "put that shadow on the sidebar and remove the shadow from the left side of
+       the session panes". The sidebar is the raised surface, so the shade falls on the panes' side of
+       the seam — over a page as well, which is what stands beside the sidebar then — and on `.main`,
+       whose edge is the column's edge on every frame of the motion. Below the 40px head row, which is
+       chrome on both sides and casts nothing; none at all once the column has folded. Its own alpha
+       per face: the same black reads far heavier on the light ground. THE mutants: the shade back on
+       the sidebar's own ground, over the head row, under a page, or kept while folded. */
+    expect(bodiesFor(".sidebar").join(" ")).not.toContain("seam-shade");
+    const shade = bodiesFor(".app:not([data-sidebar-folded]) > .main::after").join(" ");
+    expect(shade).toContain("background: linear-gradient(to right, var(--seam-shade), transparent)");
+    expect(shade).toContain("top: var(--frame-top)");
+    expect(shade).toContain("left: 0; width: var(--seam-w)");
+    const rung = (sel: string) => Number(/z-index:\s*(\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
+    expect(rung(".app:not([data-sidebar-folded]) > .main::after")).toBeGreaterThan(rung(".page-overlay"));
     const alpha = (block: string) => Number(/--seam-shade: oklch\(0 0 0 \/ ([\d.]+)\)/.exec(block)?.[1]);
     const dark = alpha(bodiesFor(":root").join(" "));
     const light = alpha(bodiesFor(':root[data-mode="light"]').join(" "));

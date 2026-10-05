@@ -581,20 +581,25 @@ kbd { font: 11px var(--font-mono); }
   --lights-end: 66px; --lead-x: calc(var(--lights-end) + 10px);
   --lead-nav-end: calc(var(--lead-x) + 2 * 28px + 2px + 8px);
   --lead-end: calc(var(--lead-x) + 2 * 28px + 2px + 4px + 28px + 8px); }
-/* The column's ground, the head band's chrome over its top 40px — the column's, not the head row's,
-   because the row slides and is clipped and the band must not be — and the panes' shadow on it. The
-   panes stand a hair above the sidebar, as Codex's content card does: a very light shade on the
-   sidebar's side of the seam, below the head row only, cast onto the surface they rise from and so
-   under the sidebar's rows like any shadow. Its own step per face, because black on the light ground
-   loses more of itself at the same alpha (design.md: do not assume the light face mirrors the dark). */
-/* Set by measurement, to the depth Codex's own sheet shadow has on its light face (6 levels of 255
-   at the edge): at 5% black the light face measured 11 there, which is a shadow rather than a hint. */
-:root { --seam-shade: oklch(0 0 0 / 0.14); --seam-w: 8px; }
-:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.03); }
+/* The column's ground, and the head band's chrome over its top 40px — the column's, not the head
+   row's, because the row slides and is clipped and the band must not be. */
 .sidebar { background:
-  linear-gradient(to left, var(--seam-shade), transparent) right top var(--frame-top) / var(--seam-w) 100% no-repeat,
   linear-gradient(var(--chrome-tint), var(--chrome-tint)) top / 100% var(--frame-top) no-repeat,
   var(--sidebar-ground); }
+/* The sidebar stands a hair above the panes (the owner, 10-04: "put that shadow on the sidebar"), so
+   its edge casts a very light shade onto them: drawn at the panes' left edge, below the head row only
+   — the row is one chrome ground across the window and casts nothing — and above a page as well as
+   the panes, since a page is what stands beside the sidebar then. On `.main`, whose left edge IS the
+   column's right edge on every frame, so the shade rides the column open and closed; once the column
+   has folded away there is nothing to cast it, and the pseudo-element is the panes' corner instead
+   (the frame, above). Its own step per face, because the same black reads heavier on the light ground
+   (design.md: do not assume the light face mirrors the dark), set by measurement to about the depth of
+   Codex's own sheet shadow: five or six levels of 255 at the edge, gone in 8px. */
+:root { --seam-shade: oklch(0 0 0 / 0.14); --seam-w: 8px; }
+:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.02); }
+.app:not([data-sidebar-folded]) > .main::after { content: ""; position: absolute; z-index: 36; pointer-events: none;
+  top: var(--frame-top); bottom: 0; left: 0; width: var(--seam-w);
+  background: linear-gradient(to right, var(--seam-shade), transparent); }
 .app-rail { position: relative; z-index: 2; width: var(--rail-w); flex: none; min-height: 0;
   display: flex; flex-direction: column; align-items: center; gap: 8px; padding: calc(var(--frame-top) + 8px) 0 8px;
   border-radius: var(--r-float) 0 0 var(--r-float); corner-shape: squircle; -webkit-app-region: drag; }
