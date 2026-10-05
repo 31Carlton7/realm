@@ -1558,7 +1558,9 @@ kbd { font: 11px var(--font-mono); }
    the chip start and the animation's own end takes away (ModelPicker's `replay`), never a loop. */
 /* The moment's one length: half again the ladder's rung for something travelling across the pane, as
    the glint does, so the charge, the glint and the chip's pass all land together. */
-.model-chip, .mp-run { --mp-moment: calc(var(--dur-move) * 1.5); }
+.model-chip, .mp-run { --mp-moment: calc(var(--dur-move) * 1.5); --spark: oklch(from var(--rl-accent) .98 .03 h); }
+/* A white spark on a light chip is the glyph vanishing for the length of it; there it is the accent. */
+:root[data-mode="light"] :is(.model-chip, .mp-run) { --spark: var(--rl-accent); }
 .mp-bolt[data-charge] { animation: rl-bolt-charge var(--mp-moment) var(--ease-out-strong); }
 .mp-bolt[data-charge] svg { animation: rl-bolt-spark var(--mp-moment) ease-out; }
 /* The ring is the outline going out and fading, a line of light rather than a disc of tint. */
@@ -1570,7 +1572,7 @@ kbd { font: 11px var(--font-mono); }
 }
 @keyframes rl-bolt-spark {
   0%, 100% { filter: none; }
-  25% { color: oklch(from var(--rl-accent) .98 .03 h); filter: drop-shadow(0 0 3px oklch(from var(--rl-accent) calc(l + .15) c h)); }
+  25% { color: var(--spark); filter: drop-shadow(0 0 3px oklch(from var(--rl-accent) calc(l + .15) c h)); }
 }
 /* The glint is mounted per switch-on and drawn by its animation alone: at rest — and with motion held
    still, when nothing runs — it is transparent, so a pass that never played leaves nothing behind. */
