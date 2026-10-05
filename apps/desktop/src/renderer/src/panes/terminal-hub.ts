@@ -1,6 +1,7 @@
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_STYLE_DEFAULT, type TerminalCursorStyle, type EventName, type EventPayload, type MethodName, type MethodParams, type MethodResult } from "@realm/contracts";
+import { oklchToHex, parseOklch, sameProgram, TERMINALS_COLORS_DEFAULT, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_STYLE_DEFAULT, type Oklch, type TerminalColorScheme, type TerminalCursorStyle, type TerminalProgram, type EventName, type EventPayload, type MethodName, type MethodParams, type MethodResult } from "@realm/contracts";
+import { ANSI_NAMES, terminalPalette } from "@realm/ui";
 import { rpc } from "../rpc/client";
 import { TerminalBuffer } from "./terminal-buffer";
 import { replayString, terminalStateWord, type TerminalStateWord } from "./terminal-replay";
@@ -43,29 +44,54 @@ export type HubEntry = {
 const rootVar = (name: string, fallback: string, doc: Document): string =>
   doc.defaultView?.getComputedStyle(doc.documentElement).getPropertyValue(name).trim() || fallback;
 
+/** The four tokens a terminal's palette is drawn from, as tokens.css states them for each face — the
+ *  answer for a renderer whose stylesheet has not loaded (a component test). */
+const TOKEN_FALLBACK = {
+  dark: { "--canvas": "oklch(0.231 0.004 264.487)", "--ink": "oklch(0.964 0.002 247.839)", "--ink-2": "oklch(0.731 0.008 260.731)", "--accent": "oklch(0.68 0.173 253.301)" },
+  light: { "--canvas": "oklch(0.985 0.002 264)", "--ink": "oklch(0.235 0.006 264)", "--ink-2": "oklch(0.459 0.01 264)", "--accent": "oklch(0.6 0.2 256)" },
+} as const;
+
+/** A colour token off `:root`, as OKLCH — the form tokens.css and every derived theme write. */
+const rootColor = (name: keyof (typeof TOKEN_FALLBACK)["dark"], mode: "dark" | "light", doc: Document): Oklch => {
+  const fallback = TOKEN_FALLBACK[mode][name];
+  try { return parseOklch(rootVar(name, fallback, doc)); } catch { return parseOklch(fallback); }
+};
+
 /**
- * What a terminal is drawn in: no ground of its own, and ink for the ground it shows.
+ * What a terminal is drawn in: no ground of its own, and the palette for the ground it shows.
  *
  * The background is transparent, so a terminal shows the pane's ground — the one translucent sheet
  * `.main` lays under every pane, the transcript included — and reads as the same surface as the chat
  * beside it. Any colour named here would be painted OVER that sheet at full strength, a darker slab
- * of the same token. The colour behind the zero alpha still matters — black under the dark face,
- * white under the light — because xterm draws inverse video in it and measures contrast against it.
+ * of the same token. The colour behind the zero alpha is that ground's own, because three things read
+ * it: xterm draws inverse video in it, measures `minimumContrastRatio` against it, and answers a
+ * program's OSC 11 query with it — so a TUI that blends its own panels off the terminal's background
+ * (Codex shades its user messages that way) blends them off Realm's.
  *
- * The light face's ground is near-white and xterm's own palette is light-on-black, so there the ink
- * is the app's, and anything a program prints in a colour picked for a black ground is darkened until
- * it reads at AA. The dark face keeps xterm's palette, which was drawn for it.
+ * The sixteen and the ink are `terminal-palette.ts`'s, for the face and theme on `:root` and the
+ * Settings choice between Realm's and the shell's. `vars` carries what xterm has no option for — the
+ * colours faint text is mixed from, which the stylesheet reads (`.terminal-host .xterm-dim`).
  */
-export function terminalColors(doc: Document = document): { theme: ITheme; minimumContrastRatio: number } {
-  if (doc.documentElement.getAttribute("data-mode") !== "light") return { theme: { background: "#00000000" }, minimumContrastRatio: 1 };
-  const ink = rootVar("--rl-text-bright", "#2b2d31", doc);
+export function terminalColors(doc: Document = document, scheme: TerminalColorScheme = TERMINALS_COLORS_DEFAULT): {
+  theme: ITheme; minimumContrastRatio: number; vars: Record<string, string>;
+} {
+  const root = doc.documentElement;
+  const mode = root.getAttribute("data-mode") === "light" ? "light" : "dark";
+  const ground = rootColor("--canvas", mode, doc);
+  const p = terminalPalette({
+    theme: root.getAttribute("data-theme") || "realm", mode, scheme, ground,
+    ink: rootColor("--ink", mode, doc), ink2: rootColor("--ink-2", mode, doc), accent: rootColor("--accent", mode, doc),
+  });
+  const ansi = Object.fromEntries(ANSI_NAMES.map((name, i) => [name, p.ansi[i]!]));
+  const vars: Record<string, string> = { "--term-fg": p.foreground, "--term-dim": `${Math.round(p.dim * 100)}%` };
+  p.ansi.forEach((hex, i) => { vars[`--term-ansi-${i}`] = hex; });
   return {
     theme: {
-      background: "#ffffff00", foreground: ink, cursor: ink, cursorAccent: rootVar("--rl-panel", "#f1f2f4", doc),
-      // xterm lays an opaque selection colour down at 30%, which over a light ground is a tint of it.
-      selectionBackground: rootVar("--rl-accent", "#2f7cf6", doc),
+      background: `${oklchToHex(ground)}00`, foreground: p.foreground, cursor: p.cursor, cursorAccent: p.cursorAccent,
+      selectionBackground: p.selection, selectionInactiveBackground: p.selectionInactive, ...ansi,
     },
-    minimumContrastRatio: 4.5,
+    minimumContrastRatio: p.minimumContrastRatio,
+    vars,
   };
 }
 
@@ -127,6 +153,22 @@ export class TerminalHub {
    *  because it has to reach the terminals that are ALREADY open — see `setCursorBlink`. */
   private cursorBlink = TERMINALS_CURSOR_BLINK_DEFAULT;
   private cursorStyle: TerminalCursorStyle = TERMINALS_CURSOR_STYLE_DEFAULT;
+  /** Realm's sixteen or the shell's (Settings ▸ General ▸ Terminals) — held for the next terminal
+   *  as the cursor is, and pushed into the open ones by `setColorScheme`. */
+  private colorScheme: TerminalColorScheme = TERMINALS_COLORS_DEFAULT;
+  /**
+   * What each terminal is running, for the tabs that name it (`terminal.program`). Held here rather
+   * than on the item because it is the pty's state, not the layout's: it changes every time a program
+   * starts, persists nowhere, and a tab that is not showing must know it as well as one that is.
+   */
+  private programs = new Map<string, TerminalProgram>();
+  private programListeners = new Set<() => void>();
+  private programsVersion = 0;
+  /** Whether the first `terminals.programs` read has landed — until it has, a terminal with no
+   *  program is one this window has not heard about yet, not one running its shell. */
+  private programsRead = false;
+  /** The `terminal.program` subscription, once something has asked for a program. */
+  private offPrograms: (() => void) | null = null;
   private notRunning = new Set<string>();
   private stateListeners = new Set<(terminalId: string) => void>();
   /** Terminals that have produced any output (data, exit banner, dead-terminal notice) — drives the
@@ -151,6 +193,8 @@ export class TerminalHub {
       this.notRunning.add(terminalId);
       this.markData(terminalId);
       this.announceState(terminalId);
+      // A terminal that is not running is running nothing, whatever it said last.
+      this.setProgram(terminalId, null);
     });
     this.unsubscribe = () => { offData(); offExit(); };
   }
@@ -225,6 +269,62 @@ export class TerminalHub {
    *  one true delta stream, and every other event carries whole current state a refetch repairs. */
   resyncAll(): void {
     for (const id of this.entries.keys()) void this.resync(id);
+    if (this.offPrograms) void this.readPrograms();
+  }
+
+  /** The program a terminal's tab names — null for its shell, and for a terminal this client has
+   *  heard nothing about. */
+  program(terminalId: string): TerminalProgram | null {
+    return this.programs.get(terminalId) ?? null;
+  }
+
+  /** Told whenever any terminal's program changes, and once when the first read lands; `programsSeen`
+   *  is the snapshot a hook compares. The first listener starts the following, so a window that never
+   *  shows a terminal's tab never subscribes to one. */
+  onProgramChange(fn: () => void): () => void {
+    this.wirePrograms();
+    this.programListeners.add(fn);
+    return () => this.programListeners.delete(fn);
+  }
+
+  get programsSeen(): number { return this.programsVersion; }
+
+  /** Whether what `program` answers is known rather than not yet heard (see `programsRead`). */
+  get programsKnown(): boolean { return this.programsRead; }
+
+  /**
+   * Follow `terminal.program`, and read where every terminal already is — a tab in a strip may name a
+   * terminal whose program started before this window was listening.
+   *
+   * Lazy and forgiving: a component test renders a terminal's tab with no preload behind the
+   * transport, and `on` throws there. Nothing can be followed then, so nothing is, and the tab keeps
+   * the terminal glyph; the next read tries again.
+   */
+  private wirePrograms(): void {
+    if (this.offPrograms) return;
+    try {
+      this.offPrograms = this.transport.on("terminal.program", ({ terminalId, program }) => this.setProgram(terminalId, program));
+    } catch { return; }
+    void this.readPrograms();
+  }
+
+  private async readPrograms(): Promise<void> {
+    let all: MethodResult<"terminals.programs">;
+    try { all = await this.transport.call("terminals.programs", {}) as MethodResult<"terminals.programs">; } catch { return; }
+    const ids = new Set([...this.programs.keys(), ...Object.keys(all)]);
+    for (const id of ids) this.setProgram(id, all[id] ?? null);
+    if (!this.programsRead) { this.programsRead = true; this.announcePrograms(); }
+  }
+
+  private setProgram(terminalId: string, program: TerminalProgram | null): void {
+    if (sameProgram(this.programs.get(terminalId) ?? null, program)) return;
+    if (program) this.programs.set(terminalId, program); else this.programs.delete(terminalId);
+    this.announcePrograms();
+  }
+
+  private announcePrograms(): void {
+    this.programsVersion++;
+    for (const fn of this.programListeners) fn();
   }
 
   /** `Replayed`, `Not running`, or nothing at all while the pane is live. */
@@ -273,9 +373,11 @@ export class TerminalHub {
     const existing = this.entries.get(terminalId);
     if (existing) return existing;
     const { term, fit } = this.factory();
-    if (term.options) { term.options.cursorBlink = this.cursorBlink; term.options.cursorStyle = this.cursorStyle; Object.assign(term.options, terminalColors(this.doc)); }
+    const { vars, ...colors } = terminalColors(this.doc, this.colorScheme);
+    if (term.options) { term.options.cursorBlink = this.cursorBlink; term.options.cursorStyle = this.cursorStyle; Object.assign(term.options, colors); }
     const host = this.doc.createElement("div");
     host.className = "terminal-host";
+    for (const [name, value] of Object.entries(vars)) host.style.setProperty(name, value);
     const buf = this.buffer(terminalId);
     let announcedDead = false;
     const call = (method: MethodName, params: MethodParams<MethodName>) => {
@@ -333,6 +435,7 @@ export class TerminalHub {
     this.catchingUp.delete(terminalId);
     this.replayed.delete(terminalId);
     this.notRunning.delete(terminalId);
+    this.setProgram(terminalId, null);
   }
 
   /** Re-reads the code face from `--font-mono` and pushes it into every live terminal.
@@ -362,8 +465,19 @@ export class TerminalHub {
   /** The colours, re-read off the theme and pushed into every live terminal: a terminal opened in the
    *  dark face would otherwise keep light-on-black ink on the light face's near-white ground. */
   refreshColors() {
-    const colors = terminalColors(this.doc);
-    for (const e of this.entries.values()) if (e.term.options) Object.assign(e.term.options, colors);
+    const { vars, ...colors } = terminalColors(this.doc, this.colorScheme);
+    for (const e of this.entries.values()) {
+      if (e.term.options) Object.assign(e.term.options, colors);
+      for (const [name, value] of Object.entries(vars)) e.host.style.setProperty(name, value);
+    }
+  }
+
+  /** Realm's sixteen or the shell's, into every live terminal and the next one — live for the reason
+   *  the cursor's preferences are. */
+  setColorScheme(scheme: TerminalColorScheme) {
+    if (scheme === this.colorScheme) return;
+    this.colorScheme = scheme;
+    this.refreshColors();
   }
 
   refreshFont() {
@@ -387,6 +501,10 @@ export class TerminalHub {
     this.replayed.clear();
     this.notRunning.clear();
     this.stateListeners.clear();
+    this.programs.clear();
+    this.programListeners.clear();
+    this.programsRead = false;
+    this.offPrograms?.(); this.offPrograms = null;
     this.unsubscribe?.(); this.unsubscribe = null;
   }
 }

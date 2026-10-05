@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Icon } from "@realm/ui";
 import { useApp } from "../../state/store";
 import { TerminalView } from "../TerminalPane";
+import { TerminalMark, terminalTitle, useTerminalPrograms } from "../../components/ProgramMark";
 import { DOCK_H_TERMINAL, dockPinMinPaneHeight, useDockDismiss, useDockPinned, usePaneRect } from "./pane-dock";
 
 /**
@@ -27,6 +28,9 @@ export function TerminalDock({ sessionId, title, visible, anchorRef, onClose }: 
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const terminalId = useApp((s) => s.sessionTerminals[sessionId]);
+  const programOf = useTerminalPrograms(!!terminalId);
+  const shown = terminalId ? terminalTitle(title, programOf(terminalId)) : title;
   const rect = usePaneRect(anchorRef);
   const pinned = (rect?.height ?? 0) >= dockPinMinPaneHeight(DOCK_H_TERMINAL);
   useDockPinned(rect, pinned, "--terminal-dock-h", "bottom");
@@ -40,8 +44,10 @@ export function TerminalDock({ sessionId, title, visible, anchorRef, onClose }: 
       data-pinned={pinned || undefined}
       style={{ position: "fixed", left: rect?.left ?? 0, right: rect?.right ?? 0, bottom: rect?.bottom ?? 0 }}>
       <header className="terminal-dock-bar">
-        <Icon name="terminal" size={14} className="terminal-dock-mark" />
-        <span className="terminal-dock-title" title={title}>{title}</span>
+        {terminalId
+          ? <TerminalMark terminalId={terminalId} size={14} className="terminal-dock-mark" />
+          : <Icon name="terminal" size={14} className="terminal-dock-mark" />}
+        <span className="terminal-dock-title" title={shown}>{shown}</span>
         {/* A ×, not the trash the sub-agent view wears: there IS something under this one that
             closing keeps. The shell goes on running with its scrollback, and the next open returns
             to it — so promising to preserve it is a promise this button can keep (design.md). */}

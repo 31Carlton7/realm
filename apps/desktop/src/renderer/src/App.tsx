@@ -213,6 +213,7 @@ export function ThemeBridge() {
   const paneAlpha = useApp((s) => s.paneAlpha);
   const cursorBlink = useApp((s) => s.terminalCursorBlink);
   const cursorStyle = useApp((s) => s.terminalCursorStyle);
+  const terminalScheme = useApp((s) => s.terminalColors);
   /* The page zoom, onto `:root` as a number the stylesheet multiplies by. Chromium already scales
      every px when you press ⌘−; what this buys is the surfaces that should give up MORE than their
      share when you do — the prompter's column, today. */
@@ -226,6 +227,8 @@ export function ThemeBridge() {
   // that the light face's ground would swallow. `mode` rather than `pref`, because "System" changes
   // face without the preference changing.
   useEffect(() => { getTerminalHub().refreshColors(); }, [mode, color, themes, overrides, contrast]);
+  // Realm's sixteen or the shell's: the colours again, for the same reason.
+  useEffect(() => { getTerminalHub().setColorScheme(terminalScheme); }, [terminalScheme]);
   // Whether that cursor blinks is the same story: xterm takes it at construction, and a preference
   // that only reached the NEXT terminal is one nobody believes they changed.
   useEffect(() => { getTerminalHub().setCursorBlink(cursorBlink); }, [cursorBlink]);

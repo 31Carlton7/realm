@@ -1058,6 +1058,12 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // real pixels, which only the laid-out tile has. Carries a `none` fallback, so a tile measured
       // before layout is unclipped rather than clipped away to nothing.
       "--attach-clip",
+      // A terminal's ink and sixteen colours, and the share faint text keeps (terminal-hub.ts, from
+      // terminal-palette.ts): set on each terminal's host, because they are computed from the live
+      // theme's tokens and must reach the terminals already open when it changes. Each carries a
+      // fallback — the span's own colour, and xterm's own half — so a host that never receives them
+      // draws faint text exactly as xterm would.
+      "--term-fg", "--term-dim", ...Array.from({ length: 16 }, (_, i) => `--term-ansi-${i}`),
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);

@@ -6,6 +6,7 @@ import { REALM_ITEM_TYPE } from "./drag-types";
 import { Menu } from "./Menu";
 import { DELETES_ON_CLOSE, PAGE_KINDS } from "./pane-close";
 import { ItemIcon } from "./PageIcon";
+import { terminalTitle, useTerminalPrograms } from "./ProgramMark";
 
 /**
  * A side pane's tab strip, in its bar where a single pane's title goes.
@@ -28,7 +29,8 @@ import { ItemIcon } from "./PageIcon";
  * The menu is the shared one, so it goes round a browser view rather than under it (no-overlay.ts).
  *
  * A browser's tab wears its page's own icon once the page has offered one, as a browser's tabs do, and
- * the kind's glyph until then.
+ * the kind's glyph until then. A terminal's tab wears what it is running — an agent's tile, a tool's
+ * glyph — and says it before the title: "claude · realm".
  *
  * A peek's tab says what it is twice over, in the shape and the words: an eye where the kind's glyph
  * goes and its title in italic, because it is the one tab here that will not be here tomorrow — and
@@ -50,6 +52,7 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
   const keybindings = useApp((s) => s.keybindings);
   const peekId = useApp((s) => s.peek?.item.id ?? null);
   const run = useApp((s) => s.run);
+  const programOf = useTerminalPrograms(tabs.some((t) => t.kind === "terminal"));
   const [arming, setArming] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -68,6 +71,7 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
         {tabs.map((t, i) => {
           const active = t.id === activeId;
           const peek = t.id === peekId;
+          const title = t.kind === "terminal" ? terminalTitle(t.title, programOf(t.refId)) : t.title;
           const deletes = DELETES_ON_CLOSE.has(t.kind);
           const close = () => {
             if (!deletes) { run(() => closeFromLayout(t.id)); return; }
@@ -93,12 +97,12 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
               }}>
               <button type="button" role="tab" className="pane-tab-label" aria-selected={active}
                 aria-label={peek ? `Peek: ${t.title}` : undefined}
-                title={peek ? `${t.title} — a peek, not kept in the view` : t.title}
+                title={peek ? `${t.title} — a peek, not kept in the view` : title}
                 draggable={!peek} onDragStart={peek ? undefined : (e) => { e.dataTransfer.setData(REALM_ITEM_TYPE, t.id); e.dataTransfer.effectAllowed = "move"; }}
                 onClick={() => { if (!active) run(() => openItem(t.id, leafId)); }}
                 onDoubleClick={active && !peek ? onRename : undefined}>
                 {peek ? <Icon name="peek" size={14} /> : <ItemIcon item={t} size={14} />}
-                <span className="pane-tab-title">{t.title}</span>
+                <span className="pane-tab-title">{title}</span>
               </button>
               {arming === t.id ? (
                 <button type="button" className="icon-btn danger pane-tab-confirm" aria-label={`Really delete ${t.title}?`}
