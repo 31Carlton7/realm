@@ -51,6 +51,10 @@ export type AgentModel = {
   fastMode?: boolean;
   /** The model an un-pinned session runs, where the catalog marks one. */
   isDefault?: boolean;
+  /** The reasoning efforts the catalog says this model takes, in its own order, and the one it runs
+   *  when none is asked for — Codex's `supportedReasoningEfforts` and `defaultReasoningEffort`. */
+  efforts?: string[];
+  defaultEffort?: string;
 };
 
 /**

@@ -109,7 +109,9 @@ export interface AgentHandle {
    *  always did. */
   respondPermission(requestId: string, decision: PermissionDecision, answers?: AskAnswers): void;
   interrupt(): Promise<void>;
-  setOptions(opts: { model?: string; permissionMode?: string; fastMode?: boolean }): Promise<void>;
+  /** `effort: null` is "the model's own default" — a level the session no longer asks for, not one
+   *  left unsaid. */
+  setOptions(opts: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<void>;
   dispose(): Promise<void>;
 }
 

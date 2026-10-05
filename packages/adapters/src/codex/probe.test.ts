@@ -85,7 +85,7 @@ describe("parseCodexModelPage", () => {
   const live = { data: [{ id: "gpt-5.6-sol", model: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", hidden: false, isDefault: true }], nextCursor: null };
 
   it("maps id and displayName from the live response shape", () => {
-    expect(parseCodexModelPage(live)).toEqual({ models: [{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fast: false, isDefault: true }], nextCursor: null });
+    expect(parseCodexModelPage(live)).toEqual({ models: [{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fast: false, isDefault: true, efforts: [], defaultEffort: null }], nextCursor: null });
   });
 
   it("reads Fast off the `priority` service tier, and nothing else", () => {
@@ -101,6 +101,16 @@ describe("parseCodexModelPage", () => {
     expect(parseCodexModelPage(page).models.map((m) => [m.id, m.fast])).toEqual([["gpt-6-astra", true], ["gpt-5.6-terra", false], ["gpt-other", false], ["gpt-old", false]]);
   });
 
+  it("reads each model's reasoning levels and default, in the 0.154.0 shape", () => {
+    // `supportedReasoningEfforts` is `{reasoningEffort, description}[]` and `defaultReasoningEffort` a
+    // string (`generate-ts` 0.154.0). A malformed entry drops out; it never becomes a level.
+    const page = { data: [
+      { id: "a", supportedReasoningEfforts: [{ reasoningEffort: "low", description: "" }, { reasoningEffort: "high", description: "" }, null, { reasoningEffort: 3 }, { reasoningEffort: " " }], defaultReasoningEffort: "low" },
+      { id: "b", supportedReasoningEfforts: "nope", defaultReasoningEffort: "" },
+    ] };
+    expect(parseCodexModelPage(page).models.map((m) => [m.id, m.efforts, m.defaultEffort])).toEqual([["a", ["low", "high"], "low"], ["b", [], null]]);
+  });
+
   it("marks the default only on an explicit isDefault: true", () => {
     // The mark is what answers fast mode for a session that pinned no model, so a truthy string or a
     // missing flag must not crown a row the CLI never named.
@@ -110,12 +120,12 @@ describe("parseCodexModelPage", () => {
 
   it("skips malformed rows rather than inventing models from them", () => {
     const page = { data: [null, 42, "gpt", { displayName: "No id" }, { id: "", displayName: "Blank id" }, { id: "  ", displayName: "Whitespace id" }, { id: "ok-model", displayName: "OK" }, { id: 7, displayName: "Numeric id" }] };
-    expect(parseCodexModelPage(page).models).toEqual([{ id: "ok-model", label: "OK", fast: false, isDefault: false }]);
+    expect(parseCodexModelPage(page).models).toEqual([{ id: "ok-model", label: "OK", fast: false, isDefault: false, efforts: [], defaultEffort: null }]);
   });
 
   it("drops only an explicit hidden:true, and falls back to the id when displayName is unusable", () => {
     const page = { data: [{ id: "shown" }, { id: "shown-2", displayName: "  " }, { id: "secret", displayName: "Secret", hidden: true }, { id: "odd", displayName: "Odd", hidden: "yes" }] };
-    expect(parseCodexModelPage(page).models).toEqual([{ id: "shown", label: "shown", fast: false, isDefault: false }, { id: "shown-2", label: "shown-2", fast: false, isDefault: false }, { id: "odd", label: "Odd", fast: false, isDefault: false }]);
+    expect(parseCodexModelPage(page).models).toEqual([{ id: "shown", label: "shown", fast: false, isDefault: false, efforts: [], defaultEffort: null }, { id: "shown-2", label: "shown-2", fast: false, isDefault: false, efforts: [], defaultEffort: null }, { id: "odd", label: "Odd", fast: false, isDefault: false, efforts: [], defaultEffort: null }]);
   });
 
   it("yields nothing (never a throw) for a page that is not a page at all", () => {

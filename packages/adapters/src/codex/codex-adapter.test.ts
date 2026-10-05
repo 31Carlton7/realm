@@ -335,6 +335,53 @@ describe("CodexAdapter", () => {
     });
   });
 
+  describe("reasoning effort", () => {
+    /* What `turn/start` was sent, off the fixture's TURN_PARAMS echo of its own params. The field is
+       `effort` on `turn/start` — `TurnStartParams` in `codex app-server generate-ts` 0.154.0 — and
+       `thread/start` has none, which is the whole reason this lives on the turn. */
+    const sent = async (handle: AgentHandle, evs: SessionEvent[]) => {
+      const before = texts(evs).length;
+      await handle.send({ text: "TURN_PARAMS", attachments: [] });
+      await waitFor(() => expect(texts(evs)).toHaveLength(before + 1));
+      await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+      return JSON.parse(texts(evs).at(-1)!) as { effort?: string | null };
+    };
+
+    it("sends the session's level as `turn/start.effort`", async () => {
+      const { handle, evs } = await booted({ model: "gpt-5.6-sol", effort: "high" });
+      expect((await sent(handle, evs)).effort).toBe("high");
+      await handle.dispose();
+    });
+
+    it("sends none for a session that chose none, so the model's own default stands", async () => {
+      const { handle, evs } = await booted({ model: "gpt-5.6-sol" });
+      expect(await sent(handle, evs)).not.toHaveProperty("effort");
+      await handle.dispose();
+    });
+
+    it("sends only a level the catalog lists for this model", async () => {
+      // Terra lists no `xhigh`, and Claude's `max` — kept on a session that switched agents — is no
+      // Codex level at all. Either would be a turn Codex may refuse; the thread's own level stands.
+      for (const effort of ["xhigh", "max"]) {
+        const { handle, evs } = await booted({ model: "gpt-5.6-terra", effort });
+        expect(await sent(handle, evs)).not.toHaveProperty("effort");
+        await handle.dispose();
+      }
+    });
+
+    it("takes a change on the next turn, and a reset back to the model's own default by name", async () => {
+      const { handle, evs } = await booted({ model: "gpt-5.6-sol", effort: "high" });
+      expect((await sent(handle, evs)).effort).toBe("high");
+      await handle.setOptions({ effort: "low" });
+      expect((await sent(handle, evs)).effort).toBe("low");
+      // A null `effort` would be "no override" and leave the thread on `low`; the default goes by name.
+      await handle.setOptions({ effort: null });
+      expect((await sent(handle, evs)).effort).toBe("medium");
+      expect(await sent(handle, evs)).not.toHaveProperty("effort"); // back on it: nothing left to say
+      await handle.dispose();
+    });
+  });
+
   it("routes Realm panes to the native browser tools on every turn, including resumed threads", async () => {
     const { handle, evs } = await booted({ resume: "th_previous" });
     await handle.send({ text: "TURN_PARAMS", attachments: [] });
@@ -1117,8 +1164,8 @@ describe("CodexAdapter model catalog", () => {
     // row carries what the catalog said about Fast, and the default carries its mark, so a session
     // that has not started can offer the switch on the CLI's own word — Terra's `false` included.
     expect(r.models).toEqual([
-      { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fastMode: true, isDefault: true },
-      { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", fastMode: false },
+      { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fastMode: true, isDefault: true, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium" },
+      { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", fastMode: false, efforts: ["low", "medium", "high"], defaultEffort: "medium" },
     ]);
     // A probe must not leave an app-server child behind: the shared-connection refcount never saw it.
     expect(adapter.processCount).toBe(0);

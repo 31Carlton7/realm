@@ -335,6 +335,9 @@ const P = {
      *  the harness's own default). One session's handshake is then enough for the next session on any
      *  of those models to offer the switch before its first message (`MODEL_FAST_SUPPORT_KEY`). */
     fastModeModels: z.record(z.string(), z.boolean()).optional(),
+    /** The reasoning levels the harness says each model it listed takes, keyed the same way; `[]` is
+     *  a model that takes none (`MODEL_EFFORTS_KEY`). */
+    effortModels: z.record(z.string(), z.array(z.string())).optional(),
     /** Whether Realm ASKED this handshake to continue an earlier conversation. False on a session's
      *  first boot, true on every boot after one. */
     resumeRequested: z.boolean().optional(),

@@ -340,7 +340,8 @@ export const AgentProbeRowSchema = z.object({
   version: z.string().nullable(),
   loggedIn: z.boolean().nullable(),
   reason: z.string().nullable(),
-  models: z.array(z.object({ id: z.string(), label: z.string(), fastMode: z.boolean().optional(), isDefault: z.boolean().optional() })).nullable().optional(),
+  models: z.array(z.object({ id: z.string(), label: z.string(), fastMode: z.boolean().optional(), isDefault: z.boolean().optional(),
+    efforts: z.array(z.string()).optional(), defaultEffort: z.string().optional() })).nullable().optional(),
 });
 
 /**
@@ -1793,8 +1794,9 @@ export const Methods = {
    *  was asked with before it goes anywhere (`normalizeAnswers`). */
   "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: AskAnswersSchema.optional() }), result: z.object({ ok: z.literal(true) }) },
   /** `fastMode` is a REQUEST — see `Session.fastMode`. The server records it and hands it to the
-   *  adapter; whether the harness honours it comes back on the `usage` event. */
-  "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional(), fastMode: z.boolean().optional() }), result: SessionSchema },
+   *  adapter; whether the harness honours it comes back on the `usage` event. `effort: null` is "the
+   *  model's own default", and reaches a running session as much as a level does. */
+  "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().nullable().optional(), permissionMode: z.string().optional(), fastMode: z.boolean().optional() }), result: SessionSchema },
   /** Re-point an untouched session at another agent. Server-guarded: rejected (SESSION_STARTED) once the
    *  session has any event — a transcript belongs to the agent that produced it. Clears `model`, since a
    *  model id from the old kind means nothing to the new one. */

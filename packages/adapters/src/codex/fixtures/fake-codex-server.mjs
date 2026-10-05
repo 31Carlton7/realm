@@ -405,7 +405,8 @@ function handleRequest(id, method, params) {
       // record before `turn/started`, on EVERY turn. The fake announces it only for a turn that named
       // a tier, so the connection tests' frame counts stay what they were; the mapper reads its
       // fast-mode truth from here either way.
-      if ("serviceTier" in params) notify("thread/settings/updated", { threadId: params.threadId, threadSettings: { model: "gpt-5.2", serviceTier: params.serviceTier ?? null } });
+      if ("serviceTier" in params || "effort" in params) notify("thread/settings/updated", { threadId: params.threadId, threadSettings: { model: "gpt-5.2",
+        ...("serviceTier" in params ? { serviceTier: params.serviceTier ?? null } : {}), ...("effort" in params ? { effort: params.effort ?? null } : {}) } });
       // GHOST is the only turn the server will not accept a steer for, so the adapter's stale-turn fallback
       // has something to trip over.
       if (!text.includes("GHOST")) activeTurns.set(params.threadId, turnId);
@@ -474,9 +475,19 @@ function handleRequest(id, method, params) {
       // `serviceTiers` is the live 0.153.4 shape: the `priority` tier is what Codex's own picker calls
       // Fast, and its presence is the CLI's only statement that a model can run it. Terra lists none,
       // so a session on it is told "no" rather than left guessing.
+      // `supportedReasoningEfforts`/`defaultReasoningEffort` are `generate-ts` 0.154.0's `Model` shape:
+      // `{reasoningEffort, description}[]` and a plain string. Sol takes four levels, Terra three, so a
+      // level one model has and the other does not (`xhigh`) is something a test can ask about.
+      const level = (reasoningEffort, description) => ({ reasoningEffort, description });
       ok(id, { data: [
-        { id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", hidden: false, isDefault: true, serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed, increased usage" }] },
-        { id: "gpt-5.6-terra", displayName: "GPT-5.6-Terra", hidden: false, isDefault: false, serviceTiers: [] },
+        { id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", hidden: false, isDefault: true, serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed, increased usage" }],
+          supportedReasoningEfforts: [level("low", "Fast responses with lighter reasoning"), level("medium", "Balances speed and reasoning depth"),
+            level("high", "Greater reasoning depth for complex problems"), level("xhigh", "Extra high reasoning depth for complex problems")],
+          defaultReasoningEffort: "medium" },
+        { id: "gpt-5.6-terra", displayName: "GPT-5.6-Terra", hidden: false, isDefault: false, serviceTiers: [],
+          supportedReasoningEfforts: [level("low", "Fast responses with lighter reasoning"), level("medium", "Balances speed and reasoning depth"),
+            level("high", "Greater reasoning depth for complex problems")],
+          defaultReasoningEffort: "medium" },
         { id: "gpt-secret", displayName: "Hidden preview", hidden: true, isDefault: false },
       ], nextCursor: null });
       return;

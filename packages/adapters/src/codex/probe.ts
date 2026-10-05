@@ -67,6 +67,11 @@ export type CodexModel = {
   /** `isDefault: true` — the model a thread started with no `model` runs, which is what lets a session
    *  that pinned nothing know its fast-mode answer before it starts. */
   isDefault: boolean;
+  /** `supportedReasoningEfforts[].reasoningEffort`, in the catalog's order — the levels `turn/start`'s
+   *  `effort` may name for this model — and `defaultReasoningEffort`, what it runs when none is named.
+   *  Shapes from `codex app-server generate-ts` 0.154.0 (`Model`, `ReasoningEffortOption`). */
+  efforts: string[];
+  defaultEffort: string | null;
 };
 
 /** The service tier Codex's own picker labels "Fast" (`{ id: "priority", name: "Fast", description:
@@ -84,10 +89,15 @@ export function parseCodexModelPage(page: unknown): { models: CodexModel[]; next
   const rows = Array.isArray(data) ? data : [];
   const models: CodexModel[] = [];
   for (const row of rows) {
-    const m = row as { id?: unknown; displayName?: unknown; hidden?: unknown; serviceTiers?: unknown; isDefault?: unknown } | null;
+    const m = row as { id?: unknown; displayName?: unknown; hidden?: unknown; serviceTiers?: unknown; isDefault?: unknown;
+      supportedReasoningEfforts?: unknown; defaultReasoningEffort?: unknown } | null;
     if (!m || typeof m.id !== "string" || m.id.trim() === "" || m.hidden === true) continue;
     const label = typeof m.displayName === "string" && m.displayName.trim() !== "" ? m.displayName.trim() : m.id;
-    models.push({ id: m.id, label, fast: hasFastTier(m.serviceTiers), isDefault: m.isDefault === true });
+    const efforts = (Array.isArray(m.supportedReasoningEfforts) ? m.supportedReasoningEfforts : [])
+      .map((o) => (o as { reasoningEffort?: unknown } | null)?.reasoningEffort)
+      .filter((e): e is string => typeof e === "string" && e.trim() !== "");
+    const defaultEffort = typeof m.defaultReasoningEffort === "string" && m.defaultReasoningEffort.trim() !== "" ? m.defaultReasoningEffort : null;
+    models.push({ id: m.id, label, fast: hasFastTier(m.serviceTiers), isDefault: m.isDefault === true, efforts, defaultEffort });
   }
   const cursor = (page as { nextCursor?: unknown } | null)?.nextCursor;
   return { models, nextCursor: typeof cursor === "string" && cursor !== "" ? cursor : null };

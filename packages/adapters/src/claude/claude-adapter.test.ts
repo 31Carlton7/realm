@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, fastModeByModel } from "./claude-adapter";
+import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
@@ -31,7 +31,7 @@ type FakeOpts = {
   /** record the Options object the adapter handed `query` (start-time option assertions) */
   captureOptions?: Record<string, unknown>[];
   /** what `supportedModels()` answers; omitted means the control request is declined (a CLI may). */
-  models?: { value: string; resolvedModel?: string; supportsFastMode?: boolean }[];
+  models?: { value: string; resolvedModel?: string; supportsFastMode?: boolean; supportsEffort?: boolean; supportedEffortLevels?: string[] }[];
   /** record every `applyFlagSettings` merge (the mid-session fast-mode path). */
   flagSettings?: Record<string, unknown>[];
   /** answer this many prompts with the fixture's turn instead of only the first (multi-turn assertions) */
@@ -558,6 +558,65 @@ describe("ClaudeAdapter", () => {
       await h.setOptions({ model: "claude-sonnet-5" });
       await h.dispose(); await c;
       expect(flagSettings).toEqual([{ fastMode: true }, { fastMode: false }]);
+    });
+
+    describe("reasoning effort", () => {
+      it("hands the SDK a level it has a word for, and never one from another harness", async () => {
+        for (const [effort, sent] of [["max", "max"], ["minimal", undefined], [null, undefined]] as const) {
+          const captureOptions: Record<string, unknown>[] = [];
+          const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+          const h = a.start({ cwd: "/tmp", mcpServers: [], effort });
+          const c = collectUntil(h.events, () => false);
+          await h.send({ text: "hi", attachments: [] });
+          await h.dispose(); await c;
+          // `minimal` is Codex's; kept across an agent switch, it is no `EffortLevel` the CLI takes.
+          expect(captureOptions[0]!.effort, String(effort)).toBe(sent);
+        }
+      });
+
+      it("moves the level mid-session through the flag layer, and a reset is the SDK's own null", async () => {
+        /* `applyFlagSettings({effortLevel: null})` "goes to the model's default effort" — the SDK's
+           words — which is exactly what the picker's reset means. A level from another harness is not
+           sent at all, and an options call that says nothing about effort leaves the layer alone. */
+        const flagSettings: Record<string, unknown>[] = [];
+        const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings }) as never });
+        const h = a.start({ cwd: "/tmp", mcpServers: [] });
+        const c = collectUntil(h.events, () => false);
+        await h.send({ text: "hi", attachments: [] });
+        await h.setOptions({ effort: "low" });
+        await h.setOptions({ effort: null });
+        await h.setOptions({ effort: "minimal" });
+        await h.setOptions({ model: "claude-sonnet-5" });
+        await h.dispose(); await c;
+        expect(flagSettings).toEqual([{ effortLevel: "low" }, { effortLevel: null }]);
+      });
+
+      it("files each listed model's own levels, an explicit none included", () => {
+        expect(effortByModel([
+          { value: "default", resolvedModel: "claude-fable-5-1", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+          { value: "haiku", resolvedModel: "claude-haiku-4-5", supportsEffort: false },
+          { value: "sonnet", resolvedModel: "claude-sonnet-5", supportedEffortLevels: ["low", "medium", "high", "minimal"] },
+          { value: "opus" },
+        ])).toEqual({
+          "": ["low", "medium", "high", "xhigh", "max"], "claude-fable-5-1": ["low", "medium", "high", "xhigh", "max"],
+          // `supportsEffort: false` is an answer — no levels — where silence (`opus`) is filed as nothing.
+          "claude-haiku-4-5": [], "claude-sonnet-5": ["low", "medium", "high"],
+        });
+      });
+
+      it("restates init with those levels, for the next session on any of them", async () => {
+        const a = new ClaudeAdapter({ query: fakeQuery({ models: [
+          { value: MODEL, supportsFastMode: true, supportsEffort: true, supportedEffortLevels: ["low", "high"] },
+        ] }) as never });
+        const h = a.start({ cwd: "/tmp", mcpServers: [] });
+        const seen: SessionEvent[] = [];
+        const c = collectUntil(h.events, () => false, (e) => seen.push(e));
+        await h.send({ text: "hi", attachments: [] });
+        await new Promise<void>((res) => { const t = setInterval(() => { if (seen.some((e) => e.type === "init" && e.payload.effortModels)) { clearInterval(t); res(); } }, 5); });
+        await h.dispose(); await c;
+        const last = seen.filter((e) => e.type === "init").at(-1)!;
+        expect(last.type === "init" && last.payload.effortModels).toEqual({ [MODEL]: ["low", "high"] });
+      });
     });
 
     const requested = (evs: SessionEvent[]) => evs.flatMap((e) => (e.type === "usage" ? [e.payload.fastModeRequested] : []));
