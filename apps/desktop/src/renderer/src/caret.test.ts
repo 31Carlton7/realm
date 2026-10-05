@@ -318,6 +318,17 @@ describe("where it is drawn", () => {
     document.dispatchEvent(new Event("scroll"));
     flush();
     expect(drawn().glide).toBe(false);
+    // A move that scrolls its own field — typing at the end of a long one — is put there at once too:
+    // the text moved under the caret, and a glide would trail behind the line it is on.
+    input.setSelectionRange(4, 4);
+    document.dispatchEvent(new Event("selectionchange"));
+    flush();
+    expect(drawn().glide).toBe(true);
+    input.setSelectionRange(5, 5);
+    document.dispatchEvent(new Event("selectionchange"));
+    input.dispatchEvent(new Event("scroll"));
+    flush();
+    expect(drawn().glide).toBe(false);
   });
 
   it("still glides when something that does not move the field lands in the same frame", () => {
