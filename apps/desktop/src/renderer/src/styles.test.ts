@@ -1069,6 +1069,19 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".page-overlay-bar button").join(" ")).toContain("-webkit-app-region: no-drag");
   });
 
+  it("every control in the sidebar's drag region opts out of it — labels included, so Recent clicks", () => {
+    /* The column is a window-drag region, and macOS takes a press anywhere in one for the start of a
+       window drag: the page never hears the click. The lens's segments are LABELS round hidden radios,
+       and with only buttons and inputs opted out, "Recent" answered only on the 13px radio parked at
+       the start of its word (reported 10-04: "hard to click"). CDP's clicks go straight into the page
+       and never meet the OS's regions, so no live check can see this — it is held here. THE mutants:
+       `label` dropped from the opt-out, or the lens's track left in the column's region. */
+    const optOut = RULES.filter((r) => r.body.includes("-webkit-app-region: no-drag")).flatMap(partsOf);
+    for (const control of [".sidebar button", ".sidebar input", ".sidebar label", ".sb-lens"]) {
+      expect(optOut, `${control} is not opted out of the sidebar's drag region`).toContain(control);
+    }
+  });
+
   it("a folded sidebar takes no part in the window's drag regions, so the rail's buttons stay clickable", () => {
     /* Electron lays drag regions down in DOCUMENT order, not stacking order. The folded column slides
        under the rail, and the rail comes first in the DOM, so a drag region left on the column covers

@@ -347,7 +347,12 @@ kbd { font: 11px var(--font-mono); }
   transition: margin-inline-start var(--dur-move) var(--ease-in-out-strong), opacity var(--dur-base) ease;
 }
 .sidebar[data-collapsed] { margin-inline-start: calc(-1 * var(--sidebar-w)); opacity: 0; }
-.sidebar button, .sidebar input, .sb-resize { -webkit-app-region: no-drag; }
+/* A LABEL is a control too. The lens's two segments are labels round hidden radios, and with only
+   buttons and inputs opted out, the column's drag region covered every pixel of them but the 13px
+   radio parked at the start of each word: a click on "Recent" anywhere else started a window drag
+   and never reached the page (reported 10-04 as "hard to click"). The whole track opts out, so the
+   gap between the segments is not a dead strip either. */
+.sidebar button, .sidebar input, .sidebar label, .sb-lens, .sb-resize { -webkit-app-region: no-drag; }
 /* Folded away, the column slides UNDER the rail — and Electron lays the window's drag regions down in
    document order, not stacking order. The rail comes first, so a drag region left on the folded
    column lands back over the rail's buttons and macOS takes every click on them for the start of a
