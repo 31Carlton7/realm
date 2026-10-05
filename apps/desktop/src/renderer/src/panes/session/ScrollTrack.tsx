@@ -314,6 +314,9 @@ function Track({ scrollRef, prompts, onJump, now, onSave, reveal = null, onRevea
           {onSave && card.seq !== null && (
             <button type="button" className="track-card-save" aria-label="Save turn" aria-pressed={card.saved}
               title={card.saved ? "Unsave this turn" : "Save this turn"}
+              // The keyboard arriving here holds the card, as it does on a tick — from the prompter by
+              // Shift-Tab, say, while a pointer's card was up — so it cannot fade from under the focus.
+              onFocus={() => focusTick(said.current)}
               onMouseDown={(e) => e.preventDefault()} onClick={() => save(said.current)}>
               <Icon name="saved" size={14} />
             </button>

@@ -390,6 +390,21 @@ describe("saving a turn", () => {
     expect(document.activeElement).toBe(ticks()[1]);
   });
 
+  it("holds the card while the keyboard is on its bookmark, though the pointer that brought it up has gone", async () => {
+    await saving();
+    await pointAt(2);
+    // Shift-Tab from the prompter, which comes after the track, lands on the card's bookmark while it is up.
+    act(() => bookmark()!.focus());
+    fireEvent.pointerLeave(ticks()[2]!);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(card()).toHaveAttribute("data-open");
+    expect(card().querySelector(".track-card-title")).toHaveTextContent("Prompt 3");
+    // …and Escape puts it away and hands the keyboard to that prompt's tick.
+    fireEvent.keyDown(bookmark()!, { key: "Escape" });
+    expect(card()).not.toHaveAttribute("data-open");
+    expect(document.activeElement).toBe(ticks()[2]);
+  });
+
   it("opens at a prompt it is sent to, at once rather than gliding, and says it got there", async () => {
     const onRevealed = vi.fn();
     const { geo } = await saving([1002], { reveal: { seq: 1002, n: 7 }, onRevealed });
