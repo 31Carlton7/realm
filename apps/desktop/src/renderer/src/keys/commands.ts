@@ -2,6 +2,7 @@ import { itemIdOfLeaf, type Item } from "@realm/contracts";
 import type { KeyContext } from "@realm/contracts";
 import type { StoreApi } from "zustand";
 import { isEditableTarget } from "../hotkeys";
+import { startAppPick } from "../app-pick/start";
 import type { AppState } from "../state/store";
 
 /**
@@ -103,6 +104,8 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
        means the same thing by the same name, and `openQuickChat` already no-ops when one is up. */
     "session.quickChat": () => { const s = get(); s.run(() => s.openQuickChat()); },
     "session.attachFiles": withSession((s, id) => s.run(() => s.attachFromPicker(id))),
+    // Wherever the focus is: the pick goes to the session a web pick would (`startAppPick`).
+    "session.selectInRealm": () => startAppPick(store),
     "session.dispatchDraft": withSession((s, id) => s.run(() => s.dispatchDraft(id))),
     /* The `when` clause already gates this on a running session, and the check is here as well
        because a user may bind the command with no clause at all — and "interrupt" on an idle agent

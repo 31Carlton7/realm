@@ -268,6 +268,11 @@ Rules:
   mixed 55% into grey reads as grey, and a Rosé Pine sidebar beside Rosé Pine panes stopped looking
   like the theme. A ground the material would wash out — the light face, a hued theme — starts its
   range higher on the same control, so a theme is the theme everywhere it is worn.
+- A picture of the window that leaves the window — what Select in Realm attaches for an agent — is
+  laid over the theme's page colour first. The capture holds the DOM's alpha and none of the material
+  behind it, so a translucent ground comes out clear, and light ink on clear pixels is nothing at all
+  in a viewer that puts white behind them. It is the window's own capture or nothing: never inside a
+  browser view, which it cannot see, so a pick under one goes without and its chip says so.
 - A dissolve belongs to the SCROLLER, not to the layout band that happens to contain it. A fade
   positioned on a parent that also holds navigation is drawn over that navigation: the settings tab
   strip arrived smeared and half-legible the moment the column under it was scrolled, and at every

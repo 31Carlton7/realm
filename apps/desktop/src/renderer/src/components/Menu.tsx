@@ -18,7 +18,11 @@ export type MenuItem =
        *  rides the row's tooltip instead. */
       detail?: string;
       /** Selecting keeps the menu open (two-step confirms rebuild their items in place). */
-      keepOpen?: boolean }
+      keepOpen?: boolean;
+      /** A row no agent may press, named as `app_act`'s refusal names it (`data-no-agent`): one that
+       *  starts something only the person may start. Drawn in the app only — an OS menu row is out of
+       *  an agent's reach already. */
+      noAgent?: string }
   | { kind: "separator" }
   /** A section's name, over the rows that follow it up to the next one — "Add", "Mode". */
   | { kind: "header"; label: string };
@@ -199,7 +203,7 @@ function HtmlMenu({ items, onClose, at, anchorRef, returnFocusRef, align = "left
       <button key={i} role={it.checked !== undefined ? "menuitemcheckbox" : "menuitem"}
         disabled={it.disabled} title={it.title} aria-checked={it.checked !== undefined ? it.checked : undefined}
         aria-describedby={it.detail ? `${id}-d${i}` : undefined}
-        className={(it.checked ? "checked" : "") + (it.danger ? " danger" : "")}
+        className={(it.checked ? "checked" : "") + (it.danger ? " danger" : "")} data-no-agent={it.noAgent}
         onPointerMove={(e) => { if (document.activeElement !== e.currentTarget) e.currentTarget.focus({ preventScroll: true }); }}
         onClick={() => { it.onSelect(); if (!it.keepOpen) close(); }}>
         {anyIcon && <span className="menu-icon" aria-hidden="true">{it.icon}</span>}

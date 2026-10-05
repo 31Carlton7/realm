@@ -4,6 +4,7 @@ import { destinationTarget, pageHidesSidebar, pageItemId } from "./page-item";
 import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
 import { attachmentDisposition } from "@realm/contracts";
 import { VIEWER_SLOT, ownerOf, type Marking, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
+import type { PickedElement } from "@realm/contracts";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
@@ -1155,6 +1156,9 @@ export type AppState = {
   /** The strip a browser view gives up at the window's foot while the toasts have nowhere else to
    *  stand (`placeToastStack` found no clear spot), in window px. Null almost always. */
   toastReserve: Rect | null;
+  /** The element picker over Realm's own window, while it is up (app-pick/): the session whose prompter
+   *  a pick goes to. Null almost always. */
+  appPick: { sessionId: string } | null;
   /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner. */
   connectionState: "connected" | "reconnecting";
   /** The user's keymap as the server last reported it, or Realm's defaults until it answers. Held
@@ -2156,10 +2160,10 @@ export type AppState = {
    *  runs an installer. */
   prefillTerminal(sessionId: string, command: string): Promise<void>;
   setDraft(sessionId: string, text: string): void;
-  /** Drop an element picked in a browser pane into a session's composer, as a chip. Answers the label
-   *  the chip went in under, so the browser pane can name what it just sent — or null when the draft
-   *  is already carrying `MAX_ELEMENT_CHIPS`. */
-  addElementChip(sessionId: string, element: BrowserPickedElement): string | null;
+  /** Drop an element picked in a browser pane — or a part of Realm's own window (app-pick/) — into a
+   *  session's composer, as a chip. Answers the label the chip went in under, so the picker can name
+   *  what it just sent — or null when the draft is already carrying `MAX_ELEMENT_CHIPS`. */
+  addElementChip(sessionId: string, element: PickedElement): string | null;
   /** Plan 26 W7d: an annotation — several elements pinned on one page and Sent together — as ONE chip,
    *  `@[3 annotations]`, whose sidecar entries share its label and carry their pin numbers. `shot` is
    *  the screenshot of the pins, named so the agent is told which attachment shows them. Answers the
@@ -2783,6 +2787,9 @@ export type AppState = {
    *  the next one). */
   toast(input: ToastInput): string;
   dismissToast(id: string): void;
+  /** Put the element picker up for `sessionId`'s prompter, or with null take it down. What starts one is
+   *  `startAppPick` (app-pick/), which refuses where a pick could not be the person's own. */
+  setAppPick(sessionId: string | null): void;
   setToastReserve(rect: Rect | null): void;
 };
 
@@ -3978,6 +3985,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidePanesHidden: false, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
+      appPick: null,
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", documentsAsk: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
@@ -7499,6 +7507,7 @@ await get().refreshCustomThemes().catch(() => {});
         const cur = get().toasts;
         if (cur.some((t) => t.id === id)) set({ toasts: cur.filter((t) => t.id !== id) });
       },
+      setAppPick(sessionId) { set({ appPick: sessionId === null ? null : { sessionId } }); },
       setToastReserve(rect) {
         const cur = get().toastReserve;
         // Reference-stable like `setBrowserRect`: every browser pane re-syncs its view on a change.

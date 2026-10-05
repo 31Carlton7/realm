@@ -103,6 +103,8 @@ describe("chordFromEvent", () => {
       chordFromEvent(press({ code: "KeyN", key: "n", metaKey: true })),
       chordFromEvent(press({ code: "KeyN", key: "N", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "KeyU", key: "u", metaKey: true })),
+      // Select in Realm. Shifted, the key reports a capital; `code` still says C.
+      chordFromEvent(press({ code: "KeyC", key: "C", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "KeyJ", key: "j", metaKey: true })),
       chordFromEvent(press({ code: "Enter", key: "Enter", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "Escape", key: "Escape" })),

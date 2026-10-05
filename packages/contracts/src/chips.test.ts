@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  annotationChipLabel, CHIP_LABEL_MAX, chipLabel, ElementChipSchema, elementChipLabel, elementChipToken, elementContext,
-  chipRuns, keepLiveChips, MAX_ELEMENT_CHIPS, PICK_HTML_MAX, scanChips, scanElementChips, type BrowserPickedElement,
+  annotationChipLabel, APP_PICK_HOOK_MAX, APP_PICK_HOOKS_MAX, CHIP_LABEL_MAX, chipLabel, ElementChipSchema, elementChipLabel, elementChipToken, elementContext,
+  chipRuns, isAppElement, keepLiveChips, MAX_ELEMENT_CHIPS, PICK_HTML_MAX, scanChips, scanElementChips, type AppPickedElement, type BrowserPickedElement,
 } from "./index";
 
 const picked = (over: Partial<BrowserPickedElement> = {}): BrowserPickedElement => ({
@@ -233,5 +233,104 @@ describe("annotation chips", () => {
     expect(ElementChipSchema.safeParse({ label: "x", element: picked() }).success).toBe(true);
     expect(ElementChipSchema.safeParse({ label: "x", element: picked(), pin: 0 }).success).toBe(false);
     expect(ElementChipSchema.safeParse({ label: "x", element: picked(), pin: MAX_ELEMENT_CHIPS + 1 }).success).toBe(false);
+  });
+});
+
+/**
+ * A part of Realm's OWN window (the renderer's app-pick/): the same chip as a page element, a
+ * description written for an agent working on Realm, and a picture named only while it is on the message.
+ */
+describe("app chips", () => {
+  const SHOT = "/realm/tmp/attachments/a1b2c3-realm-send-button.png";
+  const appPicked = (over: Partial<Omit<AppPickedElement, "app">> = {}, app: Partial<AppPickedElement["app"]> = {}): AppPickedElement => ({
+    rect: { x: 1120.4, y: 838.25, w: 32, h: 32 },
+    selector: ".composer-card > button.composer-send",
+    tag: "button", role: "button", name: "Send", text: "",
+    html: '<button class="composer-send" aria-label="Send"><svg></svg></button>',
+    ...over,
+    app: {
+      components: ["Composer", "SessionPane", "PaneHost"], hooks: ['data-state="send" on button.composer-send'],
+      classes: ["composer-send"], window: { w: 1400, h: 900 }, shot: SHOT, webView: false, ...app,
+    },
+  });
+
+  it("is named the way a person points at it — its name and what its role is called — under Realm's name", () => {
+    expect(elementChipLabel(appPicked())).toBe("Realm · Send button");
+    expect(elementChipLabel(appPicked({ role: "switch", name: "Reduce motion", tag: "input" }))).toBe("Realm · Reduce motion switch");
+    expect(elementChipLabel(appPicked({ role: "textbox", name: "Message", tag: "textarea" }))).toBe("Realm · Message field");
+    // A name that already says what it is is not said twice.
+    expect(elementChipLabel(appPicked({ name: "Close button" }))).toBe("Realm · Close button");
+    // A combobox is a field with suggestions as an input, and a pop-up menu as a select.
+    expect(elementChipLabel(appPicked({ role: "combobox", name: "Address", tag: "input" }))).toBe("Realm · Address field");
+    expect(elementChipLabel(appPicked({ role: "combobox", name: "Theme", tag: "select" }))).toBe("Realm · Theme menu");
+  });
+
+  it("names a nameless box by the component that drew it, then by its selector's last step", () => {
+    expect(elementChipLabel(appPicked({ role: "", name: "", tag: "div" }))).toBe("Realm · Composer");
+    expect(elementChipLabel(appPicked({ role: "", name: "", tag: "div", selector: "main > div.composer-card" }, { components: [] }))).toBe("Realm · div.composer-card");
+  });
+
+  it("lets a short run of text be its own name, and never a paragraph's opening words", () => {
+    expect(elementChipLabel(appPicked({ role: "", name: "", tag: "span", text: "Pricing page" }))).toBe("Realm · Pricing page");
+    const prose = "I'll put the launch plan in a note, and sketch the greeting as a script.";
+    expect(elementChipLabel(appPicked({ role: "paragraph", name: "", tag: "p", text: prose }))).toBe("Realm · Composer");
+  });
+
+  it("says in the chip when there is no picture, where the person reads it before sending", () => {
+    // THE MUTANT: leave the label alone. The description says so too, but nobody reads that before send.
+    expect(elementChipLabel(appPicked({}, { shot: null, webView: true }))).toBe("Realm · Send button (no picture)");
+    // The note survives a name long enough to clip: the name gives way, never the note.
+    const long = elementChipLabel(appPicked({ name: "x".repeat(110) }, { shot: null }));
+    expect(long).toHaveLength(CHIP_LABEL_MAX);
+    expect(long.startsWith("Realm · x")).toBe(true);
+    expect(long.endsWith("… (no picture)")).toBe(true);
+  });
+
+  it("rides the same wire as a page element, and the two come back apart", () => {
+    const app = ElementChipSchema.parse({ label: "Realm · Send button", element: appPicked() });
+    expect(isAppElement(app.element)).toBe(true);
+    expect(app.element).toEqual(appPicked());
+    const page = ElementChipSchema.parse({ label: 'button "Sign in"', element: picked() });
+    expect(isAppElement(page.element)).toBe(false);
+    // …and is held to bounds of its own: a chip that exceeds them did not come from the picker.
+    expect(ElementChipSchema.safeParse({ label: "x", element: appPicked({}, { hooks: Array(APP_PICK_HOOKS_MAX + 1).fill("data-a") }) }).success).toBe(false);
+    expect(ElementChipSchema.safeParse({ label: "x", element: appPicked({}, { hooks: ["d".repeat(APP_PICK_HOOK_MAX + 1)] }) }).success).toBe(false);
+    expect(ElementChipSchema.safeParse({ label: "x", element: appPicked({ html: "y".repeat(PICK_HTML_MAX + 1) }) }).success).toBe(false);
+  });
+
+  it("describes itself plainly, for an agent working on Realm — component, selector, hooks and box", () => {
+    const out = elementContext([{ label: "Realm · Send button", element: appPicked() }], [{ path: SHOT }]);
+    expect(out).toContain("Parts of Realm's own window the user picked, one per chip above:\n  @[Realm · Send button] — the attached a1b2c3-realm-send-button.png shows it");
+    expect(out).toContain("the browser tools cannot reach them");
+    expect(out).toContain("component: Composer, inside SessionPane › PaneHost");
+    expect(out).toContain("role: button\nname: Send\nselector: .composer-card > button.composer-send\nclasses: composer-send");
+    expect(out).toContain('data hooks: data-state="send" on button.composer-send');
+    expect(out).toContain("box: x=1120.4 y=838.3 w=32 h=32 in a 1400×900 window");
+    // Not fenced, for realm-app's snapshot's reason: it is Realm's own interface, not a third party's.
+    expect(out).not.toMatch(/untrusted-[0-9a-f]{16}/);
+  });
+
+  it("names the picture only while the message still carries it", () => {
+    // THE MUTANT: trust `shot` alone. The person took the tile off, and the agent is told to look at
+    // a file it was never given.
+    const taken = elementContext([{ label: "Realm · Send button", element: appPicked() }], []);
+    expect(taken).toContain("  @[Realm · Send button] — no picture");
+    expect(taken).not.toContain("a1b2c3-realm-send-button.png");
+    const view = elementContext([{ label: "Realm · Browser pane (no picture)", element: appPicked({ name: "" }, { shot: null, webView: true }) }], [{ path: SHOT }]);
+    expect(view).toContain("no picture: it covers a browser pane's page, which a capture of Realm's window cannot see");
+  });
+
+  it("puts a page's elements first and Realm's after, each under its own head, and leaves page-only messages alone", () => {
+    const both = elementContext([
+      { label: "Realm · Send button", element: appPicked() },
+      { label: 'button "Sign in"', element: picked() },
+    ], [{ path: SHOT }]);
+    const page = both.indexOf("Elements the user picked in Realm's browser pane");
+    const app = both.indexOf("Parts of Realm's own window the user picked");
+    expect(page).toBeGreaterThanOrEqual(0);
+    expect(app).toBeGreaterThan(page);
+    // The page block lists only the page's chip.
+    expect(both.slice(page, app)).not.toContain("Realm · Send button");
+    expect(elementContext([{ label: 'button "Sign in"', element: picked() }])).not.toContain("Realm's own window");
   });
 });
