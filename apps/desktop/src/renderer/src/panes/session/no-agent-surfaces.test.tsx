@@ -80,6 +80,16 @@ describe("surfaces no agent may act in", () => {
     expect(element).toContain(NO_AGENT_ATTR);
   });
 
+  it("lets a menu row be one, and the prompter's Select in Realm is — it starts a pick only the person makes", () => {
+    // A row is a MenuItem rather than an element, so its attribute is asked for by name and drawn by
+    // the menu. THE MUTANT is either half going: the row stops asking, or the menu stops drawing it.
+    const menu = readFileSync(repoFile("apps/desktop/src/renderer/src/components/Menu.tsx"), "utf8");
+    expect(menu).toContain(`${NO_AGENT_ATTR}={it.noAgent}`);
+    const row = readFileSync(repoFile("apps/desktop/src/renderer/src/panes/session/Composer.tsx"), "utf8")
+      .split("\n").find((line) => line.includes('label: "Select in Realm"'));
+    expect(row).toContain('noAgent: "element picker"');
+  });
+
   it("names the attribute main actually looks for", () => {
     // THE MUTANT: change the constant. Every component would keep its now-meaningless attribute and
     // every one of these surfaces would silently become clickable.
