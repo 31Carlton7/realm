@@ -1,7 +1,8 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useApp, useProfileSpaces } from "../../state/store";
 import { usePageNavHost } from "../page-nav";
+import { useDissolve } from "../ScrollFades";
 import { NeedsYou } from "./NeedsYou";
 import { PinnedGrid } from "./PinnedGrid";
 import { ProfileSwitcher } from "./ProfileSwitcher";
@@ -18,12 +19,13 @@ import { useAllItemsFresh, useOpenAnywhere, useProfileRows, useSidebarState } fr
  *
  * Six things, in this order, and nothing the window already shows: its toggle, search and a new
  * session in the head row; the profile under it; what waits on you; the profile's pinned items; its
- * spaces as sections of one list, or the same sessions by time; and New space at the end. The app's
+ * spaces as sections of one list, or the same sessions by time; and New space at the foot. The app's
  * destinations are the rail's. It lists SESSIONS — a terminal, a browser or a diff is something a
  * session opens, and lives in that session's side pane, not here.
  *
  * One scroller holds the list, so a long one lengthens the column rather than pushing anything
- * around; it dissolves at both ends by masking itself (`.space-body`).
+ * around; it dissolves at an end only while there are rows past it (`useDissolve`), so the list at
+ * rest starts close under the profile with its first row whole.
  *
  * The column is a box that opens and closes (`--sidebar-open`, styles.css) and everything in it rides
  * one wrapper that slides with its edge (`.sidebar-slide`): head and list move together, clipped to
@@ -41,6 +43,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const state = useSidebarState();
   const rows = useProfileRows(state);
   const refresh = useAllItemsFresh();
+  const scroller = useRef<HTMLDivElement>(null);
+  useDissolve(scroller);
   return (
     <aside id="app-sidebar" className="sidebar" data-collapsed={collapsed || undefined} inert={collapsed || undefined}
       data-page-nav={page !== null || undefined}>
@@ -51,14 +55,19 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           {/* The profile is what the column lists, so it heads the column — outside the scroller, where
               it holds still while the spaces move under it. */}
           <div className="sb-title"><ProfileSwitcher /></div>
-          <div className="space-body">
+          <div className="space-body" ref={scroller}>
             <NeedsYou />
             <Pinned onChanged={refresh} />
             <SidebarLens />
             {lens === "recent"
               ? <RecentList rows={rows} onChanged={refresh} />
-              : <><SpaceSections state={state} rows={rows} onChanged={refresh} /><NewSpaceRow /></>}
+              : <SpaceSections state={state} rows={rows} onChanged={refresh} />}
           </div>
+          {/* Pinned at the column's foot rather than at the list's end, where a long list carried it out
+              of sight (the owner, 10-04: "the button disappears when the list is too long"). The list
+              dissolves into it while rows run on below. In both readings: a space is the one thing
+              either list cannot make for you. */}
+          <div className="sb-foot"><NewSpaceRow /></div>
         </div>
       </div>
       {/* Inside the column rather than between it and the panes, so that `inert` above reaches it:
@@ -105,7 +114,7 @@ function Pinned({ onChanged }: { onChanged: () => void }) {
   );
 }
 
-/** New space, at the end of the list. */
+/** New space, at the foot of the column. */
 function NewSpaceRow() {
   const openSheet = useApp((s) => s.openSheet);
   return (

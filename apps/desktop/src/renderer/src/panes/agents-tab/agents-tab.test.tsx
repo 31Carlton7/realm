@@ -92,9 +92,13 @@ describe("the list of a session's sub-agents", () => {
     await waitFor(() => expect(api.calls.filter((c) => c === "listDelegatedChildren:se1").length).toBeGreaterThan(before));
   });
 
-  it("says plainly when there are none yet, and where to start", async () => {
+  it("says plainly when there are none yet, and where to start — one composition, not a header over nothing", async () => {
     await mount({ children: [] });
-    expect(await screen.findByText(/None yet\. Pick models below/)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Hand work to sub-agents" })).toBeInTheDocument();
+    expect(screen.getByText(/Pick models below and say what to build/)).toBeInTheDocument();
+    // The list's own head is the populated state's; over an empty list it was the top-left label the
+    // owner asked to have gone.
+    expect(screen.queryByRole("heading", { name: /^Sub-agents/ })).toBeNull();
   });
 
   it("lights the row a transcript line asked for", async () => {

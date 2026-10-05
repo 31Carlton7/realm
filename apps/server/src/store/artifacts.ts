@@ -52,13 +52,16 @@ export class ArtifactsStore {
    * `spaceId` filters through the join rather than a stored column (see the migration). `query`
    * matches the NAME — a user hunting for `report.md` should not have to also match the eleven
    * directories above it — and is escaped for LIKE so a path with a `%` in it is a literal.
+   *
+   * `perFile` collapses the rows to each path's newest BEFORE the keyset applies. The other order
+   * pages wrongly: a cursor that cut off a file's newest row would make an older row of the same file
+   * its newest, and the next page would list the file a second time.
    */
   list(input: LibraryQuery): LibraryEntry[] {
     const q = LibraryQuerySchema.parse(input);
     const where: string[] = [];
     const args: (string | number)[] = [];
-    if (q.spaceId !== null) { where.push("s.space_id = ?"); args.push(q.spaceId); }
-    if (q.profileId !== null) { where.push("s.space_id IN (SELECT id FROM spaces WHERE profile_id = ?)"); args.push(q.profileId); }
+    scopeOf(q, where, args);
     if (q.kind !== null) { where.push("a.kind = ?"); args.push(q.kind); }
     if (q.type !== null) {
       // "Other" is everything no type claims, so it is the complement of the whole table of them —
@@ -72,28 +75,47 @@ export class ArtifactsStore {
       where.push("a.name LIKE ? ESCAPE '\\'");
       args.push(`%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
     }
+    const rows = (q.perFile ? this.newestPerFile(where, args, q) : this.everyRow(where, args, q)) as (Row & { space_id: string })[];
+    return rows.map((r) => ({ ...toEntry(r), spaceId: r.space_id }));
+  }
+
+  private everyRow(where: string[], args: (string | number)[], q: { before: { ts: number; id: string } | null; limit: number }): unknown[] {
     if (q.before !== null) {
       // Strict lexicographic on the same pair the index is ordered by, so a page boundary that lands
       // inside a millisecond neither repeats a row nor drops one.
       where.push("(a.ts < ? OR (a.ts = ? AND a.id < ?))");
       args.push(q.before.ts, q.before.ts, q.before.id);
     }
-    const rows = this.db.prepare(`
+    return this.db.prepare(`
       SELECT a.*, s.title AS session_title, s.agent_kind, s.space_id
       FROM artifacts a JOIN sessions s ON s.id = a.session_id
       ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
-      ORDER BY a.ts DESC, a.id DESC LIMIT ?`).all(...args, q.limit) as (Row & { space_id: string })[];
-    return rows.map((r) => ({ ...toEntry(r), spaceId: r.space_id }));
+      ORDER BY a.ts DESC, a.id DESC LIMIT ?`).all(...args, q.limit);
   }
 
-  /** How many rows the index holds, for the page's own "nothing here yet" versus "nothing matches"
-   *  distinction — the same distinction the schedules page draws. */
-  count(spaceId: string | null, profileId: string | null = null): number {
-    const r = spaceId !== null
-      ? this.db.prepare("SELECT COUNT(*) AS n FROM artifacts a JOIN sessions s ON s.id = a.session_id WHERE s.space_id = ?").get(spaceId) as { n: number }
-      : profileId !== null
-        ? this.db.prepare("SELECT COUNT(*) AS n FROM artifacts a JOIN sessions s ON s.id = a.session_id WHERE s.space_id IN (SELECT id FROM spaces WHERE profile_id = ?)").get(profileId) as { n: number }
-        : this.db.prepare("SELECT COUNT(*) AS n FROM artifacts").get() as { n: number };
+  /** The same rows collapsed to each path's newest, the keyset applied to what is left. */
+  private newestPerFile(where: string[], args: (string | number)[], q: { before: { ts: number; id: string } | null; limit: number }): unknown[] {
+    const outer = q.before === null ? "" : "AND (ts < ? OR (ts = ? AND id < ?))";
+    const page = q.before === null ? [] : [q.before.ts, q.before.ts, q.before.id];
+    return this.db.prepare(`
+      SELECT * FROM (
+        SELECT a.*, s.title AS session_title, s.agent_kind, s.space_id,
+          ROW_NUMBER() OVER (PARTITION BY a.path ORDER BY a.ts DESC, a.id DESC) AS newest
+        FROM artifacts a JOIN sessions s ON s.id = a.session_id
+        ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""})
+      WHERE newest = 1 ${outer}
+      ORDER BY ts DESC, id DESC LIMIT ?`).all(...args, ...page, q.limit);
+  }
+
+  /** How many rows the index holds in a scope, for the page's own "nothing here yet" versus "nothing
+   *  matches" distinction — the same distinction the schedules page draws. Counted the way the list
+   *  is read: files, not events, when the list is one row per file. */
+  count(spaceId: string | null, profileId: string | null = null, { sessionId = null, perFile = false }: { sessionId?: string | null; perFile?: boolean } = {}): number {
+    const where: string[] = [];
+    const args: string[] = [];
+    scopeOf({ spaceId, profileId, sessionId }, where, args);
+    const r = this.db.prepare(`SELECT COUNT(${perFile ? "DISTINCT a.path" : "*"}) AS n FROM artifacts a JOIN sessions s ON s.id = a.session_id
+      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}`).get(...args) as { n: number };
     return r.n;
   }
 
@@ -145,6 +167,14 @@ export class ArtifactsStore {
       await new Promise((r) => setImmediate(r));
     }
   }
+}
+
+/** Where a query looks — a space, a profile, one session — as WHERE clauses over `a` and `s`. Shared by
+ *  the list and the count, so "nothing here yet" is always measured over the scope the list reads. */
+function scopeOf(q: { spaceId: string | null; profileId: string | null; sessionId: string | null }, where: string[], args: (string | number)[]): void {
+  if (q.spaceId !== null) { where.push("s.space_id = ?"); args.push(q.spaceId); }
+  if (q.profileId !== null) { where.push("s.space_id IN (SELECT id FROM spaces WHERE profile_id = ?)"); args.push(q.profileId); }
+  if (q.sessionId !== null) { where.push("a.session_id = ?"); args.push(q.sessionId); }
 }
 
 export type { Artifact };

@@ -158,25 +158,40 @@ describe("the profile switcher", () => {
 
 });
 
-describe("the lens", () => {
-  it("reads Spaces until Recent is picked, and remembers the pick", async () => {
+describe("the list's head", () => {
+  const head = () => document.querySelector<HTMLElement>(".sb-lens")!;
+  const switcher = () => within(head()).getByRole("button", { name: "Activity" });
+
+  it("reads Spaces with a quiet switch to the activity, which a click turns on and the setting keeps", async () => {
+    // The owner, 10-04: the Spaces/Recent tabs go; a caption says Spaces, and an activity button at
+    // the far right shows the activity — exactly what Recent showed. THE MUTANTS: a switch that does
+    // not say it is on, or a choice that is not remembered.
     const { api, store, container } = await mount({
       sessions: [session("se1", "s1", { title: "Fix the login form", updatedAt: Date.now() })],
       items: { s1: [item("i-se1", "s1", { kind: "session", refId: "se1", title: "Fix the login form" })] },
     });
-    const lens = within(screen.getByRole("group", { name: "List" }));
-    expect(lens.getByRole("radio", { name: "Spaces" })).toBeChecked();
-    fireEvent.click(lens.getByRole("radio", { name: "Recent" }));
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(head()).toHaveTextContent("Spaces");
+    expect(switcher()).toHaveAttribute("aria-pressed", "false");
+    expect(switcher()).toHaveAttribute("title", "Show activity");
+    fireEvent.click(switcher());
     await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
     expect(api.calls).toContain("setSetting:ui.sidebarLens=recent");
     await waitFor(() => expect(container.querySelector(".sb-recent")).toHaveTextContent("Fix the login form"));
     expect(container.querySelector(".sb-sections")).toBeNull();
+    expect(head()).toHaveTextContent("Activity");
+    expect(switcher()).toHaveAttribute("aria-pressed", "true");
+    expect(switcher()).toHaveAttribute("title", "Show spaces");
+    fireEvent.click(switcher());
+    await waitFor(() => expect(store.getState().sidebarLens).toBe("spaces"));
+    expect(container.querySelector(".sb-sections")).not.toBeNull();
     expect(store.getState().sheet).toBeNull(); // a lens, not a sheet over the work
   });
 
-  it("comes back on the lens it was left on", async () => {
+  it("comes back on the reading it was left on", async () => {
     const { store } = await mount({ settings: { "ui.sidebarLens": "recent" } });
     await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
-    expect(within(screen.getByRole("group", { name: "List" })).getByRole("radio", { name: "Recent" })).toBeChecked();
+    expect(head()).toHaveTextContent("Activity");
+    expect(switcher()).toHaveAttribute("aria-pressed", "true");
   });
 });

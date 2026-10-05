@@ -79,7 +79,7 @@ export class DocumentService {
    * exist — opening a tab on nothing would show an empty editor that cannot save (`baseHash` null
    * + a later creation = conflict), so a missing file is an error here rather than a surprise later.
    */
-  async openPath(p: { spaceId: string; environmentId?: string; path: string; openedBy?: string }): Promise<{ documentsId: string; itemId: string; environmentId: string }> {
+  async openPath(p: { spaceId: string; environmentId?: string; path: string; openedBy?: string }): Promise<{ documentsId: string; itemId: string; environmentId: string; path: string }> {
     const { documentsId, itemId } = this.open({ spaceId: p.spaceId, environmentId: p.environmentId });
     const ws = this.get(documentsId);
     const root = this.rootOf(ws);
@@ -100,7 +100,7 @@ export class DocumentService {
     const openPaths = ws.openPaths.includes(rel) ? ws.openPaths : [...ws.openPaths, rel];
     await this.setTabs(documentsId, openPaths, rel);
     this.d.rpc.broadcast("documents.openRequested", { spaceId: ws.spaceId, environmentId: ws.environmentId, documentsId, itemId, path: rel, ...(p.openedBy ? { openedBy: p.openedBy } : {}) });
-    return { documentsId, itemId, environmentId: ws.environmentId };
+    return { documentsId, itemId, environmentId: ws.environmentId, path: rel };
   }
 
   /** A guide's quiz history from its sidecar; a missing or unreadable sidecar is simply empty. */

@@ -442,6 +442,17 @@ export function defaultAdapters(): AdapterRegistry {
         goal: "Look back over this week in this space: list its sessions with agent_peers and its commits with git log, then write a short status update — what shipped, what is in progress, what is blocked." } },
       { kind: "text", text: "Done — \"Weekly review\" runs every Friday at 4:00 PM, starting this week." },
     ],
+  }, {
+    // A turn that leaves files behind — a note and a script written, the README edited — so the
+    // documents pane beside the session has its own files to list. The tool calls are what the
+    // Library's index records; the paths are relative, as an agent names files in its own checkout.
+    on: "Draft the launch notes", emit: [
+      { kind: "text", paceMs: 30, text: "I'll put the launch plan in a note, and sketch the greeting as a script." },
+      { kind: "tool", name: "Write", input: { file_path: "notes/launch-plan.md", content: "# Launch plan\n\n- Friday: pricing page goes live\n- Monday: the announcement\n" }, result: "File created successfully at: notes/launch-plan.md" },
+      { kind: "tool", name: "Write", input: { file_path: "scripts/greet.ts", content: "export function greet(name: string): string {\n  return `Welcome to the launch, ${name}.`;\n}\n" }, result: "File created successfully at: scripts/greet.ts" },
+      { kind: "tool", name: "Edit", input: { file_path: "README.md", old_string: "# yooo\n", new_string: "# yooo\n\nLaunching on Friday.\n" }, result: "The file README.md has been updated." },
+      { kind: "text", paceMs: 30, text: "Wrote the launch plan and the greeting script, and put the launch date in the README." },
+    ],
   }] });
   /* The fake behind real agents' NAMES, for a live check that has to show work handed across
      harnesses — a sub-agent on the real Codex would be a billed turn. Named kinds only, and only with

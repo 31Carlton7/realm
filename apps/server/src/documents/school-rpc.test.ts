@@ -55,7 +55,7 @@ describe("documents.openPath", () => {
     await writeFile(join(root, "other.md"), "# o");
     await c.call("documents.setTabs", { documentsId, openPaths: ["other.md"], activePath: "other.md" });
     const r = (await c.call("documents.openPath", { spaceId: space.id, path: "notes.md" })).result;
-    expect(r).toEqual({ documentsId, itemId, environmentId: env.id });
+    expect(r).toEqual({ documentsId, itemId, environmentId: env.id, path: "notes.md" });
     const ws = (await c.call("documents.get", { documentsId })).result;
     expect(ws.openPaths).toEqual(["other.md", "notes.md"]);
     expect(ws.activePath).toBe("notes.md");
@@ -80,7 +80,10 @@ describe("documents.openPath", () => {
        root first would be asking it to reimplement `relInRoot`. `openPaths` stays relative. */
     const { c, space, documentsId, root } = await setup();
     await writeFile(join(root, "deep.md"), "# d");
-    await c.call("documents.openPath", { spaceId: space.id, path: join(root, "deep.md") });
+    const r = (await c.call("documents.openPath", { spaceId: space.id, path: join(root, "deep.md") })).result;
+    // …and says so: the tab's own name is what a line to reveal is keyed on, and the caller had only
+    // the absolute path it sent.
+    expect(r.path).toBe("deep.md");
     const ws = (await c.call("documents.get", { documentsId })).result;
     expect(ws.openPaths).toEqual(["deep.md"]);
     expect(ws.activePath).toBe("deep.md");

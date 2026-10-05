@@ -635,7 +635,7 @@ export function registerMethods(d: Deps): void {
 
   // The Library's file browser. One indexed range scan and a count; no transcript is read, which is
   // the whole point of the `artifacts` index existing (see migration v25).
-  reg("library.artifacts", (p) => ({ entries: d.artifacts.list(p), total: d.artifacts.count(p.spaceId, p.profileId ?? null) }));
+  reg("library.artifacts", (p) => ({ entries: d.artifacts.list(p), total: d.artifacts.count(p.spaceId, p.profileId ?? null, { sessionId: p.sessionId ?? null, perFile: p.perFile }) }));
 
   // Import from the agent CLIs' own stores. `scan` is a pure read — it opens ~/.claude, ~/.codex and
   // ~/.cursor read-only and answers; nothing is created by looking. `apply` is the only writer, and
@@ -673,6 +673,7 @@ export function registerMethods(d: Deps): void {
   reg("terminals.prefill", async (p) => { await d.terminals.prefill(p.terminalId, p.command); return { ok: true as const }; });
   reg("terminals.resize", (p) => { d.terminals.resize(p.terminalId, p.cols, p.rows); return { ok: true as const }; });
   reg("terminals.close", (p) => { d.terminals.close(p.terminalId); return { ok: true as const }; });
+  reg("terminals.programs", () => d.terminals.programs());
 
   reg("browsers.create", (p) => d.browsers.open(p));
   reg("browsers.get", (p) => d.browsers.get(p.browserId));

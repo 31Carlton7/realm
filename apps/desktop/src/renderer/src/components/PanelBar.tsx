@@ -9,6 +9,7 @@ import { PaneTabs } from "./PaneTabs";
 import { useActionBudget } from "./pane-bar-fit";
 import { RenameInput } from "./RenameInput";
 import { ItemIcon } from "./PageIcon";
+import { useItemTitle } from "./ProgramMark";
 import { SpaceIcon } from "./SpaceIcon";
 import { useOpenSpacePage, useSpaceTint } from "./sidebar/use-sidebar-model";
 
@@ -30,6 +31,9 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
 }) {
   const deleteItem = useApp((s) => s.deleteItem);
   const run = useApp((s) => s.run);
+  /* A terminal's title says what it is running first ("claude · realm"); the rename below still edits
+     the item's own title, which is the part that is the person's. */
+  const shownTitle = useItemTitle(item);
   // The palette's "Rename focused item" arms renamingItemId; items are unique in the layout, so at
   // most one PanelBar answers. Local state covers the click-to-rename path.
   const renameArmed = useApp((s) => s.renamingItemId === item.id);
@@ -119,7 +123,7 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
         : tabs ? <PaneTabs leafId={leafId} tabs={tabs} activeId={item.id} onRename={() => setRenaming(true)} />
         : (
           <button className="panel-title" title="Click to rename" aria-label={`Rename ${item.title}`}
-            onClick={() => setRenaming(true)}>{item.title}</button>
+            onClick={() => setRenaming(true)}>{shownTitle}</button>
         )}
       <span className="panel-meta">{Meta ? <Meta item={item} /> : null}</span>
       <span className="panel-actions">

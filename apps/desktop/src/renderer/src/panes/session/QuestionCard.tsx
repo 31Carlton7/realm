@@ -479,8 +479,8 @@ function FileBody(p: BodyProps) {
     if (!store || !workspace) return;
     let live = true;
     const t = setTimeout(() => {
-      void store.getState().searchFilesIn(workspace, query.trim())
-        .then((r) => { if (live) { setHits(r.hits.slice(0, FILE_HITS)); setSelected(0); } })
+      void store.getState().searchProjectFiles(query.trim(), workspace)
+        .then((r) => { if (live) { setHits(r?.hits.slice(0, FILE_HITS) ?? []); setSelected(0); } })
         .catch(() => { if (live) setHits([]); });
     }, 90);
     return () => { live = false; clearTimeout(t); };
