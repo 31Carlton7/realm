@@ -149,7 +149,6 @@ function ViewerHead({ viewer, facts, onClose }: { viewer: ViewerState; facts: Fa
   const environmentId = ownerId ? sessions[ownerId]?.environmentId ?? null : null;
   const [menuOpen, setMenuOpen] = useState(false);
   const more = useRef<HTMLButtonElement>(null);
-  const finderIcon = useFinderIcon();
 
   const gone = facts === null;
   // The documents pane's own answer, which is what makes "Open" mean one thing across the app.
@@ -189,11 +188,11 @@ function ViewerHead({ viewer, facts, onClose }: { viewer: ViewerState; facts: Fa
                 <Icon name="focusPane" size={14} />
               </button>
             )}
-            {/* Finder's own icon, read off this machine; Realm's folder until it arrives, and for good
-                on a machine that cannot read it — the control never waits on a picture. */}
+            {/* Realm's folder, at the weight of the glyphs beside it. Finder's own icon is a full-colour
+                face, and in a row of quiet marks it was the one that shouted. */}
             <button type="button" className="icon-btn" aria-label="Reveal in Finder" title="Reveal in Finder"
               onClick={() => { void window.realm?.files?.reveal?.(file.path); }}>
-              {finderIcon ? <img className="media-viewer-finder" src={finderIcon} alt="" draggable={false} /> : <Icon name="folder" size={14} />}
+              <Icon name="folder" size={14} />
             </button>
             <button type="button" className="icon-btn" aria-label="Save a copy…" title="Save a copy…"
               onClick={() => { void window.realm?.files?.saveCopy?.(file.path); }}>
@@ -228,15 +227,4 @@ function Provenance({ from, onLeave }: { from: FileProvenance; onLeave: () => vo
       {said}
     </button>
   );
-}
-
-/** Finder's icon as a data URL, read once per launch in main. Null until it arrives, or for good. */
-function useFinderIcon(): string | null {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    let live = true;
-    void (window.realm?.files?.finderIcon?.() ?? Promise.resolve(null)).catch(() => null).then((u) => { if (live) setUrl(u); });
-    return () => { live = false; };
-  }, []);
-  return url;
 }

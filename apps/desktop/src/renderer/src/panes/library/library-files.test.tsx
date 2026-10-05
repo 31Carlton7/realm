@@ -296,19 +296,17 @@ describe("previewing a file from the Library", () => {
     await waitFor(() => expect(realm.openAttachment).toHaveBeenCalledWith("/tmp/archive.zip"));
   });
 
-  it("wears Finder's own icon on Reveal in Finder, and Realm's folder until it arrives", async () => {
-    /* The mark is Apple's, so it is read off THIS machine at runtime rather than shipped with the
-       app. A machine that cannot produce it (or has not yet) still gets a usable control — the
-       button draws Realm's folder glyph instead of waiting for a picture. */
+  it("draws Reveal in Finder as Realm's folder, at the weight of the glyphs beside it", async () => {
+    /* Finder's own icon was right in the preview's MENU, where a row is found by its picture. In the
+       viewer's row of quiet marks the full-colour face was the one that shouted. THE MUTANT: put the
+       face back — the button grows an <img>, and the head reads as an advert for the Finder. */
     const realm = bridge();
-    let arrive: (url: string) => void = () => {};
-    realm.files.finderIcon = vi.fn(() => new Promise<string>((r) => { arrive = r; }));
     await mount({ artifacts: [file({ id: "report.md", path: "/tmp/report.md" })] });
     const dialog = await openCard("/tmp/report.md");
     const reveal = within(dialog).getByRole("button", { name: "Reveal in Finder" });
     expect(reveal.querySelector("svg")).not.toBeNull();
-    arrive("data:image/png;base64,FINDER");
-    await waitFor(() => expect(reveal.querySelector("img")).toHaveAttribute("src", "data:image/png;base64,FINDER"));
+    expect(reveal.querySelector("img")).toBeNull();
+    expect(realm.files.finderIcon).not.toHaveBeenCalled();
   });
 
   it("saves a copy, reveals and copies the path through the bridge that can do all three", async () => {

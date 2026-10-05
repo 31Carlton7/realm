@@ -7748,16 +7748,17 @@ select { appearance: none; padding-right: 22px;
 
 /* ── The media viewer (components/viewer) ──
    One file over the whole window, the session's prompter docked under it. Its ground is the window's
-   own canvas, nearly opaque, so the file rests on the face the rest of the app wears — a light field
-   in light mode, as Codex's viewer is, rather than the near-black box the lightbox was in both. What
-   is behind it stops reading at this alpha and the rest of the workspace is still faintly there.
+   own canvas, so the file rests on the face the rest of the app wears — a light field in light mode,
+   as Codex's viewer is, rather than the near-black box the lightbox was in both. Opaque: at 97% the
+   workspace under it measured 7 levels through on either face, which is not context, it is every
+   label in the window ghosting beside the file's own name (media-viewer-live.mjs).
    NOT a backdrop-filter, for two reasons it is worth keeping apart: a blur over the window's material
    composites toward a smudge (design.md), and Chromium paints a <video> layer straight through a
    filtered overlay however it is stacked (scripts/media-live.mjs measured it). Over the quick chat
    (70) and under the toasts and menus, which it raises: its prompter's model list opens over it. */
 .media-viewer {
   position: fixed; inset: 0; z-index: 75; display: flex; flex-direction: column; outline: none;
-  background: color-mix(in srgb, var(--canvas) 97%, transparent); color: var(--rl-text-bright);
+  background: var(--canvas); color: var(--rl-text-bright);
   animation: rl-fade-in var(--dur-swap) var(--ease-out-strong);
 }
 /* The window's top row, as every page's bar is: it moves the window, past the traffic lights, and its
@@ -7775,7 +7776,6 @@ select { appearance: none; padding-right: 22px;
   font-size: 12px; color: var(--rl-text-dim); }
 span.media-viewer-from { align-self: center; }
 .media-viewer-actions { flex: none; display: flex; align-items: center; gap: 2px; }
-.media-viewer-finder { width: 16px; height: 16px; }
 
 .media-viewer-body { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 4px 20px 0; }
 /* The file takes whatever the prompter and its exchange leave, and never less than a picture's worth. */
@@ -7797,20 +7797,20 @@ span.media-viewer-from { align-self: center; }
 .media-viewer-img { display: block; max-width: 100%; max-height: 100%; user-select: none; -webkit-user-select: none;
   outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
 :root[data-mode="light"] .media-viewer-img { outline-color: rgba(0, 0, 0, 0.1); }
-/* A page of a document is paper: it takes the raised surface's shadow, which a picture with its own
-   ground would only muddy. */
-.media-viewer-picture[data-page] .media-viewer-img { box-shadow: var(--shadow-raised); }
 /* The zoom, a small pill under the picture — Codex's tool strip, holding the one tool a viewer owes
-   every picture. The readout is the way between fit and actual size. */
+   every picture. The readout is the way between fit and actual size. It rests on the ground beside
+   the file rather than floating over it, so it takes the card's edge and lift: the overlay's long
+   shadow reached up onto a page of a PDF as a grey smudge across its foot. */
 .media-viewer-tools { flex: none; display: flex; align-items: center; gap: 2px; padding: 3px;
-  border-radius: var(--r-pill); background: var(--surface); box-shadow: var(--shadow-overlay); }
+  border-radius: var(--r-pill); background: var(--surface); box-shadow: var(--shadow-card); }
 .media-viewer-zoom { min-width: 52px; height: 28px; padding: 0 8px; border: none; border-radius: var(--r-pill); background: none;
   font-size: 12px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim);
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .media-viewer-zoom:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); transition: none; }
-/* A video or a sound keeps the transcript's own player, given the window's width. */
+/* A video or a sound keeps the transcript's own player, given the window's width. Resting, so no
+   shadow: the raised stack drew a dark halo the size of the window round a clip on the dark face. */
 .media-viewer-player { display: flex; justify-content: center; width: min(1200px, 100%); max-height: 100%; }
-.media-viewer-player .media-video { width: auto; max-width: 100%; max-height: 100%; background: transparent; box-shadow: var(--shadow-raised); }
+.media-viewer-player .media-video { width: auto; max-width: 100%; max-height: 100%; background: transparent; }
 .media-viewer-player .media-el { max-height: calc(100vh - 260px); max-width: 100%; width: auto; background: transparent; }
 .media-viewer-player .media-audio { width: min(560px, 100%); background: var(--surface); }
 
@@ -7821,20 +7821,23 @@ span.media-viewer-from { align-self: center; }
 .media-viewer-step[data-dir="prev"] { left: 0; }
 .media-viewer-step[data-dir="next"] { right: 0; }
 .media-viewer-step:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); transition: none; }
-.media-viewer-step:disabled { color: var(--rl-text-faint); box-shadow: var(--shadow-card); }
+.media-viewer-step:disabled { color: var(--rl-text-faint); box-shadow: var(--shadow-hairline); }
 
 /* The quick chat about the file: its exchange, where its questions go, and the prompter — on the
    prompter's own column, so the answer reads where the next question is typed. */
 .media-viewer-chat { flex: none; display: flex; flex-direction: column; min-height: 0; width: min(var(--prompter-w), 100%); }
-.media-viewer-thread { display: flex; min-height: 0; max-height: 34vh; }
+.media-viewer-thread { display: flex; min-height: 0; max-height: 30vh; }
 /* The transcript's metrics are a pane's; this is a strip under a picture. The ramps shorten and the
    padding clears what is left of them, as the quick chat's do. */
 .media-viewer .transcript { padding: 14px 4px 16px; }
 .media-viewer .transcript-wrap { --fade-top-h: 16px; --fade-h: 18px; }
 .media-viewer .transcript-col { max-width: none; }
 /* A picture the answer names is already on the stage, so the exchange shows it small: a mark of the
-   result, which a click puts back on the stage. */
-.media-viewer .transcript .media-el { max-height: 120px; }
+   result, which a click puts back on the stage. What the question carried is on the stage too, and
+   a closing line counting what this one exchange produced restates the answer above it, so neither
+   is drawn here — both stay in the session's own transcript, where they mean something. */
+.media-viewer .transcript .media-el { max-height: 72px; }
+.media-viewer .msg-user-files:has(~ .msg-user), .media-viewer .msg-transcript-summary { display: none; }
 .media-viewer-waiting { margin: 0 4px 8px; font-size: 12px; color: var(--rl-text-faint); }
 .media-viewer-owner { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0 6px 6px; font-size: 12px; color: var(--rl-text-faint); }
 .media-viewer-owner-mark { flex: none; }
