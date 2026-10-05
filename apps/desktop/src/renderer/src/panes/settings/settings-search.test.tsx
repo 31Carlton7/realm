@@ -101,6 +101,7 @@ describe("searching", () => {
       "Blink the terminal cursor, in General ▸ Terminals",
       "Terminal cursor, in General ▸ Terminals",
       "Session terminal, in General ▸ Terminals",
+      "Terminal colours, in General ▸ Terminals",
     ]);
   });
 
