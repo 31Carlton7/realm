@@ -203,7 +203,9 @@ export function mentionRefContext(refs: readonly MentionRef[], opts: {
  * agent Realm runs can read one and run the CLI it describes. The space's switch is left as it was.
  */
 export function macSkillContext(skillPath: string): string {
-  return "\n\nThe user mentioned @mac: use Realm's `mac` skill for this — a CLI for this Mac's own apps (Calendar, Reminders, "
+  // No `@` in Realm's own words either: the rule the mention scan keeps for the user's text is that an
+  // `@name` never reaches an agent, and this line is on the same wire.
+  return "\n\nThe user asked for Realm's `mac` skill here — a CLI for this Mac's own apps (Calendar, Reminders, "
     + `Contacts, Mail, Messages, Notes and more) with JSON output. Read its instructions at ${skillPath} first, then run \`mac\` `
     + "with your shell tool.\n";
 }

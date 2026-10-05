@@ -206,7 +206,7 @@ describe("the @ list — files, the Library, apps and @Mac", () => {
     await waitFor(() => expect(row("Messages").querySelector(".mention-row-desc")!.textContent).toBe("Computer use · needs Accessibility"));
     fireEvent.keyDown(box(), { key: "Enter" });
     expect(container.querySelector(".composer-highlight .ch-element[data-ref=app]")).toHaveAttribute("data-warn");
-    expect(screen.getByText(/Computer use needs Accessibility, which macOS has not given Realm/)).toBeInTheDocument();
+    expect(screen.getByText("Computer use cannot drive Messages until macOS gives Realm Accessibility — grant it in Settings ▸ Computer use.")).toBeInTheDocument();
   });
 
   it("@Mac inserts the mac skill's token and wears the Apple mark — in a Cursor session too", async () => {

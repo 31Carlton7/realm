@@ -77,6 +77,7 @@ describe("what the agent is told", () => {
 
   it("hands @mac over by its instructions when it could not be invoked natively", () => {
     expect(macSkillContext("/h/skills/mac/SKILL.md")).toMatch(/Read its instructions at \/h\/skills\/mac\/SKILL\.md first/);
+    expect(macSkillContext("/h/skills/mac/SKILL.md")).not.toContain("@"); // the wire carries no @name, not even Realm's
   });
 });
 

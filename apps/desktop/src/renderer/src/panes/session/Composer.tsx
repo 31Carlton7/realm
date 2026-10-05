@@ -37,6 +37,9 @@ const NO_COMMANDS: SlashCommand[] = [];
 const NO_GREETINGS: readonly string[] = [];
 const NO_FAST_SUPPORT: Record<string, boolean> = {};
 const NO_ICONS: Readonly<Record<string, string | null>> = {};
+/** "Messages", "Messages and Mail", "Messages, Mail and Notes". */
+const listNames = (names: readonly string[]): string =>
+  names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
 /** Branch + diff chips (W3): still the one way IN to the diff pane. The cwd and environment chips
  *  that used to lead this group are retired outright (prompter rework): the folder and the checkout
@@ -1278,8 +1281,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
         {appBlocked && refs.some((r) => r.kind === "app") && (
           <p className="composer-attach-note composer-mention-note" data-disposition="ignored">
             <Icon name="alert" size={12} className="attach-note-glyph" />
-            <span>Computer use needs Accessibility, which macOS has not given Realm — grant it in Settings ▸ Computer use:{" "}</span>
-            <span className="attach-note-files">{refs.flatMap((r) => (r.kind === "app" ? [r.name] : [])).join(", ")}</span>
+            {/* The apps by name, in the sentence: an app's name is a name, not an identifier to set
+                in mono after a colon. */}
+            <span>Computer use cannot drive {listNames(refs.flatMap((r) => (r.kind === "app" ? [r.name] : [])))} until macOS gives Realm Accessibility — grant it in Settings ▸ Computer use.</span>
           </p>
         )}
         {/* The mirror and the textarea are one control in two layers, so they share a positioned box.
