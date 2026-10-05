@@ -655,6 +655,15 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - Provider, model, mode, workspace, and connector context belong near the composer because they
   change what the next send means.
 - Keep raw logs and exhaustive tool detail available without making them compete with the result.
+- Handing work to other models is a REQUEST to the session's own agent, in the user's words — not a
+  side door that starts sub-agents behind it. The Agents tab's composer only makes the request
+  well-formed: each model by the name the server resolves, the tools that do it named too. The agent
+  stays the one who splits the work, reads the reports and answers for them, and the transcript holds
+  the ask beside everything done about it.
+- A sub-agent in its lead's transcript is a line of its own — "Subagent finished · <task>", its model,
+  its time — and is never folded into the ledger. A fan-out is two starts and a wait in a row, which
+  is a run, and a settled run collapses to "Worked for 8s": the one thing a reader of a delegation
+  came for, hidden behind the one line that says nothing about it.
 - A closing line names the WORK, not the residue. "This session produced 1 file · 4 attached" is
   true and tells a reader coming back nothing; the ask, the files that changed, whether anything
   ran or failed, and then what came out is the shape of an answer. Derive it from the transcript
