@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PAGE_REF_IDS, REDUCED_MOTION_KEY } from "@realm/contracts";
 import { CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE, paneAlphaFromGround } from "@realm/ui";
 import { SettingsPage } from "./SettingsPage";
@@ -126,5 +126,30 @@ describe("Text sizes and the content face", () => {
     // THE unknown-reserved-word mutant: treat "serif" as a family that is missing, and the select
     // grows a "serif — not installed" row for a face it just offered.
     expect([...select.options].some((o) => /not installed/.test(o.textContent ?? ""))).toBe(false);
+  });
+});
+
+describe("Cursor", () => {
+  it("carries a home's old answers into the new controls: a stilled editor caret, and a terminal set to a bar", async () => {
+    /* THE ignored-history mutant: read neither old key, and someone who had stopped the code editor's
+       caret and given their terminals a bar opens v2 to a blinking caret and a blinking block. */
+    const { store } = await appearance({ settings: { "editor.cursorBlink": false, "terminals.cursorStyle": "bar" } });
+    expect(store.getState().caret.animation).toBe("solid");
+    expect(store.getState().terminalCursorStyle).toBe("line");
+    expect(within(screen.getByRole("group", { name: "Terminal cursor" })).getByRole("radio", { name: "Line" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Cursor animation" })).toHaveValue("solid");
+  });
+
+  it("says every cursor is holding still while Reduce motion has it so, and nothing otherwise", async () => {
+    // THE silent-request mutant (design.md): the menu reads Smooth fade while the window draws a caret
+    // that does not move, and nothing on the page says why.
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), media: q, addEventListener() {}, removeEventListener() {} }));
+    try {
+      await appearance({ settings: { "ui.caret": { animation: "smooth" } } });
+      expect(screen.getByText("Reduce motion is on, so every cursor holds still.")).toBeInTheDocument();
+    } finally { vi.unstubAllGlobals(); }
+    cleanup();
+    await appearance({ settings: { "ui.caret": { animation: "smooth" } } });
+    expect(screen.queryByText(/holds still/)).toBeNull();
   });
 });
