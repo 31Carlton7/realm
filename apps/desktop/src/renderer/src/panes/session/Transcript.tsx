@@ -17,7 +17,7 @@ import { blockKey, lastUserMessage, type Block, type Rating, type Transcript as 
 import { stampLabel, stampTitle, useNow } from "./timestamps";
 import { touchedFiles, type FileLinkContext } from "./file-links";
 import { EditSummary } from "./EditSummary";
-import { turnEdits, undoOffer } from "./turn-edits";
+import { turnEdits, undoOffer, type TurnEdits } from "./turn-edits";
 import { useDissolve } from "../../components/ScrollFades";
 import { runLabelFor, type RunLabel } from "./run-label";
 import { formatTokens } from "./SessionUsage";
@@ -31,6 +31,12 @@ import { SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type S
 const permKey = (requestId: string) => `perm:${requestId}`;
 /** A turn's edit card, keyed off the run line it sits above. */
 const editKey = (runKey: string) => `edit:${runKey}`;
+/** A turn's measured changes, listed the way its card lists them (in the order the turn edited
+ *  them), so Review opens on the files in the order the reader just read them. */
+const inCardOrder = (c: TurnChanges, card: TurnEdits): TurnChanges => {
+  const byPath = new Map(c.files.map((f) => [f.path, f]));
+  return { ...c, files: card.files.map((f) => byPath.get(f.shown)).filter((f): f is TurnChanges["files"][number] => f !== undefined) };
+};
 
 function Thinking({ text, enter }: { text: string; enter?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -480,7 +486,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                 {edited && turnEditing && <EditSummary edits={edited} enter={isEntering(editKey(key))}
                   undo={undoOffer(edited, edits!.turns, turnEditing.checkpoints, turnEditing.sessionId)}
                   onOpen={(p) => checkout?.onOpen(p, null)}
-                  onReview={measured ? () => turnEditing.onReview(measured, edited.asked) : undefined}
+                  onReview={measured ? () => turnEditing.onReview(inCardOrder(measured, edited), edited.asked) : undefined}
                   onUndo={turnEditing.onUndo} />}
                 <div className="msg-run muted" data-enter={enter || undefined}>
                   <span>{runSummary(b, eggs, packLabels)}</span>

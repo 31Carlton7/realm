@@ -3273,8 +3273,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    nest inside it (20 = 12 of padding + the 8 a row rounds by). */
 .edit-summary { display: flex; flex-direction: column; gap: 2px; margin: 2px 0; padding: 12px;
   border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); }
-.edit-summary-head { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 0 8px 6px; }
-.edit-summary-title { font-size: 14px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+/* The actions wrap under the title in a narrow pane rather than pushing Review off the card's edge;
+   the title itself never breaks — "Edited / 2 files" is one phrase. */
+.edit-summary-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-height: 30px; padding: 0 8px 6px; }
+.edit-summary-title { font-size: 14px; font-weight: var(--fw-label); color: var(--rl-text-bright); white-space: nowrap; }
 .edit-summary-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .edit-summary-undo { display: inline-flex; align-items: center; gap: 5px; }
 /* What a missing Undo, or a list cut short, is said in: quiet, and true. */
@@ -3283,10 +3285,11 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .edit-file { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 30px; padding: 5px 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; color: var(--rl-text-dim); }
 button.edit-file:hover { background: var(--rl-hover); }
-/* The directory gives way first: it is the part of a path a reader already has from the rows around it. */
-.edit-file-path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.edit-file-dir { color: var(--rl-text-faint); }
-.edit-file-name { color: var(--rl-text-bright); font-weight: var(--fw-label); }
+/* The directory gives way first and the name never does: the name is the file, and a row cut down to
+   "web/lib/agent/chat-ru…" has lost the one part a reader came for. */
+.edit-file-path { flex: 1 1 auto; min-width: 0; display: flex; white-space: nowrap; }
+.edit-file-dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--rl-text-faint); }
+.edit-file-name { flex: none; color: var(--rl-text-bright); font-weight: var(--fw-title); }
 .edit-file[data-deleted] .edit-file-name { text-decoration: line-through; text-decoration-color: var(--rl-text-faint); }
 .edit-file-note { flex: none; font-size: 12px; color: var(--rl-text-faint); }
 .edit-counts { flex: none; display: inline-flex; gap: 6px; font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -3347,12 +3350,12 @@ button.edit-file:hover { background: var(--rl-hover); }
    gives way first; the mark and any "and 2 more" keep their width. */
 .tool-file { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
 .tool-file-mark { flex: none; color: var(--ink-2); }
-.tool-file-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-file-dir { color: var(--rl-text-faint); }
-.tool-file-name { color: var(--rl-text-bright); font-weight: var(--fw-label); }
+.tool-file-path { min-width: 0; display: flex; white-space: nowrap; }
+.tool-file-dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--rl-text-faint); }
+.tool-file-name { flex: none; color: var(--rl-text-bright); font-weight: var(--fw-title); }
 .tool-file-more { flex: none; font-size: 12px; color: var(--rl-text-faint); }
 /* Measured counts (editStat): green adds, red deletes, mono tabular — BUI's `+74 −41`. */
-.tool-stat { flex: none; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+.tool-stat { flex: none; display: inline-flex; gap: 4px; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
 .tool-stat-add { color: var(--green); }
 .tool-stat-del { color: var(--red); }
 

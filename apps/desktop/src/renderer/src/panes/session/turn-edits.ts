@@ -46,12 +46,19 @@ const CREATED = /^File created successfully/;
 
 const rel = (path: string, root: string) => (path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path);
 
-function measured(c: TurnChanges, asked: string | null): TurnEdits {
+/**
+ * Git's account of a turn, its files in the order the turn's own calls touched them — the order the
+ * agent tells it in ("the important change is in orgs.ts…") — and git's path order for the rest, the
+ * files a shell command or a sub-agent changed that no call named.
+ */
+function measured(c: TurnChanges, asked: string | null, touched: readonly string[]): TurnEdits {
   const root = c.root.replace(/\/+$/, "");
+  const at = (p: string) => { const i = touched.indexOf(p); return i < 0 ? touched.length : i; };
+  const files = c.files.map((f): EditedFile => ({
+    path: `${root}/${f.path}`, shown: f.path, oldShown: f.oldPath, status: f.status, additions: f.additions, deletions: f.deletions,
+  }));
   return {
-    files: c.files.map((f) => ({
-      path: `${root}/${f.path}`, shown: f.path, oldShown: f.oldPath, status: f.status, additions: f.additions, deletions: f.deletions,
-    })),
+    files: files.map((f, i) => ({ f, i })).sort((a, b) => at(a.f.path) - at(b.f.path) || a.i - b.i).map(({ f }) => f),
     totalFiles: c.totalFiles, source: "git", checkpointId: c.checkpointId, afterTree: c.afterTree, root, asked,
   };
 }
@@ -144,7 +151,7 @@ export function turnEdits(blocks: readonly Block[], opts: {
     // Measured, or still to be: the newest turn a checkpoint fronted, with no message after it yet.
     const pending = !c && fronting !== null && i > lastUser;
     if (c) {
-      if (c.files.length > 0) cards.set(key, measured(c, asked));
+      if (c.files.length > 0) cards.set(key, measured(c, asked, opts.cwd ? fromTools(tools, opts.cwd, root).map((f) => f.path) : []));
     } else if (!pending && opts.cwd) {
       const files = fromTools(tools, opts.cwd, root);
       if (files.length > 0) cards.set(key, { files, totalFiles: files.length, source: "tools", checkpointId: fronting?.id ?? null, afterTree: null, root, asked });

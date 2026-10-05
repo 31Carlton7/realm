@@ -63,6 +63,19 @@ describe("the card a turn that changed files ends with", () => {
     expect(onReview).toHaveBeenCalledWith(changes, "Fix the org access crash path");
   });
 
+  it("opens Review on the files in the order the card lists them", () => {
+    // The turn edited auto-compact.ts first; git lists orgs.ts first. The card follows the turn, and
+    // so does the review it opens.
+    const edited: Block[] = [blocks[0]!,
+      { kind: "tool", toolUseId: "e1", name: "Edit", ts: 150, result: { content: "ok", isError: false },
+        input: { file_path: "/w/app/web/lib/agent/chat-runtime/compaction/auto-compact.ts", old_string: "a", new_string: "b" } },
+      blocks[1]!, blocks[2]!];
+    const { card, onReview } = mount({ transcript: model({ blocks: edited }) });
+    fireEvent.click(within(card).getByRole("button", { name: "Review" }));
+    expect(onReview.mock.calls[0]![0].files.map((f: { path: string }) => f.path))
+      .toEqual(["web/lib/agent/chat-runtime/compaction/auto-compact.ts", "web/lib/orgs.ts", "old/gone.ts"]);
+  });
+
   it("offers Undo when the turn's checkpoint is the newest, and hands it that checkpoint", () => {
     const { card, onUndo } = mount();
     fireEvent.click(within(card).getByRole("button", { name: /Undo/ }));

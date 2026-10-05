@@ -35,6 +35,16 @@ describe("what a turn changed", () => {
     expect(editTotals(card.files)).toEqual({ additions: 20, deletions: 3 });
   });
 
+  it("lists git's files in the order the turn's calls edited them, and the ones no call named after", () => {
+    const blocks = [user("fix it", 100), edit("e1", "/w/app/web/lib/orgs.ts", "a", "b", 110), edit("e2", "/w/app/web/lib/agent/x.ts", "a", "b", 120), run(200)];
+    const { cards } = turnEdits(blocks, opts({ changes: { 200: measuredAt(200, "cp1", [
+      { path: "gen/schema.ts", oldPath: null, status: "modified", additions: 1, deletions: 0 },
+      { path: "web/lib/agent/x.ts", oldPath: null, status: "modified", additions: 1, deletions: 1 },
+      { path: "web/lib/orgs.ts", oldPath: null, status: "modified", additions: 1, deletions: 1 },
+    ]) } }));
+    expect(cards.get("run:3")!.files.map((f) => f.shown)).toEqual(["web/lib/orgs.ts", "web/lib/agent/x.ts", "gen/schema.ts"]);
+  });
+
   it("draws no card for a turn git measured as changing nothing, whatever its calls claimed", () => {
     // Edited, then put back: the calls say +1 −1, the checkout says nothing moved, and the checkout wins.
     const blocks = [user("try it", 100), edit("e1", "/w/app/a.ts", "x", "y", 110), edit("e2", "/w/app/a.ts", "y", "x", 120), run(200)];
