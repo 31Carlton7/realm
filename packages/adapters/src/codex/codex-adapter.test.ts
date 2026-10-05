@@ -1164,7 +1164,7 @@ describe("CodexAdapter model catalog", () => {
     // row carries what the catalog said about Fast, and the default carries its mark, so a session
     // that has not started can offer the switch on the CLI's own word — Terra's `false` included.
     expect(r.models).toEqual([
-      { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fastMode: true, isDefault: true, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium" },
+      { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fastMode: true, fastDescription: "1.5x speed, increased usage", isDefault: true, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium" },
       { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", fastMode: false, efforts: ["low", "medium", "high"], defaultEffort: "medium" },
     ]);
     // A probe must not leave an app-server child behind: the shared-connection refcount never saw it.

@@ -273,7 +273,8 @@ export class CodexAdapter implements AgentAdapter {
     // The tier rides along with the row, so the prompter can offer Fast on a model before any session
     // has asked — the catalog is the CLI's own statement, and it is already in hand here.
     return { kind: this.kind, ...p, models: models === null ? null
-      : models.map(({ id, label, fast, isDefault, efforts, defaultEffort }) => ({ id, label, fastMode: fast, ...(isDefault ? { isDefault } : {}),
+      : models.map(({ id, label, fast, fastDescription, isDefault, efforts, defaultEffort }) => ({ id, label, fastMode: fast,
+        ...(fastDescription ? { fastDescription } : {}), ...(isDefault ? { isDefault } : {}),
         ...(efforts.length > 0 ? { efforts } : {}), ...(defaultEffort ? { defaultEffort } : {}) })) };
   }
 

@@ -47,8 +47,10 @@ export function parseSpaceIcon(icon: string): SpaceIconRef {
 export type AgentModel = {
   id: string;
   label: string;
-  /** Whether the catalog offers fast mode on this model — Codex lists its `priority` tier per model. */
+  /** Whether the catalog offers fast mode on this model — Codex lists its `priority` tier per model —
+   *  and what the catalog says it costs and buys ("1.5x speed, increased usage"). */
   fastMode?: boolean;
+  fastDescription?: string;
   /** The model an un-pinned session runs, where the catalog marks one. */
   isDefault?: boolean;
   /** The reasoning efforts the catalog says this model takes, in its own order, and the one it runs

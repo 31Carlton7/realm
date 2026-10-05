@@ -1397,24 +1397,47 @@ kbd { font: 11px var(--font-mono); }
   font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; cursor: default; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-seg-opt:hover { color: var(--rl-text-bright); }
 .mp-seg-opt[aria-pressed="true"] { background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--rl-edge); }
-/* Fast mode: its name on the label column's edge, the bolt the chip wears beside it, the switch at
-   the end — and the one line under it that says how much is known. */
-.mp-fast { display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; column-gap: 5px; min-height: 22px; }
-.mp-fast-label { font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
-.mp-fast-mark { color: var(--rl-text-faint); }
-.mp-fast > .switch, .mp-fast-off { grid-column: 4; }
-.mp-fast-off { font-size: 12px; color: var(--rl-text-faint); white-space: nowrap; }
-.mp-fast-note { grid-column: 1 / -1; margin: 3px 0 0; font-size: 12px; line-height: 1.4; color: var(--rl-text-faint); text-wrap: pretty; }
+/* How the answer runs, as Codex draws it: the bolt at one end, the level by name over the model it is
+   for in the middle, the way back to the default at the other end, and the track under all three. */
+.mp-run { display: flex; flex-direction: column; gap: 9px; }
+.mp-run-head { display: grid; grid-template-columns: 28px 1fr 28px; align-items: center; column-gap: 8px; }
+.mp-run-gap { width: 28px; height: 28px; }
+.mp-run-title { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+/* The level in the accent: it is the value this control holds, the one thing on the card in colour. */
+.mp-run-level { font-size: 14px; line-height: 18px; font-weight: var(--fw-label); color: var(--rl-accent); }
+.mp-run-level[data-unset] { color: var(--rl-text-dim); }
+.mp-run-model { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.mp-bolt, .mp-run-reset { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; --btn-h: 28px;
+  border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; background: transparent; color: var(--rl-text-dim); cursor: default;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.mp-bolt:hover, .mp-run-reset:hover { background: var(--hover); color: var(--rl-text-bright); }
+/* Asked for: the bolt takes the accent the way a pressed segment would, on its own tint. */
+.mp-bolt[aria-pressed="true"] { background: var(--accent-tint); color: var(--rl-accent); }
+.mp-bolt[aria-disabled="true"] { color: var(--rl-text-faint); background: transparent; }
+/* The track: a well with a dot per level, the fill up to the knob in the accent. `--at` is a place on
+   the run between the first dot and the last, inset by half the track's height so the knob at either
+   end sits inside it. */
+.mp-track { --inset: 11px; position: relative; height: 22px; border-radius: 999px; background: var(--hover); cursor: default; touch-action: none; }
+.mp-track:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; }
+.mp-track-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--rl-accent);
+  width: calc(var(--inset) * 2 + (100% - var(--inset) * 2) * var(--at)); transition: width var(--dur-hover) var(--ease-out-strong); }
+.mp-track-dot { position: absolute; top: 50%; left: calc(var(--inset) + (100% - var(--inset) * 2) * var(--at)); width: 4px; height: 4px; margin: -2px 0 0 -2px;
+  border-radius: 50%; background: var(--mark-strong); pointer-events: none; }
+.mp-track-dot[data-passed] { background: color-mix(in oklab, var(--rl-accent-contrast) 55%, transparent); }
+.mp-track-knob { position: absolute; top: 50%; left: calc(var(--inset) + (100% - var(--inset) * 2) * var(--at)); width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0000003d, 0 0 0 var(--hairline-w) #00000014; pointer-events: none;
+  transition: left var(--dur-hover) var(--ease-out-strong); }
+.mp-fast-note { margin: 0; font-size: 12px; line-height: 1.4; color: var(--rl-text-faint); text-align: center; text-wrap: pretty; }
 .mp-fast-note[data-tone="warning"] { color: var(--rl-warning); }
 
 /* ── Easter eggs: the heavy efforts ──
    Every rule here hangs off [data-eggs] or [data-sweep], so the switch in Settings ▸ General takes the
    whole treatment away by taking one attribute away. Nothing below is ever the only thing saying
-   which level is selected — that is [aria-pressed], which is drawn the same with the eggs off.
+   which level is in force — that is the knob and the name over it, drawn the same with the eggs off.
 
-   The field covers the WHOLE strip rather than the one option, which is the thing that makes it read
-   as a state the control is in rather than a decoration on a pill. `:has()` is what lets the parent
-   know which of its children is hot, so there is no JavaScript in this at all.
+   The field is the track's FILL — the run up to the knob — so it reads as the heat the level is
+   putting out rather than as a decoration on one dot, and it answers a level the session CHOSE
+   (`data-effort` on the track), never one the pointer is passing over.
 
    Three layers, and they are chosen to beat against each other rather than to look smooth:
 
@@ -1424,47 +1447,25 @@ kbd { font: 11px var(--font-mono); }
      · a wash on ::before, smooth and much slower, in `plus-lighter` so where it crosses a bright
        band the two ADD instead of one covering the other. That is what makes the bright parts look
        like light rather than paint.
-     · a bloom on the strip's own shadow at Max only, breathing on its own period.
+     · a bloom on the fill's own shadow at Max only, breathing on its own period.
 
    Hue is not free (theme/grain.ts's rule): both band layers are the live accent rotated inside the
    same ±40° arc the decorative wash uses, so the field is the palette's own colour at every theme
    rather than a purple somebody picked. */
-.model-picker[data-eggs] .mp-seg { position: relative; isolation: isolate; }
-/* The options sit above the field; the pressed one keeps its solid pill, which is what stays
-   readable while everything behind it moves. */
-.model-picker[data-eggs] .mp-seg-opt { position: relative; z-index: 1; }
-
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="high"]:hover) {
-  background-image: linear-gradient(100deg, transparent 30%,
-    oklch(from var(--accent) l c calc(h - 20) / .18) 50%, transparent 70%); }
-
 /* XHigh and Max share the machinery and differ in --heat, which drives every alpha below. A
    treatment every level wore would not be about the level. */
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"]:hover),
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"][aria-pressed="true"]),
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover),
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"]) {
-  --heat: .5;
-  /* Chunky cells with wide dark gaps, and a crisp bright line every other cell. The proportions were
-     chosen by putting three candidates on screen in the real window and looking at them: a 50% duty
-     cycle at full chroma lit the whole strip and drowned the labels, and pulling the body down to
-     the ground's own lightness made it vanish entirely. This is the one that reads as cells of heat
-     with the labels still sitting on top of them. */
+.model-picker[data-eggs] .mp-track[data-effort="xhigh"] .mp-track-fill,
+.model-picker[data-eggs] .mp-track[data-effort="max"] .mp-track-fill {
+  --heat: .5; isolation: isolate; overflow: hidden;
+  /* Chunky cells with wide dark gaps, and a crisp bright line every other cell — the proportions the
+     segmented strip this replaced settled on by putting three candidates on screen in the real
+     window, kept so the heat reads the same across the change. */
   background-image:
     repeating-linear-gradient(90deg, oklch(from var(--accent) calc(l - .14) c calc(h - 34) / calc(var(--heat) * .55)) 0 12px, transparent 12px 26px),
     repeating-linear-gradient(90deg, transparent 0 14px, oklch(from var(--accent) calc(l + .2) c calc(h + 28) / calc(var(--heat) * .9)) 14px 17px);
   background-size: 220% 100%, 170% 100%;
   animation: eggs-bands 3.6s steps(20, end) infinite;
 }
-/* Every label stays readable while the field is on — the whole strip is lit, so the levels that are
-   not chosen must not be the price of it. This is the one thing the field is not allowed to spend. */
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"]:hover) .mp-seg-opt,
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"][aria-pressed="true"]) .mp-seg-opt,
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover) .mp-seg-opt,
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"]) .mp-seg-opt {
-  color: var(--rl-text-bright); text-shadow: 0 1px 2px oklch(from var(--page) l c h / .9); }
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover),
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"]) { --heat: 1; }
 /* One keyframe moving BOTH layers, because `background-position` is one property and two animations
    on it would not compose — the later one would simply win. The two layers travel opposite ways at
    unequal rates, which is the interference. */
@@ -1475,13 +1476,10 @@ kbd { font: 11px var(--font-mono); }
 
 /* The wash. Its own element so it can be smooth while the bands step, and `plus-lighter` so it adds
    light to them instead of painting over them. */
-.model-picker[data-eggs] .mp-seg::before { content: none; }
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"]:hover)::before,
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"][aria-pressed="true"])::before,
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover)::before,
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"])::before {
+.model-picker[data-eggs] .mp-track[data-effort="xhigh"] .mp-track-fill::before,
+.model-picker[data-eggs] .mp-track[data-effort="max"] .mp-track-fill::before {
   content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
-  border-radius: inherit; corner-shape: inherit;
+  border-radius: inherit;
   mix-blend-mode: plus-lighter;
   background-image: linear-gradient(100deg, transparent 8%,
     oklch(from var(--accent) calc(l + .12) c calc(h - 10) / calc(var(--heat) * .28)) 42%,
@@ -1494,20 +1492,15 @@ kbd { font: 11px var(--font-mono); }
   to { background-position: -60% center; }
 }
 
-/* Max alone gets the bloom, and it breathes rather than travelling — the one thing on the strip that
+/* Max alone gets the bloom, and it breathes rather than travelling — the one thing on the track that
    is not moving sideways, so the eye reads it as intensity rather than as another layer. */
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover),
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"]) {
+.model-picker[data-eggs] .mp-track[data-effort="max"] .mp-track-fill {
+  --heat: 1; overflow: visible;
   animation: eggs-bands 3.6s steps(20, end) infinite, eggs-bloom 1.4s ease-in-out infinite alternate; }
 @keyframes eggs-bloom {
   from { box-shadow: 0 0 0 0 oklch(from var(--accent) l c h / 0); }
   to { box-shadow: 0 0 14px 1px oklch(from var(--accent) calc(l + .1) c h / .45); }
 }
-/* The chosen level's own label, lit. The pill stays solid underneath it — legibility is not what
-   this is allowed to spend. */
-.model-picker[data-eggs] .mp-seg-opt[data-effort="max"][aria-pressed="true"],
-.model-picker[data-eggs] .mp-seg-opt[data-effort="xhigh"][aria-pressed="true"] {
-  color: var(--rl-text-bright); text-shadow: 0 0 8px oklch(from var(--accent) calc(l + .15) c h / .7); }
 
 /* One pass across the chip when the session commits to a heavy effort; Max gets two. The popover is
    already closing by then, which is the point — the control that changed is the one that answers. */
@@ -1536,11 +1529,11 @@ kbd { font: 11px var(--font-mono); }
      identical to the light ones, which for this reader is a switch that did nothing. */
   /* `!important`, and not for tidiness: the global kill above is `* { animation: none !important }`,
      and `*` does not match a PSEUDO-ELEMENT. The wash lives on `::before`, so it sails straight
-     through the app-wide rule — and the rule that starts it carries a `:has()`, whose argument adds
-     its own specificity, so a plain override here loses to it as well. Measured: without this the
+     through the app-wide rule — and the rule that starts it names the track's level, which outweighs
+     a plain override here as well. Measured on the segmented strip this replaced: without it the
      field kept travelling with reduced motion on. */
-  .model-picker[data-eggs] .mp-seg { animation: none !important; }
-  .model-picker[data-eggs] .mp-seg::before { animation: none !important; background-position: 50% center !important; }
+  .model-picker[data-eggs] .mp-track-fill { animation: none !important; }
+  .model-picker[data-eggs] .mp-track-fill::before { animation: none !important; background-position: 50% center !important; }
 }
 
 /* ── Quiet: what the app stops doing when nobody is looking ──────────────────

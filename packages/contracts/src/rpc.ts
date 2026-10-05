@@ -340,7 +340,7 @@ export const AgentProbeRowSchema = z.object({
   version: z.string().nullable(),
   loggedIn: z.boolean().nullable(),
   reason: z.string().nullable(),
-  models: z.array(z.object({ id: z.string(), label: z.string(), fastMode: z.boolean().optional(), isDefault: z.boolean().optional(),
+  models: z.array(z.object({ id: z.string(), label: z.string(), fastMode: z.boolean().optional(), fastDescription: z.string().optional(), isDefault: z.boolean().optional(),
     efforts: z.array(z.string()).optional(), defaultEffort: z.string().optional() })).nullable().optional(),
   /** An agent's own reasoning levels where they are a session setting rather than a model's — an ACP
    *  agent's `thought_level` option, read off the probe's throwaway session — and the one it starts on. */
