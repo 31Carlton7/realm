@@ -1060,6 +1060,15 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
   });
 
+  it("a page's bar moves the window, as the pane bars it covers do, and its close button still clicks", () => {
+    /* A page (Connections, Library, Settings…) covers the pane host, whose panes — and with them their
+       draggable bars — are hidden while it is up. Its own bar is the window's top row then, and with
+       no region of its own the band held still everywhere but the sidebar's head (reported 10-04).
+       THE mutants: the bar's `drag` dropped, or its buttons left inside it. */
+    expect(bodiesFor(".page-overlay-bar").join(" ")).toContain("-webkit-app-region: drag");
+    expect(bodiesFor(".page-overlay-bar button").join(" ")).toContain("-webkit-app-region: no-drag");
+  });
+
   it("a folded sidebar takes no part in the window's drag regions, so the rail's buttons stay clickable", () => {
     /* Electron lays drag regions down in DOCUMENT order, not stacking order. The folded column slides
        under the rail, and the rail comes first in the DOM, so a drag region left on the column covers

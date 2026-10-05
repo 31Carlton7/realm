@@ -2021,7 +2021,13 @@ button.panel-title:hover { background: var(--rl-hover); }
   padding: 0 6px 0 14px;
   /* Clear: the head row's chrome under it is `.main`'s, painted the way the rest of the row is — a
      tint laid here again would double it, and an opaque ground would part it from the row. */
-  background: none; }
+  background: none;
+  /* The window moves by its top row, and while a page is up this bar IS that row. The pane bars it
+     covers are hidden with the panes, so their drag regions go with them, and without its own the
+     whole band above a page held still except over the sidebar's head (reported 10-04). Its close
+     button opts back out, as a pane bar's buttons do. */
+  -webkit-app-region: drag; }
+.page-overlay-bar button { -webkit-app-region: no-drag; }
 /* The frame's rim, carried over the panes it covers: along its top, and — collapsed, where it meets the
    rail — down its left edge and round the corner. `.main`'s own rim stands down while a page is up,
    or the two would draw the corner's curve twice through the hole below. Open, the page stands against
