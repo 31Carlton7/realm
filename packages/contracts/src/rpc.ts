@@ -1637,7 +1637,10 @@ export const Methods = {
    * its link and summary, its diff as an attached file, and the checkout when the place has the
    * repository.
    */
-  "codeReview.ask": { params: z.object({ ref: PrRefSchema, spaceId: IdSchema, projectId: IdSchema.nullable().default(null), agentKind: AgentKindSchema, model: z.string().nullable().default(null), effort: z.string().nullable().default(null), text: z.string().trim().min(1),
+  "codeReview.ask": { params: z.object({ ref: PrRefSchema, spaceId: IdSchema, projectId: IdSchema.nullable().default(null), agentKind: AgentKindSchema, model: z.string().nullable().default(null), effort: z.string().nullable().default(null),
+    /** How the session a first question starts runs, as the prompter's card and permission chip set it
+     *  before there was a session to set it on. Ignored for a thread that is carried on. */
+    fastMode: z.boolean().default(false), permissionMode: z.string().nullable().default(null), text: z.string().trim().min(1),
     /** Files the person attached in the prompter, beside the request's own. */
     attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]) }), result: z.object({ sessionId: IdSchema, itemId: IdSchema.nullable() }) },
 

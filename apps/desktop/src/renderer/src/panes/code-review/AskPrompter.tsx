@@ -1,10 +1,11 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AGENT_META, prKey, prName, sameRepo, sessionModeOf, type AgentKind, type PrDetail, type PrPlace, type PrRef, type Session, type SessionStatus } from "@realm/contracts";
+import { AGENT_META, prKey, prName, sameRepo, sessionModeOf, type PrDetail, type PrPlace, type PrRef, type SessionStatus } from "@realm/contracts";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { FALLBACK_AGENT, useApp, type PickedAttachment } from "../../state/store";
 import { Composer } from "../session/Composer";
+import { draftRun, draftSession as draftAsSession, withOptions, type DraftRun } from "../session/draft-run";
 import { Transcript } from "../session/Transcript";
 import { codeReview } from "./code-review-api";
 
@@ -35,6 +36,7 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
   const modelFavorites = useApp((s) => s.modelFavorites);
   const modelInfo = useApp((s) => s.modelInfo);
   const fastSupport = useApp((s) => s.fastSupport);
+  const effortSupport = useApp((s) => s.effortSupport);
   const submitKey = useApp((s) => s.submitKey);
   const setDraft = useApp((s) => s.setDraft);
   const attachFromPicker = useApp((s) => s.attachFromPicker);
@@ -50,7 +52,10 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
   const closePageOverlay = useApp((s) => s.closePageOverlay);
   const run = useApp((s) => s.run);
   const [thread, setThread] = useState<{ sessionId: string; spaceId: string } | null>(null);
-  const [pick, setPick] = useState<{ kind: AgentKind; model: string | null }>({ kind: lastAgentKind ?? FALLBACK_AGENT, model: null });
+  /* What the first question starts, while there is no session to change: the picker's model, and the
+     level, fast mode and permission its card and chips set — each held here exactly as a session's
+     row would hold it, and handed to the session `codeReview.ask` makes. */
+  const [pick, setPick] = useState<DraftRun>(() => draftRun(lastAgentKind ?? FALLBACK_AGENT));
   const [sends, setSends] = useState(0);
   const [asking, setAsking] = useState(false);
   /* The exchange folds away: it stands over the request, and once its answer is read the request is
@@ -81,7 +86,8 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
     setAsking(true);
     try {
       const sent = attachments;
-      const r = await codeReview.ask({ ref: pr, spaceId: place.spaceId, projectId: place.projectId, agentKind: owner?.agentKind ?? pick.kind, model: pick.model,
+      const r = await codeReview.ask({ ref: pr, spaceId: place.spaceId, projectId: place.projectId, agentKind: owner?.agentKind ?? pick.agentKind, model: pick.model,
+        effort: pick.effort, fastMode: pick.fastMode, permissionMode: pick.permissionMode,
         text, attachments: sent.map(({ path, mime }) => ({ path, mime })) });
       for (const a of sent) removeAttachment(ASK_SLOT, a.path);
       await refreshSessions(place.spaceId);
@@ -96,11 +102,8 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
 
   /* No session yet: the prompter still says which agent and model the first question starts, and the
      picker is how that is chosen — so it is handed a session the size of that choice. */
-  const draftSession = useMemo((): Session => ({
-    id: ASK_SLOT, spaceId: place?.spaceId ?? "", projectId: place?.projectId ?? null, agentKind: pick.kind, model: pick.model, effort: null,
-    permissionMode: "default", fastMode: false, environmentId: "", cwd: place?.path ?? "", status: "idle", providerSessionId: null,
-    title: "", lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, createdAt: 0, updatedAt: 0,
-  }), [place?.spaceId, place?.projectId, place?.path, pick.kind, pick.model]);
+  const draftSession = useMemo(() => draftAsSession(pick, { id: ASK_SLOT, spaceId: place?.spaceId ?? "", projectId: place?.projectId ?? null, cwd: place?.path ?? "" }),
+    [place?.spaceId, place?.projectId, place?.path, pick]);
   // A thread in another place than the one chosen is not where the next question goes: it starts anew.
   const continuing = thread && owner && place && thread.spaceId === place.spaceId ? owner : null;
   const session = continuing ?? draftSession;
@@ -139,16 +142,19 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
         onRemoveAttachment={(path) => removeAttachment(ASK_SLOT, path)}
         onSend={ask}
         onStop={() => { if (continuing) run(() => interruptSession(continuing.id)); }}
-        onOptions={(o) => { if (continuing) run(() => setSessionOptions(continuing.id, o)); }}
+        onOptions={(o) => {
+          if (continuing) run(() => setSessionOptions(continuing.id, o));
+          else setPick((p) => withOptions(p, o));
+        }}
         onPickModel={(kind, modelId) => {
-          if (!continuing) { setPick({ kind, model: modelId }); return; }
+          if (!continuing) { setPick((p) => ({ ...p, agentKind: kind, model: modelId })); return; }
           if (modelId !== null) run(() => setSessionOptions(continuing.id, { model: modelId }));
         }}
         onMode={NOOP} planReturn={null}
         canSwitchAgent={!continuing}
         agentProbe={agentProbe} modelFavorites={modelFavorites} modelInfo={modelInfo}
         onToggleModelFavorite={(k) => run(() => toggleModelFavorite(k))}
-        sessionInit={entry?.t.init ?? null} fastSupport={fastSupport} submitKey={submitKey} />
+        sessionInit={entry?.t.init ?? null} fastSupport={fastSupport} effortSupport={effortSupport} submitKey={submitKey} />
     </section>
   );
 }
