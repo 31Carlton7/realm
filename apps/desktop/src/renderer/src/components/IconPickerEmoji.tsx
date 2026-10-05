@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useDissolve } from "./ScrollFades";
 import { EMOJI_GROUPS, searchEmoji } from "./emoji-search";
 
 /**
@@ -22,6 +23,8 @@ export default function IconPickerEmoji({ icon, query, onPick }: {
   // The chosen category lives here rather than in the popover: it means nothing to the other three
   // tabs, and it must not survive this chunk being unmounted and the tab reopened fresh.
   const [group, setGroup] = useState<string | null>(null);
+  const grid = useRef<HTMLDivElement>(null);
+  useDissolve(grid);
   const rows = useMemo(() => searchEmoji(query, group), [query, group]);
   return (
     <>
@@ -32,7 +35,7 @@ export default function IconPickerEmoji({ icon, query, onPick }: {
             onClick={() => setGroup(group === g ? null : g)}>{g}</button>
         ))}
       </div>
-      <div className="ip-grid" role="radiogroup" aria-label="Emoji">
+      <div className="ip-grid" ref={grid} role="radiogroup" aria-label="Emoji">
         {rows.slice(0, MAX_SHOWN).map(({ char, entry }) => (
           <button key={char} type="button" role="radio" aria-checked={icon === `emoji:${char}`} aria-label={entry.name}
             title={entry.name} className="icon-choice ip-emoji" data-selected={icon === `emoji:${char}` || undefined}

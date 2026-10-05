@@ -1,4 +1,4 @@
-import { AskCardSchema, askCardFromAskUserQuestion, type AcpSessionMode, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges } from "@realm/contracts";
+import { AskCardSchema, askCardFromAskUserQuestion, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges } from "@realm/contracts";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
@@ -9,7 +9,10 @@ export type Block =
    *  user typed it — the ordinary case — and the pane must not attribute those to anyone. */
   | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; goal?: "continuation" | "budget";
       /** What the message's `@[…]` chips named, so each keeps its mark in the log. */
-      refs?: MentionRef[]; ts: number }
+      refs?: MentionRef[];
+      /** A scheduled task's run began here (the event's `scheduled`). `text` is the task's instructions
+       *  alone: the note Realm appended for the agent is taken out of it, and kept here. */
+      scheduled?: { task: string; note: string }; ts: number }
   | { kind: "assistant"; messageId: string; text: string; streaming: boolean; ts: number }
   | { kind: "thinking"; messageId: string; text: string; ts: number }
   /** `parentToolUseId` is the Task/Agent call this one was made UNDER — Claude's
@@ -21,7 +24,9 @@ export type Block =
    *   call, including a blocking sub-agent — whose "still going" is simply `result === null`. */
   /** `toolKind` and `paths` are an ACP call's own account of itself (the `tool_call` event's `kind`
    *  and `paths`) — absent for every other agent, whose tool names say both. */
-  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; toolKind?: string; paths?: string[]; ts: number }
+  /** `view` is the view an MCP server drew for this call (MCP Apps), carried by its result — absent
+   *   on every call that drew none, and on every call from before views existed. */
+  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; toolKind?: string; paths?: string[]; view?: AppViewRef; ts: number }
   /** `fix` is the thing to do about it, carried from the server on the failures where Realm knows
    *   one (today: an auth failure it re-probed). Absent on every other error, which is most of
    *   them — a block that invented a remedy would be worse than the bare message. */
@@ -189,6 +194,10 @@ export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissio
 
 export type UserBlock = Extract<Block, { kind: "user" }>;
 
+/** What a turn goal mode started says in place of a message: nobody typed it, so it is attributed. */
+export const goalTurnLabel = (kind: NonNullable<UserBlock["goal"]>): string =>
+  kind === "budget" ? "Goal budget spent — Realm asked for a handover" : "Realm continued this goal";
+
 /**
  * The message a retry would ask again: the last one the USER wrote.
  *
@@ -216,6 +225,13 @@ const dropPending = (blocks: Block[]): Block[] => {
 };
 
 const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for (let i = blocks.length - 1; i >= 0; i--) if (pred(blocks[i]!)) return i; return -1; };
+
+/** A scheduled run's message without the note Realm appended for the agent, or the blank line it was
+ *  joined on with. What came after it — a reply to a run that stopped to ask — stays. */
+const withoutNote = (text: string, note: string): string => {
+  const at = text.indexOf(note);
+  return at < 0 ? text : text.slice(0, at).trimEnd() + text.slice(at + note.length);
+};
 
 /** What the agent said or did, as opposed to the seams and marks Realm draws around it. */
 const AGENT_OUTPUT = new Set<Block["kind"]>(["assistant", "thinking", "tool", "error", "plan"]);
@@ -266,7 +282,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       // reader has already seen.
       const open = t.run ? null : unsettledTurn(t.blocks);
       if (open) blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
-      blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ts: e.ts });
+      const scheduled = e.payload.scheduled;
+      blocks.push({ kind: "user", text: scheduled ? withoutNote(e.payload.text, scheduled.note) : e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ...(scheduled ? { scheduled } : {}), ts: e.ts });
       return { ...t, blocks, promptHint: null };
     }
     case "assistant_delta": {
@@ -296,7 +313,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     case "tool_result": {
       const i = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
       const b = i >= 0 ? blocks[i] : undefined;
-      if (b && b.kind === "tool") blocks[i] = { ...b, result: { content: e.payload.content, isError: e.payload.isError } };
+      if (b && b.kind === "tool") blocks[i] = { ...b, result: { content: e.payload.content, isError: e.payload.isError }, ...(e.payload.view ? { view: e.payload.view } : {}) };
       return { ...t, blocks };
     }
     /* A background sub-agent started or stopped. Folded onto the LAUNCHING call's block, which is

@@ -412,14 +412,25 @@ export class ClaudeAdapter implements AgentAdapter {
     /** A utilization percentage, or null for anything that is not a finite number — the SDK types
      *  these as nullable and a `null` drawn as 0% would read as an empty window. */
     const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-    /** An ISO-8601 reset time as epoch ms. The stream reports `resetsAt` in ms already; this control
-     *  request reports `resets_at` as a string, and the two must land in one unit. */
+    /** The control request's `resets_at`, an ISO-8601 string ("ISO 8601 timestamp when the window
+     *  resets" in the CLI's own schema), as epoch ms. */
     const millis = (v: unknown): number | null => {
       if (typeof v === "number" && Number.isFinite(v)) return v;
       if (typeof v !== "string") return null;
       const t = Date.parse(v);
       return Number.isNaN(t) ? null : t;
     };
+
+    /**
+     * The stream's `rate_limit_info` is the API's rate-limit headers, in their units, which are not the
+     * control request's: `utilization` is a FRACTION (the CLI draws it as `Math.floor(utilization *
+     * 100)`) and `resetsAt` is epoch SECONDS (it waits until `resetsAt * 1000`). The control request
+     * answers in percent and ISO strings. Read as if they matched, an 86% week showed as "at 1%" and
+     * its reset as a day in January 1970 — so the stream's reading is put in the panel's units here,
+     * before the two are merged into one window.
+     */
+    const streamPercent = (v: unknown): number | null => { const n = num(v); return n === null ? null : n * 100; };
+    const streamMillis = (v: unknown): number | null => { const n = num(v); return n === null ? null : n * 1000; };
 
     /**
      * Ask the CLI for the whole plan picture — every rate-limit window, plus the subscription tier.
@@ -572,7 +583,7 @@ export class ClaudeAdapter implements AgentAdapter {
             const alert: PlanAlert = status === "rejected" ? "exceeded" : status === "allowed_warning" ? "approaching" : "none";
             const id = typeof info.rateLimitType === "string" ? info.rateLimitType : null;
             const window: PlanWindow[] = id
-              ? [{ id, label: planWindowLabel(id), utilization: num(info.utilization), resetsAt: millis(info.resetsAt) }]
+              ? [{ id, label: planWindowLabel(id), utilization: streamPercent(info.utilization), resetsAt: streamMillis(info.resetsAt) }]
               : [];
             // The full picture first, so a panel opened on this event shows every window rather than
             // only the one that moved. Its `alert` is always "none" — the control request reports

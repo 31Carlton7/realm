@@ -2,7 +2,7 @@ import { Icon } from "@realm/ui";
 import { useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { SessionStatus } from "@realm/contracts";
-import { ScrollFades } from "../../components/ScrollFades";
+import { ScrollFades, useDissolve } from "../../components/ScrollFades";
 import { useApp } from "../../state/store";
 import { DOCK_PIN_MIN_PANE, useDockDismiss, useDockPinned, usePaneRect } from "./pane-dock";
 import { labelOf, stillWorking } from "./DelegatedRuns";
@@ -105,6 +105,14 @@ function Clock({ block }: { block: Extract<Block, { kind: "tool" }> }) {
   );
 }
 
+/** A brief or a report, capped in the panel, in a column of its own that dissolves where it scrolls:
+ *  the prose's own box cannot take a ref, so the cap is the wrapper's. */
+function Prose({ text }: { text: string }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  useDissolve(scroller);
+  return <div className="subagent-prose-scroll" ref={scroller}><Markdown text={text} className="subagent-prose" /></div>;
+}
+
 /**
  * The brief, the working, and the report — in the order they happened.
  *
@@ -129,7 +137,7 @@ function Body({ block, nested, sessionStatus }: {
       {brief && (
         <section className="subagent-brief">
           <h3 className="subagent-head">What it was asked</h3>
-          <Markdown text={brief} className="subagent-prose" />
+          <Prose text={brief} />
         </section>
       )}
       <section className="subagent-work">
@@ -152,7 +160,7 @@ function Body({ block, nested, sessionStatus }: {
       {block.result && (
         <section className="subagent-report" data-error={block.result.isError || undefined}>
           <h3 className="subagent-head">{block.result.isError ? "It failed" : "What it reported"}</h3>
-          <Markdown text={block.result.content} className="subagent-prose" />
+          <Prose text={block.result.content} />
         </section>
       )}
     </>

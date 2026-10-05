@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { bareToolName, type DelegatedRun, type Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
+import { useDissolve } from "../../components/ScrollFades";
 import { CHILD_ORIGINS, ORIGIN_META, SESSION_STATUS_LABEL } from "../session-labels";
 import { formatDuration, type ToolBlock } from "./tool-group";
 import type { Block } from "./transcript-model";
@@ -151,11 +152,13 @@ export function ChildSessions({ ids }: { ids: readonly string[] }) {
   const sessions = useApp((s) => s.sessions);
   const sessionStatus = useApp((s) => s.sessionStatus);
   const open = useOpenChild();
+  const list = useRef<HTMLUListElement>(null);
+  useDissolve(list);
   const children = ids.map((id) => sessions[id])
     .filter((c): c is Session => c?.dispatchedBy != null && CHILD_ORIGINS.has(c.dispatchedBy.kind));
   if (children.length === 0) return null;
   return (
-    <ul className="delegation-list" aria-label="Delegated sessions">
+    <ul className="delegation-list" ref={list} aria-label="Delegated sessions">
       {children.map((c) => {
         const meta = ORIGIN_META[c.dispatchedBy!.kind];
         const status = sessionStatus[c.id] ?? c.status;
@@ -241,6 +244,8 @@ function AgentsPopover({ anchor, sessionId, rows, harness, since, elapsed, count
   const toggleSessionDock = useApp((s) => s.toggleSessionDock);
   const preview = useOpenChild();
   const ref = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+  useDissolve(list);
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef: anchor, align: "right", onClose, returnFocusRef: anchor, exit: true });
   const watched = docked?.kind === "subagent" ? docked.toolUseId : null;
   const now = since + elapsed;
@@ -253,7 +258,7 @@ function AgentsPopover({ anchor, sessionId, rows, harness, since, elapsed, count
         <span>{count} working</span>
         <span className="delegation-dim">{formatDuration(elapsed)}</span>
       </div>
-      <ul className="delegation-list">
+      <ul className="delegation-list" ref={list}>
         {rows.map((r) => {
           const child = sessions[r.sessionId];
           const status = sessionStatus[r.sessionId] ?? child?.status;

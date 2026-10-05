@@ -318,6 +318,26 @@ describe("SessionPane", () => {
     expect(rows[1]!.querySelector(".msg-user")).toHaveTextContent("an agent asked this");
   });
 
+  it("names a scheduled run's task above its first message, and keeps the note Realm added for the agent out of the bubble", async () => {
+    const note = "(Scheduled task \"Morning triage\". Nobody is watching this run: end with a short report.)";
+    const goal = "Read the new issues and group them by area.";
+    await mount("idle", reduceAll([
+      sessionEvent("user_message", { text: `${goal}\n\n${note}`, attachments: [], scheduled: { task: "Morning triage", note } }),
+      // A run that stopped to ask, answered: the reply after the note is the person's, and stays.
+      sessionEvent("user_message", { text: `${goal}\n\n${note}\n\nThe person supervising this run replied:\n\nUse the backlog.`, attachments: [], scheduled: { task: "Morning triage", note } }),
+    ]));
+    const [first, resumed] = [...document.querySelectorAll(".msg-user-row")];
+    // THE mutants: draw the event's text as it was handed to the agent (the bubble ends in "Nobody is
+    // watching this run…"), or drop the line that says the clock sent it.
+    expect(first!.querySelector(".msg-user")!.textContent).toBe(goal);
+    expect(first!.querySelector(".msg-user-from")).toHaveTextContent("Scheduled run · Morning triage");
+    // The note is still the agent's to read, and the person's to find: under the pointer on that line.
+    expect(first!.querySelector(".msg-user-from")).toHaveAttribute("title", note);
+    // The person's own words: no "from another session" ring.
+    expect(first!.hasAttribute("data-from")).toBe(false);
+    expect(resumed!.querySelector(".msg-user")!.textContent).toBe(`${goal}\n\nThe person supervising this run replied:\n\nUse the backlog.`);
+  });
+
   it("the Thinking… strip hides while the agent is blocked on the user (waiting_permission is not streaming)", async () => {
     // §4 scopes the strip to streaming. waiting_permission is the opposite state — the agent is idle,
     // waiting on a decision — so "Thinking…" there is a wrong-state message, not a slow one.

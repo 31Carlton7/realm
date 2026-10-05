@@ -243,6 +243,7 @@ export const liveApi = (): Api => ({
   updateMcpServer: (input) => rpc().call("mcp.update", input),
   removeMcpServer: async (id) => { await rpc().call("mcp.remove", { id }); },
   setMcpEnabled: async (spaceId, id, enabled) => { await rpc().call("mcp.setEnabled", { spaceId, id, enabled }); },
+  setMcpShowViews: async (id, show) => { await rpc().call("mcp.setShowViews", { id, show }); },
   promoteMcpServer: async (spaceId, id) => { await rpc().call("mcp.promote", { spaceId, id }); },
   demoteMcpServer: async (spaceId, id) => { await rpc().call("mcp.demote", { spaceId, id }); },
   listMcpProviders: async (spaceId) => (await rpc().call("mcp.providers.list", { spaceId })).providers,

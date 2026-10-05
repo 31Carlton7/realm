@@ -100,6 +100,11 @@ Treat a Realm screen as a field of work, not a stack of cards.
   and the column already say Settings or Library, and a third copy of that word was the one heading
   on the page that said nothing about what was under it. Each section in the column wears a glyph
   beside its name, as Codex's do, so eleven pages are found by shape before they are read.
+- A page's head scrolls away with its page: it is the first thing in the column, never a band pinned
+  above it (the owner, 10-05: "the header shouldn't be sticky at all"). Pinned, a head is chrome the
+  page keeps paying for at every scroll position to repeat a name the bar already holds. What stays
+  put is what is used while the content moves — a page's rail, a sheet's title and its decision, a
+  long table's column heads — and nothing else.
 - Preserve source order as reading order. A visual split must still read sensibly when stacked.
 - Use empty space to isolate a focal object, not to make sparse content look premium.
 - Repetition is for true peers. If one object is decisive, give it different scale or placement.
@@ -232,6 +237,13 @@ Rules:
   the ring is also a per-segment decision: a segment that is FILLED (Full access, Ask, Plan) wears
   no ring on its side. The fill already says "control" there, and a hairline over a tint reads as a
   second, disagreeing edge.
+- A join inside one object takes the ring's TOP away, never its sides. The strips stacked above the
+  prompter once dropped the whole ring at each join, so no hairline would cross the band, and the
+  lower strip's sides went with it: its fill is the pane's own ground, so the ring was its only
+  edge, and the git footer under the plan strip read as an open-sided box right where the card
+  tucks over it. The painter leaves a ring's top open (`--sq-ring-open`), and the sides run on into
+  the card's own edge. An edge the fallback draws as a box-shadow is the fallback's alone: under the
+  painter it traces the squared border box, a second ring with square corners and a seam.
 - Floating menus, palettes, sheets, composers, and overlays use the established layered shadow
   stacks. Never invent a single heavy drop shadow.
 - The blue accent is a condiment: focus, selection, progress, links, and primary actions. It is not a
@@ -279,6 +291,13 @@ Rules:
   width, because the rail is a column beside the content wide and a row above it narrow. The test is
   the hairline's test again — is the thing under the band content that scrolls past a fixed edge, or
   chrome that stays? Chrome never goes soft.
+- Every scroller dissolves where it has more to show (the owner, 10-05: "every scrollable surface…
+  our signature blur") — a page, a list, a popover, a sheet's body, a strip of tabs, a capped well of
+  output — and the exceptions are named, each for what a mask would take: a line read to its last
+  character (code, a diff, a command, a formula scrolling sideways), a surface whose own fill or
+  pinned heads are in the scroller (a table, a segmented track, a zoomed picture), and the editors,
+  whose caret can be on any line. A surface with a shadow never takes the mask itself; its rows
+  scroll inside it. `styles.test.ts` holds every scroller in the stylesheet to one or the other.
 - Chrome that lives INSIDE a scroller dissolves with it, and nothing can lift it out: a mask applies
   to everything the element paints, whatever its stacking order. That is survivable because a mask
   takes alpha rather than detail — a filter bar scrolling into the dissolve keeps its edges and reads
@@ -464,9 +483,13 @@ acronym that is uppercase anyway (a file extension on a tile).
   directions. The highlight is the current choice, and a choice is never half-made.
 - A sidebar row does not light under a passing pointer. Finder's, Mail's and Xcode's do not; the
   pointer reveals a row's own controls, and a click is what lights it.
-- The arrow cursor over every control the app draws; the hand only over a link, where the click
-  leaves what you are looking at. The hand on every button is the loudest single sign that a window
-  is a web page.
+- The hand over everything a click acts on — a button, a row, a tab, a chip, a menu row, a
+  disclosure, a label round a switch — from one rule by tag and role, so a control written tomorrow
+  points without asking. That is the owner's call (10-05), and it gives up the Mac's arrow over
+  controls on purpose. The arrow stays where a click does nothing: a control that is off, a row that
+  only reports, the scrim round a sheet. A field keeps the I-beam, a drag handle grab, a divider its
+  resize arrows. A `<div onClick>` is the one thing the rule cannot reach — it keeps the arrow, and
+  the keyboard cannot reach it either — so a press lands on a real control or on an element with a role.
 - A window-drag region takes every press that is not opted out of it, and a LABEL is a control: the
   sidebar's old Spaces | Recent segments, labels round hidden radios, answered only on the radio's 13px.
 - Chrome is not text. Buttons, rows, tabs, bars and menus do not select on a drag or a double-click,
@@ -752,6 +775,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   each. What a field offers comes from Realm's own sources (the model catalog, the checkout, the
   workspace), never from the asker, and every label is drawn as text. Answered, it stays where it was
   asked as the question and its answer, a masked answer only ever its mark.
+- A view an MCP server ships is the vendor's drawing set in Realm's ground: named for its server,
+  compact under the call that drew it, a tab when opened and never a split, and framed on an origin
+  of its own so nothing of Realm's can be reached from inside it. What it asks to DO — run a tool,
+  put words to the agent, open a page — waits on Realm's card, drawn outside the frame where the view
+  can neither reach nor imitate it, and only a click answers.
 - A closing line names the WORK, not the residue. "This session produced 1 file · 4 attached" is
   true and tells a reader coming back nothing; the ask, the files that changed, whether anything
   ran or failed, and then what came out is the shape of an answer. Derive it from the transcript
@@ -773,6 +801,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   from git at its settle, not from what its tool calls claimed; Undo appears only when restoring
   takes back that turn and nothing after it, and says why when it cannot. A file named in prose
   becomes a link only once the disk says it is in this checkout, and opens beside the session.
+- A long log gets a map, not a second scrollbar: a tick per prompt down its left edge, laid over the
+  transcript's own padding so it never takes the column's width, and placed by where the prompt sits
+  — at least a pitch below the last, so a log of short turns is simply evenly spaced and only a long
+  turn opens a gap. The prompt being read is the one tick in ink; a turn that changed files carries a
+  dot, said in words on the tick's card, never a colour. A click goes there and leaves the keyboard in
+  the prompter, as a scrollbar's track does.
 - Never invent human-like agent presence, mood, or certainty.
 
 ## Documents, diffs, terminals, and data
@@ -806,7 +840,8 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - A browser of files leads with what KIND of thing a file is, as tabs, because that is the first
   narrowing a person reaches for. The rarer ones — which space, who made it — live behind a filter
   that lights while it narrows and says so as a chip by the tabs, undone from there: a list that is
-  shorter than it should be has to say why. The toolbar is the column's head, outside its scroller.
+  shorter than it should be has to say why. The toolbar rides under the page's head, in the column,
+  and scrolls away with it.
 - A documents pane with nothing open is a home, not a void: what this session made and was given,
   then the Library's, under one search that also reaches the checkout's own names, and a New that
   says what every kind it writes is — a code file among them, since nothing else on screen says a

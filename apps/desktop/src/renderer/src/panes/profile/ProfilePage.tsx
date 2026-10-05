@@ -1,6 +1,6 @@
 import { MCP_SECRET_STORAGE_NOTE, SPACE_COLORS, type McpServer, type Profile, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp, type ProfilePageTab, type ProfileUsage } from "../../state/store";
 import { MoveScopeConfirm } from "../../components/scoped/ScopeGroups";
 import { McpServerForm } from "../../components/sidebar/McpSection";
@@ -8,6 +8,7 @@ import { IconPicker } from "../../components/IconPicker";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
+import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { MemoryDoc } from "../../components/settings/MemoryDoc";
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -45,6 +46,8 @@ export function ProfilePage({ item }: PaneProps) {
   const tab = useApp((s) => (profile ? s.profilePageTab[profile.id] : undefined) ?? "general");
   const setProfilePageTab = useApp((s) => s.setProfilePageTab);
   const navigateInPane = useApp((s) => s.navigateInPane); // tabs are stops on the pane's trail
+  const railStrip = useRef<HTMLDivElement>(null);
+  useDissolve(railStrip, "x");
 
   const run = useApp((s) => s.run);
 
@@ -54,9 +57,6 @@ export function ProfilePage({ item }: PaneProps) {
 
   return (
     <div className="page profile-page-pane">
-      <header className="page-head">
-        <div className="page-title"><h1>{profile.name}</h1></div>
-      </header>
       <div className="page-body">
         {/* Two lists, one rail. The page's sections and the profile's spaces are both "where this
             page can take you", and as a chip strip above the head the spaces were a third band that
@@ -64,7 +64,7 @@ export function ProfilePage({ item }: PaneProps) {
             rather than one, so the gap between them can say "different kind of thing" while the rows
             inside each keep the rail's own rhythm. */}
         <PageRail label="Profile">
-        <div className="page-rail">
+        <div className="page-rail" ref={railStrip}>
           <fieldset className="page-rail-list">
             <legend className="visually-hidden">Profile page section</legend>
             {PROFILE_TABS.map((t) => (
@@ -91,12 +91,15 @@ export function ProfilePage({ item }: PaneProps) {
           )}
         </div>
         </PageRail>
-        <div className="page-content">
+        <PageScroll>
+          <header className="page-head">
+            <div className="page-title"><h1>{profile.name}</h1></div>
+          </header>
           {tab === "general" && <ProfileGeneralTab profile={profile} />}
           {tab === "skills" && <ProfileSkillsTab spaceId={spaceId} profileId={profile.id} profileName={profile.name} spaceName={space.name} />}
           {tab === "connections" && <ProfileConnectionsTab spaceId={spaceId} profileId={profile.id} profileName={profile.name} spaceName={space.name} />}
           {tab === "memory" && <ProfileMemoryTab profileId={profile.id} profileName={profile.name} />}
-        </div>
+        </PageScroll>
       </div>
     </div>
   );

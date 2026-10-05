@@ -22,4 +22,19 @@ describe("refuseCapture", () => {
     }
     expect(capturePermitted("media")).toBe(false);
   });
+
+  it("answers no to everything a view's frame asks for, and leaves Realm's own page as it was", () => {
+    let request!: (wc: unknown, permission: string, answer: (granted: boolean) => void, details?: { requestingUrl?: string }) => void;
+    let check!: (wc: unknown, permission: string, origin?: string, details?: { requestingUrl?: string }) => boolean;
+    refuseCapture({ setPermissionRequestHandler: (h) => { request = h; }, setPermissionCheckHandler: (h) => { check = h; } });
+    const view = "http://3f9a1c2b4d5e6f70.mcp-view.localhost:51234/v/tok";
+    const asked = (permission: string, requestingUrl: string) => { let got: boolean | null = null; request(null, permission, (g) => { got = g; }, { requestingUrl }); return got; };
+    // THE MUTANT: the old rule alone. A view's notification request is approved, and it can post
+    // notifications as Realm (measured: the frame's request reaches this handler).
+    for (const p of ["notifications", "clipboard-sanitized-write", "fullscreen", "geolocation", "media"]) {
+      expect(asked(p, view), p).toBe(false);
+      expect(check(null, p, "http://3f9a1c2b4d5e6f70.mcp-view.localhost:51234/"), p).toBe(false);
+    }
+    expect(asked("notifications", "file:///Applications/Realm.app/Contents/Resources/app/out/renderer/index.html")).toBe(true);
+  });
 });

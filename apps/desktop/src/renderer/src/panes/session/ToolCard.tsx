@@ -2,6 +2,7 @@ import { Icon } from "@realm/ui";
 import { createContext, memo, useContext, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import type { SessionStatus } from "@realm/contracts";
 import { Spinner } from "../../components/Spinner";
+import { useDissolve } from "../../components/ScrollFades";
 import { fileIconFor } from "../../components/file-icon";
 import { clip, editStat, editTarget, prettyJson, resultEditStat, toolSummary } from "./tool-summary";
 import { flattenRun, formatDuration, formatToolRun, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
@@ -11,6 +12,7 @@ import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
 import { ChildSessions, delegatedChildIds } from "./DelegatedRuns";
 import { DelegationLine, DelegationWait, isDelegationLine, isDelegationWait } from "./DelegationLine";
 import { useElapsed } from "./use-elapsed";
+import { AppView } from "../app-view/AppView";
 
 type ToolState = "running" | "ok" | "error" | "none";
 
@@ -58,6 +60,8 @@ export const RESULT_CLAMP = DRAW_LIMIT;
  *  picture Realm drew of it. `label` doubles as the button's accessible object ("Copy result"). */
 function Well({ label, text, error = false, rich = null }: { label: string; text: string; error?: boolean; rich?: ReactNode }) {
   const [showAll, setShowAll] = useState(false);
+  const well = useRef<HTMLPreElement>(null);
+  useDissolve(well);
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -80,7 +84,7 @@ function Well({ label, text, error = false, rich = null }: { label: string; text
           <Icon name="check" size={12} className="copied-icon" />
         </button>
       </div>
-      {rich ?? <pre className="tool-well" data-error={error || undefined}>{clamped ? text.slice(0, RESULT_CLAMP) : text}</pre>}
+      {rich ?? <pre className="tool-well" ref={well} data-error={error || undefined}>{clamped ? text.slice(0, RESULT_CLAMP) : text}</pre>}
       {!rich && clamped && (
         <button className="tool-expand" onClick={() => setShowAll(true)}>
           Show all ({Math.ceil(text.length / 1024)} KB)
@@ -193,6 +197,9 @@ function ToolCardBody({ block, sessionStatus, enter = false, nested }: ToolCardP
           happens, and a canvas the reader has to open a card to find would be a spinner with extra
           steps. It leaves of its own accord when the result lands. */}
       {work && <GeneratingCanvas label={work.label} detail={work.detail} aspect={work.aspect} />}
+      {/* The view the server drew for this call, outside the expander: it is what the call was for,
+          and a reader should not have to open a card to find it. */}
+      {block.view && <AppView viewId={block.view.viewId} viewRef={block.view} mode="inline" />}
       {/* The sessions a delegation call started or collected, outside the expander for the ledger's
           reason below: a finished child's pane may already be gone from the layout, and this is the
           way back to it from the report it produced. */}

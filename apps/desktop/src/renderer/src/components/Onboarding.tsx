@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FALLBACK_AGENT, folderName, useApp } from "../state/store";
 import { agentAvailability, type AgentAvailability } from "../state/agent-availability";
 import { Spinner } from "./Spinner";
+import { useDissolve } from "./ScrollFades";
 import { DEFAULT_SPACE_ICON, SpaceFolderField, SpaceIdentityField } from "./space-fields";
 import markUrl from "../assets/realm-mark.svg";
 
@@ -87,6 +88,8 @@ export function Onboarding() {
   const completeOnboarding = useApp((s) => s.completeOnboarding);
   const run = useApp((s) => s.run);
   const nameRef = useRef<HTMLInputElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  useDissolve(stage);
   const [name, setName] = useState("");
   const [picked, setPicked] = useState<AgentKind | null>(null);
   const [folder, setFolder] = useState<string | null>(null);
@@ -145,7 +148,7 @@ export function Onboarding() {
       : `Starts a ${chosenName} session in ${spaceName}.`;
 
   return (
-    <div className="onboarding-stage">
+    <div className="onboarding-stage" ref={stage}>
       <form className="onboarding" aria-labelledby="onboarding-title" onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <header className="onboarding-hero">
           {/* The product's own mark, once, at the size the page opens on; decorative, beside its name. */}
