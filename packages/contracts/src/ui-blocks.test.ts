@@ -132,6 +132,17 @@ describe("parseUiBlock — a diagram, and what every block shares", () => {
     expect(parseUiBlock("diagram", "\nsequenceDiagram\n  A->>B: hi\n")).toEqual({ ok: true, block: { kind: "diagram", source: "sequenceDiagram\n  A->>B: hi" } });
   });
 
+  it("refuses a diagram that would make Mermaid load a picture while it lays the diagram out", () => {
+    // THE MUTANT: let these through to the renderer's gate, and the picture has already been fetched
+    // by the time there is a drawing to clean — Mermaid loads it to measure it.
+    const picture = "it draws a picture from a link, and a diagram here is drawn from its own text alone";
+    expect(reason(parseUiBlock("diagram", 'flowchart TD\n  A --> B@{ img: "https://example.com/logo.png", label: "Logo" }'))).toBe(picture);
+    expect(reason(parseUiBlock("diagram", 'flowchart TD\n  B@{\n    "img": "http://127.0.0.1:8080/x.png"\n  }'))).toBe(picture);
+    expect(reason(parseUiBlock("diagram", 'sequenceDiagram\n  participant A\n  properties A: {"class": "x", "icon": "https://example.com/i.png"}'))).toBe(picture);
+    // A label that only MENTIONS a picture or an address is text, and draws.
+    expect(parseUiBlock("diagram", 'flowchart TD\n  A["img: logo.png"] --> B["GET https://example.com/icon"]').ok).toBe(true);
+  });
+
   it("refuses a diagram too long to lay out in the window's own thread", () => {
     const lines = Array.from({ length: DIAGRAM_LINES_MAX + 1 }, (_, i) => `  N${i} --> N${i + 1}`).join("\n");
     expect(reason(parseUiBlock("diagram", `flowchart TD\n${lines}`))).toBe(`${DIAGRAM_LINES_MAX + 2} lines, past the ${DIAGRAM_LINES_MAX} Realm draws`);

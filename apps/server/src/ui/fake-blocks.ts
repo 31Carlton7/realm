@@ -105,8 +105,9 @@ export const FAKE_BLOCK_SCRIPT: FakeScript = [{
   on: "draw a hostile diagram", emit: [{ kind: "text", text: `A diagram that asks for more than it gets:\n\n${fence("mermaid", `%%{init: {"securityLevel": "loose", "htmlLabels": true, "theme": "forest", "themeCSS": ".node rect { fill: url(https://example.com/fill.png) }"}}%%
 flowchart TD
   A[Open the docs] --> B[Run the setup]
-  B --> C@{ img: "https://example.com/logo.png", label: "Logo", pos: "t", w: 60, h: 60 }
+  B --> C[Ship it]
   click A "https://example.com/docs" "Docs"
   click B call alert()
-  style B fill:#f00,stroke:#333`)}\n` }],
+  style C fill:#f00,stroke:#333`)}\n\nAnd one that would fetch a picture to lay itself out:\n\n${fence("mermaid", `flowchart LR
+  A[Start] --> B@{ img: "https://example.com/logo.png", label: "Logo", pos: "t", w: 60, h: 60 }`)}\n` }],
 }];

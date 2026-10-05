@@ -130,6 +130,15 @@ export type UiBlockParse = { ok: true; block: UiBlock } | { ok: false; reason: s
 const fail = (reason: string): UiBlockParse => ({ ok: false, reason });
 
 /**
+ * The two ways a diagram's text makes Mermaid load a picture: a shape's `img` (`A@{ img: "…" }`) and a
+ * sequence participant's icon (`properties A: {"icon": "…"}`). Mermaid loads both WHILE it lays the
+ * diagram out, before anything Realm checks has seen the drawing, so they are refused here rather than
+ * cleaned afterwards — nothing a block draws may fetch anything. Every other image Mermaid 12 can make
+ * is one of these two (its `drawImage` and `imageSquare`).
+ */
+const DIAGRAM_PICTURES = [/@\{[^}]*\bimg\b["']?\s*:/i, /^\s*properties\b[^\n]*\bicon\b/im];
+
+/**
  * A fence's body as the block it asks for, or the one-line reason it is not one.
  *
  * A diagram is only measured here — its syntax is Mermaid's to judge, in the renderer, and so is its
@@ -142,7 +151,9 @@ export function parseUiBlock(kind: UiBlockKind, source: string): UiBlockParse {
   if (source.length > UI_BLOCK_SOURCE_MAX) return fail(`longer than the ${UI_BLOCK_SOURCE_MAX.toLocaleString("en-US")} characters Realm draws`);
   if (kind === "diagram") {
     const lines = body.split("\n").length;
-    return lines > DIAGRAM_LINES_MAX ? fail(`${lines} lines, past the ${DIAGRAM_LINES_MAX} Realm draws`) : { ok: true, block: { kind, source: body } };
+    if (lines > DIAGRAM_LINES_MAX) return fail(`${lines} lines, past the ${DIAGRAM_LINES_MAX} Realm draws`);
+    if (DIAGRAM_PICTURES.some((re) => re.test(body))) return fail("it draws a picture from a link, and a diagram here is drawn from its own text alone");
+    return { ok: true, block: { kind, source: body } };
   }
   let json: unknown;
   try {
