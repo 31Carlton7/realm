@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, AgentRunConstraintsSchema, DEFAULT_MODEL_LABEL, MAX_DELEGATION_DEPTH, type AgentKind, type AgentRunConstraints, type DelegationOutcome, type Environment, type Session } from "@realm/contracts";
+import { AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, AgentRunConstraintsSchema, DEFAULT_MODEL_LABEL, MAX_DELEGATION_DEPTH, type AgentKind, type AgentRunConstraints, type DelegableModel, type DelegationOutcome, type Environment, type Session } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fenceAgentOutput } from "@realm/contracts";
 import { cleanupWorktree, errorMessage, resolveAgentKind, resolveEnvironment, resolveSkillSubset, type EnvironmentDeps } from "./dispatch";
@@ -231,6 +231,19 @@ export class AgentRunService {
   private labelOf(kind: AgentKind, id: string): string {
     const rows = this.d.models?.known()?.rows ?? [];
     return delegableModels(rows, [kind]).find((x) => x.routes.some((r) => r.kind === kind && r.id === id))?.label ?? id;
+  }
+
+  /** What the Agents tab's composer offers — the models a sub-agent can be put on — and what this
+   *  session itself runs, which is the one choice that needs no name. The probe the picker last made
+   *  answers it, or one made now when there has never been one: a composer with no models to offer
+   *  has nothing to compose. */
+  async catalogFor(sessionId: string): Promise<{ models: DelegableModel[]; own: { kind: AgentKind; label: string } }> {
+    const session = this.d.sessions.get(sessionId);
+    const m = this.d.models;
+    const rows = m ? (m.known()?.rows ?? await m.refresh()) : [];
+    const models = m ? delegableModels(rows, m.kinds).map(({ key, label, kind, id, ready }) => ({ key, label, kind, id, ready })) : [];
+    const label = session.model === null ? DEFAULT_MODEL_LABEL[session.agentKind] : this.labelOf(session.agentKind, session.model);
+    return { models, own: { kind: session.agentKind, label } };
   }
 
   /** `agent_run` and `agent_start` as this Realm can describe them right now — with the models a

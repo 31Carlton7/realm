@@ -109,6 +109,11 @@ export class BrowserAgentService {
     return this.childRecord(sessionId) !== null;
   }
 
+  /** The goal this browser agent was handed, for its lead's list of sub-agents. */
+  goalOf(sessionId: string): string | null {
+    return this.childRecord(sessionId)?.goal ?? null;
+  }
+
   /** The gateway's `sessionToolset` seam: a delegated child sees ONLY `realm-browser`. Everything
    *  else — user MCP servers and the `realm-agent` provider itself — is invisible and unroutable. */
   sessionToolset(sessionId: string): string[] | null {

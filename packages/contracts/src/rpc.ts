@@ -21,7 +21,7 @@ import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
-import { DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
+import { DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
@@ -1524,6 +1524,17 @@ export const Methods = {
    *  with the process, so this is a read of live state, not of a table — a pane opened after a run
    *  began has no other way to learn about it, and `delegation.changed` carries it from then on. */
   "delegation.running": { params: z.object({ sessionId: IdSchema }), result: z.object({ running: z.array(DelegatedRunSchema) }) },
+  /** Every session this one delegated to — its sub-agents, settled ones included, in the order they
+   *  were started. A read of tables, not of the engine: it answers for runs the registry has already
+   *  let go, and after a relaunch. */
+  "delegation.children": { params: z.object({ sessionId: IdSchema }), result: z.object({ children: z.array(DelegatedChildSchema) }) },
+  /** What the Agents tab's composer offers: the models a sub-agent can be put on, and what this
+   *  session itself runs — the one choice that needs no name at all. */
+  "delegation.models": { params: z.object({ sessionId: IdSchema }), result: z.object({
+    models: z.array(DelegableModelSchema), own: z.object({ kind: AgentKindSchema, label: z.string() }) }) },
+  /** The session's Agents tab, as an item of its space: the one it has, or a new one. Its `refId` is
+   *  the session's id — the tab is a view of that session and of nothing else. */
+  "delegation.tab": { params: z.object({ sessionId: IdSchema }), result: z.object({ itemId: IdSchema }) },
   /** `force` skips the server's TTL cache — what the install card's "Check again" and its window-focus
    *  refresh send, because a cached "not installed" is exactly what the user just fixed. */
   /**

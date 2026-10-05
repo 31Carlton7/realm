@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import WebSocket from "ws";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentAdapter, type FakeScript, type StartOptions } from "@realm/adapters";
 import type { AgentKind, AgentModel } from "@realm/contracts";
@@ -6,6 +7,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
+import { ItemsStore } from "../store/items";
 import { waitFor } from "../test-utils";
 
 /**
@@ -197,5 +199,96 @@ describe("the tool list says which models can be named", () => {
     expect(props.model!.description).toContain("Codex: GPT-6 Luna");
     // One schema for both, so neither quietly stops accepting a model.
     expect(run!.inputSchema).toEqual(start!.inputSchema);
+  });
+});
+
+/** The RPC socket, as a window would hold it — the three methods below are the Agents tab's whole
+ *  view of a session's sub-agents. */
+async function client(port: number) {
+  const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.once("open", () => res(w)); w.once("error", rej); });
+  const pending = new Map<string, (v: { result?: unknown; error?: { message: string } }) => void>();
+  ws.on("message", (d) => { const m = JSON.parse(d.toString()); if ("id" in m) pending.get(m.id)?.(m); });
+  let n = 0;
+  const call = <T>(method: string, params: unknown) => new Promise<T>((res, rej) => {
+    const id = String(++n);
+    pending.set(id, (v) => (v.error ? rej(new Error(v.error.message)) : res(v.result as T)));
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+  return { call, close: () => ws.close() };
+}
+
+type Child = { session: { id: string; agentKind: string; model: string | null }; goal: string | null; startedAt: number;
+  settledAt: number | null; outcome: string | null; report: string | null; activity: { type: string } | null };
+
+describe("the lead's list of its sub-agents", () => {
+  it("delegation.children names each child's model, task and outcome — before and after it is collected", async () => {
+    const { ctx } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
+    await app.sessions.probe();
+    const c = await client(app.port);
+    await app.agentRuns.start(ctx, { goal: "Write the tests", constraints: { model: "GPT-6 Luna" } });
+    await app.agentRuns.start(ctx, { goal: "Write the migration", constraints: { model: "Fable" } });
+    const before = (await c.call<{ children: Child[] }>("delegation.children", { sessionId: ctx.sessionId })).children;
+    expect(before.map((x) => [x.goal, x.session.agentKind, x.session.model])).toEqual([
+      ["Write the tests", "codex", "gpt-6-luna"], ["Write the migration", "claude", "claude-fable-5-1"]]);
+    expect(await app.agentRuns.wait(ctx, {})).toMatchObject({ isError: false });
+    // Collected: the engine has let both runs go. The list still says how each one ended.
+    await waitFor(async () => (await c.call<{ children: Child[] }>("delegation.children", { sessionId: ctx.sessionId })).children.every((x) => x.outcome === "done"));
+    const after = (await c.call<{ children: Child[] }>("delegation.children", { sessionId: ctx.sessionId })).children;
+    for (const x of after) {
+      expect(x.report).toBe("FINAL: done as asked");
+      expect(x.activity?.type).toBe("assistant_text");
+      expect(x.settledAt).toBeGreaterThanOrEqual(x.startedAt);
+    }
+    c.close();
+  });
+
+  it("lists only the sessions this one delegated to — never the lead itself or a stranger", async () => {
+    const { ctx } = await boot();
+    const c = await client(app.port);
+    const stranger = app.sessions.create({ spaceId: ctx.spaceId, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: "default" });
+    await app.agentRuns.start(ctx, { goal: "go" });
+    const kids = (await c.call<{ children: Child[] }>("delegation.children", { sessionId: ctx.sessionId })).children;
+    expect(kids.map((x) => x.session.id)).not.toContain(stranger.session.id);
+    expect(kids).toHaveLength(1);
+    expect((await c.call<{ children: Child[] }>("delegation.children", { sessionId: stranger.session.id })).children).toEqual([]);
+    c.close();
+  });
+
+  it("delegation.models offers the catalog on its routes, and names what the lead itself runs", async () => {
+    const { ctx } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
+    await app.sessions.probe();
+    const c = await client(app.port);
+    const r = await c.call<{ models: { label: string; kind: string; id: string; ready: boolean }[]; own: { kind: string; label: string } }>("delegation.models", { sessionId: ctx.sessionId });
+    expect(r.own).toEqual({ kind: "claude", label: "Claude Opus 5.5" });
+    expect(r.models).toContainEqual(expect.objectContaining({ label: "GPT-6 Luna", kind: "codex", id: "gpt-6-luna", ready: true }));
+    // One row per model: Fable through Claude and through Cursor is one Fable, on Claude.
+    expect(r.models.filter((m) => m.label === "Claude Fable 5.1")).toEqual([expect.objectContaining({ kind: "claude" })]);
+    c.close();
+  });
+});
+
+describe("a session's Agents tab", () => {
+  it("is one item per session, kind agents, refId the session — and the session's own item still answers for its id", async () => {
+    const { ctx } = await boot();
+    const c = await client(app.port);
+    const first = await c.call<{ itemId: string }>("delegation.tab", { sessionId: ctx.sessionId });
+    const again = await c.call<{ itemId: string }>("delegation.tab", { sessionId: ctx.sessionId });
+    expect(again.itemId).toBe(first.itemId);
+    const items = new ItemsStore(app.db);
+    expect(items.get(first.itemId)).toMatchObject({ kind: "agents", refId: ctx.sessionId, title: "Agents", spaceId: ctx.spaceId });
+    // Mutant: drop the kind filter from findByRefId — a rename, a move or a delete of the session
+    // could then land on its tab, whichever row SQLite returned first.
+    expect(items.findByRefId(ctx.sessionId)?.kind).toBe("session");
+    c.close();
+  });
+
+  it("goes when its session goes", async () => {
+    const { ctx } = await boot();
+    const c = await client(app.port);
+    const { itemId } = await c.call<{ itemId: string }>("delegation.tab", { sessionId: ctx.sessionId });
+    await app.sessions.delete(ctx.sessionId);
+    // Mutant: forget the tab in SessionService.delete — a tab for a session that no longer exists.
+    expect(new ItemsStore(app.db).get(itemId)).toBeNull();
+    c.close();
   });
 });

@@ -58,6 +58,8 @@ import type { RunService } from "../runs/service";
 import type { ScheduleService } from "../schedules/service";
 import type { ReviewService } from "../delegation/review";
 import type { DelegationEngine } from "../delegation/engine";
+import type { DelegatedChildren } from "../delegation/children";
+import type { AgentRunService } from "../delegation/agent-run";
 import type { SearchService } from "../search/service";
 import type { ArtifactsStore } from "../store/artifacts";
 import type { ForkService } from "../sessions/fork";
@@ -88,6 +90,9 @@ export type Deps = {
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
+  /** A session's sub-agents read back from the tables, and its Agents tab. */
+  children: DelegatedChildren;
+  agentRuns: AgentRunService;
   laya: LayaService;
   agentSignIn: AgentSignInService;
 };
@@ -883,6 +888,10 @@ export function registerMethods(d: Deps): void {
   // Live registry state, not a table: the engine holds it in memory and it dies with the process, so
   // a pane mounting mid-run has no other way to learn what its session is waiting on.
   reg("delegation.running", (p) => ({ running: d.delegation.liveRuns(p.sessionId) }));
+  // The tables' side of the same subject: every child a session ever started, settled ones included.
+  reg("delegation.children", (p) => ({ children: d.children.list(p.sessionId) }));
+  reg("delegation.models", (p) => d.agentRuns.catalogFor(p.sessionId));
+  reg("delegation.tab", (p) => d.children.tab(p.sessionId));
 
   reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
   reg("agents.probeOne", async (p) => (await d.sessions.probeAgent(p.kind)) ?? null);
