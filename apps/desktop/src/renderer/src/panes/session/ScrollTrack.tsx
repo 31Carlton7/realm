@@ -20,21 +20,25 @@ type Geometry = { offsets: number[]; inset: number; room: number };
 const LENS = 3;
 /** The card's distance from the edges of the log it floats over. */
 const CARD_MARGIN = 8;
+/** Below this pitch a 2px line touches the next one. */
+const DENSE_PITCH = 4;
 
-/** Each prompt's row, measured. Against the COLUMN rather than the scroller: the rubber band moves the
- *  column with `translate`, and a row and its column move together, so the difference holds still. */
+/** Each prompt's row, measured where it is LAID OUT, never where it is painted: a log that has just
+ *  loaded is mid-entrance, every row risen 6px by a transform, and the rubber band translates the
+ *  column at an end — a rect read then puts every tick, and every jump, off by that much. Offsets are
+ *  taken against the column, so the scroller's own position cancels out of them. */
 function measure(el: HTMLElement, track: HTMLElement, prompts: readonly TrackPrompt[]): Geometry | null {
   const col = el.firstElementChild;
-  if (!col) return null;
-  const rows = new Map<string, Element>();
-  for (const row of col.children) { const key = row.getAttribute("data-prompt"); if (key !== null) rows.set(key, row); }
-  const base = col.getBoundingClientRect().top;
+  if (!(col instanceof HTMLElement)) return null;
+  const rows = new Map<string, HTMLElement>();
+  for (const row of col.children) { const key = row.getAttribute("data-prompt"); if (key !== null && row instanceof HTMLElement) rows.set(key, row); }
   const inset = parseFloat(getComputedStyle(el).paddingTop) || 0;
   const offsets: number[] = [];
   for (const p of prompts) {
     const row = rows.get(p.key);
     if (!row) return null;
-    offsets.push(inset + row.getBoundingClientRect().top - base);
+    // A row's offset parent is the column only if the column is positioned; otherwise they share one.
+    offsets.push(inset + row.offsetTop - (row.offsetParent === col ? 0 : col.offsetTop));
   }
   return { offsets, inset, room: track.clientHeight };
 }
@@ -55,17 +59,20 @@ const plural = (n: number) => (n === 1 ? "1 file" : `${n} files`);
  * batched to a frame, whenever the log or the pane changes size — so the length of a session costs a
  * measurement, not a listener per tick.
  */
-export function ScrollTrack(props: TrackProps) {
+export const ScrollTrack = memo(function ScrollTrack(props: TrackProps) {
   // One prompt has nowhere to go but where it already is.
   return props.prompts.length < 2 ? null : <Track {...props} />;
-}
+});
 
 function Track({ scrollRef, prompts, onJump, now }: TrackProps) {
   const ref = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const cardId = useId();
   const [geom, setGeom] = useState<Geometry | null>(null);
-  const [current, setCurrent] = useState(0);
+  /* The prompt being read — null until the log has settled where it opens. The track lays out before
+     the transcript does (a child's layout effects run first), so a reading taken in the same commit is
+     of a log not yet stuck to its end, and would light the first tick for a frame on the way. */
+  const [current, setCurrent] = useState<number | null>(null);
   /** The tick under the pointer: the lens follows it at once, the card after the tooltip's delay. */
   const [hover, setHover] = useState<number | null>(null);
   const [shown, setShown] = useState(false);
@@ -83,22 +90,28 @@ function Track({ scrollRef, prompts, onJump, now }: TrackProps) {
      measurement, and nothing is written to the DOM between the reads. */
   const frame = useRef(0);
   const owed = useRef(true);
-  const read = useCallback(() => {
-    frame.current = 0;
+  /** The geometry, measured again if a measurement is owed. Null while there is nothing to read. */
+  const remeasure = useCallback((): Geometry | null => {
     const el = scrollRef.current, track = ref.current;
     // A pane in a hidden tab lays nothing out; its geometry waits for it to be shown.
-    if (!el || !track || el.clientHeight === 0) return;
-    let g = live.current.geom;
-    if (owed.current || !g) {
-      const next = measure(el, track, live.current.prompts);
-      owed.current = next === null;
-      if (next && !sameGeometry(g, next)) { g = next; live.current.geom = next; setGeom(next); }
-    }
-    if (!g) return;
-    setCurrent(pinned.current ?? currentPrompt(g.offsets, { top: el.scrollTop, height: el.clientHeight, scrollHeight: el.scrollHeight, inset: g.inset }));
+    if (!el || !track || el.clientHeight === 0) return null;
+    const g = live.current.geom;
+    if (!owed.current && g) return g;
+    const next = measure(el, track, live.current.prompts);
+    owed.current = next === null;
+    if (!next || sameGeometry(g, next)) return g;
+    live.current.geom = next;
+    setGeom(next);
+    return next;
   }, [scrollRef]);
-  const schedule = useCallback((remeasure: boolean) => {
-    if (remeasure) owed.current = true;
+  const read = useCallback(() => {
+    frame.current = 0;
+    const el = scrollRef.current, g = remeasure();
+    if (!el || !g) return;
+    setCurrent(pinned.current ?? currentPrompt(g.offsets, { top: el.scrollTop, height: el.clientHeight, scrollHeight: el.scrollHeight, inset: g.inset }));
+  }, [scrollRef, remeasure]);
+  const schedule = useCallback((again: boolean) => {
+    if (again) owed.current = true;
     if (!frame.current) frame.current = requestAnimationFrame(read);
   }, [read]);
 
@@ -130,13 +143,15 @@ function Track({ scrollRef, prompts, onJump, now }: TrackProps) {
   }, [scrollRef, schedule]);
 
   /* A prompt arriving moves every tick, so it is measured before the frame paints rather than one
-     frame late — and the jump it follows is over: sending is the reader choosing where to be. */
+     frame late — and the jump it follows is over: sending is the reader choosing where to be. Where
+     the reader IS waits for the next frame, once the transcript has put the log where it goes. */
   const keys = prompts.map((p) => p.key).join(" ");
   useLayoutEffect(() => {
     pinned.current = null;
     owed.current = true;
-    read();
-  }, [keys, read]);
+    remeasure();
+    schedule(false);
+  }, [keys, remeasure, schedule]);
 
   const positions = useMemo(() => (geom ? tickPositions(geom.offsets, geom.room) : null), [geom]);
   /* Each tick answers the pointer across the whole cell between it and its neighbours, so a pointer
@@ -186,7 +201,7 @@ function Track({ scrollRef, prompts, onJump, now }: TrackProps) {
   const n = cells?.length ?? 0;
   const onKeyDown = (e: KeyboardEvent) => {
     if (n === 0) return;
-    const from = focus ?? current;
+    const from = focus ?? current ?? 0;
     const to = e.key === "ArrowDown" ? Math.min(n - 1, from + 1) : e.key === "ArrowUp" ? Math.max(0, from - 1)
       : e.key === "Home" ? 0 : e.key === "End" ? n - 1 : null;
     if (to === null) {
@@ -217,9 +232,12 @@ function Track({ scrollRef, prompts, onJump, now }: TrackProps) {
     el.style.top = `${Math.round(Math.max(CARD_MARGIN - track.offsetTop, Math.min(lowest, y - h / 2)))}px`;
   }, [open, cells, card]);
 
-  const rove = Math.min(focus ?? current, n - 1);
+  const rove = Math.min(focus ?? current ?? 0, n - 1);
+  // Too many prompts for the room to space them a few pixels apart: the lines thin, so a log of
+  // hundreds still reads as ticks rather than as one solid bar.
+  const dense = n > 1 && geom !== null && geom.room / (n - 1) < DENSE_PITCH;
   return (
-    <div ref={ref} className="scroll-track" role="toolbar" aria-orientation="vertical" aria-label="Prompts"
+    <div ref={ref} className="scroll-track" role="toolbar" aria-orientation="vertical" aria-label="Prompts" data-dense={dense || undefined}
       onKeyDown={onKeyDown} onPointerLeave={leave}
       onBlur={(e) => { if (!ref.current?.contains(e.relatedTarget as Node | null)) setFocus(null); }}>
       {cells?.map((cell, i) => {

@@ -150,13 +150,15 @@ export type TrackView = { top: number; height: number; scrollHeight: number; ins
 
 /**
  * The prompt being read: the last one whose row has come up past the reading line a third of the way
- * down the log, so a prompt stays current while its answer is read. Once the log is at its end and can
- * move no further, it is the last one on screen at all — or a short final turn could never become the
- * current one. Before any row has reached the line, the first prompt is current.
+ * down the log, so a prompt stays current while its answer is read. The two ends are the exceptions,
+ * because the log can move no further there: at its end it is the last prompt on screen at all, or a
+ * short final turn could never become the current one, and at its top it is the first, however soon
+ * the second follows it. A log too short to scroll is at its end.
  */
 export function currentPrompt(offsets: readonly number[], view: TrackView): number {
   if (offsets.length === 0) return -1;
   const atEnd = view.scrollHeight - view.top - view.height < 2;
+  if (!atEnd && view.top < 2) return 0;
   // The line sits below the inset, so a prompt the track has just brought to rest there is past it.
   const line = view.top + (atEnd ? view.height - ON_SCREEN_PX : Math.max(view.height / 3, view.inset + 1));
   let i = 0;

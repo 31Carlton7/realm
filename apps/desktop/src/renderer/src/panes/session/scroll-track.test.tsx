@@ -11,12 +11,12 @@ import { reduceAll, type Block, type Transcript as TranscriptModel } from "./tra
 
 /**
  * jsdom lays nothing out, so the track is given a geometry to read: each prompt's row at a staged
- * offset in its column, the scroller's viewport and content, and the track's own room. The column
- * moves with `scrollTop` as a real one does, so a measurement taken mid-scroll still has to come out
- * in the log's coordinates. The scroller's top padding — where a jump brings a row to rest — is 44px,
- * the stylesheet's.
+ * offset in its column, the scroller's viewport and content, and the track's own room. The scroller's
+ * top padding — where a jump brings a row to rest — is 44px, the stylesheet's. Every painted rect is
+ * staged as well, 6px low, as a row is while it rises in: the track must read layout, not paint.
  */
-function stage({ rows, view = 600, height, room = 500 }: { rows: number[]; view?: number; height: number; room?: number }) {
+function stage({ rows: laidOut, view = 600, height, room = 500 }: { rows: number[]; view?: number; height: number; room?: number }) {
+  let rows = laidOut;
   let top = 0;
   const jumps: { top: number; behavior: ScrollBehavior | undefined }[] = [];
   const has = (el: unknown, cls: string) => el instanceof HTMLElement && el.classList.contains(cls);
@@ -33,12 +33,15 @@ function stage({ rows, view = 600, height, room = 500 }: { rows: number[]; view?
     top = clampTop(opts.top ?? 0);
     fireEvent.scroll(this);
   } as HTMLElement["scrollTo"];
+  Object.defineProperty(HTMLElement.prototype, "offsetTop", { configurable: true,
+    get() { const i = [...document.querySelectorAll("[data-prompt]")].indexOf(this); return i >= 0 ? rows[i]! : 0; } });
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
     const i = [...document.querySelectorAll("[data-prompt]")].indexOf(this);
-    const y = i >= 0 ? rows[i]! - top : this.classList.contains("transcript-col") ? -top : 0;
-    return new DOMRect(0, y, 100, 40);
+    return new DOMRect(0, (i >= 0 ? rows[i]! - top : this.classList.contains("transcript-col") ? -top : 0) + (i >= 0 ? 6 : 0), 100, 40);
   });
   return {
+    /** The log reflowing: every row from here on laid out somewhere else. */
+    reflow(next: number[]) { rows = next; },
     jumps,
     get top() { return top; },
     /** The reader scrolling the log themselves: the wheel first, then the scroll it causes. */
@@ -95,7 +98,7 @@ beforeEach(() => { ro = stageObserver(); });
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  for (const k of ["clientHeight", "scrollHeight", "scrollTop"]) delete (HTMLElement.prototype as unknown as Record<string, unknown>)[k];
+  for (const k of ["clientHeight", "scrollHeight", "scrollTop", "offsetTop"]) delete (HTMLElement.prototype as unknown as Record<string, unknown>)[k];
   delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollTo;
 });
 
@@ -136,11 +139,7 @@ describe("the scroll track", () => {
     ro.resized();
     await nextFrame();
     // A picture lands in the second turn: everything after it is 400px further down.
-    const rows = [0, 900, 2200, 3100, 4000];
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
-      const i = [...document.querySelectorAll("[data-prompt]")].indexOf(this);
-      return new DOMRect(0, i >= 0 ? rows[i]! - geo.top : 0, 100, 40);
-    });
+    geo.reflow([0, 900, 2200, 3100, 4000]);
     ro.resized();
     await nextFrame();
     const at = ticks().map(lineAt);
@@ -164,6 +163,17 @@ describe("the scroll track", () => {
     await nextFrame();
     expect(lit()).toBe(4);
     expect(ticks().filter((t) => t.hasAttribute("data-current"))).toHaveLength(1);
+  });
+
+  it("lights nothing until the log has settled where it opens, so the first tick never flashes on the way", async () => {
+    // The track lays out before the transcript sticks the log to its end; a reading taken then would
+    // light the first prompt for a frame and fade across to the last.
+    stage({ rows: [0, 900, 1800, 2700, 3600], height: 4400 });
+    mount(model(turns(5)));
+    expect(ticks()).toHaveLength(5);
+    expect(ticks().filter((t) => t.hasAttribute("data-current"))).toHaveLength(0);
+    await nextFrame();
+    expect(ticks().map((t) => t.hasAttribute("data-current"))).toEqual([false, false, false, false, true]);
   });
 
   it("goes to a prompt on a click, bringing its row to rest at the log's top, smoothly", async () => {

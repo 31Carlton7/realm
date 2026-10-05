@@ -3613,14 +3613,18 @@ button.edit-file:hover { background: var(--rl-hover); }
    read is longer and in ink. Under the pointer the whole track comes up a step, the tick under it and
    its neighbours lengthen into a lens, and that arrives at once and leaves on the hover fade. A turn
    that changed files carries a dot after its tick, in the tick's own ink: a mark, not a colour. */
-.scroll-track { --track-x: clamp(3px, (100cqw - var(--prompter-w)) / 2 - 40px, 14px);
+.scroll-track { --track-x: clamp(3px, (100cqw - var(--prompter-w)) / 2 - 40px, 14px); --tick: var(--mark-strong);
   position: absolute; z-index: 3; left: 0; top: var(--fade-top-h); bottom: var(--fade-top-h);
   width: calc(var(--track-x) + 13px); pointer-events: none; }
+/* A rung heavier on the light face, for the divider's reason: black on near-white loses more of
+   itself than white on near-black, and the dark face's step measured half as far off its ground. */
+:root[data-mode="light"] .scroll-track { --tick: var(--overlay-darken-500); }
 .track-tick { position: absolute; left: 0; width: 100%; pointer-events: auto; }
 .track-line { position: absolute; left: var(--track-x); width: 6px; height: 2px; margin-top: -1px; border-radius: var(--r-sm);
-  background: var(--mark-strong); transition: width var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+  background: var(--tick); transition: width var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+.scroll-track[data-dense] .track-line { height: 1px; margin-top: -0.5px; }
 .track-tick[data-edited] .track-line::after { content: ""; position: absolute; left: calc(100% + 1px); top: 0;
-  width: 2px; height: 2px; border-radius: var(--r-sm); background: inherit; }
+  width: 2px; height: 100%; border-radius: var(--r-sm); background: inherit; }
 .scroll-track:is(:hover, :focus-within) .track-line { background: var(--rl-text-faint); transition-duration: 0s; }
 /* The lens. Ordered so a length only ever grows: the current tick keeps its own over the lens's
    outermost rung, and gives way to the three inside it. */

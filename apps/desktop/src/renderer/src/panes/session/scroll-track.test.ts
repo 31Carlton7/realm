@@ -148,6 +148,14 @@ describe("which prompt is being read", () => {
     expect(currentPrompt(offsets, view(800 - 44, 90))).toBe(1);
   });
 
+  it("is the first prompt at the very top of the log, however soon the second follows it", () => {
+    // A one-line first turn puts the second prompt above the reading line at once.
+    expect(currentPrompt([44, 150, 1600, 2400], view(0))).toBe(0);
+    expect(currentPrompt([44, 150, 1600, 2400], view(10))).toBe(1);
+    // …and a log too short to scroll at all is at its end, where the newest prompt is the one read.
+    expect(currentPrompt([44, 150, 300], view(0, 600, 590))).toBe(2);
+  });
+
   it("is the last one on screen once the log is at its end, or a short last turn could never be current", () => {
     expect(currentPrompt(offsets, view(2400, 600, 3000))).toBe(3);
     // At the end with the last row only partly in: still the last one on screen that has room to be.
