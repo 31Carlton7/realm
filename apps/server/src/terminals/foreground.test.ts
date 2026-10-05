@@ -179,6 +179,9 @@ describe("a real terminal's foreground", () => {
     const svc = new TerminalService({
       db, rpc, spaces, items: new ItemsStore(db), terminals: new TerminalsStore(db),
       environments: new EnvironmentsStore(db), settings: new SettingsStore(db),
+      // No backstop: the shell's own output has to be what finds `sleep` here, or the wiring from
+      // a pty's data to a look could go missing and the timer would hide it.
+      setInterval: () => ({ unref() {} }) as unknown as ReturnType<typeof setInterval>,
     });
     const prevShell = process.env.SHELL;
     process.env.SHELL = "/bin/sh";
