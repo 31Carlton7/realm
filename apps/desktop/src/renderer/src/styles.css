@@ -2812,6 +2812,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 @property --dissolve-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --dissolve-start { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --dissolve-end { syntax: "<length>"; inherits: false; initial-value: 0px; }
+/* The side band's depth, typed with its default: no surface sets its own now, and an unset depth
+   read with no definition anywhere is the silent failure the bridge test exists to catch. Inherited,
+   so a strip's wrapper can still set a shallower one for the scroller inside it. */
+@property --fade-w { syntax: "<length>"; inherits: true; initial-value: 28px; }
 
 [data-dissolve] {
   mask-image: linear-gradient(to bottom, transparent 0, #000 var(--dissolve-top),
