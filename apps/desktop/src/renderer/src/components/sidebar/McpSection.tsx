@@ -136,7 +136,7 @@ function RealmProviders({ spaceId }: { spaceId: string }) {
           <li key={p.name} className="env-row mcp-row">
             <div className="env-main">
               <span className="env-name">{p.name}</span>
-              <span className="env-kind">built-in</span>
+              <span className="env-kind">Built-in</span>
             </div>
             <div className="env-actions">
               {p.offered === true ? (

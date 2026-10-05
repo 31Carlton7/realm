@@ -119,21 +119,28 @@ describe("the decorative wash never costs text its contrast floor", () => {
     });
   }
 
-  it("the colour field costs nothing at all, because its lightness never leaves the ground's own band", () => {
-    // This is the property that lets the field be painted on --canvas, where the derivation has left
-    // no room: --ink-3 sits at exactly 2.400 against a 2.4 floor on six light faces. A field that
-    // moved luminance by any amount would take one of them under; a field that only moves hue cannot.
-    let worst = 0;
+  it("the colour field costs a tier far less than the room it has above its floor", () => {
+    // What lets the field be painted on --canvas. It used to have to cost NOTHING, because --ink-3
+    // sat at exactly 2.400 against a 2.4 floor on six light faces and any darkening took one under.
+    // The light ramp now places every tier well clear of its floor, and a wash this light with this
+    // much chroma is out of sRGB, so clipping costs it a little luminance on the lightest papers.
+    // The guarantee is the margin, per pairing and measured live: on every face, at every hue, the
+    // field may cost a tier at most a quarter of the room that same tier has above its floor on that
+    // same face. THE mutant is a palette change that eats the headroom again — this fails long
+    // before the floor test above it could.
+    const tight: string[] = [];
     for (const face of FACES) {
-      for (const hue of HUE_OFFSETS) {
-        const ground = decorate(face.vars, face.mode, "--canvas", hue, false);
-        for (const [token] of INK) {
-          const ink = srgb(parseOklch(face.vars[token]!));
-          worst = Math.min(worst, ratio(ink, ground) - ratio(ink, srgb(parseOklch(face.vars["--canvas"]!))));
+      const plain = srgb(parseOklch(face.vars["--canvas"]!));
+      for (const [token, floor] of INK) {
+        const ink = srgb(parseOklch(face.vars[token]!));
+        const room = ratio(ink, plain) - floor;
+        for (const hue of HUE_OFFSETS) {
+          const cost = ratio(ink, plain) - ratio(ink, decorate(face.vars, face.mode, "--canvas", hue, false));
+          if (cost > room / 4) tight.push(`${face.label} ${token} at ${hue}deg costs ${cost.toFixed(3)} of ${room.toFixed(3)}`);
         }
       }
     }
-    expect(worst).toBeGreaterThan(-0.01);
+    expect(tight.slice(0, 5)).toEqual([]);
   });
 
   it("adds hue to the ground without restating its lightness", () => {

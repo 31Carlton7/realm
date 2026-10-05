@@ -910,7 +910,7 @@ export type AppState = {
    *  set on a Mac should survive opening the same home somewhere without a material, and come back
    *  unchanged. */
   groundAlpha: number;
-  /** The panes' opacity over the same material, 86–100 (`PANE_ALPHA_RANGE`, whose floor is where body
+  /** The panes' opacity over the same material, 84–100 (`PANE_ALPHA_RANGE`, whose floor is where body
    *  text would fall under WCAG AA over the worst desktop). Its own control since Plan 26. */
   paneAlpha: number;
   /** Settings ▸ Appearance ▸ Reduce motion. "system" follows the Mac; "on" and "off" override it by

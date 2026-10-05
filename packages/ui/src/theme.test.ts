@@ -161,17 +161,17 @@ describe("the panes' own ground", () => {
   });
 
   it("never goes thinner than the reading allows, whatever is stored", () => {
-    expect(PANE_ALPHA_RANGE).toEqual({ min: 86, max: 100 });
-    expect(clampPaneAlpha(0)).toBe(86);
-    expect(clampPaneAlpha(55)).toBe(86);
+    expect(PANE_ALPHA_RANGE).toEqual({ min: 84, max: 100 });
+    expect(clampPaneAlpha(0)).toBe(84);
+    expect(clampPaneAlpha(55)).toBe(84);
     expect(clampPaneAlpha(400)).toBe(100);
-    expect(write({ paneAlpha: 40 })["--pane-alpha"]).toBe("86%");
+    expect(write({ paneAlpha: 40 })["--pane-alpha"]).toBe("84%");
   });
 
   it("carries a home saved under one control to the pane it was already looking at", () => {
-    // The old mapping, 55 → 86 and 100 → 100, rounded to the slider's step.
-    expect(paneAlphaFromGround(55)).toBe(86);
+    // The old mapping, 55 → the pane's floor and 100 → 100, rounded to the slider's step.
+    expect(paneAlphaFromGround(55)).toBe(84);
     expect(paneAlphaFromGround(100)).toBe(100);
-    expect(paneAlphaFromGround(70)).toBe(Math.round(86 + (70 - 55) * 0.3111));
+    expect(paneAlphaFromGround(70)).toBe(Math.round(84 + (70 - 55) * 0.3556));
   });
 });

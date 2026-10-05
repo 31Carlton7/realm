@@ -1,4 +1,4 @@
-import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents } from "electron";
+import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
@@ -52,6 +52,8 @@ import { appMenuTemplate, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom } from "./window-registry";
 import { registerFileActions } from "./file-actions";
+import { AppIconStore, registerAppIcon } from "./app-icon";
+import { registerAppearance, savedAppearance } from "./appearance";
 import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
@@ -1398,6 +1400,16 @@ ipcMain.handle("files:reveal", async (_e, path: unknown, base?: unknown): Promis
 });
 /** Quick Look, Share and drag-out (file-actions.ts), behind the same existence gate as Reveal. */
 registerFileActions({ gate: existingPath });
+/** The Dock icon chosen in Settings ▸ App (app-icon.ts). Only macOS has a Dock to put it on. */
+const appIcons = new AppIconStore(app.getPath("userData"));
+const dock = process.platform === "darwin" && app.dock
+  ? { setIcon: (png: Uint8Array) => app.dock?.setIcon(nativeImage.createFromBuffer(Buffer.from(png))) }
+  : null;
+registerAppIcon({ handle: (channel, fn) => ipcMain.handle(channel, fn), store: appIcons, dock });
+/** The window's native appearance follows Realm's theme setting (appearance.ts) — applied from the
+ *  last run before any window exists, then kept current by the renderer. */
+nativeTheme.themeSource = savedAppearance(app.getPath("userData"));
+registerAppearance({ on: (channel, fn) => ipcMain.on(channel, fn), theme: nativeTheme, dir: app.getPath("userData") });
 /**
  * Save a copy of a file somewhere the user names.
  *
@@ -1561,6 +1573,9 @@ app.whenReady().then(async () => {
     // is the phone's picture's (capture-guard.ts says why), and the browser partition refuses the same.
     refuseCapture(session.defaultSession);
     installMenu();
+    // Before the first window, so the chosen icon is the one the Dock bounces.
+    const savedIcon = appIcons.saved();
+    if (savedIcon) dock?.setIcon(savedIcon);
     // Launched from Finder, the app inherits launchd's minimal PATH — no Homebrew, no agent CLIs, no
     // mac-cli. Adopt the login shell's PATH BEFORE the first spawn: the server child inherits this
     // env, and every probe/terminal/agent it spawns inherits the server's. Failure (exotic shell,

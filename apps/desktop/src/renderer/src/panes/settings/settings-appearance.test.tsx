@@ -46,15 +46,15 @@ describe("Sidebar and pane translucency", () => {
     try {
       const { api, store } = await appearance();
       const before = store.getState().groundAlpha;
-      // 90 on a slider that reads as transparency is 96% opaque on a range of 86–100.
+      // 90 on a slider that reads as transparency is 94% opaque on a range of 84–100.
       fireEvent.change(screen.getByRole("slider", { name: "Pane transparency" }), { target: { value: "90" } });
-      await waitFor(() => expect(store.getState().paneAlpha).toBe(96));
+      await waitFor(() => expect(store.getState().paneAlpha).toBe(94));
       // THE one-control mutant: the pane's slider writes the sidebar's number again.
       expect(store.getState().groundAlpha).toBe(before);
-      await waitFor(() => expect(api.calls).toContain(`setSetting:${SETTING_PANE_ALPHA}=96`));
+      await waitFor(() => expect(api.calls).toContain(`setSetting:${SETTING_PANE_ALPHA}=94`));
       fireEvent.click(screen.getByRole("switch", { name: "Sidebar translucency" }));
       await waitFor(() => expect(store.getState().groundAlpha).toBe(100));
-      expect(store.getState().paneAlpha).toBe(96);
+      expect(store.getState().paneAlpha).toBe(94);
     } finally { vi.unstubAllGlobals(); }
   });
 

@@ -66,14 +66,20 @@ describe("the default theme is the absence of a theme", () => {
 });
 
 describe("what a theme states survives derivation", () => {
+  /* A theme's background is its window ground in dark and its PAPER in light — the editor ground its
+     text was chosen against — so the seed lands on `--page` in one and `--canvas` in the other. The
+     one correction: a light paper above `paperMax` is taken down to it, so a white background still
+     leaves its cards somewhere to go. Hue and chroma are never touched. */
   it("the ground and the ink are the seed exactly — those two are never corrected", () => {
+    const PAPER_MAX = 0.986;
     for (const { theme, mode } of faces()) {
       const seed = mode === "dark" ? theme.dark : theme.light;
       if (!seed) continue;
       const v = themeVars(theme.name, mode);
-      for (const [token, hex] of [["--page", seed.bg], ["--ink", seed.ink]] as const) {
+      for (const [token, hex] of [[mode === "dark" ? "--page" : "--canvas", seed.bg], ["--ink", seed.ink]] as const) {
         const [a, b] = [parse(v[token]!), hexToOklch(hex)];
-        expect(a.l, `${theme.name}/${mode} ${token}`).toBeCloseTo(b.l, 3);
+        const want = token === "--canvas" ? Math.min(b.l, PAPER_MAX) : b.l;
+        expect(a.l, `${theme.name}/${mode} ${token}`).toBeCloseTo(want, 3);
         expect(a.c, `${theme.name}/${mode} ${token}`).toBeCloseTo(b.c, 3);
       }
     }
@@ -185,13 +191,17 @@ describe("the ramps derivation reproduces", () => {
     }
   });
 
-  it("the surface ladder climbs in dark and sinks in light, off the theme's own ground", () => {
+  /* One depth order in both modes: the page (sidebar, wells) under the canvas, the surface (cards,
+     floating things) over it. THE mutant is the light ramp sinking its canvas below the page again,
+     which is how the sidebar became the brightest thing in a light window and every well a bright
+     patch where dark mode draws a recess. */
+  it("the surface ladder climbs in both modes: page under canvas under surface", () => {
     for (const { theme, mode } of faces()) {
       if (theme.name === "realm") continue;
       const v = themeVars(theme.name, mode);
       const [page, surface, canvas] = ["--page", "--surface", "--canvas"].map((k) => parse(v[k]!).l);
-      if (mode === "dark") { expect(surface!).toBeGreaterThan(page!); expect(canvas!).toBeGreaterThan(page!); }
-      else { expect(surface!).toBeGreaterThan(page!); expect(canvas!).toBeLessThan(page!); }
+      expect(canvas!, `${theme.name}/${mode}`).toBeGreaterThan(page!);
+      expect(surface!, `${theme.name}/${mode}`).toBeGreaterThan(canvas!);
     }
   });
 

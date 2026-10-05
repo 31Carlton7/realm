@@ -936,6 +936,76 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect([...new Set(tooSmall)].sort(), "below the 11px floor — raise it, or name the geometry that forbids it").toEqual([]);
   });
 
+  it("every size is a rung of the type ladder — no half-pixel steps a reader cannot tell apart", () => {
+    /* The floor stopped sizes going below 11; nothing stopped them multiplying above it. The app had
+       grown 11, 11.5, 12, 12.5, 13 and 13.5 — six sizes in a 2.5px band, used interchangeably, so two
+       labels doing the same job in two places were half a pixel apart and read as a mistake rather
+       than as a distinction. The ladder is design.md's: 11 tiny, 12 caption, 13 small UI, 14 body,
+       15 reading, then the four title rungs. Below 11 is the floor test's business, and its named
+       exceptions stand here too. THE mutant: put any one rule back at 12.5. */
+    const LADDER = new Set([11, 12, 13, 14, 15, 18, 20, 24, 28]);
+    const EXEMPT = new Set([".md-cite", ".attach-ext", ".cal-month", ".cal-weekday", ".chart-tick",
+      ".summary-step-mark", ".tile-title",
+      // A display numeral: the one figure on the usage page that is the page's subject.
+      ".stat-value-hero",
+      // Plan 26's readable-type redesign of Settings, the Library, Memory, Usage and first run set
+      // these by name (Settings in Codex's grammar: notes at 12.5, rail tabs at 13.5, a first-run step
+      // head at 17). They are the owner's sizes, kept as stated — named here one by one, so a NEW
+      // half step anywhere else still fails.
+      ".agent-card-by",
+      ".agent-card-note",
+      ".agent-card-tail",
+      ".budget-input",
+      ".budget-line",
+      ".budget-note",
+      ".budget-threshold",
+      ".budget-thresholds legend",
+      ".failover-note",
+      ".filter-chip",
+      ".library-more",
+      ".library-row-name",
+      ".library-row-time",
+      ".memory-doc-status",
+      ".memory-fact-label",
+      ".memory-fact-sub",
+      ".memory-reader",
+      ".memory-space-here",
+      ".memory-space-size",
+      ".onboarding-note",
+      ".onboarding-step-head",
+      ".onboarding-step-sub",
+      ".page-empty p",
+      ".page-rail .settings-tab",
+      ".sb-page-nav .page-rail-head",
+      ".scope-move",
+      ".settings-hint",
+      ".settings-result-place",
+      ".settings-row-problem",
+      ".stat-delta",
+      ".stat-label",
+      ".tcc-state",
+      ".usage-card-head .usage-card-sub",
+      ".usage-caveats p",
+      ".usage-table thead th"]);
+    const off = RULES
+      .flatMap((r) => [...r.body.matchAll(/(?:font-size:|\bfont:)\s*(?:var\([^)]*\)\s+)?([\d.]+)px/g)]
+        .filter((m) => !LADDER.has(Number(m[1])))
+        .flatMap(() => r.selectors))
+      .filter((sel) => ![...EXEMPT].some((e) => sel.includes(e)));
+    expect([...new Set(off)].sort(), "off the type ladder — pick a rung").toEqual([]);
+  });
+
+  it("no label is set in tracked capitals — a section is named in sentence case", () => {
+    /* design.md rejects all-caps tracked eyebrows, and nineteen rules wore them: the palette's
+       sections, the model picker's groups, table heads, kind tags. A quiet sentence-case label at the
+       caption rung names a section as clearly and does not shout over the rows it heads. Uppercase
+       also hid raw source strings — an import row printed its "space-folder" enum for months because
+       the transform made it look like a label. One exception, typography rather than taste: a file
+       extension on an attachment tile ("PDF"), which is an acronym in any case. */
+    const caps = RULES.filter((r) => /text-transform:\s*uppercase/.test(r.body)).flatMap((r) => r.selectors);
+    expect(caps).toEqual([".attach-ext"]);
+  });
+
   it("the weight ladder is four named rungs on tembo's values — no bare weight survives in a component rule", () => {
     const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
     // 450/500/560/600. The old 500/550/600/650 spread had two rungs nobody could tell apart.
@@ -1260,7 +1330,7 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
       "these wear the signature curve but are never painted — they will render as round rects").toEqual([]);
   });
 
-  it("fenced code is a ringless panel on the prompter's curve, with a 12.5/1.65 mono body", () => {
+  it("fenced code is a ringless panel on the prompter's curve, with a 13/1.65 mono body", () => {
     /* Changed deliberately from the hairline-ringed 12px card this used to pin. A fenced block is
        the same KIND of surface the composer is — a machine-text panel the eye rests in — so it
        wears the same corner; and a ring around a large radius is the one thing that makes the
@@ -1275,7 +1345,7 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     // this the block would render a plain round rect beside a composer wearing a real squircle.
     expect(bodiesFor(":root[data-squircle] .md-code").join(" ")).toContain("--sq-fill: var(--surface)");
     const body = bodiesFor(".md-code pre").join(" ");
-    expect(body).toContain("font-size: 12.5px");
+    expect(body).toContain("font-size: 13px");
     expect(body).toContain("line-height: calc(1.65 + var(--lh-shift))");
   });
 
@@ -1838,7 +1908,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     // Not under the floor: §type — nothing is set below 11px, badges included.
     expect(badge).toContain("font-size: 11px");
     expect(bodiesFor(".item").join(" ")).toContain("border-radius: var(--r-ctl)");
-    expect(bodiesFor(".group-label").join(" ")).toContain("font-size: 12.5px");
+    expect(bodiesFor(".group-label").join(" ")).toContain("font-size: 13px");
   });
 
   it("the sidebar's search bar is GONE, rule and token both", () => {
@@ -3050,9 +3120,12 @@ describe("Plan 24 W1: inline UI in the transcript", () => {
     const gutter = bodiesFor(".code-gutter").join(" ");
     expect(gutter).toContain("position: sticky");
     expect(gutter).toContain("left: 0");
-    // Both columns must run the same mono line-height or the numbers drift off their lines.
-    expect(gutter).toContain("11.5px/1.65 var(--font-mono)");
-    expect(bodiesFor(".code-body").join(" ")).toContain("12px/1.65 var(--font-mono)");
+    // Both columns must run the same mono SIZE and line-height or the numbers drift off their lines.
+    // They did: the rail was 11.5px/1.65 beside a 12px/1.65 body, which lands 0.8px lower per line —
+    // a number a full line off by the twenty-fourth. The same font string, not two that agree today.
+    const font = (b: string) => b.match(/font: ([^;]+);/)?.[1];
+    expect(font(gutter)).toBe("12px/1.65 var(--font-mono)");
+    expect(font(bodiesFor(".code-body").join(" "))).toBe(font(gutter));
     expect(bodiesFor(".code-body").join(" ")).toContain("white-space: pre");
   });
 
@@ -3232,8 +3305,10 @@ describe("custom themes", () => {
       const block = modeBlock(mode);
       // The seeds are read back out of the palette rather than written here, so this cannot drift
       // by someone updating tokens.css and the copy in the test to match each other.
+      // A light theme's seed background is its paper (themes.ts, `Ramp.page`), a dark one's its ground.
+      const anchor = mode === "dark" ? "--page" : "--canvas";
       const derived = deriveVars({
-        bg: hexIn("--page", block), ink: hexIn("--ink", block), accent: hexIn("--accent", block),
+        bg: hexIn(anchor, block), ink: hexIn("--ink", block), accent: hexIn("--accent", block),
         green: hexIn("--green", block), orange: hexIn("--orange", block), red: hexIn("--red", block),
         // The same role mapping the base --syn-* block states, so the seeds are Realm's own.
         syntax: { comment: hexIn("--ink-3", block), keyword: hexIn("--accent", block), string: hexIn("--green", block),
@@ -3242,7 +3317,7 @@ describe("custom themes", () => {
 
       // The surface ladder and the tooltip chip are pure geometry off the seed: they have to land on
       // the shipped lightness to finer than a display can resolve.
-      for (const token of ["--canvas", "--surface", "--inset", "--hover", "--hover-2", "--field",
+      for (const token of ["--page", "--canvas", "--surface", "--inset", "--hover", "--hover-2", "--field",
         "--stripe-bg", "--tooltip-bg", "--tooltip-border", "--tooltip-fg"]) {
         expect(derivedL(derived[token]!), `${mode} ${token}`).toBeCloseTo(L(token, block), 3);
       }
@@ -3263,7 +3338,7 @@ describe("custom themes", () => {
     for (const mode of ["dark", "light"] as const) {
       const block = modeBlock(mode);
       const want = REALM_SEED[mode];
-      for (const [role, token] of [["bg", "--page"], ["ink", "--ink"], ["accent", "--accent"],
+      for (const [role, token] of [["bg", mode === "dark" ? "--page" : "--canvas"], ["ink", "--ink"], ["accent", "--accent"],
         ["green", "--green"], ["orange", "--orange"], ["red", "--red"]] as const) {
         expect(want[role], `${mode} ${role}`).toBe(hexIn(token, block));
       }

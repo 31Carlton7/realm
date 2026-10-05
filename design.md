@@ -60,6 +60,11 @@ Inspect the existing implementation before designing.
 - Shared theme derivation: `packages/ui/src/theme.ts` and `packages/ui/src/themes.ts`
 - Marketing tokens and prose styles: `site/app/globals.css`
 - App icon and landing shader: `resources/icon-src/` and `site/lib/realm-liquid-glass.ts`
+- The app icon and its Dock alternates are generated artwork on the mark's geometry, laid onto the
+  macOS grid by `resources/icon-src/compose-alternates.py`: only the BODY is taken from a generation,
+  cut to the continuous corner and given the grid's own shadow, so pictures from different prompts sit
+  together as one set. A running Mac app can change only its own Dock tile — the Finder keeps the
+  bundle's icon — and Settings says so rather than implying more.
 
 When the landing mark is presented as glass, derive its surface field from the approved vector rather
 than inventing geometry around it. Refraction and edge highlights must respond to that field, and
@@ -154,7 +159,7 @@ Rules:
 - Let large work areas rest on `canvas`. Do not wrap every section in a surface.
 - Use surface contrast before adding a border.
 - Edges are quiet. The ordinary line (`--line`, `--line-strong`, `--btn-ring`, `--card-ring`) sits one
-  rung below where tembo puts it — 5.1% and 7.1% of full range on the dark panel, 3.7% and 5.5% on the
+  rung below where tembo puts it — 5.1% and 7.1% of full range on the dark panel, 3.9% and 5.6% on the
   light one, measured by `border-softness-live.mjs` — because nearly every one of them runs beside a
   change of surface that already carries the boundary. A window of controls each wearing a bright
   ring reads as outlined rather than as surfaces. A FILL is not an edge: a switch's track, a progress
@@ -265,6 +270,28 @@ Rules:
 
 The light theme is an equal mode, not an inverted dark screenshot. Use its authored token values.
 
+The window's NATIVE appearance follows Realm's theme setting, not the Mac's. The material behind the
+window, and every menu and panel macOS draws for it, take the app's appearance — and Light on a Mac set
+to Dark laid a light ground over a dark material, so the whole window came out mid-grey (the sidebar
+measured `#a8a8ab` where Codex's measures `#f7f7f7`). `main/appearance.ts` sets it from the preference.
+And the light face shows far less of the desktop than the dark one: a wallpaper is almost always
+darker and more saturated than near-white paper, so the dark face's alphas read as a grey-blue wash in
+light. Judge light mode on a real screen over a dark, saturated wallpaper — a CDP capture has no
+material in it and looks fine either way.
+
+Both faces keep ONE depth order: the frame (sidebar, wells) under the canvas, the surface (cards, the
+composer, floating things) over it, about one perceptible step each way. Light mode once had its frame
+LIGHTER than its canvas, which made the sidebar the brightest region in the window and drew every
+well — a tool's output, a settings group — as a bright patch where dark mode draws a recess. The
+order is the light ramp in `packages/ui/src/themes.ts`, so every light theme takes it; a light theme's
+background is its paper, and the window ground sits a shade under it, which is a Mac sidebar beside
+light work and grey grouped boxes on light paper, the way System Settings is built.
+
+Quiet text is text. Every ink tier — hints and timestamps included — and link ink clear 4.5:1 on every
+ground they appear on, in both faces. The light hint tier once measured 2.4:1, which was below the
+floor this file sets and well under its own dark counterpart; a light face may need different values
+from dark to reach the same contrast, and that is a reason to author them, not to accept less.
+
 ## Shape
 
 Use the existing radius ladder:
@@ -333,12 +360,19 @@ Realm uses Inter for interface and reading text, and JetBrains Mono for code and
 Using the same families across the app and site is a brand decision.
 
 - Interface body: 14/20 in the desktop app.
-- Small UI: 13/16; tiny operational labels: 11/14.
+- Small UI: 13/16; captions and metadata: 12; tiny operational labels: 11/14; transcript reading: 15.
 - A page of settings reads at the body: a row's label 14/20, the line under it 13/18, a page's notes
   12.5 — all in the secondary ink. The tertiary ink measures 3.5:1 on the dark ground, under AA at
   those sizes, and a page whose explanations were 11px in it is a page people called hard to read.
   Tertiary is for what a reader may skip (a count, a timestamp), never for what they must read.
 - Product titles: 18, 20, 24, or 28 with the shared title weight and tracking.
+- Those nine sizes are the whole ladder (`styles.test.ts` holds it), with ONE named exception: a
+  settings page's notes at 12.5, which was asked for by name when Settings moved to Codex's grammar
+  and is held to its selectors in the test rather than tolerated as a range. A size between two rungs is not a
+  finer distinction, it is a mistake a reader cannot name: the app had grown 11, 11.5, 12, 12.5, 13 and
+  13.5, so two labels doing one job sat half a pixel apart. The same drift hid a real bug — a code
+  rail at 11.5px beside its 12px code drifted a line off by the twenty-fourth. Pick the rung whose
+  role matches; columns that must line up share one font string, not two that agree today.
 - Marketing body: at least 16 px with a 1.5–1.6 line-height.
 - Marketing display type may scale fluidly, but keep one display statement per page.
 - Use the named weight ladder. Routine labels are 450–500; titles are 560; strong emphasis is 600.
@@ -349,7 +383,10 @@ Using the same families across the app and site is a brand decision.
 - Set `font-synthesis: none` and use WOFF2 assets or the existing font loader.
 
 Write copy in natural sentence case. Do not type labels in uppercase and then depend on the source
-string staying that way.
+string staying that way. A section is named in sentence case at the caption rung, never
+in tracked capitals — the transform also disguises what it is fed: an import row printed its raw
+`space-folder` enum for months because uppercase made it look like a label. The one exception is an
+acronym that is uppercase anyway (a file extension on a tile).
 
 ## Controls and interaction
 
@@ -367,6 +404,13 @@ string staying that way.
   look, to carry one bit. A lit toggle in the pane bar says it and undoes it in the same click. Ask
   what the banner is for before building it: if a control could wear the state instead, it should.
 - Prefer a familiar symbol from Realm's icon set over a new illustration.
+- A glyph holds the weight of the text beside it. The icon pack's stroke is in its 24-unit grid, so
+  left alone it thins as the glyph shrinks — 0.75px at the 12 rung, a hairline that greyed out beside
+  13px text and made every toolbar look faint. Small symbols are drawn relatively heavier, the way a
+  Mac's are: `Icon` gives each rung an absolute stroke (`iconStroke`), floored at the small rungs and
+  capped at 1.5px.
+- A disabled control is still a control. Greying the label is the state; losing the shape is a
+  different claim. A primary whose fill matches the sheet under it keeps the plain button's ring.
 - Align asymmetric icons optically. A mathematically centered arrow or play mark can still look wrong.
 - A press is a fill, not a size. AppKit buttons darken on the mouse-down frame and never shrink;
   the shrink is a touch idiom, where a finger hides the control and scale is the only feedback left

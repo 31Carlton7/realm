@@ -67,6 +67,10 @@ export type SettingEntry = {
   /** Words someone might type for this row that its label does not contain. Matched, never shown. */
   terms?: string;
   page?: true;
+  /** For a row a page draws only where the platform has the thing (the App icon row needs a Dock).
+   *  False means search leaves it out — a result that lands on a row that is not there is a dead
+   *  end — and the index-agrees-with-page test does not expect it. Absent means always. */
+  available?: () => boolean;
 };
 
 /**
@@ -104,6 +108,8 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "sidebar-translucency", tab: "appearance", label: "Sidebar translucency", terms: "transparency transparent vibrancy material opacity window" },
   { id: "pane-translucency", tab: "appearance", label: "Pane translucency", terms: "transparency transparent vibrancy material opacity window" },
   { id: "reduce-motion", tab: "appearance", label: "Reduce motion", terms: "animation movement accessibility" },
+  { id: "app-icon", tab: "appearance", label: "App icon", terms: "dock logo alternate custom graphite",
+    available: () => typeof window.realm?.appIcon?.set === "function" },
   { id: "ui-font", tab: "appearance", section: "Text", label: "UI font", terms: "typeface family weight interface" },
   { id: "ui-font-size", tab: "appearance", section: "Text", label: "UI font size", terms: "text bigger smaller larger zoom px" },
   { id: "content-font", tab: "appearance", section: "Text", label: "Content font", terms: "prose messages markdown documents serif typeface family" },
@@ -173,6 +179,7 @@ export function searchSettings(query: string): SettingEntry[] {
   const starts = (pool: string[]) => typed.every((w) => pool.some((p) => p.startsWith(w)));
   const hits: { entry: SettingEntry; rank: number; at: number }[] = [];
   SETTINGS_INDEX.forEach((entry, at) => {
+    if (entry.available?.() === false) return;
     const label = words(entry.label);
     const place = [...label, ...words(settingsTabLabel(entry.tab)), ...words(entry.section ?? "")];
     const all = [...place, ...words(entry.terms ?? "")];

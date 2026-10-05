@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { deriveVars, PANE_ALPHA_RANGE, REALM_SEED, seedFor, THEMES, themeModes, type Mode, type ThemeName } from "@realm/ui";
+import { DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, deriveVars, PANE_ALPHA_RANGE, REALM_SEED, seedFor, THEMES, themeModes, type Mode, type ThemeName } from "@realm/ui";
 import { CONTRAST_FLOOR } from "@realm/ui/src/themes";
 import { parseOklch, srgb, srgbLuminance, type Oklch } from "@realm/contracts";
 
@@ -111,3 +111,33 @@ describe("the pane ground, with the desktop showing through it", () => {
     expect(block).toContain("--sidebar-ground: var(--page)");
   });
 });
+
+/* The light face shows far less of the desktop than the dark one (tokens.css). Over a Mac's usual
+   wallpaper — darker and more saturated than near-white paper — the dark face's alphas turned light
+   mode into a grey-blue wash; Codex's light window, measured beside it, shows almost none. */
+describe("the light face is nearly opaque", () => {
+  const light = tokensCss.slice(tokensCss.indexOf("The LIGHT face shows far less of the desktop"));
+  // calc(A% + var(--x) * B) or calc(A% + (var(--x) - C%) * B), evaluated at a slider value in %.
+  const at = (expr: string, v: number) =>
+    Function("g", `return ${expr.replace(/var\(--(?:ground|pane)-alpha\)/g, "g").replace(/%/g, "")};`)(v) as number;
+  const sidebar = /--sidebar-ground: color-mix\(in srgb, var\(--page\) calc\(([^;]+)\), transparent\);/.exec(light)![1]!;
+  const pane = /--pane-ground: color-mix\(in srgb, var\(--canvas\) calc\(([^;]+)\), transparent\);/.exec(light)![1]!;
+
+  it("at the defaults the light sidebar is ~80% and the panes 92%, against the dark 55% and 84%", () => {
+    expect(at(sidebar, DEFAULT_GROUND_ALPHA)).toBeCloseTo(79.75, 1);
+    expect(at(pane, DEFAULT_PANE_ALPHA)).toBeCloseTo(92, 1);
+  });
+
+  it("fully opaque still means opaque, in the light face too", () => {
+    expect(at(sidebar, 100)).toBeCloseTo(100, 1);
+    expect(at(pane, PANE_ALPHA_RANGE.max)).toBeCloseTo(100, 1);
+  });
+
+  it("Reduce Transparency still wins over the light rule — it is more specific than a bare :root", () => {
+    // THE mutant: the media block left as `:root { … }`. `:root[data-mode="light"]` outranks it and
+    // the light window stays see-through under a preference that asked for it not to be.
+    const reduce = tokensCss.slice(tokensCss.indexOf("@media (prefers-reduced-transparency: reduce)"));
+    expect(reduce.slice(0, reduce.indexOf("}") + 1)).toContain(':root[data-mode="light"] { --sidebar-ground: var(--page); --pane-ground: var(--canvas); }');
+  });
+});
+

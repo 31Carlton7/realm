@@ -84,20 +84,22 @@ export const clampGroundAlpha = (pct: number): number =>
  * The panes' share of the same material, over their OWN range — and since Plan 26, their own control.
  *
  * The sidebar holds short labels and the panes hold the reading, and a pane's ground is whatever the
- * desktop behind the window happens to be. 86 is measured, not chosen (`pane-ground.test.ts` walks
- * it): composite each face's `--canvas` over a white desktop and over a black one and 86% opacity is
+ * desktop behind the window happens to be. 84 is measured, not chosen (`pane-ground.test.ts` walks
+ * it): composite each face's `--canvas` over a white desktop and over a black one and 84% opacity is
  * the thinnest at which `--ink` still clears WCAG AA on every face. Below it, body text on a light
  * face over a dark desktop goes under 4.5:1, and body text is the one thing here that may never be
  * a judgement call — which is why the pane's control stops there however far the sidebar's goes.
  */
-export const PANE_ALPHA_RANGE = { min: 86, max: 100 } as const;
+/* 84 since the light ramp moved to near-white paper (canvas 0.985): every light face gained headroom,
+   and Rosé Pine's light face is now the one that binds. It was 86. */
+export const PANE_ALPHA_RANGE = { min: 84, max: 100 } as const;
 export const DEFAULT_PANE_ALPHA = PANE_ALPHA_RANGE.min;
 
 export const clampPaneAlpha = (pct: number): number =>
   Math.round(Math.min(PANE_ALPHA_RANGE.max, Math.max(PANE_ALPHA_RANGE.min, pct)));
 
 /** What the panes were at when one control moved both: the sidebar's value mapped onto the pane's
- *  range, 55 → 86 at the thin end and 100 → 100 at the other. Kept only to carry a home saved before
+ *  range, 55 → 84 at the thin end and 100 → 100 at the other. Kept only to carry a home saved before
  *  the split forward to the pane it was already looking at. */
 export const paneAlphaFromGround = (ground: number): number =>
   clampPaneAlpha(PANE_ALPHA_RANGE.min + (clampGroundAlpha(ground) - GROUND_ALPHA_RANGE.min)

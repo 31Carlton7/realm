@@ -194,6 +194,19 @@ export function Icon({ name, size = 16, className, colored = false }: { name: Ic
     );
   }
   const icon = Object.prototype.hasOwnProperty.call(icons, name) ? icons[name as keyof typeof icons] : icons.folder;
-  // Design language §7: stroke weight stays the pack's 1.5px at every size.
-  return <HugeiconsIcon icon={icon} size={size} className={className} strokeWidth={1.5} />;
+  return <HugeiconsIcon icon={icon} size={size} className={className} strokeWidth={iconStroke(size)} absoluteStrokeWidth />;
+}
+
+/**
+ * The stroke a glyph is drawn with, in CSS px, for the rung it sits on.
+ *
+ * The pack's 1.5 is in its own 24-unit grid, so left alone it SCALES with the glyph: 0.75px at the
+ * 12 rung, 0.875 at 14 — a hairline that greys out beside 13px text, which is most of why Realm's
+ * icons read fainter than the label next to them. A Mac's symbols do the opposite: a small symbol is
+ * drawn relatively HEAVIER so it holds the same weight as the text it sits in. So the stroke has a
+ * floor at the small rungs and a ceiling at the large ones, and rises between: 1.125 at 12, 1.17 at 14,
+ * 1.33 at 16, 1.5 from 18 up.
+ */
+export function iconStroke(size: number): number {
+  return Math.min(1.5, Math.max(1.125, size / 12));
 }

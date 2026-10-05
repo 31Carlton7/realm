@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DEFAULT_KEYBINDINGS, PAGE_REF_IDS } from "@realm/contracts";
 
@@ -225,7 +225,7 @@ describe("the index and the pages agree", () => {
       await mount();
       fireEvent.click(screen.getByRole("radio", { name: label(tab) }));
       const content = document.querySelector(".page-content") as HTMLElement;
-      const wanted = SETTINGS_INDEX.filter((e) => e.tab === tab && !e.page).map((e) => e.id);
+      const wanted = SETTINGS_INDEX.filter((e) => e.tab === tab && !e.page && e.available?.() !== false).map((e) => e.id);
       await waitFor(() => {
         const present = new Set([...content.querySelectorAll("[data-setting]")].map((el) => el.getAttribute("data-setting")));
         for (const id of wanted) expect(present.has(id), `${tab}: no row carries "${id}"`).toBe(true);
@@ -252,5 +252,15 @@ describe("the index and the pages agree", () => {
   it("no two entries share an id, so a jump has one row to land on", () => {
     const ids = SETTINGS_INDEX.map((e) => e.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("a row the platform may not have", () => {
+  afterEach(() => { delete (window as { realm?: unknown }).realm; });
+
+  it("App icon is found only where there is a Dock to put it on", () => {
+    expect(searchSettings("dock").map((e) => e.id)).not.toContain("app-icon");
+    Object.assign(window, { realm: { appIcon: { get: async () => "default", set: async () => true } } });
+    expect(searchSettings("dock").map((e) => e.id)).toContain("app-icon");
   });
 });

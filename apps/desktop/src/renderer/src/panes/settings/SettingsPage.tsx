@@ -1,4 +1,5 @@
 import { PageScroll } from "../../components/ScrollFades";
+import { AppIconPicker, canChooseAppIcon } from "../../components/settings/AppIconPicker";
 import { EDITOR_CURSOR_BLINK_COPY, TERMINAL_CURSOR_STYLES, TERMINALS_CURSOR_STYLE_COPY, type TerminalCursorStyle, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
@@ -478,7 +479,7 @@ const PLATFORM_NAMES: Record<string, string> = { win32: "Windows", linux: "Linux
  * leaves one of its two ends unreachable.
  *
  * Two of these since Plan 26 rather than one control moving both: the sidebar holds labels and goes
- * to 55%, a pane holds the reading and stops at 86, and someone who wants one see-through and the
+ * to 55%, a pane holds the reading and stops at 84, and someone who wants one see-through and the
  * other solid could not say so.
  */
 function TranslucencyRow({ id, label, amount, alpha, range, fallback, material, title, why, onChange }: {
@@ -1067,6 +1068,19 @@ function AppearanceTab() {
             ))}
           </fieldset>
         </div>
+
+        {/* Offered only where main can put it on a Dock. The sentence is the one fact the tiles cannot
+            say: a running app can change its own Dock tile and nothing else, so the Finder keeps the
+            bundle's icon (main/app-icon.ts). */}
+        {canChooseAppIcon() && (
+          <div className="settings-row" data-stack data-setting="app-icon">
+            <div className="settings-row-main">
+              <span className="settings-row-name">App icon</span>
+              <span className="settings-row-desc">Shown in the Dock while Realm is open. The Finder and Launchpad keep the standard icon.</span>
+            </div>
+            <AppIconPicker />
+          </div>
+        )}
       </div>
 
       <h3 className="settings-head">Text</h3>

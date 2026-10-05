@@ -91,6 +91,14 @@ interface Window {
      *  path an agent merely named. `media` above admits only what a media element can decode, so it
      *  is right to refuse a `.ts`; these are gated on existence instead. Optional for the same
      *  reason: every call site degrades to "cannot", and jsdom has no bridge at all. */
+    /** Realm's theme preference, so the window's native material, menus and panels match it
+     *  (main/appearance.ts). Optional: a renderer with no bridge has no native appearance to set. */
+    setAppearance?(pref: "system" | "light" | "dark"): void;
+    /** The Dock icon (main/app-icon.ts). Optional: only the desktop app has a Dock to change. */
+    appIcon?: {
+      get(): Promise<string>;
+      set(id: string, png: Uint8Array): Promise<boolean>;
+    };
     files?: {
       /** Size and mtime, or null when nothing is there — how a preview learns to say the file is
        *  gone rather than drawing actions that would each fail in turn. */

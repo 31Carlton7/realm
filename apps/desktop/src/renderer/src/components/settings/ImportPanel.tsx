@@ -1,10 +1,17 @@
 import {
   AGENT_META, IMPORTED_SPACE_NAME,
-  type ImportMemoryCandidate, type ImportResult, type ImportScan, type ImportSessionCandidate, type ImportSkillCandidate,
+  type ImportMatchReason, type ImportMemoryCandidate, type ImportResult, type ImportScan, type ImportSessionCandidate, type ImportSkillCandidate,
 } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useState } from "react";
 import { useApp } from "../../state/store";
+
+/** Why a row landed in its space, as a word a reader knows. The reason is an enum on the wire; printing
+ *  it raw put "space-folder" on screen, which only an uppercase transform had been disguising. */
+const REASON_LABEL: Record<ImportMatchReason, string> = {
+  environment: "Checkout", project: "Project", "space-folder": "Space folder", basename: "Folder name",
+  fallback: "Fallback", none: "No match",
+};
 
 /**
  * The Import tab (Settings) — bringing the agent CLIs' own history into Realm.
@@ -248,7 +255,7 @@ function SessionSection({ sessions, targetOf, setTargets, targetLabel, selected,
                   {s.scratch && " · scratch"}
                   {s.duplicate && " · older copy of this conversation"}
                 </span>
-                <span className="muted import-row-why" title={s.match.evidence ?? ""}>{s.match.reason}</span>
+                <span className="muted import-row-why" title={s.match.evidence ?? ""}>{REASON_LABEL[s.match.reason]}</span>
               </li>
             ))}
           </ul>
@@ -284,7 +291,7 @@ function MemorySection({ memories, targetOf, setTargets, targetLabel, selected, 
             </span>
             <TargetSelect value={targetOf(m.key, matchTarget(m.match))} spaces={spaces} profiles={profiles}
               onChange={(t) => setTargets((prev) => ({ ...prev, [m.key]: t }))} />
-            <span className="muted import-row-why" title={m.match.evidence ?? ""}>{m.match.reason}</span>
+            <span className="muted import-row-why" title={m.match.evidence ?? ""}>{REASON_LABEL[m.match.reason]}</span>
           </li>
         ))}
       </ul>
