@@ -1716,11 +1716,14 @@ kbd { font: 11px var(--font-mono); }
   background: color-mix(in srgb, var(--rl-accent) 7%, transparent);
   border-radius: 3px; overflow: hidden; text-align: left;
   transition: background-color var(--dur-hover) ease, border-color var(--dur-hover) ease; }
-.sim-ax-box:hover:not(:disabled) { background: color-mix(in srgb, var(--rl-accent) 22%, transparent); border-color: var(--rl-accent); }
+.sim-ax-box:hover { background: color-mix(in srgb, var(--rl-accent) 22%, transparent); border-color: var(--rl-accent); }
 .sim-ax-box:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
 /* A disabled element is still worth SEEING — it is why the screen is not doing what you expected —
-   so it is drawn and cannot be tapped, rather than hidden. */
-.sim-ax-box:disabled { border-style: dashed; border-color: color-mix(in srgb, var(--rl-text-faint) 60%, transparent); background: transparent; }
+   so it is drawn, dashed, and picked like any other: why it is disabled is often the question. */
+.sim-ax-box[data-disabled] { border-style: dashed; border-color: color-mix(in srgb, var(--rl-text-faint) 60%, transparent); background: transparent; }
+/* For the two frames a pick's picture is taken in, the outlines step off the device's screen: the
+   picture is of the device, not of Realm's boxes on it. */
+.sim-ax[data-capturing] { visibility: hidden; }
 /* The label rides inside the box and disappears when there is no room for it, which on a dense
    screen is most of them: a tooltip carries the full name, and forty overlapping captions would
    hide the very thing they are naming. */
@@ -1735,6 +1738,8 @@ kbd { font: 11px var(--font-mono); }
   border-radius: var(--r-ctl); corner-shape: squircle; background: var(--tooltip-bg); color: var(--tooltip-fg);
   box-shadow: var(--shadow-raised); font-size: 12px; }
 .sim-ax-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The way out, said where the person is looking, as the app picker's hint says it. */
+.sim-ax-esc { flex: none; white-space: nowrap; color: var(--tooltip-muted); }
 
 /* ── Over and under the device ──
    One pill wherever the device's own controls are: the toolbar over it (SimulatorBar.tsx), and under
