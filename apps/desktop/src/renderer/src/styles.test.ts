@@ -1728,6 +1728,15 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
 
   });
 
+  it("a device pick's picture is of the device: Realm's boxes and the silenced tooltip leave it at once", () => {
+    /* The picture is the window's own capture, two frames after the press. THE MUTANT is the tooltip
+       left to its own exit — a fade that outlasts those frames, so the picture carried the box's
+       "Green curry — Button" across the row it was a picture of. */
+    const hidden = bodiesFor(":root[data-pick-capture] :is(.sim-ax, .tooltip)").join(" ");
+    expect(hidden).toContain("visibility: hidden");
+    expect(hidden).toContain("transition: none");
+  });
+
   it("the device's controls over it and under it are one pill", () => {
     /* The toolbar over the device, and under it the Record control, the recording it becomes and a
        phone's offer to go live: one height, fill, corner and lift, so above and below read as one

@@ -765,10 +765,10 @@ describe("picking an element into the prompter", () => {
    *  half (app-pick.ts) is tested where it lives, and this records what it was asked for. */
   async function picker({ owned = true } = {}) {
     const realm = { appPick: { arm: vi.fn(), capture: vi.fn(async (_rect: unknown, _ground: unknown, name: string) => {
-      overlayWhileCaptured.push(document.querySelector(".sim-ax")?.hasAttribute("data-capturing") ?? null);
+      overlayWhileCaptured.push(document.documentElement.hasAttribute("data-pick-capture"));
       return { file: { path: SHOT, mime: "image/png", name, size: 4096 }, webView: false };
     }) } };
-    const overlayWhileCaptured: (boolean | null)[] = [];
+    const overlayWhileCaptured: boolean[] = [];
     vi.stubGlobal("realm", realm);
     getState = RUNNING;
     const store = createAppStore(fakeApi({ items: { s1: [lead, other, paneItem] }, sessions: [session("lead", "s1"), session("other", "s1")] }));
@@ -800,7 +800,7 @@ describe("picking an element into the prompter", () => {
     await waitFor(() => expect(sockets.length).toBeGreaterThan(0));
     const reload = await select();
     // What a click will do, and where it goes, said before anyone makes one.
-    expect(screen.getByText("Click one to add it to Lead")).toBeInTheDocument();
+    expect(screen.getByText("Click to add to Lead")).toBeInTheDocument();
     // THE BUG, as a pointer meets it: the press reached the device's surface first, which tapped the
     // phone and captured the pointer, so the box never saw its click.
     press(reload);
@@ -818,7 +818,9 @@ describe("picking an element into the prompter", () => {
     expect(rect).toEqual({ x: PICTURE_BOX.left + 220 * k, y: PICTURE_BOX.top + 478 * k, w: 44 * k, h: 44 * k });
     expect(name).toBe("iphone-reload-button.png");
     expect(realm.appPick.arm.mock.calls).toEqual([[true], [false]]);
+    // …and with what Realm draws over the device off it while it was taken, and back on after.
     expect(overlayWhileCaptured).toEqual([true]);
+    expect(document.documentElement.hasAttribute("data-pick-capture")).toBe(false);
     expect(store.getState().pendingAttachments.lead?.map((f) => f.path)).toEqual([SHOT]);
     // …said where it went, the overlay gone with the pick, and nothing pressed on the device.
     expect(store.getState().toasts.map((t) => t.text)).toContain("Added iPhone · Reload button to Lead.");

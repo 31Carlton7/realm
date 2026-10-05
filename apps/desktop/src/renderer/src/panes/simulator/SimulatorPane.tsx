@@ -264,9 +264,6 @@ function Screen({ state, visible, simulatorId, itemId, platform }: {
   /* Whose prompter a pick lands in, named on the overlay before anyone clicks: with two sessions open
      "the prompter" does not say which. */
   const target = useApp((s) => sessionForDevice(s.items, s.layout, s.focusedLeafId, itemId)?.title ?? null);
-  /* The overlay's boxes are taken off the picture while it is captured, so the picture is of the
-     device's screen and not of Realm's outlines on it. */
-  const [capturing, setCapturing] = useState(false);
   const picking = useRef(false);
   const picture = useRef<HTMLImageElement>(null);
   const [box, setBox] = useState({ width: 0, height: 0, gap: 0 });
@@ -412,14 +409,17 @@ function Screen({ state, visible, simulatorId, itemId, platform }: {
   const leave = () => { if (store.getState().simulatorElements[simulatorId] === true) toggleElements(simulatorId); };
 
   /** The device's screen round the element, as the pane draws it: the window's own capture of that
-   *  rect and a margin (main/app-pick.ts), taken with the overlay's boxes off it. */
+   *  rect and a margin (main/app-pick.ts). What Realm draws over the device steps off it for the
+   *  frames the capture takes — the boxes, and the tooltip the press has just silenced, which would
+   *  otherwise still be fading out across the picture (`data-pick-capture`, styles.css). */
   const pictureOf = async (el: SimulatorAxElement, tree: SimulatorAxTree, kind: string): Promise<PickedAttachment | null> => {
     const bridge = window.realm?.appPick;
     const box = picture.current?.getBoundingClientRect();
     if (!bridge || !box || tree.screen.width <= 0) return null;
     const k = box.width / tree.screen.width;
     const rect = { x: box.left + el.frame.x * k, y: box.top + el.frame.y * k, w: el.frame.width * k, h: el.frame.height * k };
-    setCapturing(true);
+    const root = document.documentElement;
+    root.setAttribute("data-pick-capture", "");
     await painted();
     // Main takes a picture of a window only while its person is picking, and hears it is over last.
     bridge.arm(true);
@@ -429,7 +429,7 @@ function Screen({ state, visible, simulatorId, itemId, platform }: {
       return null;
     } finally {
       bridge.arm(false);
-      setCapturing(false);
+      root.removeAttribute("data-pick-capture");
     }
   };
 
@@ -461,7 +461,7 @@ function Screen({ state, visible, simulatorId, itemId, platform }: {
 
   const overlay = elements
     ? <AxOverlay simulatorId={simulatorId} width={width} height={height} radius={radius}
-        target={target} capturing={capturing} onPick={(el, tree) => void pick(el, tree)} onCancel={leave} />
+        target={target} onPick={(el, tree) => void pick(el, tree)} onCancel={leave} />
     : null;
 
   return (
@@ -610,12 +610,10 @@ function useFrameChoice(simulatorId: string): FrameChoice {
  * Read on demand, not polled: the tree is a snapshot of a screen that changes when the device is
  * touched, and a poll would be a CLI round trip every second for a pane nobody is inspecting.
  */
-function AxOverlay({ simulatorId, width, height, radius, target, capturing, onPick, onCancel }: {
+function AxOverlay({ simulatorId, width, height, radius, target, onPick, onCancel }: {
   simulatorId: string; width: number; height: number; radius: number;
   /** The session a pick goes to, by its title — null when no session is open to take one. */
   target: string | null;
-  /** True for the frames the pick's picture is taken in: the boxes and the bar step off the screen. */
-  capturing: boolean;
   onPick: (el: SimulatorAxElement, tree: SimulatorAxTree) => void;
   onCancel: () => void;
 }) {
@@ -654,23 +652,27 @@ function AxOverlay({ simulatorId, width, height, radius, target, capturing, onPi
   const scale = tree && tree.screen.width > 0 ? width / tree.screen.width : 0;
   const count = tree ? [`${tree.elements.length} elements`, tree.app].filter(Boolean).join(" · ") : undefined;
   return (
-    <div ref={root} className="sim-ax" data-capturing={capturing || undefined} role="group" aria-label={target ? `Pick an element for ${target}` : "The device's elements"}
+    <div ref={root} className="sim-ax" role="group" aria-label={target ? `Pick an element for ${target}` : "The device's elements"}
       style={{ width: `${width}px`, height: `${height}px`, clipPath: `inset(0 round ${radius}px)` }}>
       {tree && scale > 0 && tree.elements.map((el) => (
         <AxBox key={el.path} el={el} scale={scale} onPick={() => onPick(el, tree)} />
       ))}
       {/* The controls sit ON the overlay rather than in the bar: they belong to the thing that is
-          open, and they leave with it. What a click does is said here, before anyone makes one. */}
+          open, and they leave with it. What a click does is said here, before anyone makes one — and
+          the session's name is the part that varies, so it is the one the bar's width goes to: the
+          way out is a key and Re-read a glyph, each with its sentence on its tooltip. */}
       <div className="sim-ax-bar">
         {/* The home screen's root node reports an empty name — SpringBoard does not call itself
             anything — so the count's separator goes with it rather than trailing into nothing. */}
         <span className="sim-ax-count" title={count}>
           {error ? error
-            : tree ? (target ? `Click one to add it to ${target}` : "No session is open to add one to")
+            : tree ? (target ? `Click to add to ${target}` : "No session is open to add to")
               : busy ? "Reading the screen…" : "—"}
         </span>
-        {tree && <span className="sim-ax-esc"><kbd>Esc</kbd> to cancel</span>}
-        <button type="button" className="btn" onClick={read} disabled={busy}>{busy ? "Reading…" : "Re-read"}</button>
+        {tree && <kbd className="sim-ax-esc" title="Esc to cancel">Esc</kbd>}
+        <button type="button" className="icon-btn" aria-label="Re-read the screen" title="Re-read the screen" onClick={read} disabled={busy}>
+          <Icon name="reload" size={14} />
+        </button>
       </div>
     </div>
   );
