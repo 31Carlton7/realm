@@ -1968,7 +1968,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The glyph is a column of its own, never a share of the shortfall. Left to the flex default it shrank
    with the title — an SVG's automatic minimum width is zero, since the UA clips its overflow — so every
    tab whose title ran to an ellipsis drew a smaller mark, the longer the title the smaller: a
-   documents tab's at 5px wide beside a session's 14. (A page's own icon is `.page-icon`, already fixed.) */
+   documents tab's at 5px wide beside a session's 14. A page's own icon is held the same way (`.page-icon`). */
 .pane-tab-label > svg { flex: none; }
 .panel[data-focused] .pane-tab[data-active] .pane-tab-label svg { color: var(--rl-accent); }
 .pane-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

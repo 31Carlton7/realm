@@ -6,6 +6,7 @@ import { Menu, type MenuItem } from "../../components/Menu";
 import { useApp } from "../../state/store";
 import { rpc } from "../../rpc/client";
 import { SimulatorInput } from "./sim-input";
+import type { FrameChoice } from "./SimulatorPane";
 import { toolbarFit } from "./toolbar-fit";
 
 /**
@@ -27,16 +28,13 @@ import { toolbarFit } from "./toolbar-fit";
 /** A press the toolbar can draw as a button, or hand to the overflow as a row. */
 type Press = { id: string; label: string; aria: string; title: string; icon: IconName; pressed?: boolean; onSelect: () => void };
 
-/** The frame the picture wears, chosen and kept by the pane (`useFrameChoice` in SimulatorPane.tsx). */
-type Frame = { kind: "none" | "framed"; set: (kind: "none" | "framed") => void };
-
 export function SimulatorToolbar({ simulatorId, connected, width, frame, shownAs }: {
   simulatorId: string;
   /** The input socket is open. Until it is, the picture streams and a touch goes nowhere. */
   connected: boolean;
   /** The room the pane gives the toolbar, in CSS px — what `toolbarFit` budgets. */
   width: number;
-  frame: Frame;
+  frame: FrameChoice;
   /** Which device the frame is a picture of, for its row's tooltip. */
   shownAs: string | null;
 }) {
@@ -134,7 +132,7 @@ const BUTTON_ICONS: Record<SimulatorButton, IconName> = {
  * list, so a device that will not answer says so inside the drill-down, not in a toast.
  */
 function MoreMenu({ simulatorId, state, overflow, frame, shownAs }: {
-  simulatorId: string; state: SimulatorState; overflow: Press[]; frame: Frame; shownAs: string | null;
+  simulatorId: string; state: SimulatorState; overflow: Press[]; frame: FrameChoice; shownAs: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"more" | "apps" | "device">("more");
