@@ -90,6 +90,28 @@ describe("app icon", () => {
     expect(tiles).toEqual([...APP_ICON_IDS]);
   });
 
+  /* The body is Apple's continuous corner at the radius macOS 27 draws every app icon with (measured by
+     resources/icon-src/shape.swift, whose printout of SwiftUI's own path is stored beside it). A
+     superellipse or a circular radius looks close on paper, and macOS answers an icon whose body is
+     not its own shape by shrinking it onto a grey plate — which is what the previous one got. */
+  it("draws the icon body as Apple's own continuous-corner path on the macOS grid", async () => {
+    const src = join(__dirname, "../../../../resources/icon-src");
+    const { bodyPath } = (await import(join(src, "icons.mjs"))) as { bodyPath: () => string };
+    const apple = JSON.parse(readFileSync(join(src, "apple-icon-body.json"), "utf8")) as { radius: number; d: string };
+    // Every point of both outlines — where each corner leaves its edge, and each cubic's controls and
+    // end. SwiftUI's starts half way down the right edge, a point on a straight line that this one has
+    // no need of, so that one is dropped.
+    const points = (d: string) => {
+      const n = [...d.matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => Number(m[0]));
+      return Array.from({ length: n.length / 2 }, (_, i) => [n[2 * i]!, n[2 * i + 1]!] as const);
+    };
+    const sorted = (ps: (readonly [number, number])[]) => [...ps].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const mine = sorted(points(bodyPath())), theirs = sorted(points(apple.d).slice(1));
+    expect(mine).toHaveLength(40);
+    expect(theirs).toHaveLength(40);
+    mine.forEach((p, i) => expect(Math.hypot(p[0] - theirs[i]![0], p[1] - theirs[i]![1]), `point ${i}`).toBeLessThan(0.01));
+  });
+
   /* The pictures are rendered from resources/icon-src/icons.mjs, so the drawing is a fourth list. A
      colouring added there and not here would be rendered and never offered; one removed there would
      leave a stale picture behind that no render replaces. */

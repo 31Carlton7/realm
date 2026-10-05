@@ -269,13 +269,16 @@ and the Share sheet follow it. The light palette also steps the way the dark one
 a shade under the work, wells recessed instead of bright — lets far less of the desktop through, and
 its quiet text, hints and links, is dark enough to read.
 
-**Realm has a new icon, and eight more for the Dock.** It is the folded-hexagon mark in white and
-greys on a graphite body, drawn as vectors on the macOS icon grid and lit the way macOS lights its
-own Dock icons — a body graded top to bottom, a soft edge, one short shadow — so it sits in a row of
-other apps' icons without outshining them. Settings ▸ Appearance ▸ App icon offers eight alternates
-drawn the same way — indigo, clay, frost, smoke, sticker, ocean, ember and mint — and a pick goes on
-the Dock at once and is there from the start of the next launch. The Finder and Launchpad keep the
-standard icon, because a running app can change only its own Dock tile, and the row says so.
+**Realm has a new mark, a new icon, and eight more for the Dock.** The mark is a cube lying on its
+side with a lit doorway in its dark wall: a space, and the way into it. The icon wears it in white
+and greys on a graphite body, on the very shape macOS gives every app icon — Apple's continuous
+corner, measured against the Finder's own — so macOS shows it full size instead of shrinking it
+onto a grey plate as it did the last one, and it is lit the way macOS lights its own: a body graded
+top to bottom, one short shadow, and the glass edge macOS draws over it. Settings ▸ Appearance ▸
+App icon offers eight alternates drawn the same way — indigo, clay, frost, smoke, sticker, ocean,
+ember and mint — and a pick goes on the Dock at once and is there from the start of the next launch.
+The Finder and Launchpad keep the standard icon, because a running app can change only its own Dock
+tile, and the row says so.
 
 **Type sits on one scale, and icons are drawn at the weight of their text.** Six text sizes had
 grown inside a 2.5px band and were used interchangeably. Every size is a rung of one ladder now,

@@ -60,11 +60,17 @@ Inspect the existing implementation before designing.
 - Shared theme derivation: `packages/ui/src/theme.ts` and `packages/ui/src/themes.ts`
 - Marketing tokens and prose styles: `site/app/globals.css`
 - App icon and landing shader: `resources/icon-src/` and `site/lib/realm-liquid-glass.ts`
+- The mark is a cube lying on its side with a lit doorway in its dark wall (`resources/icon-src/mark.mjs`):
+  a space, and the way into it. It is drawn in the family of Cursor's cube — crisp facets on one
+  lattice, monochrome, one bold negative-space facet — and kept apart from it on purpose: Cursor's
+  stands on a corner with an arrow cut from its top, Realm's lies on the edge it always has and is
+  cut with a door. Every drawing of the mark is written from that one file, the flat one included.
 - The app icon and its Dock alternates are one vector drawing in nine colourings
-  (`resources/icon-src/icons.mjs`): the mark's own geometry on the macOS grid, rendered natively at
-  every size. An icon lives in a row of other apps' icons, so it is lit the way the Dock lights
-  Apple's — a graded body, a soft edge, one short shadow, a little light from above — and not as a
-  render: the generated set's chrome, candy plastic and bright bevel outshone every icon beside it.
+  (`resources/icon-src/icons.mjs`), rendered natively at every size. The body and its shadow are
+  macOS's own, measured on the machine rather than recalled from a template (`shape.swift`): an app
+  icon whose body is not the system's shape is shrunk onto a grey plate, which is how the last one
+  sat in the Dock. The artwork carries no edge light of its own, because macOS lays its glass edge
+  over every app icon it draws, and an icon lit twice is the shine the generated set was dropped for.
   A picture with no source can only be regenerated, never adjusted, which is why the colourings are
   data. A running Mac app can change only its own Dock tile — the Finder keeps the bundle's icon — and
   Settings says so rather than implying more.
