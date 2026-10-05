@@ -4879,8 +4879,8 @@ select { appearance: none; padding-right: 22px;
 /* ── Scrollbars: on scroll, in the prompter ────────────────────────────────
    Everywhere above keeps the persistent hairline: a transcript, a diff, a settings page is long
    enough that "there is more this way" is worth saying continuously. The prompter's own popovers —
-   the mention and slash lists, the skill picker, the model picker's list, its jump strip, its detail
-   pane — are dropdowns glanced at mid-sentence, not columns read top to bottom, and a line down their
+   the mention and slash lists, the skill picker, the model picker's list — are dropdowns glanced at
+   mid-sentence, not columns read top to bottom, and a line down their
    edge at rest was chrome with nothing to answer. `use-auto-hide-scrollbar.ts` marks `data-scrolling`
    on the scroller for a moment after each scroll event; these rules are what that attribute means.
 
