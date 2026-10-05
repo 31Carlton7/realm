@@ -57,11 +57,12 @@ export class ProbeCache<T = ProbeResult[]> {
     return p;
   }
 
-  /** The last answer, however old, without starting a probe — or null when there has never been
-   *  one. For a caller inside somebody else's wait (a tool call) that would rather read what the
-   *  picker last saw than spend a probe of every agent finding out again. */
-  peek(): { value: T; fresh: boolean } | null {
-    return this.cached ? { value: this.cached.value, fresh: this.now() - this.cached.at < this.ttlMs } : null;
+  /** The last answer, however old, and when it was taken, without starting a probe — or null when
+   *  there has never been one. For a caller inside somebody else's wait (a tool call) that would
+   *  rather read what the picker last saw than spend a probe of every agent finding out again, and
+   *  that judges for itself how old is too old for the question it is asking. */
+  peek(): { value: T; at: number } | null {
+    return this.cached ? { value: this.cached.value, at: this.cached.at } : null;
   }
 
   /**

@@ -43,7 +43,9 @@ export type DelegableModel = {
 /** What a delegation runs on: the harness, the model id (null = the harness's own default) and the
  *  name to report it by. */
 export type ModelChoice = { kind: AgentKind; model: string | null; label: string };
-export type ModelResolution = { ok: true; choice: ModelChoice } | { ok: false; message: string };
+/** A refusal carries WHY as well as the words: only a name nobody has heard of could be answered by
+ *  a newer list, so the caller asks again for that one and never for the rest. */
+export type ModelResolution = { ok: true; choice: ModelChoice } | { ok: false; reason: "unknown" | "ambiguous" | "unready" | "conflict"; message: string };
 
 /**
  * The words that name a HARNESS rather than a model. A name made only of these ("Codex", "have
@@ -219,7 +221,7 @@ export function resolveModelName(name: string, models: readonly DelegableModel[]
   probes?: readonly ProbedAgent[];
 }): ModelResolution {
   const query = tokensOf(name).filter((t) => !FILLER.has(t));
-  if (query.length === 0) return { ok: false, message: `refused: "${name}" names no model. ${menuSentence(models, harnessOnly(models, opts))}` };
+  if (query.length === 0) return { ok: false, reason: "unknown", message: `refused: "${name}" names no model. ${menuSentence(models, harnessOnly(models, opts))}` };
   const kind = opts.kind ?? null;
 
   // A harness on its own: "Codex", "have Cursor do it". Its default model, which is what that agent
@@ -230,7 +232,7 @@ export function resolveModelName(name: string, models: readonly DelegableModel[]
   const harnesses = query.map(harnessOf);
   if (harnesses.every((h) => h !== null) && new Set(harnesses).size === 1) {
     const h = harnesses[0]!;
-    if (kind && kind !== h) return { ok: false, message: `refused: "${name}" names ${harnessLabel(h)}, but constraints.agentKind asks for ${harnessLabel(kind)}. Drop one of them.` };
+    if (kind && kind !== h) return { ok: false, reason: "conflict", message: `refused: "${name}" names ${harnessLabel(h)}, but constraints.agentKind asks for ${harnessLabel(kind)}. Drop one of them.` };
     if (opts.kinds.includes(h)) {
       const probe = opts.probes?.find((p) => p.kind === h);
       if (readyOf(probe)) return { ok: true, choice: { kind: h, model: null, label: DEFAULT_MODEL_LABEL[h] } };
@@ -256,19 +258,19 @@ export function resolveModelName(name: string, models: readonly DelegableModel[]
   if (matches.length === 0) {
     if (kind && matchesIn(query, models, null).length > 0) {
       const elsewhere = [...new Set(matchesIn(query, models, null).flatMap((m) => m.model.routes.map((r) => harnessLabel(r.kind))))];
-      return { ok: false, message: `refused: ${harnessLabel(kind)} has no model called "${name}" — it runs on ${elsewhere.join(" or ")}. Drop constraints.agentKind to let Realm route it, or name one of ${harnessLabel(kind)}'s: ${namesOn(models, kind)}.` };
+      return { ok: false, reason: "conflict", message: `refused: ${harnessLabel(kind)} has no model called "${name}" — it runs on ${elsewhere.join(" or ")}. Drop constraints.agentKind to let Realm route it, or name one of ${harnessLabel(kind)}'s: ${namesOn(models, kind)}.` };
     }
-    if (notReady) return { ok: false, message: notReady };
-    return { ok: false, message: `refused: no model called "${name}" is available here.${didYouMean(query, models, kind)} ${menuSentence(models, harnessOnly(models, opts))}` };
+    if (notReady) return { ok: false, reason: "unready", message: notReady };
+    return { ok: false, reason: "unknown", message: `refused: no model called "${name}" is available here.${didYouMean(query, models, kind)} ${menuSentence(models, harnessOnly(models, opts))}` };
   }
 
   const verdict = narrow(matches, query);
   if ("ambiguous" in verdict) {
     const names = verdict.ambiguous.map((m) => `${m.label} (${harnessLabel(m.kind)})`);
-    return { ok: false, message: `refused: "${name}" could mean ${names.slice(0, -1).join(", ")} or ${names.at(-1)}. Name the one you want.` };
+    return { ok: false, reason: "ambiguous", message: `refused: "${name}" could mean ${names.slice(0, -1).join(", ")} or ${names.at(-1)}. Name the one you want.` };
   }
   const m = verdict.pick;
-  if (!m.ready) return { ok: false, message: unready(`${m.label} runs on ${harnessLabel(m.kind)}, which`, opts.probes?.find((p) => p.kind === m.kind)) };
+  if (!m.ready) return { ok: false, reason: "unready", message: unready(`${m.label} runs on ${harnessLabel(m.kind)}, which`, opts.probes?.find((p) => p.kind === m.kind)) };
   return { ok: true, choice: { kind: m.kind, model: m.id, label: m.label } };
 }
 

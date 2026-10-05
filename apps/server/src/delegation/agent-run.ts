@@ -33,6 +33,11 @@ const childKey = (sessionId: string): string => `agentRun.child:${sessionId}`;
 const DEFAULT_MAX_TURNS = 20;
 const DEFAULT_TIMEOUTS = { baseMs: 60_000, perTurnMs: 30_000, pollMs: 250 };
 
+/** How old a model list may be and still be trusted to say a name does not exist. The probe's own
+ *  TTL is thirty seconds because it answers "is this agent signed in"; a catalog answers a slower
+ *  question, and ten minutes is far inside how often a vendor ships a model. */
+const CATALOG_MAX_AGE_MS = 10 * 60_000;
+
 /** What `agentRun.child:<id>` stores. `skills: null` = no narrowing (the space's full enabled set).
  *
  *  `depth` is how far down the delegation tree this child sits (its parent's depth + 1, so a child of
@@ -143,7 +148,7 @@ export class AgentRunService {
      * not resolve against a cache that was missing or stale. Absent, a named model is refused: there
      * is nothing to resolve it against.
      */
-    models?: { known(): { rows: readonly ProbedAgent[]; fresh: boolean } | null; refresh(): Promise<readonly ProbedAgent[]>; kinds: readonly AgentKind[] };
+    models?: { known(): { rows: readonly ProbedAgent[]; at: number } | null; refresh(): Promise<readonly ProbedAgent[]>; kinds: readonly AgentKind[] };
   }) {}
 
   /* ------------------------------ the seams other code consults ------------------------------ */
@@ -194,9 +199,10 @@ export class AgentRunService {
    * The harness and model a child runs on.
    *
    * A NAMED model (`constraints.model`) resolves against what the agents on this Mac reported — the
-   * cache first, for free, and one fresh probe only when the cache was missing or stale and the name
-   * did not resolve against it, because a model released this morning should not be refused on the
-   * strength of yesterday's list.
+   * cache first, for free. One fresh probe is spent only on a name nobody has heard of, and only when
+   * the list is missing or older than `CATALOG_MAX_AGE_MS`: a model released this morning should not
+   * be refused on the strength of yesterday's list, but a probe of every agent takes half a minute on
+   * a real Mac, and an ambiguous "GPT-6" is no less ambiguous for asking again.
    *
    * No model named: the harness `resolveAgentKind` picks, and on the LEAD'S harness the lead's own
    * model. A person who put their session on Opus 5.5 and asked it to hand work out means Opus 5.5
@@ -210,13 +216,13 @@ export class AgentRunService {
       return { ok: true, choice: { kind, model, label: model === null ? DEFAULT_MODEL_LABEL[kind] : this.labelOf(kind, model) } };
     }
     const m = this.d.models;
-    if (!m) return { ok: false, message: "refused: this Realm has no list of models to resolve constraints.model against — leave it out, or name constraints.agentKind." };
+    if (!m) return { ok: false, reason: "unknown", message: "refused: this Realm has no list of models to resolve constraints.model against — leave it out, or name constraints.agentKind." };
     const name = constraints.model;
     const attempt = (rows: readonly ProbedAgent[]) =>
       resolveModelName(name, delegableModels(rows, m.kinds), { kind: constraints.agentKind, kinds: m.kinds, probes: rows });
     const known = m.known();
     const first = attempt(known?.rows ?? []);
-    if (first.ok || known?.fresh) return first;
+    if (first.ok || first.reason !== "unknown" || (known && Date.now() - known.at < CATALOG_MAX_AGE_MS)) return first;
     return attempt(await m.refresh());
   }
 

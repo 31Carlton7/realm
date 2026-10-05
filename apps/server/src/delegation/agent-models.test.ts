@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentAdapter, type FakeScript, type StartOptions } from "@realm/adapters";
 import type { AgentKind, AgentModel } from "@realm/contracts";
@@ -18,7 +18,7 @@ import { waitFor } from "../test-utils";
  */
 
 let app: App;
-afterEach(async () => { await app?.close(); });
+afterEach(async () => { vi.useRealTimers(); await app?.close(); });
 
 const CODEX: AgentModel[] = [{ id: "gpt-6-luna", label: "GPT-6 Luna" }, { id: "gpt-6-astra", label: "GPT-6 Astra" }];
 const CURSOR: AgentModel[] = [{ id: "claude-fable-5-1", label: "claude-fable-5-1" }, { id: "composer-2", label: "Composer 2" }];
@@ -113,12 +113,30 @@ describe("agent_start with a model by name", () => {
     expect(counts.probes).toBeGreaterThan(0);
   });
 
-  it("does not re-probe for a name a FRESH cache already does not know", async () => {
+  it("asks again for an unknown name once the list is old — and only then", async () => {
+    // Only the clock is faked: the app's own timers (the settle polls) keep real time.
+    vi.useFakeTimers({ toFake: ["Date"] });
     const { ctx, counts } = await boot();
     await app.sessions.probe();
     const after = counts.probes;
-    const r = await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "GPT-9 Nova" } });
-    expect(r.isError).toBe(true);
+    // A recent list is trusted to say a name does not exist. Mutant: re-probe whenever the probe's
+    // own 30s TTL has lapsed — every typo would then cost a probe of every agent, half a minute here.
+    vi.setSystemTime(Date.now() + 60_000);
+    expect((await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "GPT-9 Nova" } })).isError).toBe(true);
+    expect(counts.probes).toBe(after);
+    vi.setSystemTime(Date.now() + 11 * 60_000);
+    expect((await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "GPT-9 Nova" } })).isError).toBe(true);
+    expect(counts.probes).toBeGreaterThan(after);
+  });
+
+  it("never asks again for an AMBIGUOUS name, however old the list", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { ctx, counts } = await boot();
+    await app.sessions.probe();
+    const after = counts.probes;
+    vi.setSystemTime(Date.now() + 60 * 60_000);
+    // Mutant: re-probe on any refusal — "GPT-6" is no less ambiguous for a new list.
+    expect(text(await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "GPT-6" } }))).toContain("could mean");
     expect(counts.probes).toBe(after);
   });
 
