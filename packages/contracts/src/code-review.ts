@@ -50,7 +50,7 @@ export function parsePrRef(text: string): PrRef | null {
   const short = url ? null : /^([^/\s#]+)\/([^/\s#]+)#(\d+)$/.exec(t);
   const m = url ?? short;
   if (!m) return null;
-  const parsed = PrRefSchema.safeParse({ owner: m[1], repo: m[2]!.replace(/\.git$/i, ""), number: Number(m[3]) });
+  const parsed = PrRefSchema.safeParse({ owner: m[1], repo: m[2]!, number: Number(m[3]) });
   return parsed.success ? parsed.data : null;
 }
 

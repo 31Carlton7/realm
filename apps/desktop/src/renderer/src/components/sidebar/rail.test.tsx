@@ -44,6 +44,13 @@ describe("the rail", () => {
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("schedules-page"));
   });
 
+  it("opens Code review where Notifications was, as its own page", async () => {
+    const { store } = await mount();
+    fireEvent.click(within(rail()).getByRole("button", { name: "Code review" }));
+    await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "code-review-page", refId: PAGE_REF_IDS["code-review-page"] }));
+    expect(within(rail()).queryByRole("button", { name: /notifications/i })).toBeNull();
+  });
+
   it("wears Home's count: every session waiting on you, in any space of any profile", async () => {
     const { store, container } = await mount({
       profiles: [profile("p1", "Work"), profile("p2", "School")],
