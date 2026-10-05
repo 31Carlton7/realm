@@ -12,6 +12,7 @@ import {
   canSave, edited, externalChange, keepMine, opened, saved, takeTheirs, writeRejected, type Buffer,
 } from "./buffers";
 import { DocumentsHome } from "./DocumentsHome";
+import { folderName } from "./home-model";
 import { NewMenu, iconFor } from "./NewMenu";
 import { PreviewFrame } from "./PreviewFrame";
 import { QuickLookView } from "./QuickLookView";
@@ -266,7 +267,7 @@ export function DocumentsPane({ item }: PaneProps) {
     const entries = await listDocumentEntries(documentsId, "").catch(() => [] as DocumentEntry[]);
     return new Set(entries.map((e) => e.name.toLowerCase()));
   }, [listDocumentEntries, documentsId]);
-  const folder = root ? baseName(root.replace(/\/+$/, "")) : null;
+  const folder = root ? folderName(root) : null;
 
   // ---- rename ------------------------------------------------------------------------------------
   // The extension is never the user's to type: they edit a NAME, and the kind is already decided.

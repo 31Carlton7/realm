@@ -57,6 +57,9 @@ export function placeFile(path: string, root: string | null): { rel: string | nu
   return { rel, abs: top ? `${top}/${rel}` : null };
 }
 
+/** A checkout's own name, as its folder is called: what "In yooo" and New's open row say. */
+export const folderName = (root: string): string => trimSlashes(root).split("/").pop() || root;
+
 /** `/Users/<name>/x` as `~/x` — how a person reads a path under their home on a Mac. */
 export const tildePath = (p: string): string => p.replace(/^\/Users\/[^/]+(?=\/|$)/, "~");
 

@@ -9,7 +9,7 @@ import { useDissolve } from "../../components/ScrollFades";
 import { SEARCH_DEBOUNCE_MS, relTime } from "../../components/CommandPalette";
 import { CodeFilePrompt, NEW_KINDS, NewMenu } from "./NewMenu";
 import {
-  checkoutFileOf, homeFilesOf, identityOf, matchRun, planNewFile, sessionDetail, tildePath, withoutShown, type HomeFile,
+  checkoutFileOf, folderName, homeFilesOf, identityOf, matchRun, planNewFile, sessionDetail, tildePath, withoutShown, type HomeFile,
 } from "./home-model";
 
 /** Rows a section shows before folding the rest: enough to read the shape of a session's work in a
@@ -177,7 +177,7 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
             value={query} onChange={(e) => setQuery(e.target.value)} spellCheck={false} />
           {chord && !query && <kbd className="menu-kbd docs-home-kbd">{displayKeyChord(chord)}</kbd>}
         </label>
-        <NewMenu variant="home" folder={root ? root.replace(/\/+$/, "").split("/").pop() ?? null : null}
+        <NewMenu variant="home" folder={root ? folderName(root) : null}
           onNewKind={onNewKind} onNewFile={onNewFile} onOpenExisting={onBrowse} taken={taken} />
       </div>
 
@@ -223,7 +223,7 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
               </Section>
             )}
             {sections.checkout && sections.checkout.length > 0 && root && (
-              <Section title={`In ${root.replace(/\/+$/, "").split("/").pop() ?? "this folder"}`}>{rowsOf("checkout", sections.checkout)}</Section>
+              <Section title={`In ${folderName(root)}`}>{rowsOf("checkout", sections.checkout)}</Section>
             )}
             {searching && (creatable?.ok ? (
               <ul className="docs-home-rows docs-home-create">

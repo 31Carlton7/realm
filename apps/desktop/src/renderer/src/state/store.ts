@@ -4955,7 +4955,7 @@ await get().refreshCustomThemes().catch(() => {});
           const ownerItem = owner ? s.items.find((i) => i.id === owner) : undefined;
           const session = ownerItem ? s.sessions[ownerItem.refId] : undefined;
           opened = session
-            ? await get().openDocuments(session.environmentId ?? null, null, { sessionId: session.id })
+            ? await get().openDocuments(session.environmentId, null, { sessionId: session.id })
             : await get().openDocuments(null, null, true);
         }
         if (opened) set({ documentsAsk: { documentsId: opened.documentsId, seq: ++documentsAskSeq, search: true } });
