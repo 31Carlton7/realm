@@ -678,10 +678,11 @@ describe("the prompter wears its mode", () => {
   it("says the mode in WORDS too — the colour is never the only telling", async () => {
     const { store } = await mountFresh();
     act(() => store.setState({ sessions: { ...store.getState().sessions, se1: { ...store.getState().sessions.se1!, permissionMode: "plan" } } }));
-    // In the "+" menu now rather than on the row. The card's tint is still the ambient signal; this
-    // is the place the mode is spelled out, and the only place Build — which has no tint — is.
+    // In the "+" menu rather than on the row. The card's tint is still the ambient signal; this is
+    // the place the mode is spelled out, and the only place Build — which has no tint — is.
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    expect(screen.getByRole("menuitem", { name: /Mode/ })).toHaveTextContent("Plan");
+    const modes = within(screen.getByRole("menu", { name: "Add" })).getByRole("group", { name: "Mode" });
+    expect(within(modes).getByRole("menuitemcheckbox", { checked: true })).toHaveAccessibleName("Plan");
   });
 });
 
@@ -1039,26 +1040,31 @@ async function mountKindFresh(agentKind: "codex" | "acp:cursor") {
   return mountFresh({ agentKind });
 }
 
-/* The mode moved off the control row into the "+" menu, so every interaction below is two steps:
-   open the menu, step into Mode, pick. The mode's SEMANTICS are untouched — parking the permission
-   on the way into Plan, restoring it on the way out, the per-agent gating — which is why these tests
-   were redirected rather than rewritten. */
+/* The mode lives in the "+" menu's Mode section, as rows to pick. The mode's SEMANTICS are untouched —
+   parking the permission on the way into Plan, restoring it on the way out, the per-agent gating —
+   which is why these tests were redirected rather than rewritten. */
 const plusButton = () => screen.getByRole("button", { name: "Add" });
 /**
- * The menu's Mode row, with the menu left OPEN — for asserting what it says.
+ * The menu's Mode section, with the menu left OPEN — for asserting what it says.
  *
  * The open is conditional and the find is async because of §6's exit window: a dismissed popover
  * stays mounted for `EXIT_MS` and the button stays `aria-expanded` through it (popover-exit's own
- * note), so an unconditional click lands as a CLOSE on anything that read the row a moment earlier.
+ * note), so an unconditional click lands as a CLOSE on anything that read the section a moment earlier.
  */
-const openModeRow = async () => {
+const openModes = async () => {
   const btn = plusButton();
   if (btn.getAttribute("aria-expanded") !== "true") fireEvent.click(btn);
-  return await screen.findByRole("menuitem", { name: /Mode/ });
+  return within(await screen.findByRole("menu", { name: "Add" })).getByRole("group", { name: "Mode" });
 };
-/** …and closed again, waiting out the exit so a following interaction starts from a shut menu. */
+/** The section's rows, as their names read. */
+const modeNames = (group: HTMLElement) => within(group).getAllByRole("menuitemcheckbox").map((r) => r.querySelector(".menu-label")!.textContent);
+/** The checked row's name, and the menu closed again — waiting out the exit so a following
+ *  interaction starts from a shut menu. */
 const readMode = async () => {
-  const text = (await openModeRow()).textContent ?? "";
+  const group = await openModes();
+  const text = within(group).getByRole("menuitemcheckbox", { checked: true }).querySelector(".menu-label")!.textContent ?? "";
+  // The popover hook arms its Escape listener a tick after mount.
+  await act(async () => { await new Promise((r) => setTimeout(r, 1)); });
   fireEvent.keyDown(window, { key: "Escape" });
   await exited();
   return text;
@@ -1067,8 +1073,7 @@ const readMode = async () => {
 describe("prompter mode, in the \"+\" menu (Build / Plan)", () => {
   const permissionChip = () => screen.queryByRole("button", { name: "Permission mode" });
   const setMode = async (label: "Build" | "Plan") => {
-    fireEvent.click(await openModeRow());
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: label }));
+    fireEvent.click(within(await openModes()).getByRole("menuitemcheckbox", { name: label }));
     await exited();
   };
 
@@ -1120,15 +1125,19 @@ describe("prompter mode, in the \"+\" menu (Build / Plan)", () => {
   it("is hidden for an agent with no plan mode, and shown for the ones that have it", async () => {
     // Cursor: ACP mode ids are agent-defined and Realm's are never transmitted, so a Plan chip there
     // would be a button that changes nothing.
-    /* The row itself is always there — it is where the mode is READ, and a session always has one.
-       What the agent's capability decides is whether it OPENS: a Cursor session pre-handshake has
-       nothing to switch to, so the row is a static value rather than a submenu leading nowhere. */
+    /* The section is always there — it is where the mode is READ, and a session always has one.
+       What the agent's capability decides is whether there is anything to PICK: a Cursor session
+       pre-handshake has nothing to switch to, so the section is its one mode as a static value. */
     const cursor = await mountKindFresh("acp:cursor");
-    expect(await openModeRow()).toBeDisabled();
+    const fixed = within(await openModes()).getAllByRole("menuitemcheckbox");
+    expect(fixed).toHaveLength(1);
+    expect(fixed[0]).toBeDisabled();
     cursor.unmount();
     // Codex: codexPolicyFor("plan") really does start the thread read-only under untrusted approvals.
     await mountKindFresh("codex");
-    expect(await openModeRow()).not.toBeDisabled();
+    const rows = within(await openModes()).getAllByRole("menuitemcheckbox");
+    expect(modeNames(await openModes())).toContain("Plan");
+    expect(rows.every((r) => !(r as HTMLButtonElement).disabled)).toBe(true);
   });
 });
 
@@ -1202,52 +1211,53 @@ describe("ACP mode chip — per-session modes (Plan 14 W3)", () => {
     // The materialize-honestly window: events exist, no init yet. A static value, not a submenu —
     // offering Plan before the agent has named its modes would be a guess.
     await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] })]);
-    const row = await openModeRow();
+    const rows = within(await openModes()).getAllByRole("menuitemcheckbox");
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
     expect(row).toBeDisabled();
     expect(row.title).toBe("Waiting for the agent's modes");
-    expect(row).toHaveTextContent("Build");
+    expect(row).toHaveAccessibleName("Build");
+    expect(row).toHaveAccessibleDescription("Waiting for the agent's modes");
   });
 
   it("enables the chip once the init event carries a plan-equivalent, described in the agent's own words", async () => {
     await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }), initEvent(CURSOR_MODES)]);
-    const row = await openModeRow();
-    expect(row).not.toBeDisabled();
-    expect(row).toHaveTextContent("Build");
-    expect(row.title).toContain("Cursor's own Plan mode");
-    expect(row.title).toContain("Read-only mode for planning and designing before implementation");
-    // Cursor advertises `ask` in the same handshake, so the row describes that too — from Build the
-    // title is what the user reads before choosing.
-    expect(row.title).toContain("Cursor's own Ask mode");
+    const group = await openModes();
+    expect(modeNames(group)).toEqual(["Build", "Plan", "Ask"]);
+    const plan = within(group).getByRole("menuitemcheckbox", { name: "Plan" });
+    expect(plan).not.toBeDisabled();
+    expect(plan.title).toContain("Cursor's own Plan mode");
+    expect(plan.title).toContain("Read-only mode for planning and designing before implementation");
+    // Cursor advertises `ask` in the same handshake, so that row describes itself the same way —
+    // each title is what the user reads before choosing it.
+    expect(within(group).getByRole("menuitemcheckbox", { name: "Ask" }).title).toContain("Cursor's own Ask mode");
     expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
   });
 
   it("offers Ask alone when the agent advertises `ask` but no plan-equivalent", async () => {
     await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }),
       initEvent([{ id: "agent", name: "Agent", description: "d" }, { id: "ask", name: "Ask", description: "Q&A mode - no edits or command execution" }])]);
-    const row = await openModeRow();
-    // The mutant: gating the row's submenu on `canPlan`. An agent that offers only Ask would be left
-    // with a static value, and its one read-only mode would be unreachable.
-    expect(row).not.toBeDisabled();
-    expect(row).toHaveTextContent("Build");
-    expect(row.title).toContain("Cursor's own Ask mode");
-    expect(row.title).toContain("no edits or command execution");
-    fireEvent.click(row);
-    // …and the submenu offers exactly Build and Ask: Plan has nothing to map onto here.
-    expect(screen.getAllByRole("menuitemcheckbox").map((r) => r.textContent)).toEqual(["Build", "Ask"]);
+    const group = await openModes();
+    // The mutant: gating the section's choices on `canPlan`. An agent that offers only Ask would be
+    // left with a static value, and its one read-only mode would be unreachable.
+    // …and the section offers exactly Build and Ask: Plan has nothing to map onto here.
+    expect(modeNames(group)).toEqual(["Build", "Ask"]);
+    const ask = within(group).getByRole("menuitemcheckbox", { name: "Ask" });
+    expect(ask).not.toBeDisabled();
+    expect(ask.title).toContain("Cursor's own Ask mode");
+    expect(ask.title).toContain("no edits or command execution");
   });
 
   it("enters and leaves Plan WITHOUT the Claude-shaped permission park", async () => {
     // Cursor's Plan is its own mode: there is no chosen permission to preserve, so nothing is parked
     // and Build returns the row to its resting default.
     const { store } = await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }), initEvent(CURSOR_MODES)]);
-    fireEvent.click(await openModeRow());
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Plan" }));
+    fireEvent.click(within(await openModes()).getByRole("menuitemcheckbox", { name: "Plan" }));
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
     expect(store.getState().planReturn.se1).toBeUndefined(); // no park for an agent with no permission axis
     await exited();
-    expect(await readMode()).toContain("Plan");
-    fireEvent.click(await openModeRow());
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Build" }));
+    expect(await readMode()).toBe("Plan");
+    fireEvent.click(within(await openModes()).getByRole("menuitemcheckbox", { name: "Build" }));
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("default"));
   });
 });
@@ -2054,11 +2064,11 @@ describe("prompter attachments", () => {
     return { api, store, ...r };
   }
 
-  /** The "+" menu's Add files… (Plan 12 W1): the plus opens a menu now, and the menu item reaches the
-   *  SAME store action the bare attach button used to call — every assertion below is unchanged. */
+  /** The "+" menu's Files… row: the plus opens a menu, and the row reaches the SAME store action the
+   *  bare attach button used to call — every assertion below is unchanged. */
   const attach = () => {
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Add files…/ })); // kbd hint ⌘U rides the accessible name
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Files…/ })); // kbd hint ⌘U rides the accessible name
   };
   const chips = () => Array.from(document.querySelectorAll(".attach-tile")).map((c) => c.textContent ?? "");
   const notes = () => Array.from(document.querySelectorAll(".composer-attach-note")).map((n) => n.textContent ?? "");
@@ -2466,8 +2476,9 @@ describe("under-strip (Plan 12 W1)", () => {
 });
 
 /**
- * The "+" menu (Plan 12 W1): Add files…/Add folder…/Skills/Connectors. The attach suite above already
- * proves Add files… reaches the same store action the bare button used to call; these cover the rest.
+ * The "+" menu: Add (files, a folder, skills, a goal), Mode and Connectors, drawn in the app as one
+ * sectioned list. The attach suite above already proves Files… reaches the same store action the bare
+ * button used to call; these cover the rest.
  */
 describe("the '+' menu (Plan 12 W1)", () => {
   async function mountPlus(over: Parameters<typeof fakeApi>[0] = {}, agentKind: "fake" | "claude" = "claude") {
@@ -2492,30 +2503,58 @@ describe("the '+' menu (Plan 12 W1)", () => {
     expect(screen.getByRole("menu", { name: "Add" })).toBeInTheDocument();
   });
 
-  it("carries no Plugins item — the plan refuses inventing one for menu parity", async () => {
+  it("is three named sections — Add, Mode, Connectors — each row a name and a line saying what it does", async () => {
     await mountPlus();
     openPlus();
     const menu = screen.getByRole("menu", { name: "Add" });
+    // Drawn in the app, not handed to the OS: an OS menu row has no second line to carry the detail.
+    expect(menu).toHaveClass("plus-menu");
+    expect(within(menu).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["Add", "Mode", "Connectors"]);
+    const names = (group: string) => [...within(menu).getByRole("group", { name: group }).querySelectorAll('[role^="menuitem"]')]
+      .map((b) => b.querySelector(".menu-label")!.textContent);
+    expect(names("Add")).toEqual(["Files…", "Folder…", "Skills", "Goal…"]);
+    expect(names("Mode")).toEqual(["Build", "Plan", "Ask"]);
+    expect(names("Connectors")).toEqual(["Manage connections…"]);
+    // The shortcut rides the name; the line is the row's DESCRIPTION, so a row is still found by
+    // what it is called. THE mutant: the detail inside the label, which renames every row.
+    const files = within(menu).getByRole("menuitem", { name: /^Files…/ });
+    expect(files).toHaveAccessibleName(/^Files…\s*⌘U$/);
+    expect(files).toHaveAccessibleDescription("Attach to this message");
+    expect(within(menu).getByRole("menuitem", { name: "Folder…" })).toHaveAccessibleDescription("Link a folder to this space");
+    // Every row wears a glyph, in one slot, so the names stand on one edge.
+    expect([...menu.querySelectorAll('[role^="menuitem"]')].every((b) => b.querySelector(".menu-icon > *"))).toBe(true);
+    // No Plugins section: Realm has no plugin system, and parity is not a reason to invent one.
     expect(within(menu).queryByText(/plugin/i)).toBeNull();
-    // And the full expected set, in order: files, folder, skills, then the three that are properties
-    // of THIS session rather than of this message — a goal, the mode, and last the space's own
-    // connectors. Mode joined the menu when it left the control row.
-    const labels = within(menu).getAllByRole("menuitem").map((b) => b.textContent);
-    expect(labels[0]).toContain("Add files…");
-    expect(labels[0]).toContain("⌘U"); // the shortcut label rides the item
-    expect(labels[1]).toContain("Add folder…");
-    expect(labels[2]).toContain("Skills");
-    expect(labels[3]).toContain("Set a goal…");
-    expect(labels[4]).toContain("Mode");
-    expect(labels[4]).toContain("Build"); // the row carries the current value
-    expect(labels[5]).toContain("Connectors");
+  });
+
+  it("the arrows walk every section as one list, and Escape hands focus back to the +", async () => {
+    await mountPlus();
+    const btn = screen.getByRole("button", { name: "Add" });
+    btn.focus();
+    openPlus();
+    const menu = screen.getByRole("menu", { name: "Add" });
+    expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: /^Files…/ }));
+    // From the last row of Add straight into Mode — the heads are not stops.
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(within(menu).getByRole("menuitemcheckbox", { name: "Build" }));
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
+    expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "Manage connections…" }));
+    // The pointer moves the same highlight the keys do, so there is only ever one lit row.
+    fireEvent.pointerMove(within(menu).getByRole("menuitem", { name: "Folder…" }));
+    expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "Folder…" }));
+    // The popover hook arms its Escape listener a tick after mount.
+    await act(async () => { await new Promise((r) => setTimeout(r, 1)); });
+    fireEvent.keyDown(window, { key: "Escape" });
+    await exited();
+    expect(screen.queryByRole("menu", { name: "Add" })).toBeNull();
+    expect(document.activeElement).toBe(btn);
   });
 
   /* The goal row ARMS the box rather than opening anything: the objective is the argument, and
      `/goal` with nothing after it has nothing to pursue. Anything already typed becomes that
      objective instead of being thrown away, which is the one way this differs from picking the
      command out of the `/` list. */
-  it("Set a goal… puts the draft behind /goal rather than starting an empty one", async () => {
+  it("Goal… puts the draft behind /goal rather than starting an empty one", async () => {
     const { api, store } = await mountPlus();
     /* The menu holds an exit for §6's length, and it stays `open` through it — so a second press
        inside that window reads as a CLOSE. Waiting for it to go is what makes "open it again" mean
@@ -2524,7 +2563,7 @@ describe("the '+' menu (Plan 12 W1)", () => {
       await waitFor(() => expect(screen.queryByRole("menu", { name: "Add" })).toBeNull());
       openPlus();
       const menu = await screen.findByRole("menu", { name: "Add" });
-      fireEvent.click(within(menu).getByText("Set a goal…"));
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Goal…" }));
     };
     await armGoal();
     await waitFor(() => expect(store.getState().drafts["se1"]).toBe("/goal "));
@@ -2538,10 +2577,10 @@ describe("the '+' menu (Plan 12 W1)", () => {
     await waitFor(() => expect(store.getState().drafts["se1"]).toBe("/goal ship the release notes"));
   });
 
-  it("Add folder… runs the existing project-link flow", async () => {
+  it("Folder… runs the existing project-link flow", async () => {
     const { api } = await mountPlus();
     openPlus();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Add folder…" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Folder…" }));
     // pickFolder resolves "/tmp/picked-repo" in the fake; the project lands in THIS space.
     await waitFor(() => expect(api.data.projects.s1?.map((p) => p.rootPath)).toEqual(["/tmp/picked-repo"]));
   });
@@ -2627,12 +2666,12 @@ describe("the '+' menu (Plan 12 W1)", () => {
     openPlus();
     const menu = screen.getByRole("menu", { name: "Add" });
     expect(within(menu).queryByRole("menuitem", { name: "Skills" })).toBeNull();
-    expect(within(menu).getByRole("menuitem", { name: /Add files…/ })).toBeInTheDocument(); // the rest stays
+    expect(within(menu).getByRole("menuitem", { name: /^Files…/ })).toBeInTheDocument(); // the rest stays
   });
 });
 
 /**
- * The "+" menu's Connectors submenu (Plan 12 W1): the space's ENABLED MCP servers with a health dot
+ * The "+" menu's Connectors section (Plan 12 W1): the space's ENABLED MCP servers with a health dot
  * from the hub's LAST KNOWN status — pushed via mcp.serverStatus, cached in the store. Named mutant:
  * a dot showing a fixed status. Honesty rule: opening the menu reads rows, it never probes a server.
  */
@@ -2645,11 +2684,10 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
     const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
     return { api, store, ...r };
   }
+  /** The section, in the menu the "+" opens — it is a part of that menu now, not a view swapped in. */
   const openConnectors = async () => {
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Connectors" }));
-    await waitFor(() => expect(screen.getByRole("menu", { name: "Connectors" })).toBeInTheDocument());
-    return screen.getByRole("menu", { name: "Connectors" });
+    return within(await screen.findByRole("menu", { name: "Add" })).getByRole("group", { name: "Connectors" });
   };
 
   it("opening the + menu refreshes the cache with a ROW read — no probe, no test, ever", async () => {
@@ -2669,7 +2707,7 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
     const menu = await openConnectors();
     await waitFor(() => expect(within(menu).queryByText("linear")).not.toBeNull());
     expect(within(menu).queryByText("disabled-one")).toBeNull(); // not enabled here → not offered
-    const row = (name: string) => within(menu).getByText(name).closest(".connector-row") as HTMLElement;
+    const row = (name: string) => within(menu).getByText(name).closest("[role=menuitem]") as HTMLElement;
     expect(row("linear").querySelector(".connector-dot")).toHaveAttribute("data-tone", "ok");
     // idle = the hub has never connected: say "not checked", never a green dot nobody earned.
     expect(row("posthog").querySelector(".connector-dot")).toHaveAttribute("data-tone", "muted");
@@ -2682,7 +2720,7 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
     const { store } = await mountConn([{ name: "linear", enabled: true, status: "idle" }]);
     const menu = await openConnectors();
     await waitFor(() => expect(within(menu).queryByText("linear")).not.toBeNull());
-    const dot = () => (within(screen.getByRole("menu", { name: "Connectors" })).getByText("linear").closest(".connector-row") as HTMLElement).querySelector(".connector-dot");
+    const dot = () => (within(screen.getByRole("group", { name: "Connectors" })).getByText("linear").closest("[role=menuitem]") as HTMLElement).querySelector(".connector-dot");
     expect(dot()).toHaveAttribute("data-tone", "muted");
     act(() => store.getState().applyMcpServerStatus({ id: "m1", status: "connected", oauthStatus: "unconfigured" }));
     expect(dot()).toHaveAttribute("data-tone", "ok");
@@ -2699,10 +2737,14 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
     expect(store.getState().spacePageTab.s1).toBe("connections");
   });
 
-  it("the back row returns to the root menu in place", async () => {
-    await mountConn([]);
+  it("a server's row leads to the space's Connections page, where acting on it lives", async () => {
+    const { store } = await mountConn([{ name: "linear", enabled: true, status: "connected" }]);
     const menu = await openConnectors();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Connectors" })); // the ‹ header row
-    await waitFor(() => expect(screen.getByRole("menu", { name: "Add" })).toBeInTheDocument());
+    await waitFor(() => expect(within(menu).queryByText("linear")).not.toBeNull());
+    const row = within(menu).getByText("linear").closest("[role=menuitem]") as HTMLElement;
+    expect(row).toHaveAccessibleDescription("connected");
+    fireEvent.click(row);
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("space-page"));
+    expect(store.getState().spacePageTab.s1).toBe("connections");
   });
 });

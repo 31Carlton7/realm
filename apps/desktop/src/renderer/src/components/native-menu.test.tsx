@@ -63,6 +63,29 @@ describe("Menu as an OS menu", () => {
     expect(document.querySelector(".menu")).toBeNull();
   });
 
+  /* The one menu that is drawn in the app on purpose: rows that explain themselves need a second line,
+     and an OS menu row has none. THE mutant: `inApp` ignored, which hands the "+" menu to the OS and
+     drops every description in it. */
+  it("draws the menu itself when asked to, even with the OS bridge right there", async () => {
+    const bridge = install([]);
+    const { findByRole } = render(<Menu items={[{ label: "Files…", detail: "Attach to this message", onSelect: () => {} }]} onClose={() => {}} at={{ x: 0, y: 0 }} label="Add" inApp />);
+    expect(await findByRole("menu", { name: "Add" })).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(bridge.popupMenu).not.toHaveBeenCalled();
+  });
+
+  it("hands a section head to the OS as a line of information, and a row's detail as its tooltip", async () => {
+    const bridge = install([null]);
+    const onClose = vi.fn();
+    render(<Menu items={[{ kind: "header", label: "Add" }, { label: "Files…", detail: "Attach to this message", onSelect: () => {} }]}
+      onClose={onClose} at={{ x: 0, y: 0 }} />);
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(bridge.popupMenu.mock.calls[0]![0]).toEqual([
+      { label: "Add", enabled: false },
+      { id: "1", label: "Files…", enabled: true, toolTip: "Attach to this message" },
+    ]);
+  });
+
   it("closes without running anything when nothing was picked", async () => {
     install([null]);
     const pick = vi.fn(), onClose = vi.fn();

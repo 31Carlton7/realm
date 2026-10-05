@@ -813,8 +813,18 @@ kbd { font: 11px var(--font-mono); }
 /* ── Menus / overlays (raised) ─────────────────────────────────────────── */
 /* max-height + scroll: positioning clamps `top` to the viewport, so a menu taller than the screen
    would otherwise run off the bottom edge with no way to reach its last items. */
-.menu { z-index: 100; min-width: 160px; max-height: min(60vh, calc(100vh - 24px)); overflow-y: auto; padding: 4px; display: flex; flex-direction: column;
+.menu { z-index: 100; min-width: 160px; max-height: min(60vh, calc(100vh - 24px)); display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
+/* The rows scroll INSIDE the surface, so the dissolve at their ends fades rows and never the card's
+   own corner and fill. Its band is the pickers' depth, and the scroll padding is the same, so a row
+   the arrows bring into view lands clear of it. */
+.menu-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px; display: flex; flex-direction: column;
+  --fade-h: 24px; --fade-top-h: 24px; scroll-padding-block: 24px; }
+.menu-section { display: flex; flex-direction: column; }
+.menu-section + .menu-section { margin-top: 4px; }
+/* A section's name: sentence case at the caption rung, the quietest ink on the surface, set on the
+   rows' own left edge so it reads as the head of the column under it. */
+.menu-head { padding: 7px 11px 4px; font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
 /* 13/16, not the inherited 14/20. A menu is CHROME — the small-UI step, like the sidebar's rows and
    the prompter's chips — and at body size every row came out 34px tall against the 30px of the item
    rows behind it and the 28px chips of the control row that opens it. It also left each row's own
@@ -849,6 +859,10 @@ kbd { font: 11px var(--font-mono); }
   background: var(--hover-2); color: var(--rl-text-dim); font: 11px var(--font-ui); letter-spacing: .02em; }
 /* A danger row tints its label, and a shortcut is not part of the warning — hold the chip neutral. */
 .menu [role="menuitem"].danger .menu-kbd { color: var(--rl-text-dim); }
+/* What a row does, after its name — Codex's grammar for a menu whose rows need explaining. The name
+   keeps its width and the line takes what is left, ellipsizing before it ever pushes a shortcut off. */
+.menu [role^="menuitem"]:has(> .menu-detail) > .menu-label { flex: none; }
+.menu-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-faint); }
 /* A consequence trailing an item's own label — "Cursor · runs Composer", "Codex — not installed".
    Dimmer than the label because it qualifies the choice rather than naming it. Menu-scoped: the
    model chip's own `.chip-effort` suffix is scoped to `.model-chip` and styles nothing out here. */
@@ -2930,13 +2944,15 @@ button.panel-title:hover { background: var(--rl-hover); }
    No ring: the tint and the accent ink already separate the chip from the prose around it, and
    surface contrast comes before a border. At 0.88em inside a sentence the extra hairline was
    reading as a rendered box around every skill name rather than as a highlight of one word. */
-/* A chip in the log is an icon and a name in the accent, INLINE with the prose — no fill, no box.
-   The pill it wore read as a control dropped into a sentence; a name coloured like a link and led by
-   the icon that says what kind of thing it is reads as part of the sentence, which it is. Weight
-   does the rest of the separating (the mirror cannot weight, so there the icon and colour carry it). */
+/* The prompter's chip a moment later: the same pill on the same rung, the same tint and ink, the same
+   mark. Here it is real padding — nothing in a bubble shares a box with a caret — sized to land the
+   pill where the composer's lands (22px tall on 15px type, its mark and name inset alike). Weight
+   does a little more of the separating here, which the mirror cannot. A link chip in a reply is the
+   same object, and its hover is the tint lifting, as in the prompter, never an underline. */
 .msg-chip { display: inline-flex; align-items: center; vertical-align: baseline; line-height: 1;
-  color: var(--rl-accent); font-weight: var(--fw-label); text-decoration: none; }
-a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
+  padding: 3.5px 6px; border-radius: var(--r-chip);
+  color: var(--accent-ink); background: var(--accent-tint); font-weight: var(--fw-label); text-decoration: none; }
+a.msg-chip:hover { background: color-mix(in oklab, var(--accent-tint), var(--rl-accent) 10%); }
 /* No `[data-kind]` variant. A picked element and a skill mention are the same chip in the composer —
    told apart by what they SAY — and they have to stay the same chip a moment later, in the log. The
    element chip had `--inset` under bright ink, which is one step off the bubble's own `raised` fill:
@@ -3092,6 +3108,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    underline under every link in a paragraph of prose is a paragraph of rules. Hover restores it. */
 .md a { color: var(--rl-accent); font-weight: var(--fw-label); text-decoration: none; }
 .md a:hover { text-decoration: underline; text-underline-offset: 2px; }
+/* …except a link Realm drew as a chip (an app's issue, thread or page), which is the chip family's,
+   ink and hover alike — the same object the user's own message shows. */
+.md a.msg-chip { color: var(--accent-ink); }
+.md a.msg-chip:hover { text-decoration: none; }
 .md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--rl-line); color: var(--rl-text-dim); }
 /* A 1px low-alpha outline keeps an image's edge legible on any surface it lands on. Pure white in
    dark mode / pure black in light — a tinted neutral would pick up the ground and read as dirt. */
@@ -3897,51 +3917,71 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    here that is a THING (a skill that will be handed over) rather than formatting. */
 /* Colour only: weight would change the glyph widths under the caret, which the mirror may not do. */
 .ch-link { color: var(--rl-accent); }
-/* Chip runs in the mirror. Everything a chip wants — padding, a border, a smaller face — is a metric
-   change, and the caret under this layer is the textarea's. `box-shadow` with a spread and no offset
-   is the whole trick: it paints a pill OUTSIDE the run's box without the run occupying a pixel more
-   than the glyphs do, so the two layers stay character-for-character aligned. */
-/* The corner is stated once for both chips and it is stated CONCENTRICALLY: the 2px box-shadow is
-   the chip's visible edge — a run may not carry padding (draft-format.ts) — so the painted outline
-   lands `--r-chip` out from the text while the fill under it is that radius less the spread. At 3px
-   the outline came out at 5 on a 23px chip, which is the corner of an inline code mark; a chip the
-   user pointed at in a browser pane should read as a control, not as a snippet. */
-/* No fill, no ring: a chip is its icon and its accent ink, inline with the draft (see `.msg-chip`).
-   The sigil the icon hangs off goes transparent so the token keeps its width and loses its brackets. */
-.ch-mention { color: var(--rl-accent); }
-.ch-mention .chip-sigil, .ch-element .chip-sigil { color: transparent; }
-/* A picked element wears the SAME chip as a skill mention. It used to be a grey inset box behind a
-   hairline, which in a prompter that already renders inline code that way read as code rather than
-   as a chip — and it is not code, it is a thing the user pointed at and is about to send. The two
-   are told apart by what they SAY (@[button#submit] against @realm:skill), which is the difference
-   that matters, rather than by two chip treatments a reader has to learn. */
-.ch-element { color: var(--rl-accent); }
+/* ── The prompter's chips: one family ─────────────────────────────────────
+   Everything a chip names lands in the draft as a token, and every token is drawn the same way: a
+   pill on the app's chip rung, a quiet tint of its kind's tone, a mark and a name. A picked element
+   (its target), a link (its app's mark), a skill (its spark), a skill that has gone (the spark in
+   the warning tone), and the command opening the draft (its own `/`, in the tone that means "runs
+   here"). The square highlight a picked element used to wear was the textarea's own selection drawn
+   over a chip that had no shape of its own; a chip has a shape now, and a selected one draws it.
+
+   Everything a chip wants — padding, a border, a smaller face — is a metric change, and the caret
+   under this layer is the textarea's. So the pill is a `box-shadow` with a spread, which paints
+   OUTSIDE the run's box without the run occupying a pixel more than its glyphs do, and the room
+   inside it is the sigils' own: `@[` holds the mark and `]` is the far padding. The shadow's x
+   offset is what balances the two ends — an element's `]` is padding already, so its pill leans
+   left; a mention has no closing glyph, so its pill leans right. The corner is stated concentrically
+   with the spread, so the visible edge lands on the chip rung — the same `--r-chip` the row of
+   chips under the card is cut to, which is what makes the pill read as one of them rather than as a
+   squarer cousin. `clone` gives a chip that wraps its own corners on both lines. */
+.composer-highlight { --chip-spread: 1.5px; --chip-r: var(--r-chip); }
+.ch-mention, .ch-mention-stale, .ch-element, .ch-slash {
+  --chip-fill: var(--chip-tint);
+  color: var(--chip-ink); background: var(--chip-fill);
+  border-radius: calc(var(--chip-r) - var(--chip-spread));
+  box-shadow: var(--chip-dx) 0 0 var(--chip-spread) var(--chip-fill);
+  -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+/* The tones. A token pair each, never a mix: the accent for what goes to the agent (a skill, an
+   element, a link), the warning for a skill that will go as plain text, the success hue for the one
+   run that never goes at all (see `.ch-slash` below). The ink is `--accent-ink`, not the accent: it
+   is the link-and-prose blue, which clears 4.5:1 on the tint in both faces where the fill blue does
+   not, and text in a window that is not key keeps its colour on a Mac. */
+.ch-mention, .ch-element { --chip-ink: var(--accent-ink); --chip-tone: var(--rl-accent); --chip-tint: var(--accent-tint); --chip-dx: 0.75px; --chip-mark-x: 0.75px; }
+.ch-element { --chip-dx: -1px; --chip-mark-x: 4px; }
 /* Declared but no longer resolvable: the `@` goes as plain text. Same warning tone as the note the
-   card already shows under it, so the two read as one statement about the same token. */
-.ch-mention-stale { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 12%, transparent); border-radius: 3px; text-decoration: underline dotted; text-underline-offset: 2px; }
-/* A chip a click will take whole says so under the pointer. Everything that normally reads as "this
-   is a target" — a border, padding, a cursor over a hit area — is either a metric this layer may not
-   have or unreachable from a layer that takes no pointer events, so the affordance is a lift in the
-   tint the chip already wears. `data-hot` is set by Composer.tsx from the textarea above. */
-.ch-mention[data-hot], .ch-element[data-hot] { text-decoration: underline; text-underline-offset: 2px; }
-/* …except a LINK chip, which must not underline. It is the one chip that already looks like a link
-   — an app's mark and accent ink — so an underline on top is the web's "this is a hyperlink", and
-   that is a promise this run does not keep: the pointer is over a mirror that takes no clicks, and
-   the gesture the highlight announces is one that takes the CHIP, not one that opens the URL. The
-   affordance becomes the tint lift `.ch-mention-stale[data-hot]` already uses — neither background
-   nor radius is a metric, so the mirror stays character-for-character over the textarea, which is
-   the one rule this layer may not break. */
-.ch-element[data-service][data-hot] { text-decoration: none; background: color-mix(in srgb, var(--rl-accent) 16%, transparent); border-radius: 3px; }
-/* A link chip is the SAME chip (same fill, same ink — the rule above) wearing its app's mark over
-   the `@[` that opens the token. The delimiters keep their width and lose their ink, so the mirror
-   still measures exactly what the textarea holds (the one rule a painted chip may not break) while
-   the eye reads a mark and a name. The mark hangs off the sigil, an inline box the two hidden glyphs
-   already occupy (~17px at 15px type, room for a 14px mark) — so the chip run itself carries no
-   metric, which is what the test above holds it to. */
-.chip-sigil { position: relative; display: inline-block; }
-/* Its own ink: the sigil it hangs off is transparent, and a mark that inherited that would be too. */
-.chip-sigil > .chip-mark { position: absolute; left: 1px; top: 50%; translate: 0 -50%; pointer-events: none; color: var(--rl-accent); }
-/* The same chip in the log wears the same mark; the fill is `.msg-chip`'s, unchanged. */
+   card already shows under it, so the two read as one statement about the same token; the dotted
+   underline is what says "this will not resolve" without colour alone saying it. */
+.ch-mention-stale { --chip-ink: var(--rl-warning); --chip-tone: var(--rl-warning); --chip-tint: var(--orange-tint); --chip-dx: 0.75px; --chip-mark-x: 0.75px;
+  text-decoration: underline dotted; text-underline-offset: 2px; }
+.ch-mention .chip-sigil, .ch-mention-stale .chip-sigil, .ch-element .chip-sigil { color: transparent; }
+/* Under the pointer the tint lifts toward its own tone — the pointer is over a mirror that takes no
+   clicks, so a fill is the one affordance this layer can wear (an underline would promise a link). */
+:is(.ch-mention, .ch-mention-stale, .ch-element, .ch-slash)[data-hot] { --chip-fill: color-mix(in oklab, var(--chip-tint), var(--chip-tone) 10%); }
+/* Selected whole — a click on it, or a range that is exactly it. The textarea's own selection steps
+   aside for that range (`.composer-input[data-chip-selected]`), and the chip lights in its own shape:
+   a deeper tint, and the bright ink, which is what keeps the name legible on it. Only while the
+   editor has focus, because that is when a selection is drawn at all. */
+.composer-editor:focus-within :is(.ch-mention, .ch-mention-stale, .ch-element, .ch-slash)[data-selected] {
+  --chip-fill: color-mix(in oklab, var(--chip-tint), var(--chip-tone) 30%); --chip-ink: var(--rl-text-bright); }
+.composer-input[data-chip-selected]::selection { background: transparent; }
+/* The mark hangs off the sigil — an inline box the hidden glyphs already occupy (~20px for `@[` at
+   15px type, ~15px for `@`) — at the rung for a box of 22px or less, so the chip run itself carries
+   no metric, which is what the guard in styles.test.ts holds it to. Its own ink: the sigil it hangs
+   off is transparent, and a mark that inherited that would be too.
+   Positioned, and NOT an inline-block. An inline-block is an atomic inline, and the line breaker
+   may wrap on either side of one — so the mirror broke `@mac` after its `@` where the textarea,
+   reading one word, moved it whole, and every glyph after it sat a line off the caret. */
+.chip-sigil { position: relative; }
+.chip-sigil > .chip-mark { position: absolute; left: var(--chip-mark-x, 1px); top: 50%; translate: 0 -50%; pointer-events: none; color: var(--chip-ink); }
+/* A hovered chip's mark gives its place to the × (`.chip-remove`, a button over the textarea, since
+   the mirror takes no pointer events): at once, as a hover arrives, and back on the shared swap's
+   rung when the pointer lets go (`.icon-swap`'s transition list carries the mark). */
+:is(.ch-mention, .ch-mention-stale, .ch-element)[data-hot] .chip-mark { opacity: 0; transition-duration: 0s; }
+.chip-remove { position: absolute; z-index: 2; display: grid; place-items: center; width: 16px; height: 16px; padding: 0;
+  border: none; border-radius: 50%; background: transparent; color: var(--accent-ink); cursor: default; }
+.chip-remove[data-kind="mention-stale"] { color: var(--rl-warning); }
+.chip-remove:hover { color: var(--rl-text-bright); }
+/* The same chip in the log wears the same mark and the same pill (`.msg-chip`). */
 .msg-chip-mark { flex: none; margin-right: 4px; }
 
 /* ── The Connections marketplace: apps a space connects to in one click ──
@@ -3967,9 +4007,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .market-docs:hover { color: var(--rl-text-dim); text-decoration: underline; text-underline-offset: 2px; }
 .market-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
 .market-card[data-state="connected"] .market-mark { box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 45%, transparent); }
-/* No pill of its own at rest and none on hover: a run that grew a ring only under the pointer would
-   read as an element chip, and this one is going out as plain text. */
-.ch-mention-stale[data-hot] { background: color-mix(in srgb, var(--rl-warning) 24%, transparent); }
 .ch-marker { color: var(--rl-accent); }
 .ch-punct { color: var(--rl-text-faint); }
 .ch-code { color: var(--rl-text-bright); background: var(--inset); border-radius: 3px; }
@@ -3982,10 +4019,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
  * the thing it is explicitly not (slash-commands.ts says so in as many words). Warning is spoken for
  * by `mention-stale` — declared but broken — so the remaining semantic hue marks "acts locally".
  *
- * Colour and a wash, never weight: the mirror's glyphs sit under the textarea's own caret, and a
- * bolder run here would slide them off it (see `.ch-link`'s note). The `/` stays visible — it is
- * part of the command's name and part of what was typed. */
-.ch-slash { color: var(--rl-success); background: color-mix(in srgb, var(--rl-success) 12%, transparent); border-radius: 3px; }
+ * The chip family's pill in that tone, never weight: the mirror's glyphs sit under the textarea's
+ * own caret, and a bolder run here would slide them off it (see `.ch-link`'s note). The `/` stays
+ * visible — it is the command's mark, part of its name and part of what was typed. */
+.ch-slash { --chip-ink: var(--rl-success); --chip-tone: var(--rl-success); --chip-tint: var(--green-tint); --chip-dx: 0px; }
 /* Hero (§2): the empty card reads as an invitation — ~56px of input before any growth. */
 .session-pane[data-composer="hero"] .composer-input { min-height: 56px; }
 /* Row 3 — control row (Ara refresh §3): 40px, hairline-free, 12px inline padding; "+" attach, then
@@ -4290,20 +4327,15 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .session-usage-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .session-usage-label { color: var(--rl-text-faint); }
 .session-usage-value { color: var(--rl-text-bright); font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 11px; }
-/* The "+" menu (Plan 12 W1): the in-place Connectors submenu's header rows and health dots. */
-.plus-submenu-label { display: inline-flex; align-items: center; gap: 6px; }
-.plus-submenu-label .plus-submenu-caret { color: var(--rl-text-faint); }
-/* The current value on a submenu row — the session's mode, which used to be a chip in the control
-   row. `margin-left: auto` pushes it and the caret to the trailing edge, so the row reads
-   "Mode … Build ›" rather than running the two words together. */
-.plus-submenu-value { display: inline-flex; align-items: center; gap: 4px; margin-left: auto;
-  color: var(--rl-text-faint); font-size: 12px; }
-.plus-submenu-label:has(.plus-submenu-value) { width: 100%; }
+/* The "+" menu: wide enough that each row's line reads whole beside its name, and never wider than
+   the window can hold. */
+.plus-menu { min-width: 300px; max-width: min(400px, calc(100vw - 24px)); }
 /* The two read-only modes keep the tones they wore as a chip: the card behind the prompter already
-   tints for Plan and Ask, and a value that stayed grey here would be the one place the mode was
-   named without being coloured. Build is the neutral default and takes no tone. */
-.plus-submenu-value[data-mode="plan"] { color: var(--rl-warning); }
-.plus-submenu-value[data-mode="ask"] { color: var(--rl-success); }
+   tints for Plan and Ask, and a mark that stayed grey here would be the one place the mode was named
+   without being coloured. Build is the neutral default and takes no tone. */
+.mode-mark { display: grid; place-items: center; }
+.mode-mark[data-mode="plan"] { color: var(--rl-warning); }
+.mode-mark[data-mode="ask"] { color: var(--rl-success); }
 .connector-row { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
 .connector-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--rl-text-faint); }
 .connector-dot[data-tone="ok"] { background: var(--rl-success); }
@@ -4886,7 +4918,7 @@ select { appearance: none; padding-right: 22px;
 :root:not([data-overlay-scrollbars]) :hover { scrollbar-color: var(--mark-strong) transparent; }
 :where(:root:not([data-overlay-scrollbars])) :where(
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
-  .menu, .mention-list, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
+  .menu-list, .mention-list, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
@@ -5115,7 +5147,7 @@ select { appearance: none; padding-right: 22px;
    it read as one glyph turning over rather than two crossing past each other, and the control keeps
    ONE glyph box and ONE accessible name throughout: a swap is a change of state, not of control. */
 .icon-swap { display: grid; place-items: center; }
-.icon-swap > *, .tool-copy .copy-icon, .tool-copy .copied-icon, .msg-action .copy-icon, .msg-action .copied-icon, .composer-send svg { grid-area: 1 / 1;
+.icon-swap > *, .tool-copy .copy-icon, .tool-copy .copied-icon, .msg-action .copy-icon, .msg-action .copied-icon, .composer-send svg, .chip-sigil > .chip-mark { grid-area: 1 / 1;
   transition: opacity var(--dur-swap) var(--ease-out-strong), transform var(--dur-swap) var(--ease-out-strong), filter var(--dur-swap) var(--ease-out-strong); }
 .icon-swap:not([data-on]) .swap-on, .icon-swap[data-on] .swap-off,
 .tool-copy:not([data-copied]) .copied-icon, .tool-copy[data-copied] .copy-icon,

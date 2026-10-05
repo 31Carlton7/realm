@@ -290,8 +290,9 @@ export function toggleList(text: string, selStart: number, selEnd: number, order
 export type ChipSpan = { kind: SegmentKind; start: number; end: number };
 
 /** The segment kinds that NAME something rather than format something — the runs the mirror draws as
- *  a pill, and therefore the runs a gesture may take whole. */
-const CHIP_KINDS: readonly SegmentKind[] = ["mention", "mention-stale", "element"];
+ *  a pill, and therefore the runs a gesture may take whole. The command opening the draft is one: it
+ *  names the thing that will run instead of a send, and it wears the same pill in its own tone. */
+const CHIP_KINDS: readonly SegmentKind[] = ["mention", "mention-stale", "element", "slash"];
 
 /** Whether a painted run is a chip. The mirror asks this to decide which spans carry the offset a
  *  pointer is matched against, so it and `chipSpans` can never disagree about what a chip is. */
@@ -357,6 +358,23 @@ export function deleteChipAt(spans: readonly ChipSpan[], text: string, caret: nu
   const chip = spans.find((c) => c.kind === "element" && (dir === -1 ? c.end === caret : c.start === caret));
   if (!chip) return null;
   return { text: text.slice(0, chip.start) + text.slice(chip.end), start: chip.start, end: chip.start };
+}
+
+/**
+ * The chip a hover's × takes out of the draft: its token and ONE space beside it, so the sentence it
+ * sat in closes up instead of keeping a double space where it was.
+ *
+ * The space after it goes first, because that is the one the chip brought with it — a pick, a paste
+ * and a mention all land as the token plus a trailing space. A chip ending the draft takes the space
+ * before it instead. The caret is left where the chip began.
+ */
+export function removeChip(spans: readonly ChipSpan[], text: string, start: number): DraftEdit | null {
+  const chip = spans.find((c) => c.start === start);
+  if (!chip) return null;
+  let from = chip.start, to = chip.end;
+  if (text[to] === " ") to += 1;
+  else if (from > 0 && text[from - 1] === " ") from -= 1;
+  return { text: text.slice(0, from) + text.slice(to), start: from, end: from };
 }
 
 /**

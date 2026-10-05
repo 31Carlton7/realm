@@ -537,59 +537,60 @@ describe("Ara refresh §3/§4 geometry", () => {
     // variant paints the same glyphs on the same layer and is under exactly the same rule.
     const chips = RULES.filter((r) => r.selectors.some((sel) => /\.ch-[a-z-]+/.test(sel)));
     expect(chips.length, "no .ch-* rules in styles.css").toBeGreaterThan(0);
+    /* Paint, never layout. A custom property is not a metric (what reads it is checked here in its
+       turn), and `box-decoration-break` only changes where padding and borders go at a line break —
+       a run has neither. The mark is the one thing allowed to move: it is absolutely positioned over
+       its sigil, out of the flow the caret is measured in, so it may fade while the × has its place. */
+    const PAINT = ["color", "background", "background-color", "border-radius", "box-shadow", "text-decoration", "text-underline-offset",
+      "text-decoration-color", "-webkit-box-decoration-break", "box-decoration-break"];
+    const MARK = ["opacity", "transition-duration"];
     for (const rule of chips) {
+      const onMark = rule.selectors.filter((sel) => /\.ch-[a-z-]+/.test(sel)).every((sel) => / \.chip-mark$/.test(sel));
       for (const decl of rule.body.split(";").map((d) => d.trim()).filter(Boolean)) {
         const prop = decl.split(":")[0]!.trim();
-        expect(["color", "background", "background-color", "border-radius", "box-shadow", "text-decoration", "text-underline-offset", "text-decoration-color"],
-          `${rule.selectors.join(",")} { ${decl} }`).toContain(prop);
+        if (prop.startsWith("--")) continue;
+        expect(onMark ? [...PAINT, ...MARK] : PAINT, `${rule.selectors.join(",")} { ${decl} }`).toContain(prop);
       }
     }
   });
 
-  it("a chip run wears the app's chip corner, and both kinds wear the SAME one", () => {
-    /* The runs are painted at 3px, which is the corner of an inline code mark — and one of them IS
-       an inline code mark (`.ch-code`), which is why it keeps it. A picked element is not code, it
-       is a control the user pointed at, and it read as a snippet.
-
-       Stated concentrically, because a run may carry no padding (`draft-format.ts`): the 2px
-       box-shadow is the chip's visible edge, so the fill's radius is the chip corner LESS that
-       spread and the outline lands on `--r-chip`.
-
-       THE mutant: give one of the two its own number. They are the same chip — the test below says
-       so about their hover — and two chips that lift identically but round differently is worse than
-       either treatment on its own. */
-    /* Revised: a chip wears NO corner now, because it wears no fill and no ring — it is its icon
-       and its accent ink, inline with the draft. The two kinds are still one treatment: the same
-       single declaration. THE mutant: give one of them a fill back. */
-    for (const sel of [".ch-element", ".ch-mention"]) {
-      const body = bodiesFor(sel).join(" ");
-      expect(body, sel).toContain("color: var(--rl-accent)");
-      expect(body, sel).not.toContain("background");
-      expect(body, sel).not.toContain("box-shadow");
-    }
+  it("every chip kind is ONE pill — one corner, one geometry, a tone of its own and nothing else", () => {
+    /* The owner's ask, by screenshot: the picked element's square highlight and the `/goal` wash
+       were two shapes for one idea. Every kind now reads its pill from ONE rule — the fill, the spread
+       that stands in for padding, and the corner stated concentrically with it, so the visible edge
+       lands on `--r-chip` — the rung the chips of the control row under it are cut to. THE mutant:
+       give one kind a radius or a fill of its own. */
+    const family = bodiesFor(".ch-element").join(" ");
+    for (const decl of ["background: var(--chip-fill)", "border-radius: calc(var(--chip-r) - var(--chip-spread))",
+                        "box-shadow: var(--chip-dx) 0 0 var(--chip-spread) var(--chip-fill)", "box-decoration-break: clone"])
+      expect(family, decl).toContain(decl);
+    const shared = RULES.find((r) => r.body.includes("background: var(--chip-fill)"))!;
+    for (const kind of [".ch-mention", ".ch-mention-stale", ".ch-element", ".ch-slash"]) expect(shared.selectors, kind).toContain(kind);
+    expect(bodiesFor(".composer-highlight").join(" ")).toContain("--chip-r: var(--r-chip)");
+    // No other rule reaching a chip run draws a shape of its own; the states only move the fill.
+    const shaped = RULES.filter((r) => r !== shared && r.selectors.some((sel) => /\.ch-(mention|element|slash)/.test(sel))
+      && /(?:^|[;\s])(?:background|border-radius|box-shadow):/.test(r.body));
+    expect(shaped.map((r) => r.selectors.join(", "))).toEqual([]);
+    // Each kind's tone is a TOKEN pair — ink and tint — never a hand-rolled mix.
+    for (const [kind, tint] of [[".ch-element", "--accent-tint"], [".ch-mention-stale", "--orange-tint"], [".ch-slash", "--green-tint"]] as const)
+      expect(bodiesFor(kind).join(" "), kind).toContain(`--chip-tint: var(${tint})`);
     // The code mark stays a code mark. §"Shape" gives 2px to ticks, rails and code marks.
     expect(bodiesFor(".ch-code").join(" ")).toContain("border-radius: 3px");
   });
 
-  it("a chip is the same chip once the message is SENT — one treatment, no per-kind fill", () => {
-    /* `.msg-chip[data-kind="element"]` used to take `--inset` under bright ink. The bubble it lands
-       in is `--rl-raised`, one step away: 1.05:1, which is a chip that exists only as text with a
-       smudge behind it — "hard to even contrast it or see it in general".
-       The accent tint is what separates a named thing from the prose around it, and it holds on both
-       faces (measured on the shipped palette: the fill stands 1.24:1 off the dark bubble and 1.19:1
-       off the light one, against 1.05 and 1.06 before, and the accent ink on it measures 4.35:1 dark
-       / 3.05:1 light — the same pairing the mention chip and the composer's own chips already ship,
-       and above the 2.9 floor `--rl-accent` is derived against).
-       THE mutant: re-add a `[data-kind]` rule with a fill in it. */
-    /* Revised: the fill is gone on both faces. A chip in the log is an icon and a name in the
-       accent, inline with the prose; the pill read as a control dropped into a sentence. What is
-       held is the SAMENESS: one ink, no per-kind fill, on the composer and in the log alike. */
+  it("a chip is the same chip once the message is SENT — one pill, one tone, no per-kind fill", () => {
+    /* `.msg-chip[data-kind="element"]` once took `--inset` under bright ink: 1.05:1 on the bubble,
+       a chip that existed only as text with a smudge behind it. Then the fill went altogether and the
+       log's chip stopped matching the prompter's the moment the prompter's grew a shape. What is held
+       is the SAMENESS: the prompter's accent chips and the log's wear one tint, one ink and one corner.
+       THE mutant: re-add a `[data-kind]` rule with a fill in it, or let the two corners part. */
     const chip = bodiesFor(".msg-chip").join(" ");
-    expect(chip).toContain("color: var(--rl-accent)");
-    expect(chip).not.toContain("background");
-    expect(bodiesFor(".ch-element").join(" ")).toContain("color: var(--rl-accent)");
-    expect(bodiesFor(".ch-element").join(" ")).not.toContain("background");
-    const variants = RULES.flatMap((r) => r.selectors.map((sel) => ({ sel, body: r.body })))
+    expect(chip).toContain("background: var(--accent-tint)");
+    expect(chip).toContain("color: var(--accent-ink)");
+    expect(bodiesFor(".ch-element").join(" ")).toContain("--chip-tint: var(--accent-tint)");
+    expect(bodiesFor(".ch-element").join(" ")).toContain("--chip-ink: var(--accent-ink)");
+    expect(chip).toContain("border-radius: var(--r-chip)");
+    const variants = RULES.flatMap((rule) => rule.selectors.map((sel) => ({ sel, body: rule.body })))
       .filter(({ sel }) => /^\.msg-chip\[/.test(sel))
       .filter(({ body }) => /(?:^|[;\s])(?:background(?:-color)?|color):/.test(body))
       .map(({ sel }) => sel);
@@ -619,42 +620,48 @@ describe("Ara refresh §3/§4 geometry", () => {
     const plan = bodiesFor('.composer[data-mode="plan"]').join(" ");
     expect(ask).toContain("--rl-success");
     expect(plan).toContain("--rl-warning");
-    // And the "+" menu's row names it in words, which is where BUILD — the untinted default — is read.
-    const value = bodiesFor(".plus-submenu-value").join(" ");
-    expect(value).toContain("margin-left: auto");
-    expect(bodiesFor('.plus-submenu-value[data-mode="plan"]').join(" ")).toContain("var(--rl-warning)");
-    expect(bodiesFor('.plus-submenu-value[data-mode="ask"]').join(" ")).toContain("var(--rl-success)");
+    // And the "+" menu's Mode section names it in words, which is where BUILD — the untinted default
+    // — is read, with each read-only mode's mark in the tone the card wears for it.
+    expect(bodiesFor('.mode-mark[data-mode="plan"]').join(" ")).toContain("var(--rl-warning)");
+    expect(bodiesFor('.mode-mark[data-mode="ask"]').join(" ")).toContain("var(--rl-success)");
   });
 
-  it("a hovered chip is the same chip lifted, never a new shape", () => {
-    // Both chips now lift the same way, because both now ARE the same chip. A picked element used
-    // to be a grey inset box behind a hairline, which in a prompter that already renders inline
-    // code that way read as code — and it is not code, it is something the user pointed at and is
-    // about to send. They are told apart by what they say, not by two treatments to learn.
-    // With no fill to lift, the hover is an underline — the one affordance a metric-free run may
-    // wear — and it is the same underline for both.
-    for (const sel of [".ch-element[data-hot]", ".ch-mention[data-hot]"]) {
-      expect(bodiesFor(sel).join(" "), sel).toContain("text-decoration: underline");
-    }
-    // At rest this run wears no pill, and growing one under the pointer would read as an element
-    // chip — a token that resolves to nothing dressing up as one that resolves to something.
-    expect(bodiesFor(".ch-mention-stale[data-hot]").join(" ")).not.toContain("box-shadow");
+  it("a hovered chip is the same chip lifted, never a new shape — and never underlined", () => {
+    /* One rule for every kind, and all it moves is the fill, toward the chip's own tone. An underline
+       is the web's "this is a hyperlink", and the pointer is over a mirror that takes no clicks: the
+       gesture a chip's hover announces takes the CHIP (a click selects it, its × removes it). THE
+       mutant: an underline back on a hovered run, which was the old affordance. */
+    const hot = RULES.filter((r) => r.selectors.some((sel) => sel.includes(".ch-") && sel.includes("[data-hot]")));
+    expect(hot.length).toBeGreaterThan(0);
+    for (const r of hot) expect(r.body, r.selectors.join(", ")).not.toContain("text-decoration");
+    const lift = bodiesFor(":is(.ch-mention, .ch-mention-stale, .ch-element, .ch-slash)[data-hot]").join(" ");
+    expect(lift).toContain("--chip-fill: color-mix(in oklab, var(--chip-tint), var(--chip-tone)");
+    // …and the mark gives its slot to the × at once, the way a hover arrives, rather than both
+    // drawing in one place — and comes back on the shared swap's rung, not a copy of it.
+    const mark = bodiesFor(":is(.ch-mention, .ch-mention-stale, .ch-element)[data-hot] .chip-mark").join(" ");
+    for (const decl of ["opacity: 0", "transition-duration: 0s"]) expect(mark).toContain(decl);
+    expect(RULES.find((r) => r.selectors.includes(".icon-swap > *"))!.selectors).toContain(".chip-sigil > .chip-mark");
   });
 
-  it("a hovered LINK chip lifts without underlining — it is not a hyperlink", () => {
-    /* The one chip that already looks like a link: an app's mark and accent ink. An underline on top
-       is the web's "this is a hyperlink", and that is a promise the run does not keep — the pointer
-       is over a mirror that takes no clicks, and the gesture the highlight announces takes the CHIP
-       rather than opening the URL. THE mutant is the rule being dropped, which puts the underline
-       straight back via `.ch-element[data-hot]`. */
-    const body = bodiesFor(".ch-element[data-service][data-hot]").join(" ");
-    expect(body).toContain("text-decoration: none");
-    // …and it still says "target" some other way, or the affordance is simply gone.
-    expect(body).toMatch(/background:/);
-    // The override has to outrank the underline it is overriding: same layer, more specific.
-    const generic = RULES.findIndex((r) => r.selectors.includes(".ch-element[data-hot]"));
-    const link = RULES.findIndex((r) => r.selectors.includes(".ch-element[data-service][data-hot]"));
-    expect(link, "the link rule must come after the one it overrides").toBeGreaterThan(generic);
+  it("a chip's sigil is never an atomic inline — the mirror may not wrap where the textarea cannot", () => {
+    /* An inline-block is an atomic inline, and the line breaker may break on either side of one. The
+       textarea reads `@mac` as one word and moves it to the next line whole; a mirror whose `@` was an
+       inline-block broke after it, and from there every painted glyph sat a line off the caret. The
+       mark only needs a positioned box to hang from, and an inline one is that. */
+    const body = bodiesFor(".chip-sigil").join(" ");
+    expect(body).toContain("position: relative");
+    expect(body).not.toMatch(/display:\s*inline-(block|flex|grid)/);
+  });
+
+  it("a chip selected whole lights in its own shape, and the textarea's square selection steps aside", () => {
+    /* 14-prompter-element-chip-and-full-access.png: the "square thing" was the textarea's own
+       selection rectangle, drawn over the chip a click had just selected. For exactly that range the
+       textarea's selection goes transparent and the chip draws its selected state instead.
+       THE mutant: drop the transparent selection, which puts the rectangle back over the pill. */
+    expect(bodiesFor(".composer-input[data-chip-selected]::selection").join(" ")).toContain("background: transparent");
+    const selected = bodiesFor(".composer-editor:focus-within :is(.ch-mention, .ch-mention-stale, .ch-element, .ch-slash)[data-selected]").join(" ");
+    expect(selected).toContain("--chip-fill: color-mix(in oklab, var(--chip-tint), var(--chip-tone)");
+    expect(selected).toContain("--chip-ink: var(--rl-text-bright)");
   });
 
   it("the prompter's column gives up MORE width than the zoom already takes", () => {
