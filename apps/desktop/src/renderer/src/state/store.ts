@@ -3561,9 +3561,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * Take the page off the workspace.
      *
      * A page — Library, Connections, Notifications, Scheduled tasks, Settings, a space's Overview —
-     * covers the pane host. So a click on a sidebar row while one is up moved the focus
-     * and the layout underneath and changed nothing the user could see: the row read as a click that
-     * missed, and the keyboard ended up in a pane behind an opaque cover.
+     * covers the pane host. So a click on a sidebar row while one is up moved the focus and the
+     * layout underneath and changed nothing the user could see: the row read as a click that missed,
+     * and the keyboard ended up in a pane behind an opaque cover.
      *
      * The rule is focus, not who asked: every path that MOVES FOCUS into a pane reveals the pane it
      * just focused. `openItemBesideQuiet` — the agent's quiet opens, a document written beside you —
@@ -5300,8 +5300,8 @@ await get().refreshCustomThemes().catch(() => {});
       applySessionEvent(ev) {
         /* The activity line, derived before every early return below — it is the one thing here that
            is wanted for sessions nobody has OPENED: a lead's sub-agents are all of them, and they are
-           the ones its Agents tab is following. The returns that follow are about a transcript, which an unopened session has none
-           of; what the agent is doing is answerable either way.
+           the ones its Agents tab is following. The returns that follow are about a transcript, which
+           an unopened session has none of; what the agent is doing is answerable either way.
            Carried as a patch rather than written on the spot so it can ride along with whatever write
            this event was already going to make. A `set` of its own would have been a second store
            notification per event per streaming session — the cost `flushSessionDeltas` exists to
