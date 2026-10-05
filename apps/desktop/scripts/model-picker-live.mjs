@@ -905,8 +905,10 @@ async function lightPhase() {
       at.push(await glintAt());
       check(`fast ${mode}: the glint runs along the track, left to right`, at.every((p, i) => p !== null && (i === 0 || p < at[i - 1])), at);
       await c.send("Animation.setPlaybackRate", { playbackRate: 1 });
-      await sleep(700);
-      check(`fast ${mode}: …and each comes off again once its pass is over`, await evalIn(c, `!document.querySelector(".mp-bolt")?.hasAttribute("data-charge") && !document.querySelector(${JSON.stringify(CHIP)})?.hasAttribute("data-sweep")`));
+      const marks = () => evalIn(c, `({ charge: document.querySelector(".mp-bolt")?.hasAttribute("data-charge"), sweep: document.querySelector(${JSON.stringify(CHIP)})?.getAttribute("data-sweep") ?? null,
+        running: document.getAnimations().map((a) => a.animationName ?? a.id).filter(Boolean) })`);
+      const left = await until(async () => { const m = await marks(); return !m.charge && m.sweep === null ? m : null; }, 4000, "marks off").catch(async () => marks());
+      check(`fast ${mode}: …and each comes off again once its pass is over`, !left.charge && left.sweep === null, left);
       // Off, quietly, and on again for the chip's frames.
       await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
       await sleep(500);
