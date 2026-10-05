@@ -190,7 +190,17 @@ const SURFACES = `(() => {
   const toolbar = getComputedStyle(probe).boxShadow; probe.remove();
   const of = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).boxShadow : null; };
   return { toolbar, tile: of('.library-tile'), thumbTile: of('.library-tile[data-thumb]'), rowMark: of('.library-row-mark'),
-    saved: of('.saved-turn-open'), docsGlyph: of('.docs-home-glyph'), attach: of('.attach-art'),
+    saved: of('.saved-turn-open'), docsGlyph: of('.docs-home-glyph[data-type]'),
+    /* The attachment's well is PAINTED where the worklet runs: its border is the painter's ring and its
+       shadow a filter on the control round it, so it is asked for those — against the card stack's own
+       two halves — rather than for a box-shadow it does not draw. */
+    attach: (() => { const a = document.querySelector('.attach-art'); if (!a) return null;
+      if (!document.documentElement.hasAttribute('data-squircle')) return getComputedStyle(a).boxShadow;
+      const lit = document.createElement('div'); lit.style.filter = 'var(--shadow-card-lift-filter)'; document.body.appendChild(lit);
+      const lift = getComputedStyle(lit).filter; lit.remove();
+      const ring = getComputedStyle(a).getPropertyValue('--sq-ring').trim(), want = getComputedStyle(document.documentElement).getPropertyValue('--card-ring').trim();
+      const open = getComputedStyle(a.closest('.attach-open')).filter;
+      return ring === want && open === lift ? 'painted: the object ring and lift' : JSON.stringify({ ring, want, open, lift }); })(),
     thumbOutline: (() => { const t = document.querySelector('.library-tile[data-thumb]'); return t ? getComputedStyle(t, '::after').boxShadow : null; })() };
 })()`;
 
@@ -360,7 +370,7 @@ async function main() {
     const same = (v) => v === surfaces.toolbar;
     check(`${label}: a Library tile wears the device toolbar's border and shadow`, same(surfaces.tile), { toolbar: surfaces.toolbar, tile: surfaces.tile });
     check(`${label}: …and so do a row's file, a saved turn, the documents home's files and an attachment`,
-      [surfaces.rowMark, surfaces.saved, surfaces.docsGlyph, surfaces.attach].every(same), surfaces);
+      [surfaces.rowMark, surfaces.saved, surfaces.docsGlyph].every(same) && (same(surfaces.attach) || surfaces.attach === "painted: the object ring and lift"), surfaces);
     check(`${label}: a picture tile wears ONE ring — the tile's — and none traced inside it`, same(surfaces.thumbTile) && (surfaces.thumbOutline === "none" || surfaces.thumbOutline === null), surfaces);
     await escape(c);
     await until(() => evalIn(c, `!document.querySelector('.page-overlay')`), 5_000, "the Library put away");

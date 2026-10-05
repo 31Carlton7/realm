@@ -116,6 +116,11 @@
      library item"). Named once for all of them, so the toolbar pointed at and the files it was
      pointed at for cannot drift apart; `styles.test.ts` holds each to it. */
   --rl-object-shadow: var(--shadow-card);
+  /* …and the same two halves for a surface the worklet paints, where a box-shadow ring would trace the
+     square border box: the border goes to the painter and the shadow becomes a filter (tokens.css
+     splits the card stack the same way, for the same reason). */
+  --rl-object-ring: var(--card-ring);
+  --rl-object-lift-filter: var(--shadow-card-lift-filter);
   /* borders: BUI hairlines are solid and crisp, not alpha — hairline = line now */
   --rl-line: var(--line);                        /* BUI --line */
   --rl-line-strong: var(--line-strong);          /* BUI --line-strong */
@@ -5523,13 +5528,18 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   border-radius: 0;
   background: paint(rl-squircle);
   --sq-fill: var(--field);
-  --sq-ring: var(--line);
+  --sq-ring: var(--rl-object-ring);
   --sq-ring-w: var(--hairline-w);
   --sq-radius-top: calc(var(--attach-tile) * var(--sq-ratio-media));
   --sq-radius-bottom: calc(var(--attach-tile) * var(--sq-ratio-media));
   box-shadow: none;
   clip-path: var(--attach-clip, none);
 }
+/* The object's shadow under the painted well, as a filter on the control round it: the well's own
+   `clip-path` would cut away a shadow drawn on the well, and a `drop-shadow` follows the curve the
+   painter drew where a box-shadow would follow the square box. The tip and the remove button are
+   the control's siblings, so the filter lifts the file and nothing else. */
+:root[data-squircle] .attach-open { filter: var(--rl-object-lift-filter); }
 /* A file this agent will discard keeps saying so on the painted curve: the tint and the warning ring
    move to the painter's own inputs, because `background` is spent on `paint()` and a box-shadow ring
    would trace the square border box underneath it. */

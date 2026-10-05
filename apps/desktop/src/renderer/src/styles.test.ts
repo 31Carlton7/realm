@@ -2941,6 +2941,14 @@ describe("light mode", () => {
     expect(bodiesFor(".library-tile").join(" ")).toContain("overflow: hidden");
     // A file the agent will drop keeps its warning ring, and rests on the same lift as every other.
     expect(bodiesFor('.attach-tile[data-disposition="ignored"] .attach-art').join(" ")).toContain("box-shadow: 0 0 0 var(--hairline-w) var(--orange), var(--shadow-card-lift)");
+    /* Painted, the attachment's well takes the same surface in its two halves: the border from the
+       painter, the shadow as a filter on the control round the well — not on the well, whose own
+       clip-path would cut it off. THE mutants: the painter's ring left on --line, or no lift. */
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-ring: var(--card-ring)");
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-lift-filter: var(--shadow-card-lift-filter)");
+    expect(bodiesFor(":root[data-squircle] .attach-art").join(" ")).toContain("--sq-ring: var(--rl-object-ring)");
+    expect(bodiesFor(":root[data-squircle] .attach-open").join(" ")).toContain("filter: var(--rl-object-lift-filter)");
+    expect(bodiesFor(":root[data-squircle] .attach-art").join(" ")).not.toContain("filter:");
   });
 
   it("a file card set into the dock's raised surface takes the raised frame step, and light's is no weaker than dark's", () => {
