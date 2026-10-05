@@ -1,41 +1,49 @@
-import { AGENT_META, AGENT_MODELS, DEFAULT_MODEL_LABEL, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
+import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, AGENT_TAKES_EFFORT, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe } from "../../state/store";
 
-/** One pickable line in the model picker: a MODEL, and the harness that would run it. */
+/**
+ * Everything Realm knows about the models a session could be put on, as plain functions over plain
+ * data: which models exist and which harness would run each (`modelRows`), how a list of them reads
+ * (`filterRows`, `groupRows`, `modelLabel`), what each can be asked for (`effortLevels`,
+ * `fastModeAvailability`), what to say about one (`modelAbout`), and which model a person meant by a
+ * name (`resolveModelName`).
+ *
+ * The prompter's picker is one reader. Anything else that picks a model — a scheduled task's Model
+ * and Effort fields, a plan handed to sub-agents on other models — reads the same answers from here,
+ * so a model offered in one place is offered, named and routed the same way in every other.
+ */
+
+/** One pickable line: a MODEL, and the harness that would run it. */
 export type ModelRow = {
   /** `canonicalModelKey(label)`, so the same model reached through two harnesses is one row. Adapter
    *  default rows key `default:<kind>` instead — see `modelRows`. What favourites and the catalog
-   *  are keyed by — a fact about the MODEL, shared by every placement of it. */
+   *  are keyed by. */
   key: string;
-  /** The placement's own identity: the React key, the DOM id, what the highlight follows. Equal to
-   *  `key` for the row `modelRows` builds; `groupRows` mints `<key>@<harness>` for the copies it
-   *  lists under the other harnesses that offer the model (see `placement`). */
+  /** The row's own identity: the React key, the DOM id, what the highlight follows. */
   id: string;
   /** The harness that would run this model if the row were picked — the session's own whenever it
    *  offers the model, so the common pick costs no agent switch. */
   kind: AgentKind;
-  /** Every harness that offers this model, in the order they were considered. Length > 1 is the
-   *  whole point of the model-first list: one row, several ways to run it. */
+  /** Every harness that offers this model, in the order they were considered. */
   harnesses: AgentKind[];
   /** The wire id per harness — `null` where that harness means "your own default". Picking a row
    *  transmits `ids[kind]`, and switching harness re-reads this rather than re-sending a foreign id. */
   ids: Partial<Record<AgentKind, string | null>>;
   /** `null` for an agent whose models Realm cannot enumerate — picking it leaves the adapter default. */
   modelId: string | null;
-  /** The model's own name — the row's headline, and what search matches first. */
+  /** The model's own name, as the harness (or Realm's curated list) gave it. */
   label: string;
-  /** The resolved harness's name — the row's second line, beside its brand mark. Also searchable. */
+  /** The resolved harness's name. */
   agentLabel: string;
   icon: string;
   /** "not installed" / "signed out", or null when the CLI is fine (or unprobed). */
   note: string | null;
-  /** The same answer for every harness that offers the model, so a placement under another harness
-   *  can wear that harness's note rather than the resolved one's. */
+  /** The same answer for every harness that offers the model. */
   notes: Partial<Record<AgentKind, string | null>>;
   /** Harnesses other than `kind` this session could actually be moved onto to run the model — every
-   *  other route while the agent may still switch, none once it may not. `groupRows` lists the model
-   *  under each of these too; a route the session cannot take is not offered as a place to click. */
+   *  other route while the agent may still switch, none once it may not. These are the row's other
+   *  ways to run, offered on the row itself. */
   alternates: AgentKind[];
   /** Why this row cannot be picked right now; `null` when it can. */
   blockedReason: string | null;
@@ -64,11 +72,10 @@ export type ModelRow = {
  *   adapter's own frontier default (`DEFAULT_MODEL_LABEL`) and picks the harness alone. These rows
  *   are deliberately NOT deduped across harnesses: "the Cursor default" and "the Codex default" are
  *   different things that happen to be described the same way.
- * - **A model no reachable harness can run goes unavailable, and says so.** `sessions.setAgent`
- *   refuses once a session has any event, because a transcript, a providerSessionId and a resume are
- *   all tied to the agent that produced them. After the first message, rows the current harness
- *   cannot run are marked rather than hidden: a picker that quietly drops Codex reads as a bug,
- *   not as a rule.
+ * - **A model no reachable harness can run is marked, with the reason.** `sessions.setAgent` refuses
+ *   once a session has any event, because a transcript, a providerSessionId and a resume are all tied
+ *   to the agent that produced them. `groupRows` leaves those rows out and the picker says why in one
+ *   line, rather than drawing a list of models nobody can choose.
  *
  * Availability (`agentProbe`) is reported but never blocking — picking a missing CLI lands on the
  * install card with the exact command, which is somewhere to go; disabling the row hides the fix.
@@ -77,24 +84,21 @@ export type ModelRow = {
  *
  * 1. **The probe's live catalog** (`agentProbe[kind].models`) — ids the provider itself handed over
  *    (Codex `model/list`, Cursor's ACP `availableModels`). A probe-sourced list additionally gets a
- *    leading DEFAULT row (`modelId: null`, the adapter's own default): unlike the curated static
- *    lists, a live catalog's ordering carries no promise that its first entry IS the default the
- *    adapter runs un-pinned (Cursor's catalog leads with "Auto" while an un-pinned session runs
- *    Composer — verified live), so `model === null` selects the explicit default row instead of
- *    guessing at index 0. Stale-by-TTL is fine; a probe list is never mixed across kinds.
+ *    leading DEFAULT row (`modelId: null`, the adapter's own default): a live catalog's ordering
+ *    carries no promise that its first entry IS the default the adapter runs un-pinned (Cursor's
+ *    catalog leads with "Auto" while an un-pinned session runs Composer — verified live), so
+ *    `model === null` selects the explicit default row instead of guessing at index 0.
  * 2. **The static curated list** (`AGENT_MODELS[kind]`) — Claude, whose CLI has no enumeration
  *    channel, plus any kind whose probe has not answered (or answered without models).
  * 3. **The single DEFAULT_MODEL_LABEL row** — a kind with no list at all.
  *
  * `model === null` means the user has pinned nothing and the adapter is running its own default. That
  * still marks a row: the frontier model, which is the first of the kind's list and the one the chip
- * already names via `DEFAULT_MODEL_LABEL` (presets.test.ts pins the two to each other). A picker that
- * showed no selection at all would read as broken every time a session had not been touched.
+ * already names via `DEFAULT_MODEL_LABEL` (presets.test.ts pins the two to each other).
  */
 export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites = [] }: {
   kind: AgentKind; model: string | null; agentProbe: AgentProbe[]; canSwitchAgent: boolean;
-  /** Canonical keys the user has starred. Keys, not ids, so a favourite is a MODEL rather than a
-   *  model-on-one-harness — the star survives switching the route underneath it. */
+  /** Canonical keys the user has starred. */
   favorites?: readonly string[];
 }): ModelRow[] {
   // The session's own kind leads, then the rest of the offered set. Leading with it is what makes the
@@ -169,12 +173,11 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
       row.note = noteOf.get(harness) ?? null;
       row.modelId = row.ids[harness] ?? null;
       // `ids[kind]` exists only for a harness that offers the model, so this already means "on the
-      // session's own harness AND running the pinned id" — no separate `harness === kind` guard,
-      // which would be dead: resolveHarness returns `kind` in exactly the cases where the id is set.
+      // session's own harness AND running the pinned id".
       row.selected = row.ids[kind] === selectedId;
       // Every other route is somewhere the session could go — while it still can. Once it has run,
-      // `sessions.setAgent` refuses, and a placement under a harness that would refuse is a row whose
-      // only outcome is a rejection.
+      // `sessions.setAgent` refuses, and a route that would refuse is a click whose only outcome is a
+      // rejection.
       row.alternates = canSwitchAgent ? row.harnesses.filter((h) => h !== harness) : [];
     }
   }
@@ -182,29 +185,11 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
 }
 
 /**
- * The row as it should appear under a harness OTHER than the one it resolved to: the same model,
- * routed through that harness, wearing that harness's mark, name, note and wire id.
- *
- * A copy rather than a second `modelRows` row, because the model is still one model — favourites,
- * the catalog and the ←/→ route walk all key on `key`, which the copy shares. Only `id`, the
- * placement's own identity, differs. `selected` is never carried: the session runs its model on its
- * own harness, so the tick belongs to the resolved row and to nothing else.
- */
-function placement(row: ModelRow, harness: AgentKind): ModelRow {
-  return {
-    ...row, id: `${row.key}@${harness}`, kind: harness,
-    agentLabel: AGENT_META[harness].label, icon: AGENT_META[harness].icon,
-    note: row.notes[harness] ?? null, modelId: row.ids[harness] ?? null, selected: false,
-  };
-}
-
-/**
  * Whether a label is a bare wire id rather than a name someone wrote for humans.
  *
  * Lowercase throughout with no spaces is what every raw id looks like (`claude-fable-5-1`,
- * `gpt-5.3-codex`) and what no vendor's written name looks like — they all capitalise something
- * ("Claude Fable 5.1", "GPT-5.6", "Composer"). Used only to pick between two labels for the SAME
- * model, so a false positive costs nothing: the id was going to be shown anyway.
+ * `gpt-5.3-codex`) and what no vendor's written name looks like. Used only to pick between two
+ * labels for the SAME model, so a false positive costs nothing: the id was going to be shown anyway.
  */
 function looksLikeId(label: string): boolean {
   return /^[a-z0-9][a-z0-9._-]*$/.test(label);
@@ -227,21 +212,22 @@ function resolveHarness(harnesses: AgentKind[], { kind, canSwitchAgent, noteOf }
 }
 
 /**
- * The wire id a model needs on a given harness — what the harness chip re-reads when it switches the
- * route under a model the user has already chosen. `undefined` means that harness does not offer this
+ * The wire id a model needs on a given harness. `undefined` means that harness does not offer this
  * model at all, which is the caller's cue to fall back to the harness's own default and say so.
  */
 export function modelIdOn(row: ModelRow, harness: AgentKind): string | null | undefined {
   return row.harnesses.includes(harness) ? row.ids[harness] ?? null : undefined;
 }
 
+/** A harness's own default row — "whatever this agent runs when nothing is pinned". */
+export const isHarnessDefault = (row: ModelRow): boolean => row.key === `default:${row.kind}`;
+
 /**
  * Search.
  *
  * The query matches the model's name OR the name of ANY harness that could run it — not merely the
- * one the row resolved to. Typing "cursor" therefore answers "what could I get from Cursor", which is
- * the question the old icon rail existed to answer and the one thing it was good at; a model that
- * resolved to the Claude CLI because that is installed is still a model Cursor offers.
+ * one the row resolved to. Typing "cursor" therefore answers "what could I get from Cursor"; a model
+ * that resolved to the Claude CLI because that is installed is still a model Cursor offers.
  *
  * It deliberately does NOT match model *ids*: `claude-fable-5` would make "5" match everything, and
  * an id the row never displays is not something anyone is typing at.
@@ -254,78 +240,351 @@ export function filterRows(rows: ModelRow[], query: string): ModelRow[] {
     r.harnesses.some((h) => AGENT_META[h].label.toLowerCase().includes(q)));
 }
 
-/** One labelled block of the picker's list. `label: ""` is a group with no heading — what a search
- *  produces, where a heading per harness would be three words of chrome per result. */
+/** One labelled block of a model list. */
 export type RowGroup = {
+  /** Stable identity: the React key and the heading's DOM id. */
+  id: string;
+  /** The heading, or "" for a search's single unlabelled group. */
   label: string;
   rows: ModelRow[];
-  /** The harness the heading names, where it names one. Absent on Favourites (a set, not a harness)
-   *  and on a search's single unlabelled group. Carried here rather than re-derived from the label
-   *  so the picker's jump strip and the heading it points at can never disagree about which mark
-   *  belongs to which name. */
+  /** The harness the heading names. Absent on Favourites, Other agents and a search. */
   kind?: AgentKind;
+  /** The rows are agents rather than models — Other agents names each by its harness. */
+  byHarness?: boolean;
 };
 
 /**
- * The list's shape: favourites first, then one group per harness.
+ * The list's shape: favourites, then one group per harness, then every other agent in one group.
  *
- * Grouping by harness (rather than by vendor, or not at all) is what makes the list teach: reading
- * it top to bottom says "these are the models your Claude CLI runs, these are the ones Codex runs".
- * The session's own harness leads, because `modelRows` builds in that order and first appearance is
- * the order kept.
+ * Grouping by harness is what makes the list teach: reading it top to bottom says "these are the
+ * models your Claude CLI runs, these are the ones Codex runs". The session's own harness leads,
+ * because `modelRows` builds in that order and first appearance is the order kept.
  *
- * A model several harnesses offer is listed under EACH of them, not only under the one it resolved
- * to. It used to be the latter, and the moment Cursor's catalog arrived every Claude model Cursor
- * could also run resolved to Cursor in a Cursor session and vanished from the Claude group — the
- * only way to run Fable through the Claude CLI was to pick "Fable through Cursor" and then change
- * the route in the detail pane. The route decision still lives in that pane; the list simply stops
- * pretending a harness cannot run a model because another one can too. Each copy is a `placement`,
- * routed through the harness it sits under, so picking it does what the heading says.
+ * Each model is listed ONCE, under the harness a click would run it through. A model another harness
+ * can also run carries that harness on its row instead (`alternates`, drawn as one-click routes), so
+ * the choice of harness appears exactly where there is one — a heading per route listed Fable twice
+ * and read as two models.
  *
- * A search collapses all of it into one unlabelled group. Headings over a filtered list would say
- * where a result came from, which the row's own second line already says, and would push the third
- * match below the fold to do it.
+ * An agent that offers nothing but its own default — the ACP agents whose catalog Realm cannot ask —
+ * and an agent that is not installed are one row each under "Other agents", named by the agent: a
+ * heading over a single row that reads "Default" was eight headings of chrome for eight clicks. The
+ * session's own agent is never folded away; it leads under its own name whatever it holds.
+ *
+ * Rows this session can no longer switch to are left out (see `modelRows`). A search collapses all of
+ * it into one unlabelled group, because a filtered list is already an answer.
  */
-export function groupRows(rows: ModelRow[], { query }: { query: string }): RowGroup[] {
-  if (query.trim() !== "") return rows.length ? [{ label: "", rows }] : [];
-  const favorites = rows.filter((r) => r.favorite);
-  const groups: RowGroup[] = favorites.length ? [{ label: "Favourites", rows: favorites }] : [];
-  // Group order is settled first, by the harness each row RESOLVED to, so the session's own
-  // harness leads and a copy under some other harness never pulls that harness's heading up the
-  // list ahead of the rows that actually route through it. A harness that only ever appears as an
-  // alternate still earns a group — after the ones that lead somewhere.
+export function groupRows(rows: ModelRow[], { query, kind }: { query: string; kind: AgentKind }): RowGroup[] {
+  const live = rows.filter((r) => !r.blockedReason);
+  if (query.trim() !== "") return live.length ? [{ id: "results", label: "", rows: live }] : [];
+  const favorites = live.filter((r) => r.favorite);
+  const groups: RowGroup[] = favorites.length ? [{ id: "favourites", label: "Favourites", rows: favorites }] : [];
   const byKind = new Map<AgentKind, ModelRow[]>();
-  const unfavoured = rows.filter((r) => !r.favorite); // one row, one place: a starred model is in Favourites, not twice
-  for (const r of unfavoured) if (!byKind.has(r.kind)) byKind.set(r.kind, []);
-  for (const r of unfavoured) for (const h of r.alternates) if (!byKind.has(h)) byKind.set(h, []);
-  // Then every group is filled in ROW order — the vendor's own order for a curated list, the
-  // catalog's for a live one — whether the row leads there or is a copy. A copy appended after the
-  // group's own rows would put Fable under Haiku in the Claude list, which is nobody's order.
-  for (const r of unfavoured) {
-    byKind.get(r.kind)!.push(r);
-    for (const h of r.alternates) byKind.get(h)!.push(placement(r, h));
+  for (const r of live) {
+    if (r.favorite) continue; // one row, one place: a starred model is in Favourites, not twice
+    const held = byKind.get(r.kind);
+    if (held) held.push(r); else byKind.set(r.kind, [r]);
   }
-  for (const [kind, kindRows] of byKind) groups.push({ label: AGENT_META[kind].label, rows: kindRows, kind });
+  const others: ModelRow[] = [];
+  for (const [k, kindRows] of byKind) {
+    const lone = kindRows.length === 1 && isHarnessDefault(kindRows[0]!);
+    if (k !== kind && (lone || kindRows[0]!.note === "not installed")) others.push(kindRows[0]!);
+    else groups.push({ id: k, label: AGENT_META[k].label, rows: kindRows, kind: k });
+  }
+  if (others.length) groups.push({ id: "others", label: "Other agents", rows: others, byHarness: true });
   return groups;
 }
 
 /** Every row the groups hold, in the order they are drawn — the sequence ↑/↓ walks and the one the
- *  ⌘-digit shortcuts are numbered against. Derived from the groups rather than recomputed, so the
- *  keyboard can never disagree with the eye about what "the next row" is. */
+ *  ⌘-digit shortcuts are numbered against. */
 export function flatten(groups: RowGroup[]): ModelRow[] {
   return groups.flatMap((g) => g.rows);
 }
 
 /**
- * What Realm can say about a model beyond its name: a sentence, a price, a context window.
+ * A model's name as a list under its harness shows it: "Fable 5.1" beside Claude's mark, not "Claude
+ * Fable 5.1" under a heading that already says Claude.
  *
- * Two sources, and the order is the point. Realm's own `MODEL_NOTES` line wins because it was written
- * to help someone choose between the rows actually on screen; the catalog's `blurb` is the vendor's
- * first sentence about its own model and reads like it. Everything else (price, context, efforts)
- * exists only in the catalog — no harness reports it — so a model the catalog has never heard of
- * simply has no numbers, and the panel shows the sentence alone.
+ * Only a word that repeats the harness's name comes off, and only when what follows is itself a word:
+ * Claude names its models by family, so "Fable 5.1" is a name, while "Grok 4.6" or "DeepSeek V4 Pro"
+ * would leave a bare version standing for a model. Through any other harness the name stays whole —
+ * "Claude Fable 5.1" through Cursor is information.
  */
-export function modelDetail(row: ModelRow, info: Record<string, ModelInfo>): { note: string | null; catalog: ModelInfo | null } {
+export function modelLabel(row: ModelRow): string {
+  const harness = `${AGENT_META[row.kind].label} `;
+  if (!row.label.startsWith(harness)) return row.label;
+  const rest = row.label.slice(harness.length);
+  return /^[A-Za-z]+(\s|$)/.test(rest) ? rest : row.label;
+}
+
+/** What the prompter's chip names: the session's own row, a pinned id no list carries (a model retired
+ *  since), or the harness's default label — never silently another model's name. */
+export function chipLabel(kind: AgentKind, model: string | null, rows: ModelRow[]): string {
+  const selected = rows.find((r) => r.selected);
+  return selected ? modelLabel(selected) : model ?? DEFAULT_MODEL_LABEL[kind];
+}
+
+/** Display form of an effort level: capitalised, with `xhigh` as "XHigh" — the id's two morphemes
+ *  each get their cap, and no hyphen is invented that the CLIs never print. */
+export const formatEffort = (e: string): string => (e === "xhigh" ? "XHigh" : e.charAt(0).toUpperCase() + e.slice(1));
+
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
+/**
+ * The effort levels worth offering for a model on a harness: none where the harness never receives
+ * the level (`AGENT_TAKES_EFFORT`), Realm's levels narrowed to the ones the public catalog says the
+ * model accepts where it lists any, and all of them where it says nothing — an unlisted model is not
+ * one without levels, and the CLI downgrades a level a model lacks rather than refusing the turn.
+ */
+export function effortLevels(kind: AgentKind, info?: ModelInfo | null): EffortLevel[] {
+  if (!AGENT_TAKES_EFFORT[kind]) return [];
+  const listed = new Set(info?.efforts ?? []);
+  const narrowed = EFFORT_LEVELS.filter((l) => listed.has(l));
+  return narrowed.length > 0 ? narrowed : [...EFFORT_LEVELS];
+}
+
+/** Where an answer about fast mode came from, most direct first. */
+export type FastSource = "session" | "catalog" | "remembered";
+
+/**
+ * What can honestly be said about fast mode for one model on one harness, before anything has run.
+ *
+ * - `none` — Realm has no way to ask this harness for it (`AGENT_FAST_MODE`). Draw nothing.
+ * - `offered` — the harness said this model can: this session's own handshake, the probe's live
+ *   catalog (Codex lists the `priority` tier per model), or the last session that heard the harness
+ *   answer for this model (`MODEL_FAST_SUPPORT_KEY`).
+ * - `unavailable` — the harness said it cannot; `alternatives` names models on the same harness it
+ *   said can, which is the one useful thing to tell someone looking for it.
+ * - `unknown` — the harness can be asked, and nothing has said yet. The switch works as a request
+ *   and the first turn reports what happened, which is what the picker says.
+ */
+export type FastAvailability =
+  | { state: "none" }
+  | { state: "offered"; source: FastSource }
+  | { state: "unavailable"; source: FastSource; alternatives: string[] }
+  | { state: "unknown" };
+
+/** A model id without its bracketed variant (`claude-opus-5-5[1m]` is the 1M build of `claude-opus-5-5`). */
+const baseId = (id: string): string => id.replace(/\[[^\]]*\]$/, "");
+
+/** What the probe's catalog says about fast mode for `model` on `kind` — the marked default for a
+ *  session that pinned nothing — or undefined where it says nothing. */
+function catalogFast(kind: AgentKind, model: string | null, agentProbe: AgentProbe[]): boolean | undefined {
+  const models = agentProbe.find((p) => p.kind === kind)?.models ?? null;
+  const m = models?.find((x) => (model === null ? x.isDefault === true : x.id === model));
+  return m?.fastMode;
+}
+
+/** What is known about one model id on one harness without this session's own handshake. */
+function heardFast(kind: AgentKind, model: string | null, agentProbe: AgentProbe[], remembered: Record<string, boolean>): { can: boolean; source: FastSource } | null {
+  const catalog = catalogFast(kind, model, agentProbe);
+  if (catalog !== undefined) return { can: catalog, source: "catalog" };
+  const kept = remembered[fastSupportKey(kind, model)];
+  return kept === undefined ? null : { can: kept, source: "remembered" };
+}
+
+export function fastModeAvailability({ kind, model, init, agentProbe, remembered, rows }: {
+  kind: AgentKind;
+  /** What the session asks for — `session.model`, null for the harness's default. */
+  model: string | null;
+  /** This session's own handshake, where it has one. Only believed while it describes the model the
+   *  session still asks for: a pick since then made it an answer about some other model. */
+  init?: { model: string; supportsFastMode?: boolean } | null;
+  agentProbe: AgentProbe[];
+  /** `MODEL_FAST_SUPPORT_KEY`, as the store mirrors it. */
+  remembered: Record<string, boolean>;
+  /** The rows the alternatives are named from. */
+  rows: ModelRow[];
+}): FastAvailability {
+  if (!AGENT_FAST_MODE[kind]) return { state: "none" };
+  const own = init?.supportsFastMode !== undefined && (model === null || baseId(init.model) === model)
+    ? { can: init.supportsFastMode, source: "session" as const } : null;
+  const said = own ?? heardFast(kind, model, agentProbe, remembered);
+  if (!said) return { state: "unknown" };
+  if (said.can) return { state: "offered", source: said.source };
+  const alternatives: string[] = [];
+  for (const r of rows) {
+    const id = r.ids[kind];
+    if (id === undefined || id === null || id === model) continue;
+    if (heardFast(kind, id, agentProbe, remembered)?.can) alternatives.push(modelLabel({ ...r, kind }));
+  }
+  return { state: "unavailable", source: said.source, alternatives: alternatives.slice(0, 3) };
+}
+
+/**
+ * Fast mode as the picker knows it: what the session ASKED for, what the harness last DID, and what
+ * can be said about the model before either.
+ *
+ * The request and the report are separate fields because they disagree routinely — a plan that does
+ * not include it, a rate limit, a model swapped mid-session — and a switch that showed only the
+ * request would keep claiming a speed the agent is not running at. `state` is null until a turn has
+ * finished, which is the honest reading of "nothing has been reported yet" rather than "off".
+ */
+export type FastMode = {
+  /** The session's own switch. */
+  on: boolean;
+  /** What the last finished turn reported, or null when none has. */
+  state: "off" | "cooldown" | "on" | null;
+  /** The harness's reason, in its own vocabulary. */
+  reason: string | null;
+  /** Whether the turn that report describes asked for fast mode, or null where nothing says. */
+  requested: boolean | null;
+  onChange: (on: boolean) => void;
+  availability: Exclude<FastAvailability, { state: "none" }>;
+};
+
+/** The harness's reason codes, said out loud. An unrecognised code is shown verbatim rather than
+ *  swallowed: a build newer than this one knows something worth passing on. */
+const FAST_REASON: Record<string, string> = {
+  free: "your plan does not include fast mode",
+  preference: "it is turned off in Claude Code's own settings",
+  extra_usage_disabled: "extra usage is turned off for this account",
+  network_error: "the request to enable it did not get through",
+  not_first_party: "this route does not offer it",
+  disabled_by_env: "an environment variable turns it off here",
+  model_not_allowed: "this model cannot run it",
+  sdk_opt_in_required: "this Claude Code build needs it enabled explicitly",
+  pending: "it is still being set up",
+  unknown: "the harness did not say why",
+};
+
+/**
+ * Whether the switch has yet to be tried: nothing has been reported, or the last report is about a
+ * turn that never asked for fast mode. Switch it on after a turn that ran without it, and that turn's
+ * report still says "off", with the harness's reason for a request nobody made — read as a verdict on
+ * the switch, it told the user fast mode could not run, about a turn that never asked.
+ */
+export const fastModeUntried = (f: Pick<FastMode, "state" | "requested">): boolean => f.state === null || f.requested === false;
+
+/** What the last turn's report says about the switch, or null when there is nothing to correct.
+ *  Silent in the ordinary cases — asked for and serving, or not asked for at all — because a note
+ *  that appears every time is a note nobody reads by the third session. */
+export function fastModeNote(f: Pick<FastMode, "on" | "state" | "reason" | "requested">): string | null {
+  if (!f.on) return null;
+  if (f.state === "on") return null;
+  if (fastModeUntried(f)) return "Takes effect on the next turn.";
+  if (f.state === "cooldown") return "Paused by a rate limit — it will resume on its own.";
+  return `Not running: ${FAST_REASON[f.reason ?? "unknown"] ?? f.reason ?? "the harness did not say why"}.`;
+}
+
+/** The one line under the picker's fast-mode switch: where the alternatives are for a model that
+ *  cannot run it, that the first turn will settle it where nothing has, and otherwise the report. */
+export function fastModeHint(f: FastMode): string | null {
+  const a = f.availability;
+  if (a.state === "unavailable") {
+    if (a.alternatives.length === 0) return null;
+    const names = a.alternatives.length === 1 ? a.alternatives[0]! : `${a.alternatives.slice(0, -1).join(", ")} and ${a.alternatives.at(-1)!}`;
+    return `${names} ${a.alternatives.length === 1 ? "offers" : "offer"} it.`;
+  }
+  if (a.state === "unknown" && f.state === null) return "Checked on the first turn.";
+  return fastModeNote(f);
+}
+
+/** Whether the chip may wear the bolt: asked for, on a model nothing has said cannot run it, and not
+ *  refused by the last turn that asked. A chip that kept it there would claim a speed nobody serves. */
+export function fastModeShown(f: FastMode): boolean {
+  if (!f.on || f.availability.state === "unavailable") return false;
+  return !(f.state === "off" && !fastModeUntried(f));
+}
+
+/**
+ * What the picker says about the highlighted model, in a fixed two-line strip under the list.
+ *
+ * - `note` — Realm's own line where it has one (`MODEL_NOTES`), the catalog's first sentence where
+ *   it does not, and otherwise what the harness that would run it is for.
+ * - `warning` — anything about the route that would surprise someone who picked it: not installed,
+ *   signed out, or a structural limit of the harness. It takes the note's place, because it is the
+ *   one thing on the line a person must not miss.
+ * - `specs` — context and per-token price where the public catalog quotes them. API LIST prices, so
+ *   `billing` (who actually charges for a session on this harness) rides with them.
+ */
+export function modelAbout(row: ModelRow, route: AgentKind, info: Record<string, ModelInfo>): {
+  note: string; warning: string | null; specs: string | null; billing: string;
+} {
   const catalog = info[row.key] ?? null;
-  return { note: MODEL_NOTES.get(row.key) ?? catalog?.blurb ?? null, catalog };
+  const harness = AGENT_META[route].label;
+  const availability = row.notes[route] ?? null;
+  const warning = availability === "not installed" ? `${harness} isn’t installed — picking it shows how to install it.`
+    : availability === "signed out" ? `${harness} is signed out — picking it shows how to sign in.`
+    : AGENT_NOTES[route].limits;
+  const note = MODEL_NOTES.get(row.key) ?? catalog?.blurb ?? AGENT_NOTES[route].good;
+  const specs = [
+    catalog?.context != null ? `${formatContext(catalog.context)} context` : null,
+    catalog?.priceIn != null && catalog.priceOut != null ? `${formatPrice(catalog.priceIn)} in · ${formatPrice(catalog.priceOut)} out per Mtok` : null,
+  ].filter((s): s is string => s !== null).join(" · ");
+  return { note, warning, specs: specs || null, billing: AGENT_NOTES[route].billing };
+}
+
+/** A name resolved to something a session can be put on. */
+export type ModelMatch = {
+  row: ModelRow;
+  /** The harness that would run it — the one the name asked for, or the row's own route. */
+  kind: AgentKind;
+  /** The id to transmit on that harness; null is the harness's own default. */
+  modelId: string | null;
+  /** The model's full name, for saying back what was understood ("Claude Fable 5.1"). */
+  label: string;
+  /** The name matched a model's whole name, rather than part of one. */
+  exact: boolean;
+};
+
+/** A name's comparison tokens: lowercased, letters split from digits ("gpt6" is "gpt 6"), and the
+ *  version kept as one token the way `canonicalModelKey` keeps it. */
+const tokensOf = (name: string): string[] =>
+  canonicalModelKey(name.replace(/([a-z])(\d)/gi, "$1 $2").replace(/(\d)([a-z])/gi, "$1 $2")).split("-").filter(Boolean);
+
+/** The newer of two versions, for "Fable" meaning Fable 5.1 over Fable 5: the highest number token,
+ *  compared part by part. */
+const versionOf = (tokens: string[]): number[] => {
+  const v = tokens.filter((t) => /^\d+(\.\d+)*$/.test(t)).map((t) => t.split(".").map(Number));
+  return v.sort(compareVersions).at(-1) ?? [];
+};
+function compareVersions(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] ?? -1) - (b[i] ?? -1);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+/** The harness a phrase names, by its label ("Cursor", "Claude Code", "GitHub Copilot") or its kind
+ *  ("opencode", "acp:grok"), or null. */
+function harnessNamed(text: string): AgentKind | null {
+  const t = text.trim().toLowerCase().replace(/\s+/g, " ");
+  for (const k of [...SELECTABLE_AGENT_KINDS, "fake"] as AgentKind[]) {
+    const label = AGENT_META[k].label.toLowerCase();
+    if (t === label || t === `${label} code` || t === k || t === k.replace(/^acp:/, "")) return k;
+  }
+  return null;
+}
+
+/**
+ * Which model a person meant by a name — "Fable", "GPT-6 Luna", "opus 5.5", "GPT-5.5 via Cursor".
+ *
+ * Every word of the name has to be in the model's name (or, for a harness's default row, the
+ * harness's): "fable 5" is Fable 5 and never Fable 5.1, because a version is one token. Among the
+ * models that fit, one whose whole name it is wins, then the newest version — "Fable" is Fable 5.1 —
+ * then list order, which is the vendor's. A trailing "via / through / on <harness>" asks for that
+ * route, and only models that harness runs can answer it.
+ *
+ * Null when nothing fits: a name no list Realm holds carries — a Codex model before Codex's catalog
+ * has been read — is a question back to the person, never a guess at a different model.
+ */
+export function resolveModelName(name: string, rows: ModelRow[]): ModelMatch | null {
+  const via = /^(.*\S)\s+(?:via|through|on)\s+(.+)$/i.exec(name.trim());
+  const route = via ? harnessNamed(via[2]!) : null;
+  const want = tokensOf(route ? via![1]! : name);
+  if (want.length === 0) return null;
+  let best: { row: ModelRow; exact: boolean; version: number[] } | null = null;
+  for (const row of rows) {
+    if (row.blockedReason || (route && !row.harnesses.includes(route))) continue;
+    const own = tokensOf(row.label);
+    const all = isHarnessDefault(row) ? [...own, ...tokensOf(AGENT_META[row.kind].label)] : own;
+    if (!want.every((t) => all.includes(t))) continue;
+    const exact = own.length === want.length && own.every((t) => want.includes(t));
+    const version = versionOf(own);
+    if (!best || (exact && !best.exact) || (exact === best.exact && compareVersions(version, best.version) > 0)) best = { row, exact, version };
+  }
+  if (!best) return null;
+  const kind = route ?? best.row.kind;
+  return { row: best.row, kind, modelId: modelIdOn(best.row, kind) ?? null, label: best.row.label, exact: best.exact };
 }

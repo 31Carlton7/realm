@@ -1748,7 +1748,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
        property through the worklet, and there is nothing left for a state to win. So the invariant
        is not "the painted rule is specific enough" — it is "no state rule declares `background` at
        all", which is checkable and stays true as states are added. */
-    const painted = [".btn", ".ghost-chip", ".mp-use", ".palette-opt"];
+    const painted = [".btn", ".ghost-chip", ".palette-opt"];
     const offenders = RULES.flatMap((r) => r.selectors.map((sel) => ({ sel, body: r.body })))
       .filter(({ sel }) => !sel.includes("[data-squircle]"))
       .filter(({ sel }) => painted.some((c) => new RegExp(`\\${c}(?![\\w-])`).test(sel)))
@@ -2126,7 +2126,7 @@ describe("dividers", () => {
     for (const sel of [".page-overlay-bar", ".terminal-dock-bar"])
       expect(bodiesFor(sel).join(" "), sel).not.toMatch(/border-bottom/);
     // Footers hold their place while the body scrolls past them.
-    for (const sel of [".permission-footer", ".question-footer", ".spaces-foot", ".mp-detail-foot"])
+    for (const sel of [".permission-footer", ".question-footer", ".spaces-foot", ".mp-foot"])
       expect(bodiesFor(sel).join(" "), sel).toMatch(/border-top: var\(--hairline-w\) solid/);
     // A table's rules ARE its structure, and the sidebar's edge is the app's one column boundary.
     expect(bodiesFor(".md th").join(" ")).toContain("border-bottom: var(--hairline-w) solid");
@@ -3685,14 +3685,14 @@ describe("the focus ring on a painted control", () => {
      outline is a square around a squircle — measured live (visual-review-live.mjs), a blue rectangle
      around the composer's model chip. */
   it("is drawn by the painter on the control's own curve, not as a square outline", () => {
-    const rule = bodiesFor(":root[data-squircle] :is(.btn, .ghost-chip, .mp-use, .palette-opt):focus-visible").join(" ");
+    const rule = bodiesFor(":root[data-squircle] :is(.btn, .ghost-chip, .palette-opt):focus-visible").join(" ");
     expect(rule).toContain("outline: none");
     expect(rule).toContain("--sq-ring: var(--rl-accent)");
     expect(rule).toContain(`animation: rl-focus-ring-painted ${"var(--dur-slow)"} var(--spring-smooth)`);
     expect(blockAfter("@keyframes rl-focus-ring-painted")).toContain("--sq-ring: transparent");
     // Every control the worklet paints is covered — the list must not drift from the paint rule's.
     const painted = RULES.find((r) => r.body.includes("background: paint(rl-squircle)") && r.selectors.includes(":root[data-squircle] .ghost-chip"))!;
-    for (const sel of painted.selectors) expect(sel.replace(":root[data-squircle] ", ""), sel).toMatch(/^\.(btn|ghost-chip|mp-use|palette-opt)$/);
+    for (const sel of painted.selectors) expect(sel.replace(":root[data-squircle] ", ""), sel).toMatch(/^\.(btn|ghost-chip|palette-opt)$/);
     expect(bodiesFor(":root[data-squircle] .btn.primary:focus-visible").join(" ")).toContain("--rl-accent-contrast");
   });
 });

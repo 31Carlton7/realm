@@ -52,6 +52,7 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
   const modelFavorites = useApp((s) => s.modelFavorites);
   const modelInfo = useApp((s) => s.modelInfo);
   const agentProbe = useApp((s) => s.agentProbe);
+  const fastSupport = useApp((s) => s.fastSupport);
   const submitKey = useApp((s) => s.submitKey);
   const pos = useApp((s) => s.quickChatPos);
   const setQuickChatPos = useApp((s) => s.setQuickChatPos);
@@ -175,6 +176,7 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
         canSwitchAgent={transcript.blocks.length === 0}
         agentProbe={agentProbe} modelFavorites={modelFavorites} modelInfo={modelInfo}
         onToggleModelFavorite={(key) => run(() => toggleModelFavorite(key))}
+        sessionInit={transcript.init} fastSupport={fastSupport}
         submitKey={submitKey} />
     </section>,
     document.body,
