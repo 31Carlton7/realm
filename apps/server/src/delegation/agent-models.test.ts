@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { tempDir } from "@realm/test-utils";
-import { FakeAdapter, type AgentAdapter, type FakeScript, type StartOptions } from "@realm/adapters";
+import { FakeAdapter, fakeStandIn, type AgentAdapter, type FakeScript, type StartOptions } from "@realm/adapters";
 import type { AgentKind, AgentModel } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createApp, type App } from "../app";
@@ -20,7 +20,8 @@ import { waitFor } from "../test-utils";
  */
 
 let app: App;
-afterEach(async () => { vi.useRealTimers(); await app?.close(); });
+// Each app is closed once: a test that boots none must not close the last test's again.
+afterEach(async () => { vi.useRealTimers(); const closing = app; app = null!; await closing?.close(); });
 
 const CODEX: AgentModel[] = [{ id: "gpt-6-luna", label: "GPT-6 Luna" }, { id: "gpt-6-astra", label: "GPT-6 Astra" }];
 const CURSOR: AgentModel[] = [{ id: "claude-fable-5-1", label: "claude-fable-5-1" }, { id: "composer-2", label: "Composer 2" }];
@@ -29,8 +30,8 @@ const CHILD: FakeScript = [{ on: "You are a delegated agent.", emit: [{ kind: "t
 
 /** A real agent's name on the fake's body: probes as `kind` with `models`, runs the child script,
  *  and keeps every StartOptions it was handed — the seam the model id is read off. */
-function standIn(kind: AgentKind, models: AgentModel[] | null, counts: { probes: number }) {
-  const fake = new FakeAdapter({ script: CHILD, delayMs: 2 });
+function standIn(kind: AgentKind, models: AgentModel[] | null, counts: { probes: number }, script: FakeScript = CHILD) {
+  const fake = new FakeAdapter({ script, delayMs: 2 });
   const seen: StartOptions[] = [];
   const adapter: AgentAdapter = {
     kind,
@@ -40,9 +41,9 @@ function standIn(kind: AgentKind, models: AgentModel[] | null, counts: { probes:
   return { adapter, seen };
 }
 
-async function boot(opts: { parentKind?: AgentKind; parentModel?: string | null; parentMode?: string } = {}) {
+async function boot(opts: { parentKind?: AgentKind; parentModel?: string | null; parentMode?: string; leadScript?: FakeScript } = {}) {
   const counts = { probes: 0 };
-  const claude = standIn("claude", null, counts);
+  const claude = standIn("claude", null, counts, [...(opts.leadScript ?? []), ...CHILD]);
   const codex = standIn("codex", CODEX, counts);
   const cursor = standIn("acp:cursor", CURSOR, counts);
   app = await createApp({
@@ -319,5 +320,29 @@ describe("a session's Agents tab", () => {
     // Mutant: forget the tab in SessionService.delete — a tab for a session that no longer exists.
     expect(new ItemsStore(app.db).get(itemId)).toBeNull();
     c.close();
+  });
+});
+
+describe("the scripted agent plays an orchestration for real", () => {
+  it("a `call` step goes through the session's own gateway: the lead's turn starts a Codex child on GPT-6 Luna", async () => {
+    const { ctx } = await boot({ leadScript: [{ on: "Build this with", emit: [
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Write the tests", constraints: { model: "GPT-6 Luna" } } },
+    ] }] });
+    await app.sessions.probe();
+    await app.sessions.send(ctx.sessionId, { text: "Build this with sub-agents on GPT-6 Luna.", attachments: [] });
+    await waitFor(() => children(ctx).length === 1);
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "codex", model: "gpt-6-luna", dispatchedBy: { sessionId: ctx.sessionId, kind: "agent_run" } });
+    // And the lead's own transcript holds the call and the gateway's real answer to it.
+    await waitFor(() => app.sessions.events(ctx.sessionId, 0, 500).some((e) => e.event.type === "tool_result"));
+    const evs = app.sessions.events(ctx.sessionId, 0, 500).map((e) => e.event);
+    expect(evs).toContainEqual(expect.objectContaining({ type: "tool_call", payload: expect.objectContaining({ name: "mcp__realm__realm-agent__agent_start" }) }));
+    const result = evs.find((e) => e.type === "tool_result");
+    expect(result?.type === "tool_result" && result.payload).toMatchObject({ isError: false, content: expect.stringContaining("on Codex · GPT-6 Luna") });
+  });
+
+  it("a stand-in answers to a real harness's name, with the catalog it was given", async () => {
+    const stand = fakeStandIn(new FakeAdapter(), "codex", [{ id: "gpt-6-luna", label: "GPT-6 Luna" }]);
+    expect(stand.kind).toBe("codex");
+    expect(await stand.probe()).toEqual({ kind: "codex", available: true, version: "fake", loggedIn: true, reason: null, models: [{ id: "gpt-6-luna", label: "GPT-6 Luna" }] });
   });
 });

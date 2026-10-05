@@ -1,6 +1,7 @@
-import { newId, sessionEvent, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { newId, sessionEvent, type AgentKind, type AgentModel, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import type { AgentAdapter, AgentHandle, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import { gatewayClient } from "./gateway-call";
 
 export type FakeStep =
   /** `paceMs` streams the text a word at a time, this far apart — the way a real agent's deltas
@@ -13,6 +14,11 @@ export type FakeStep =
    *  reproduce. */
   | { kind: "plan"; planId: string; text?: string; steps?: { text: string; status: "pending" | "in_progress" | "completed" }[] }
   | { kind: "throw"; message: string }
+  /** One of Realm's own tools, called for REAL through the gateway this session was handed — the way
+   *  an agent's CLI calls it — and recorded as the call and its result. `tool` is the gateway's name
+   *  for it (`realm-agent__agent_start`); the transcript shows it under Claude's prefix. The one step
+   *  that reaches past the script: what answers it is the production path. */
+  | { kind: "call"; tool: string; input: Record<string, unknown> }
   /** A plan-quota reading, as `SDKRateLimitEvent` produces one on the real Claude wire. The scripted
    *  adapter is the only kind that can drive the limits path end to end in a test. */
   | { kind: "rateLimit"; payload: SessionEventPayload<"rate_limit"> };
@@ -37,6 +43,9 @@ export class FakeAdapter implements AgentAdapter {
     let interrupted = false;
 
     const resumeOutcome = opts.resume ? this.cfg.resume : undefined;
+    // Made on first use, and once: the gateway keeps one MCP session per Realm session.
+    const entry = opts.mcpServers.find((m) => m.transport === "http" || m.transport === "sse");
+    const gateway = entry && entry.transport !== "stdio" ? gatewayClient({ url: entry.url, headers: entry.headers }) : null;
     q.push(sessionEvent("init", {
       // A continued resume keeps the id it was handed, as a real adapter does; anything else is a
       // fresh conversation with a fresh id.
@@ -65,6 +74,16 @@ export class FakeAdapter implements AgentAdapter {
         if (st.kind === "throw") throw new Error(st.message);
         if (st.kind === "rateLimit") { q.push(sessionEvent("rate_limit", st.payload)); continue; }
         if (st.kind === "plan") { q.push(sessionEvent("plan", { planId: st.planId, ...(st.text ? { text: st.text } : {}), ...(st.steps ? { steps: st.steps } : {}) })); continue; }
+        if (st.kind === "call") {
+          const toolUseId = newId();
+          q.push(sessionEvent("tool_call", { toolUseId, name: `mcp__realm__${st.tool}`, input: st.input, parentToolUseId: null }));
+          const answer = gateway
+            ? await gateway.call(st.tool, st.input).catch((e: unknown) => ({ text: (e as Error).message ?? String(e), isError: true }))
+            : { text: "no Realm gateway was handed to this session", isError: true };
+          if (disposed) return;
+          q.push(sessionEvent("tool_result", { toolUseId, content: answer.text, isError: answer.isError }));
+          continue;
+        }
         if (st.kind === "text") {
           const id = newId();
           if (st.paceMs === undefined) {
@@ -128,4 +147,18 @@ export class FakeAdapter implements AgentAdapter {
       },
     };
   }
+}
+
+/**
+ * The scripted adapter answering to a real agent's name — for a live check that has to show work
+ * handed ACROSS harnesses, where a sub-agent on the real Codex would be a billed turn. It probes as
+ * `kind`, reporting `models` as that harness's catalog (null: let the curated list stand, as Claude's
+ * does), and every session it starts runs the fake's own script.
+ */
+export function fakeStandIn(fake: FakeAdapter, kind: AgentKind, models: AgentModel[] | null): AgentAdapter {
+  return {
+    kind,
+    probe: async () => ({ kind, available: true, version: "fake", loggedIn: true, reason: null, models }),
+    start: (opts) => fake.start(opts),
+  };
 }
