@@ -362,6 +362,18 @@ describe("acpSessionConfig — configOptions wins, with the write channel carrie
     expect(cfg.modelConfigId).toBeNull();
   });
 
+  it("reads an agent's reasoning levels off its thought_level option, and none off the deprecated shape", () => {
+    // ACP's own category for "thought/reasoning level" (`SessionConfigOptionCategory`, SDK 0.17.1). The
+    // write channel rides with it; Cursor's deprecated shape has no such axis, so its id stays null and
+    // nothing is ever written to an agent that never offered a level.
+    const cfg = acpSessionConfig({ configOptions: [
+      { id: "thought_level", category: "thought_level", type: "select", currentValue: "medium", options: [{ value: "low", name: "Low" }, { value: "medium" }] },
+    ] });
+    expect(cfg).toMatchObject({ efforts: [{ id: "low", label: "Low" }, { id: "medium", label: "medium" }], currentEffort: "medium", effortConfigId: "thought_level" });
+    expect(acpSessionConfig(CURSOR_SESSION)).toMatchObject({ efforts: [], currentEffort: null, effortConfigId: null });
+    expect(acpSessionConfig({ configOptions: [{ id: "thought_level", category: "thought_level", type: "boolean", currentValue: "true" }] }).effortConfigId).toBeNull();
+  });
+
   it("prefers configOptions when an agent dual-emits both (Copilot)", () => {
     const both = { ...CURSOR_SESSION, configOptions: OPENCODE_SESSION.configOptions };
     const cfg = acpSessionConfig(both);

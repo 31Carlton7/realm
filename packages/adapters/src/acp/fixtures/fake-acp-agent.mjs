@@ -82,6 +82,9 @@ const sessionConfigOptions = () => ({
       options: [{ value: "fake-model-1", name: "Fake 1" }, { value: "fake-model-2", name: "Fake 2" }] },
     { id: "mode", category: "mode", type: "select", currentValue: "agent",
       options: [{ value: "agent" }, ...(process.env.FAKE_ACP_NOPLANMODE ? [] : [{ value: "plan" }]), { value: "ask" }] },
+    // ACP's reasoning-level selector (`SessionConfigOptionCategory` "thought_level", SDK 0.17.1).
+    { id: "thought_level", name: "Thinking", category: "thought_level", type: "select", currentValue: "medium",
+      options: [{ value: "low", name: "Low" }, { value: "medium", name: "Medium" }, { value: "high", name: "High" }] },
   ],
 });
 

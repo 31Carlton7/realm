@@ -147,7 +147,9 @@ export type Transcript = {
     /** Whether the harness says this session's model can run fast mode. Undefined is "not stated",
      *  which is what every engine but `claude` leaves it as — and what the prompter reads as "offer
      *  no switch" rather than as "no". */
-    supportsFastMode?: boolean } | null;
+    supportsFastMode?: boolean;
+    /** THIS session's own reasoning levels (an ACP `thought_level` option) and the one it started on. */
+    efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
   /** The run in flight: when it started, and the permission-prompt time to take off its clock.
    *  `waitingSince` is the open half of that accounting. Null between runs. */
   run: { startedAt: number; waitedMs: number; waitingSince: number | null } | null;
@@ -463,6 +465,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       const fast = e.payload.supportsFastMode ?? (sameModel ? t.init?.supportsFastMode : undefined);
       return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId,
         ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}),
+        ...(e.payload.efforts ? { efforts: e.payload.efforts, ...(e.payload.defaultEffort ? { defaultEffort: e.payload.defaultEffort } : {}) } : {}),
         ...(fast === undefined ? {} : { supportsFastMode: fast }) } };
     }
     case "status": {

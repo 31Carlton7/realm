@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { spawn as nodeSpawn } from "node:child_process";
-import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
+import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
 import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
@@ -25,6 +25,31 @@ const modelBase = (id: string | undefined): string | undefined => id?.replace(/\
  * and a variant only speaks for an id nothing else has named. Rows that state nothing are skipped —
  * silence is not a `no`.
  */
+/** The levels the SDK's `effort` takes (`EffortLevel`). A session's level can come from another
+ *  harness — Codex's `minimal`, kept across an agent switch — and that is one Claude has no word for. */
+const CLAUDE_EFFORTS: ReadonlySet<string> = new Set<EffortLevel>(["low", "medium", "high", "xhigh", "max"]);
+const claudeEffort = (e: string | null | undefined): EffortLevel | undefined => (e && CLAUDE_EFFORTS.has(e) ? e as EffortLevel : undefined);
+
+/**
+ * The CLI's effort levels for every model in its `supportedModels()` list, keyed the way
+ * `fastModeByModel` keys its answers. `supportsEffort: false` is an answer — no levels at all — and a
+ * row that says nothing about effort is left out rather than filed as either.
+ */
+export function effortByModel(rows: readonly { value: string; resolvedModel?: string; supportsEffort?: boolean; supportedEffortLevels?: readonly string[] }[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const r of rows) {
+    const levels = r.supportsEffort === false ? [] : Array.isArray(r.supportedEffortLevels) ? r.supportedEffortLevels.filter((l) => CLAUDE_EFFORTS.has(l)) : null;
+    if (levels === null) continue;
+    const isDefault = r.value === "default";
+    if (isDefault) out[""] = levels;
+    const base = modelBase(isDefault ? r.resolvedModel : r.resolvedModel ?? r.value);
+    if (!base) continue;
+    if (!isDefault && (r.value === base || r.resolvedModel === base)) out[base] = levels;
+    else if (!(base in out)) out[base] = levels;
+  }
+  return out;
+}
+
 export function fastModeByModel(rows: readonly { value: string; resolvedModel?: string; supportsFastMode?: boolean }[]): Record<string, boolean> {
   const out: Record<string, boolean> = {};
   for (const r of rows) {
@@ -272,7 +297,7 @@ export class ClaudeAdapter implements AgentAdapter {
     const options: Options = {
       cwd: opts.cwd,
       model: opts.model ?? undefined,
-      effort: (opts.effort ?? undefined) as Options["effort"],
+      effort: claudeEffort(opts.effort),
       permissionMode: claudeSdkPermissionMode(opts.permissionMode) as Options["permissionMode"],
       canUseTool,
       includePartialMessages: true,
@@ -375,10 +400,12 @@ export class ClaudeAdapter implements AgentAdapter {
         const hit = rows.find((r) => r.value === init.model || r.resolvedModel === init.model)
           ?? rows.find((r) => modelBase(r.value) === base || modelBase(r.resolvedModel) === base);
         const all = fastModeByModel(rows);
-        if (hit?.supportsFastMode === undefined && Object.keys(all).length === 0) return;
+        const efforts = effortByModel(rows);
+        if (hit?.supportsFastMode === undefined && Object.keys(all).length === 0 && Object.keys(efforts).length === 0) return;
         events.push(sessionEvent("init", { ...init,
           ...(hit?.supportsFastMode === undefined ? {} : { supportsFastMode: hit.supportsFastMode }),
-          ...(Object.keys(all).length > 0 ? { fastModeModels: all } : {}) }));
+          ...(Object.keys(all).length > 0 ? { fastModeModels: all } : {}),
+          ...(Object.keys(efforts).length > 0 ? { effortModels: efforts } : {}) }));
       } catch { /* the CLI declined; the capability stays unstated */ }
     };
 
@@ -671,6 +698,13 @@ export class ClaudeAdapter implements AgentAdapter {
         // layer `query()`'s inline `settings` writes, above user and project settings and below
         // managed policy. There is no `setFastMode`, and there does not need to be.
         if (o.fastMode !== undefined) { fastRequested = o.fastMode; await q?.applyFlagSettings({ fastMode: o.fastMode }); }
+        // The level moves the same way. `effortLevel: null` is the SDK's own "back to the model's
+        // default effort" (`applyFlagSettings`), which is what a reset in the picker means; a level the
+        // SDK has no word for is not sent at all.
+        if (o.effort !== undefined) {
+          const level = o.effort === null ? null : claudeEffort(o.effort);
+          if (level !== undefined) await q?.applyFlagSettings({ effortLevel: level });
+        }
         if (o.permissionMode) {
           // Realm's own record moves FIRST: it is what the gate above reads, and it must hold even
           // if the SDK call throws.

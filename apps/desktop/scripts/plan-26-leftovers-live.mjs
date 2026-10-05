@@ -9,12 +9,11 @@
  *      main says the tab's own view is the one showing the page. A new blank tab reads the list fresh,
  *      a blank tab kept behind another reads it again when it comes back on screen, and Clear browsing
  *      data from its ⋯ takes the list down.
- *   2. W11b's peek from a notification row. The eye is on the rows whose session the Agents page would
- *      offer one for, and not on the lead's, which is on screen. It is not drawn at rest; under the
- *      pointer or the keyboard it takes the slot the time and the unread dot give up, centred on the
- *      title's line. Clicking it opens the session as a peek beside the lead without leaving the
- *      space, reads the row, and is never saved into the layout. The Agents page's eye, now the same
- *      component, still peeks.
+ *   2. W11b's peek from a notification row. The eye is on the rows whose session a peek can land on,
+ *      and not on the lead's, which is on screen. It is not drawn at rest; under the pointer or the
+ *      keyboard it takes the slot the time and the unread dot give up, centred on the title's line.
+ *      Clicking it opens the session as a peek beside the lead without leaving the space, reads the
+ *      row, and is never saved into the layout.
  *
  * Ports: LIVE_SERVER_PORT (8967), LIVE_CDP_PORT (9367), LIVE_MAIN_INSPECT_PORT (9467), LIVE_SITE_PORT
  * (8977). Screenshots go to LIVE_OUT_DIR (the system temp dir by default). Touches only a scratch dir;
@@ -385,9 +384,9 @@ async function main() {
   const rest = await feed();
   note("the feed at rest", rest);
   const byName = (rows, name) => rows.find((r) => r.name === name);
-  check("the eye is on the rows the Agents page would offer it on — the other space's session and an unopened one — and not on the lead's, which is on screen",
+  check("the eye is on the rows a peek can land from — the other space's session and an unopened one — and not on the lead's, which is on screen",
     byName(rest, "Peek target")?.eye === "Peek at Peek target" && byName(rest, "Second session")?.eye === "Peek at Second session" && byName(rest, LEAD)?.eye === null, rest);
-  check("…beside each row, never inside its button, with the Agents page's tooltip",
+  check("…beside each row, never inside its button, with the eye's own tooltip",
     rest.every((r) => !r.inRow) && byName(rest, "Peek target")?.tip === "Peek — look at it beside your session, without opening it", rest);
   check("…and not drawn at rest, where the time and the unread dot show", rest.filter((r) => r.eye).every((r) => r.opacity === "0" && r.time === "visible" && r.dot !== "hidden"), rest);
   await shot(c, "notif-rest", await feedClip(c));
@@ -423,7 +422,7 @@ async function main() {
   await evalIn(c, `(() => { [...document.querySelectorAll('.notif-row')].find((r) => r.getAttribute('aria-label') === "Second session").focus(); return true; })()`);
   await sleep(350);
   const keyed = byName(await feed(), "Second session");
-  check("…and under the keyboard, as the Agents page's is", keyed?.opacity === "1" && keyed.time === "hidden", keyed);
+  check("…and under the keyboard, as under the pointer", keyed?.opacity === "1" && keyed.time === "hidden", keyed);
   await evalIn(c, `(() => { document.activeElement?.blur(); return true; })()`);
 
   await mouseTo(c, { x: g.row.left + 60, y: g.row.top + 12 });
@@ -470,13 +469,6 @@ async function main() {
   const peeks = await evalIn(c, `document.querySelectorAll('.pane-tab[data-peek]').length`);
   check("a same-space session's eye peeks at it beside the lead, replacing the last peek", tab2?.label === "Peek: Second session" && peeks === 1 && !(await savedIds()).includes(secondItem), { tab2, peeks });
 
-  // The Agents page draws the same component: its eye still peeks.
-  await intoLead();
-  await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Home')).click(); return true; })()`);
-  const agentsEye = await until(() => evalIn(c, `(() => { const b = document.querySelector('.agents-page button[aria-label="Peek at Peek target"]'); return b ? b.className : null; })()`), 10_000, "the Agents page's eye").catch(() => null);
-  if (agentsEye) await evalIn(c, `(() => { document.querySelector('.agents-page button[aria-label="Peek at Peek target"]').click(); return true; })()`);
-  const tab3 = await until(async () => { const t = await peekTab(); return t?.label === "Peek: Peek target" ? t : null; }, 10_000, "the Agents page's peek").catch(peekTab);
-  check("the Agents page's eye is the same control, and still peeks", agentsEye === "icon-btn peek-btn" && tab3?.label === "Peek: Peek target", { agentsEye, tab3 });
 }
 
 /** The browser pane on screen, from its address field down through the blank tab's last list. */

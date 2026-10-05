@@ -1592,15 +1592,6 @@ function Attribution() {
       <p className="settings-attribution-line">
         Made by <a href="https://x.com/31Carlton7" target="_blank" rel="noreferrer">Carlton Aikins</a>
       </p>
-      {/* The office is somebody else's work. MIT asks for the notice to travel with the code, which
-          it does in the package; CC0 asks for nothing at all. Both are named here anyway, because
-          shipping someone's art under a licence that lets you say nothing is not a reason to. */}
-      <p className="settings-attribution-line settings-attribution-credit">
-        The pixel office is <a href="https://github.com/pixel-agents-hq/pixel-agents" target="_blank" rel="noreferrer">Pixel Agents</a>{" "}
-        by Pablo De Lucca (MIT), with characters from{" "}
-        <a href="https://jik-a-4.itch.io/metrocity-free-topdown-character-pack" target="_blank" rel="noreferrer">MetroCity</a>{" "}
-        by JIK-A-4 (CC0).
-      </p>
     </div>
   );
 }

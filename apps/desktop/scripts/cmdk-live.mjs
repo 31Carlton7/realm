@@ -95,8 +95,8 @@ globalThis.__live = {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   },
   async dest(label) {
-    // The destinations are the rail's (Plan 27): Agents is its Home, and Settings sits behind the
-    // avatar's menu — the palette's "Open settings" is the same action and reachable from a script.
+    // The destinations are the rail's (Plan 27), and Settings sits behind the avatar's menu — the
+    // palette's "Open settings" is the same action and reachable from a script.
     if (label === "Settings") {
       if (document.querySelector(".settings-page-pane")) return true;
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
@@ -112,8 +112,7 @@ globalThis.__live = {
       }
       throw new Error('no destination: Settings');
     }
-    const name = label === "Agents" ? "Home" : label;
-    const b = [...document.querySelectorAll('.app-rail .rail-btn')].find((x) => (x.getAttribute('aria-label') ?? '').startsWith(name));
+    const b = [...document.querySelectorAll('.app-rail .rail-btn')].find((x) => (x.getAttribute('aria-label') ?? '').startsWith(label));
     if (!b) throw new Error('no destination: ' + label);
     b.click();
     return true;

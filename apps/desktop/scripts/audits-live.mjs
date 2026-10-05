@@ -431,8 +431,6 @@ async function main() {
     await closePage(c);
     await pageStation(c, face, "Notifications", ".notifications-page-pane", "notifications");
     await closePage(c);
-    await pageStation(c, face, "Home", ".agents-page", "agents");
-    await closePage(c);
 
     /* ── A scheduled run, read on the Scheduled page ──────────────────────────────────────────── */
     await evalIn(c, `__live.rail("Scheduled tasks")`);

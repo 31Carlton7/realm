@@ -347,6 +347,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   /* What harnesses have said about fast mode, per model — the answer a session that has not started
      yet can offer the switch on. Its own `init` overrides it the moment it has one. */
   const fastSupport = useApp((s) => s.fastSupport);
+  const effortSupport = useApp((s) => s.effortSupport);
   const mentionSkills = useMemo(
     () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList.filter((k) => k.enabled && k.valid) : NO_SKILLS),
     [agentKind, spaceSkillList],
@@ -422,12 +423,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const paneRef = useRef<HTMLDivElement | null>(null);
   const [paneEl, setPaneEl] = useState<HTMLDivElement | null>(null);
   const setPane = useCallback((el: HTMLDivElement | null) => { paneRef.current = el; setPaneEl(el); }, []);
-  /* Opened from a list of sessions — the Active rows, another room's list, the Agents page, a
-     notification — so the keyboard lands here, in the prompter, and the hand that clicked can type.
-     Unless something in the pane already has it: a permission card takes the keyboard for itself the
-     moment it is on screen (U-H4), and the answer it is asking for comes first. Either way the request
-     is spent (`keyboardTaken`), so a later remount of this pane never pulls the caret back out of
-     wherever the person has put it since. */
+  /* Opened from a list of sessions — the Active rows, another room's list, a notification — so the
+     keyboard lands here, in the prompter, and the hand that clicked can type. Unless something in the
+     pane already has it: a permission card takes the keyboard for itself the moment it is on screen
+     (U-H4), and the answer it is asking for comes first. Either way the request is spent
+     (`keyboardTaken`), so a later remount of this pane never pulls the caret back out of wherever the
+     person has put it since. */
   const keyboardFor = useApp((s) => (s.keyboardFor?.sessionId === id ? s.keyboardFor.n : 0));
   const keyboardTaken = useApp((s) => s.keyboardTaken);
   useEffect(() => {
@@ -761,7 +762,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               onPause={() => run(() => setGoalStatus(id, "paused", "You paused it."))}
               onResume={() => run(() => resumeGoal(id))}
               onDrop={() => run(() => clearGoal(id))} />}
-            sessionInit={transcript.init} fastSupport={fastSupport}
+            sessionInit={transcript.init} fastSupport={fastSupport} effortSupport={effortSupport}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
             mentions={mentionSources} refs={draftRefs} selectInRealm={selectInRealm}
             queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}

@@ -3,7 +3,7 @@ import type { Item, Session, SessionStatus } from "@realm/contracts";
 import { item, profile, session, space } from "../../state/store.test-fakes";
 import {
   attentionRank, FAN_OUT_GAP_MS, listedSessions, needsYou, orderSpaces, pinnedItems, profileWaiting, recentDays, reorderWithin,
-  rowsBySpace, sectionView, spaceRows, spaceTally, tallyOf, tallyWords, waitingCount, type SessionRow, type SidebarState,
+  rowsBySpace, sectionView, spaceRows, spaceTally, tallyOf, tallyWords, type SessionRow, type SidebarState,
 } from "./model";
 
 const NOW = new Date(2026, 9, 4, 15, 0).getTime();
@@ -266,11 +266,6 @@ describe("counts", () => {
     ]);
     expect(profileWaiting(s, "p1")).toBe(2);
     expect(profileWaiting(s, "p2")).toBe(1);
-  });
-
-  it("counts every waiting session for Home, leaving the quick chat out", () => {
-    const s = seed([{ id: "a", space: "hw", status: "waiting_permission" }, { id: "q", space: "lec", status: "waiting_permission" }], { quickChatId: "q" });
-    expect(waitingCount(s)).toBe(1);
   });
 });
 

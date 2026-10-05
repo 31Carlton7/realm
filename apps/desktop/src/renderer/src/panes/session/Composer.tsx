@@ -1,5 +1,5 @@
 import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
-import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -11,7 +11,7 @@ import { MentionPicker, mentionOptionId, mentionQueryAt } from "./MentionPicker"
 import { fileMark, labelCandidatesFor, mentionOptions, mentionRows, refFor, useMentionAnswers, type MentionRow, type MentionSources } from "./mention-sources";
 import { SlashPicker } from "./SlashPicker";
 import { filterSlashCommands, slashCallIn, slashQueryAt, type SlashCommand } from "./slash-commands";
-import { effortLevels, fastModeAvailability, formatEffort, modelRows, type FastMode } from "./model-catalog";
+import { effortOptions, fastModeAvailability, fastModeTip, modelRows, type EffortControl, type FastMode } from "./model-catalog";
 import { SkillPicker } from "./SkillPicker";
 import { ModelPicker, type OverflowGroup } from "./ModelPicker";
 import { heroGreeting } from "./greeting";
@@ -36,6 +36,7 @@ const NO_COMMANDS: SlashCommand[] = [];
 /** Stable empty default, for the same reason. */
 const NO_GREETINGS: readonly string[] = [];
 const NO_FAST_SUPPORT: Record<string, boolean> = {};
+const NO_EFFORT_SUPPORT: Record<string, string[]> = {};
 const NO_ICONS: Readonly<Record<string, string | null>> = {};
 /** "Messages", "Messages and Mail", "Messages, Mail and Notes". */
 const listNames = (names: readonly string[]): string =>
@@ -418,7 +419,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -560,10 +561,12 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   packGreetings?: readonly string[];
   /** This session's own handshake, where it has one — its model and what the harness said about
    *  that model's fast mode. */
-  sessionInit?: { model: string; supportsFastMode?: boolean } | null;
+  sessionInit?: { model: string; supportsFastMode?: boolean; efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
   /** What harnesses have said about fast mode, per agent and model (`MODEL_FAST_SUPPORT_KEY`) — how
    *  a session that has not started can offer the switch on the harness's word. */
   fastSupport?: Record<string, boolean>;
+  /** The reasoning levels harnesses have said each model takes (`MODEL_EFFORTS_KEY`). */
+  effortSupport?: Record<string, string[]>;
   /** The draft's link chips (store `draftLinks`): what a `@[label]` token in the text stands for,
    *  so the mirror can wear the app's mark on it. */
   links?: readonly LinkChip[];
@@ -1150,14 +1153,13 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     return (selected && modelInfo[selected.key]?.context) ?? null;
   }, [rows, modelInfo]);
 
-  // Effort's one home is the model picker, and only where the harness receives it: the levels the
-  // model takes, plus the session's own level if it has wandered off that list (set under another
-  // model), so the segment that is in force is never the one missing. Deliberately narrow (no
-  // `MenuItem[]`): OverflowGroup's item shape, which has no separator arm.
-  const levels = effortLevels(kind, modelInfo[rows.find((r) => r.selected)?.key ?? ""]);
-  const effortItems = (levels.length > 0 && session.effort && !(levels as string[]).includes(session.effort)
-    ? EFFORT_LEVELS.filter((l) => (levels as string[]).includes(l) || l === session.effort) : levels)
-    .map((l) => ({ label: formatEffort(l), checked: session.effort === l, effort: l, onSelect: () => onOptions({ effort: l }) }));
+  // Effort's one home is the model picker's foot, and only where the harness receives a level: the
+  // levels this model takes, as its own harness names them, and its default. A level the session set
+  // under another model is not one this model takes, and the track shows what runs instead.
+  const levels = effortOptions({ kind, model: session.model, agentProbe, info: modelInfo[rows.find((r) => r.selected)?.key ?? ""],
+    remembered: effortSupport, init: sessionInit });
+  const effort: EffortControl | undefined = levels.levels.length === 0 ? undefined
+    : { ...levels, value: session.effort, onChange: (id) => onOptions({ effort: id }) };
   /* The switch and the truth, kept apart. `on` is what the session asked for and lives in its row;
      `state`/`reason` are what the last finished turn reported and live on the usage sample — see the
      `usage` event's own note for why those can differ, routinely. `availability` is what can be
@@ -1165,7 +1167,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const fastAvailability = fastModeAvailability({ kind, model: session.model, init: sessionInit, agentProbe, remembered: fastSupport, rows });
   const fast: FastMode | undefined = fastAvailability.state === "none" ? undefined
     : { on: session.fastMode, state: usage.fastMode ?? null, reason: usage.fastModeReason ?? null,
-        requested: usage.fastModeRequested ?? null, onChange: (on) => onOptions({ fastMode: on }), availability: fastAvailability };
+        requested: usage.fastModeRequested ?? null, onChange: (on) => onOptions({ fastMode: on }), availability: fastAvailability,
+        tip: fastModeTip(kind, session.model, agentProbe) };
 
   /* One builder, two targets. In Build the picker writes the LIVE permission; in Plan or Ask it
      writes the park — the value returning to Build will restore — because that is the only real,
@@ -1456,9 +1459,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             {/* ONE chip, not two. A harness is only ever chosen FOR a model, so that choice lives on
                 the model's own row in the picker, where there is one. The chip still wears the
                 harness's mark, so nothing a harness chip said is lost. */}
-            <ModelPicker kind={kind} model={session.model} effort={levels.length > 0 ? session.effort : null} rows={rows} info={modelInfo}
+            <ModelPicker kind={kind} model={session.model} effort={effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
-              onPick={onPickModel} effortItems={effortItems} overflow={overflow} fast={fast} eggs={eggs} />
+              onPick={onPickModel} overflow={overflow} fast={fast} eggs={eggs} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's

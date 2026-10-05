@@ -313,8 +313,8 @@ async function main() {
       check(`Settings › ${head.picked} (${face}): the head names the page it shows`, head.h1 === head.picked, head);
       if (face === "dark") {
         const small = await evalIn(c, `__live.small(document.querySelector('.settings-page-pane .page-content') ?? document.body, 12.5)`);
-        // The credits at the foot of General are the one exception, and they are a signature, not a setting.
-        const unexplained = small.filter((x) => !String(x.cls).includes("settings-attribution") && !(x.tag === "A" && /Aikins|Pixel Agents|MetroCity/.test(x.text)));
+        // The credit at the foot of General is the one exception, and it is a signature, not a setting.
+        const unexplained = small.filter((x) => !String(x.cls).includes("settings-attribution") && !(x.tag === "A" && /Aikins/.test(x.text)));
         if (page !== "usage") check(`Settings › ${head.picked}: nothing a person must read is set under 12.5px`, unexplained.length === 0, unexplained.slice(0, 8));
         else note(`settings ${page}: text under 12.5px`, unexplained.slice(0, 16));
         const type = await evalIn(c, `(() => { const px = (sel) => { const el = document.querySelector('.settings-page-pane ' + sel); return el ? parseFloat(getComputedStyle(el).fontSize) : null; };

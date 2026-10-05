@@ -4,8 +4,8 @@ import { useEffect } from "react";
 import { useApp } from "../state/store";
 
 /**
- * Whether a session's row may offer a peek (W11b). The Agents page's rows and the Notifications page's
- * ask this one question, so they ask it here.
+ * Whether a session's row may offer a peek (W11b). The Notifications page's rows ask, and any other
+ * list that carries the eye asks the same question here.
  *
  * Offered only with somewhere to be beside (`peekOwner`: a session on screen), only for a session with
  * a row to make a tab of — a quick chat has none in any space — and never for one already on screen,
