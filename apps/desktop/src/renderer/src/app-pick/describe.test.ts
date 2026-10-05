@@ -112,9 +112,10 @@ describe("selectorFor", () => {
   it("never settles for bare tags: a field with no class is named, a classless box is placed by its parent", () => {
     // THE MUTANT: stop at the first unique path. The browser bar's address field is the only `input`
     // on screen, so the agent was handed `input` — unique until the next field opens.
-    mount(`<div class="browser-chrome"><input aria-label="Address" role="combobox"></div><div class="panel-body"><div></div></div>`);
+    mount(`<div class="browser-chrome"><input aria-label="Address" role="combobox"></div><div class="panel-body"><span></span></div>`);
     expect(resolves($("input"))).toBe('input[aria-label="Address"]');
-    expect(resolves($(".panel-body > div"))).toBe("div.panel-body > div");
+    // The only span on screen: unique, and still nothing anyone could look for without its parent.
+    expect(resolves($(".panel-body > span"))).toBe("div.panel-body > span");
   });
 
   it("ends the climb at an id that is a word, and never leans on one a run of the app generated", () => {
