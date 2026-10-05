@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizeOrigin, PICK_DEVICE_ID_MAX, PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement } from "./browser-agent";
+import { basenameOf } from "./attachments";
 import { fenceUntrusted } from "./fence";
 import { scanMentions } from "./mentions";
 import { describeLink, type LinkService } from "./links";
@@ -17,7 +18,8 @@ import { describeLink, type LinkService } from "./links";
  *
  *   - `mention` — `@skill-id`, the composer's existing syntax, recognised only against the live skill
  *     library so `carlton@mac` and `@nonesuch` stay plain text.
- *   - `element` — `@[button "Sign in"]`, an element the user picked out of a browser pane. Brackets
+ *   - `element` — `@[button "Sign in"]`, an element the user picked out of a browser pane, or
+ *     `@[Realm · Send button]`, a part of Realm's own window (`AppPickedElement`). Brackets
  *     because the label carries spaces and quotes that a bare `@id`'s charset cannot, and `@` because
  *     it extends a sigil the composer already teaches rather than inventing a second one. It is
  *     invisible to `scanMentions` for free: `[` is not an id character, so that scan's candidate run
@@ -84,7 +86,53 @@ export function scanLinkChips(text: string): Chip[] {
  *  on one page and Sent them together, so one token — `@[3 annotations]` — stands for every entry that
  *  shares its label, and `pin` is the number the user saw drawn on the page. `shot` names the
  *  screenshot of those pins, attached to the same message. Both absent on an ordinary pick. */
-export type ElementChip = { label: string; element: BrowserPickedElement; pin?: number; shot?: string };
+export type ElementChip = { label: string; element: PickedElement; pin?: number; shot?: string };
+
+/**
+ * A part of Realm's OWN window the user picked (the renderer's `app-pick/`): the web picker's sibling
+ * for the app around the pages. It rides the same chip as a page element — one `@[label]` token, one
+ * sidecar entry, the same cap — so everything that keeps a chip alive keeps this one too.
+ *
+ * What it carries is for an agent working on Realm itself. `role` and `name` are what a screen reader
+ * gives it, `text` what is visibly in it, `selector` a path through Realm's own class names — written
+ * by hand, so they name the element in the source rather than in one build, which is why this path
+ * leans on them where a page's must not. `app` is what only an app can know about itself: the React
+ * components that rendered it, nearest first, the `data-*` hooks nearest to it, its classes, the
+ * window its box was measured in, and the picture of it attached beside the message.
+ *
+ * `shot` is that picture's PATH, or null when there is none — `webView` says the reason was a browser
+ * pane's page, which a capture of Realm's window cannot see and is never asked to. The path is checked
+ * against the message's attachments at send (`elementContext`), so a picture taken off the message is
+ * never described as one the agent has.
+ */
+export type AppPickedElement = {
+  rect: { x: number; y: number; w: number; h: number };
+  selector: string;
+  tag: string;
+  role: string;
+  name: string;
+  text: string;
+  html: string;
+  app: {
+    components: string[];
+    hooks: string[];
+    classes: string[];
+    window: { w: number; h: number };
+    shot: string | null;
+    webView: boolean;
+  };
+};
+
+/** Anything a chip can stand for: an element of a page, or a part of Realm's window. */
+export type PickedElement = BrowserPickedElement | AppPickedElement;
+export const isAppElement = (el: PickedElement): el is AppPickedElement => "app" in el;
+
+/** Clamps for what an app pick carries beyond a page's. Nearest first in each list, so the cut takes
+ *  the far end — the component five levels up says less than the one that drew the element. */
+export const APP_PICK_COMPONENTS_MAX = 5;
+export const APP_PICK_HOOKS_MAX = 8;
+export const APP_PICK_HOOK_MAX = 120;
+export const APP_PICK_CLASSES_MAX = 12;
 
 /** Long enough to name a control, short enough that a chip is still one glance in a one-line draft. */
 export const CHIP_LABEL_MAX = 56;
@@ -94,6 +142,25 @@ export const CHIP_LABEL_MAX = 56;
  *  An annotation's pins count one each: they are elements, however many tokens stand for them. */
 export const MAX_ELEMENT_CHIPS = 8;
 
+/** A part of Realm's window on the wire (`AppPickedElement`), held to the same bounds as a page's. */
+const AppElementSchema = z.object({
+  rect: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }),
+  selector: z.string().max(PICK_SELECTOR_MAX),
+  tag: z.string().max(PICK_NAME_MAX),
+  role: z.string().max(PICK_NAME_MAX),
+  name: z.string().max(PICK_NAME_MAX),
+  text: z.string().max(PICK_TEXT_MAX),
+  html: z.string().max(PICK_HTML_MAX),
+  app: z.object({
+    components: z.array(z.string().max(PICK_NAME_MAX)).max(APP_PICK_COMPONENTS_MAX),
+    hooks: z.array(z.string().max(APP_PICK_HOOK_MAX)).max(APP_PICK_HOOKS_MAX),
+    classes: z.array(z.string().max(PICK_NAME_MAX)).max(APP_PICK_CLASSES_MAX),
+    window: z.object({ w: z.number().nonnegative(), h: z.number().nonnegative() }),
+    shot: z.string().max(PICK_URL_MAX).nullable(),
+    webView: z.boolean(),
+  }),
+});
+
 /**
  * Element chips as they cross the RPC — the one place their strings arrive from another process.
  *
@@ -102,11 +169,11 @@ export const MAX_ELEMENT_CHIPS = 8;
  * picker. Only `ref` is the browser's own — a CDP node id — and `url` is a fact just as far as its
  * origin, page-authored after it; everything else is the page's outright (see
  * `BrowserPickedElement`). The server neither interprets nor trusts any of them — it fences them
- * into the wire text and nothing else.
+ * into the wire text and nothing else. A part of Realm's window is the second shape `element` takes.
  */
 export const ElementChipSchema = z.object({
   label: z.string().min(1).max(CHIP_LABEL_MAX),
-  element: z.object({
+  element: z.union([z.object({
     ref: z.number().int().nonnegative(),
     url: z.string().max(PICK_URL_MAX),
     title: z.string().max(PICK_TITLE_MAX),
@@ -126,7 +193,7 @@ export const ElementChipSchema = z.object({
       frame: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }),
       screen: z.object({ width: z.number().positive(), height: z.number().positive() }),
     }).optional(),
-  }),
+  }), AppElementSchema]),
   /** Plan 26 W7d — see `ElementChip`. Optional, so every chip written before annotations parses. */
   pin: z.number().int().min(1).max(MAX_ELEMENT_CHIPS).optional(),
   shot: z.string().max(PICK_NAME_MAX).optional(),
@@ -195,15 +262,61 @@ export function linkChipLabel(base: string, taken: Iterable<string>): string {
   return first;
 }
 
-/** A chip label for a picked element, unique among `taken` so two identical buttons in one draft do
- *  not both resolve to the same sidecar entry. Prefers what the element MEANS (its accessible name
- *  under its AX role) over how it is built, and falls back to the selector's last segment for the
- *  nameless containers that make up most of a page. */
-export function elementChipLabel(el: BrowserPickedElement, taken: Iterable<string> = []): string {
+/** A page element by what it MEANS (its accessible name under its AX role) over how it is built, and
+ *  by the selector's last segment for the nameless containers that make up most of a page. */
+function pageElementLabel(el: BrowserPickedElement): string {
   const noun = el.role || el.tag || "element";
   const named = chipLabel(el.name || el.text);
   const tail = el.selector.split(" > ").pop() ?? "";
-  const base = chipLabel(named ? `${noun} "${named}"` : tail || noun);
+  return chipLabel(named ? `${noun} "${named}"` : tail || noun);
+}
+
+/** What a part of Realm's chip leads with, so it reads apart from a page's in the same draft. */
+const APP_CHIP_PREFIX = "Realm · ";
+
+/** What a role is called in a sentence — "Send button", "Reduce motion switch". A role nobody says
+ *  aloud (a group, a region, a box with no role at all) leaves the element to its name alone. */
+const ROLE_NOUNS: ReadonlyMap<string, string> = new Map(Object.entries({
+  button: "button", link: "link", checkbox: "checkbox", switch: "switch", radio: "option", option: "option",
+  textbox: "field", searchbox: "search field", spinbutton: "field", combobox: "menu", listbox: "list",
+  slider: "slider", tab: "tab", tablist: "tabs", menuitem: "menu item", menuitemcheckbox: "menu item",
+  menuitemradio: "menu item", menu: "menu", menubar: "menu bar", treeitem: "row", row: "row",
+  listitem: "item", list: "list", heading: "heading", img: "image", dialog: "dialog", alertdialog: "dialog",
+  toolbar: "toolbar", navigation: "navigation", table: "table", progressbar: "progress bar", status: "status",
+}));
+
+/** Tags whose own words are their name when nothing else gives one: a paragraph, a label, a cell. */
+const TEXT_TAGS = new Set(["p", "span", "label", "li", "td", "th", "dt", "dd", "h1", "h2", "h3", "h4", "h5", "h6",
+  "strong", "em", "small", "code", "kbd", "summary", "legend", "figcaption", "caption"]);
+/** …and only while they are a phrase. A paragraph's opening forty words are not its name. */
+const TEXT_NAME_MAX = 48;
+
+/**
+ * What a part of Realm is called, as the picker's hover label and the chip both say it: its accessible
+ * name and what its role is called ("Send button"), the words of a short run of text where nothing
+ * names it, and otherwise the component that drew it ("Composer") or the last step of its selector.
+ */
+export function appElementName(el: Pick<AppPickedElement, "role" | "name" | "text" | "tag" | "selector"> & { app: Pick<AppPickedElement["app"], "components"> }): string {
+  const own = el.name || (TEXT_TAGS.has(el.tag) && el.text.length <= TEXT_NAME_MAX ? el.text : "");
+  const named = chipLabel(own);
+  const noun = ROLE_NOUNS.get(el.role) ?? "";
+  if (named) return noun && !named.toLowerCase().endsWith(noun) ? `${named} ${noun}` : named;
+  return el.app.components[0] ?? (el.selector.split(" > ").pop() || el.tag || "element");
+}
+
+/** "Realm · Send button". A pick that has no picture says so in the chip itself, where the person
+ *  reads it before sending — the description cannot tell them, because they never see it. */
+export function appElementChipLabel(el: AppPickedElement): string {
+  const note = el.app.shot ? "" : " (no picture)";
+  const name = chipLabel(appElementName(el));
+  const room = CHIP_LABEL_MAX - APP_CHIP_PREFIX.length - note.length;
+  return `${APP_CHIP_PREFIX}${name.length > room ? `${name.slice(0, room - 1)}…` : name}${note}`;
+}
+
+/** A chip label for a picked element, unique among `taken` so two identical buttons in one draft do
+ *  not both resolve to the same sidecar entry. */
+export function elementChipLabel(el: PickedElement, taken: Iterable<string> = []): string {
+  const base = isAppElement(el) ? appElementChipLabel(el) : pageElementLabel(el);
   const used = new Set(taken);
   if (!used.has(base)) return base;
   // Room for the suffix is MADE, never hoped for. `chipLabel` clips to `CHIP_LABEL_MAX`, so appending
@@ -243,12 +356,25 @@ export function annotationChipLabel(count: number, taken: Iterable<string> = [])
  * with no element chips gets no block at all, so the bytes on the wire are unchanged for every
  * message that never touched a browser pane.
  *
- * Only the ORIGIN sits outside the fence. That much is the browser's own — script cannot move a
- * webContents off its origin — but the path and query after it follow `history.pushState`, and the
- * title is `document.title` outright, so both are page-authored and both belong under the fence with
- * the markup.
+ * A page's elements come first, then the parts of Realm's own window. `attachments` are the message's
+ * own: a part of Realm's picture is named only when it is really on the message.
  */
-export function elementContext(chips: readonly ElementChip[]): string {
+export function elementContext(chips: readonly ElementChip[], attachments: readonly { path: string }[] = []): string {
+  return pageElementContext(chips.filter(isPageChip)) + appElementContext(chips.filter(isAppChip), attachments);
+}
+
+type PageChip = ElementChip & { element: BrowserPickedElement };
+type AppChip = ElementChip & { element: AppPickedElement };
+const isPageChip = (c: ElementChip): c is PageChip => !isAppElement(c.element);
+const isAppChip = (c: ElementChip): c is AppChip => isAppElement(c.element);
+
+/**
+ * The page half. Only the ORIGIN sits outside the fence. That much is the browser's own — script
+ * cannot move a webContents off its origin — but the path and query after it follow
+ * `history.pushState`, and the title is `document.title` outright, so both are page-authored and both
+ * belong under the fence with the markup.
+ */
+function pageElementContext(chips: readonly PageChip[]): string {
   if (chips.length === 0) return "";
   const detail = chips.map((c) => {
     const d = c.element.device;
@@ -289,6 +415,42 @@ export function elementContext(chips: readonly ElementChip[]): string {
     ? `\nAn annotation chip stands for several elements the user pinned on one page, numbered in the order they pinned them${shots.length ? `; the attached ${shots.join(", ")} shows each number where it is on the page` : ""}.\n`
     : "";
   return `\n\nElements the user picked in Realm's browser pane, one per chip above:\n${index}\n${deviceNote}${pinNote}\n${fenceUntrusted(detail)}`;
+}
+
+/**
+ * The app half: each part of Realm's window the user picked, said plainly rather than fenced. It is
+ * this app's own interface, drawn from this app's state in the user's own session — realm-app's
+ * snapshot is left unfenced for the same reason, and a fence says a third party wrote what is inside.
+ *
+ * A picture is named only when the message really carries it: it rides as an ordinary attachment, and
+ * one the person took off before sending is not one the agent can look at.
+ */
+function appElementContext(chips: readonly AppChip[], attachments: readonly { path: string }[]): string {
+  if (chips.length === 0) return "";
+  const attached = new Set(attachments.map((a) => a.path));
+  const picture = ({ shot, webView }: AppPickedElement["app"]): string =>
+    shot && attached.has(shot) ? `the attached ${basenameOf(shot)} shows it, with a margin of what is around it`
+      : webView ? "no picture: it covers a browser pane's page, which a capture of Realm's window cannot see"
+        : "no picture";
+  const index = chips.map((c) => `  ${elementChipToken(c.label)} — ${picture(c.element.app)}`).join("\n");
+  const detail = chips.map(({ label, element: el }) => {
+    const [drew, ...outer] = el.app.components;
+    return [
+      elementChipToken(label),
+      `component: ${drew ? `${drew}${outer.length ? `, inside ${outer.join(" › ")}` : ""}` : "(not known)"}`,
+      `role: ${el.role || "(none)"}`,
+      ...(el.name ? [`name: ${el.name}`] : []),
+      ...(el.text ? [`text: ${el.text}`] : []),
+      `selector: ${el.selector || "(none found)"}`,
+      ...(el.app.classes.length ? [`classes: ${el.app.classes.join(" ")}`] : []),
+      ...(el.app.hooks.length ? [`data hooks: ${el.app.hooks.join("; ")}`] : []),
+      `box: x=${round(el.rect.x)} y=${round(el.rect.y)} w=${round(el.rect.w)} h=${round(el.rect.h)} in a ${round(el.app.window.w)}×${round(el.app.window.h)} window`,
+      ...(el.html ? [`html: ${el.html}`] : []),
+    ].join("\n");
+  }).join("\n\n");
+  return `\n\nParts of Realm's own window the user picked, one per chip above:\n${index}\n\n`
+    + "They are Realm's interface, not a web page, so the browser tools cannot reach them. The component and class names are the ones in Realm's source.\n\n"
+    + detail;
 }
 
 /** Device frames arrive as floats (`293.33333333333337`). A prompt is read by a person and a model,
