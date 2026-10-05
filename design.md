@@ -433,6 +433,8 @@ acronym that is uppercase anyway (a file extension on a tile).
 - The arrow cursor over every control the app draws; the hand only over a link, where the click
   leaves what you are looking at. The hand on every button is the loudest single sign that a window
   is a web page.
+- A window-drag region takes every press that is not opted out of it, and a LABEL is a control: the
+  sidebar's Spaces | Recent segments, labels round hidden radios, answered only on the radio's 13px.
 - Chrome is not text. Buttons, rows, tabs, bars and menus do not select on a drag or a double-click,
   and their glyphs do not lift off as drag ghosts. Content and fields keep selection.
 - A window that is not key greys its accent — selection, default button, checked boxes, lit
@@ -579,6 +581,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   bars anyway, and stands down on the rest (`data-overlay-scrollbars`, measured, not read from a
   preference that depends on what is plugged in — this Mac changed mode mid-session as its Bluetooth
   mouse came and went).
+- A column that opens or closes is a box that clips what it holds, its content riding one slide on
+  the box's moving edge; everything beside it — the panes, a page over them, a bar's title — is laid
+  out from that edge or moves on the same curve and duration. A layer placed against the window
+  instead lands on its final edge in the first frame, and what it covers flashes through beside it.
 - Contextual icon swaps use opacity, blur from 4 px to 0, and scale from 0.25 to 1 with no bounce.
 - Do not animate content merely because it scrolled into view.
 - Do not add parallax, auto-scrolling marquees, simulated typing, or decorative pulsing.
