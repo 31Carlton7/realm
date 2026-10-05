@@ -1258,8 +1258,8 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(dark).toBeGreaterThan(0);
     expect(light).toBeGreaterThan(0);
     expect(light).toBeLessThan(dark);
-    // Very light means very light: the owner asked for it lighter again (10-04), to 60% of the first
-    // cut's 0.14 dark and 0.02 light. THE mutant: the first cut's depth back.
+    // Very light means very light: the owner asked for it lighter again (10-04), to about 60% of the
+    // first cut's measured depth (0.14 dark, 0.02 light). THE mutant: the first cut's depth back.
     expect(dark).toBeLessThanOrEqual(0.085);
     expect(light).toBeLessThanOrEqual(0.012);
   });
