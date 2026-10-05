@@ -5,11 +5,11 @@
  * with fake sessions held in every state over the RPC socket, and measures what jsdom cannot see:
  *
  *   1. The rail is the window's left edge: the traffic lights' band at its top, the destinations under
- *      it, Home wearing the count of what waits — and it stays on screen when the sidebar collapses,
- *      the panes taking the column's room and nothing else.
+ *      it, Home wearing no count of its own — and it stays on screen when the sidebar collapses, the
+ *      panes taking the column's room and nothing else.
  *   2. The sidebar lists no strip, no Open section, no Other spaces and no "N need you" pill.
  *   3. Needs you appears only once something waits, lists every space and profile's waiting sessions
- *      longest first, and answers a permission in place: the row goes, and Home's count with it.
+ *      longest first, and answers a permission in place: the row goes.
  *   4. Each space is a section: its head in the space's colour with its tally at the far end, its
  *      sessions on the head's name, five then Show more, a fan-out folded into one row, a schedule's
  *      session wearing a clock. A section folds, and a reload finds it folded.
@@ -391,7 +391,7 @@ async function main() {
     ["Library", "Connections", "Scheduled tasks"].every((n) => names.includes(n)) && names.some((n) => /^Home/.test(n))
       && names.some((n) => /^Notifications/.test(n)) && names.includes("Hide sidebar (⌘B)"), names);
   const homeBtn = rail.buttons.find((b) => /^Home/.test(b.name));
-  check("Home wears the count of what waits, from every profile", homeBtn.name === "Home, 2 waiting on you" && homeBtn.badge === "2", homeBtn);
+  check("Home wears no count: what waits says so on its own row, in Needs you", homeBtn.name === "Home" && homeBtn.badge === null, homeBtn);
   const foot = rail.buttons.find((b) => b.name === "Hide sidebar (⌘B)");
   check("the toggle and the person sit at the rail's foot", foot.box.b > WINDOW.height - 120, foot.box);
 
@@ -455,8 +455,6 @@ async function main() {
     return n && !n.some((r) => r.label.startsWith("Wants a yes")) ? n : null;
   }, 15_000, "the answered row gone");
   check("answering in place takes the row out of Needs you", !answered.some((r) => r.label.startsWith("Wants a yes")), answered.map((r) => r.label));
-  const homeAfter = (await evalIn(c, `__live.rail()`)).buttons.find((b) => /^Home/.test(b.name));
-  check("…and Home's count follows it", homeAfter.name === "Home, 1 waiting on you" && homeAfter.badge === "1", homeAfter);
   const asksAfter = (await api.call("sessions.get", { id: asks.id })).status;
   check("the session itself moved on from the question", asksAfter !== "waiting_permission", asksAfter);
 
@@ -552,7 +550,7 @@ async function main() {
   const sbC = await evalIn(c, `__live.sidebar()`);
   check("collapsing leaves the rail on screen, where it was", railC.shown && railC.box.l === 0 && railC.box.w === rail.box.w, railC.box);
   check("…the sidebar out of reach, and the panes taking its room", sbC.inert && sbC.opacity === "0" && Math.abs(mainBox.l - railC.box.r) < 0.5, { sidebar: sbC, main: mainBox.l });
-  check("…with Home's count and the way back still on screen", railC.buttons.some((b) => b.name === "Home, 1 waiting on you") && railC.buttons.some((b) => b.name === "Show sidebar (⌘B)"), railC.buttons.map((b) => b.name));
+  check("…with Home and the way back still on screen", railC.buttons.some((b) => b.name === "Home") && railC.buttons.some((b) => b.name === "Show sidebar (⌘B)"), railC.buttons.map((b) => b.name));
   check("…and the window's back and forward under the lights, the head row that had them gone with the sidebar",
     railC.buttons[0]?.name === "Go back" && railC.buttons[1]?.name === "Go forward", railC.buttons.slice(0, 2).map((b) => b.name));
   const [cRail, cNotch, cInCorner, cSheet, cRimA, cRimB] = await lumAt(c, [[railC.box.l + 38, 300], [mainBox.l + 1.5, 41.5], [mainBox.l + 10, 50], [mainBox.l + 200, 600], [mainBox.l, 300], [mainBox.l + 0.6, 300]]);

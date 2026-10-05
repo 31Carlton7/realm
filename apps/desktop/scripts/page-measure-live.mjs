@@ -141,8 +141,7 @@ window.__live = window.__live ?? {
       if (!hit) throw new Error('no destination: Settings');
       hit.click();
     } else {
-      const name = label === "Agents" ? "Home" : label;
-      const row = [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith(name));
+      const row = [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith(label));
       if (!row) throw new Error('no destination: ' + label);
       row.click();
     }

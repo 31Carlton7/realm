@@ -40,7 +40,6 @@ export const destinationTarget = (kind: DestinationPageKind, spaceId: string): P
  *  worth removing: the bar names what the overlay IS while the page's heading names what it is
  *  SHOWING — "Settings" over a page whose heading is the space you are configuring. */
 export const PAGE_LABEL: Partial<Record<Item["kind"], string>> = {
-  "agents-page": "Agents",
   "library-page": "Library",
   "connections-page": "Connections",
   "notifications-page": "Notifications",

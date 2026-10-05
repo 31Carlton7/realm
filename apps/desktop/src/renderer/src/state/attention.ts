@@ -63,7 +63,7 @@ export type LiveSession = {
 
 /**
  * Every live session among `rows`, most urgent first, and within a rank the one that moved most
- * recently first — the same order the Agents page gives its groups.
+ * recently first.
  *
  * The status is the LIVE one, never the row's: the row is what the server said when it was listed,
  * and a session that finished since is stale there. A row with no live status is one the window has

@@ -729,12 +729,16 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   with the keyboard in the prompter; it used to open the space's Overview, a page of settings for
   something named a second earlier in order to work in it. Settings are where a thing is visited
   later, and the sheet that made it has already asked everything that had no default.
-- Several agents need one page that answers "what should I look at": every session across every
-  space by what it needs from you — blocked on a permission first, then working, failed, finished.
-  The per-space badges say the same thing per space; the page says it once, with enough on each
-  row (space, folder, model, how long ago it moved) to choose without opening. A relay beyond the
-  Mac (a text, a Slack line) carries only those moments a person has to come back for, and one
+- What needs you is said where you already look — the session's own row, Needs you at the head of
+  the sidebar, the bell's count — and not on a page of its own. An Agents page once ranked every
+  session by what it needed and drew the live ones as a wall and an office; it said again what those
+  rows said, from a second place you had to go to, and the owner removed it (10-05). A relay beyond
+  the Mac (a text, a Slack line) carries only those moments a person has to come back for, and one
   open condition is sent once.
+- Home is the way back to the work, not a page: it puts away whatever page is up and lands on the
+  session that was in front, in its space — or on a fresh prompter when nothing was, as closing the
+  last pane does. A control that only ever returns is not a toggle, so it is never lit and carries no
+  count.
 - The sidebar answers where the user is and what else is available. Keep primary destinations,
   spaces, open items, and contextual actions visually separate.
 - One column of navigation at a time. A page with sections of its own — Settings, the Library, a

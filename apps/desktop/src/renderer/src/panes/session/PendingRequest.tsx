@@ -12,8 +12,8 @@ import type { PendingPermission } from "./transcript-model";
  * (any agent's, or an MCP server's — its fields, and an answer of your own where one is offered), a
  * plan waiting to be approved (`ExitPlanMode`), and a permission proper (Allow / Allow always / Deny).
  * Which card a request gets is decided HERE, once, so every surface that answers in place — the
- * transcript, the sidebar's Needs you, the Agents page, Notifications — asks the same question in the
- * same shape, with the same keys.
+ * transcript, the sidebar's Needs you, Notifications — asks the same question in the same shape, with
+ * the same keys.
  *
  * A question is told apart by its card (`askCardFor`), which Realm wrote, and never by the tool's
  * name alone or by the shape of its arguments: those are the agent's, and a permission that could be

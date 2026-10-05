@@ -32,7 +32,7 @@ async function mount(overrides: FakeData = {}) {
 
 const sidebar = () => document.getElementById("app-sidebar")!;
 const page = () => document.querySelector(".page-overlay")!;
-const open = (store: Awaited<ReturnType<typeof mount>>["store"], kind: "library-page" | "settings-page" | "agents-page") =>
+const open = (store: Awaited<ReturnType<typeof mount>>["store"], kind: "library-page" | "settings-page" | "you-page") =>
   act(() => { store.getState().openDestinationPage(kind); });
 
 afterEach(() => cleanup());
@@ -80,10 +80,10 @@ describe("a page's rail in the sidebar's place", () => {
   });
 
   it("leaves the sidebar alone for a page with no rail of its own", async () => {
-    // THE MUTANT: hand the column over for every page — the Agents page has nothing to put there.
+    // THE MUTANT: hand the column over for every page — the page about you has nothing to put there.
     const { store } = await mount();
-    await open(store, "agents-page");
-    await screen.findByRole("dialog", { name: "Agents" });
+    await open(store, "you-page");
+    await screen.findByRole("dialog", { name: "You" });
     expect(sidebar().querySelector(".sb-page")).toBeNull();
     expect(sidebar().querySelector(".sb-list")).not.toHaveAttribute("hidden");
   });

@@ -9,8 +9,8 @@ import type { HubElicit } from "./hub";
  * The server is named as the server ("Linear's MCP server asks"), by the name the user gave it in
  * Connections: the same question means something different from a server than from the agent, and
  * MCP requires the client to say which server is asking. The card is the same one every other feed
- * gets, through the same broker, so it is answered from the transcript, Needs you, the Agents page or
- * Notifications alike.
+ * gets, through the same broker, so it is answered from the transcript, Needs you or Notifications
+ * alike.
  *
  * What goes back follows MCP's three actions: `accept` with the form's own types, `decline` when the
  * user said no (or Realm declined a form asking for a credential, which MCP forbids — the card says
