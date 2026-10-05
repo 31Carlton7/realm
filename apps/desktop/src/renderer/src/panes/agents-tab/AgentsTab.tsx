@@ -136,7 +136,7 @@ function SubagentCard({ child, leadId, flash, onOpen }: { child: DelegatedChild;
   const doing = ticking ? latestDoing(liveDoing, child.activity) : null;
   const summary = !ticking && child.report ? reportSummary(child.report) : "";
   const ref = useRef<HTMLLIElement>(null);
-  useEffect(() => { if (flash) ref.current?.scrollIntoView({ block: "nearest" }); }, [flash]);
+  useEffect(() => { if (flash) ref.current?.scrollIntoView?.({ block: "nearest" }); }, [flash]);
   return (
     <li ref={ref} className="subagent" data-state={state} data-flash={flash || undefined}>
       <button type="button" className="subagent-card" title="Open this sub-agent's transcript"
