@@ -76,7 +76,7 @@ export function SimulatorToolbar({ simulatorId, connected, width, frame, shownAs
        orientation is the hand holding it. */
     ...(physical ? [] : [{ id: "rotate", label: "Rotate", aria: "Rotate the device", title: "Rotate", icon: "rotate" as const, onSelect: rotate }]),
   ];
-  const fit = toolbarFit(width, presses.length);
+  const fit = toolbarFit(width, presses.length, connected ? "Live" : "Connecting");
   const size = state.screen ? `${state.screen.width}×${state.screen.height}` : null;
 
   return (

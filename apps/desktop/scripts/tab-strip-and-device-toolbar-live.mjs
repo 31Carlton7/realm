@@ -119,6 +119,9 @@ async function shoot(c, name, selector, pad = 16) {
      nothing and the chrome comes out see-through grey. For the capture alone the root is painted with
      a ground standing in for the material over a plain wallpaper, dark or light as the face is. */
   await evalIn(c, `(() => { const r = document.documentElement; r.style.background = r.dataset.mode === "light" ? "#e9e9ec" : "#17181b"; return true; })()`);
+  // The pointer off every control, so no tooltip stands in the picture.
+  await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 700, y: VIEWPORT.height - 40 });
+  await sleep(150);
   const { data } = await c.send("Page.captureScreenshot", { format: "png", ...(box ? { clip: { ...box, scale: 1 } } : {}) });
   await evalIn(c, `(() => { document.documentElement.style.background = ""; return true; })()`);
   const file = path.join(shots, `${name}.png`);
@@ -372,6 +375,28 @@ async function main() {
   }
   await width(40);
   await shoot(c, "window-iphone-dark");
+
+  /* The budget's status widths (toolbar-fit.ts) against what this build draws, for both words: a
+     budget under the drawn width clips the overflow's button, and one far over gives presses up early. */
+  const budget = Object.fromEntries([...fs.readFileSync(path.join(repoRoot, "apps/desktop/src/renderer/src/panes/simulator/toolbar-fit.ts"), "utf8")
+    .matchAll(/(Live|Connecting): \{ full: (\d+), word: (\d+), dot: (\d+) \}/g)].map((m) => [m[1], { full: +m[2], word: +m[3], dot: +m[4] }]));
+  const statusWidths = () => evalIn(c, `(() => { const t = document.querySelector(${JSON.stringify(sel(".sim-toolbar"))}); const st = t.querySelector('.sim-toolbar-status');
+    const was = t.dataset.status; const out = { word: st.querySelector('.sim-toolbar-word').textContent };
+    for (const level of ["full", "word", "dot"]) { t.dataset.status = level; out[level] = Math.round(st.getBoundingClientRect().width * 10) / 10; }
+    t.dataset.status = was; return out; })()`);
+  const drawn = [await statusWidths()];
+  // A socket that never answers keeps the toolbar connecting, which is the other word it can show.
+  await evalIn(c, `${store(`applySimulatorState(${JSON.stringify({ ...running(IPHONE, "Recipes"), wsUrl: "ws://127.0.0.1:9/ws" })})`)}, true`);
+  await until(() => evalIn(c, `document.querySelector(${JSON.stringify(sel(".sim-toolbar-word"))})?.textContent === "Connecting"`), 5000, "connecting").catch(() => null);
+  drawn.push(await statusWidths());
+  await shoot(c, "iphone-connecting-dark", sel(".sim-above"), 12);
+  await evalIn(c, `${store(`applySimulatorState(${JSON.stringify(running(IPHONE, "Recipes"))})`)}, true`);
+  await sleep(500);
+  for (const d of drawn) {
+    const b = budget[d.word];
+    const ok = b && ["full", "word", "dot"].every((k) => d[k] <= b[k] && b[k] - d[k] <= 4);
+    check(`the toolbar budgets "${d.word}" at what this build draws`, ok, { drawn: d, budget: b });
+  }
 
   // The overflow, open.
   const more = await evalIn(c, `(() => { const b = [...document.querySelectorAll(${JSON.stringify(sel(".sim-toolbar button"))})].find((x) => /more/i.test(x.getAttribute('aria-label') ?? '')); if (!b) return false; b.click(); return true; })()`);

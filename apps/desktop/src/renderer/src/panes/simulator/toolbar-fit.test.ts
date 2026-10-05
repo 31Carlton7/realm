@@ -6,7 +6,8 @@ import { STATUS_W, TOOLBAR_BUTTON, TOOLBAR_CHROME, toolbarFit } from "./toolbar-
  * word, then the presses from the end. Arithmetic, tested as arithmetic — jsdom lays nothing out — and
  * the rendering half (what leaves arrives in the overflow) is simulator-pane.test.tsx's.
  */
-const full = (buttons: number) => TOOLBAR_CHROME + STATUS_W.full + buttons * TOOLBAR_BUTTON;
+const LIVE = STATUS_W.Live;
+const full = (buttons: number) => TOOLBAR_CHROME + LIVE.full + buttons * TOOLBAR_BUTTON;
 
 describe("the device toolbar's ladder", () => {
   it("draws everything where everything fits", () => {
@@ -17,11 +18,11 @@ describe("the device toolbar's ladder", () => {
   it("gives up the resolution first, then the state's word, before any press", () => {
     // THE MUTANT: buttons first. A press is something a person does; a resolution is only read.
     expect(toolbarFit(full(4) - 1, 4)).toEqual({ status: "word", keep: 4 });
-    expect(toolbarFit(TOOLBAR_CHROME + STATUS_W.word + 4 * TOOLBAR_BUTTON - 1, 4)).toEqual({ status: "dot", keep: 4 });
+    expect(toolbarFit(TOOLBAR_CHROME + LIVE.word + 4 * TOOLBAR_BUTTON - 1, 4)).toEqual({ status: "dot", keep: 4 });
   });
 
   it("then the presses, one at a time from the end, and never the dot", () => {
-    const dot = (n: number) => TOOLBAR_CHROME + STATUS_W.dot + n * TOOLBAR_BUTTON;
+    const dot = (n: number) => TOOLBAR_CHROME + LIVE.dot + n * TOOLBAR_BUTTON;
     expect(toolbarFit(dot(4) - 1, 4)).toEqual({ status: "dot", keep: 3 });
     expect(toolbarFit(dot(1), 4)).toEqual({ status: "dot", keep: 1 });
     expect(toolbarFit(dot(0), 4)).toEqual({ status: "dot", keep: 0 });
@@ -33,8 +34,17 @@ describe("the device toolbar's ladder", () => {
     expect(toolbarFit(0, 3)).toEqual({ status: "full", keep: 3 });
   });
 
+  it("budgets the word it is showing, so a toolbar still connecting does not clip", () => {
+    // THE MUTANT: one width for every word. "Connecting" is a button wider than "Live", and a toolbar
+    // budgeted for "Live" ran its overflow off the pill's end for as long as the touch took to come up.
+    expect(toolbarFit(full(4), 4, "Connecting")).toEqual({ status: "word", keep: 4 });
+    expect(toolbarFit(full(4), 4, "Live")).toEqual({ status: "full", keep: 4 });
+  });
+
   it("orders its rungs, so no two fire together", () => {
-    expect(STATUS_W.full).toBeGreaterThan(STATUS_W.word);
-    expect(STATUS_W.word).toBeGreaterThan(STATUS_W.dot);
+    for (const w of Object.values(STATUS_W)) {
+      expect(w.full).toBeGreaterThan(w.word);
+      expect(w.word).toBeGreaterThan(w.dot);
+    }
   });
 });
