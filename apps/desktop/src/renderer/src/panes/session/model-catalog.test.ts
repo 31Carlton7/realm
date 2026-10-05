@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey, type ModelInfo } from "@realm/contracts";
 import {
-  agentRowHint, chipLabel, effortLevels, fastModeAvailability, fastModeHint, fastModeShown, filterRows, flatten, groupRows,
+  agentRowHint, billingLead, chipLabel, effortLevels, fastModeAvailability, fastModeHint, fastModeShown, filterRows, flatten, groupRows,
   modelAbout, modelLabel, modelRows, resolveModelName, type FastMode, type ModelRow,
 } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
@@ -390,6 +390,13 @@ describe("modelAbout", () => {
     expect(modelAbout(codex, "codex", {}).warning).toMatch(/Codex isn’t installed/);
     const deepseek = rows.find((r) => r.kind === "acp:deepseek")!;
     expect(modelAbout(deepseek, "acp:deepseek", {}).warning).toBe(AGENT_NOTES["acp:deepseek"].limits);
+  });
+});
+
+describe("billingLead", () => {
+  it("keeps the statement of who bills and leaves the aside to the hover", () => {
+    expect(billingLead(AGENT_NOTES.codex.billing)).toBe("Bills through your ChatGPT plan or OpenAI API key.");
+    expect(billingLead(AGENT_NOTES["acp:cursor"].billing)).toBe(AGENT_NOTES["acp:cursor"].billing);
   });
 });
 

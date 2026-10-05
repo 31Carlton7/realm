@@ -6,7 +6,7 @@ import { ScrollFades } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import {
-  agentRowHint, chipLabel, fastModeHint, fastModeShown, fastModeUntried, filterRows, flatten, formatEffort, groupRows,
+  agentRowHint, billingLead, chipLabel, fastModeHint, fastModeShown, fastModeUntried, filterRows, flatten, formatEffort, groupRows,
   isHarnessDefault, modelAbout, modelIdOn, modelLabel, type FastMode, type ModelRow,
 } from "./model-catalog";
 
@@ -23,6 +23,11 @@ export type OverflowGroup = { label: string; items: { label: string; checked?: b
   /** The effort id behind this button, on the effort group only. Carried rather than re-derived from
    *  the label so the easter-egg gradient can name the level it escalates for. */
   effort?: string }[] };
+
+/** A sentence with its commands set as code: `AGENT_NOTES` marks them with backticks, which read as
+ *  stray punctuation printed raw. The plain form is for a tooltip, which has no code face. */
+const withCode = (text: string) => text.split(/`([^`]+)`/).map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
+const plain = (text: string) => text.replace(/`/g, "");
 
 /** The levels the gradient answers to. Below these it stays out of the way entirely — a treatment
  *  every option wore would say nothing about the one that was picked. */
@@ -142,6 +147,15 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
   const ref = useRef<HTMLDivElement>(null);
   // Right-aligned, opening upward from the chip, which sits at the right end of the control row.
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, placement: "up", align: "right", onClose, exit: true });
+  /* No taller than the roomier side of the chip, less the placement's margins. A brand-new session's
+     prompter sits mid-window, where neither side held the whole list, and the picker either landed on
+     the chip that opened it or ran off the bottom of the window. Capped, the list — the one part
+     that can give — gives, and the popover opens whole beside its chip. */
+  const [room, setRoom] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const a = anchorRef.current?.getBoundingClientRect();
+    if (a) setRoom(Math.floor(Math.max(a.top, window.innerHeight - a.bottom)) - 10);
+  }, [anchorRef]);
   const [query, setQuery] = useState("");
   /** The highlighted row by id, starting on the current model. Anchored to the ROW rather than an
    *  index: ⌥↩ re-sorts a starred row into Favourites from under the highlight. */
@@ -215,7 +229,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
   const hasFoot = effortItems.length > 0 || !!fast || (overflow?.length ?? 0) > 0;
   return createPortal(
     <div ref={ref} className="model-picker" aria-label="Model picker" role="dialog"
-      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
+      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: room ?? undefined,
         visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom right" }}
       data-closing={closing || undefined} data-eggs={eggs || undefined} inert={closing}>
       <div className="mp-search">
@@ -321,12 +335,12 @@ function About({ row, route, info }: { row: ModelRow; route: AgentKind; info: Re
   const name = isHarnessDefault(row) ? AGENT_META[route].label : modelLabel({ ...row, kind: route });
   return (
     <div className="mp-about">
-      <p className="mp-about-note" data-tone={warning ? "warning" : undefined} title={warning ?? note}>
+      <p className="mp-about-note" data-tone={warning ? "warning" : undefined} title={plain(warning ?? note)}>
         {warning
-          ? <><Icon name="alert" size={12} />{warning}</>
-          : <><span className="mp-about-name">{name}</span>{note}</>}
+          ? <><Icon name="alert" size={12} />{withCode(warning)}</>
+          : <><span className="mp-about-name">{name}</span>{withCode(note)}</>}
       </p>
-      <p className="mp-about-specs" title={billing}>{specs ?? billing}</p>
+      <p className="mp-about-specs" title={plain(billing)}>{withCode(specs ?? billingLead(billing))}</p>
     </div>
   );
 }

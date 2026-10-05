@@ -34,7 +34,7 @@
 .diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .file-preview-path, .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
-.mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .mention-row-id,
+.mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .mention-row-id, .mp-about code,
 .msg-error pre, .office-drawn-size, .office-kept, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron-input, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
@@ -1237,7 +1237,7 @@ kbd { font: 11px var(--font-mono); }
    with the detail pane it held. */
 .model-picker { z-index: 100; width: min(372px, calc(100vw - 24px)); display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
-.mp-search { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: var(--hairline-w) solid var(--rl-hairline); color: var(--rl-text-faint); }
+.mp-search { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: var(--hairline-w) solid var(--rl-hairline); color: var(--rl-text-faint); }
 .mp-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--rl-text-bright); }
 .mp-search input::placeholder { color: var(--rl-text-faint); }
 /* The list scrolls on its own and dissolves at both ends; it pads its foot by the band's depth, so
@@ -1290,6 +1290,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-about-name { margin-right: 6px; color: var(--rl-text-bright); font-weight: var(--fw-label); }
 .mp-about-note[data-tone="warning"] { color: var(--rl-warning); }
 .mp-about-note svg { display: inline-block; vertical-align: -1px; margin-right: 5px; }
+.mp-about code { font-family: var(--font-mono); font-size: 11px; }
 .mp-about-specs { margin: auto 0 0; font-size: 12px; line-height: 17px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 

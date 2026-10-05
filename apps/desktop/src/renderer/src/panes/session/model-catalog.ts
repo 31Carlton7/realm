@@ -522,6 +522,10 @@ export function modelAbout(row: ModelRow, route: AgentKind, info: Record<string,
   return { note, warning, specs: specs || null, billing: AGENT_NOTES[route].billing };
 }
 
+/** A harness's billing sentence to the end of its first clause — "Bills through your ChatGPT plan or
+ *  OpenAI API key." — for a line with room for one statement; the rest belongs to the line's hover. */
+export const billingLead = (billing: string): string => `${billing.split(" — ")[0]!.replace(/\.$/, "")}.`;
+
 /** A name resolved to something a session can be put on. */
 export type ModelMatch = {
   row: ModelRow;

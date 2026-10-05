@@ -210,11 +210,34 @@ describe("the strip under the list", () => {
     expect(specs.getAttribute("title")).toMatch(/Claude subscription/);
   });
 
+  it("sets a harness's commands as code, and keeps the tooltip plain", () => {
+    const rows = modelRows({ kind: "acp:openhands", model: null, canSwitchAgent: true, agentProbe: [] });
+    mount({ rows, kind: "acp:openhands", model: null });
+    const note = document.querySelector(".mp-about-note")!;
+    expect([...note.querySelectorAll("code")].map((c) => c.textContent)).toEqual(["openhands", "/settings"]);
+    expect(note.textContent).not.toContain("`");
+    expect(note.getAttribute("title")).not.toContain("`");
+  });
+
   it("holds one height whatever the model says — the popover grows upward, so a taller strip would move the rows", () => {
     const css = readFileSync(repoFile("apps/desktop/src/renderer/src/styles.css"), "utf8");
     const about = /\.mp-about \{([^}]*)\}/.exec(css)?.[1] ?? "";
     expect(about).toMatch(/(^|[;\s])height:/);
     expect(about).not.toMatch(/min-height|max-height/);
+  });
+});
+
+describe("where it opens", () => {
+  it("is never taller than the roomier side of its chip, so it opens whole beside it", () => {
+    /* A brand-new session's prompter sits mid-window. With 300px above the chip and 440px below,
+       neither held the whole list, and the picker landed on its own chip or ran off the window. */
+    const real = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("aria-label") === "Model" ? new DOMRect(900, 300, 140, 28) : real.call(this);
+    });
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(768);
+    mount();
+    expect(dialog()!.style.maxHeight).toBe(`${768 - 328 - 10}px`);
   });
 });
 

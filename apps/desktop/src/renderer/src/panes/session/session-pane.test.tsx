@@ -1647,7 +1647,7 @@ describe("prompter model picker", () => {
       fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
       const specs = picker().querySelector(".mp-about-specs")!;
       expect(specs).toHaveTextContent("1M context · $10 in · $50 out per Mtok");
-      expect(specs.getAttribute("title")).toBe(AGENT_NOTES.claude.billing);
+      expect(specs.getAttribute("title")).toBe(AGENT_NOTES.claude.billing.replace(/`/g, ""));
       // Realm's own sentence beats the catalog's marketing first line.
       expect(picker()).toHaveTextContent(MODEL_NOTES.get(canonicalModelKey("Claude Fable 5.1"))!);
       expect(picker()).not.toHaveTextContent("Vendor prose.");
