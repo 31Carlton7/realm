@@ -75,7 +75,9 @@ describe("a toast", () => {
     expect(stack()).toHaveAttribute("data-expanded");
     expect(cards()[0]).toHaveAttribute("data-paused"); // …and the line across its foot stops with it
     advance(60_000);
+    advance(TOAST_EXIT_MS);
     expect(store.getState().toasts).toHaveLength(1);
+    expect(cards()[0]).not.toHaveAttribute("data-leaving");
     fireEvent.pointerLeave(stack());
     expect(cards()[0]).not.toHaveAttribute("data-paused");
     advance(1000); advance(TOAST_EXIT_MS);
@@ -88,7 +90,9 @@ describe("a toast", () => {
     const close = screen.getByRole("button", { name: "Dismiss" });
     act(() => { close.focus(); });
     advance(10_000);
+    advance(TOAST_EXIT_MS);
     expect(store.getState().toasts).toHaveLength(1);
+    expect(cards()[0]).not.toHaveAttribute("data-leaving");
     act(() => { close.blur(); });
     advance(1000); advance(TOAST_EXIT_MS);
     expect(store.getState().toasts).toEqual([]);
@@ -101,7 +105,9 @@ describe("a toast", () => {
     await settle();
     act(() => { store.getState().toast({ text: "Finished", life: 1000 }); });
     advance(10_000);
+    advance(TOAST_EXIT_MS);
     expect(store.getState().toasts).toHaveLength(1);
+    expect(cards()[0]).not.toHaveAttribute("data-leaving");
     document.documentElement.removeAttribute("data-window-inactive");
     await settle();
     advance(1000); advance(TOAST_EXIT_MS);
