@@ -12,7 +12,7 @@ const schedule = (over: Partial<Schedule> = {}): Schedule => ({
   id: "sch1", spaceId: "s1", title: "Morning triage", goal: "read the new issues",
   cron: "0 9 * * *", enabled: true, constraints: null,
   nextRunAt: Date.now() + DAY, lastRunAt: null, lastRunId: null, lastSkippedAt: null,
-  createdAt: 1, updatedAt: 1, ...over,
+  newSessionPerRun: true, archiveSucceeded: false, createdAt: 1, updatedAt: 1, ...over,
 });
 
 async function mount(schedules: Schedule[]) {

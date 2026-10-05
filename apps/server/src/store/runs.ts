@@ -5,7 +5,7 @@ import { now } from "./rows";
 type Row = {
   id: string; space_id: string; title: string; goal: string; agent_kind: AgentKind;
   environment_id: string | null; constraints_json: string | null; dedupe_key: string | null;
-  state: RunState; attempt: number; max_attempts: number; session_id: string | null;
+  state: RunState; attempt: number; max_attempts: number; session_id: string | null; schedule_id: string | null;
   deadline_at: number | null; result_text: string | null; error: string | null;
   created_at: number; started_at: number | null; settled_at: number | null; updated_at: number;
 };
@@ -24,7 +24,7 @@ function parseConstraints(json: string | null): RunConstraints | null {
 const toRun = (r: Row): Run => ({
   id: r.id, spaceId: r.space_id, title: r.title, goal: r.goal, agentKind: r.agent_kind,
   environmentId: r.environment_id, constraints: parseConstraints(r.constraints_json), dedupeKey: r.dedupe_key,
-  state: r.state, attempt: r.attempt, maxAttempts: r.max_attempts, sessionId: r.session_id,
+  state: r.state, attempt: r.attempt, maxAttempts: r.max_attempts, sessionId: r.session_id, scheduleId: r.schedule_id,
   deadlineAt: r.deadline_at, result: r.result_text, error: r.error,
   createdAt: r.created_at, startedAt: r.started_at, settledAt: r.settled_at, updatedAt: r.updated_at,
 });
@@ -39,6 +39,9 @@ export type RunInsert = {
   spaceId: string; title: string; goal: string; agentKind: AgentKind;
   environmentId: string | null; constraints: RunConstraints | null; dedupeKey: string | null;
   maxAttempts: number; deadlineAt: number | null;
+  /** The schedule that fired it, and — continuing that schedule's last session — the session the
+   *  first attempt resumes. Both null for a run started by hand. */
+  scheduleId?: string | null; sessionId?: string | null;
 };
 
 /** Every field a transition may write. Absent = untouched; `null` is a real value for the nullable
@@ -87,11 +90,11 @@ export class RunsStore {
     try {
       this.db.prepare(
         `INSERT INTO runs (id, space_id, title, goal, agent_kind, environment_id, constraints_json, dedupe_key,
-           state, attempt, max_attempts, session_id, deadline_at, result_text, error, created_at, started_at, settled_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, NULL, ?, NULL, NULL, ?, NULL, NULL, ?)`,
+           state, attempt, max_attempts, session_id, schedule_id, deadline_at, result_text, error, created_at, started_at, settled_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL, ?)`,
       ).run(id, input.spaceId, input.title, input.goal, input.agentKind, input.environmentId,
         input.constraints ? JSON.stringify(input.constraints) : null, input.dedupeKey,
-        input.maxAttempts, input.deadlineAt, t, t);
+        input.maxAttempts, input.sessionId ?? null, input.scheduleId ?? null, input.deadlineAt, t, t);
     } catch (e) {
       if (isUniqueViolation(e)) return null;
       throw e;
@@ -142,10 +145,12 @@ export class RunsStore {
   }
 
   /** One page of one space's runs. The `space_id = ?` filter is load-bearing: two spaces' runs must
-   *  never appear in one listing, however their timestamps interleave. An empty `states` means all. */
-  list(input: { spaceId: string; states: RunState[]; cursor: string | null; limit: number }): { runs: Run[]; nextCursor: string | null } {
+   *  never appear in one listing, however their timestamps interleave. An empty `states` means all;
+   *  a `scheduleId` narrows to the runs that schedule fired. */
+  list(input: { spaceId: string; scheduleId?: string | null; states: RunState[]; cursor: string | null; limit: number }): { runs: Run[]; nextCursor: string | null } {
     const parsed = parseCursor(input.cursor);
     const where: string[] = ["space_id = ?"]; const vals: (string | number)[] = [input.spaceId];
+    if (input.scheduleId) { where.push("schedule_id = ?"); vals.push(input.scheduleId); }
     if (input.states.length > 0) {
       where.push(`state IN (${input.states.map(() => "?").join(", ")})`);
       vals.push(...input.states);
@@ -161,6 +166,13 @@ export class RunsStore {
     // A short page IS the end; only a full page might have more behind it.
     const nextCursor = rows.length === input.limit && last ? `${last.created_at}:${last.id}` : null;
     return { runs: rows.map(toRun), nextCursor };
+  }
+
+  /** The newest run a schedule fired, in whichever space it fired in — what a schedule that continues
+   *  one session continues. */
+  latestForSchedule(scheduleId: string): Run | null {
+    const r = this.db.prepare("SELECT * FROM runs WHERE schedule_id = ? ORDER BY created_at DESC, id DESC LIMIT 1").get(scheduleId) as Row | undefined;
+    return r ? toRun(r) : null;
   }
 
   /** Every live run, across every space — boot recovery's one scan. */

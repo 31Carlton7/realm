@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { describeSchedule, onceExpr, parseMoment, type Schedule } from "@realm/contracts";
+import { EFFORT_LEVELS, describeSchedule, onceExpr, parseMoment, type RunConstraints, type Schedule, type Session } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
 import type { ScheduleService } from "./service";
@@ -33,6 +33,8 @@ export const SCHEDULE_PROVIDER_NAME = "realm-schedule";
 export type ScheduleAgentToolsDeps = {
   schedules: Pick<ScheduleService, "create" | "list">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
+  /** The calling session's row — whose agent and model the task it schedules will run on. */
+  sessions?: { get(id: string): Pick<Session, "agentKind" | "model" | "effort"> };
 };
 
 const CreateArgs = z.object({
@@ -115,10 +117,29 @@ function createSchedule(d: ScheduleAgentToolsDeps, ctx: ProviderCallContext, arg
   }
 
   // Every other gate — the expression parses, it has a future occurrence, the space exists — is the
-  // service's, unduplicated. A second copy here would be a second place for the rules to drift.
-  const made = d.schedules.create({ spaceId: ctx.spaceId, title, goal, cron: expr, enabled: true, constraints: null });
+  // service's, unduplicated. A second copy here would be a second place for the rules to drift. The
+  // rest is what the Schedule a task modal starts from, so a task an agent makes opens there looking
+  // like one made by hand.
+  const made = d.schedules.create({
+    spaceId: ctx.spaceId, title, goal, cron: expr, enabled: true,
+    constraints: callerConstraints(d, ctx.sessionId), newSessionPerRun: true, archiveSucceeded: false,
+  });
   const when = made.nextRunAt === null ? describeSchedule(made.cron) : `${describeSchedule(made.cron)} — first run ${moment(made.nextRunAt)}`;
   return ok(`Scheduled "${made.title}": ${when}.\nIt starts a task in this space, which will appear under Scheduled tasks and in the Tasks lens when it runs.`);
+}
+
+/**
+ * The task runs on the agent and model of the session that scheduled it. Left unset, a run falls back
+ * to Claude whatever was asking — a Codex conversation that said "do this every Monday" would come
+ * back as somebody else's work. Null where the session cannot be read: the run's own fallback then
+ * stands, as it does for a task made with no session behind it.
+ */
+function callerConstraints(d: ScheduleAgentToolsDeps, sessionId: string): RunConstraints | null {
+  if (!d.sessions) return null;
+  let caller: Pick<Session, "agentKind" | "model" | "effort">;
+  try { caller = d.sessions.get(sessionId); } catch { return null; }
+  const effort = EFFORT_LEVELS.find((e) => e === caller.effort);
+  return { agentKind: caller.agentKind, ...(caller.model ? { model: caller.model } : {}), ...(effort ? { effort } : {}) };
 }
 
 function listSchedules(d: ScheduleAgentToolsDeps, ctx: ProviderCallContext): CallToolResult {

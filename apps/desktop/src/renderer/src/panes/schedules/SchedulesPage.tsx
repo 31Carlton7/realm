@@ -267,7 +267,7 @@ function ScheduleForm({ spaceId, schedule, onDone }: { spaceId: string; schedule
     const patch = { title: title.trim(), goal: goal.trim(), cron: expr.trim() };
     run(async () => {
       if (schedule) await updateSchedule({ id: schedule.id, ...patch });
-      else await createSchedule({ spaceId, ...patch, enabled: true, constraints: null });
+      else await createSchedule({ spaceId, ...patch, enabled: true, constraints: null, newSessionPerRun: true, archiveSucceeded: false });
       onDone();
     });
   };

@@ -5,7 +5,8 @@ import { now } from "./rows";
 type Row = {
   id: string; space_id: string; title: string; goal: string; cron: string; enabled: number;
   constraints_json: string | null; next_run_at: number | null; last_run_at: number | null;
-  last_run_id: string | null; last_skipped_at: number | null; created_at: number; updated_at: number;
+  last_run_id: string | null; last_skipped_at: number | null;
+  new_session_per_run: number; archive_succeeded: number; created_at: number; updated_at: number;
 };
 
 /** A constraints blob that does not parse reads as "no constraints" rather than throwing — the same
@@ -23,15 +24,18 @@ const toSchedule = (r: Row): Schedule => ({
   id: r.id, spaceId: r.space_id, title: r.title, goal: r.goal, cron: r.cron, enabled: r.enabled === 1,
   constraints: parseConstraints(r.constraints_json),
   nextRunAt: r.next_run_at, lastRunAt: r.last_run_at, lastRunId: r.last_run_id, lastSkippedAt: r.last_skipped_at,
+  newSessionPerRun: r.new_session_per_run === 1, archiveSucceeded: r.archive_succeeded === 1,
   createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
 export type ScheduleInsert = {
   spaceId: string; title: string; goal: string; cron: string; enabled: boolean; constraints: RunConstraints | null;
+  newSessionPerRun: boolean; archiveSucceeded: boolean;
 };
 
 export type ScheduleUpdate = {
-  title?: string; goal?: string; cron?: string; enabled?: boolean; constraints?: RunConstraints | null;
+  spaceId?: string; title?: string; goal?: string; cron?: string; enabled?: boolean; constraints?: RunConstraints | null;
+  newSessionPerRun?: boolean; archiveSucceeded?: boolean;
 };
 
 /**
@@ -67,10 +71,11 @@ export class SchedulesStore {
     // nothing ahead. Both are `null`, and the page reads that column to say "paused" / "never".
     const next = input.enabled ? nextFireOf(input.cron, ts) : null;
     this.db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json,
-        next_run_at, last_run_at, last_run_id, last_skipped_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)`)
+        next_run_at, last_run_at, last_run_id, last_skipped_at, new_session_per_run, archive_succeeded, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)`)
       .run(id, input.spaceId, input.title, input.goal, input.cron, input.enabled ? 1 : 0,
-        input.constraints ? JSON.stringify(input.constraints) : null, next, ts, ts);
+        input.constraints ? JSON.stringify(input.constraints) : null, next,
+        input.newSessionPerRun ? 1 : 0, input.archiveSucceeded ? 1 : 0, ts, ts);
     return this.get(id)!;
   }
 
@@ -88,16 +93,20 @@ export class SchedulesStore {
     const ts = this.clock();
     const next: Schedule = {
       ...before,
+      ...(patch.spaceId !== undefined ? { spaceId: patch.spaceId } : {}),
       ...(patch.title !== undefined ? { title: patch.title } : {}),
       ...(patch.goal !== undefined ? { goal: patch.goal } : {}),
       ...(patch.cron !== undefined ? { cron: patch.cron } : {}),
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
       ...(patch.constraints !== undefined ? { constraints: patch.constraints } : {}),
+      ...(patch.newSessionPerRun !== undefined ? { newSessionPerRun: patch.newSessionPerRun } : {}),
+      ...(patch.archiveSucceeded !== undefined ? { archiveSucceeded: patch.archiveSucceeded } : {}),
     };
-    this.db.prepare(`UPDATE schedules SET title = ?, goal = ?, cron = ?, enabled = ?, constraints_json = ?,
-        next_run_at = ?, updated_at = ? WHERE id = ?`)
-      .run(next.title, next.goal, next.cron, next.enabled ? 1 : 0,
+    this.db.prepare(`UPDATE schedules SET space_id = ?, title = ?, goal = ?, cron = ?, enabled = ?, constraints_json = ?,
+        new_session_per_run = ?, archive_succeeded = ?, next_run_at = ?, updated_at = ? WHERE id = ?`)
+      .run(next.spaceId, next.title, next.goal, next.cron, next.enabled ? 1 : 0,
         next.constraints ? JSON.stringify(next.constraints) : null,
+        next.newSessionPerRun ? 1 : 0, next.archiveSucceeded ? 1 : 0,
         next.enabled ? nextFireOf(next.cron, ts) : null, ts, id);
     return this.get(id);
   }

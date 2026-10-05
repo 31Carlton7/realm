@@ -123,7 +123,7 @@ import { userFirstName } from "./user-name";
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
@@ -366,6 +366,15 @@ export function defaultAdapters(): AdapterRegistry {
     on: "keep working", emit: [{ kind: "text", paceMs: 2000, text: "Reading the mapper first, then the reducer that folds its events, then every place the "
       + "sidebar draws a session, so the marks agree wherever a session is shown. After that the tests for each, one "
       + "at a time, and the live check last, because it is the only one that can see the paint." }],
+  }, {
+    // A task scheduled from a conversation, through `realm-schedule` and the gateway the way a real
+    // agent reaches it. Nothing else this agent says calls a Realm tool, and a task that only ever
+    // came from the modal would never show whether the two paths land as one row.
+    on: "schedule the weekly review", emit: [
+      { kind: "mcp", tool: "realm-schedule__schedule_create", args: { title: "Weekly review", cron: "0 16 * * 5",
+        goal: "Look back over this week in this space: list its sessions with agent_peers and its commits with git log, then write a short status update — what shipped, what is in progress, what is blocked." } },
+      { kind: "text", text: "Done — \"Weekly review\" runs every Friday at 4:00 PM, starting this week." },
+    ],
   }] });
   return reg;
 }
@@ -937,17 +946,30 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // delegation engine on purpose — nobody is blocked on a run, so its state is a row and its settle
   // rides the session-event hook above (runs/service.ts).
   runs = new RunService({ store: new RunsStore(db), settings, sessions, rpc, environments: envService, skills, notifications,
+    // A run a schedule fired may owe its schedule something once it is over (archiving a success).
+    // Read through the variable, which is assigned on the next statement and before any run settles.
+    onSettled: (run) => schedules?.runSettled(run),
     fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind });
   // Scheduled tasks: the clock in front of the runs above. It owns a timer and they deliberately do
   // not — every fact this one acts on is a column, so a restart replays from the row rather than
   // from anything the process was holding (schedules/service.ts). Started after boot recovery below,
   // not here, so a catch-up firing lands in a world whose live runs have already been reconciled.
-  schedules = new ScheduleService({ store: new SchedulesStore(db), runs, rpc });
+  schedules = new ScheduleService({
+    store: new SchedulesStore(db), runs, rpc,
+    spaceExists: (id) => Boolean(spaces.get(id)),
+    // The session's sidebar row: an item, archived the way the row's own Archive does it.
+    archiveSession: (sessionId, archived) => {
+      const item = items.findByRefId(sessionId);
+      if (!item || item.kind !== "session" || item.archived === archived) return;
+      items.update({ id: item.id, archived });
+      rpc.broadcast("items.changed", { spaceId: item.spaceId });
+    },
+  });
   /* The `realm-schedule` provider — how a session puts work on the clock from inside a conversation,
      rather than only from the Schedules page. Registered HERE and not up with the other providers
      because it wraps the service declared on the line above; the gateway's per-space enablement is
      what decides whether a session actually sees the tools. */
-  mcpGateway.registerProvider(createScheduleAgentProvider({ schedules, mcp }));
+  mcpGateway.registerProvider(createScheduleAgentProvider({ schedules, mcp, sessions }));
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
   // History tab already open sees the ship land.
@@ -1099,7 +1121,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   };
 
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, gateway: mcpGateway,
+    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, gateway: mcpGateway,
     close: closeApp,
   };
 }

@@ -90,7 +90,7 @@ export const shipRow = (id: string, spaceId: string, extra: Partial<Ship> = {}):
 /** A durable run. Defaults to a queued run with no attempts yet. */
 export const runRow = (id: string, spaceId: string, extra: Partial<Run> = {}): Run =>
   ({ id, spaceId, title: `Run ${id}`, goal: `do ${id}`, agentKind: "claude", environmentId: null,
-    constraints: null, dedupeKey: null, state: "queued", attempt: 0, maxAttempts: 1, sessionId: null,
+    constraints: null, dedupeKey: null, state: "queued", attempt: 0, maxAttempts: 1, sessionId: null, scheduleId: null,
     deadlineAt: null, result: null, error: null, createdAt: 0, startedAt: null, settledAt: null, updatedAt: 0, ...extra });
 
 /** One attempt of a run. */
@@ -1372,6 +1372,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         id: `sch${data.schedules.length + 1}`, spaceId: input.spaceId, title: input.title, goal: input.goal,
         cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints ?? null,
         nextRunAt: nextFireOf(input.cron, Date.now()), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
+        newSessionPerRun: input.newSessionPerRun ?? true, archiveSucceeded: input.archiveSucceeded ?? false,
         createdAt: Date.now(), updatedAt: Date.now(),
       };
       data.schedules = [made, ...data.schedules];
