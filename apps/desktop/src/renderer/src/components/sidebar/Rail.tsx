@@ -1,20 +1,19 @@
-import { Icon, type IconName } from "@realm/ui";
+import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { DestinationPageKind } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { Avatar } from "../Avatar";
 import { Menu } from "../Menu";
 import { RailRecording } from "./RailRecording";
-import { waitingCount } from "./model";
 import { useChord } from "./use-sidebar-model";
 
 /**
  * The rail: the app's destinations as a column of icons at the window's left edge (Plan 27).
  *
- * The sidebar beside it gets you to your work; the rail gets you to the app's pages — Home (the
- * Agents page), Library, Connections, Scheduled tasks and Code review — and at its foot to the
- * Stop of a recording for Laya, a newer Realm, and the person (their page, Settings). It is never
- * collapsed: ⌘B folds the sidebar away and leaves this, so Home's count is always on screen.
+ * The sidebar beside it gets you to your work; the rail gets you to the app's pages — Library,
+ * Connections, Scheduled tasks and Code review, with Home above them as the way back — and at its
+ * foot to the Stop of a recording for Laya, a newer Realm, and the person (their page, Settings). It
+ * is never collapsed: ⌘B folds the sidebar away and leaves this.
  *
  * As narrow as its icons and an even margin round them, Codex's: the traffic lights are wider than it
  * and run on across the top row, which is the window's (WindowLead) rather than this column's. Nothing
@@ -22,17 +21,14 @@ import { useChord } from "./use-sidebar-model";
  * the system's).
  */
 export function Rail() {
-  const waiting = useApp((s) => waitingCount({ sessionStatus: s.sessionStatus, quickChatId: s.quickChat?.sessionId ?? null }));
   return (
     <nav className="app-rail" aria-label="Destinations">
       <div className="rail-group">
-        {/* Home's count is the one number that says something waits on you when the sidebar is away. */}
-        <RailPage kind="agents-page" label="Home" icon="home" count={waiting} countLabel={`${waiting} waiting on you`}
-          title="Home — every agent, by what it needs from you" />
+        <RailHome />
         <RailPage kind="library-page" label="Library" />
         <RailPage kind="connections-page" label="Connections" />
         <RailPage kind="schedules-page" label="Scheduled tasks" />
-        <RailPage kind="code-review-page" label="Code review" title="Code review — pull requests on GitHub" />
+        <RailPage kind="code-review-page" label="Code review" />
       </div>
       <div className="rail-foot">
         {/* The two that wear a state, then the person, at the very foot as Codex keeps them. */}
@@ -45,23 +41,38 @@ export function Rail() {
 }
 
 /**
+ * Home: the way back to the work from wherever the rail has taken you (`goHome`). Not a page, so not
+ * a toggle — it is never lit, and it carries no count: a session that needs you says so on its own
+ * row, and the Dock's badge keeps the count of what came in while you were away.
+ */
+function RailHome() {
+  const goHome = useApp((s) => s.goHome);
+  const run = useApp((s) => s.run);
+  return (
+    <button type="button" className="rail-btn" aria-label="Home" title="Back to your sessions" onClick={() => run(() => goHome())}>
+      <span className="rail-glyph"><Icon name="home" size={18} /></span>
+    </button>
+  );
+}
+
+/**
  * One destination. A click shows its page over the workspace; the button stays lit while the page is
  * up, and pressing it again puts the page away — a lit control says the state and undoes it.
  *
  * A count rides at the glyph's shoulder only while it is above zero, and in the accessible name as
  * well: a badge is the one part of the control a screen reader cannot describe by its shape.
  */
-function RailPage({ kind, label, icon, count = 0, countLabel, title }: {
-  kind: DestinationPageKind; label: string; icon?: IconName; count?: number; countLabel?: string; title?: string;
+function RailPage({ kind, label, count = 0, countLabel }: {
+  kind: DestinationPageKind; label: string; count?: number; countLabel?: string;
 }) {
   const open = useApp((s) => s.pageOverlay?.kind === kind);
   const openDestinationPage = useApp((s) => s.openDestinationPage);
   const closePageOverlay = useApp((s) => s.closePageOverlay);
   return (
     <button type="button" className="rail-btn" aria-pressed={open} aria-label={count > 0 ? `${label}, ${countLabel}` : label}
-      title={title ?? label} onClick={() => (open ? closePageOverlay() : openDestinationPage(kind))}>
+      title={label} onClick={() => (open ? closePageOverlay() : openDestinationPage(kind))}>
       <span className="rail-glyph">
-        <Icon name={icon ?? kind} size={18} />
+        <Icon name={kind} size={18} />
         {/* Two digits is what a badge this size sets without going under the type floor; past that
             the exact number is on the page it opens. */}
         {count > 0 && <span className="sb-badge" aria-hidden="true">{count > 99 ? "99+" : count}</span>}

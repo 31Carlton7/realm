@@ -3,7 +3,6 @@ import type { z } from "zod";
 import type { RpcServer } from "./server";
 import { TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { BOOT_ID } from "../daemon/state";
-import { generatePixelSprite, generatePixelWorld } from "@realm/adapters";
 
 /** When this process came up, for `daemon.info`. A constant for the same reason `BOOT_ID` is one. */
 const STARTED_AT = Date.now();
@@ -63,6 +62,8 @@ import type { DelegatedChildren } from "../delegation/children";
 import type { AgentRunService } from "../delegation/agent-run";
 import type { SearchService } from "../search/service";
 import type { ArtifactsStore } from "../store/artifacts";
+import type { SavedTurnsStore } from "../store/saved-turns";
+import type { LibraryFilesStore } from "../store/library-files";
 import type { ForkService } from "../sessions/fork";
 import type { FailoverService } from "../sessions/failover";
 import type { ImportService } from "../import/service";
@@ -102,6 +103,10 @@ export type Deps = {
   appViews: AppViewService;
   /** Pull requests through the person's own `gh` (the Code Review page). */
   codeReview: CodeReviewService;
+  /** The turns a reader saved from a session's scroll track. */
+  savedTurns: SavedTurnsStore;
+  /** The files a person added to the Library themselves, copied in under the profile. */
+  libraryFiles: LibraryFilesStore;
 };
 
 export function registerMethods(d: Deps): void {
@@ -238,20 +243,6 @@ export function registerMethods(d: Deps): void {
   reg("iconAssets.generate", (p) => d.iconGeneration.generate(p.profileId, p.prompt));
   reg("iconAssets.upload", (p) => d.iconGeneration.upload(p.profileId, p.path));
   reg("iconAssets.delete", (p) => { d.iconAssets.delete(p.id); return { ok: true as const }; });
-
-  /* The pixel office's prompter. A thin proxy: the model's answer travels back as text and the
-     renderer validates it. Nothing is persisted here — a world the user does not keep should leave
-     nothing behind, and the one they do keep is a setting the renderer writes. */
-  reg("office.generate", async (p) => ({
-    json: await generatePixelWorld({
-      prompt: p.prompt, vocabulary: p.vocabulary, current: p.current,
-      maxCols: p.maxCols, maxRows: p.maxRows, seats: p.seats,
-      maxDrawn: p.maxDrawn, problems: p.problems,
-    }),
-  }));
-  reg("office.drawSprite", async (p) => ({
-    json: await generatePixelSprite({ prompt: p.prompt, maxWidth: p.maxWidth, maxHeight: p.maxHeight }),
-  }));
 
   // Imported VS Code themes. `list` never throws on a bad file — one unreadable theme is one theme,
   // not the whole folder — so the only failure a client can see here is an import it just asked for.
@@ -655,6 +646,9 @@ export function registerMethods(d: Deps): void {
   // The Library's file browser. One indexed range scan and a count; no transcript is read, which is
   // the whole point of the `artifacts` index existing (see migration v25).
   reg("library.artifacts", (p) => ({ entries: d.artifacts.list(p), total: d.artifacts.count(p.spaceId, p.profileId ?? null, { sessionId: p.sessionId ?? null, perFile: p.perFile }) }));
+  reg("library.saved", (p) => d.savedTurns.list(p.profileId, p.limit));
+  // Files a person adds to the Library: copied in under the profile, and listed beside the index.
+  reg("library.add", (p) => d.libraryFiles.add(p));
 
   // Import from the agent CLIs' own stores. `scan` is a pure read — it opens ~/.claude, ~/.codex and
   // ~/.cursor read-only and answers; nothing is created by looking. `apply` is the only writer, and
@@ -995,6 +989,13 @@ export function registerMethods(d: Deps): void {
   reg("sessions.queued", async (p) => ({ queued: d.sessions.queuedPrompts(p.id) }));
   reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });
   reg("sessions.recordFeedback", (p) => { d.sessions.recordFeedback(p.id, p.messageId, p.rating); return { ok: true as const }; });
+  reg("sessions.saved", (p) => ({ seqs: d.savedTurns.forSession(p.id) }));
+  reg("sessions.setSaved", (p) => {
+    const seqs = d.savedTurns.set(p.id, p.seq, p.saved);
+    // Every window: the session's pane may be open in any of them, and the Library's list in another.
+    rpc.broadcast("session.saved", { sessionId: p.id, seqs });
+    return { seqs };
+  });
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers); return { ok: true as const }; });
   reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode, fastMode: p.fastMode }));
   reg("sessions.setAgent", (p) => d.sessions.setAgent(p.id, p.agentKind));

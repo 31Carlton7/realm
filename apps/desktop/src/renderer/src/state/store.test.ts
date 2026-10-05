@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, hasLeafIn, patchKey, spaceIsPlainFolder, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, type DropEdge } from "./store";
-import { allItems, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { allItems, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Item, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 import { DEFAULT_GROUND_ALPHA } from "@realm/ui";
 
@@ -3107,12 +3107,27 @@ describe("app-level pages are an OVERLAY, not a pane", () => {
     const layout = allItems(store.getState().layout!);
     const focused = store.getState().focusedLeafId;
 
-    for (const kind of ["agents-page", "library-page", "connections-page", "code-review-page", "schedules-page", "settings-page"] as const) {
+    for (const kind of ["library-page", "connections-page", "code-review-page", "schedules-page", "settings-page", "you-page"] as const) {
       store.getState().openDestinationPage(kind);
     }
     expect(allItems(store.getState().layout!)).toEqual(layout);
     expect(store.getState().focusedLeafId).toBe(focused);
     expect(store.getState().items.some((i) => i.kind.endsWith("-page"))).toBe(false);
+  });
+
+  it("prunes the page rows a home kept from when pages were items, a page since removed among them", async () => {
+    /* THE MUTANT: prune by the pages this build has. A row for a page that is gone names a kind no
+       list here holds, and it would stay in its space as an item nothing can draw. */
+    const api = fakeApi({ items: { s1: [
+      item("i-lib", "s1", { kind: "library-page", refId: PAGE_REF_IDS["library-page"], title: "Library" }),
+      item("i-gone", "s1", { kind: "board-page" as Item["kind"], refId: "00000000000000000000000007", title: "Board" }),
+      item("i-term", "s1", { title: "Terminal" }),
+    ] } });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    expect(api.calls).toEqual(expect.arrayContaining(["deleteItem:i-lib", "deleteItem:i-gone"]));
+    expect(api.calls).not.toContain("deleteItem:i-term");
+    expect(store.getState().items.filter((i) => i.spaceId === "s1").map((i) => i.id)).toEqual(["i-term"]);
   });
 
   it("does nothing at all before a space is active", async () => {

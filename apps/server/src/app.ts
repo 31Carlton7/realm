@@ -7,6 +7,7 @@ import { ProfilesStore } from "./store/profiles";
 import { SpacesStore } from "./store/spaces";
 import { IconAssetsStore } from "./store/icon-assets";
 import { AvatarStore } from "./store/avatar";
+import { LibraryFilesStore } from "./store/library-files";
 import { IconGenerationService } from "./icons/service";
 import { ProjectsStore } from "./store/projects";
 import { ItemsStore } from "./store/items";
@@ -125,6 +126,7 @@ import { ImportService } from "./import/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
 import { AppViewsStore } from "./store/app-views";
+import { SavedTurnsStore } from "./store/saved-turns";
 import { AppViews } from "./apps/views";
 import { AppViewServer } from "./apps/server";
 import { AppViewService } from "./apps/service";
@@ -461,7 +463,7 @@ export function defaultAdapters(): AdapterRegistry {
     // arrives, which makes this the only state a fake session can be parked in and looked at:
     // everything else this agent reaches settles in milliseconds, and a failed spawn ends the
     // session rather than failing it. The surfaces that need a session stopped mid-air — the
-    // permission card, the sidebar's blocked mark, the Agents wall — have nothing else to pose for.
+    // permission card, the sidebar's blocked mark, Needs you — have nothing else to pose for.
     on: "ask me", emit: [{ kind: "tool", name: "Bash", input: { command: "rm -rf build" }, needsPermission: true, result: "removed" }],
   }, {
     // A question on the permission channel, held open the same way. Claude asks through
@@ -1251,9 +1253,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const projectSearch = new ProjectSearchService();
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
+    libraryFiles: new LibraryFilesStore(db, opts.home),
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
     codeReview,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock

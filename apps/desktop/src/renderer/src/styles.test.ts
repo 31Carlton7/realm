@@ -520,11 +520,23 @@ describe("the scroll track (ScrollTrack.tsx)", () => {
     expect(bodiesFor(".scroll-track:is(:hover, :focus-within) .track-line").join(" ")).toContain("transition-duration: 0s");
   });
 
-  it("puts up its card the way the tooltip comes and goes, and the card never takes the pointer", () => {
+  it("puts up its card the way the tooltip comes and goes, and the card takes the pointer only while it is up", () => {
     const card = bodiesFor(".track-card").join(" ");
     expect(card).toContain("pointer-events: none");
     expect(card).toContain(`opacity ${dur("--dur-press")}`);
-    expect(bodiesFor(".track-card[data-open]").join(" ")).toContain(`opacity ${dur("--dur-fast")}`);
+    const open = bodiesFor(".track-card[data-open]").join(" ");
+    expect(open).toContain(`opacity ${dur("--dur-fast")}`);
+    expect(open).toContain("pointer-events: auto");
+  });
+
+  it("gives a saved turn the accent — on the track, and on the card's filled ribbon", () => {
+    expect(bodiesFor(".track-tick[data-saved] .track-line").join(" ")).toContain("var(--accent-ink)");
+    expect(bodiesFor(".scroll-track:is(:hover, :focus-within) .track-tick[data-saved] .track-line").join(" ")).toContain("background: var(--accent-ink)");
+    expect(bodiesFor('.track-card-save[aria-pressed="true"] svg *').join(" ")).toContain("fill: currentColor");
+    // After the lens, so a saved tick under the pointer keeps its colour rather than turning to ink.
+    const at = (sel: string) => RULES.findIndex((r) => r.selectors.includes(sel));
+    expect(at(".scroll-track:is(:hover, :focus-within) .track-tick[data-saved] .track-line"))
+      .toBeGreaterThan(at('.scroll-track:is(:hover, :focus-within) .track-tick[data-near="0"] .track-line'));
   });
 });
 
@@ -1128,6 +1140,11 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // with a 0% fallback, so a slider that never receives it is an empty track rather than a
       // broken one.
       "--fill",
+      // Where a point sits on the model picker's effort track (ModelPicker.tsx's `EffortTrack`): the
+      // fill, the knob and each dot carry their own fraction of the run, set inline because the
+      // number of levels is the model's, not the stylesheet's. Used with a 0 fallback, so a track
+      // that never receives it is empty rather than broken.
+      "--at",
       // The pane glyph's grid shape (sidebar/ItemList.tsx): how many columns and rows the layout
       // actually has, set inline because the mark is a picture of a tree that changes per item.
       // Both carry a fallback of 1, so a glyph that never receives them is still a single cell.
@@ -1183,11 +1200,12 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
   });
 
-  it("a page's bar moves the window, as the pane bars it covers do, and its close button still clicks", () => {
+  it("a page's bar moves the window, as the pane bars it covers do, and anything put in it still clicks", () => {
     /* A page (Connections, Library, Settings…) covers the pane host, whose panes — and with them their
        draggable bars — are hidden while it is up. Its own bar is the window's top row then, and with
-       no region of its own the band held still everywhere but the sidebar's head (reported 10-04).
-       THE mutants: the bar's `drag` dropped, or its buttons left inside it. */
+       no region of its own the band held still everywhere but the sidebar's head (reported 10-04). It
+       holds only the page's name now (page-overlay.test.tsx), and stays a drag region all the way
+       across. THE mutants: the bar's `drag` dropped, or a button put back in it left inside it. */
     expect(bodiesFor(".page-overlay-bar").join(" ")).toContain("-webkit-app-region: drag");
     expect(bodiesFor(".page-overlay-bar button").join(" ")).toContain("-webkit-app-region: no-drag");
   });
@@ -1356,7 +1374,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
   it("the window never scrolls: the shell is clipped at its own edges, without becoming a scroller", () => {
     /* Measured live (10-05): a page rising in from 6px under its place overran the window's foot, the
        document became scrollable by those 6px, and a classic scrollbar took 15px off the whole app
-       until the rise ended — the Agents page's centred column jumped 7.5px. THE MUTANTS: no clip (the
+       until the rise ended — a page's centred column jumped 7.5px. THE MUTANTS: no clip (the
        scrollbar back), or `hidden`, which makes the shell a scroll container for every sticky header
        inside it. */
     const shell = bodiesFor(".app").join(" ");
@@ -1744,9 +1762,12 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
   it("the prompter's strips are edged alike — every tab above the card wears the ring the under-strip does", () => {
     /* They are one object seen twice: same fill, same corner, same inset, mirrored. Only the lower
        one was edged, which read as a prompter with a bottom and no top — and edging the over-strip
-       alone left the same hole whenever the goal, plan or agents strip was the one on top. The
-       exception is a MIDDLE tab: a ring there would trace a hairline across the band where two
-       strips meet, so a strip arriving under another gives up both its ring and its top corners. */
+       alone left the same hole whenever the goal, plan or agents strip was the one on top. A MIDDLE
+       tab gives up its top corners and the top of its ring — a ring across it would trace a hairline
+       through the band where two strips meet — but never its sides. It once gave up the whole ring,
+       and the git footer under the plan strip read as an open-sided box down both edges, right where
+       the card tucks over it: its fill is the pane's own ground, so the ring is the only edge it has.
+       THE mutant: `--sq-ring-w: 0` back on a stacked tab. */
     const ring = "--sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w)";
     for (const sel of [".composer-goal", ".composer-todos", ".composer-overstrip", ".composer-understrip"])
       expect(bodiesFor(`:root[data-squircle] ${sel}`).join(" "), sel).toContain(ring);
@@ -1754,7 +1775,8 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     const STACKED = [".composer-goal + .composer-todos", ".composer-goal + .composer-overstrip", ".composer-todos + .composer-overstrip"];
     for (const sel of STACKED) {
       const body = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
-      expect(body, sel).toContain("--sq-ring-w: 0");
+      expect(body, sel).toContain("--sq-ring-open: top");
+      expect(body, sel).not.toMatch(/--sq-ring-w:\s*0/);
       expect(body, sel).toContain("--sq-radius-top: 0px");
       // …and the same corner under the fallback, where the radius is the browser's rather than the
       // worklet's: a pair squared in one path and rounded in the other is one seam in two shapes.
@@ -2573,9 +2595,9 @@ describe("dividers", () => {
     // beside it. Ruling them apart drew a line across a panel with one thing in it.
     expect(bodiesFor(".md-code-head").join(" ")).not.toMatch(/border-bottom: var\(--hairline-w\) solid/);
     /* Same reading, two more bars that lost theirs: a page overlay's bar and the terminal dock's
-       hold the thing's own name and the control that closes it — chrome FOR the surface below, not a
-       section beside it. Each page also opens with its own heading, so the rule was a second edge
-       under a title that already had one. */
+       hold the thing's own name (the dock's, the control that closes it too) — chrome FOR the surface
+       below, not a section beside it. Each page also opens with its own heading, so the rule was a
+       second edge under a title that already had one. */
     for (const sel of [".page-overlay-bar", ".terminal-dock-bar"])
       expect(bodiesFor(sel).join(" "), sel).not.toMatch(/border-bottom/);
     // Footers hold their place while the body scrolls past them.
@@ -2754,7 +2776,7 @@ describe("squircle surfaces", () => {
       // shadow beyond the face is ever seen.
       expect(face, sel).toContain("inset: 0");
       // The face is driven by the card's own state rules, so it takes every input the painter reads.
-      for (const input of ["--sq-fill", "--sq-ring", "--sq-ring-w", "--sq-radius-top", "--sq-radius-bottom", "--sq-n"]) {
+      for (const input of ["--sq-fill", "--sq-ring", "--sq-ring-w", "--sq-ring-open", "--sq-radius-top", "--sq-radius-bottom", "--sq-n"]) {
         expect(face, `${sel} ${input}`).toContain(`${input}: inherit`);
       }
       const context = [...bodiesFor(sel), card].join(" ");
@@ -2832,6 +2854,8 @@ describe("light mode", () => {
     // The slider's handle is the switch's knob, for the same reason and with the same answer: two
     // round controls a few rows apart must not disagree about what a handle looks like.
     ['.slider-row input[type="range"]::-webkit-slider-thumb', "the same knob the switch wears"],
+    // …and so is the knob on the model picker's effort track, which is a slider in all but element.
+    [".mp-track-knob", "the same knob the switch wears"],
     [".attach-remove", "on the attached picture"], [".attach-remove:hover", "on the attached picture"],
     // An element's name, drawn over the DEVICE's own screen — whatever the simulator is showing is
     // the same in both modes, so the halo that keeps the name legible on it answers to the device.
@@ -3975,13 +3999,22 @@ describe("the machine pane's screen", () => {
    strip left on the neutral `--card-ring` draws a different-coloured line up each side of the same
    band — which shows as a notch at either edge, where the card's own top corners sit inside the strip.
    THE MUTANT: colour the card alone, which is what it did. */
-it("carries the prompter's mode ring up through every strip stacked above it", () => {
+it("carries the prompter's mode ring up through every strip stacked above it, and down through the one below", () => {
   for (const [mode, token] of [["plan", "--rl-warning"], ["ask", "--rl-success"]] as const) {
-    for (const strip of [".composer-goal", ".composer-todos", ".composer-overstrip"]) {
-      const painted = bodiesFor(`:root[data-squircle] ${strip}:has(~ .composer[data-mode="${mode}"])`).join(" ");
+    const strips: [string, string][] = [
+      ...[".composer-goal", ".composer-todos", ".composer-overstrip"].map((strip): [string, string] => [strip, `${strip}:has(~ .composer[data-mode="${mode}"])`]),
+      // The under-strip is the card's LATER sibling, so it reads the mode with no `:has`.
+      [".composer-understrip", `.composer[data-mode="${mode}"] ~ .composer-understrip`],
+    ];
+    for (const [strip, sel] of strips) {
+      const painted = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
       expect(painted, `${strip} under ${mode}`).toContain(token);
+      /* …and under the gate the edge is the painter's ALONE. The fallback's box-shadow is drawn on the
+         border box, which the painter squares to radius 0, so left on it drew a second ring: square
+         past the painted corners, and across the band where two strips meet. THE mutant: drop this. */
+      expect(painted, `${strip} under ${mode} keeps the fallback's box-shadow`).toContain("box-shadow: none");
       // The painter is gated, so the fallback edge has to say the same thing.
-      const fallback = bodiesFor(`${strip}:has(~ .composer[data-mode="${mode}"])`).join(" ");
+      const fallback = bodiesFor(sel).join(" ");
       expect(fallback, `${strip} fallback under ${mode}`).toContain(token);
       expect(fallback, `${strip} fallback hairline`).toContain("var(--hairline-w)");
     }
@@ -4113,7 +4146,7 @@ describe("the pointer", () => {
     expect(list.startsWith(":where(")).toBe(true);
     for (const part of ["button", "a[href]", "summary", "select", '[role="button"]', '[role="link"]', '[role="tab"]',
       '[role="menuitem"]', '[role="menuitemradio"]', '[role="menuitemcheckbox"]', '[role="option"]', '[role="switch"]',
-      '[role="checkbox"]', '[role="radio"]', 'input:is([type="checkbox"], [type="radio"], [type="range"]',
+      '[role="checkbox"]', '[role="radio"]', '[role="slider"]', 'input:is([type="checkbox"], [type="radio"], [type="range"]',
       'label:has(input:is([type="checkbox"], [type="radio"]))']) expect(list).toContain(part);
     // Everything that tracks a press (press-tracking.ts) is something that points.
     for (const sel of PRESSABLE.split(", ")) expect(list, sel).toContain(sel === '[role^="menuitem"]' ? '[role="menuitem"]' : sel.replace(/^input\[type="checkbox"\]$/, '[type="checkbox"]'));

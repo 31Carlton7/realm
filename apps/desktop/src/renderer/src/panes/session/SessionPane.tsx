@@ -37,6 +37,7 @@ const NO_ATTACHMENTS: PickedAttachment[] = [];
 const NO_SKILLS: Skill[] = [];
 const NO_MENTIONS: string[] = [];
 const NO_REFS: MentionRef[] = [];
+const NO_SAVED: number[] = [];
 
 const STATUS_LABEL = { idle: "Idle", running: "Running", waiting_permission: "Needs permission", error: "Error", ended: "Ended" } as const;
 
@@ -346,6 +347,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   /* What harnesses have said about fast mode, per model — the answer a session that has not started
      yet can offer the switch on. Its own `init` overrides it the moment it has one. */
   const fastSupport = useApp((s) => s.fastSupport);
+  const effortSupport = useApp((s) => s.effortSupport);
   const mentionSkills = useMemo(
     () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList.filter((k) => k.enabled && k.valid) : NO_SKILLS),
     [agentKind, spaceSkillList],
@@ -399,6 +401,15 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   useEffect(() => { if (missingOwnEnv) run(() => refreshEnvironments(ownSpace)); }, [missingOwnEnv, ownSpace, refreshEnvironments, run]);
   /* Once per mounted session: the pane catching up on a queue that filled while it was closed. */
   useEffect(() => { run(() => refreshSessionQueue(id)); }, [id, refreshSessionQueue, run]);
+  /* The turns saved in this log, for its track, read once as the pane mounts and kept by `session.saved`;
+     and a prompt to open AT, when the Library sent the reader here for one. */
+  const savedSeqs = useApp((s) => s.savedTurns[id] ?? NO_SAVED);
+  const saveTurn = useApp((s) => s.saveTurn);
+  const refreshSavedTurns = useApp((s) => s.refreshSavedTurns);
+  useEffect(() => { run(() => refreshSavedTurns(id)); }, [id, refreshSavedTurns, run]);
+  const onSaveTurn = useCallback((seq: number, saved: boolean) => { run(() => saveTurn(id, seq, saved)); }, [id, saveTurn, run]);
+  const promptFor = useApp((s) => (s.promptFor?.sessionId === id ? s.promptFor : null));
+  const promptTaken = useApp((s) => s.promptTaken);
   const gitInfo = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.gitInfo[cwd] ?? null : null; });
   // What is docked to this pane's right edge, if anything — one strip, one occupant.
   const dock = useApp((s) => s.sessionDock[id]);
@@ -412,12 +423,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const paneRef = useRef<HTMLDivElement | null>(null);
   const [paneEl, setPaneEl] = useState<HTMLDivElement | null>(null);
   const setPane = useCallback((el: HTMLDivElement | null) => { paneRef.current = el; setPaneEl(el); }, []);
-  /* Opened from a list of sessions — the Active rows, another room's list, the Agents page, a
-     notification — so the keyboard lands here, in the prompter, and the hand that clicked can type.
-     Unless something in the pane already has it: a permission card takes the keyboard for itself the
-     moment it is on screen (U-H4), and the answer it is asking for comes first. Either way the request
-     is spent (`keyboardTaken`), so a later remount of this pane never pulls the caret back out of
-     wherever the person has put it since. */
+  /* Opened from a list of sessions — the Active rows, another room's list, a notification — so the
+     keyboard lands here, in the prompter, and the hand that clicked can type. Unless something in the
+     pane already has it: a permission card takes the keyboard for itself the moment it is on screen
+     (U-H4), and the answer it is asking for comes first. Either way the request is spent
+     (`keyboardTaken`), so a later remount of this pane never pulls the caret back out of wherever the
+     person has put it since. */
   const keyboardFor = useApp((s) => (s.keyboardFor?.sessionId === id ? s.keyboardFor.n : 0));
   const keyboardTaken = useApp((s) => s.keyboardTaken);
   useEffect(() => {
@@ -667,6 +678,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       data-peek={peek || undefined}
       data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd} track
+        saved={savedSeqs} onSave={onSaveTurn} reveal={promptFor} onRevealed={promptTaken}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
         // A plan, or an answer, handed to other models: this session's Agents tab, with it as the work.
         onImplementWith={peek ? undefined : (text) => run(() => openAgentsTabFor(id, { plan: text }))}
@@ -750,7 +762,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               onPause={() => run(() => setGoalStatus(id, "paused", "You paused it."))}
               onResume={() => run(() => resumeGoal(id))}
               onDrop={() => run(() => clearGoal(id))} />}
-            sessionInit={transcript.init} fastSupport={fastSupport}
+            sessionInit={transcript.init} fastSupport={fastSupport} effortSupport={effortSupport}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
             mentions={mentionSources} refs={draftRefs} selectInRealm={selectInRealm}
             queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}

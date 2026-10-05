@@ -74,7 +74,7 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  that looks a session's item up can be handed its tab instead.
  *  `app-view` (v2) is a view an MCP server drew for one tool call (MCP Apps), opened as a tab of its
  *  session's side pane. Its `refId` is the VIEW's id — an `app_views` row, which names the session. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "code-review-page", "settings-page", "profile-page", "schedules-page", "agents-page", "you-page"]);
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "code-review-page", "settings-page", "profile-page", "schedules-page", "you-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**
@@ -99,9 +99,8 @@ export const PAGE_REF_IDS = {
   // Scheduled tasks. Space-scoped like the rest: a schedule names the space its runs are created in,
   // so the page's vantage is the space its item lives in.
   "schedules-page": "00000000000000000000000006",
-  /** Every agent across every space, by what it needs from you. The page a manager of several
-   *  sessions keeps open: what is waiting on a permission, what is working, what has finished. */
-  "agents-page": "00000000000000000000000007",
+  // …07 was a page since removed. Not reused: a home from before pages were overlays may still hold
+  // rows carrying it, and a sentinel is only a sentinel while it names one page.
   /** The person, not a space or a profile: your name and picture, the figures every session adds
    *  up to, and the rhythm of the days you used Realm. Read from every space, so the vantage space
    *  an overlay carries is only where it was opened from. */

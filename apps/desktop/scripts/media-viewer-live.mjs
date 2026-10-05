@@ -441,7 +441,9 @@ async function main() {
   await shot(c, "10-pdf-light");
   await escape(c);
   await until(() => evalIn(c, `!document.querySelector('.media-viewer')`), 5_000, "closed");
-  await evalIn(c, click(`.page-overlay-bar button[aria-label^="Close"]`));
+  // The Library goes the way a person leaves a page — Escape; its bar draws no close.
+  await escape(c);
+  await until(() => evalIn(c, `!document.querySelector('.page-overlay')`), 5_000, "the Library put away");
   await sleep(600);
   await evalIn(c, click(`.media-strip .media-video button[aria-label="Open larger"]`));
   await until(async () => { const v = await viewer(c); return v?.name === "clip.mp4" && v.video ? v : null; }, 10_000, "the clip, light");

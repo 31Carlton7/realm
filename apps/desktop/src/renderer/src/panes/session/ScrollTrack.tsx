@@ -1,16 +1,24 @@
+import { Icon } from "@realm/ui";
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { TIP_DELAY_MS, TIP_WARM_MS } from "../../tooltips";
-import { currentPrompt, tickPositions, TICK_PITCH, type TrackPrompt } from "./scroll-track";
+import { currentPrompt, savedNear, tickPositions, TICK_PITCH, type TrackPrompt } from "./scroll-track";
 import { stampLabel } from "./timestamps";
 
 type TrackProps = {
   /** The transcript's scroller. Its only child is the column the prompts' rows are in. */
   scrollRef: RefObject<HTMLDivElement | null>;
   prompts: readonly TrackPrompt[];
-  /** Bring the log to `top`, as the reader's own scroll would. Must be stable. */
-  onJump: (top: number) => void;
+  /** Bring the log to `top`, as the reader's own scroll would — at once when `instant`. Must be stable. */
+  onJump: (top: number, instant?: boolean) => void;
   /** The reader's day, for how the card's time is said (timestamps.ts). */
   now: number;
+  /** Save a turn, or unsave it: the card's bookmark, and S on the track. Absent where nothing can be
+   *  saved, which draws no bookmark rather than one that does nothing. Must be stable. */
+  onSave?: (seq: number, saved: boolean) => void;
+  /** A prompt to go to once the track has it, as a pulse: a saved turn opened from the Library. */
+  reveal?: { seq: number; n: number } | null;
+  /** The pulse is spent. */
+  onRevealed?: (n: number) => void;
 };
 
 /** Where the rows are, in the log's own coordinates, and how much room the track has to show them. */
@@ -22,6 +30,9 @@ const LENS = 3;
 const CARD_MARGIN = 8;
 /** Below this pitch a 2px line touches the next one. */
 const DENSE_PITCH = 4;
+/** How long the card waits for a pointer that has left the track on its way to the card's bookmark:
+ *  ten pixels of gap cross in a fraction of this, and a pointer gone for good is gone in no more. */
+const CARD_GRACE_MS = 200;
 
 /** Each prompt's row, measured where it is LAID OUT, never where it is painted: a log that has just
  *  loaded is mid-entrance, every row risen 6px by a transform, and the rubber band translates the
@@ -64,7 +75,7 @@ export const ScrollTrack = memo(function ScrollTrack(props: TrackProps) {
   return props.prompts.length < 2 ? null : <Track {...props} />;
 });
 
-function Track({ scrollRef, prompts, onJump, now }: TrackProps) {
+function Track({ scrollRef, prompts, onJump, now, onSave, reveal = null, onRevealed }: TrackProps) {
   const ref = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const cardId = useId();
@@ -168,10 +179,14 @@ function Track({ scrollRef, prompts, onJump, now }: TrackProps) {
   }, [geom, positions]);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const going = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warmUntil = useRef(0);
   const shownRef = useRef(shown);
   shownRef.current = shown;
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+    if (going.current) clearTimeout(going.current);
+  }, []);
   /* The tooltip's timing (tooltips.ts): the card a fifth of a second after the pointer arrives, and at
      once for the next tick, or for a pointer back on the track within the grace period. */
   const enter = useCallback((i: number) => {
@@ -182,31 +197,72 @@ function Track({ scrollRef, prompts, onJump, now }: TrackProps) {
     else timer.current = setTimeout(show, TIP_DELAY_MS);
   }, []);
   const leave = useCallback(() => {
+    going.current = null;
     if (timer.current) { clearTimeout(timer.current); timer.current = null; }
     if (shownRef.current) warmUntil.current = performance.now() + TIP_WARM_MS;
     setHover(null);
     setShown(false);
   }, []);
+  /* The card holds a control, so a pointer leaving the track may only be crossing to it: an open card
+     waits for it, and arriving on the card or back on a tick keeps it. One that never opened goes. */
+  const leaving = useCallback(() => {
+    if (going.current) clearTimeout(going.current);
+    if (shownRef.current) going.current = setTimeout(leave, CARD_GRACE_MS); else leave();
+  }, [leave]);
+  const staying = useCallback(() => { if (going.current) { clearTimeout(going.current); going.current = null; } }, []);
 
-  const jump = useCallback((i: number) => {
+  const jump = useCallback((i: number, instant = false) => {
     const g = live.current.geom;
     if (!g || g.offsets[i] === undefined) return;
     pinned.current = i;
     setCurrent(i);
     // The row comes to rest where the first message of a fresh log does: at the log's top padding.
-    onJump(g.offsets[i]! - g.inset);
+    onJump(g.offsets[i]! - g.inset, instant);
   }, [onJump]);
   const focusTick = useCallback((i: number) => { setFocus(i); setDismissed(false); }, []);
+  /** Save the turn at `i`, or unsave it — whichever it is not. A prompt with no stored event has
+   *  nothing a saved turn could name, and is left alone. */
+  const save = useCallback((i: number) => {
+    const p = live.current.prompts[i];
+    if (p && p.seq !== null) onSave?.(p.seq, !p.saved);
+  }, [onSave]);
+
+  /* A saved turn opened from the Library: gone to as soon as its row is laid out, and at once — the
+     pane has just come forward, and a long glide up from the log's end would be the window making the
+     reader wait for what they already asked for. A passive effect, so it lands after the transcript's
+     own first paint has put the log at its end. */
+  useEffect(() => {
+    if (!reveal || !geom) return;
+    const i = prompts.findIndex((p) => p.seq === reveal.seq);
+    if (i < 0 || geom.offsets[i] === undefined) return;
+    jump(i, true);
+    onRevealed?.(reveal.n);
+  }, [reveal, geom, prompts, jump, onRevealed]);
 
   const n = cells?.length ?? 0;
   const onKeyDown = (e: KeyboardEvent) => {
     if (n === 0) return;
     const from = focus ?? current ?? 0;
-    const to = e.key === "ArrowDown" ? Math.min(n - 1, from + 1) : e.key === "ArrowUp" ? Math.max(0, from - 1)
+    // S saves the turn the keyboard is on, or unsaves it: the card's bookmark, for a hand on the keys.
+    if (e.key.toLowerCase() === "s" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (onSave) { e.preventDefault(); save(from); }
+      return;
+    }
+    const step = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+    // ⌥↑ and ⌥↓ go to the saved turn before or after, past every turn that is not one.
+    const near = step !== 0 && e.altKey ? savedNear(prompts, from, step) : null;
+    const to = step !== 0 ? (e.altKey ? (near !== null && near < n ? near : null) : Math.min(n - 1, Math.max(0, from + step)))
       : e.key === "Home" ? 0 : e.key === "End" ? n - 1 : null;
+    if (step !== 0) e.preventDefault();
     if (to === null) {
-      // Escape puts the card away and nothing else: the keyboard stays on the track.
-      if (e.key === "Escape" && focus !== null && !dismissed) { e.stopPropagation(); setDismissed(true); }
+      // Escape puts the card away and nothing else: the keyboard stays on the track — on the tick, if
+      // it was on the card's bookmark, which is about to go with the card. The tick first: arriving on
+      // a tick shows its card, and the dismissal has to be the last word.
+      if (e.key === "Escape" && focus !== null && !dismissed) {
+        e.stopPropagation();
+        if (cardRef.current?.contains(document.activeElement)) ref.current?.querySelectorAll<HTMLElement>(".track-tick")[focus]?.focus();
+        setDismissed(true);
+      }
       return;
     }
     e.preventDefault();
@@ -236,42 +292,56 @@ function Track({ scrollRef, prompts, onJump, now }: TrackProps) {
   // Too many prompts for the room to space them a few pixels apart: the lines thin, so a log of
   // hundreds still reads as ticks rather than as one solid bar.
   const dense = n > 1 && geom !== null && geom.room / (n - 1) < DENSE_PITCH;
+  // What a tick's card says beyond its name, for the keyboard: the answer, then when and what changed.
+  const described = `${cardId}-reply ${cardId}-foot`;
   return (
     <div ref={ref} className="scroll-track" role="toolbar" aria-orientation="vertical" aria-label="Prompts" data-dense={dense || undefined}
-      onKeyDown={onKeyDown} onPointerLeave={leave}
+      onKeyDown={onKeyDown} onPointerLeave={leaving} onPointerEnter={staying}
       onBlur={(e) => { if (!ref.current?.contains(e.relatedTarget as Node | null)) setFocus(null); }}>
       {cells?.map((cell, i) => {
         const p = prompts[i];
         if (!p) return null;
         const d = lens === null ? null : Math.abs(i - lens);
         return <Tick key={p.key} index={i} title={p.title} top={cell.top} height={cell.height} line={cell.line}
-          current={i === current} near={d !== null && d <= LENS ? d : null} edited={p.edited > 0} focusable={i === rove}
-          describedBy={open === i ? cardId : undefined} onEnter={enter} onPick={jump} onFocusTick={focusTick} />;
+          current={i === current} near={d !== null && d <= LENS ? d : null} edited={p.edited > 0} saved={p.saved} focusable={i === rove}
+          describedBy={open === i ? described : undefined} onEnter={enter} onPick={jump} onFocusTick={focusTick} />;
       })}
-      <div ref={cardRef} id={cardId} className="track-card" role="tooltip" data-open={open !== null || undefined}>
+      <div ref={cardRef} className="track-card" data-open={open !== null || undefined}>
         <div className="track-card-head">
           <span className="track-card-title">{card.title}</span>
-          <time className="track-card-at" dateTime={new Date(card.ts).toISOString()}>{stampLabel(card.ts, now)}</time>
+          {/* Codex's place for it, and the one control the card holds: the next stop after its tick while
+              the card is up, and S on the track from the keys. */}
+          {onSave && card.seq !== null && (
+            <button type="button" className="track-card-save" aria-label="Save turn" aria-pressed={card.saved}
+              title={card.saved ? "Unsave this turn" : "Save this turn"}
+              // The keyboard arriving here holds the card, as it does on a tick — from the prompter by
+              // Shift-Tab, say, while a pointer's card was up — so it cannot fade from under the focus.
+              onFocus={() => focusTick(said.current)}
+              onMouseDown={(e) => e.preventDefault()} onClick={() => save(said.current)}>
+              <Icon name="saved" size={14} />
+            </button>
+          )}
         </div>
-        {card.reply && <p className="track-card-reply">{card.reply}</p>}
-        {(card.from || card.edited > 0) && (
-          <p className="track-card-foot">{[card.from && `Asked by ${card.from}`, card.edited > 0 && `Edited ${plural(card.edited)}`].filter(Boolean).join(" · ")}</p>
-        )}
+        <p className="track-card-reply" id={`${cardId}-reply`} hidden={!card.reply}>{card.reply}</p>
+        <p className="track-card-foot" id={`${cardId}-foot`}>
+          <time dateTime={new Date(card.ts).toISOString()}>{stampLabel(card.ts, now)}</time>
+          {[card.from && `Asked by ${card.from}`, card.edited > 0 && `Edited ${plural(card.edited)}`].filter(Boolean).map((part) => ` · ${part}`).join("")}
+        </p>
       </div>
     </div>
   );
 }
 
 /** One prompt's tick: a cell the pointer and the keyboard can land on, with its line drawn inside. */
-const Tick = memo(function Tick({ index, title, top, height, line, current, near, edited, focusable, describedBy, onEnter, onPick, onFocusTick }: {
+const Tick = memo(function Tick({ index, title, top, height, line, current, near, edited, saved, focusable, describedBy, onEnter, onPick, onFocusTick }: {
   index: number; title: string; top: number; height: number; line: number;
-  current: boolean; near: number | null; edited: boolean; focusable: boolean; describedBy: string | undefined;
+  current: boolean; near: number | null; edited: boolean; saved: boolean; focusable: boolean; describedBy: string | undefined;
   onEnter: (i: number) => void; onPick: (i: number) => void; onFocusTick: (i: number) => void;
 }) {
   return (
     <button type="button" className="track-tick" style={{ top, height }} tabIndex={focusable ? 0 : -1}
-      aria-label={title} aria-current={current || undefined} aria-describedby={describedBy}
-      data-current={current || undefined} data-near={near ?? undefined} data-edited={edited || undefined}
+      aria-label={title} aria-current={current || undefined} aria-describedby={describedBy} aria-description={saved ? "Saved" : undefined}
+      data-current={current || undefined} data-near={near ?? undefined} data-edited={edited || undefined} data-saved={saved || undefined}
       onPointerEnter={() => onEnter(index)}
       // A tick is a place to go, like a scrollbar's track: it takes the click and leaves the keyboard
       // where it was, in the prompter, for the next thing the reader types.

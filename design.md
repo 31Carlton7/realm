@@ -237,6 +237,13 @@ Rules:
   the ring is also a per-segment decision: a segment that is FILLED (Full access, Ask, Plan) wears
   no ring on its side. The fill already says "control" there, and a hairline over a tint reads as a
   second, disagreeing edge.
+- A join inside one object takes the ring's TOP away, never its sides. The strips stacked above the
+  prompter once dropped the whole ring at each join, so no hairline would cross the band, and the
+  lower strip's sides went with it: its fill is the pane's own ground, so the ring was its only
+  edge, and the git footer under the plan strip read as an open-sided box right where the card
+  tucks over it. The painter leaves a ring's top open (`--sq-ring-open`), and the sides run on into
+  the card's own edge. An edge the fallback draws as a box-shadow is the fallback's alone: under the
+  painter it traces the squared border box, a second ring with square corners and a seam.
 - Floating menus, palettes, sheets, composers, and overlays use the established layered shadow
   stacks. Never invent a single heavy drop shadow.
 - The blue accent is a condiment: focus, selection, progress, links, and primary actions. It is not a
@@ -561,9 +568,14 @@ acronym that is uppercase anyway (a file extension on a tile).
   and a control offered on a guess is one whose only outcome is a refusal. Where the owner has
   said nothing, show nothing — not a disabled control, which invites a user to work out how to
   enable something nobody has claimed. The one exception is a REQUEST Realm can make and the owner
-  will answer: fast mode before a session's first turn is a switch that says "checked on the first
-  turn", because waiting for the answer made it unreachable for exactly the turn it was wanted on.
-  Where the owner said no, say which of its models say yes.
+  will answer: fast mode before a session's first turn is a bolt whose tooltip says the first turn
+  checks it, because waiting for the answer made it unreachable for exactly the turn it was wanted
+  on. Where the owner said no, say which of its models say yes.
+- A setting shows the value in force, never a blank. Unset, the effort card names the model's own
+  default and the chip wears it; the reset appears only once the level has moved, and it hands the
+  choice back to the harness rather than writing the default down as though someone had picked it.
+  The levels are the model's own list, a dot each — never a fixed five that one model takes and
+  the next refuses.
 - A link is shown as what it points AT. A pasted Slack permalink is ninety characters of nothing
   a person reads; its meaning is "this thread", and the chip says that: the app's mark, then a
   name (a thread's timestamp, an issue key, a page title). Only where Realm can name the link — a
@@ -597,6 +609,9 @@ acronym that is uppercase anyway (a file extension on a tile).
   the window — the model picker did both from a mid-window prompter. And anything in it that changes
   with the highlight holds a fixed height: a surface that grows upward moves every row above a
   taller line, and the row under the pointer with them.
+- A surface that takes dropped files lights as a whole, its glow inset from its own edge as a pane's
+  is — never round a column inside it, whose content runs to its edges: the Library's ring, drawn round
+  its column of files, went through the page's title and its first tile.
 - Two overlays that both answer Escape answer it in MOUNT order, not stacking order, because both
   listen on the window. The one underneath was registered first and wins, so `stopPropagation` from
   the top surface cannot save it: expanding a picture out of a sheet closed the sheet too. A full
@@ -717,12 +732,16 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   with the keyboard in the prompter; it used to open the space's Overview, a page of settings for
   something named a second earlier in order to work in it. Settings are where a thing is visited
   later, and the sheet that made it has already asked everything that had no default.
-- Several agents need one page that answers "what should I look at": every session across every
-  space by what it needs from you — blocked on a permission first, then working, failed, finished.
-  The per-space badges say the same thing per space; the page says it once, with enough on each
-  row (space, folder, model, how long ago it moved) to choose without opening. A relay beyond the
-  Mac (a text, a Slack line) carries only those moments a person has to come back for, and one
+- What needs you is said where you already look — the session's own row, Needs you at the head of
+  the sidebar, the bell's count — and not on a page of its own. An Agents page once ranked every
+  session by what it needed and drew the live ones as a wall and an office; it said again what those
+  rows said, from a second place you had to go to, and the owner removed it (10-05). A relay beyond
+  the Mac (a text, a Slack line) carries only those moments a person has to come back for, and one
   open condition is sent once.
+- Home is the way back to the work, not a page: it puts away whatever page is up and lands on the
+  session that was in front, in its space — or on a fresh prompter when nothing was, as closing the
+  last pane does. A control that only ever returns is not a toggle, so it is never lit and carries no
+  count.
 - The sidebar answers where the user is and what else is available. Keep primary destinations,
   spaces, open items, and contextual actions visually separate.
 - One column of navigation at a time. A page with sections of its own — Settings, the Library, a
@@ -732,11 +751,15 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   anatomy, so it is the same sidebar listing something else, and the page they leave behind is a
   centred column. Where there is no column to take — the sidebar collapsed — the rail stays in the
   page, where it can still be reached (`components/page-nav.tsx`).
+- A destination page is left the way it was reached — Home or the lit rail button, a session in the
+  sidebar, the column's Back — or with Escape, which goes back to where you were. Its bar is its name
+  and nothing else (the owner, 10-05): a × at the bar's far end was one more way out, away from the
+  ones used to arrive.
 - Closing a pane should never imply deleting the object behind it. That rule is about objects that
   outlive their pane — a session's transcript, a diff's checkout — and the × in a pane bar is right
-  exactly where one exists. It has no work to do where there is nothing underneath: a destination
-  page's `refId` is a sentinel, and a terminal, browser or documents pane is a thing opened at a
-  moment and finished with. A × on those closes into a drift of rows in the space that nobody asked
+  exactly where one exists. It has no work to do where there is nothing underneath: a terminal,
+  browser or documents pane is a thing opened at a moment and finished with (a destination page has
+  no close at all — above). A × on those closes into a drift of rows in the space that nobody asked
   to keep, and the user reads it as the pane refusing to go away. Give those bars the trash instead,
   and leave the layout-only close on ⌘W and in the ⋯ menu, named so it says which of the two it is.
 - A confirm step is owed by the OBJECT, not by the destructive-looking button. A pty, a live web
@@ -799,7 +822,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   — at least a pitch below the last, so a log of short turns is simply evenly spaced and only a long
   turn opens a gap. The prompt being read is the one tick in ink; a turn that changed files carries a
   dot, said in words on the tick's card, never a colour. A click goes there and leaves the keyboard in
-  the prompter, as a scrollbar's track does.
+  the prompter, as a scrollbar's track does. A turn the reader saves — the bookmark at the card's
+  corner, or S — takes the accent, the reader's own mark as a selection is, and its ribbon fills; ⌥↑
+  and ⌥↓ step between saved turns. What is kept is the prompt's event, never a quote of it, and the
+  Library lists every saved turn of the profile, because the Library holds what a person kept and the
+  activity view is a log of what went by.
 - Never invent human-like agent presence, mood, or certainty.
 
 ## Documents, diffs, terminals, and data

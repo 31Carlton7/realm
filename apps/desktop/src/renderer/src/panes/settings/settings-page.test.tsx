@@ -697,6 +697,9 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     const credit = container.querySelector(".settings-attribution") as HTMLElement;
     expect(credit.querySelector("svg.settings-signature")).not.toBeNull();
     expect(credit.querySelector("svg")).toHaveAttribute("aria-hidden");
+    // The one credit at the foot. Art the app once vendored went when the page that drew it did, and a
+    // line crediting work the app no longer ships would describe something that is not in it.
+    expect(within(credit).getAllByRole("link").map((a) => a.textContent)).toEqual(["Carlton Aikins"]);
   });
 
   it("junk under either key degrades safely: unknown categories dropped, an unlisted mode renders as Ask each time", async () => {

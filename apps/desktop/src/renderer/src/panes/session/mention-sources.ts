@@ -63,7 +63,7 @@ export function mentionOptions(src: { mac: Skill | null; skills: readonly Skill[
   const library: MentionOption[] = src.library
     .filter((e) => e.path.startsWith("/") && !isSecretPath(e.path) && !filePaths.has(e.path))
     .filter((e, i, all) => all.findIndex((x) => x.path === e.path) === i)
-    .map((e) => ({ kind: "library", key: `library:${e.path}`, name: e.name, path: e.path, from: e.sessionTitle }));
+    .map((e) => ({ kind: "library", key: `library:${e.path}`, name: e.name, path: e.path, from: e.kind === "added" ? "Added by you" : e.sessionTitle ?? "" }));
   return [
     ...(src.mac ? [{ kind: "mac", key: "mac", name: MAC_SKILL_ID, skill: src.mac } as MentionOption] : []),
     ...files,

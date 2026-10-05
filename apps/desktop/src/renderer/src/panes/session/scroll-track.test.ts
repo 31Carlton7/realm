@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentPrompt, opening, samePrompts, tickPositions, trackPrompts, TICK_PITCH, TRACK_SCALE } from "./scroll-track";
+import { currentPrompt, opening, promptTitle, samePrompts, savedNear, tickPositions, trackPrompts, TICK_PITCH, TRACK_SCALE } from "./scroll-track";
 import { goalTurnLabel, type Block } from "./transcript-model";
 
 const user = (text: string, ts: number, extra: Partial<Extract<Block, { kind: "user" }>> = {}): Block => ({ kind: "user", text, ts, ...extra });
@@ -58,6 +58,17 @@ describe("the prompts on the track", () => {
     expect(prompts.map((p) => p.reply)).toEqual(["The agent's CLI exited before it answered.", null]);
   });
 
+  it("knows each prompt's stored event, and which the reader saved", () => {
+    const prompts = trackPrompts([user("a", 1, { seq: 11 }), said("x", 2), user("b", 3, { seq: 13 }), user("c", 4)], () => 0, new Set([13]));
+    expect(prompts.map((p) => [p.seq, p.saved])).toEqual([[11, false], [13, true], [null, false]]);
+  });
+
+  it("titles a saved turn in the Library the way its card does, from the event's own fields", () => {
+    expect(promptTitle({ text: "Fix the crash\nand the test", attachments: [], goal: null })).toBe("Fix the crash");
+    expect(promptTitle({ text: "", attachments: [{ path: "/w/shot.png" }], goal: null })).toBe("shot.png");
+    expect(promptTitle({ text: "the continuation", attachments: [], goal: "continuation" })).toBe(goalTurnLabel("continuation"));
+  });
+
   it("is the same list while it says the same thing, and a new one the moment a word of it changes", () => {
     const blocks = [user("a", 1), said("x", 2), user("b", 3)];
     const a = trackPrompts(blocks, () => 0);
@@ -67,6 +78,18 @@ describe("the prompts on the track", () => {
     expect(samePrompts(a, trackPrompts([...blocks, tool], () => 0))).toBe(true);
     expect(samePrompts(a, trackPrompts([user("a", 1), said("x!", 2), user("b", 3)], () => 0))).toBe(false);
     expect(samePrompts(a, trackPrompts([...blocks, run(5)], () => 3))).toBe(false);
+    // …or the moment a turn is saved.
+    const stored = [user("a", 1, { seq: 11 }), user("b", 3, { seq: 13 })];
+    expect(samePrompts(trackPrompts(stored, () => 0), trackPrompts(stored, () => 0, new Set([13])))).toBe(false);
+  });
+
+  it("finds the saved turn before or after one, past every turn that is not saved", () => {
+    const prompts = trackPrompts([0, 1, 2, 3, 4].map((i) => user(`p${i}`, i, { seq: 10 + i })), () => 0, new Set([11, 13]));
+    expect(savedNear(prompts, 0, 1)).toBe(1);
+    expect(savedNear(prompts, 1, 1)).toBe(3);
+    expect(savedNear(prompts, 3, 1)).toBeNull();
+    expect(savedNear(prompts, 4, -1)).toBe(3);
+    expect(savedNear(prompts, 1, -1)).toBeNull();
   });
 });
 

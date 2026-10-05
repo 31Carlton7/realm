@@ -115,7 +115,7 @@ describe("a page with no use for the spaces", () => {
 
   it("leaves the sidebar alone on every other page", async () => {
     const { store } = await mountShell();
-    for (const kind of ["agents-page", "library-page", "settings-page", "you-page"] as const) {
+    for (const kind of ["library-page", "settings-page", "you-page"] as const) {
       act(() => store.getState().openDestinationPage(kind));
       await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe(kind));
       expect(shown(), kind).toBe(true);
@@ -170,11 +170,12 @@ describe("what moves the column", () => {
     // Home → Scheduled → Library → Connections → the session, then back the other way.
     const open = (kind: DestinationPageKind) => () => store.getState().openDestinationPage(kind);
     const close = () => store.getState().closePageOverlay();
+    const home = () => { void store.getState().goHome(); };
     const route: [string, () => void, boolean][] = [
-      ["Home", open("agents-page"), true], ["Scheduled", open("schedules-page"), false], ["Library", open("library-page"), true],
+      ["Home", home, true], ["Scheduled", open("schedules-page"), false], ["Library", open("library-page"), true],
       ["Connections", open("connections-page"), false], ["the session", close, true],
       ["Connections again", open("connections-page"), false], ["Library again", open("library-page"), true],
-      ["Scheduled again", open("schedules-page"), false], ["Home again", open("agents-page"), true],
+      ["Scheduled again", open("schedules-page"), false], ["Home again", home, true],
     ];
     let changes = 0;
     for (const [name, go, sidebar] of route) {

@@ -45,7 +45,7 @@ describe("one file, listed once", () => {
     const entry = (id: string, path: string) => ({ id, sessionId: "s", spaceId: "sp", kind: "output" as const, path, name: path.split("/").pop()!, ext: "md", ts: 1, sessionTitle: "T", agentKind: "fake" });
     // The same file, written by one session as a relative path and by another as an absolute one.
     const session = homeFilesOf([entry("a", "notes/plan.md")], ROOT, () => "");
-    const library = homeFilesOf([entry("b", `${ROOT}/notes/plan.md`), entry("c", `${ROOT}/other.md`)], ROOT, (e) => e.sessionTitle);
+    const library = homeFilesOf([entry("b", `${ROOT}/notes/plan.md`), entry("c", `${ROOT}/other.md`)], ROOT, (e) => e.sessionTitle ?? "");
     const shown = new Set(session.map(identityOf));
     expect(withoutShown(library, shown).map((f) => f.name)).toEqual(["other.md"]);
     expect(withoutShown([checkoutFileOf("notes/plan.md", ROOT)], shown)).toEqual([]);

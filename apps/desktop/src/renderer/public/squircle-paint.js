@@ -61,11 +61,26 @@ function trace(ctx, w, h, rTop, rBot, n) {
   ctx.closePath();
 }
 
+/* The same outline with its top left OPEN: down the right side, round the bottom, up the left — for
+ * a surface whose top edge is a join inside one object rather than an edge of it. A tab stacked under
+ * another in the band above the prompter is that: a ring across its top would rule a seam through the
+ * middle of the band, and no ring at all left its sides bare (the "open-sided box" under the plan
+ * strip). An open path, so the stroke ends square at the join and runs on into the tab above. */
+function traceOpenTop(ctx, w, h, rTop, rBot, n) {
+  ctx.beginPath();
+  ctx.moveTo(w, rTop);
+  ctx.lineTo(w, h - rBot);
+  sweep(ctx, w - rBot, h - rBot, rBot, 0, Math.PI / 2, n);
+  ctx.lineTo(rBot, h);
+  sweep(ctx, rBot, h - rBot, rBot, Math.PI / 2, Math.PI, n);
+  ctx.lineTo(0, rTop);
+}
+
 registerPaint(
   "rl-squircle",
   class {
     static get inputProperties() {
-      return ["--sq-fill", "--sq-ring", "--sq-ring-w", "--sq-radius-top", "--sq-radius-bottom", "--sq-n"];
+      return ["--sq-fill", "--sq-ring", "--sq-ring-w", "--sq-ring-open", "--sq-radius-top", "--sq-radius-bottom", "--sq-n"];
     }
 
     paint(ctx, size, props) {
@@ -102,6 +117,8 @@ registerPaint(
          * inside the curve, at the width asked for, with no second edge. */
         ctx.save();
         ctx.clip();
+        // The clip is always the closed shape; only the stroke leaves the top out (`traceOpenTop`).
+        if (String(props.get("--sq-ring-open")).trim() === "top") traceOpenTop(ctx, w, h, rTop, rBot, n);
         ctx.lineWidth = ringW * 2;
         ctx.strokeStyle = ring;
         ctx.stroke();

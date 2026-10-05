@@ -73,6 +73,7 @@ const NO_MENTIONS: readonly string[] = [];
 const NO_APP_ICONS: Readonly<Record<string, string | null>> = {};
 const NO_SOURCES: readonly Source[] = [];
 const NO_PROMPTS: readonly TrackPrompt[] = [];
+const NO_SAVED: readonly number[] = [];
 
 const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
@@ -227,11 +228,18 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
   /** Draw the scroll track down the log's left edge (ScrollTrack.tsx) — every session pane's. Off in the
    *  quick chat, whose 380px window is one short exchange with no scrollback to find a place in. */
   track?: boolean;
+  /** The turns the reader saved in this log, by their prompts' event seqs — marked on the track. */
+  saved?: readonly number[];
+  /** Save a turn, or unsave it, from the track. Absent draws no bookmark rather than a dead one. */
+  onSave?: (seq: number, saved: boolean) => void;
+  /** A prompt the track should go to as soon as it has it, as a pulse, and the word that it did. */
+  reveal?: { seq: number; n: number } | null;
+  onRevealed?: (n: number) => void;
   /** The session this log is — what a sub-agent's line links back to (its row in this session's
    *  Agents tab). Null in the read-only mounts, where the line reads and links nowhere. */
   sessionId?: string | null;
@@ -374,9 +382,9 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
       if (edits) return edits.cards.get(blockKey(b, i))?.totalFiles ?? 0;
       const measured = transcript.changes?.[b.ts];
       return measured && measured.files.length > 0 ? measured.totalFiles : 0;
-    });
+    }, new Set(saved));
     return samePrompts(promptsRef.current, next) ? promptsRef.current : (promptsRef.current = next);
-  }, [track, transcript.blocks, transcript.changes, edits]);
+  }, [track, transcript.blocks, transcript.changes, edits, saved]);
 
   /* The ONE place the pin is written, so the pin and the remembered mark can never disagree — and
      so a programmatic jump is remembered too. Only `onScroll` would otherwise record anything, and
@@ -398,16 +406,17 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   /* A prompt picked on the scroll track. The reader has chosen where to be, so it is recorded as their
      own scroll would be — and recorded FIRST: a smooth scroll reports itself a frame at a time, and a
      token arriving before the first frame would stick a log that was at its end straight back there.
-     A restore still settling is the reader's no longer, as a wheel would have made it. */
-  const jumpRef = useRef((_top: number) => {});
-  jumpRef.current = (top) => {
+     A restore still settling is the reader's no longer, as a wheel would have made it. `instant` is a
+     landing rather than a move: a saved turn opened from the Library. */
+  const jumpRef = useRef((_top: number, _instant?: boolean) => {});
+  jumpRef.current = (top, instant = false) => {
     const el = ref.current; if (!el) return;
     restore.current = null;
     const to = Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
     pin({ top: to, atEnd: el.scrollHeight - to - el.clientHeight < NEAR_END_PX });
-    el.scrollTo({ top: to, behavior: reducedMotion() ? "instant" : "smooth" });
+    el.scrollTo({ top: to, behavior: instant || reducedMotion() ? "instant" : "smooth" });
   };
-  const jump = useCallback((top: number) => jumpRef.current(top), []);
+  const jump = useCallback((top: number, instant?: boolean) => jumpRef.current(top, instant), []);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -650,7 +659,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
           its first layout effect, which React runs for an earlier sibling before this one's ref is
           attached. It also leaves the track just behind the prompter in the tab order, rather than
           behind every timestamp in the log. */}
-      {track && <ScrollTrack scrollRef={ref} prompts={prompts} onJump={jump} now={now} />}
+      {track && <ScrollTrack scrollRef={ref} prompts={prompts} onJump={jump} now={now} onSave={onSave} reveal={reveal} onRevealed={onRevealed} />}
       {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={12} /> New messages</button>}
     </div>
   );

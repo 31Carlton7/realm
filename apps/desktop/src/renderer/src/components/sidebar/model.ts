@@ -38,10 +38,10 @@ export type SidebarState = {
 export const SECTION_ROWS = 5;
 
 /**
- * How close together a fan-out's sessions are made. The Agents page's fan-out creates its sessions
- * one after another (a worktree, then the session, then the brief), so siblings land seconds apart;
- * a minute is generous for twelve worktrees on a large repository and still far shorter than the
- * gap between two dispatches a person makes by hand.
+ * How close together a fan-out's sessions are made. A batch was made one session after another (a
+ * worktree, then the session, then the brief), so siblings land seconds apart; a minute is generous
+ * for twelve worktrees on a large repository and still far shorter than the gap between two
+ * dispatches a person makes by hand.
  */
 export const FAN_OUT_GAP_MS = 60_000;
 
@@ -207,10 +207,10 @@ export function attentionRank(r: ListRow): number {
  * One space's rows — what needs you first, then by when each last moved (`attentionRank`) — with a
  * fan-out folded into one row.
  *
- * There is no fan-out record: the Agents page's "Start agents…" makes several sessions in a row, each
- * dispatched by the user (`dispatchedBy: user-dispatch`), one agent kind, seconds apart. Those are
- * what fold together — two or more siblings each made within `FAN_OUT_GAP_MS` of the last. A single
- * dispatched session stays a row of its own.
+ * There is no fan-out record: a batch is several sessions made in a row, each dispatched by the user
+ * (`dispatchedBy: user-dispatch`), one agent kind, seconds apart. Those are what fold together — two
+ * or more siblings each made within `FAN_OUT_GAP_MS` of the last. A single dispatched session stays a
+ * row of its own.
  */
 export function spaceRows(rows: readonly SessionRow[]): ListRow[] {
   const byCreation = rows.filter(fanOutCandidate).sort((a, b) => a.createdAt - b.createdAt);
@@ -311,13 +311,6 @@ export function profileWaiting(s: SidebarState, profileId: string): number {
   for (const [id, st] of Object.entries(s.sessionStatus)) {
     if (st === "waiting_permission" && id !== s.quickChatId && mine.has(s.sessionSpace[id] ?? "")) n++;
   }
-  return n;
-}
-
-/** Every session waiting on a permission or a question, anywhere: Home's count. */
-export function waitingCount(s: Pick<SidebarState, "sessionStatus" | "quickChatId">): number {
-  let n = 0;
-  for (const [id, st] of Object.entries(s.sessionStatus)) if (st === "waiting_permission" && id !== s.quickChatId) n++;
   return n;
 }
 

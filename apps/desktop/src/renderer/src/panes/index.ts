@@ -28,8 +28,6 @@ import { ProfilePage } from "./profile/ProfilePage";
 registerPane("profile-page", ProfilePage);
 import { SchedulesPage } from "./schedules/SchedulesPage";
 registerPane("schedules-page", SchedulesPage);
-import { AgentsPage } from "./agents/AgentsPage";
-registerPane("agents-page", AgentsPage);
 import { YouPage } from "./you/YouPage";
 registerPane("you-page", YouPage);
 import { MachinePane } from "./machine/MachinePane";

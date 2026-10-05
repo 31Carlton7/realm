@@ -6,7 +6,8 @@ import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
 import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
-import { LibraryEntrySchema, LibraryQuerySchema } from "./library";
+import { SAVED_TURNS_MAX, SavedTurnSchema } from "./saved-turns";
+import { LibraryAddResultSchema, LibraryAddSchema, LibraryEntrySchema, LibraryQuerySchema } from "./library";
 import { SkillSchema, SkillDetailSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
 import { CommandOriginKindSchema, UserCommandSchema } from "./commands";
 import { ScriptInputSchema, ScriptSchema } from "./scripts";
@@ -345,7 +346,12 @@ export const AgentProbeRowSchema = z.object({
   version: z.string().nullable(),
   loggedIn: z.boolean().nullable(),
   reason: z.string().nullable(),
-  models: z.array(z.object({ id: z.string(), label: z.string(), fastMode: z.boolean().optional(), isDefault: z.boolean().optional() })).nullable().optional(),
+  models: z.array(z.object({ id: z.string(), label: z.string(), fastMode: z.boolean().optional(), fastDescription: z.string().optional(), isDefault: z.boolean().optional(),
+    efforts: z.array(z.string()).optional(), defaultEffort: z.string().optional() })).nullable().optional(),
+  /** An agent's own reasoning levels where they are a session setting rather than a model's — an ACP
+   *  agent's `thought_level` option, read off the probe's throwaway session — and the one it starts on. */
+  efforts: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
+  defaultEffort: z.string().nullable().optional(),
 });
 
 /**
@@ -418,41 +424,6 @@ export const Methods = {
   "iconAssets.generate": { params: z.object({ profileId: IdSchema, prompt: z.string().min(1).max(300) }), result: IconAssetSchema },
   "iconAssets.upload":   { params: z.object({ profileId: IdSchema, path: z.string().min(1) }), result: IconAssetSchema },
   "iconAssets.delete":   { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
-
-  /* The pixel office's prompter. One description in, one world out, as the model's raw JSON TEXT —
-     deliberately unparsed here. The renderer owns the only validator (`@realm/pixel-office`'s
-     `checkWorld`/`checkTheme`), because it is the thing that has to survive the answer, and a second
-     weaker copy of those rules in this file is how two validators come to disagree about what is
-     safe to draw. `vocabulary` travels IN for the same reason it is not imported: the furniture
-     catalog is built from decoded sprites in the renderer, and reaching for it server-side would
-     pull a canvas into the daemon. */
-  "office.generate": {
-    params: z.object({
-      prompt: z.string().min(1).max(600),
-      vocabulary: z.array(z.object({ category: z.string().min(1), ids: z.array(z.string().min(1)).max(200) })).max(20),
-      current: z.object({ name: z.string(), room: z.array(z.string()).max(64) }).nullable().default(null),
-      maxCols: z.number().int().min(4).max(60),
-      maxRows: z.number().int().min(4).max(60),
-      /** How many agents need a desk. The room is built for the crowd that is actually there. */
-      seats: z.number().int().min(1).max(40).default(6),
-      /** How many props the model may ask to have drawn for it. */
-      maxDrawn: z.number().int().min(0).max(8).default(0),
-      /** What the last attempt got wrong, handed back so one retry can fix it. */
-      problems: z.array(z.string().max(300)).max(12).default([]),
-    }),
-    result: z.object({ json: z.string() }),
-  },
-  /* The same proxy for one piece of furniture rather than a whole room. Separate from
-     `office.generate` because they are different asks with different costs: a room is rearranged
-     occasionally, a prop is drawn one at a time while you are looking at the result. */
-  "office.drawSprite": {
-    params: z.object({
-      prompt: z.string().min(1).max(200),
-      maxWidth: z.number().int().min(8).max(48),
-      maxHeight: z.number().int().min(8).max(48),
-    }),
-    result: z.object({ json: z.string() }),
-  },
 
   "projects.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ProjectSchema) },
   "projects.create": { params: z.object({ spaceId: IdSchema, name: z.string().min(1), rootPath: z.string(), defaultBranch: z.string().default("main") }), result: ProjectSchema },
@@ -546,6 +517,25 @@ export const Methods = {
   "library.artifacts": {
     params: LibraryQuerySchema,
     result: z.object({ entries: z.array(LibraryEntrySchema), total: z.number() }),
+  },
+  /** Every turn saved in a profile's sessions, the newest saved first: the Library's Saved section.
+   *  `total` is how many there are, so a list cut at `limit` can say that it was. */
+  "library.saved": {
+    params: z.object({ profileId: IdSchema, limit: z.number().int().min(1).max(SAVED_TURNS_MAX).default(SAVED_TURNS_MAX) }),
+    result: z.object({ entries: z.array(SavedTurnSchema), total: z.number().int() }),
+  },
+  /**
+   * Add files to the Library: the Files toolbar's Add, or files dropped on the page.
+   *
+   * Each chosen file is COPIED into the profile's own folder in the Realm home and listed as `added`,
+   * belonging to no session. The copy keeps the file's name, made safe, and never replaces anything:
+   * a different file of the same name is kept beside it as `name 2.ext`, and the same file again is
+   * not copied twice. A symbolic link is never followed, among the chosen items or inside a folder.
+   * A folder is only described unless `folders` is set (see `LibraryAddSchema`).
+   */
+  "library.add": {
+    params: LibraryAddSchema,
+    result: LibraryAddResultSchema,
   },
 
   /**
@@ -1873,14 +1863,22 @@ export const Methods = {
    *  going nowhere else — there is no endpoint behind this and no aggregate anywhere. `rating: null`
    *  retracts an earlier one. */
   "sessions.recordFeedback": { params: z.object({ id: IdSchema, messageId: z.string().min(1), rating: z.enum(["up", "down"]).nullable() }), result: z.object({ ok: z.literal(true) }) },
+  /** The turns the reader saved in one session (saved-turns.ts), as the seqs of their prompts' events,
+   *  in the log's order. Live changes arrive on `session.saved`; this is the read a pane mounts with. */
+  "sessions.saved": { params: z.object({ id: IdSchema }), result: z.object({ seqs: z.array(z.number().int()) }) },
+  /** Save one turn, or unsave it. `seq` names the prompt's own `user_message` event and nothing else:
+   *  any other event, or one of another session's, is refused rather than saved as a stray number.
+   *  Saving what is saved, or unsaving what is not, changes nothing. Answers with the session's set. */
+  "sessions.setSaved": { params: z.object({ id: IdSchema, seq: z.number().int(), saved: z.boolean() }), result: z.object({ seqs: z.array(z.number().int()) }) },
   /** `answers` rides along only for a question: question id -> what was chosen or typed, several as a
    *  list. Deliberately a record of strings rather than a free-form input override — the UI answers a
    *  question, it never gets to rewrite the tool's arguments — and each answer is held to the card it
    *  was asked with before it goes anywhere (`normalizeAnswers`). */
   "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: AskAnswersSchema.optional() }), result: z.object({ ok: z.literal(true) }) },
   /** `fastMode` is a REQUEST — see `Session.fastMode`. The server records it and hands it to the
-   *  adapter; whether the harness honours it comes back on the `usage` event. */
-  "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional(), fastMode: z.boolean().optional() }), result: SessionSchema },
+   *  adapter; whether the harness honours it comes back on the `usage` event. `effort: null` is "the
+   *  model's own default", and reaches a running session as much as a level does. */
+  "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().nullable().optional(), permissionMode: z.string().optional(), fastMode: z.boolean().optional() }), result: SessionSchema },
   /** Re-point an untouched session at another agent. Server-guarded: rejected (SESSION_STARTED) once the
    *  session has any event — a transcript belongs to the agent that produced it. Clears `model`, since a
    *  model id from the old kind means nothing to the new one. */
@@ -2031,6 +2029,9 @@ export const Events = {
    *  Carries the whole list rather than a delta: it is a handful of short strings, and a prompter that
    *  applied deltas would have to reason about one arriving before its initial `sessions.queued` read. */
   "session.queue":    z.object({ sessionId: IdSchema, queued: z.array(QueuedPromptSchema) }),
+  /** A session's saved turns changed — one saved or unsaved, here or in another window. Carries the
+   *  whole set, as `session.queue` carries the whole queue: it is a few numbers. */
+  "session.saved":    z.object({ sessionId: IdSchema, seqs: z.array(z.number().int()) }),
   /** A provider restated the account's plan quota. Carries every kind's row rather than the one that
    *  changed: it is a short list, and the panel and the session chip both read the whole thing. */
   "limits.changed":   z.object({ limits: z.array(PlanLimitsSchema) }),

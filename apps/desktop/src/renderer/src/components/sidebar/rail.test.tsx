@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { DEFAULT_KEYBINDINGS, PAGE_REF_IDS } from "@realm/contracts";
+import { DEFAULT_KEYBINDINGS, PAGE_REF_IDS, allItems, emptyLayout, itemIdOfLeaf } from "@realm/contracts";
 import { AppShell } from "../../App";
 import { Rail } from "./Rail";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, profile, session, space, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
 import { exited } from "../popover-exit.test-fakes";
 
 async function mount(over: FakeData = {}, shell = false) {
@@ -32,13 +32,13 @@ describe("the rail", () => {
 
   it("opens each page over the workspace, lit while it is up, and puts it away on a second press", async () => {
     const { store, api } = await mount();
-    const home = () => within(rail()).getByRole("button", { name: "Home" });
-    fireEvent.click(home());
-    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("agents-page"));
-    expect(store.getState().pageOverlay).toMatchObject({ refId: PAGE_REF_IDS["agents-page"] });
-    expect(home()).toHaveAttribute("aria-pressed", "true");
+    const library = () => within(rail()).getByRole("button", { name: "Library" });
+    fireEvent.click(library());
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("library-page"));
+    expect(store.getState().pageOverlay).toMatchObject({ refId: PAGE_REF_IDS["library-page"] });
+    expect(library()).toHaveAttribute("aria-pressed", "true");
     expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
-    fireEvent.click(home());
+    fireEvent.click(library());
     await waitFor(() => expect(store.getState().pageOverlay).toBeNull());
     fireEvent.click(within(rail()).getByRole("button", { name: "Scheduled tasks" }));
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("schedules-page"));
@@ -51,18 +51,59 @@ describe("the rail", () => {
     expect(within(rail()).queryByRole("button", { name: /notifications/i })).toBeNull();
   });
 
-  it("wears Home's count: every session waiting on you, in any space of any profile", async () => {
-    const { store, container } = await mount({
-      profiles: [profile("p1", "Work"), profile("p2", "School")],
-      spaces: [space("s1", "p1", "Versed"), space("s2", "p2", "Lectures")],
-      sessions: [session("a", "s1", { status: "waiting_permission" }), session("b", "s2", { status: "waiting_permission" }), session("c", "s1", { status: "running" })],
+  describe("Home", () => {
+    const home = () => within(rail()).getByRole("button", { name: "Home" });
+    const inFront = (store: Awaited<ReturnType<typeof mount>>["store"]) =>
+      itemIdOfLeaf(store.getState().layout, store.getState().focusedLeafId);
+    /** Mid-work: a session of Versed's in front. */
+    const working = async () => {
+      const mounted = await mount({
+        items: { s1: [item("i-lead", "s1", { kind: "session", refId: "lead", title: "Lead" })] },
+        sessions: [session("lead", "s1", { title: "Lead" })],
+      });
+      await act(async () => { await mounted.store.getState().openItem("i-lead"); });
+      return mounted;
+    };
+
+    it("goes back from every page to the session that was in front, in its space, making nothing", async () => {
+      // THE MUTANTS: Home as a page of its own again, or a Home that starts a session with one in front.
+      const { store, api } = await working();
+      const pages = [
+        () => store.getState().openDestinationPage("library-page"), () => store.getState().openDestinationPage("connections-page"),
+        () => store.getState().openDestinationPage("schedules-page"), () => store.getState().openDestinationPage("code-review-page"),
+        () => store.getState().openDestinationPage("settings-page"), () => store.getState().openDestinationPage("you-page"),
+        // Another space's Overview makes that space the current one while it is up.
+        () => store.getState().openSpacePage("s2"), () => store.getState().openProfilePage(),
+      ];
+      for (const open of pages) {
+        act(() => open());
+        expect(store.getState().pageOverlay).not.toBeNull();
+        fireEvent.click(home());
+        await waitFor(() => expect(store.getState().pageOverlay).toBeNull());
+        expect(inFront(store)).toBe("i-lead");
+        expect(store.getState().activeSpaceId).toBe("s1");
+      }
+      expect(api.calls.some((c) => c.startsWith("createSession:"))).toBe(false);
     });
-    const home = within(rail()).getByRole("button", { name: "Home, 2 waiting on you" });
-    expect(within(home).getByText("2")).toHaveClass("sb-badge");
-    act(() => { store.getState().applySessionStatus("a", "running"); store.getState().applySessionStatus("b", "idle"); });
-    await waitFor(() => expect(within(rail()).getByRole("button", { name: "Home" })).toBeInTheDocument());
-    // Nothing waiting is no badge at all, not a zero.
-    expect(container.querySelector(".sb-badge")).toBeNull();
+
+    it("lands on a fresh prompter when nothing was in front", async () => {
+      // THE MUTANT: put the page away and stop, onto a pane that says to open something.
+      const { store, api } = await mount({ items: { s1: [] } });
+      expect(allItems(store.getState().layout ?? emptyLayout())).toEqual([]);
+      act(() => store.getState().openDestinationPage("settings-page"));
+      fireEvent.click(home());
+      await waitFor(() => expect(api.calls.filter((c) => c.startsWith("createSession:"))).toHaveLength(1));
+      expect(store.getState().pageOverlay).toBeNull();
+      expect(store.getState().items.find((i) => i.id === inFront(store))?.kind).toBe("session");
+    });
+
+    it("is never lit and carries no count — a session waiting on you says so on its own row", async () => {
+      // THE MUTANT: Home's old count of every session waiting on you, back at its shoulder.
+      await mount({ sessions: [session("a", "s1", { status: "waiting_permission" }), session("b", "s2", { status: "waiting_permission" })] });
+      expect(home()).not.toHaveAttribute("aria-pressed");
+      expect(home()).toHaveAttribute("title", "Back to your sessions");
+      expect(home().querySelector(".sb-badge")).toBeNull();
+    });
   });
 
   it("holds no back and forward of its own in either state — they are the window's, beside the lights", async () => {

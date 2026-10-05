@@ -2,8 +2,9 @@
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
-import { artifactTypeOf, basenameOf, expandCommand, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type MentionRef } from "@realm/contracts";
+import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { SavedTurn } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -127,6 +128,10 @@ export type FakeData = {
   detachedSince?: number | null;
   /** Goal mode: the objective each session is pursuing, by session id. */
   goals?: Record<string, Goal>;
+  /** Saved turns, by session id, as their prompts' seqs — and the Library's rows for them, which the
+   *  fake lists only while their seq is still saved, so an unsave anywhere takes the row out. */
+  savedTurns?: Record<string, number[]>;
+  savedEntries?: SavedTurn[];
   /** Friend packs the fake server holds, the words that open them, and which are already open. */
   eggPacks?: UnlockedEggPack[];
   eggWords?: Record<string, string>;
@@ -234,11 +239,6 @@ export type FakeData = {
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
-  /** What `office.generate` answers with — the model's reply, which is the whole of what the
-   *  prompter flow has to cope with. */
-  pixelWorldJson?: string;
-  /** What `office.drawSprite` answers with. */
-  pixelSpriteJson?: string;
   /** The space's failover policy. Defaults to the real default (retry on, no chain), so a test that
    *  does not care about failover gets the behaviour a fresh install has. */
   failover?: FailoverPolicy;
@@ -336,6 +336,14 @@ export type FakeData = {
   /** The Library's file index, as one flat list. The fake pages and filters it here rather than
    *  answering a fixed page, so a test can prove the page's own paging without a server. */
   artifacts?: LibraryEntry[];
+  /** The profile each ADDED file in `artifacts` belongs to, by entry id — an added file has no space
+   *  for the fake to read its profile off, as it has none on the server. */
+  addedProfiles?: Record<string, string>;
+  /** What `library.add` answers. Absent, the fake copies every path in as an added file (folders are
+   *  whatever the test says they are: `addFolders`), and lists it in `artifacts` from then on. */
+  libraryAdd?: ((input: LibraryAddInput) => LibraryAddResult) | null;
+  /** The paths `library.add` should treat as folders, with what each holds. */
+  addFolders?: Record<string, { files: string[]; bytes: number; subfolders: number }>;
   /** `iconAssets.list` by profile id — the space icon picker's "Generated"/"Uploaded" library. */
   iconAssets?: Record<string, IconAsset[]>;
   /** What `pickIconImage()` answers with. Defaults to null (cancelled) — a test opts in by setting
@@ -405,6 +413,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     settings: overrides.settings ?? {},
     computerAllowedApps: overrides.computerAllowedApps ?? {},
     goals: overrides.goals ?? {},
+    savedTurns: overrides.savedTurns ?? {},
+    savedEntries: overrides.savedEntries ?? [],
     eggPacks: overrides.eggPacks ?? [],
     eggWords: overrides.eggWords ?? {},
     eggsUnlocked: overrides.eggsUnlocked ?? [],
@@ -461,8 +471,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
-    pixelWorldJson: overrides.pixelWorldJson ?? "{}",
-    pixelSpriteJson: overrides.pixelSpriteJson ?? "{}",
     failover: overrides.failover ?? DEFAULT_FAILOVER_POLICY,
     editors: overrides.editors ?? [],
     installedApps: overrides.installedApps ?? [],
@@ -534,6 +542,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     delegableModels: overrides.delegableModels ?? { models: [], own: { kind: "claude", label: "Fable 5.1" } },
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
     artifacts: overrides.artifacts ?? [],
+    addedProfiles: overrides.addedProfiles ?? {},
+    libraryAdd: overrides.libraryAdd ?? null,
+    addFolders: overrides.addFolders ?? {},
     iconAssets: overrides.iconAssets ?? {},
     pickIconImage: overrides.pickIconImage ?? null,
   };
@@ -731,9 +742,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (q.sessionId != null) calls.push(`libraryArtifactsSession:${q.sessionId}`);
       calls.push(`libraryArtifacts:${q.spaceId ?? "all"}:${q.kind ?? "any"}:${q.type ?? "any"}:${q.query ?? ""}`);
       await wait("libraryArtifacts");
-      // A profile narrows to its spaces, as the server's join does.
-      const ofProfile = (spaceId: string) => q.profileId == null || data.spaces.find((x) => x.id === spaceId)?.profileId === q.profileId;
-      const scoped = data.artifacts.filter((a) => ofProfile(a.spaceId)
+      // A profile narrows to its spaces, as the server's join does — and to its own added files, which
+      // are in no space.
+      const ofProfile = (a: LibraryEntry) => q.profileId == null
+        || (a.spaceId === null ? data.addedProfiles[a.id] === q.profileId : data.spaces.find((x) => x.id === a.spaceId)?.profileId === q.profileId);
+      const scoped = data.artifacts.filter((a) => ofProfile(a)
         && (q.spaceId == null || a.spaceId === q.spaceId) && (q.sessionId == null || a.sessionId === q.sessionId));
       // One row per file, its newest — the server's collapse, done before the keyset as it is there.
       const collapse = (rows: LibraryEntry[]) => !q.perFile ? rows
@@ -749,6 +762,27 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         : matching.filter((a) => a.ts < before.ts || (a.ts === before.ts && a.id < before.id));
       const total = collapse(scoped).length;
       return { entries: after.slice(0, q.limit ?? LIBRARY_PAGE_SIZE), total };
+    },
+    addLibraryFiles: async (input) => {
+      calls.push(`addLibraryFiles:${input.profileId}:${input.folders ? "folders:" : ""}${input.paths.join(",")}`);
+      await wait("addLibraryFiles");
+      if (data.libraryAdd) return data.libraryAdd(input);
+      const result: LibraryAddResult = { added: [], renamed: [], skipped: [], folders: [] };
+      const copy = (path: string) => {
+        const name = basenameOf(path);
+        const entry: LibraryEntry = { id: `added:${++n}`, sessionId: null, spaceId: null, kind: "added", path: `/realm-home/library/${input.profileId}/${name}`,
+          name, ext: extOf(name), ts: Date.now(), sessionTitle: null, agentKind: null };
+        data.artifacts.unshift(entry);
+        data.addedProfiles[entry.id] = input.profileId;
+        result.added.push(entry);
+      };
+      for (const path of input.paths) {
+        const folder = data.addFolders[path];
+        if (!folder) { copy(path); continue; }
+        if (input.folders) for (const f of folder.files) copy(f);
+        else result.folders.push({ path, name: basenameOf(path), files: folder.files.length, bytes: folder.bytes, subfolders: folder.subfolders, more: folder.files.length > LIBRARY_ADD_MAX });
+      }
+      return result;
     },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
     listEnvironments: async (sid) => { calls.push(`listEnvironments:${sid}`); await wait(`listEnvironments:${sid}`); return data.environments[sid] ?? []; },
@@ -865,18 +899,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     // Whatever a test parks in `data.pickFiles` is what the native picker "returns".
     pickFiles: async () => { calls.push("pickFiles"); return data.pickFiles.splice(0, data.pickFiles.length); },
     listIconAssets: async (profileId) => { calls.push(`listIconAssets:${profileId}`); return data.iconAssets[profileId] ?? []; },
-    /** Answers with whatever `api.data.pixelWorldJson` holds — the tests drive the prompter by
-     *  setting the model's reply, which is the only interesting variable in that flow. */
-    drawPixelSprite: async (input) => {
-      calls.push(`drawPixelSprite:${input.prompt}`);
-      await wait("drawPixelSprite");
-      return { json: data.pixelSpriteJson };
-    },
-    generatePixelWorld: async (input) => {
-      calls.push(`generatePixelWorld:${input.prompt}`);
-      await wait("generatePixelWorld");
-      return { json: data.pixelWorldJson };
-    },
     generateIconAsset: async (profileId, prompt) => {
       calls.push(`generateIconAsset:${profileId}:${prompt}`);
       await wait("generateIconAsset");
@@ -1140,6 +1162,18 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     sessionQueue: async () => queuedPrompts,
     planLimits: async () => { calls.push("planLimits"); return planLimitRows; },
     recordFeedback: async (id, messageId, rating) => { calls.push(`recordFeedback:${id}:${messageId}=${rating ?? "none"}`); },
+    savedTurns: async (id) => { calls.push(`savedTurns:${id}`); return data.savedTurns[id] ?? []; },
+    setTurnSaved: async (id, seq, saved) => {
+      calls.push(`setTurnSaved:${id}:${seq}=${saved}`);
+      const was = data.savedTurns[id] ?? [];
+      data.savedTurns[id] = saved ? [...new Set([...was, seq])].sort((a, b) => a - b) : was.filter((x) => x !== seq);
+      return data.savedTurns[id]!;
+    },
+    librarySaved: async (profileId) => {
+      calls.push(`librarySaved:${profileId}`);
+      const entries = data.savedEntries.filter((e) => data.savedTurns[e.sessionId]?.includes(e.seq));
+      return { entries, total: entries.length };
+    },
     respondPermission: async (id, requestId, decision) => { calls.push(`respondPermission:${id}:${requestId}:${decision}`); },
     setSessionOptions: async (id, o) => {
       calls.push(`setSessionOptions:${id}`);

@@ -5,8 +5,8 @@
  * three are about pixels rather than about the DOM:
  *
  *   1. The heavy-effort gradient PAINTS, and travels. jsdom will happily report a background-image
- *      on an element that draws nothing — `background-position: 130%` on an unanimated segment is
- *      exactly that, a gradient parked off its own box. This samples the segment, twice.
+ *      on an element that draws nothing — `background-position: 130%` on an unanimated fill is
+ *      exactly that, a gradient parked off its own box. This samples the effort track, twice.
  *   2. The signature is ink rather than an empty <svg>. The paths are a 280-unit lockup inside a
  *      viewBox: wrong numbers put the glyphs off-canvas and every DOM assertion still passes.
  *   3. The konami sequence lands on a real window, through real key events, and the palette it pays
@@ -110,11 +110,6 @@ window.__live = window.__live ?? {
     if (!n) return null;
     const b = n.getBoundingClientRect();
     return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) };
-  },
-  effortRect(label) {
-    const group = [...document.querySelectorAll(".mp-seg-group")].find((g) => g.getAttribute("aria-label") === "Effort");
-    const opt = group && [...group.querySelectorAll(".mp-seg-opt")].find((b) => b.textContent.trim() === label);
-    return opt ? this.rect(opt) : null;
   },
 };
 void 0`;
@@ -313,34 +308,33 @@ async function main() {
     throw new Error("the picker would not stay open long enough to measure twice");
   };
 
-  /* Measured on the SELECTED level rather than a hovered one, and that is the better test as well as
-     the steadier one: the field is what a session in Max looks like for as long as it stays there,
-     while a hover lasts as long as a pointer sits still. Picking closes the popover (that is what
-     picking does here), so each sample reopens it. */
-  const pickEffort = async (label) => {
-    await openPicker(`the picker, for ${label}`);
-    await evalIn(c, `(() => {
-      const g = [...document.querySelectorAll('.mp-seg-group')].find((x) => x.getAttribute('aria-label') === 'Effort');
-      [...g.querySelectorAll('.mp-seg-opt')].find((b) => b.textContent.trim() === ${JSON.stringify(label)})?.click();
-      return true; })()`);
-    await sleep(500);
-    await openPicker(`the picker again, after ${label}`);
-    await sleep(250);
-    return evalIn(c, `__live.rect('.mp-seg')`);
+  /* Measured on the CHOSEN level, and that is the steadier test: the field is what a session at its
+     heaviest level looks like for as long as it stays there. The level is set the way the keyboard
+     sets it, on the track — Home for the lightest, End for the heaviest — which keeps the picker open. */
+  const pickEffort = async (keyName) => {
+    await openPicker(`the picker, for ${keyName}`);
+    await evalIn(c, `(() => { document.querySelector('.mp-track')?.focus(); return true; })()`);
+    const vk = keyName === "Home" ? 36 : 35;
+    for (const type of ["rawKeyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, key: keyName, code: keyName, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk });
+    await sleep(600);
+    // The far end of the track: past the plain accent fill a light level draws, so what is sampled
+    // there is the well at a light level and the field at a heavy one.
+    const t = await evalIn(c, `__live.rect('.mp-track')`);
+    return t && { x: Math.round(t.x + t.w * 0.4), y: t.y, w: Math.round(t.w * 0.6) - 4, h: t.h, track: t.w };
   };
 
-  const coldRect = await pickEffort("Low");
-  check("the effort strip is laid out", !!coldRect && coldRect.w > 100, coldRect);
+  const coldRect = await pickEffort("Home");
+  check("the effort track is laid out", !!coldRect && coldRect.track > 100, coldRect);
   const cold = await sample(c, coldRect);
-  const hotRect = await pickEffort("Max");
+  const hotRect = await pickEffort("End");
   const hot = await twice(hotRect, 900);
   // Asserted HERE rather than at the first open: this is the moment we know the picker is up, and
   // every rule in the field hangs off this one attribute.
   check("the picker wears the one attribute every egg rule hangs off",
     await evalIn(c, `document.querySelector('.model-picker')?.hasAttribute('data-eggs') ?? false`));
-  check("choosing the heaviest level lights the whole strip", hot.a.chroma > cold.chroma + 20,
+  check("choosing the heaviest level lights the whole track", hot.a.chroma > cold.chroma + 20,
     { hot: hot.a.chroma, cold: cold.chroma });
-  check("a light level leaves it the plain control it always was", cold.chroma < 25, { chroma: cold.chroma });
+  check("a light level leaves the far end the plain well it always was", cold.chroma < 25, { chroma: cold.chroma });
   const travel = await moved(c, hot.a.data, hot.b.data);
   check("the field moves rather than sitting still", travel > 5, { changed: travel });
   save("aurora", (await c.send("Page.captureScreenshot", { format: "png" })).data);

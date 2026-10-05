@@ -7,15 +7,19 @@ import { memoryReaderNames } from "../../components/settings/MemoryPanel";
 import { MemoryDoc } from "../../components/settings/MemoryDoc";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { SkillsPanel } from "../../components/settings/SkillsPanel";
-import { LibraryFiles } from "./LibraryFiles";
+import { LibraryFiles, type LibraryFilesHandle } from "./LibraryFiles";
+import { LibrarySaved } from "./LibrarySaved";
 import { SkillViewer } from "./SkillViewer";
 import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
+import { useFileDrop } from "../../components/use-file-drop";
 
 /* Files leads. Skills and memory are what you INSTALL into a space and change rarely; files are
-   what the work produced, and they are the reason someone opens a Library at all. */
+   what the work produced, and they are the reason someone opens a Library at all. Saved is what the
+   reader KEPT of the work, so it follows the files and comes before the installed things. */
 const LIBRARY_TABS = [
-  { id: "files", label: "Files", icon: "artifact" }, { id: "skills", label: "Skills", icon: "sparkles" }, { id: "memory", label: "Memory", icon: "context" },
+  { id: "files", label: "Files", icon: "artifact" }, { id: "saved", label: "Saved", icon: "saved" },
+  { id: "skills", label: "Skills", icon: "sparkles" }, { id: "memory", label: "Memory", icon: "context" },
 ] as const;
 type LibraryTab = (typeof LIBRARY_TABS)[number]["id"];
 
@@ -23,10 +27,12 @@ type LibraryTab = (typeof LIBRARY_TABS)[number]["id"];
  * The Library page — everything a space HAS, on the W3 page pattern (`.page` / `.page-head` /
  * `.page-rail` / `.page-content`).
  *
- * Three tabs, and Files is not like the other two. Skills and memory are installable things grouped
- * by the scoping contract — "This space" / "From <profile>" / "Everywhere". Files are the OUTPUT of
- * the work: every file any session wrote or was given, across every space in the profile, read from
- * the server's `artifacts` index rather than folded out of transcripts (see LibraryFiles).
+ * Four tabs, and Files and Saved are not like the other two. Skills and memory are installable things
+ * grouped by the scoping contract — "This space" / "From <profile>" / "Everywhere". Files are the
+ * OUTPUT of the work: every file any session wrote or was given, across every space in the profile,
+ * read from the server's `artifacts` index rather than folded out of transcripts (see LibraryFiles).
+ * Saved is what the reader kept of it — every turn saved from a scroll track, across the same
+ * profile (see LibrarySaved).
  *
  * The vantage is `item.spaceId` — the space whose layout holds this pane, stamped at open time by
  * `openDestinationPage` (the item's refId is the kind's sentinel, PAGE_REF_IDS; there is no row behind
@@ -63,6 +69,12 @@ export function LibraryPage({ item }: PaneProps) {
      a skill is read, Skills lit — goes to that section, out of the skill if one is open. */
   const shown: LibraryTab = openSkill !== null ? "skills" : tab;
   const pick = (next: LibraryTab) => { if (openSkill !== null) setLibrarySkill(spaceId, null); setTab(next); };
+  /* Files dropped anywhere on the page while it shows its files are added to the Library: the whole
+     page is the target, as a whole pane is a session's, and its glow is inset from the page's own edge
+     rather than drawn through the column of files. What to do with them is the column's. */
+  const files = useRef<LibraryFilesHandle>(null);
+  const drop = useFileDrop((dropped) => files.current?.drop(dropped));
+  const takesFiles = openSkill === null && tab === "files";
   const rail = (
     <fieldset className="page-rail" ref={railStrip}>
       <legend className="visually-hidden">Library section</legend>
@@ -104,7 +116,7 @@ export function LibraryPage({ item }: PaneProps) {
   );
 
   return (
-    <div className="page library-page-pane">
+    <div className="page library-page-pane" {...(takesFiles ? drop.handlers : {})}>
       {openSkill !== null ? (
         <>
           {/* Reading a skill, the Library's sections stay in the sidebar, so the column does not change
@@ -115,17 +127,23 @@ export function LibraryPage({ item }: PaneProps) {
       ) : (
       <div className="page-body">
         <PageRail label="Library">{rail}</PageRail>
-        {/* Files brings its own scroller, because its toolbar rides in it under the head; the other two
+        {/* Files brings its own scroller, because its toolbar rides in it under the head; the others
             are reading columns. Both ends dissolve, but only when there is something under them — and
             only over the column: a band on the body would be drawn over the rail above it. */}
-        {tab === "files" ? <LibraryFiles spaceId={spaceId} head={head} /> : (
+        {tab === "files" ? <LibraryFiles ref={files} spaceId={spaceId} head={head} /> : (
           <PageScroll>
             {head}
             {tab === "skills" && <SkillsPanel spaceId={spaceId} onOpen={(id) => setLibrarySkill(spaceId, id)} />}
+            {tab === "saved" && <LibrarySaved spaceId={spaceId} />}
             {tab === "memory" && <LibraryMemoryTab spaceId={spaceId} />}
           </PageScroll>
         )}
       </div>
+      )}
+      {takesFiles && drop.dropping && (
+        <div className="session-drop library-drop" aria-hidden="true">
+          <span className="quick-chat-drop-label"><Icon name="add" size={14} />Drop to add to the Library</span>
+        </div>
       )}
     </div>
   );

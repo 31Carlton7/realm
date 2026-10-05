@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -705,12 +705,13 @@ export class SessionService {
     this.get(id);
     this.onEvent(id, sessionEvent("feedback", { messageId, rating }));
   }
-  async setOptions(id: string, o: { model?: string; effort?: string; permissionMode?: string; fastMode?: boolean }): Promise<Session> {
+  async setOptions(id: string, o: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<Session> {
     const s = this.d.sessions.update({ id, ...o });
     // The row moves whether or not a process is live. A session that has not started yet keeps the
     // request in the column and hands it over at `start` (ensureLive reads the row), which is what
-    // makes the switch mean the same thing before the first message as after it.
-    await this.live.get(id)?.handle.setOptions({ model: o.model, permissionMode: o.permissionMode, fastMode: o.fastMode });
+    // makes the switch mean the same thing before the first message as after it. The level goes to a
+    // live one too: Claude and Codex both take it on the next turn.
+    await this.live.get(id)?.handle.setOptions({ model: o.model, effort: o.effort, permissionMode: o.permissionMode, fastMode: o.fastMode });
     return s;
   }
 
@@ -1349,8 +1350,14 @@ export class SessionService {
     for (const [model, can] of Object.entries(init.fastModeModels ?? {})) answers[fastSupportKey(s.agentKind, model || null)] = can;
     if (init.supportsFastMode !== undefined) answers[fastSupportKey(s.agentKind, s.model)] = init.supportsFastMode;
     const held = readFastSupport(this.d.settings.get(MODEL_FAST_SUPPORT_KEY));
-    if (Object.entries(answers).every(([key, can]) => held[key] === can)) return;
-    this.d.settings.set(MODEL_FAST_SUPPORT_KEY, { ...held, ...answers });
+    if (!Object.entries(answers).every(([key, can]) => held[key] === can)) this.d.settings.set(MODEL_FAST_SUPPORT_KEY, { ...held, ...answers });
+    // The levels each model takes, filed the same way and for the same reader: a session that has not
+    // started, whose effort control should offer what its model accepts (`MODEL_EFFORTS_KEY`).
+    const levels = Object.fromEntries(Object.entries(init.effortModels ?? {}).map(([model, l]) => [fastSupportKey(s.agentKind, model || null), l]));
+    if (Object.keys(levels).length === 0) return;
+    const kept = readEffortSupport(this.d.settings.get(MODEL_EFFORTS_KEY));
+    if (Object.entries(levels).every(([key, l]) => kept[key]?.join() === l.join())) return;
+    this.d.settings.set(MODEL_EFFORTS_KEY, { ...kept, ...levels });
   }
 
   /**
@@ -1414,7 +1421,7 @@ export class SessionService {
     if (ev.type === "init") {
       this.noteContextReset(before, ev.payload);
       this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
-      if (ev.payload.supportsFastMode !== undefined || ev.payload.fastModeModels) this.noteFastSupport(before, ev.payload);
+      if (ev.payload.supportsFastMode !== undefined || ev.payload.fastModeModels || ev.payload.effortModels) this.noteFastSupport(before, ev.payload);
     }
     // A refused truncating resume is claimed here FIRST, and deliberately kept away from failover: the
     // refusal is deterministic, so every retry mechanism in the building would re-send a request that

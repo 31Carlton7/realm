@@ -32,7 +32,7 @@ import {
   CaduceusIcon,
   // A session's file browser, laid out as cards (SessionFiles.tsx).
   GridViewIcon,
-  // A peek: a session looked at, not opened (the side pane's transient tab, the Agents page's rows).
+  // A peek: a session looked at, not opened (the side pane's transient tab, a notification row's eye).
   ViewIcon,
   // The page about you (YouPage.tsx).
   UserCircleIcon,
@@ -60,6 +60,9 @@ import {
   MinusSignIcon,
   // Code review: a request's state, a fold of unchanged lines, a link to copy, a check still running.
   GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, UnfoldMoreIcon, Link01Icon, Comment01Icon, ViewOffIcon, DashedLineCircleIcon,
+  // A turn saved from the scroll track's card (ScrollTrack.tsx), and the Library's list of them: the
+  // plain ribbon, which fills when the turn is saved. `bookmark` stays the space icon it already is.
+  Bookmark02Icon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
@@ -161,12 +164,8 @@ export const icons = {
   "settings-page": Settings01Icon,
   "profile-page": UserIcon,
   "schedules-page": Clock01Icon,
-  /* Missing for as long as the Agents page has existed: `Icon` falls back to `icons.folder` for a
-     name it does not hold, silently, so the page wore a folder in the sidebar and in its own pane
-     bar. `icon-kinds.test.ts` is what stops the next one lasting that long. */
-  "agents-page": BotIcon,
-  /* A session's own sub-agents: one box handing work down to two. Not the page's bot — the page is
-     every agent there is, and this is the tree under one session, which is the thing the shape says. */
+  /* A session's own sub-agents: one box handing work down to two — the tree under one session,
+     which is the thing the shape says. */
   agents: HierarchySquare02Icon,
   /* A window with a layout drawn in it: an interface somebody else made. Not `browser`'s globe, which
      is a page anywhere on the web, and not `layout`, which is Realm arranging its own panes. */
@@ -229,6 +228,9 @@ export const icons = {
   link: Link01Icon, comment: Comment01Icon, hide: ViewOffIcon,
   /* A check still running: the circle not yet drawn closed. */
   pending: DashedLineCircleIcon,
+  /* The plain ribbon, outlined until the turn is saved and filled once it is (the model picker's star
+     does the same). Bookmark01's band across the top would read as a second, ruled-off control. */
+  saved: Bookmark02Icon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

@@ -1219,10 +1219,13 @@ describe("migration v38 — a scheduled task keeps its runs", () => {
 /**
  * The v38 shape of what v39 touches, hand-written for the reason every fixture above is: `sessions`
  * as it stands at v38 matters only as the table `app_views` hangs off, so it is a stub holding the
- * id the foreign key needs — with a session in it, as a real home would have.
+ * id the foreign key needs — with a session in it, as a real home would have. `session_events` is a
+ * stub too, for the reason V32's `browsers` is: a real v38 home has had it since v3, and v41's key to
+ * it — which a session's deletion now resolves — is what found it missing.
  */
 const V38_SESSIONS_SCHEMA = `
 CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE);
 `;
 
 function v38Fixture(path: string): void {
@@ -1282,6 +1285,208 @@ describe("migration v39 — the views MCP servers draw", () => {
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     // The statement itself is safe to meet twice as well — `IF NOT EXISTS`, not a version check alone.
     expect(() => again.exec(migrations[38]!)).not.toThrow();
+    again.close();
+  });
+});
+
+/**
+ * The v39 shape of what v40 touches, hand-written for the reason every fixture above is: `profiles` as
+ * it stands at v39 — v1's columns and v37's partition, in that order — because `library_files` hangs
+ * off it, with two profiles in it as a real home has.
+ *
+ * The version it is stamped at is found rather than written down: the migration that makes the table
+ * is looked for by what it says, so a migration another branch lands before it still leaves this a
+ * home stamped one short of it.
+ */
+const V39_PROFILES_SCHEMA = `
+CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
+  sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  browser_partition TEXT NOT NULL DEFAULT '');
+`;
+const LIBRARY_FILES_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS library_files"));
+
+function v39Fixture(path: string): void {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V39_PROFILES_SCHEMA);
+  for (let v = 1; v <= LIBRARY_FILES_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  db.prepare(`INSERT INTO profiles (id, name, icon, color, sort_order, created_at, updated_at, browser_partition)
+    VALUES ('pWork', 'Work', 'briefcase', '#3b82f6', 0, 1, 1, 'persist:browser'), ('pHome', 'Home', 'house', '#22c55e', 1, 2, 2, 'persist:browser-pHome')`).run();
+  db.close();
+}
+
+describe("migration v40 — the files a person adds to the Library", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v39Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+  const insert = (db: DatabaseSync, id: string, profileId: string, ts = 1) => db.prepare(`INSERT INTO library_files
+    (id, profile_id, path, name, ext, size, digest, ts) VALUES (?, ?, '/home/library/report.pdf', 'report.pdf', 'pdf', 9, 'd1', ?)`).run(id, profileId, ts);
+
+  it("is appended, not folded into v39: a v39 home reaches the end of the chain and gains the table", () => {
+    const { db } = migrated();
+    expect(LIBRARY_FILES_AT).toBeGreaterThanOrEqual(39);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    const cols = (db.prepare("PRAGMA table_info(library_files)").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toEqual(["id", "profile_id", "path", "name", "ext", "size", "digest", "ts"]);
+    db.close();
+  });
+
+  it("backfills NOTHING, and leaves the profiles it hangs off exactly as they were", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM library_files").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT id, name, browser_partition FROM profiles ORDER BY sort_order").all())
+      .toEqual([{ id: "pWork", name: "Work", browser_partition: "persist:browser" }, { id: "pHome", name: "Home", browser_partition: "persist:browser-pHome" }]);
+    db.close();
+  });
+
+  it("goes with its profile, only its own profile's files go, and a file names a profile that exists", () => {
+    const { db } = migrated();
+    insert(db, "f1", "pWork");
+    insert(db, "f2", "pHome");
+    db.prepare("DELETE FROM profiles WHERE id = 'pHome'").run();
+    expect(db.prepare("SELECT id FROM library_files").all()).toEqual([{ id: "f1" }]);
+    expect(() => insert(db, "f3", "no-such-profile")).toThrow(/FOREIGN KEY/);
+    db.close();
+  });
+
+  it("answers the Library's two questions off indexes: a profile's newest files, and whether these bytes are in", () => {
+    const { db } = migrated();
+    const plan = (sql: string, ...args: string[]) => (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...args) as { detail: string }[]).map((r) => r.detail).join(" ");
+    const newest = plan("SELECT * FROM library_files WHERE profile_id = ? ORDER BY ts DESC, id DESC LIMIT 60", "pWork");
+    expect(newest).toContain("library_files_recent");
+    expect(newest).not.toContain("TEMP B-TREE");
+    expect(plan("SELECT id FROM library_files WHERE profile_id = ? AND digest = ?", "pWork", "d1")).toMatch(/library_files_(digest|recent)/);
+    db.close();
+  });
+
+  it("is idempotent: reopening twice more neither re-runs the CREATE nor loses a file kept since", () => {
+    const { p, db } = migrated();
+    insert(db, "f1", "pWork");
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(again.prepare("SELECT id FROM library_files").all()).toEqual([{ id: "f1" }]);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    // The statement itself is safe to meet twice as well — `IF NOT EXISTS`, not a version check alone.
+    expect(() => again.exec(migrations[LIBRARY_FILES_AT]!)).not.toThrow();
+    expect(again.prepare("SELECT id FROM library_files").all()).toEqual([{ id: "f1" }]);
+    again.close();
+  });
+});
+
+/**
+ * The v40 shape of what v41 hangs off, hand-written for every fixture's reason: `session_events`
+ * exactly as it has stood since v3 — the table a saved turn names a row of — and `sessions` as a stub
+ * holding the id the second key needs, with a log in it, as a real home would have. And v40's own
+ * table as v40 made it — `library_files`, on the `profiles` it hangs off, with a file in it — which the
+ * migration after it has to leave exactly as it found it.
+ *
+ * Stamped one short of the migration that makes `saved_turns`, found by what it says, as v40's fixture
+ * finds its own: a migration another branch lands first still leaves this a home one short of it.
+ */
+const V40_EVENTS_SCHEMA = `
+CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
+  sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  browser_partition TEXT NOT NULL DEFAULT '');
+CREATE TABLE library_files (
+  id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  name TEXT NOT NULL,
+  ext TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  digest TEXT NOT NULL,
+  ts INTEGER NOT NULL);
+CREATE INDEX library_files_recent ON library_files(profile_id, ts DESC, id DESC);
+CREATE INDEX library_files_digest ON library_files(profile_id, digest);
+CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
+CREATE INDEX session_events_session ON session_events(session_id, seq);
+`;
+const SAVED_TURNS_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS saved_turns"));
+
+function v40Fixture(path: string): void {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V40_EVENTS_SCHEMA);
+  for (let v = 1; v <= SAVED_TURNS_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  db.prepare(`INSERT INTO profiles (id, name, icon, color, sort_order, created_at, updated_at, browser_partition)
+    VALUES ('pWork', 'Work', 'briefcase', '#3b82f6', 0, 1, 1, 'persist:browser')`).run();
+  db.prepare(`INSERT INTO library_files (id, profile_id, path, name, ext, size, digest, ts)
+    VALUES ('f1', 'pWork', '/home/library/pWork/report.pdf', 'report.pdf', 'pdf', 9, 'd1', 5)`).run();
+  db.prepare("INSERT INTO sessions (id, title) VALUES ('sess1', 'Org access'), ('sess2', 'Recipes')").run();
+  const ev = db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, ?)");
+  ev.run("sess1", 10, "user_message", '{"text":"Fix the crash","attachments":[]}'); // seq 1
+  ev.run("sess1", 11, "assistant_text", '{"messageId":"m1","text":"Fixed."}'); // seq 2
+  ev.run("sess1", 20, "user_message", '{"text":"Add a test","attachments":[]}'); // seq 3
+  ev.run("sess2", 30, "user_message", '{"text":"Soup?","attachments":[]}'); // seq 4
+  db.close();
+}
+
+describe("migration v41 — saved turns", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v40Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+  const save = (db: DatabaseSync, seq: number, sessionId: string) =>
+    db.prepare("INSERT INTO saved_turns (event_seq, session_id, saved_at) VALUES (?, ?, 1)").run(seq, sessionId);
+
+  it("is appended after v40, not folded into it: a v40 home reaches the end of the chain and gains the table", () => {
+    const { db } = migrated();
+    expect(SAVED_TURNS_AT).toBeGreaterThanOrEqual(40);
+    expect(SAVED_TURNS_AT).toBeGreaterThan(LIBRARY_FILES_AT);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    const cols = (db.prepare("PRAGMA table_info(saved_turns)").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toEqual(["event_seq", "session_id", "saved_at"]);
+    db.close();
+  });
+
+  it("saves nothing on the way in, and leaves the log it names — and v40's files — exactly as they were", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM saved_turns").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT seq, session_id, type FROM session_events ORDER BY seq").all()).toEqual([
+      { seq: 1, session_id: "sess1", type: "user_message" }, { seq: 2, session_id: "sess1", type: "assistant_text" },
+      { seq: 3, session_id: "sess1", type: "user_message" }, { seq: 4, session_id: "sess2", type: "user_message" }]);
+    expect(db.prepare("SELECT id, profile_id, name, digest FROM library_files").all()).toEqual([{ id: "f1", profile_id: "pWork", name: "report.pdf", digest: "d1" }]);
+    db.close();
+  });
+
+  it("goes with the event it names — cut from the log, or gone with its session — and names no other", () => {
+    /* THE mutant: a table with no key to the event. A rewind that cut the prompt out of the log would
+       leave a saved turn pointing at a seq nothing holds — listed as a blank, or as whatever reused it. */
+    const { db } = migrated();
+    // A session that is not there is refused too: the per-session read a pane mounts with would never find it.
+    expect(() => save(db, 3, "nobody")).toThrow(/FOREIGN KEY/);
+    save(db, 1, "sess1");
+    save(db, 3, "sess1");
+    save(db, 4, "sess2");
+    db.prepare("DELETE FROM session_events WHERE session_id = 'sess1' AND seq > 1").run();
+    expect(db.prepare("SELECT event_seq FROM saved_turns ORDER BY event_seq").all()).toEqual([{ event_seq: 1 }, { event_seq: 4 }]);
+    db.prepare("DELETE FROM sessions WHERE id = 'sess2'").run();
+    expect(db.prepare("SELECT event_seq FROM saved_turns").all()).toEqual([{ event_seq: 1 }]);
+    expect(() => save(db, 999, "sess1")).toThrow(/FOREIGN KEY/);
+    db.close();
+  });
+
+  it("is idempotent: reopening twice more neither re-runs the CREATE nor loses a turn saved since", () => {
+    const { p, db } = migrated();
+    save(db, 1, "sess1");
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(again.prepare("SELECT event_seq, session_id FROM saved_turns").all()).toEqual([{ event_seq: 1, session_id: "sess1" }]);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    // The statement itself is safe to meet twice as well — `IF NOT EXISTS`, not a version check alone.
+    expect(() => again.exec(migrations[SAVED_TURNS_AT]!)).not.toThrow();
+    expect(again.prepare("SELECT event_seq FROM saved_turns").all()).toEqual([{ event_seq: 1 }]);
     again.close();
   });
 });

@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import { MODEL_NOTES, canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { exited } from "../../components/popover-exit.test-fakes";
 import { ModelPicker, type OverflowGroup } from "./ModelPicker";
-import { modelRows, type FastMode, type ModelRow } from "./model-catalog";
+import { modelRows, type EffortControl, type FastMode, type ModelRow } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
 
 const probe = (kind: AgentProbe["kind"], models: AgentProbe["models"]): AgentProbe =>
@@ -27,13 +27,13 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-function mount({ rows = rowsFor(), kind = "claude" as AgentKind, model = "claude-opus-5" as string | null, effortItems = [] as OverflowGroup["items"],
-  overflow, fast, info = {} }: { rows?: ModelRow[]; kind?: AgentKind; model?: string | null; effortItems?: OverflowGroup["items"];
+function mount({ rows = rowsFor(), kind = "claude" as AgentKind, model = "claude-opus-5" as string | null, effort,
+  overflow, fast, info = {} }: { rows?: ModelRow[]; kind?: AgentKind; model?: string | null; effort?: EffortControl;
   overflow?: OverflowGroup[]; fast?: FastMode; info?: Record<string, ModelInfo> } = {}) {
   const picked: [AgentKind, string | null][] = [];
   const starred: string[] = [];
-  render(<ModelPicker kind={kind} model={model} effort={null} rows={rows} info={info}
-    onToggleFavorite={(k) => starred.push(k)} onPick={(k, m) => picked.push([k, m])} effortItems={effortItems} overflow={overflow} fast={fast} />);
+  render(<ModelPicker kind={kind} model={model} effort={effort} rows={rows} info={info}
+    onToggleFavorite={(k) => starred.push(k)} onPick={(k, m) => picked.push([k, m])} overflow={overflow} fast={fast} />);
   fireEvent.click(screen.getByRole("button", { name: "Model" }));
   return { picked, starred };
 }
@@ -242,23 +242,96 @@ describe("where it opens", () => {
 });
 
 describe("how it runs", () => {
-  const effort = (pick: (l: string) => void, checked = "high"): OverflowGroup["items"] =>
-    ["low", "medium", "high"].map((l) => ({ label: l, checked: l === checked, effort: l, onSelect: () => pick(l) }));
+  const LEVELS = [{ id: "low", label: "Low" }, { id: "medium", label: "Medium" }, { id: "high", label: "High" }];
+  /** An effort control over three levels, recording what it is asked to become. */
+  const control = (value: string | null, defaultId: string | null = "medium") => {
+    const asked: (string | null)[] = [];
+    return { asked, effort: { levels: LEVELS, value, defaultId, onChange: (id: string | null) => asked.push(id) } as EffortControl };
+  };
+  const track = () => screen.getByRole("slider", { name: "Effort" });
+  const fastMode = (over: Partial<FastMode> = {}): FastMode => ({ on: false, state: null, reason: null, requested: null, onChange: () => {},
+    availability: { state: "unknown" }, tip: "Fast mode: faster responses, at a higher cost.", ...over });
 
-  it("changes effort in place: the segment answers, and the popover stays to show it", async () => {
-    const chosen: string[] = [];
-    mount({ effortItems: effort((l) => chosen.push(l)) });
-    fireEvent.click(within(screen.getByRole("group", { name: "Effort" })).getByRole("button", { name: "low" }));
-    expect(chosen).toEqual(["low"]);
-    // Past the exit window, not just the click: a closing popover is still in the DOM for its fade.
+  it("names the level in force over the model it is for, and puts a dot for every level on the track", () => {
+    mount({ effort: control(null).effort });
+    expect(document.querySelector(".mp-run-level")).toHaveTextContent(/^Medium$/); // the model's default, by name
+    expect(document.querySelector(".mp-run-model")).toHaveTextContent("Opus 5");
+    expect(track()).toHaveAttribute("aria-valuenow", "1");
+    expect(track()).toHaveAttribute("aria-valuetext", "Medium");
+    expect(track().querySelectorAll(".mp-track-dot")).toHaveLength(3);
+    expect(track().querySelector(".mp-track-knob")).not.toBeNull();
+    // …and the chip names the same level.
+    expect(screen.getByRole("button", { name: "Model" }).querySelector(".chip-effort")).toHaveTextContent("Medium");
+  });
+
+  it("steps a level with ←/→ and goes to the ends with Home and End, in place", async () => {
+    const { asked, effort } = control("medium");
+    mount({ effort });
+    fireEvent.keyDown(track(), { key: "ArrowRight" });
+    fireEvent.keyDown(track(), { key: "ArrowLeft" });
+    fireEvent.keyDown(track(), { key: "End" });
+    fireEvent.keyDown(track(), { key: "Home" });
+    expect(asked).toEqual(["high", "low", "high", "low"]);
+    // Past the exit window, not just the key: a closing popover is still in the DOM for its fade.
     await exited();
     expect(dialog()).toBeInTheDocument();
     expect(dialog()).not.toHaveAttribute("data-closing");
   });
 
-  it("draws no effort control where the harness receives none", () => {
-    mount({ effortItems: [] });
-    expect(screen.queryByRole("group", { name: "Effort" })).toBeNull();
+  it("lands a press on the nearest dot", () => {
+    const { asked, effort } = control("low");
+    mount({ effort });
+    const real = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("mp-track") ? new DOMRect(100, 0, 200, 22) : real.call(this);
+    });
+    // The run is inset by half the track's height: 111 to 289, so 270 is nearest the last dot. jsdom
+    // has no PointerEvent, so the coordinate is set on the event it does build.
+    const press = createEvent.pointerDown(track(), { pointerId: 1 });
+    Object.defineProperty(press, "clientX", { value: 270 });
+    fireEvent(track(), press);
+    expect(asked).toEqual(["high"]);
+  });
+
+  it("offers the way back to the model's default only once the level has been moved off it", () => {
+    const moved = control("high");
+    mount({ effort: moved.effort });
+    const reset = screen.getByRole("button", { name: "Reset effort" });
+    expect(reset.getAttribute("title")).toBe("Back to Opus 5’s default, Medium");
+    fireEvent.click(reset);
+    expect(moved.asked).toEqual([null]);
+    cleanup();
+    mount({ effort: control(null).effort });
+    expect(screen.queryByRole("button", { name: "Reset effort" })).toBeNull();
+    cleanup();
+    mount({ effort: control("medium").effort }); // asked for, but it IS the default
+    expect(screen.queryByRole("button", { name: "Reset effort" })).toBeNull();
+  });
+
+  it("puts no knob on a level nobody chose and the harness never named", () => {
+    const { asked, effort } = control(null, null);
+    mount({ effort });
+    expect(document.querySelector(".mp-run-level")).toHaveTextContent(/^Default$/);
+    expect(track().querySelector(".mp-track-knob")).toBeNull();
+    fireEvent.keyDown(track(), { key: "ArrowRight" });
+    expect(asked).toEqual(["low"]);
+  });
+
+  it("shows the level a session asked for under another model as what actually runs here", () => {
+    // `max`, set under a Claude model, is no level of this one's: the default runs, so that is shown.
+    mount({ effort: control("max").effort });
+    expect(track()).toHaveAttribute("aria-valuetext", "Medium");
+  });
+
+  it("draws no track where the harness takes no level", () => {
+    mount({ fast: fastMode() });
+    expect(screen.queryByRole("slider", { name: "Effort" })).toBeNull();
+    expect(document.querySelector(".mp-run-level")).toHaveTextContent("Fast mode");
+  });
+
+  it("draws no foot at all where the harness takes neither", () => {
+    mount();
+    expect(document.querySelector(".mp-foot")).toBeNull();
   });
 
   it("lets a folded chip's group close on a pick, as the chip's own menu did", async () => {
@@ -270,13 +343,29 @@ describe("how it runs", () => {
     expect(dialog()).toBeNull();
   });
 
-  it("puts fast mode on the same surface, as a switch, and keeps it open on a flip", async () => {
+  it("puts fast mode beside the level as a bolt, with what it buys as its tooltip, and keeps the picker open", async () => {
     const flips: boolean[] = [];
-    mount({ fast: { on: false, state: null, reason: null, requested: null, onChange: (on) => flips.push(on), availability: { state: "unknown" } } });
-    fireEvent.click(screen.getByRole("switch", { name: "Fast mode" }));
+    mount({ effort: control(null).effort, fast: fastMode({ availability: { state: "offered", source: "catalog" }, onChange: (on) => flips.push(on) }) });
+    const bolt = screen.getByRole("button", { name: "Fast mode" });
+    expect(bolt).toHaveAttribute("aria-pressed", "false");
+    expect(bolt.getAttribute("title")).toBe("Fast mode: faster responses, at a higher cost.");
+    fireEvent.click(bolt);
     expect(flips).toEqual([true]);
     await exited();
     expect(dialog()).toBeInTheDocument();
     expect(dialog()).not.toHaveAttribute("data-closing");
   });
+
+  it("does not press a bolt on a model that cannot run it", () => {
+    const flips: boolean[] = [];
+    mount({ fast: fastMode({ on: true, availability: { state: "unavailable", source: "catalog", alternatives: ["Opus 5.5"] }, onChange: (on) => flips.push(on) }) });
+    const bolt = screen.getByRole("button", { name: "Fast mode" });
+    expect(bolt).toHaveAttribute("aria-disabled", "true");
+    expect(bolt).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(bolt);
+    expect(flips).toEqual([]);
+    // Asked for on a model that cannot: the line says so, and which can.
+    expect(document.querySelector(".mp-fast-note")).toHaveTextContent("Fast mode isn’t offered on Opus 5 — Opus 5.5 offers it.");
+  });
 });
+

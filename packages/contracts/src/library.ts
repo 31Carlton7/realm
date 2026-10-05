@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { basenameOf } from "./attachments";
 import { documentKindFor, WRITE_TOOL_NAMES, writtenPathOf } from "./documents";
+import { IdSchema } from "./ids";
 
 /**
  * Everything a session ever made or was given, as one browsable list.
@@ -24,11 +25,15 @@ import { documentKindFor, WRITE_TOOL_NAMES, writtenPathOf } from "./documents";
  * from" wrong; they are one table because they are both "a file this session has", which is the
  * question the page exists to answer.
  *
+ * `added` — a file the user put in the Library itself, with its Add or a drop on the page. Realm keeps
+ * a COPY of it under the profile, and no session holds it, so it is not a row of the `artifacts` index
+ * at all: it is kept in `library_files` (migration v40) and read beside the index as one list.
+ *
  * A URL the agent linked is deliberately NOT here, though the per-session summary lists them: a link
  * is not a file, it has no size, no kind and no place on disk, and a Drive-shaped browser listing
  * bare URLs among documents would be a list of two unrelated things.
  */
-export const ARTIFACT_KINDS = ["output", "upload"] as const;
+export const ARTIFACT_KINDS = ["output", "upload", "added"] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 export const ArtifactSchema = z.object({
@@ -50,10 +55,15 @@ export type Artifact = z.infer<typeof ArtifactSchema>;
 
 /** An artifact plus the two things the browser shows about where it came from. Joined at read time
  *  from `sessions`, never copied into the artifact row — a session renamed after the fact would
- *  otherwise leave every file it produced labelled with the old title. */
+ *  otherwise leave every file it produced labelled with the old title.
+ *
+ *  A file the user `added` has no session, and so no space and no title either: those four are null
+ *  for it, and every list that shows one says "Added" where the others name a session. */
 export const LibraryEntrySchema = ArtifactSchema.extend({
-  sessionTitle: z.string(),
-  agentKind: z.string(),
+  sessionId: z.string().nullable(),
+  spaceId: z.string().nullable(),
+  sessionTitle: z.string().nullable(),
+  agentKind: z.string().nullable(),
 });
 export type LibraryEntry = z.infer<typeof LibraryEntrySchema>;
 
@@ -91,6 +101,60 @@ export const LibraryQuerySchema = z.object({
   before: z.object({ ts: z.number(), id: z.string() }).nullable().default(null),
 });
 export type LibraryQuery = z.input<typeof LibraryQuerySchema>;
+
+/**
+ * Adding files to the Library (`library.add`): the Files toolbar's Add, or files dropped on the page.
+ *
+ * What is chosen is COPIED into Realm's own storage under the profile and listed from there, so the
+ * Library keeps the file whatever happens to the one it came from. Paths are what crosses, because the
+ * native picker and a drop both name files on this Mac, and the server is what reads them.
+ */
+/** Files one add may bring in, a folder's included. Past this a drop is far more likely a mistake — a
+ *  whole project, a home folder — than a choice, and saying so beats a copy that runs for a minute. */
+export const LIBRARY_ADD_MAX = 200;
+
+export const LibraryAddSchema = z.object({
+  profileId: IdSchema,
+  /** Absolute paths, as the picker or the drop named them. */
+  paths: z.array(z.string().min(1)).min(1).max(LIBRARY_ADD_MAX),
+  /** Add the files a folder among `paths` holds. Off, a folder is only described (`folders` in the
+   *  result), so the person is asked before a folder's worth of files is copied. Its own files only:
+   *  the folders inside it are left where they are, and so is anything hidden. */
+  folders: z.boolean().default(false),
+});
+export type LibraryAddInput = z.input<typeof LibraryAddSchema>;
+
+/**
+ * Why a chosen file was not added. `duplicate` is a file the Library already has — the same path, or
+ * the same bytes added before (`existing` names it). `too-large` is past the attachment ceiling, the
+ * one size the rest of the app holds a file to. `link` is a symbolic link, which is never followed: it
+ * could point anywhere, and only what was chosen is copied. `unreadable` is everything else the disk
+ * said no to — gone since it was chosen, not a file, not permitted.
+ */
+export const LIBRARY_SKIP_REASONS = ["duplicate", "too-large", "link", "unreadable"] as const;
+export type LibrarySkipReason = (typeof LIBRARY_SKIP_REASONS)[number];
+
+export const LibraryAddResultSchema = z.object({
+  /** What was copied in, as the Library lists it. */
+  added: z.array(LibraryEntrySchema),
+  /** Copies kept under another name — `report 2.pdf` — because a different file already has theirs. */
+  renamed: z.array(z.object({ from: z.string(), to: z.string() })),
+  skipped: z.array(z.object({
+    name: z.string(),
+    reason: z.enum(LIBRARY_SKIP_REASONS),
+    /** The file's size, where the size is the reason. */
+    size: z.number().nullable(),
+    /** The Library's name for the file this one duplicates. */
+    existing: z.string().nullable(),
+  })),
+  /** The folders among the chosen items, left alone because `folders` was off: what adding their files
+   *  would add. `files` and `bytes` count what would be copied; `more` is a folder holding more than
+   *  one add takes; `subfolders` are the folders inside it, which adding it leaves out. */
+  folders: z.array(z.object({
+    path: z.string(), name: z.string(), files: z.number(), bytes: z.number(), subfolders: z.number(), more: z.boolean(),
+  })),
+});
+export type LibraryAddResult = z.infer<typeof LibraryAddResultSchema>;
 
 /** The extension a name ends in, lowercased and dotless. `""` for a name with none — never null, so
  *  the column has one type and the filter has one comparison. */

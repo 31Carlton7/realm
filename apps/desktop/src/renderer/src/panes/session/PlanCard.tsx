@@ -123,8 +123,8 @@ export const isPlanDecision = (p: PendingPermission): boolean => p.toolName === 
 
 export function PlanDecision({ onDecide, autoFocus = false, enter = false, ownsEscape = true }: {
   onDecide: (d: PermissionDecision) => void; autoFocus?: boolean; enter?: boolean;
-  /** False where the surface around the card owns Escape (the Agents page, the need-you list), so
-   *  Escape leaves it instead: the card then neither answers on Escape nor offers it as a key. */
+  /** False where the surface around the card owns Escape (the need-you list), so Escape leaves it
+   *  instead: the card then neither answers on Escape nor offers it as a key. */
   ownsEscape?: boolean;
 }) {
   return (
