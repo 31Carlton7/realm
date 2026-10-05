@@ -1461,110 +1461,155 @@ kbd { font: 11px var(--font-mono); }
 .mp-fast-note { margin: 0; font-size: 12px; line-height: 1.4; color: var(--rl-text-faint); text-align: center; text-wrap: pretty; }
 .mp-fast-note[data-tone="warning"] { color: var(--rl-warning); }
 
-/* ── Easter eggs: the heavy efforts ──
-   Every rule here hangs off [data-eggs] or [data-sweep], so the switch in Settings ▸ General takes the
-   whole treatment away by taking one attribute away. Nothing below is ever the only thing saying
-   which level is in force — that is the knob and the name over it, drawn the same with the eggs off.
+/* ── The heavy levels: Realm's light in the track ──
+   The landing page draws Realm's mark as glass with three streams of light in it — the accent, a
+   silver and a sky — running into one white core (site/lib/realm-liquid-glass.ts). At XHigh and Max
+   the track's fill carries the same light: the streams run up the fill into a core under the knob,
+   the facets of the mark's cube drift faintly under them, and a light goes round the knob. It answers
+   a level the session CHOSE (`data-effort` on the track); a default the harness named, or a level the
+   pointer is passing over, stays the plain control it always was.
 
-   The field is the track's FILL — the run up to the knob — so it reads as the heat the level is
-   putting out rather than as a decoration on one dot, and it answers a level the session CHOSE
-   (`data-effort` on the track), never one the pointer is passing over.
-
-   Three layers, and they are chosen to beat against each other rather than to look smooth:
-
-     · two columns of bands at DIFFERENT widths and speeds, stepped rather than eased. `steps()` is
-       the whole character — a smooth slide reads as a gradient moving, and a jump every 180ms reads
-       as something alive. The two periods are coprime enough that the pattern never visibly repeats.
-     · a wash on ::before, smooth and much slower, in `plus-lighter` so where it crosses a bright
-       band the two ADD instead of one covering the other. That is what makes the bright parts look
-       like light rather than paint.
-     · a bloom on the fill's own shadow at Max only, breathing on its own period.
-
-   Hue is not free (theme/grain.ts's rule): both band layers are the live accent rotated inside the
-   same ±40° arc the decorative wash uses, so the field is the palette's own colour at every theme
-   rather than a purple somebody picked. */
-/* XHigh and Max share the machinery and differ in --heat, which drives every alpha below. A
-   treatment every level wore would not be about the level. */
-.model-picker[data-eggs] .mp-track[data-effort="xhigh"] .mp-track-fill,
-.model-picker[data-eggs] .mp-track[data-effort="max"] .mp-track-fill {
-  --heat: .5; isolation: isolate; overflow: hidden;
-  /* Chunky cells with wide dark gaps, and a crisp bright line every other cell — the proportions the
-     segmented strip this replaced settled on by putting three candidates on screen in the real
-     window, kept so the heat reads the same across the change. */
+   `--heat` scales every alpha and every speed, so XHigh is a slow glow and Max the full light. Every
+   colour is the live accent moved in lightness and chroma, a few degrees of hue at most (theme/
+   grain.ts's rule — hue is not free), so it is the theme's own light at every palette. And all of it
+   is four small layers React mounts only at a heavy level: below one there is nothing to run. */
+/* Each loop's period per level, kept here beside the heat they go with: tempos rather than the
+   duration of a change, so they are not rungs of the motion ladder (§6), and XHigh's are slower. */
+.mp-track[data-effort="xhigh"] { --heat: .55; --mp-flow: 3.9s; --mp-drift: 9.8s; --mp-breath: 2s; --mp-turn: 2.5s; }
+.mp-track[data-effort="max"] { --heat: 1; --mp-flow: 2.8s; --mp-drift: 8s; --mp-breath: 1.6s; --mp-turn: 2s; }
+.mp-track[data-effort="xhigh"] .mp-track-fill, .mp-track[data-effort="max"] .mp-track-fill { overflow: hidden; isolation: isolate; }
+.mp-track-facets, .mp-track-flow, .mp-track-core { position: absolute; pointer-events: none; }
+/* The facets: the mark's cube tiled, a light top over a mid left wall and a dark right wall as the
+   mark draws them, faint enough to read as the glass's grain rather than as a pattern laid on it. One
+   tile wider than the fill, so drifting it one whole tile loops with no seam. */
+.mp-track-facets { top: 0; bottom: 0; left: -18px; width: calc(100% + 18px); opacity: calc(.55 * var(--heat));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='10.392' viewBox='0 0 18 10.392'%3E%3Cpath fill='white' fill-opacity='.5' d='M0 0L-6 -0L-3 -5.20L3 -5.20ZM0 10.39L-6 10.39L-3 5.20L3 5.20ZM18 0L12 -0L15 -5.20L21 -5.20ZM18 10.39L12 10.39L15 5.20L21 5.20ZM9 5.20L3 5.20L6 0L12 0Z'/%3E%3Cpath fill='white' fill-opacity='.22' d='M0 0L3 5.20L-3 5.20L-6 -0ZM0 10.39L3 15.59L-3 15.59L-6 10.39ZM18 0L21 5.20L15 5.20L12 -0ZM18 10.39L21 15.59L15 15.59L12 10.39ZM9 5.20L12 10.39L6 10.39L3 5.20Z'/%3E%3Cpath fill='black' fill-opacity='.16' d='M0 0L3 -5.20L6 0L3 5.20ZM0 10.39L3 5.20L6 10.39L3 15.59ZM18 0L21 -5.20L24 0L21 5.20ZM18 10.39L21 5.20L24 10.39L21 15.59ZM9 5.20L12 0L15 5.20L12 10.39Z'/%3E%3C/svg%3E");
+  background-size: 18px 10.392px;
+  mask-image: linear-gradient(90deg, transparent, black 45%);
+  animation: rl-facets var(--mp-drift) linear infinite; }
+@keyframes rl-facets { from { transform: translateX(0); } to { transform: translateX(18px); } }
+/* The streams: the hero's three, at three wavelengths that do not divide each other so the pattern
+   never visibly repeats, all running up the fill toward the knob. Added in `plus-lighter`, so where
+   two cross they are brighter rather than one painting over the other — light, not paint — and held
+   to the middle of the pill, a beam inside the glass rather than a stripe across it. */
+.mp-track-flow { inset: 0; mix-blend-mode: plus-lighter;
   background-image:
-    repeating-linear-gradient(90deg, oklch(from var(--accent) calc(l - .14) c calc(h - 34) / calc(var(--heat) * .55)) 0 12px, transparent 12px 26px),
-    repeating-linear-gradient(90deg, transparent 0 14px, oklch(from var(--accent) calc(l + .2) c calc(h + 28) / calc(var(--heat) * .9)) 14px 17px);
-  background-size: 220% 100%, 170% 100%;
-  animation: eggs-bands 3.6s steps(20, end) infinite;
-}
-/* One keyframe moving BOTH layers, because `background-position` is one property and two animations
-   on it would not compose — the later one would simply win. The two layers travel opposite ways at
-   unequal rates, which is the interference. */
-@keyframes eggs-bands {
-  from { background-position: 0 0, 0 0; }
-  to { background-position: -220% 0, 170% 0; }
-}
-
-/* The wash. Its own element so it can be smooth while the bands step, and `plus-lighter` so it adds
-   light to them instead of painting over them. */
-.model-picker[data-eggs] .mp-track[data-effort="xhigh"] .mp-track-fill::before,
-.model-picker[data-eggs] .mp-track[data-effort="max"] .mp-track-fill::before {
-  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
-  border-radius: inherit;
+    linear-gradient(90deg, transparent 20%, oklch(from var(--rl-accent) calc(l + .16) calc(c * .7) calc(h - 6) / calc(.6 * var(--heat))) 50%, transparent 80%),
+    linear-gradient(90deg, transparent 38%, oklch(from var(--rl-accent) .96 .02 h / calc(.55 * var(--heat))) 50%, transparent 62%),
+    linear-gradient(90deg, transparent 25%, oklch(from var(--rl-accent) calc(l + .08) c calc(h + 8) / calc(.5 * var(--heat))) 50%, transparent 75%);
+  background-size: 150px 100%, 230px 100%, 110px 100%;
+  mask-image: linear-gradient(90deg, transparent, black 30%), linear-gradient(transparent, black 30% 70%, transparent);
+  mask-composite: intersect;
+  animation: rl-flow var(--mp-flow) linear infinite; }
+@keyframes rl-flow { from { background-position: 0 0, 0 0, 0 0; } to { background-position: 150px 0, 230px 0, 110px 0; } }
+/* The core: where the streams meet, under the knob — the white the hero's three run into — breathing
+   on its own period, so the eye reads it as intensity rather than as one more thing moving sideways.
+   Centred on the knob, which sits `--inset` in from the fill's end; the fill clips the half past it. */
+.mp-track-core { top: 50%; right: calc(var(--inset) - 32px); width: 64px; height: 64px; margin-top: -32px; border-radius: 50%;
   mix-blend-mode: plus-lighter;
-  background-image: linear-gradient(100deg, transparent 8%,
-    oklch(from var(--accent) calc(l + .12) c calc(h - 10) / calc(var(--heat) * .28)) 42%,
-    oklch(from var(--accent) calc(l + .06) c calc(h + 26) / calc(var(--heat) * .2)) 58%, transparent 88%);
-  background-size: 260% 100%;
-  animation: eggs-wash 1.4s linear infinite;
-}
-@keyframes eggs-wash {
-  from { background-position: 140% center; }
-  to { background-position: -60% center; }
-}
+  background: radial-gradient(closest-side, oklch(from var(--rl-accent) .98 .02 h / calc(.85 * var(--heat))),
+    oklch(from var(--rl-accent) calc(l + .14) calc(c * .8) calc(h - 6) / calc(.5 * var(--heat))) 45%, transparent);
+  animation: rl-core var(--mp-breath) ease-in-out infinite alternate; }
+@keyframes rl-core { from { opacity: .55; transform: scale(.82); } to { opacity: 1; transform: scale(1.05); } }
+/* The knob: the core's glow spilling past it, and a light going round it — the shimmer at the thumb.
+   The ring is a conic arc masked to the knob's edge, so it turns as a `transform` and repaints nothing. */
+.mp-track[data-effort="xhigh"] .mp-track-knob, .mp-track[data-effort="max"] .mp-track-knob {
+  box-shadow: 0 1px 2px #0000003d, 0 0 0 var(--hairline-w) #00000014,
+    0 0 calc(12px * var(--heat)) calc(2px * var(--heat)) oklch(from var(--rl-accent) calc(l + .12) calc(c * .8) calc(h - 6) / calc(.65 * var(--heat))); }
+.mp-track-shine { position: absolute; inset: -2px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(transparent 0 60%, oklch(from var(--rl-accent) calc(l + .08) c h / calc(.9 * var(--heat))) 78%,
+    oklch(from var(--rl-accent) .99 .01 h / calc(.95 * var(--heat))) 86%, transparent 93%);
+  mask-image: radial-gradient(closest-side, transparent 70%, black 77%);
+  animation: rl-shine var(--mp-turn) linear infinite; }
+@keyframes rl-shine { to { transform: rotate(1turn); } }
 
-/* Max alone gets the bloom, and it breathes rather than travelling — the one thing on the track that
-   is not moving sideways, so the eye reads it as intensity rather than as another layer. */
-.model-picker[data-eggs] .mp-track[data-effort="max"] .mp-track-fill {
-  --heat: 1; overflow: visible;
-  animation: eggs-bands 3.6s steps(20, end) infinite, eggs-bloom 1.4s ease-in-out infinite alternate; }
-@keyframes eggs-bloom {
-  from { box-shadow: 0 0 0 0 oklch(from var(--accent) l c h / 0); }
-  to { box-shadow: 0 0 14px 1px oklch(from var(--accent) calc(l + .1) c h / .45); }
+/* ── Fast mode, switched on ──
+   One short moment, and only on the way on: the bolt charges — a pop, a spark in the glyph and a ring
+   of the accent going out from it — while a glint runs the length of the track and the chip catches
+   the same light below. Off is quiet; a switch going off is not news. Each is a one-shot the card and
+   the chip start and the animation's own end takes away (ModelPicker's `replay`), never a loop. */
+/* The moment's one length: half again the ladder's rung for something travelling across the pane, as
+   the glint does, so the charge, the glint and the chip's pass all land together. */
+.model-chip, .mp-run { --mp-moment: calc(var(--dur-move) * 1.5); }
+.mp-bolt[data-charge] { animation: rl-bolt-charge var(--mp-moment) var(--ease-out-strong); }
+.mp-bolt[data-charge] svg { animation: rl-bolt-spark var(--mp-moment) ease-out; }
+@keyframes rl-bolt-charge {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 oklch(from var(--rl-accent) l c h / .5); }
+  30% { transform: scale(1.18) rotate(-8deg); }
+  60% { transform: scale(.96) rotate(2deg); }
+  100% { transform: scale(1); box-shadow: 0 0 0 10px oklch(from var(--rl-accent) l c h / 0); }
 }
+@keyframes rl-bolt-spark {
+  0%, 100% { filter: none; }
+  25% { color: oklch(from var(--rl-accent) .98 .03 h); filter: drop-shadow(0 0 3px oklch(from var(--rl-accent) calc(l + .15) c h)); }
+}
+/* The glint is mounted per switch-on and drawn by its animation alone: at rest — and with motion held
+   still, when nothing runs — it is transparent, so a pass that never played leaves nothing behind. */
+.mp-track-glint { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+  mix-blend-mode: plus-lighter;
+  background-image: linear-gradient(100deg, transparent 38%, oklch(from var(--rl-accent) calc(l + .16) calc(c * .7) calc(h - 6) / .55) 46%,
+    oklch(from var(--rl-accent) .99 .01 h / .95) 50%, oklch(from var(--rl-accent) calc(l + .16) calc(c * .7) calc(h - 6) / .55) 54%, transparent 62%);
+  background-size: 260% 100%; background-repeat: no-repeat;
+  animation: rl-track-glint var(--mp-moment) var(--ease-out-strong) both; }
+@keyframes rl-track-glint {
+  0% { opacity: 1; background-position: 115% 0; }
+  80% { opacity: 1; }
+  100% { opacity: 0; background-position: -15% 0; }
+}
+/* On a light well, adding light to near-white adds nothing: the glint lays its tint on instead. */
+:root[data-mode="light"] .mp-track-glint { mix-blend-mode: normal; }
 
-/* One pass across the chip when the session commits to a heavy effort; Max gets two. The popover is
-   already closing by then, which is the point — the control that changed is the one that answers. */
+/* ── The chip answers ──
+   One pass across it when the session commits to a heavy level — Max gets two — and a quicker,
+   brighter glint when fast mode goes on, the bolt it now wears sparking with it. The popover is often
+   closing by then, which is the point: the control that changed is the one that answers. */
 .model-chip[data-sweep] {
   background-image: linear-gradient(100deg, transparent 18%,
-    oklch(from var(--accent) l c calc(h - 34) / .45) 42%,
-    oklch(from var(--accent) l c calc(h + 30) / .5) 58%, transparent 82%);
+    oklch(from var(--rl-accent) calc(l + .1) calc(c * .8) calc(h - 6) / .4) 42%,
+    oklch(from var(--rl-accent) .97 .02 h / .42) 50%,
+    oklch(from var(--rl-accent) l c calc(h + 8) / .38) 58%, transparent 82%);
   background-size: 240% 100%;
-  animation: eggs-chip-sweep var(--dur-move) var(--ease-out-strong); }
+  animation: rl-chip-sweep var(--dur-move) var(--ease-out-strong); }
 .model-chip[data-sweep="max"] { animation-iteration-count: 2; }
+.model-chip[data-sweep="fast"] { animation-duration: var(--mp-moment);
+  background-image: linear-gradient(100deg, transparent 32%, oklch(from var(--rl-accent) calc(l + .16) calc(c * .7) calc(h - 6) / .45) 44%,
+    oklch(from var(--rl-accent) .99 .01 h / .7) 50%, oklch(from var(--rl-accent) calc(l + .16) calc(c * .7) calc(h - 6) / .45) 56%, transparent 68%); }
+.model-chip[data-sweep="fast"] .chip-fast { animation: rl-bolt-spark var(--mp-moment) ease-out; }
 /* `animation` is one property, so the focus ring's halo and the sweep cannot each claim it: on a chip
    that has keyboard focus — which is where the picker hands focus back after a keyboard pick — the
    later rule would silently cancel the other. Named together here instead, and the iteration count
-   given per animation so Max's second pass does not draw the ring in twice. */
+   and duration given per animation so Max's second pass does not draw the ring in twice. */
 .model-chip[data-sweep]:focus-visible {
-  animation: eggs-chip-sweep var(--dur-move) var(--ease-out-strong), rl-focus-ring var(--dur-slow) var(--spring-smooth); }
+  animation: rl-chip-sweep var(--dur-move) var(--ease-out-strong), rl-focus-ring var(--dur-slow) var(--spring-smooth); }
 .model-chip[data-sweep="max"]:focus-visible { animation-iteration-count: 2, 1; }
-@keyframes eggs-chip-sweep { from { background-position: 140% center; } to { background-position: -40% center; } }
-/* The global kill stops the animation but not the paint, and with no animation there is no
-   `animationend` to take the attribute off again — so the gradient would sit on the chip for the rest
-   of the session. Named here because the `*` rule above cannot reach a background. */
+.model-chip[data-sweep="fast"]:focus-visible { animation-duration: var(--mp-moment), var(--dur-slow); }
+@keyframes rl-chip-sweep { from { background-position: 140% center; } to { background-position: -40% center; } }
+
+/* ── Easter eggs: the same light, run hot ──
+   Every rule here hangs off [data-eggs], so the switch in Settings ▸ General takes it away by taking
+   one attribute away. The eggs used to lay a field of their own over the heavy levels; they run the
+   light above hot instead, so the two are one treatment and never fight over the fill. The streams
+   take the accent's ±34° arc rather than holding its hue, the facets tumble in steps instead of
+   gliding — `steps()` was the old field's whole character, a jump every beat reading as alive — and
+   Max blooms past the track. */
+.model-picker[data-eggs] .mp-track-flow {
+  background-image:
+    linear-gradient(90deg, transparent 20%, oklch(from var(--rl-accent) calc(l + .16) c calc(h - 34) / calc(.7 * var(--heat))) 50%, transparent 80%),
+    linear-gradient(90deg, transparent 38%, oklch(from var(--rl-accent) .96 .04 h / calc(.6 * var(--heat))) 50%, transparent 62%),
+    linear-gradient(90deg, transparent 25%, oklch(from var(--rl-accent) calc(l + .1) c calc(h + 30) / calc(.6 * var(--heat))) 50%, transparent 75%); }
+.model-picker[data-eggs] .mp-track-facets { opacity: calc(.8 * var(--heat)); animation-timing-function: steps(6, end); }
+.model-picker[data-eggs] .mp-track[data-effort="max"] .mp-track-fill { animation: eggs-bloom 1.4s ease-in-out infinite alternate; }
+@keyframes eggs-bloom {
+  from { box-shadow: 0 0 0 0 oklch(from var(--rl-accent) l c h / 0); }
+  to { box-shadow: 0 0 14px 1px oklch(from var(--rl-accent) calc(l + .1) c h / .45); }
+}
+
+/* Held still — the reader's Reduce motion, or the app's — the light stays and stops: the global kill
+   below stops every layer on its first frame, which is a still picture of the same light, because
+   drawing nothing would make the heavy levels identical to the light ones. What it cannot reach is a
+   background: with no animation there is no `animationend` to take the chip's mark off again. */
 @media (prefers-reduced-motion: reduce) {
   .model-chip[data-sweep] { background-image: none; }
-  /* The field stays, parked. The bands are a repeating pattern, so they read perfectly well standing
-     still — what goes is the travel and the bloom. Drawing nothing here would make the heavy levels
-     identical to the light ones, which for this reader is a switch that did nothing. */
-  /* `!important`, and not for tidiness: the global kill above is `* { animation: none !important }`,
-     and `*` does not match a PSEUDO-ELEMENT. The wash lives on `::before`, so it sails straight
-     through the app-wide rule — and the rule that starts it names the track's level, which outweighs
-     a plain override here as well. Measured on the segmented strip this replaced: without it the
-     field kept travelling with reduced motion on. */
-  .model-picker[data-eggs] .mp-track-fill { animation: none !important; }
-  .model-picker[data-eggs] .mp-track-fill::before { animation: none !important; background-position: 50% center !important; }
 }
 
 /* ── Quiet: what the app stops doing when nobody is looking ──────────────────
@@ -1582,9 +1627,9 @@ kbd { font: 11px var(--font-mono); }
    animations that run ONCE to bring something in — `rl-msg-in`, `rl-fade-in` — and those begin at
    `opacity: 0`. Freezing one at its first frame leaves the thing invisible until focus returns, so
    an unfocused window showed an empty transcript while the agent talked into it. Everything named
-   below loops forever; add to it only things that do. The model picker's easter egg is not here on
-   purpose: it runs only under the pointer, and a hovered control in an unfocused window is nobody's
-   battery problem.
+   below loops forever; add to it only things that do. The model picker's heavy-level light is here
+   because it loops for as long as the picker is open on one; its fast-mode moment is not, because it
+   is one pass and over.
 
    `data-quiet` is set for two reasons — the window is not focused, or Low power is on — and the
    stylesheet treats them the same. The difference is only how long it lasts. */
@@ -1597,7 +1642,12 @@ kbd { font: 11px var(--font-mono); }
 :root[data-quiet] .gen-glow,
 :root[data-quiet] .drive-frame-glow,
 :root[data-quiet] .wash[data-grain],
-:root[data-quiet] .reach-mark[data-busy] .reach-mark-pulse { animation-play-state: paused !important; }
+:root[data-quiet] .reach-mark[data-busy] .reach-mark-pulse,
+:root[data-quiet] .mp-track-facets,
+:root[data-quiet] .mp-track-flow,
+:root[data-quiet] .mp-track-core,
+:root[data-quiet] .mp-track-shine,
+:root[data-quiet] .model-picker[data-eggs] .mp-track[data-effort="max"] .mp-track-fill { animation-play-state: paused !important; }
 
 /* The ping is the exception to the pause: frozen mid-flight it leaves a static ring standing around
    the dot at whatever radius it had reached, which reads as a rendering fault rather than as a state.

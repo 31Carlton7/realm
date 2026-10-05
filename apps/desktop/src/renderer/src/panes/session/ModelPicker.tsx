@@ -19,49 +19,65 @@ const MAX_SHORTCUTS = 9;
 /** Controls the prompter's control row could not fit: when its left group overflows, the permission
  *  chip collapses into this popover as a labelled group instead of wrapping the row. Items mirror the
  *  chip's own menu items exactly — same labels, same handlers. */
-export type OverflowGroup = { label: string; items: { label: string; checked?: boolean; onSelect: () => void;
-  /** The effort id behind this button, on the effort group only. Carried rather than re-derived from
-   *  the label so the easter-egg gradient can name the level it escalates for. */
-  effort?: string }[] };
+export type OverflowGroup = { label: string; items: { label: string; checked?: boolean; onSelect: () => void }[] };
 
 /** A sentence with its commands set as code: `AGENT_NOTES` marks them with backticks, which read as
  *  stray punctuation printed raw. The plain form is for a tooltip, which has no code face. */
 const withCode = (text: string) => text.split(/`([^`]+)`/).map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
 const plain = (text: string) => text.replace(/`/g, "");
 
-/** The levels the gradient answers to. Below these it stays out of the way entirely — a treatment
- *  every option wore would say nothing about the one that was picked. */
-const HEAVY_EFFORTS = new Set(["xhigh", "max"]);
+/** The levels Realm's light answers to — the track's field, the knob's shine, the chip's pass. Below
+ *  these it stays out of the way entirely: a treatment every level wore would say nothing about the
+ *  one that was picked. */
+export const HEAVY_EFFORTS = new Set(["xhigh", "max"]);
+
+/** Whether the app is holding its motion still: the reader asked (`prefers-reduced-motion`, which the
+ *  app's own Reduce motion setting drives), or Low power is on. A moment that cannot play is not
+ *  started, rather than started and frozen at its first frame. */
+const motionHeld = (): boolean =>
+  (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false) || document.documentElement.dataset.quiet === "always";
 
 /**
- * Light the chip up when the session commits to one of the heavy efforts.
- *
- * Watches the effort the session actually holds rather than firing from the button's click: the chip
- * is the control that outlives the change. Stateless in the same way the hero greeting's nod is — the
- * mark goes on, the `animationend` the browser is about to fire takes it off. Under reduced motion no
- * animation runs and no `animationend` arrives, so styles.css paints nothing for the attribute there.
+ * Play a one-shot animation by setting `attr` on `el`, and take the attribute off when THAT animation
+ * ends. Stateless in the same way the hero greeting's nod is: the mark goes on, the `animationend` the
+ * browser is about to fire takes it off. Returns the listener's cleanup.
  */
-function useEffortSweep(ref: RefObject<HTMLButtonElement | null>, effort: string | null, eggs: boolean) {
-  const previous = useRef(effort);
+function replay(el: HTMLElement | null, attr: string, value: string, animation: string): (() => void) | undefined {
+  if (!el || motionHeld()) return;
+  // Removing and re-adding in one frame would replay nothing: reading a layout property forces the
+  // removal to land first.
+  el.removeAttribute(attr);
+  void el.offsetWidth;
+  el.setAttribute(attr, value);
+  // Its OWN end, by name: the focus ring's halo can be running on the same element and end first.
+  const done = (e: AnimationEvent) => {
+    if (e.animationName !== animation) return;
+    el.removeAttribute(attr);
+    el.removeEventListener("animationend", done);
+  };
+  el.addEventListener("animationend", done);
+  return () => el.removeEventListener("animationend", done);
+}
+
+/**
+ * The chip answers when the session commits to more: a pass of light when it moves up to one of the
+ * heavy levels (two at Max), and a quicker glint when fast mode is switched on. Switching either off
+ * is quiet.
+ *
+ * One mechanism for both, because the chip has one `animation`: two that each claimed it would cancel
+ * each other, and the later commit is the one the chip should answer. Watches what the session
+ * actually holds rather than a click — the chip is the control that outlives the change — so a level
+ * the session was opened at, or a re-render that changed nothing, plays nothing.
+ */
+function useChipSweep(ref: RefObject<HTMLButtonElement | null>, effort: string | null, fastOn: boolean) {
+  const previous = useRef({ effort, fastOn });
   useEffect(() => {
-    const changed = previous.current !== effort;
-    previous.current = effort;
-    const chip = ref.current;
-    if (!changed || !eggs || !effort || !HEAVY_EFFORTS.has(effort) || !chip) return;
-    // Removing and re-adding in one frame would replay nothing: reading a layout property forces the
-    // removal to land first.
-    chip.removeAttribute("data-sweep");
-    void chip.offsetWidth;
-    chip.setAttribute("data-sweep", effort);
-    // Its OWN end, by name: the focus ring's halo can be running on the chip too and ends first.
-    const done = (e: AnimationEvent) => {
-      if (e.animationName !== "eggs-chip-sweep") return;
-      chip.removeAttribute("data-sweep");
-      chip.removeEventListener("animationend", done);
-    };
-    chip.addEventListener("animationend", done);
-    return () => chip.removeEventListener("animationend", done);
-  }, [ref, effort, eggs]);
+    const was = previous.current;
+    previous.current = { effort, fastOn };
+    const kind = fastOn && !was.fastOn ? "fast"
+      : effort !== was.effort && effort && HEAVY_EFFORTS.has(effort) ? effort : null;
+    if (kind) return replay(ref.current, "data-sweep", kind, "rl-chip-sweep");
+  }, [ref, effort, fastOn]);
 }
 
 /**
@@ -96,7 +112,7 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
   /** Fast mode, or absent where Realm cannot ask this harness for it at all. */
   fast?: FastMode;
   overflow?: OverflowGroup[];
-  /** Whether the easter eggs are on. Gates the heavy-effort gradient and nothing else here. */
+  /** Whether the easter eggs are on. They run the heavy levels' light hot, and nothing else here. */
   eggs?: boolean;
 }) {
   const btn = useRef<HTMLButtonElement>(null);
@@ -107,7 +123,7 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
   const bolt = fast ? fastModeShown(fast) : false;
   // The level in force, by name — the session's own, or the model's default where one is named.
   const level = effort && effort.levels.length > 0 ? effortCurrent(effort).choice?.label ?? null : null;
-  useEffortSweep(btn, effort?.value ?? null, eggs);
+  useChipSweep(btn, effort?.value ?? null, fast?.on ?? false);
 
   return (
     <>
@@ -352,7 +368,7 @@ function Segments({ label, items, onPicked }: { label: string; items: OverflowGr
       <span className="mp-seg-label">{label}</span>
       <div className="mp-seg">
         {items.map((it, i) => (
-          <button key={i} type="button" className="mp-seg-opt" aria-pressed={!!it.checked} data-effort={it.effort}
+          <button key={i} type="button" className="mp-seg-opt" aria-pressed={!!it.checked}
             onClick={() => { it.onSelect(); onPicked?.(); }}>{it.label}</button>
         ))}
       </div>
@@ -373,6 +389,21 @@ function RunCard({ effort, fast, model }: { effort?: EffortControl; fast?: FastM
   const cur = effort && levels.length > 0 ? effortCurrent(effort) : null;
   const def = levels.find((l) => l.id === effort?.defaultId) ?? null;
   const hint = fast ? fastModeHint(fast, model) : null;
+  /* Switching fast mode on is a moment: the bolt charges and a glint runs the length of the track,
+     the chip catching the same light below. Off is quiet. Read from the request the session holds, so
+     the card answers whatever switched it — the bolt, the keyboard, another window — and opening the
+     picker on a session already asking for it plays nothing. */
+  const bolt = useRef<HTMLButtonElement>(null);
+  const [glint, setGlint] = useState(0);
+  const wasOn = useRef(fast?.on ?? false);
+  useEffect(() => {
+    const on = fast?.on ?? false;
+    const switchedOn = on && !wasOn.current;
+    wasOn.current = on;
+    if (!switchedOn || motionHeld()) return;
+    setGlint((n) => n + 1);
+    return replay(bolt.current, "data-charge", "", "rl-bolt-charge");
+  }, [fast?.on]);
   // A refusal of a turn that DID ask is a warning; everything else on this line is information.
   const refused = !!fast && fast.on && fast.state !== null && fast.state !== "on" && !fastModeUntried(fast);
   const unavailable = fast?.availability.state === "unavailable";
@@ -380,7 +411,7 @@ function RunCard({ effort, fast, model }: { effort?: EffortControl; fast?: FastM
     <div className="mp-run">
       <div className="mp-run-head">
         {fast ? (
-          <button type="button" className="mp-bolt" aria-label="Fast mode" aria-pressed={fast.on && !unavailable}
+          <button ref={bolt} type="button" className="mp-bolt" aria-label="Fast mode" aria-pressed={fast.on && !unavailable}
             aria-disabled={unavailable || undefined} title={fastModeTitle(fast, model)}
             onClick={() => { if (!unavailable) fast.onChange(!fast.on); }}>
             <Icon name="zap" size={14} />
@@ -400,7 +431,7 @@ function RunCard({ effort, fast, model }: { effort?: EffortControl; fast?: FastM
           </button>
         ) : <span className="mp-run-gap" aria-hidden="true" />}
       </div>
-      {effort && levels.length > 1 && <EffortTrack effort={effort} />}
+      {effort && levels.length > 1 && <EffortTrack effort={effort} glint={glint} />}
       {hint && <p className="mp-fast-note" data-tone={refused || unavailable ? "warning" : undefined}>{hint}</p>}
     </div>
   );
@@ -411,10 +442,16 @@ function RunCard({ effort, fast, model }: { effort?: EffortControl; fast?: FastM
  * fill up to it. A slider for the keyboard — ←/→ (and ↑/↓) step a level, Home and End go to the ends —
  * and for the pointer a press or a drag lands on the nearest dot. A level the session never chose and
  * the harness never named has no knob at all: there is nothing to point at.
+ *
+ * At a heavy level the session chose, the fill carries Realm's light, as the landing page draws it:
+ * streams running up the fill into a core at the knob, faint facets of the mark's cube drifting under
+ * them, and a light circling the knob — stronger at Max than at XHigh (styles.css). `glint` counts
+ * fast mode being switched on, and each count runs one pass of light along the whole track.
  */
-function EffortTrack({ effort }: { effort: EffortControl }) {
+function EffortTrack({ effort, glint = 0 }: { effort: EffortControl; glint?: number }) {
   const { levels } = effort;
   const cur = effortCurrent(effort);
+  const heavy = cur.chosen && !!cur.choice && HEAVY_EFFORTS.has(cur.choice.id);
   const ref = useRef<HTMLDivElement>(null);
   const span = levels.length - 1;
   const set = (i: number) => {
@@ -443,12 +480,22 @@ function EffortTrack({ effort }: { effort: EffortControl }) {
       onKeyDown={onKeyDown}
       onPointerDown={(e) => { e.currentTarget.setPointerCapture?.(e.pointerId); set(nearest(e.clientX)); }}
       onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture?.(e.pointerId)) set(nearest(e.clientX)); }}>
-      {cur.index >= 0 && <span className="mp-track-fill" />}
+      {cur.index >= 0 && (
+        <span className="mp-track-fill">
+          {heavy && <>
+            <span className="mp-track-facets" aria-hidden="true" />
+            <span className="mp-track-flow" aria-hidden="true" />
+            <span className="mp-track-core" aria-hidden="true" />
+          </>}
+        </span>
+      )}
       {levels.map((l, i) => (
         <span key={l.id} className="mp-track-dot" data-passed={i <= cur.index || undefined}
           style={{ "--at": i / span } as CSSProperties} />
       ))}
-      {cur.index >= 0 && <span className="mp-track-knob" />}
+      {/* Keyed by the count, so each switch-on mounts a fresh pass rather than replaying a finished one. */}
+      {glint > 0 && <span key={glint} className="mp-track-glint" aria-hidden="true" />}
+      {cur.index >= 0 && <span className="mp-track-knob">{heavy && <span className="mp-track-shine" aria-hidden="true" />}</span>}
     </div>
   );
 }

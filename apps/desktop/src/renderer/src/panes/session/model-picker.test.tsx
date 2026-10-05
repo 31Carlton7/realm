@@ -252,6 +252,49 @@ describe("how it runs", () => {
   const fastMode = (over: Partial<FastMode> = {}): FastMode => ({ on: false, state: null, reason: null, requested: null, onChange: () => {},
     availability: { state: "unknown" }, tip: "Fast mode: faster responses, at a higher cost.", ...over });
 
+  it("carries Realm's light at a heavy level the session chose, and nothing at any other", () => {
+    /* The light is four small layers, mounted only where it means something. THE MUTANTS: mount them
+       at every level (a treatment every level wore says nothing about the one picked), or at a heavy
+       level the harness only defaulted to (nobody chose it). */
+    const HEAVY = [{ id: "high", label: "High" }, { id: "xhigh", label: "XHigh" }, { id: "max", label: "Max" }];
+    const lit = () => ["mp-track-facets", "mp-track-flow", "mp-track-core", "mp-track-shine"].filter((c) => document.querySelector(`.${c}`));
+    mount({ effort: { levels: HEAVY, value: "max", defaultId: "high", onChange: () => {} } });
+    expect(lit()).toEqual(["mp-track-facets", "mp-track-flow", "mp-track-core", "mp-track-shine"]);
+    expect(track()).toHaveAttribute("data-effort", "max");
+    cleanup();
+    mount({ effort: { levels: HEAVY, value: "high", defaultId: "high", onChange: () => {} } });
+    expect(lit()).toEqual([]);
+    cleanup();
+    mount({ effort: { levels: HEAVY, value: null, defaultId: "max", onChange: () => {} } });
+    expect(lit()).toEqual([]);
+  });
+
+  it("charges the bolt and runs a glint along the track when fast mode goes on, and is quiet when it goes off", () => {
+    const LEVELS3 = LEVELS;
+    const effort = { levels: LEVELS3, value: "medium", defaultId: "medium", onChange: () => {} } as EffortControl;
+    const ui = (on: boolean) => <ModelPicker kind="claude" model="claude-opus-5" effort={effort} rows={rowsFor()} info={{}}
+      onToggleFavorite={() => {}} onPick={() => {}} fast={fastMode({ on })} />;
+    const { rerender } = render(ui(false));
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    const bolt = screen.getByRole("button", { name: "Fast mode" });
+    expect(bolt).not.toHaveAttribute("data-charge");
+    expect(document.querySelector(".mp-track-glint")).toBeNull();
+    rerender(ui(true));
+    expect(bolt).toHaveAttribute("data-charge");
+    expect(document.querySelectorAll(".mp-track-glint")).toHaveLength(1);
+    const end = new Event("animationend", { bubbles: true });
+    Object.defineProperty(end, "animationName", { value: "rl-bolt-charge" });
+    bolt.dispatchEvent(end);
+    expect(bolt).not.toHaveAttribute("data-charge");
+    // Off is quiet: no charge, and no second pass mounted.
+    rerender(ui(false));
+    expect(bolt).not.toHaveAttribute("data-charge");
+    const pass = document.querySelector(".mp-track-glint");
+    rerender(ui(true));
+    // On again is a fresh pass — keyed by the count, so the finished one is not merely replayed.
+    expect(document.querySelector(".mp-track-glint")).not.toBe(pass);
+  });
+
   it("names the level in force over the model it is for, and puts a dot for every level on the track", () => {
     mount({ effort: control(null).effort });
     expect(document.querySelector(".mp-run-level")).toHaveTextContent(/^Medium$/); // the model's default, by name
