@@ -747,6 +747,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - A note under the composer is for an outcome the user could not otherwise learn, such as a file
   the agent will silently drop. Do not narrate a handoff the agent completes itself; that belongs
   on the chip's tooltip.
+- An `@` names a thing, and naming it is consent to USE it — never a way round how it is used. A
+  mentioned app gets computer use for that session and that app alone: its first action still asks,
+  the session's mode still holds, and nothing outlives the session or becomes a space setting. A
+  mentioned file is handed over as an attached one is, and the chip IS the file, so no tile repeats
+  it. A bare `@` is a short tour of what can be named, under quiet heads; a typed word is one list
+  ranked across every kind, where each row says what it is because the heads are gone.
 - Never invent human-like agent presence, mood, or certainty.
 
 ## Documents, diffs, terminals, and data
