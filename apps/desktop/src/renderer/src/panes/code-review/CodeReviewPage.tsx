@@ -1,11 +1,12 @@
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GH_LOGIN_COMMAND, prKey, type GhStatus, type PrDetail, type PrPlace, type PrRef, type PrSummary } from "@realm/contracts";
+import { PageRail } from "../../components/page-nav";
 import { useApp } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { codeReview, terminalWith } from "./code-review-api";
 import { pageHeld } from "./held";
-import { PrColumn } from "./PrColumn";
+import { PrColumn, PrColumnPending } from "./PrColumn";
 import { PrView } from "./PrView";
 
 /** `gh` and its sign-in in one line, for a Mac that has neither — offered, never run. */
@@ -14,7 +15,9 @@ const INSTALL_COMMAND = `brew install gh && ${GH_LOGIN_COMMAND}`;
 /**
  * Code review: pull requests on GitHub, read and reviewed here (the rail's place where Notifications
  * was). Codex's layout — the page's own column of requests, and beside it the one being read — over
- * the person's own `gh`, so Realm holds no GitHub token and sees what `gh` sees.
+ * the person's own `gh`, so Realm holds no GitHub token and sees what `gh` sees. The column is the
+ * sidebar's while the page is up (`PageRail`), as every page's sections are; folded away, it is the
+ * page's.
  *
  * Until `gh` is installed and signed in, the page is the way to get it there: what is missing, said
  * plainly, and Set up GitHub, which opens a terminal with the command typed in for the person to run.
@@ -24,14 +27,17 @@ export function CodeReviewPage({ item }: PaneProps) {
   const vantage = item.spaceId;
   const profileId = useApp((s) => s.activeProfileId);
   const windowActive = useApp((s) => s.windowActive);
-  const [status, setStatus] = useState<GhStatus | null>(null);
+  // What gh said last time, so a page opened again is drawn in its first frame as it was left —
+  // column and all — and asked again behind it.
+  const [status, setStatus] = useState<GhStatus | null>(pageHeld.status);
   const [checking, setChecking] = useState(false);
 
   const check = useCallback((force: boolean) => {
     setChecking(true);
+    const answer = (s: GhStatus) => { pageHeld.status = s; setStatus(s); return s; };
     return codeReview.status(force).then(
-      (s) => { setStatus(s); return s; },
-      (e: unknown): GhStatus => { const s: GhStatus = { state: "unreachable", login: null, reason: e instanceof Error ? e.message : String(e) }; setStatus(s); return s; },
+      answer,
+      (e: unknown): GhStatus => answer({ state: "unreachable", login: null, reason: e instanceof Error ? e.message : String(e) }),
     ).finally(() => setChecking(false));
   }, []);
   // The held answer first, so the page draws at once; one that says "not yet" is asked again fresh,
@@ -43,7 +49,10 @@ export function CodeReviewPage({ item }: PaneProps) {
     away.current = !windowActive;
   }, [windowActive, status, check]);
 
-  if (!status) return <div className="page code-review-page" aria-busy="true" />;
+  /* Not asked yet in this window: the column's head and search take the sidebar at once, as they
+     will once gh answers — the lists fill in under them — rather than the spaces standing there until
+     it does and the column replacing them a few frames into the page. */
+  if (!status) return <div className="page code-review-page" aria-busy="true"><PageRail label="Code review"><PrColumnPending /></PageRail></div>;
   if (status.state !== "ready" || !profileId) {
     return <div className="page code-review-page"><Setup status={status} vantage={vantage} checking={checking} onCheck={() => void check(true)} /></div>;
   }
@@ -53,7 +62,8 @@ export function CodeReviewPage({ item }: PaneProps) {
 function Ready({ login, profileId, vantage, onLost }: { login: string | null; profileId: string; vantage: string; onLost: () => void }) {
   const run = useApp((s) => s.run);
   const [selected, setSelected] = useState<PrRef | null>(pageHeld.selection);
-  const [pins, setPins] = useState<PrSummary[]>([]);
+  const [pins, setPinsHere] = useState<PrSummary[]>(pageHeld.pins[profileId] ?? []);
+  const setPins = useCallback((next: PrSummary[]) => { pageHeld.pins[profileId] = next; setPinsHere(next); }, [profileId]);
   const [places, setPlaces] = useState<PrPlace[]>([]);
   const signIn = useSignIn(vantage);
 
@@ -62,7 +72,7 @@ function Ready({ login, profileId, vantage, onLost }: { login: string | null; pr
     codeReview.pins(profileId).then((r) => { if (live) setPins(r.pins); }, () => {});
     codeReview.places(profileId).then((r) => { if (live) setPlaces(r.places); }, () => {});
     return () => { live = false; };
-  }, [profileId]);
+  }, [profileId, setPins]);
 
   const select = (ref: PrRef) => { pageHeld.selection = ref; setSelected(ref); };
   const pin = (d: PrDetail, pinned: boolean) => run(async () => {
@@ -73,7 +83,9 @@ function Ready({ login, profileId, vantage, onLost }: { login: string | null; pr
 
   return (
     <div className="page code-review-page">
-      <PrColumn login={login} pins={pins} selected={selected} onSelect={(ref) => select(ref)} onSignIn={() => signIn(GH_LOGIN_COMMAND)} onLost={onLost} />
+      <PageRail label="Code review">
+        <PrColumn login={login} pins={pins} selected={selected} onSelect={(ref) => select(ref)} onSignIn={() => signIn(GH_LOGIN_COMMAND)} onLost={onLost} />
+      </PageRail>
       <div className="cr-main">
         {selected ? (
           <PrView key={prKey(selected)} pr={selected} login={login} profileId={profileId} vantage={vantage} places={places}

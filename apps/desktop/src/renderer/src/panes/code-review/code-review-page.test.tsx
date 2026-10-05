@@ -39,7 +39,12 @@ vi.mock("../../rpc/client", () => ({
 import { CodeReviewPage } from "./CodeReviewPage";
 import { forgetHeld } from "./held";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item } from "../../state/store.test-fakes";
+import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
+/* The overlay draws its page through the registry, which the panes fill by side effect. */
+import "../index";
+import { PageNavProvider } from "../../components/page-nav";
+import { PageOverlay } from "../../components/PageOverlay";
+import { Sidebar } from "../../components/sidebar/Sidebar";
 
 const ref = { owner: "acme", repo: "widgets", number: 42 };
 const T = Date.UTC(2026, 9, 3);
@@ -228,5 +233,68 @@ describe("Review with…", () => {
     await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: "Save and run" })); });
     await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
     expect(called("codeReview.setInstructions")[0]!.params).toEqual({ profileId: "p1", text: "Skip style nits.\nI care most about the data model. Tell me where we might be overcomplicating things." });
+  });
+});
+
+describe("the column, in the sidebar's place", () => {
+  /** The page as the window shows it: over the panes, beside the real sidebar, whose column a page's
+   *  sections can take (components/page-nav.tsx). Opened in a sync act, so what is asserted right
+   *  after is the page's first frame — gh's answer is a promise that has not settled yet. */
+  async function mountInWindow(data: FakeData = {}) {
+    const store = createAppStore(fakeApi(data));
+    await store.getState().boot();
+    render(
+      <StoreContext.Provider value={store}>
+        <PageNavProvider>
+          <Sidebar collapsed={store.getState().sidebarCollapsed} />
+          <PageOverlay />
+        </PageNavProvider>
+      </StoreContext.Provider>,
+    );
+    act(() => store.getState().openDestinationPage("code-review-page"));
+    return { store };
+  }
+  const sidebar = () => document.getElementById("app-sidebar")!;
+  const page = () => document.querySelector<HTMLElement>(".page-overlay")!;
+  const column = () => within(sidebar()).getByRole("navigation", { name: "Pull requests" });
+
+  it("is the sidebar's column under its Back from the page's first frame — before gh has answered — and none of it in the page", async () => {
+    /* The owner, 10-05, of the Scheduled page's column: "It is supposed to be the replacement sidebar,
+       not like its own custom thing. Same for the code review part." And from the first frame: a page
+       that waited for gh before drawing its column showed the spaces until it answered, then swapped.
+       THE MUTANTS: the column left in the page, or nothing in the sidebar's place until gh answers. */
+    const { store } = await mountInWindow();
+    // Its first frame: the column's picture in the slot, under Back, in the spaces' place.
+    expect(sidebar().querySelector(".sb-page-nav > .cr-col[aria-hidden]")).not.toBeNull();
+    expect(within(sidebar()).getByRole("button", { name: "Back" })).toBeInTheDocument();
+    expect(sidebar().querySelector(".sb-list")).toHaveAttribute("hidden");
+    // gh answers: the column itself in the same place, its lists under the head, the page its own.
+    expect(await within(sidebar()).findByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
+    expect(column().closest(".sb-page-nav")).not.toBeNull();
+    expect(sidebar().querySelector(".cr-col[aria-hidden]")).toBeNull();
+    expect(page().querySelector(".cr-col")).toBeNull();
+    fireEvent.click(within(column()).getByRole("button", { name: /^Stream the tokenizer/ }));
+    expect(await within(page()).findByRole("heading", { level: 2, name: "Stream the tokenizer" })).toBeInTheDocument();
+    // Opened again, it is drawn as it was left in its first frame: what gh said, and the lists.
+    act(() => store.getState().closePageOverlay());
+    act(() => store.getState().openDestinationPage("code-review-page"));
+    expect(sidebar().querySelector(".cr-col[aria-hidden]")).toBeNull();
+    expect(within(column()).getByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
+  });
+
+  it("gives the column back to the spaces while gh is not set up — the page is its setup then", async () => {
+    // THE MUTANT: a column left claiming the sidebar over a page that has nothing to list in it.
+    status = { state: "signed-out", login: null, reason: null };
+    await mountInWindow();
+    expect(await within(page()).findByRole("button", { name: "Set up GitHub" })).toBeInTheDocument();
+    expect(sidebar().querySelector(".sb-page")).toBeNull();
+    expect(sidebar().querySelector(".sb-list")).not.toHaveAttribute("hidden");
+  });
+
+  it("stands in the page while the sidebar is folded away, where it can still be reached", async () => {
+    // THE MUTANT: a column portalled into a sidebar that is off the window and inert.
+    await mountInWindow({ settings: { "ui.sidebarCollapsed": true } });
+    expect(await within(page()).findByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
+    expect(sidebar().querySelector(".sb-page")).toBeNull();
   });
 });

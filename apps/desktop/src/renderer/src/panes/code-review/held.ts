@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
-import type { AgentKind, FileDiff, PrDetail, PrFiles, PrRef, PrSection, PrSummary } from "@realm/contracts";
+import type { AgentKind, FileDiff, GhStatus, PrDetail, PrFiles, PrRef, PrSection, PrSummary } from "@realm/contracts";
 import { EMPTY_DRAFT, type ReviewDraft } from "./code-review-model";
 
 /**
@@ -40,9 +40,15 @@ export const reviewerPick: { current: { kind: AgentKind; model: string | null } 
 /** A list as the column last drew it. */
 export type Listed = { prs: PrSummary[]; next: string | null; state: "loading" | "ready" | "error"; error: string | null };
 
-/** The page as it was put away: the request on screen, the lists, whether the team's was open, the
- *  tab each request was left on, and how Changes was being read. */
+/** The page as it was put away: what gh last said, the request on screen, the pinned requests and
+ *  the lists, whether the team's was open, the tab each request was left on, and how Changes was being
+ *  read. gh's answer and the pins are what the page's first frame is drawn from — its column is the
+ *  sidebar's, and a page that drew itself before knowing would hand the column over a few frames late,
+ *  or grow a Pinned section under the rows already there. */
 export const pageHeld = {
+  status: null as GhStatus | null,
+  /** By profile: pins are each profile's own. */
+  pins: {} as Record<string, PrSummary[]>,
   selection: null as PrRef | null,
   lists: {} as Partial<Record<PrSection, Listed>>,
   teamOpen: false,
@@ -55,6 +61,6 @@ export function forgetHeld(): void {
   drafts.clear();
   for (const m of [heldDetails, heldFiles, heldPatches, heldLines]) m.clear();
   reviewerPick.current = null;
-  Object.assign(pageHeld, { selection: null, lists: {}, teamOpen: false, tabs: new Map(), view: { split: true, tree: true } });
+  Object.assign(pageHeld, { status: null, pins: {}, selection: null, lists: {}, teamOpen: false, tabs: new Map(), view: { split: true, tree: true } });
   for (const fn of listeners) fn();
 }

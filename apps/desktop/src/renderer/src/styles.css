@@ -563,6 +563,15 @@ kbd { font: 11px var(--font-mono); }
 /* Settings keeps its search where it is while the pages scroll under it, as it does in the page. */
 .sb-page-nav:has(.settings-rail) { overflow: hidden; }
 .sb-page-nav .page-rail.settings-rail { flex: 1; min-height: 0; max-height: none; gap: 8px; }
+/* The Scheduled page's column and Code review's (SchedulesPage, PrColumn) bring their own head, search
+   and scroller, so the slot only holds one — no inset or scroll of its own — and the column gives up
+   the ground, the edge and the width it wears standing in the page: the sidebar's are its now. Drawn in
+   the page, each read as a second sidebar, darker and square-cornered (the owner, 10-05: "It is
+   supposed to be the replacement sidebar, not like its own custom thing"). Its scroller dissolves on
+   the spaces list's depths, as everything else in this column does. */
+.sb-page-nav:has(> :is(.sched-col, .cr-col)) { padding: 0; overflow: hidden; }
+.sb-page-nav > :is(.sched-col, .cr-col) { flex: 1; width: auto; background: none; border-right: 0; }
+.sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-body, .cr-col-body) { --fade-h: 44px; --fade-top-h: 12px; }
 /* The list's head (SidebarLens): what the list is showing, in the column's section-label voice — the
    sentence-case caption "Pinned" and the day headings wear — and at its far end the switch to the other
    reading, a plain icon button lit while the activity is up. A caption row rather than a control row:
@@ -7101,11 +7110,12 @@ select { appearance: none; padding-right: 22px;
    test could have caught it). Both columns are `flex: 1 1 <basis>`, so the panel drops under the
    list when the pane cannot hold them side by side. */
 /* ── Scheduled tasks (SchedulesPage.tsx) ─────────────────────────────────
-   Codex's layout. The page carries its own column — the tasks, their runs, the suggestions — on the
-   frame's ground beside the work, the step a sidebar stands at, and beside it what is selected: a
-   run's session in the real session pane, with the task's card docked at the top right. The column
-   wears the sidebar's row anatomy (rows 8px in from a 16px inset, the active fill once chosen,
-   nothing lit under a passing pointer), so it reads as the same column listing tasks. */
+   Codex's layout. The page's own column — the tasks, their runs, the suggestions — and beside it what
+   is selected: a run's session in the real session pane, with the task's card docked at the top
+   right. The column is the sidebar's while the page is up (`.sb-page-nav`, above); these are its
+   rules wherever it is, and the ground and edge below are what it wears in the page, with the sidebar
+   folded away. It wears the sidebar's row anatomy (rows 8px in from a 16px inset, the active fill once
+   chosen, nothing lit under a passing pointer). */
 .schedules-page { flex-direction: row; }
 .sched-col { flex: none; width: 272px; min-height: 0; display: flex; flex-direction: column;
   background: var(--rl-frame); border-right: var(--hairline-w) solid var(--rl-line); }
@@ -7203,11 +7213,12 @@ select { appearance: none; padding-right: 22px;
 }
 
 /* ── Code review (panes/code-review/) ─────────────────────────────────────
-   Codex's Code Review in Realm's grammar. The page carries its own column — the requests — on the
-   frame's ground, wearing the sidebar's row anatomy as the Scheduled page's column does; beside it
-   the request being read, under one bar: its two tabs at the left, its own actions at the right,
-   ending in Submit review. The prompter is docked at the foot, over the content, which keeps a
-   prompter's height of room under its last line so nothing reads behind it. */
+   Codex's Code Review in Realm's grammar. The page's own column — the requests — is the sidebar's
+   while the page is up, as the Scheduled page's is (`.sb-page-nav`, above), and stands in the page on
+   the frame's ground with the sidebar folded away. Beside it, the request being read, under one bar:
+   its two tabs at the left, its own actions at the right, ending in Submit review. The prompter is
+   docked at the foot, over the content, which keeps a prompter's height of room under its last line
+   so nothing reads behind it. */
 .code-review-page { flex-direction: row; --cr-ask-room: 156px; --cr-tree-w: 272px; }
 .cr-col { flex: none; width: 300px; min-height: 0; display: flex; flex-direction: column;
   background: var(--rl-frame); border-right: var(--hairline-w) solid var(--rl-line); }
