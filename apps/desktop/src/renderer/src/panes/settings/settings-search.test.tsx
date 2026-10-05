@@ -96,12 +96,14 @@ describe("searching", () => {
     await mount();
     type("terminals");
     const found = results().getAllByRole("button").map((b) => b.getAttribute("aria-label"));
+    // The section's rows first; then the terminal's cursor, which moved to Appearance ▸ Cursor and is
+    // still found by the word someone looking for terminal settings types.
     expect(found).toEqual([
       "Keep terminal scrollback, in General ▸ Terminals",
-      "Blink the terminal cursor, in General ▸ Terminals",
-      "Terminal cursor, in General ▸ Terminals",
       "Session terminal, in General ▸ Terminals",
       "Terminal colours, in General ▸ Terminals",
+      "Terminal cursor, in Appearance ▸ Cursor",
+      "Blink the terminal cursor, in Appearance ▸ Cursor",
     ]);
   });
 

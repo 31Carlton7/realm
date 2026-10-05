@@ -18,6 +18,9 @@ export type StubServerOptions = {
   /** Observes every `tools/call`, forced failures included — lets a test assert on args without
    *  threading a return value through the protocol. */
   onCall?: (tool: string, args: unknown) => void;
+  /** Adds an `ask` tool that elicits these params from the client mid-call (MCP elicitation) and
+   *  returns the client's answer as its text — what the hub's elicitation tests drive. */
+  elicitation?: Record<string, unknown>;
 };
 
 export type StubServer = {
@@ -57,7 +60,7 @@ const DEFAULT_TOOLS: Tool[] = [
 const errorResult = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
 
 export function makeStubServer(opts: StubServerOptions = {}): StubServer {
-  let tools = opts.tools ?? DEFAULT_TOOLS;
+  let tools = [...(opts.tools ?? DEFAULT_TOOLS), ...(opts.elicitation ? [{ name: "ask", description: "Asks the user, then reports the answer.", inputSchema: { type: "object" as const } }] : [])];
   let forcedFailures = 0;
   let forcedThrows = 0;
 
@@ -80,6 +83,10 @@ export function makeStubServer(opts: StubServerOptions = {}): StubServer {
       return errorResult(`${name} failed (forced by failNext)`);
     }
     if (name === "boom") return errorResult("boom always fails");
+    if (name === "ask" && opts.elicitation) {
+      const answer = await server.elicitInput(opts.elicitation as Parameters<Server["elicitInput"]>[0]);
+      return { content: [{ type: "text", text: JSON.stringify(answer) }] };
+    }
     return { content: [{ type: "text", text: JSON.stringify(args ?? {}) }] };
   });
 

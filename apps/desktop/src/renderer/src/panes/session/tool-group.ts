@@ -163,25 +163,8 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /** The `Worked for <this>` half of the collapsed ledger row (Ara refresh §4): "<1s", "42s",
  *  "6m 12s", "1h 4m". A settled sub-second run says "<1s" rather than the lie "0s". Seconds drop
  *  past the hour: at that length they are noise, and "124m 3s" is arithmetic the reader should not
- *  have to do. Shared with the per-run line the transcript settles on (Transcript's `run` block). */
-/**
- * When a turn finished, as a clock time — the answer to "was that just now, or before lunch?".
- *
- * A duration alone cannot answer it: "Cooked for 2m" reads the same whether the run ended a minute
- * ago or last Tuesday, and a transcript you come back to is exactly where that matters. Locale
- * formatting, because a clock is one of the few things in this app that is genuinely the reader's
- * convention rather than ours.
- */
-export function finishedAt(ts: number): string {
-  return new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
-/** The same moment in full, for the line's `title` — a time with no date is ambiguous the moment a
- *  session spans midnight, and the tooltip is where that ambiguity is cheap to resolve. */
-export function finishedOn(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
+ *  have to do. Shared with the per-run line the transcript settles on (Transcript's `run` block),
+ *  whose finish time is `timestamps.ts`'s. */
 export function formatDuration(ms: number): string {
   const secs = Math.round(ms / 1000);
   if (secs < 1) return "<1s";
@@ -195,7 +178,7 @@ export function formatToolRun(s: ToolRunSummary): string {
   const parts = [plural(s.tools, "tool")];
   if (s.files > 0) parts.push(plural(s.files, "file"));
   if (s.commands > 0) parts.push(plural(s.commands, "command"));
-  const secs = Math.round(s.durationMs / 1000);
-  if (secs > 0) parts.push(secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`);
+  // The row's own clock, so a run past the hour reads "1h 4m" in the tooltip as it does on the row.
+  if (Math.round(s.durationMs / 1000) > 0) parts.push(formatDuration(s.durationMs));
   return parts.join(" · ");
 }

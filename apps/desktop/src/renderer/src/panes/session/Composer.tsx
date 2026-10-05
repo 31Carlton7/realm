@@ -1295,9 +1295,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           </p>
         )}
         {/* The mirror and the textarea are one control in two layers, so they share a positioned box.
-            aria-hidden on the mirror: it is a duplicate of text the textarea already exposes. */}
+            aria-hidden on the mirror: it is a duplicate of text the textarea already exposes. It is
+            also where the app's caret reads its place (`data-caret-mirror`, caret.ts): laid out glyph
+            for glyph like the textarea, a Range over the character beside the caret IS the caret. */}
         <div ref={editorRef} className="composer-editor">
-          <div ref={hl} className="composer-highlight" aria-hidden="true">
+          <div ref={hl} className="composer-highlight" aria-hidden="true" data-caret-mirror>
             {segments.map((s, i) => {
               if (!s.kind) return s.text;
               const link = s.kind === "element" ? linkOf(s.text) : null;

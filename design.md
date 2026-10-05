@@ -644,6 +644,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - Respect reduced-motion and reduced-transparency preferences. Realm's own Reduce motion setting is
   applied by changing what the window reports for `prefers-reduced-motion`, so a surface that honours
   the media query honours both, and nothing should ask about motion any other way.
+- Motion that says where something IS holds still at its shown end, never paused mid-cycle. The
+  caret blinks because someone chose a blink, and under Reduce motion or Low power it goes solid
+  (`data-caret-still`) rather than freezing where it stood: a blink paused at nothing is a field with
+  no caret. Drawn in place of the platform's, it stands on the platform's pixel — measured against it
+  at the same offsets, both painted one colour (`caret-live.mjs`) — and steps aside wherever the
+  platform's own does: a selection, a window not in front, an input method composing.
 - Playful motion is the one exception to the rule above it, and it is fenced. It ships only behind
   the easter-eggs switch, which defaults off, so the rules in this section still describe what Realm
   does out of the box. It never carries information a person would otherwise have to read from it, it
@@ -736,6 +742,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   its time — and is never folded into the ledger. A fan-out is two starts and a wait in a row, which
   is a run, and a settled run collapses to "Worked for 8s": the one thing a reader of a delegation
   came for, hidden behind the one line that says nothing about it.
+- A question is one card whichever agent or server asked it, and it says who is asking first —
+  "Codex asks", "Linear's MCP server asks" — because the same question means something different from
+  each. What a field offers comes from Realm's own sources (the model catalog, the checkout, the
+  workspace), never from the asker, and every label is drawn as text. Answered, it stays where it was
+  asked as the question and its answer, a masked answer only ever its mark.
 - A closing line names the WORK, not the residue. "This session produced 1 file · 4 attached" is
   true and tells a reader coming back nothing; the ask, the files that changed, whether anything
   ran or failed, and then what came out is the shape of an answer. Derive it from the transcript
@@ -753,6 +764,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   mentioned file is handed over as an attached one is, and the chip IS the file, so no tile repeats
   it. A bare `@` is a short tour of what can be named, under quiet heads; a typed word is one list
   ranked across every kind, where each row says what it is because the heads are gone.
+- A control on what an agent did does exactly that, or is not drawn. A turn's edit counts come
+  from git at its settle, not from what its tool calls claimed; Undo appears only when restoring
+  takes back that turn and nothing after it, and says why when it cannot. A file named in prose
+  becomes a link only once the disk says it is in this checkout, and opens beside the session.
 - Never invent human-like agent presence, mood, or certainty.
 
 ## Documents, diffs, terminals, and data

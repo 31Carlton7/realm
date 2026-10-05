@@ -24,8 +24,10 @@
 /** One path segment: word characters and the punctuation filenames really carry. Deliberately
  *  excludes `,` `;` `)` and quotes, which end a path in prose far more often than they are in one. */
 const SEG = String.raw`[\w.@%+-]+`;
-/** An absolute path with at least two segments. The trailing `/?` lets a directory match. */
-const ABS = new RegExp(String.raw`(?:~|)(?:\/${SEG}){2,}\/?`, "g");
+/** An absolute path with at least two segments. The trailing `/?` lets a directory match. Not when a
+ *  path character comes before it: `/lib/orgs.ts` inside `web/lib/orgs.ts` is the tail of a RELATIVE
+ *  path, and cutting it out would open a file at the filesystem's root that nobody named. */
+const ABS = new RegExp(String.raw`(?<![\w.@%+~-])(?:~|)(?:\/${SEG}){2,}\/?`, "g");
 /** Anything a whole `<code>` may be for it to count as a path: the absolute form above, or a
  *  relative one that carries a separator AND an extension (`applications/ESSAY-BANK.md`). */
 const CODE_PATH = new RegExp(String.raw`^(?:(?:~|\.{1,2})?(?:\/${SEG})+\/?|${SEG}(?:\/${SEG})+\.${SEG})$`);

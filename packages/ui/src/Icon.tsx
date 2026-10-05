@@ -45,10 +45,15 @@ import {
   HierarchySquare02Icon,
   // The window's two panel toggles: the sidebar on the left, the side pane on the right.
   LayoutLeftIcon, LayoutRightIcon,
-  // What a terminal is running, beside its tab's title (terminal-programs.ts in contracts).
+  // What a terminal is running, beside its tab's title (terminal-programs.ts in contracts). The
+  // language marks are also what a file named in the transcript wears (the renderer's `file-icon.ts`).
   JavaScriptIcon, Typescript01Icon, PythonIcon, GemIcon, JavaIcon, PhpIcon, PackageIcon, ServerStack01Icon, DatabaseIcon,
   // A device's own toolbar (SimulatorBar.tsx): turning it, selecting its elements, its volume down.
   ScreenRotationIcon, CursorRectangleSelection01Icon, VolumeLowIcon,
+  // The rest of the kinds of file the transcript names (the renderer's `file-icon.ts`).
+  ReactIcon, ThirdBracketSquareIcon, Html5Icon, Css3Icon, SqlIcon, Pdf01Icon, Xml01Icon, Svg01Icon, FileZipIcon, FileScriptIcon,
+  // A turn's edits, put back (EditSummary.tsx).
+  Undo02Icon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
@@ -191,6 +196,15 @@ export const icons = {
      dashed box. Volume down is the speaker with one wave: the struck-through one it borrowed from
      playback says mute, which is a different button. */
   rotate: ScreenRotationIcon, select: CursorRectangleSelection01Icon, volumeLow: VolumeLowIcon,
+  /* What kind of file a path names, where the pack draws it: a language's own badge (the TS and JS
+     squares Codex marks its file links with are the terminal's `typescript` and `javascript` above;
+     `{ }` for JSON, the HTML and CSS shields), the format's letters in a page for the rest, and a page
+     with `< >` on it for source the pack has no mark for. */
+  fileReact: ReactIcon, fileJson: ThirdBracketSquareIcon, fileHtml: Html5Icon, fileCss: Css3Icon, fileSql: SqlIcon,
+  filePdf: Pdf01Icon, fileXml: Xml01Icon, fileSvg: Svg01Icon, fileZip: FileZipIcon, fileCode: FileScriptIcon,
+  /* The open arc turning back — the mark Codex sets beside its own Undo, and what every editor draws
+     for it. Not `reload`, whose closed circle means "again", which is the opposite. */
+  undo: Undo02Icon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */
@@ -245,6 +259,25 @@ export function Icon({ name, size = 16, className, colored = false }: { name: Ic
   }
   const icon = Object.prototype.hasOwnProperty.call(icons, name) ? icons[name as keyof typeof icons] : icons.folder;
   return <HugeiconsIcon icon={icon} size={size} className={className} strokeWidth={iconStroke(size)} absoluteStrokeWidth />;
+}
+
+/**
+ * The glyph `Icon` draws, as markup — for the one renderer that writes HTML rather than React:
+ * assistant markdown, where a file the agent names is drawn as a link wearing its file type's mark.
+ * The same data and the same stroke rule, so the string and the component cannot draw two glyphs.
+ * Stroke glyphs only; a brand mark has its own string form beside it (`brandMarks`).
+ */
+export function iconSvg(name: IconName | (string & {}), size: number, className = ""): string {
+  const stroke = (iconStroke(size) * 24) / size;
+  const kebab = (k: string) => k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  // The same fallback `Icon` takes for a name it does not hold.
+  const icon = Object.prototype.hasOwnProperty.call(icons, name) ? icons[name as keyof typeof icons] : icons.folder;
+  const parts = icon.map(([tag, attrs]) => {
+    const list = Object.entries(attrs).filter(([k]) => k !== "key")
+      .map(([k, v]) => `${kebab(k)}="${k === "strokeWidth" ? stroke : String(v)}"`);
+    return `<${tag} ${list.join(" ")}/>`;
+  });
+  return `<svg class="${className}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">${parts.join("")}</svg>`;
 }
 
 /**

@@ -39,6 +39,16 @@ const BLOCKS: Record<string, string> = {
     "\"implement this plan with GPT-6 Luna\" — that request is the exception to keeping work here: start one " +
     "sub-agent per model they named, and stay the one who collects and reports.",
 
+  "realm-ui":
+    "- **Asking the user.** `ui_ask` puts up to four questions in front of the user on Realm's own card and waits " +
+    "for the answers: a choice (with pictures from the workspace when the choice is visual), several choices, free " +
+    "text, yes or no, and fields only Realm can fill — a model this Mac can run, a file in this workspace, a branch, a " +
+    "date. Reach for it when a decision is genuinely the user's and the repository, the conversation and a quick look " +
+    "cannot settle it, and ask everything at once rather than in a series. To let the user say who builds each step of " +
+    "a plan, ask one `model` question with a row per step: each answer is an id `agent_start` takes as " +
+    "`constraints.model`. A field marked `secret` keeps its answer out of Realm's records, and is the only way to ask " +
+    "for a password or a token.",
+
   "realm-browser":
     "- **The browser.** `browser_open` opens a real browser pane in this space; `browser_snapshot` and " +
     "`browser_act` read and drive it. Use it when what you need is behind a live page — a site the user is " +
@@ -130,7 +140,7 @@ const BLOCKS: Record<string, string> = {
 /** Fixed order, so the same set of providers always produces the same bytes: the blocks are read
  *  top-down and registration order is not a reason for the browser to appear above delegation one
  *  day and below it the next. */
-const ORDER = ["realm-agent", "realm-browser", "realm-docs", "realm-schedule", "realm-terminal", "realm-simulator", "realm-app", "realm-computer", "realm-vm"] as const;
+const ORDER = ["realm-agent", "realm-ui", "realm-browser", "realm-docs", "realm-schedule", "realm-terminal", "realm-simulator", "realm-app", "realm-computer", "realm-vm"] as const;
 
 const HEADER =
   "# Realm\n\n" +
