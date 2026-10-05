@@ -89,7 +89,9 @@ export function LayaRecordSheet({ simulatorId, onClose }: { simulatorId: string;
     setStarting(true);
     setRefused(null);
     try {
-      // No app named: the server keeps the one in front as it starts, and only that one.
+      // No app named: the server keeps the one in front as it starts, and only that one — which is
+      // what makes it work for an App Store app on a phone, whose app list names only what Xcode
+      // installed.
       await recordLaya(simulatorId, []);
       onClose();
     } catch (e) {
