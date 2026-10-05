@@ -1736,11 +1736,15 @@ kbd { font: 11px var(--font-mono); }
   background: color-mix(in srgb, var(--rl-accent) 7%, transparent);
   border-radius: 3px; overflow: hidden; text-align: left;
   transition: background-color var(--dur-hover) ease, border-color var(--dur-hover) ease; }
-.sim-ax-box:hover:not(:disabled) { background: color-mix(in srgb, var(--rl-accent) 22%, transparent); border-color: var(--rl-accent); }
+.sim-ax-box:hover { background: color-mix(in srgb, var(--rl-accent) 22%, transparent); border-color: var(--rl-accent); }
 .sim-ax-box:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
 /* A disabled element is still worth SEEING — it is why the screen is not doing what you expected —
-   so it is drawn and cannot be tapped, rather than hidden. */
-.sim-ax-box:disabled { border-style: dashed; border-color: color-mix(in srgb, var(--rl-text-faint) 60%, transparent); background: transparent; }
+   so it is drawn, dashed, and picked like any other: why it is disabled is often the question. */
+.sim-ax-box[data-disabled] { border-style: dashed; border-color: color-mix(in srgb, var(--rl-text-faint) 60%, transparent); background: transparent; }
+/* For the frames a pick's picture is taken in (SimulatorPane's `pictureOf`), what Realm draws over the
+   device steps off it at once: the boxes, and the tooltip the press has just silenced, which would
+   otherwise still be fading out across the picture. The picture is of the device, not of Realm on it. */
+:root[data-pick-capture] :is(.sim-ax, .tooltip) { visibility: hidden; transition: none; }
 /* The label rides inside the box and disappears when there is no room for it, which on a dense
    screen is most of them: a tooltip carries the full name, and forty overlapping captions would
    hide the very thing they are naming. */
@@ -1755,6 +1759,12 @@ kbd { font: 11px var(--font-mono); }
   border-radius: var(--r-ctl); corner-shape: squircle; background: var(--tooltip-bg); color: var(--tooltip-fg);
   box-shadow: var(--shadow-raised); font-size: 12px; }
 .sim-ax-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The way out, said where the person is looking, as the app picker's hint says it — a key, so the
+   session's name keeps the width. The bar is the tooltip's dark chip in both faces, so its glyph
+   button takes the chip's ink rather than the pane's. */
+.sim-ax-esc { flex: none; color: var(--tooltip-muted); }
+.sim-ax-bar .icon-btn { flex: none; width: 24px; --btn-h: 24px; color: var(--tooltip-fg); }
+.sim-ax-bar .icon-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--tooltip-fg) 14%, transparent); color: var(--tooltip-fg); }
 
 /* ── Over and under the device ──
    One pill wherever the device's own controls are: the toolbar over it (SimulatorBar.tsx), and under
