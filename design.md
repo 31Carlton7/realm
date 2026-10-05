@@ -205,6 +205,11 @@ Rules:
   never rounded to it: an edge rounded outward covers the pixel next door, and the pixel next door
   is usually the only boundary the layout has. Losing a hairline of page content at the edge is
   invisible; losing a divider is not.
+- What stands in for a page — a new tab, a page on its way, a page that did not load — is the pane's
+  own DOM with the view hidden, never a document loaded into the view. The view is opaque, because
+  pages assume a white canvas, so anything drawn inside it is a slab of another colour under the
+  pane's translucent chrome; the browser pane's "lighter strip" was its host painting the panel tone
+  where the view would be. The view comes back once its page has something of its own to show.
 - Contrast claims about a hairline are pixel measurements, not stylesheet readings. What `8% white`
   comes to depends on the ground it lands on, and no amount of reading the CSS will tell you. Take
   the mean luminance either side of the line and the line itself, in both faces, with the line
