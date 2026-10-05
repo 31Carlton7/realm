@@ -630,6 +630,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   unbounded length, so they keep the width and the shown item's own actions go to its menu. The
   agents still working are a count in the session's bar, and their list previews one on request;
   a tab dragged to an edge is how something becomes part of the user's own layout.
+- Work a clock starts is not work the person started. A scheduled run lands under its task on the
+  Scheduled page, unread until its session is read, rather than opening a pane beside whatever the
+  person is doing — and for it "never opened" is what unread means, where for a session somebody
+  started it means nothing was missed.
 - Pane focus, selection, zoom, navigation history, and group state must remain visibly distinct.
 - Empty panes should offer the shortest honest path to useful work.
 - Several agents need one page that answers "what should I look at": every session across every

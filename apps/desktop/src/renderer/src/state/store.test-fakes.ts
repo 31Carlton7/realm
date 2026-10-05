@@ -90,7 +90,7 @@ export const shipRow = (id: string, spaceId: string, extra: Partial<Ship> = {}):
 /** A durable run. Defaults to a queued run with no attempts yet. */
 export const runRow = (id: string, spaceId: string, extra: Partial<Run> = {}): Run =>
   ({ id, spaceId, title: `Run ${id}`, goal: `do ${id}`, agentKind: "claude", environmentId: null,
-    constraints: null, dedupeKey: null, state: "queued", attempt: 0, maxAttempts: 1, sessionId: null,
+    constraints: null, dedupeKey: null, state: "queued", attempt: 0, maxAttempts: 1, sessionId: null, scheduleId: null,
     deadlineAt: null, result: null, error: null, createdAt: 0, startedAt: null, settledAt: null, updatedAt: 0, ...extra });
 
 /** One attempt of a run. */
@@ -1372,6 +1372,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         id: `sch${data.schedules.length + 1}`, spaceId: input.spaceId, title: input.title, goal: input.goal,
         cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints ?? null,
         nextRunAt: nextFireOf(input.cron, Date.now()), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
+        newSessionPerRun: input.newSessionPerRun ?? true, archiveSucceeded: input.archiveSucceeded ?? false,
         createdAt: Date.now(), updatedAt: Date.now(),
       };
       data.schedules = [made, ...data.schedules];
@@ -1392,7 +1393,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     runScheduleNow: async (id) => {
       calls.push(`runScheduleNow:${id}`);
-      const next = data.schedules.map((r) => (r.id === id ? { ...r, lastRunAt: Date.now(), lastRunId: "run1", lastSkippedAt: null } : r));
+      // A firing is a run under the task, as the server's is: queued, in the schedule's space.
+      const fired = data.schedules.find((r) => r.id === id)!;
+      const run = runRow(`run${++n}`, fired.spaceId, { scheduleId: id, title: fired.title, goal: fired.goal, createdAt: Date.now() });
+      (data.runs[fired.spaceId] ??= []).unshift(run);
+      const next = data.schedules.map((r) => (r.id === id ? { ...r, lastRunAt: Date.now(), lastRunId: run.id, lastSkippedAt: null } : r));
       data.schedules = next;
       return next.find((r) => r.id === id)!;
     },
@@ -1476,6 +1481,17 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       }
       const page = rows.slice(0, cap);
       return { runs: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
+    },
+    listScheduleRuns: async (spaceId, scheduleId, cursor, limit) => {
+      calls.push(`listScheduleRuns:${scheduleId}`);
+      let rows = [...(data.runs[spaceId] ?? [])].filter((r) => r.scheduleId === scheduleId)
+        .sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      if (cursor) {
+        const [ts, id] = [Number(cursor.slice(0, cursor.indexOf(":"))), cursor.slice(cursor.indexOf(":") + 1)];
+        rows = rows.filter((r) => r.createdAt < ts || (r.createdAt === ts && r.id < id));
+      }
+      const page = rows.slice(0, limit);
+      return { runs: page, nextCursor: page.length === limit && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
     },
     createRun: async ({ spaceId, goal, title }) => {
       calls.push(`createRun:${spaceId}|${goal}`);

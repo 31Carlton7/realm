@@ -26,10 +26,15 @@ import { ScheduleService } from "./service";
  *   - the catch-up window applied to a one-shot → "a task set for one moment"
  */
 
-let db: Db; let spaceId: string;
-let created: { spaceId: string; goal: string; dedupeKey: string | null; title?: string }[];
+let db: Db; let spaceId: string; let otherSpaceId: string;
+let created: { spaceId: string; goal: string; dedupeKey: string | null; title?: string; scheduleId?: string | null; sessionId?: string | null }[];
 let nextRunId = 0;
 let clock = 0;
+/** What the fake runs service reports as a schedule's newest run — the one a schedule that continues
+ *  one session continues from. */
+let latest: Run | null = null;
+let archived: [string, boolean][] = [];
+let announced: string[] = [];
 
 const at = (y: number, m: number, d: number, h = 0, min = 0) => new Date(y, m - 1, d, h, min).getTime();
 const NINE = at(2026, 4, 6, 9); // a Monday
@@ -37,25 +42,40 @@ const NINE = at(2026, 4, 6, 9); // a Monday
 function service() {
   created = [];
   nextRunId = 0;
+  latest = null;
+  archived = [];
+  announced = [];
   const store = new SchedulesStore(db, () => clock);
   const runs = {
     create: (input: { spaceId: string; goal: string; dedupeKey: string | null; title?: string }) => {
       created.push(input);
       return { run: { id: `run${++nextRunId}` } as Run, created: true };
     },
+    latestForSchedule: () => latest,
   };
-  const svc = new ScheduleService({ store, runs: runs as never, rpc: { broadcast: () => {} }, clock: () => clock });
+  const svc = new ScheduleService({
+    store, runs: runs as never, clock: () => clock,
+    rpc: { broadcast: (_event: string, p: unknown) => { announced.push((p as { spaceId: string }).spaceId); } } as never,
+    archiveSession: (sessionId, on) => { archived.push([sessionId, on]); },
+    spaceExists: (id) => id === spaceId || id === otherSpaceId,
+  });
   return { svc, store };
 }
 
 const input = (over: Partial<CreateScheduleInput> = {}): CreateScheduleInput =>
-  ({ spaceId, title: "Morning sweep", goal: "check the inbox", cron: "0 9 * * *", enabled: true, constraints: null, ...over });
+  ({ spaceId, title: "Morning sweep", goal: "check the inbox", cron: "0 9 * * *", enabled: true, constraints: null,
+    newSessionPerRun: true, archiveSucceeded: false, ...over });
+
+/** A run as the fake runs service hands it back — only the fields the scheduler reads. */
+const runRow = (over: Partial<Run>): Run => ({ id: "prev", spaceId, state: "succeeded", sessionId: "sess-prev", scheduleId: null, ...over } as Run);
 
 beforeEach(() => {
   const home = tempDir("realm-sched-");
   db = openDatabase(join(home, "realm.db"));
   const profileId = new ProfilesStore(db).create({ name: "P", icon: "x", color: "#000" }).id;
-  spaceId = new SpacesStore(db, home).create({ profileId, name: "Alpha", icon: "folder" }).id;
+  const spaces = new SpacesStore(db, home);
+  spaceId = spaces.create({ profileId, name: "Alpha", icon: "folder" }).id;
+  otherSpaceId = spaces.create({ profileId, name: "Beta", icon: "folder" }).id;
   clock = at(2026, 4, 6, 8); // 08:00, an hour before the daily
 });
 
@@ -305,5 +325,91 @@ describe("a task set for one moment", () => {
     const s = svc.create(input({ cron: onceExpr(IN_TWO_WEEKS) }));
     expect(svc.update({ id: s.id, enabled: false }).nextRunAt).toBeNull();
     expect(svc.update({ id: s.id, enabled: true }).nextRunAt).toBe(IN_TWO_WEEKS);
+  });
+});
+
+describe("a firing and the schedule behind it", () => {
+  it("names the schedule on the run it makes, so the page can list that run under its task", () => {
+    // THE MUTANT: drop `scheduleId` from the create. The run still happens, and the Scheduled page
+    // shows a task that never ran — its history is the one place a run can be opened from there.
+    const { svc } = service();
+    const s = svc.create(input());
+    clock = NINE; svc.tick();
+    expect(created[0]!.scheduleId).toBe(s.id);
+    expect(created[0]!.sessionId).toBeNull();
+  });
+
+  it("starts each run in a session of its own unless told otherwise, without asking about the last", () => {
+    const { svc } = service();
+    svc.create(input());
+    latest = runRow({});
+    clock = NINE; svc.tick();
+    expect(created[0]!.sessionId).toBeNull();
+  });
+});
+
+describe("a schedule that continues one session", () => {
+  it("hands its run the session the last run left", () => {
+    const { svc } = service();
+    svc.create(input({ newSessionPerRun: false }));
+    latest = runRow({ sessionId: "sess-prev", state: "succeeded" });
+    clock = NINE; svc.tick();
+    expect(created[0]!.sessionId).toBe("sess-prev");
+  });
+
+  it("skips an occurrence while the last run is still live, and writes the skip down", () => {
+    // THE MUTANT: fire anyway. A second turn sent into a session that is still working — or blocked on
+    // a person — is settled as the FIRST turn's answer, and the run that was waiting never finishes.
+    const { svc, store } = service();
+    const s = svc.create(input({ newSessionPerRun: false }));
+    for (const state of ["queued", "running", "blocked"] as const) {
+      latest = runRow({ state });
+      clock = NINE; svc.tick();
+      db.prepare("UPDATE schedules SET next_run_at = ? WHERE id = ?").run(NINE, s.id);
+    }
+    expect(created).toEqual([]);
+    expect(store.get(s.id)!.lastSkippedAt).toBe(NINE);
+  });
+
+  it("starts afresh in a space the schedule has moved to — a session belongs to its space", () => {
+    const { svc } = service();
+    svc.create(input({ newSessionPerRun: false }));
+    latest = runRow({ spaceId: otherSpaceId, sessionId: "sess-elsewhere" });
+    clock = NINE; svc.tick();
+    expect(created[0]!.sessionId).toBeNull();
+  });
+
+  it("refuses Run now in so many words while the last run is live, rather than doing nothing", () => {
+    const { svc } = service();
+    const s = svc.create(input({ newSessionPerRun: false }));
+    latest = runRow({ state: "running" });
+    expect(() => svc.runNow(s.id)).toThrow(/still going/);
+    expect(created).toEqual([]);
+  });
+});
+
+describe("archiving successful runs", () => {
+  it("puts a success's session away and brings anything else back, only when asked to", () => {
+    // THE MUTANT: archive on every settle. A failed run's session is the one a person has to find, and
+    // archiving it hides exactly the run the option promises to keep in view.
+    const { svc } = service();
+    const on = svc.create(input({ archiveSucceeded: true }));
+    const off = svc.create(input({ title: "Untouched", archiveSucceeded: false }));
+    svc.runSettled(runRow({ scheduleId: on.id, state: "succeeded", sessionId: "s-ok" }));
+    svc.runSettled(runRow({ scheduleId: on.id, state: "failed", sessionId: "s-failed" }));
+    svc.runSettled(runRow({ scheduleId: off.id, state: "succeeded", sessionId: "s-kept" }));
+    svc.runSettled(runRow({ scheduleId: null, state: "succeeded", sessionId: "s-manual" }));
+    expect(archived).toEqual([["s-ok", true], ["s-failed", false]]);
+  });
+});
+
+describe("moving a schedule to another space", () => {
+  it("re-lists both spaces, and refuses a space that does not exist", () => {
+    const { svc } = service();
+    const s = svc.create(input());
+    announced = [];
+    expect(svc.update({ id: s.id, spaceId: otherSpaceId }).spaceId).toBe(otherSpaceId);
+    expect(announced).toEqual([spaceId, otherSpaceId]);
+    expect(() => svc.update({ id: s.id, spaceId: "01HZZZZZZZZZZZZZZZZZZZZZZZ" })).toThrow(/space/);
   });
 });

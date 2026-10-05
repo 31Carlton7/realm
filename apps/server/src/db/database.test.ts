@@ -668,7 +668,9 @@ describe("migration v25 — the Library's file index", () => {
  * their real shapes are exercised by the v4/v5 fixtures above. `browsers` is one too, for the reason
  * V8's `checkpoints` stub is: v36 ALTERs it, a real v32 home has had it since v10, and the first
  * migration to touch it after this fixture was written is what found it missing. `profiles` is in its
- * real shape for the same reason: v37 ALTERs and orders it, and a v32 home has had it since v1.
+ * real shape for the same reason: v37 ALTERs and orders it, and a v32 home has had it since v1. `runs`
+ * and `schedules` are stubs again: v38 ALTERs both (reading `runs.dedupe_key` and indexing its
+ * `created_at`), and a v32 home has had them since v20 and v23.
  */
 const V32_REWIND_SCHEMA = `
 CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
@@ -677,6 +679,8 @@ CREATE TABLE spaces (id TEXT PRIMARY KEY);
 CREATE TABLE environments (id TEXT PRIMARY KEY);
 CREATE TABLE items (id TEXT PRIMARY KEY);
 CREATE TABLE browsers (id TEXT PRIMARY KEY);
+CREATE TABLE runs (id TEXT PRIMARY KEY, dedupe_key TEXT, created_at INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE schedules (id TEXT PRIMARY KEY);
 CREATE TABLE simulators (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
   name TEXT NOT NULL, udid TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   platform TEXT NOT NULL DEFAULT 'ios');
@@ -811,6 +815,7 @@ describe("migration v34 — a real device", () => {
  * `profiles` is its real shape, because the history's foreign key points at it and the cascade is part
  * of what is under test. `spaces` is a stub (nothing here reads a column of it), and `browsers` carries
  * a pane that is already somewhere — which is what a backfill would be tempted to turn into a visit.
+ * `runs` and `schedules` are stubs because v38 ALTERs them, and a v34 home has had both since v23.
  */
 const V34_HISTORY_SCHEMA = `
 CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
@@ -819,6 +824,8 @@ CREATE TABLE spaces (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES pr
 CREATE TABLE browsers (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
   url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE INDEX browsers_space ON browsers(space_id);
+CREATE TABLE runs (id TEXT PRIMARY KEY, dedupe_key TEXT, created_at INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE schedules (id TEXT PRIMARY KEY);
 `;
 
 /** A v34 home with two profiles and a browser pane already on a page. */
@@ -901,7 +908,8 @@ describe("migration v35 — browser history", () => {
  *
  * `profiles` is its real shape, because the favicon table's foreign key points at it and the cascade
  * is under test. `spaces` is a stub. `browsers` and `browser_history` each carry a row already, which
- * is what a backfill would be tempted to invent an icon for.
+ * is what a backfill would be tempted to invent an icon for. `runs` and `schedules` are stubs because
+ * v38 ALTERs them, and a v35 home has had both since v23.
  */
 const V35_FAVICON_SCHEMA = `
 CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
@@ -916,6 +924,8 @@ CREATE TABLE browser_history (
   visit_count INTEGER NOT NULL DEFAULT 1, last_visit_at INTEGER NOT NULL,
   PRIMARY KEY (profile_id, url));
 CREATE INDEX browser_history_recent ON browser_history(profile_id, last_visit_at DESC);
+CREATE TABLE runs (id TEXT PRIMARY KEY, dedupe_key TEXT, created_at INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE schedules (id TEXT PRIMARY KEY);
 `;
 
 /** A v35 home with two profiles, a pane on a page, and that page in the history. */
@@ -994,12 +1004,15 @@ describe("migration v36 — favicons", () => {
  * The v36 shape of what v37 touches, hand-written for the reason every fixture above is. `profiles` is
  * its real v36 shape; `spaces` is a stub that only has to hold a foreign key. The rows are inserted in
  * an order that is NOT the app's order — the profile listed first is the second one written, and two
- * share a sort position — because "first" is the whole question the backfill answers.
+ * share a sort position — because "first" is the whole question the backfill answers. `runs` and
+ * `schedules` are stubs because v38 ALTERs them, and a v36 home has had both since v23.
  */
 const V36_PROFILES_SCHEMA = `
 CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
   sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE TABLE spaces (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE);
+CREATE TABLE runs (id TEXT PRIMARY KEY, dedupe_key TEXT, created_at INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE schedules (id TEXT PRIMARY KEY);
 `;
 
 /** A v36 home with three profiles: School (sort 1), Work (sort 0, the app's first), Home (sort 1, younger). */
@@ -1079,5 +1092,126 @@ describe("migration v37 — a browser partition per profile", () => {
     const fresh = openDatabase(p);
     expect(fresh.prepare("SELECT COUNT(*) AS n FROM profiles").get()).toEqual({ n: 0 });
     fresh.close();
+  });
+});
+
+/**
+ * The v37 shape of what v38 touches, hand-written for the reason every fixture above is: `runs` as
+ * v20 created it and `schedules` as v23 did, column for column. `spaces` and `environments` are stubs
+ * that only have to hold the foreign keys. The runs are the cases the backfill has to tell apart: two
+ * firings of one schedule (a clock one and a Run now — both keyed `schedule:<id>:<moment>`), a run
+ * whose key merely starts with the word, one keyed by somebody else, and one with no key at all.
+ */
+const V37_SCHEDULED_SCHEMA = `
+CREATE TABLE spaces (id TEXT PRIMARY KEY);
+CREATE TABLE environments (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE);
+CREATE TABLE runs (
+  id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  title TEXT NOT NULL, goal TEXT NOT NULL, agent_kind TEXT NOT NULL,
+  environment_id TEXT REFERENCES environments(id),
+  constraints_json TEXT, dedupe_key TEXT,
+  state TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 1,
+  session_id TEXT, deadline_at INTEGER, result_text TEXT, error TEXT,
+  created_at INTEGER NOT NULL, started_at INTEGER, settled_at INTEGER, updated_at INTEGER NOT NULL);
+CREATE INDEX runs_space ON runs(space_id, created_at DESC, id DESC);
+CREATE UNIQUE INDEX runs_dedupe ON runs(space_id, dedupe_key)
+  WHERE dedupe_key IS NOT NULL AND state IN ('queued', 'running', 'blocked');
+CREATE INDEX runs_live ON runs(state) WHERE state IN ('queued', 'running', 'blocked');
+CREATE TABLE schedules (
+  id TEXT PRIMARY KEY,
+  space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  goal TEXT NOT NULL,
+  cron TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  constraints_json TEXT,
+  next_run_at INTEGER,
+  last_run_at INTEGER,
+  last_run_id TEXT,
+  last_skipped_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL);
+CREATE INDEX schedules_space ON schedules(space_id, created_at);
+CREATE INDEX schedules_due ON schedules(next_run_at) WHERE enabled = 1;
+`;
+
+function v37Fixture(path: string): void {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V37_SCHEDULED_SCHEMA);
+  for (let v = 1; v <= 37; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  db.prepare("INSERT INTO spaces (id) VALUES ('sp1')").run();
+  db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json, next_run_at, last_run_at, last_run_id, last_skipped_at, created_at, updated_at)
+    VALUES ('SCH1', 'sp1', 'Morning triage', 'Read the new issues.', '0 9 * * 1-5', 1, '{"agentKind":"fake"}', 500, 400, 'r-clock', NULL, 10, 20)`).run();
+  const run = db.prepare(`INSERT INTO runs (id, space_id, title, goal, agent_kind, environment_id, constraints_json, dedupe_key, state, attempt, max_attempts,
+    session_id, deadline_at, result_text, error, created_at, started_at, settled_at, updated_at)
+    VALUES (?, 'sp1', 'Morning triage', 'Read the new issues.', 'fake', NULL, NULL, ?, 'succeeded', 1, 1, ?, NULL, 'done', NULL, ?, NULL, NULL, ?)`);
+  run.run("r-clock", "schedule:SCH1:1790000000000", "sess-a", 100, 100);
+  run.run("r-now", "schedule:SCH1:1790000500000", "sess-b", 200, 200);
+  run.run("r-word", "schedule:", "sess-c", 300, 300);
+  run.run("r-other", "hw-week-3", "sess-d", 400, 400);
+  run.run("r-none", null, "sess-e", 500, 500);
+  db.close();
+}
+
+describe("migration v38 — a scheduled task keeps its runs", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v37Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+  const scheduleIds = (db: DatabaseSync) =>
+    Object.fromEntries((db.prepare("SELECT id, schedule_id FROM runs").all() as { id: string; schedule_id: string | null }[]).map((r) => [r.id, r.schedule_id]));
+
+  it("is appended, not folded into v37: a v37 home reaches the end of the chain and gains every column", () => {
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBeGreaterThan(37);
+    const cols = (table: string) => (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+    expect(cols("runs")).toContain("schedule_id");
+    expect(cols("schedules")).toEqual(expect.arrayContaining(["new_session_per_run", "archive_succeeded"]));
+    db.close();
+  });
+
+  it("reads each scheduled run's schedule back off the key the scheduler wrote, and invents none", () => {
+    /* THE mutants: a backfill that leaves every run unlinked (the page shows tasks that never ran), and
+       one that takes anything starting `schedule:` (a key that only has the word gets a schedule id of
+       "" or of garbage). */
+    const { db } = migrated();
+    expect(scheduleIds(db)).toEqual({ "r-clock": "SCH1", "r-now": "SCH1", "r-word": null, "r-other": null, "r-none": null });
+    db.close();
+  });
+
+  it("gives every existing schedule the only behaviour it ever had: a new session per run, nothing archived", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT new_session_per_run, archive_succeeded FROM schedules WHERE id = 'SCH1'").get())
+      .toEqual({ new_session_per_run: 1, archive_succeeded: 0 });
+    // …and nothing else about it moved.
+    expect(db.prepare("SELECT title, goal, cron, enabled, constraints_json, next_run_at, last_run_at, last_run_id, created_at, updated_at FROM schedules").get())
+      .toEqual({ title: "Morning triage", goal: "Read the new issues.", cron: "0 9 * * 1-5", enabled: 1, constraints_json: '{"agentKind":"fake"}',
+        next_run_at: 500, last_run_at: 400, last_run_id: "r-clock", created_at: 10, updated_at: 20 });
+    db.close();
+  });
+
+  it("lists a schedule's runs off an index, not a scan of every run", () => {
+    const { db } = migrated();
+    const plan = (db.prepare("EXPLAIN QUERY PLAN SELECT * FROM runs WHERE schedule_id = ? ORDER BY created_at DESC, id DESC").all("SCH1") as { detail: string }[]).map((r) => r.detail).join(" ");
+    expect(plan).toContain("runs_schedule");
+    db.close();
+  });
+
+  it("is idempotent: reopening twice more neither re-runs the ALTERs nor re-links a run unlinked since", () => {
+    const { p, db } = migrated();
+    db.prepare("UPDATE runs SET schedule_id = NULL WHERE id = 'r-now'").run();
+    db.prepare("UPDATE schedules SET new_session_per_run = 0 WHERE id = 'SCH1'").run();
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(scheduleIds(again)["r-now"]).toBeNull();
+    expect(again.prepare("SELECT new_session_per_run FROM schedules").get()).toEqual({ new_session_per_run: 0 });
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    again.close();
   });
 });

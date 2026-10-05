@@ -599,6 +599,8 @@ export type Api = {
   deleteSchedule(id: string): Promise<{ deleted: boolean }>;
   runScheduleNow(id: string): Promise<Schedule>;
   listRuns(spaceId: string, states?: RunState[], cursor?: string | null, limit?: number): Promise<{ runs: Run[]; nextCursor: string | null }>;
+  /** `runs.list` narrowed to one schedule's runs — a task's history on the Scheduled page. */
+  listScheduleRuns(spaceId: string, scheduleId: string, cursor: string | null, limit: number): Promise<{ runs: Run[]; nextCursor: string | null }>;
   /** `runs.create` — queue a durable run. Returns the row plus whether it was newly created (a
    *  `dedupeKey` collision returns the live run instead of a second one). */
   createRun(input: { spaceId: string; goal: string; title?: string }): Promise<{ run: Run; created: boolean }>;
@@ -782,6 +784,9 @@ export const EVENTS_PAGE = 1000;
 /** Activity's page size — matches `mcp.calls.list`'s own default, so "fewer than a page came back"
  *  (the "Load more" hide condition) means the same thing on both sides of the wire. */
 export const MCP_CALLS_PAGE = 50;
+/** How many of a task's runs the Scheduled page holds per fetch: enough to show three under the task
+ *  and know whether "Show older" has anything behind it. */
+export const SCHEDULE_RUNS_PAGE = 10;
 /** Ceiling on `mcpCalls` while the sheet is open and live events are prepending (W7 plan: "cap the
  *  in-memory list... so a chatty agent can't grow it unboundedly"). Only the live-prepend path
  *  (`applyMcpCall`) enforces this — `loadMoreMcpCalls` is a page the user explicitly asked for, and
@@ -1373,6 +1378,10 @@ export type AppState = {
   /** Held per space, like runs and ships: a space whose schedules nobody has opened has nothing to
    *  go stale, and `schedules.changed` only refetches for the ones a page is actually showing. */
   schedules: Record<string, Schedule[]>;
+  /** The runs each schedule fired, newest first, by schedule id — the Scheduled page's history under
+   *  each task. Held-only like `runs`: `runs.changed` folds a run into its schedule's list when that
+   *  list is held, and `nextCursor` is where "Show older" picks up. */
+  scheduleRuns: Record<string, { runs: Run[]; nextCursor: string | null }>;
   /** Which run the Tasks lens has selected, PER SPACE — the same posture as `spacePageTab`, so two
    *  space pages open side by side do not fight over one selection. */
   selectedRunId: Record<string, string | null>;
@@ -2474,11 +2483,16 @@ export type AppState = {
   refreshSchedules(spaceId: string): Promise<void>;
   /** The four schedule writes. Each re-lists rather than folding a row in: unlike a run, a schedule
    *  changes rarely, so a refetch costs nothing and there is one code path instead of two. */
-  createSchedule(input: CreateScheduleInput): Promise<void>;
-  updateSchedule(input: UpdateScheduleInput): Promise<void>;
+  createSchedule(input: CreateScheduleInput): Promise<Schedule>;
+  updateSchedule(input: UpdateScheduleInput): Promise<Schedule>;
   deleteSchedule(id: string, spaceId: string): Promise<void>;
-  /** Fire once now, without moving the schedule's own clock (see `ScheduleService.runNow`). */
-  runScheduleNow(id: string, spaceId: string): Promise<void>;
+  /** Fire once now, without moving the schedule's own clock (see `ScheduleService.runNow`). Answers
+   *  the schedule, whose `lastRunId` names the run this made. */
+  runScheduleNow(id: string, spaceId: string): Promise<Schedule>;
+  /** Re-fetch the first page of one schedule's runs. */
+  refreshScheduleRuns(schedule: Pick<Schedule, "id" | "spaceId">): Promise<void>;
+  /** The page after the one held — "Show older" under a task. */
+  loadOlderScheduleRuns(schedule: Pick<Schedule, "id" | "spaceId">): Promise<void>;
   /** Re-fetch one space's runs (first page). What the Tasks tab mounts and what `runs.changed`
    *  triggers for spaces already held. */
   refreshRuns(spaceId: string): Promise<void>;
@@ -3625,7 +3639,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -6635,13 +6649,30 @@ await get().refreshCustomThemes().catch(() => {});
         const rows = await api.listSchedules(spaceId);
         set({ schedules: { ...get().schedules, [spaceId]: rows } });
       },
-      async createSchedule(input) { await api.createSchedule(input); await get().refreshSchedules(input.spaceId); },
+      async createSchedule(input) { const made = await api.createSchedule(input); await get().refreshSchedules(input.spaceId); return made; },
       async updateSchedule(input) {
+        const before = Object.values(get().schedules).flat().find((x) => x.id === input.id);
         const next = await api.updateSchedule(input);
         await get().refreshSchedules(next.spaceId);
+        // Moved to another space: the one it left lists it no more.
+        if (before && before.spaceId !== next.spaceId) await get().refreshSchedules(before.spaceId);
+        return next;
       },
       async deleteSchedule(id, spaceId) { await api.deleteSchedule(id); await get().refreshSchedules(spaceId); },
-      async runScheduleNow(id, spaceId) { await api.runScheduleNow(id); await get().refreshSchedules(spaceId); },
+      async runScheduleNow(id, spaceId) { const fired = await api.runScheduleNow(id); await get().refreshSchedules(spaceId); return fired; },
+      async refreshScheduleRuns({ id, spaceId }) {
+        const page = await api.listScheduleRuns(spaceId, id, null, SCHEDULE_RUNS_PAGE);
+        set({ scheduleRuns: { ...get().scheduleRuns, [id]: page } });
+      },
+      async loadOlderScheduleRuns({ id, spaceId }) {
+        const held = get().scheduleRuns[id];
+        if (!held?.nextCursor) return;
+        const page = await api.listScheduleRuns(spaceId, id, held.nextCursor, SCHEDULE_RUNS_PAGE);
+        // Against the list as it stands NOW: a run that fired while the page was in flight went on top.
+        const now = get().scheduleRuns[id] ?? held;
+        const known = new Set(now.runs.map((r) => r.id));
+        set({ scheduleRuns: { ...get().scheduleRuns, [id]: { runs: [...now.runs, ...page.runs.filter((r) => !known.has(r.id))], nextCursor: page.nextCursor } } });
+      },
       async refreshRuns(spaceId) {
         const { runs } = await api.listRuns(spaceId);
         set({ runs: { ...get().runs, [spaceId]: runs } });
@@ -6665,6 +6696,13 @@ await get().refreshCustomThemes().catch(() => {});
       async retryRun(id) { await afterRunWrite(await api.retryRun(id)); },
       async approveRun(id, approved, note) { await afterRunWrite(await api.approveRun(id, approved, note)); },
       applyRunsChanged({ spaceId, run }) {
+        // A run a schedule fired goes under its task as well, newest first, wherever the Tasks lens is.
+        const history = run?.scheduleId ? get().scheduleRuns[run.scheduleId] : undefined;
+        if (run?.scheduleId && history) {
+          const at = history.runs.findIndex((r) => r.id === run.id);
+          set({ scheduleRuns: { ...get().scheduleRuns, [run.scheduleId]: {
+            ...history, runs: at === -1 ? [run, ...history.runs] : history.runs.map((r) => (r.id === run.id ? run : r)) } } });
+        }
         const held = get().runs[spaceId];
         // Held-only: a space whose runs nobody has asked for has nothing to go stale. A null `run`
         // (a bulk change with no single subject) refetches instead of guessing.
