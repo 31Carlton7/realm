@@ -19,7 +19,7 @@ import { useAllItemsFresh, useOpenAnywhere, useProfileRows, useSidebarState } fr
  *
  * Six things, in this order, and nothing the window already shows: its toggle, search and a new
  * session in the head row; the profile under it; what waits on you; the profile's pinned items; its
- * spaces as sections of one list, or the same sessions by time; and New space at the end. The app's
+ * spaces as sections of one list, or the same sessions by time; and New space at the foot. The app's
  * destinations are the rail's. It lists SESSIONS — a terminal, a browser or a diff is something a
  * session opens, and lives in that session's side pane, not here.
  *
@@ -61,8 +61,13 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
             <SidebarLens />
             {lens === "recent"
               ? <RecentList rows={rows} onChanged={refresh} />
-              : <><SpaceSections state={state} rows={rows} onChanged={refresh} /><NewSpaceRow /></>}
+              : <SpaceSections state={state} rows={rows} onChanged={refresh} />}
           </div>
+          {/* Pinned at the column's foot rather than at the list's end, where a long list carried it out
+              of sight (the owner, 10-04: "the button disappears when the list is too long"). The list
+              dissolves into it while rows run on below. In both readings: a space is the one thing
+              either list cannot make for you. */}
+          <div className="sb-foot"><NewSpaceRow /></div>
         </div>
       </div>
       {/* Inside the column rather than between it and the panes, so that `inert` above reaches it:
@@ -109,7 +114,7 @@ function Pinned({ onChanged }: { onChanged: () => void }) {
   );
 }
 
-/** New space, at the end of the list. */
+/** New space, at the foot of the column. */
 function NewSpaceRow() {
   const openSheet = useApp((s) => s.openSheet);
   return (

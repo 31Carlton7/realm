@@ -677,12 +677,7 @@ kbd { font: 11px var(--font-mono); }
   /* A shallower top band than the bottom's: it only has to soften a row sliding under the head row,
      not clear a row's height — at 32px rows, 12 does that. */
   --fade-top-h: 12px; }
-/* A full band of bottom padding, not a fraction of one, for the reason the diff list needs the same:
-   these are 32px rows of dense text, so a row that ends inside the ramp is a session you scrolled
-   down to read and then cannot. Scrolled to the end, the last row sits entirely clear of the band and
-   the ramp has only empty gutter under it. The scroller and the ramp read the one --fade-h so they
-   cannot drift apart.
-   The ramp is a MASK on the scroller itself: over its last --fade-h the rows' own alpha runs to zero,
+/* The ramp is a MASK on the scroller itself: over its last --fade-h the rows' own alpha runs to zero,
    and nothing is painted over them. That is what makes the dissolve seamless on this column, which is
    not an opaque panel but --page at --ground-alpha over the macOS vibrancy material: a row that fades
    out reveals exactly the ground that was always behind it, whatever that ground is — the material,
@@ -700,9 +695,10 @@ kbd { font: 11px var(--font-mono); }
      faded at rest — so the profile and the list's head stood a band apart (the owner, 10-04: "reduce
      the spacing"). The dissolve is the app's shared one now (`data-dissolve`, ScrollFades.tsx),
      drawn only at an end with rows beyond it, so at rest the first row is whole and needs no room.
-     The bottom keeps a full band of clearance until the list's foot is pinned below it. */
+     Nor does the bottom need a band of clearance any more: scrolled to the end there is no band, and
+     the last row stops a step above New space, pinned at the foot (`.sb-foot`). */
   padding-top: 4px;
-  padding-bottom: calc(var(--fade-h) + 24px); }
+  padding-bottom: 8px; }
 
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--inset); color: var(--ink-2); } /* W3: StatusPill neutral */
 .icon-btn { display: grid; place-items: center; width: 28px; --btn-h: 28px; height: var(--btn-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; color: var(--rl-text-dim); }
@@ -878,7 +874,10 @@ kbd { font: 11px var(--font-mono); }
 /* "Show more" is a line of text on the titles' column, not a row: it cannot be mistaken for a session. */
 .sb-more { margin: 0 0 4px 46px; }
 .sb-start { color: var(--rl-text-faint); }
-.sb-new-space { flex: none; width: 100%; min-height: 32px; margin-top: 6px; color: var(--rl-text-dim); }
+/* New space at the column's foot, outside the scroller, so no length of list can carry it off (the owner,
+   10-04). The list dissolves into it while there are rows below; its own step under the last row. */
+.sb-foot { flex: none; padding: 2px 0 10px; }
+.sb-new-space { flex: none; width: 100%; min-height: 32px; color: var(--rl-text-dim); }
 .sb-new-space:hover { color: var(--rl-text-bright); }
 .sb-recent .sb-day:first-child > .group-label { padding-top: 4px; }
 /* Nothing yet is its own composition, centred in the room the list would have used. */
