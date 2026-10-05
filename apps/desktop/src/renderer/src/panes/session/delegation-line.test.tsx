@@ -59,8 +59,11 @@ describe("a sub-agent in its lead's transcript", () => {
   });
 
   it("an agent_run still blocking — no result yet — is found by its task", async () => {
-    await mount(start("Write the tests", null), [child({ outcome: null, settledAt: null, report: null })]);
-    expect(await screen.findByRole("button", { name: /Write the tests, on GPT-6 Luna/ })).toBeInTheDocument();
+    const { store } = await mount(start("Write the tests", null), [child({ goal: "Write the tests", outcome: null, settledAt: null, report: null })]);
+    store.setState({ sessionStatus: { [CHILD]: "waiting_permission" } });
+    // Mutant: find the child by the result's id alone — until agent_run returns, the line could only
+    // say it is starting, about a sub-agent that is in fact waiting on the user.
+    expect(await screen.findByRole("button", { name: /^Subagent waiting on you: Write the tests/ })).toBeInTheDocument();
   });
 
   it("a refused call keeps its card, so the refusal's words can be read", async () => {
