@@ -5,18 +5,25 @@
  * test cannot, because each is a question about LAYOUT:
  *
  *  - the popover is one compact column — no detail pane beside the list;
- *  - every model is one line, and the five effort levels fit one row without truncating;
+ *  - every model is one line;
+ *  - the foot is Codex's effort card: the level by name over the model, a dot per level the model
+ *    takes, evenly spaced on one line with the knob on the level in force, the reset only once the
+ *    level has moved, and the fast-mode bolt beside it with its tooltip. ←/→ on the track, reached by
+ *    Tab from the search field, step the level; a press lands on the nearest dot;
  *  - the strip under the list keeps ONE height whatever the highlighted model says, so the rows above
  *    it never move under the pointer (the popover grows upward from the chip);
  *  - the current model is in view the moment the list opens, however far down it is;
  *  - a model with several harnesses carries them on its row and the row still fits;
  *  - fast mode is on the surface for a brand-new Claude session, honest about what is known, and
- *    Codex's Fast tier is offered per model from the probe's catalog before anything has run.
+ *    Codex's Fast tier and reasoning levels are offered per model from the probe's catalog before
+ *    anything has run — and the level chosen reaches the fake app-server as `turn/start.effort`;
+ *  - an ACP agent whose session offers a `thought_level` option gets the same track, in its names.
  *
  * No real agent is ever asked anything. Every CLI is a stub: Claude answers `--version` and
  * `auth status`, Codex is the adapter's own fake app-server fixture, and the ACP agents are either
- * absent (the owner's Mac) or the fake ACP agent fixture (the long list, all thirteen installed).
- * No prompt is sent, so no session starts and nothing is billed.
+ * absent (the owner's Mac) or the fake ACP agent fixture (the long list, all thirteen installed;
+ * OpenCode in the configOptions shape real opencode answers with). The one prompt sent goes to the
+ * fake app-server, and REALM_ENABLE_FAKE_AGENT turns off the server's own billed title and recap.
  *
  * Env: LIVE_CDP_PORT / LIVE_SERVER_PORT (defaults 9341 / 8907), LIVE_SHOTS (where screenshots go,
  * default a temp dir), LIVE_TMP (where the scratch home goes, default the OS temp dir).
@@ -72,10 +79,15 @@ function stubs(dir, { acp }) {
   const agent = acp
     ? write("acp-agent", `#!/bin/bash\nif [ "$1" = "--version" ]; then echo "1.0.0"; exit 0; fi\nexec "${node}" "${fakeAcp}" "$@"\n`)
     : path.join(dir, "not-installed");
+  // OpenCode answers session/new with configOptions, as the real one does — the shape that carries a
+  // `thought_level` selector, so it is the agent whose levels the track should offer.
+  const opencode = acp
+    ? write("acp-opencode", `#!/bin/bash\nif [ "$1" = "--version" ]; then echo "1.0.0"; exit 0; fi\nexport FAKE_ACP_CONFIGOPTIONS=1\nexec "${node}" "${fakeAcp}" "$@"\n`)
+    : agent;
   return {
     REALM_CLAUDE_BIN: claude, REALM_CODEX_BIN: codex,
     ...Object.fromEntries(["CURSOR", "GEMINI", "OPENCODE", "COPILOT", "GOOSE", "QWEN", "GROK", "FX", "DEEPSEEK", "OPENHANDS", "HERMES"]
-      .map((k) => [`REALM_${k}_BIN`, agent])),
+      .map((k) => [`REALM_${k}_BIN`, k === "OPENCODE" ? opencode : agent])),
   };
 }
 
@@ -258,7 +270,6 @@ const layout = (c) => evalIn(c, `(() => {
   const lb = list.getBoundingClientRect();
   const current = rows.find((o) => o.getAttribute('aria-selected') === 'true');
   const cb = current?.getBoundingClientRect();
-  const seg = [...document.querySelectorAll('.mp-seg-group[aria-label="Effort"] .mp-seg-opt')];
   return {
     picker: r(picker), win: { w: innerWidth, h: innerHeight },
     detailPane: !!document.querySelector('.mp-detail'),
@@ -267,9 +278,6 @@ const layout = (c) => evalIn(c, `(() => {
     overflowingRows: rows.filter((o) => o.scrollWidth > o.clientWidth + 1).map((o) => o.getAttribute('aria-label')),
     currentInView: !!cb && cb.top >= lb.top - 1 && cb.bottom <= lb.bottom + 1,
     current: current?.getAttribute('aria-label') ?? null,
-    effort: seg.map((b) => b.textContent),
-    effortLines: [...new Set(seg.map((b) => Math.round(b.getBoundingClientRect().top)))].length,
-    effortTruncated: seg.filter((b) => b.scrollWidth > b.clientWidth + 1).map((b) => b.textContent),
     listScrolls: list.scrollHeight > list.clientHeight + 2,
     dissolve: list.getAttribute('data-dissolve'),
   };
@@ -279,29 +287,116 @@ const aboutBox = (c) => evalIn(c, `(() => { const a = document.querySelector('.m
   return { h: Math.round(a.getBoundingClientRect().height), listTop: Math.round(l.getBoundingClientRect().top),
     note: document.querySelector('.mp-about-note')?.textContent ?? '', specs: document.querySelector('.mp-about-specs')?.textContent ?? '' }; })()`);
 
-const fastRow = (c) => evalIn(c, `(() => { const g = document.querySelector('.mp-fast'); if (!g) return null;
-  const s = g.querySelector('[role=switch]');
-  return { state: g.dataset.state, switch: !!s, on: !!s?.checked, text: g.textContent, note: g.querySelector('.mp-fast-note')?.textContent ?? null }; })()`);
+/** The foot's card, as drawn: the bolt, the level by name over the model, the reset, and the track. */
+const runCard = (c) => evalIn(c, `(() => {
+  const card = document.querySelector('.mp-run'); if (!card) return null;
+  const r = (e) => { if (!e) return null; const b = e.getBoundingClientRect();
+    return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height), cx: Math.round((b.x + b.width / 2) * 10) / 10, cy: Math.round((b.y + b.height / 2) * 10) / 10 }; };
+  const bolt = card.querySelector('.mp-bolt'), reset = card.querySelector('.mp-run-reset'), track = card.querySelector('[role=slider]');
+  const level = card.querySelector('.mp-run-level');
+  const dots = [...card.querySelectorAll('.mp-track-dot')].map(r);
+  // The accent as this card resolves it, to compare the level's own colour against.
+  const swatch = document.createElement('span'); swatch.style.color = 'var(--rl-accent)'; card.appendChild(swatch);
+  const accent = getComputedStyle(swatch).color; swatch.remove();
+  return {
+    card: r(card), picker: r(document.querySelector('.model-picker')),
+    bolt: bolt ? { pressed: bolt.getAttribute('aria-pressed'), disabled: bolt.getAttribute('aria-disabled'), title: bolt.title, box: r(bolt) } : null,
+    level: level?.textContent ?? null, levelInAccent: !!level && getComputedStyle(level).color === accent,
+    model: card.querySelector('.mp-run-model')?.textContent ?? null,
+    reset: reset ? { title: reset.title, box: r(reset) } : null,
+    track: track ? { box: r(track), now: Number(track.getAttribute('aria-valuenow')), max: Number(track.getAttribute('aria-valuemax')),
+      text: track.getAttribute('aria-valuetext'), chosen: track.dataset.effort ?? null, focused: document.activeElement === track } : null,
+    dots: dots.map((d) => d.cx), dotRows: [...new Set(dots.map((d) => d.cy))].length,
+    knob: r(card.querySelector('.mp-track-knob')),
+    note: card.querySelector('.mp-fast-note')?.textContent ?? null,
+    overflowing: [...card.querySelectorAll('*')].filter((e) => !e.classList.contains('mp-run-model') && e.scrollWidth > e.clientWidth + 1).map((e) => e.className),
+  };
+})()`);
+
+/** What every card must be, whatever it says: the track's geometry, and the head's three columns. */
+function cardIsDrawn(card) {
+  if (!card?.track) return false;
+  const gaps = card.dots.slice(1).map((x, i) => x - card.dots[i]);
+  const t = card.track.box;
+  return card.dots.length === card.track.max + 1 && card.dots.length >= 2 && card.dotRows === 1
+    && Math.max(...gaps) - Math.min(...gaps) <= 1
+    && card.dots[0] > t.x && card.dots.at(-1) < t.x + t.w
+    && (!card.knob || Math.abs(card.knob.cx - card.dots[card.track.now]) <= 1.5)
+    && card.card.x >= card.picker.x && card.card.x + card.card.w <= card.picker.x + card.picker.w
+    && card.overflowing.length === 0;
+}
+
+const KEYS = { ArrowLeft: 37, ArrowRight: 39, Home: 36, End: 35, Enter: 13, Tab: 9 };
+/** A real key, to whatever holds focus. */
+const key = async (c, k) => {
+  await c.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: k, code: k, windowsVirtualKeyCode: KEYS[k], nativeVirtualKeyCode: KEYS[k] });
+  await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: k, code: k, windowsVirtualKeyCode: KEYS[k], nativeVirtualKeyCode: KEYS[k] });
+  await sleep(180);
+};
+/** A real press and release at a point — Chromium makes the pointer events from it. */
+const clickAt = async (c, x, y) => {
+  await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await c.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await c.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+  await sleep(250);
+};
+const chipOf = (c) => evalIn(c, `(() => { const b = document.querySelector('.composer button[aria-label="Model"]');
+  return { text: b.querySelector('.chip-label')?.textContent ?? '', effort: b.querySelector('.chip-effort')?.textContent ?? null, title: b.title,
+    fast: !!b.querySelector('.chip-fast') }; })()`);
+/** Tab from the search field, which the picker opens holding, until the track has the keyboard.
+ *  Hands back where each Tab went, so a failure says which stop was in the way. */
+const tabToTrack = async (c) => {
+  const where = () => evalIn(c, `(() => { const a = document.activeElement; return a ? (a.getAttribute('aria-label') || a.className || a.tagName) : null; })()`);
+  const path = [await where()];
+  for (let i = 0; i < 5 && !(await evalIn(c, `document.activeElement?.getAttribute('role') === 'slider'`)); i++) {
+    await key(c, "Tab");
+    path.push(await where());
+  }
+  const ok = await evalIn(c, `document.activeElement?.getAttribute('role') === 'slider'`);
+  if (!ok) console.log("TAB PATH", JSON.stringify(path));
+  return ok;
+};
+/** The card and the tooltip over it, after a real hover on the bolt. */
+const shootBoltTip = async (c, name) => {
+  const card = await runCard(c);
+  if (!card?.bolt) return null;
+  await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: card.bolt.box.cx, y: card.bolt.box.cy });
+  const tip = await until(() => evalIn(c, `(() => { const t = document.querySelector('.tooltip'); if (!t || getComputedStyle(t).opacity < 0.95) return null;
+    const b = t.getBoundingClientRect(); return { text: t.textContent, x: b.x, y: b.y, w: b.width, h: b.height }; })()`), 4000, "bolt tooltip").catch(() => null);
+  if (tip) {
+    const x = Math.min(tip.x, card.card.x) - 16, y = Math.min(tip.y, card.card.y) - 16;
+    await shoot(c, name, { x, y, width: Math.max(tip.x + tip.w, card.card.x + card.card.w) + 16 - x, height: Math.max(tip.y + tip.h, card.card.y + card.card.h) + 16 - y });
+  }
+  return tip;
+};
 
 /** The owner's Mac: Claude signed in, Codex installed, no ACP agents. A brand-new Claude session. */
 async function owner() {
   const { c, api, home, sessionId } = await boot(stubs(path.join(scratch, "bin-owner"), { acp: false }), "owner");
+  const mine = async () => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sessionId);
+  const effortIs = (want) => until(async () => ((await mine())?.effort ?? null) === want, 5000, `effort ${want}`).then(() => true, () => false);
   try {
     await setTheme(c, api, "dark");
     for (const mode of ["dark", "light"]) {
       if (mode === "light") await setTheme(c, api, "light");
-      const chip = await evalIn(c, `(() => { const b = document.querySelector('.composer button[aria-label="Model"]'); return { text: b.textContent, title: b.title }; })()`);
-      check(`${mode}: the chip names the model the way the list does, and the harness in its tooltip`, chip.text.includes("Fable 5.1") && chip.title === "Claude Fable 5.1 through Claude", chip);
+      const chip = await chipOf(c);
+      check(`${mode}: the chip names the model and the level it runs at, and the harness in its tooltip`,
+        chip.text.includes("Fable 5.1") && chip.effort === "High" && chip.title === "Claude Fable 5.1 through Claude · High effort", chip);
       await openPicker(c);
       const l = await layout(c);
       check(`${mode}: one compact column, no detail pane`, !l.detailPane && l.picker.w >= 360 && l.picker.w <= 380, { w: l.picker.w });
       check(`${mode}: inside the window`, l.picker.x >= 0 && l.picker.y >= 0 && l.picker.x + l.picker.w <= l.win.w && l.picker.y + l.picker.h <= l.win.h, l.picker);
       check(`${mode}: every row is one line and nothing in a row overflows it`, l.rowHeights.length === 1 && l.rowHeights[0] === 32 && l.overflowingRows.length === 0, { heights: l.rowHeights, overflowing: l.overflowingRows });
       check(`${mode}: the current model is ticked and in view`, l.current === "Claude Fable 5.1" && l.currentInView, { current: l.current });
-      check(`${mode}: five effort levels on one line, none cut`, l.effort.length === 5 && l.effortLines === 1 && l.effortTruncated.length === 0, l);
-      const fast = await fastRow(c);
-      check(`${mode}: fast mode is on the surface for a brand-new session, and says the first turn checks it`, fast?.state === "unknown" && fast.switch && fast.note === "Checked on the first turn.", fast);
-      await shootPicker(c, `after-${mode}-picker`);
+      const card = await runCard(c);
+      check(`${mode}: the foot is the effort card — a dot per level on one line, evenly spaced, the knob on the level in force`, cardIsDrawn(card), card);
+      check(`${mode}: it names the level over the model, in the accent, with no reset while nothing has moved`,
+        card?.level === "High" && card.model === "Fable 5.1" && card.levelInAccent && card.reset === null && card.track?.chosen === null, card && { level: card.level, model: card.model, reset: card.reset });
+      check(`${mode}: the bolt sits beside it, unpressed, with nothing under it until it is pressed`,
+        card?.bolt?.pressed === "false" && card.bolt.disabled === null && card.note === null, card?.bolt);
+      check(`${mode}: the bolt's tooltip says what fast mode buys, and that the first turn checks this model`,
+        /^Fast mode: .+\. The first turn checks whether Fable 5\.1 can run it\.$/.test(card?.bolt?.title ?? ""), card?.bolt?.title);
+      await shootPicker(c, `after-${mode}-claude-picker`);
       await shoot(c, `after-${mode}-full`);
 
       // One height, whatever the line says: the rows above it must not move as the highlight does.
@@ -315,18 +410,54 @@ async function owner() {
         check("the strip names a missing CLI rather than a price", /isn’t installed/.test(samples.find((s) => s.label.startsWith("Cursor"))?.note ?? ""), samples.at(-1));
         await hover(c, "Claude Fable 5.1");
         await shootPicker(c, "after-dark-hover-fable");
+        const tip = await shootBoltTip(c, "after-dark-claude-bolt-tip");
+        check("hovering the bolt shows its tooltip", !!tip && tip.text.startsWith("Fast mode:"), tip);
       }
       await closePicker(c);
     }
 
-    // The switch, flipped before the first message: the chip wears the bolt for the request.
+    // The keyboard: Tab from the search field reaches the track, and ←/→ step the level in place.
     await openPicker(c);
-    await evalIn(c, `document.querySelector('.mp-fast [role=switch]').click(); true`);
-    await until(async () => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sessionId)?.fastMode === true, 5000, "fast saved");
-    check("flipping it keeps the picker open", await evalIn(c, `!!document.querySelector('.model-picker')`));
+    check("Tab from the search field reaches the track", await tabToTrack(c));
+    let card = await runCard(c);
+    const atDefault = card.track.now;
+    await key(c, "ArrowLeft");
+    check("← steps the level down one and saves it on the session", await effortIs("medium"));
+    card = await runCard(c);
+    check("…the knob and the name follow, the picker stays open, and the reset appears", card?.level === "Medium" && card.track.now === atDefault - 1
+      && card.track.chosen === "medium" && card.track.focused && !!card.reset && await evalIn(c, `!!document.querySelector('.model-picker')`), card);
+    check("the reset's tooltip names the default it goes back to", card?.reset?.title === "Back to Fable 5.1’s default, High", card?.reset);
+    check("the chip wears the level chosen", (await chipOf(c)).effort === "Medium");
+    await shootPicker(c, "after-light-claude-chosen");
+    await key(c, "ArrowRight"); await key(c, "ArrowRight");
+    card = await runCard(c);
+    check("→ steps up past the default", card?.track.now === atDefault + 1 && await effortIs(card.level.toLowerCase()), card?.track);
+    await key(c, "End");
+    card = await runCard(c);
+    check("End goes to the model's heaviest level", card?.track.now === card?.track.max && await effortIs(card.level.toLowerCase()), card?.track);
+    // The pointer: a press lands on the nearest dot.
+    await clickAt(c, card.dots[0] + 3, card.track.box.cy);
+    check("a press near the first dot picks the lightest level", await effortIs("low"));
+    card = await runCard(c);
+    check("…and the knob lands on that dot", cardIsDrawn(card) && card.track.now === 0, card?.knob);
+    // The reset hands the level back to the model: no level of Realm's, not "high" by name.
+    await clickAt(c, card.reset.box.cx, card.reset.box.cy);
+    check("the reset clears the session's level", await effortIs(null));
+    card = await runCard(c);
+    check("…the model's default is back on the card, and the reset goes", card?.level === "High" && card.reset === null && card.track.chosen === null, card);
     await closePicker(c);
-    const bolt = await evalIn(c, `!!document.querySelector('.composer .model-chip .chip-fast')`);
-    check("the chip wears the bolt for the request", bolt);
+
+    // The bolt, pressed before the first message: a request, kept on the surface it was made on.
+    await openPicker(c);
+    card = await runCard(c);
+    await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+    await until(async () => (await mine())?.fastMode === true, 5000, "fast saved");
+    card = await runCard(c);
+    check("pressing the bolt asks for fast mode, and says the first turn checks it", card?.bolt?.pressed === "true" && card.note === "Fast mode is asked for — the first turn checks it.", card);
+    check("pressing it keeps the picker open", await evalIn(c, `!!document.querySelector('.model-picker')`));
+    await shootPicker(c, "after-light-claude-fast-asked");
+    await closePicker(c);
+    check("the chip wears the bolt for the request", (await chipOf(c)).fast);
     const k = await box(c, '.composer button[aria-label="Model"]');
     await shoot(c, "after-light-chip-fast", { x: k.x - 140, y: k.y - 12, width: k.width + 160, height: k.height + 24 });
     await api.call("sessions.setOptions", { id: sessionId, fastMode: false });
@@ -336,35 +467,73 @@ async function owner() {
     for (const mode of ["light", "dark"]) {
       if (mode === "dark") await setTheme(c, api, "dark"); else await reload(c);
       await openPicker(c);
-      const no = await fastRow(c);
-      check(`${mode}: on a model Claude said cannot, no switch, and the ones that can by name`,
-        no?.state === "unavailable" && !no.switch && /Not on Fable 5\.1/.test(no.text) && no.note === "Opus 5.5 and Sonnet 5 offer it.", no);
+      const no = await runCard(c);
+      check(`${mode}: on a model Claude said cannot, the bolt is there but cannot be pressed, and its tooltip names the ones that can`,
+        no?.bolt?.disabled === "true" && no.bolt.pressed === "false" && no.bolt.title === "Fast mode isn’t offered on Fable 5.1 — Opus 5.5 and Sonnet 5 offer it." && no.note === null, no?.bolt);
+      if (mode === "dark") {
+        await clickAt(c, no.bolt.box.cx, no.bolt.box.cy);
+        await sleep(400);
+        check("a press on it asks for nothing", (await mine())?.fastMode !== true);
+      }
       await shootPicker(c, `after-${mode}-fast-unavailable`);
       await closePicker(c);
     }
     check("Opus 5.5 is a row to pick", await pickRow(c, "Claude Opus 5.5"));
     await openPicker(c);
-    const yes = await fastRow(c);
-    check("on a model Claude said can, a plain switch with nothing left to check", yes?.state === "offered" && yes.switch && yes.note === null, yes);
+    const yes = await runCard(c);
+    check("on a model Claude said can, a plain bolt whose tooltip has nothing left to check", yes?.bolt?.disabled === null && /^Fast mode: [^.]+\.$/.test(yes.bolt.title) && yes.note === null, yes?.bolt);
+    check("…and the card follows the model", yes?.model === "Opus 5.5" && yes.level === "High", yes && { model: yes.model, level: yes.level });
     const l = await layout(c);
     check("the newly picked model is the ticked one", l.current === "Claude Opus 5.5", { current: l.current });
     await shootPicker(c, "after-dark-fast-offered");
     await closePicker(c);
 
-    // Codex, before any session has run on it: the Fast tier from the probe's own catalog.
+    // Codex, before any session has run on it: the Fast tier and the levels from the probe's own catalog.
     check("Codex's default is one click from a Claude session that has not run", await pickRow(c, "GPT-5.6"));
     await until(() => evalIn(c, `document.querySelector('.composer button[aria-label="Model"]').textContent.includes('GPT-5.6')`), 5000, "codex chip");
     await openPicker(c);
-    const codexDefault = await fastRow(c);
-    const codexEffort = await evalIn(c, `!!document.querySelector('.mp-seg-group[aria-label="Effort"]')`);
-    check("Codex's default offers Fast from the catalog, and no effort control Codex would drop", codexDefault?.state === "offered" && !codexEffort, { fast: codexDefault, effort: codexEffort });
+    const codexDefault = await runCard(c);
+    check("Codex's default takes the levels its catalog marks, from its own default", cardIsDrawn(codexDefault) && codexDefault.dots.length === 4 && codexDefault.level === "Medium", codexDefault && { dots: codexDefault.dots.length, level: codexDefault.level });
+    check("…and the Fast tier, the bolt's tooltip in the tier's own words", codexDefault?.bolt?.disabled === null && codexDefault.bolt.title === "Fast mode: 1.5x speed, increased usage.", codexDefault?.bolt);
     await closePicker(c);
     check("GPT-5.6-Terra is a row to pick", await pickRow(c, "GPT-5.6-Terra"));
     await openPicker(c);
-    const terra = await fastRow(c);
-    check("a Codex model without the tier says so, and names the one that has it", terra?.state === "unavailable" && terra.note === "GPT-5.6-Sol offers it.", terra);
-    await shootPicker(c, "after-dark-codex");
+    const terra = await runCard(c);
+    check("a Codex model with fewer levels gets fewer dots", cardIsDrawn(terra) && terra.dots.length === 3 && terra.model === "GPT-5.6-Terra", terra && { dots: terra.dots.length });
+    check("a Codex model without the tier cannot press the bolt, and its tooltip names the one that has it", terra?.bolt?.disabled === "true" && terra.bolt.title === "Fast mode isn’t offered on GPT-5.6-Terra — GPT-5.6-Sol offers it.", terra?.bolt);
     await closePicker(c);
+    check("GPT-5.6-Sol is a row to pick", await pickRow(c, "GPT-5.6-Sol"));
+    await openPicker(c);
+    check("Tab reaches the track on a Codex session too", await tabToTrack(c));
+    await key(c, "ArrowRight");
+    check("→ on Sol saves the level above its default", await effortIs("high"));
+    const sol = await runCard(c);
+    check("the card names it, with the way back to Sol's default", sol?.level === "High" && sol.model === "GPT-5.6-Sol" && sol.reset?.title === "Back to GPT-5.6-Sol’s default, Medium", sol && { level: sol.level, reset: sol.reset });
+    await shootPicker(c, "after-dark-codex-picker");
+    await closePicker(c);
+    await setTheme(c, api, "light");
+    check("the chip wears the Codex level", (await chipOf(c)).effort === "High");
+    await openPicker(c);
+    await shootPicker(c, "after-light-codex-picker");
+    await shootBoltTip(c, "after-light-codex-bolt-tip");
+    await closePicker(c);
+
+    // The level reaching the turn: the fake app-server echoes the `turn/start` it was sent.
+    await evalIn(c, `(() => { const t = document.querySelector('.composer textarea'); t.focus();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(t, 'TURN_PARAMS');
+      t.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+    await sleep(250);
+    await key(c, "Enter");
+    const echoed = await until(async () => {
+      const evs = await api.call("sessions.events", { id: sessionId, afterSeq: 0 });
+      const text = evs.map((e) => e.event).filter((e) => e.type === "assistant_text").map((e) => e.payload.text).find((t) => t.includes('"threadId"'));
+      return text ? JSON.parse(text) : null;
+    }, 30000, "turn params echo").catch((e) => ({ error: e.message }));
+    check("the level chosen reaches Codex as `turn/start.effort`", echoed?.effort === "high", { effort: echoed?.effort, model: echoed?.model, error: echoed?.error });
+    const shown = await until(() => evalIn(c, `document.querySelector('.session-pane')?.textContent.includes('"effort":"high"') ? true : null`), 10000, "echo on screen").catch(() => false);
+    check("…and the transcript shows the echo", shown);
+    await sleep(600);
+    await shoot(c, "after-light-codex-turn");
 
     const errs = c.errors.filter((e) => !e.includes("Autofill"));
     check("no renderer console errors", errs.length === 0, errs.slice(0, 5));
@@ -401,6 +570,28 @@ async function longList() {
     await evalIn(c, `(() => { const l = document.querySelector('.mp-list'); l.scrollTop = l.scrollHeight; return true; })()`);
     await sleep(400);
     await shootPicker(c, "after-dark-long-bottom");
+    await closePicker(c);
+
+    // An ACP agent whose session offers a `thought_level` option (OpenCode's configOptions): its own
+    // levels on the same track, and no bolt, because Realm cannot ask an ACP agent for fast mode.
+    await openPicker(c);
+    const fake = await evalIn(c, `[...document.querySelectorAll('.mp-row')].map((o) => o.getAttribute('aria-label')).find((x) => /^Fake 1/.test(x ?? '')) ?? null`);
+    let routed = false;
+    if (fake && await hover(c, fake)) {
+      routed = await evalIn(c, `(() => { const b = [...document.querySelectorAll('.mp-row[data-active] .mp-way')].find((x) => /through OpenCode$/.test(x.getAttribute('aria-label') ?? ''));
+        if (!b) return false; b.click(); return true; })()`);
+    }
+    check("Fake 1 can be run through OpenCode from its row", routed, { fake });
+    await until(() => evalIn(c, `!document.querySelector('.model-picker')`), 3000, "picker closed after the route").catch(() => null);
+    await sleep(500);
+    await openPicker(c);
+    const acp = await runCard(c);
+    check("OpenCode's session offers its own three levels, from its own default, with no bolt", cardIsDrawn(acp) && acp.dots.length === 3 && acp.level === "Medium" && acp.bolt === null, acp);
+    check("Tab reaches OpenCode's track", await tabToTrack(c));
+    await key(c, "ArrowRight");
+    const acpAfter = await runCard(c);
+    check("→ moves OpenCode's level", acpAfter?.level === "High" && !!acpAfter.reset, acpAfter && { level: acpAfter.level, reset: acpAfter.reset });
+    await shootPicker(c, "after-dark-acp-effort");
     await closePicker(c);
 
     // An agent that reports no models: its own group, its default ticked, nothing it cannot take.

@@ -73,6 +73,17 @@ const LIST_MODELS_TIMEOUT_MS = 20_000;
 export async function fetchAcpModels(
   opts: { bin: string; args: string[]; cwd: string; env?: Record<string, string>; timeoutMs?: number },
 ): Promise<{ id: string; label: string }[] | null> {
+  return (await fetchAcpCatalog(opts))?.models ?? null;
+}
+
+/**
+ * Everything the throwaway session says about what an agent can be put on: its models (null where it
+ * lists none, as `fetchAcpModels` answers) and its reasoning levels off a `thought_level` option, with
+ * the one it starts on — one `session/new`, read once. Null on any failure.
+ */
+export async function fetchAcpCatalog(
+  opts: { bin: string; args: string[]; cwd: string; env?: Record<string, string>; timeoutMs?: number },
+): Promise<{ models: { id: string; label: string }[] | null; efforts: { id: string; label: string }[]; defaultEffort: string | null } | null> {
   const ms = opts.timeoutMs ?? LIST_MODELS_TIMEOUT_MS;
   let rpc: StdioJsonRpc | null = null;
   try {
@@ -99,8 +110,8 @@ export async function fetchAcpModels(
     // there, so reading `models` alone finds nothing and the picker silently shows one dead row),
     // falling back to the deprecated `models`. Same normalizer the adapter boots with, so the ids the
     // picker offers are exactly the ids a session start will transmit.
-    const models = acpSessionConfig(session).models;
-    return models.length > 0 ? [...models] : null;
+    const cfg = acpSessionConfig(session);
+    return { models: cfg.models.length > 0 ? [...cfg.models] : null, efforts: cfg.efforts, defaultEffort: cfg.currentEffort };
   } catch {
     return null;
   } finally {
