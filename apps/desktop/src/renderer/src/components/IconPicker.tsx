@@ -42,8 +42,14 @@ const TABS: { id: Tab; label: string }[] = [
  * four sources, replacing the old bare `.icon-grid` fieldset (`SpacePage.tsx`'s `GeneralTab`).
  * Generated/uploaded icons are a per-PROFILE library (`iconAssets.*`) — reusable by every space
  * under that profile, not thrown away after this one pick.
+ *
+ * `variant="tile"` draws the trigger as the icon alone, in the space's colour (`tint`), beside the
+ * name of a space being made — the preview of how it will look and the control that changes it, as
+ * one thing (`space-fields.tsx`).
  */
-export function IconPicker({ icon, profileId, onPick }: { icon: string; profileId: string; onPick: (icon: string) => void }) {
+export function IconPicker({ icon, profileId, onPick, variant = "button", tint }: {
+  icon: string; profileId: string; onPick: (icon: string) => void; variant?: "button" | "tile"; tint?: string;
+}) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [dropError, setDropError] = useState<string | null>(null);
@@ -60,14 +66,21 @@ export function IconPicker({ icon, profileId, onPick }: { icon: string; profileI
       (e: unknown) => setDropError(e instanceof Error ? e.message : "Upload failed."),
     );
   }, true);
+  const trigger = { ref: btn, type: "button" as const, "aria-haspopup": "dialog" as const, "aria-expanded": open,
+    "data-dropping": drop.dropping || undefined, ...drop.handlers, onClick: () => setOpen((v) => !v) };
   return (
     <>
-      <button ref={btn} type="button" className="icon-picker-trigger" aria-haspopup="dialog" aria-expanded={open}
-        data-dropping={drop.dropping || undefined} {...drop.handlers}
-        onClick={() => setOpen((v) => !v)}>
-        <SpaceIcon icon={icon} size={20} />
-        <span>{drop.dropping ? "Drop to use as icon" : "Change icon…"}</span>
-      </button>
+      {variant === "tile" ? (
+        <button {...trigger} className="space-tile" aria-label="Change icon" title={drop.dropping ? "Drop to use as icon" : "Change icon"}
+          style={tint ? { color: tint } : undefined}>
+          <SpaceIcon icon={icon} size={20} />
+        </button>
+      ) : (
+        <button {...trigger} className="icon-picker-trigger">
+          <SpaceIcon icon={icon} size={20} />
+          <span>{drop.dropping ? "Drop to use as icon" : "Change icon…"}</span>
+        </button>
+      )}
       {dropError && <p className="ip-error" role="alert">{dropError}</p>}
       {open && <IconPickerPopover icon={icon} profileId={profileId} anchorRef={btn} onClose={() => setOpen(false)}
         onPick={(v) => { onPick(v); setOpen(false); }} />}
@@ -80,8 +93,14 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
   onClose: () => void; onPick: (icon: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const search = useRef<HTMLInputElement>(null);
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, onClose, exit: true });
   const [tab, setTab] = useState<Tab>("default");
+  /* The search takes the keyboard once the surface is placed, and again on a tab that has one. The
+     popover renders hidden until it is measured and a hidden field cannot be focused, so the
+     `autoFocus` this replaces came to nothing outside jsdom. */
+  const placed = pos !== null;
+  useEffect(() => { if (placed) search.current?.focus(); }, [placed, tab]);
   const [query, setQuery] = useState("");
   const [prompt, setPrompt] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -147,7 +166,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
       {(tab === "default" || tab === "emoji") && (
         <div className="ip-search">
           <Icon name="search" size={14} />
-          <input autoFocus type="text" value={query} onChange={(e) => setQuery(e.target.value)}
+          <input ref={search} type="text" value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder={tab === "default" ? "Search icons…" : "Search emoji…"} aria-label="Search" />
         </div>
       )}

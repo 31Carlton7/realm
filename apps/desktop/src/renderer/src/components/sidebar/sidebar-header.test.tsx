@@ -20,15 +20,22 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const header = (container: HTMLElement) => container.querySelector<HTMLElement>(".sb-header")!;
 
 describe("the sidebar's head row", () => {
-  it("is the profile and the window's back and forward, then search and a new session — and nothing else", async () => {
-    // THE MUTANT: leave the window's back and forward in the rail, under the traffic lights, while
-    // there is a head row beside them to carry them — the second pair Codex's layout does without.
+  it("is the sidebar's toggle, search and a new session — and nothing else", async () => {
+    /* The row's start is the window's now: the traffic lights cross into it over the narrower rail,
+       and back and forward sit just past them in both states (WindowLead). THE MUTANTS: back and
+       forward drawn here again (a second pair beside the window's), or the toggle left out of the row
+       it was asked into (the owner, 10-04: "with the search button and create new session button"). */
     const { container } = await mount();
     const row = within(header(container));
     expect(row.getAllByRole("button").map((b) => b.getAttribute("aria-label")))
-      .toEqual(["Profile: Work", "Go back", "Go forward", "Search", "New session"]);
-    // First in the column: it is the row in the traffic lights' band.
-    expect(container.querySelector(".sidebar")!.firstElementChild).toBe(header(container));
+      .toEqual(["Hide sidebar (⌘B)", "Search", "New session"]);
+    // First in the column's slide: it is the row in the traffic lights' band.
+    expect(container.querySelector(".sidebar-slide")!.firstElementChild).toBe(header(container));
+    // The profile heads the column under it, outside the scroller, on its own row.
+    const title = container.querySelector<HTMLElement>(".sb-title")!;
+    expect(within(title).getByRole("button", { name: "Profile: Work" })).toBeInTheDocument();
+    expect(title.closest(".space-body")).toBeNull();
+    expect(title.nextElementSibling).toHaveClass("space-body");
     // No space title, flat space list or space menu any more: the spaces are the list's sections.
     expect(screen.queryByRole("button", { name: "Switch space" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Space menu" })).toBeNull();
@@ -82,7 +89,7 @@ describe("the profile switcher", () => {
     spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Lectures")],
     sessions: [session("q", "s3", { status: "waiting_permission" }), session("w", "s1", { status: "waiting_permission" })],
   });
-  const switcher = () => within(document.querySelector<HTMLElement>(".sb-header")!).getByRole("button", { name: /^Profile:/ });
+  const switcher = () => within(document.querySelector<HTMLElement>(".sb-title")!).getByRole("button", { name: /^Profile:/ });
   const open = async () => {
     fireEvent.click(switcher());
     return within(await screen.findByRole("menu", { name: "Profiles" }));
@@ -93,7 +100,7 @@ describe("the profile switcher", () => {
     const button = switcher();
     expect(button).toHaveAccessibleName("Profile: Work");
     expect(button).toHaveTextContent("Work");
-    expect(container.querySelector<HTMLElement>(".sb-header .sb-profile-mark")!.style.color).toBe("rgb(255, 0, 0)");
+    expect(container.querySelector<HTMLElement>(".sb-title .sb-profile-mark")!.style.color).toBe("rgb(255, 0, 0)");
   });
 
   it("lists every profile, checks the one on screen, and says what waits in the others", async () => {
@@ -151,25 +158,40 @@ describe("the profile switcher", () => {
 
 });
 
-describe("the lens", () => {
-  it("reads Spaces until Recent is picked, and remembers the pick", async () => {
+describe("the list's head", () => {
+  const head = () => document.querySelector<HTMLElement>(".sb-lens")!;
+  const switcher = () => within(head()).getByRole("button", { name: "Activity" });
+
+  it("reads Spaces with a quiet switch to the activity, which a click turns on and the setting keeps", async () => {
+    // The owner, 10-04: the Spaces/Recent tabs go; a caption says Spaces, and an activity button at
+    // the far right shows the activity — exactly what Recent showed. THE MUTANTS: a switch that does
+    // not say it is on, or a choice that is not remembered.
     const { api, store, container } = await mount({
       sessions: [session("se1", "s1", { title: "Fix the login form", updatedAt: Date.now() })],
       items: { s1: [item("i-se1", "s1", { kind: "session", refId: "se1", title: "Fix the login form" })] },
     });
-    const lens = within(screen.getByRole("group", { name: "List" }));
-    expect(lens.getByRole("radio", { name: "Spaces" })).toBeChecked();
-    fireEvent.click(lens.getByRole("radio", { name: "Recent" }));
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(head()).toHaveTextContent("Spaces");
+    expect(switcher()).toHaveAttribute("aria-pressed", "false");
+    expect(switcher()).toHaveAttribute("title", "Show activity");
+    fireEvent.click(switcher());
     await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
     expect(api.calls).toContain("setSetting:ui.sidebarLens=recent");
     await waitFor(() => expect(container.querySelector(".sb-recent")).toHaveTextContent("Fix the login form"));
     expect(container.querySelector(".sb-sections")).toBeNull();
+    expect(head()).toHaveTextContent("Activity");
+    expect(switcher()).toHaveAttribute("aria-pressed", "true");
+    expect(switcher()).toHaveAttribute("title", "Show spaces");
+    fireEvent.click(switcher());
+    await waitFor(() => expect(store.getState().sidebarLens).toBe("spaces"));
+    expect(container.querySelector(".sb-sections")).not.toBeNull();
     expect(store.getState().sheet).toBeNull(); // a lens, not a sheet over the work
   });
 
-  it("comes back on the lens it was left on", async () => {
+  it("comes back on the reading it was left on", async () => {
     const { store } = await mount({ settings: { "ui.sidebarLens": "recent" } });
     await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
-    expect(within(screen.getByRole("group", { name: "List" })).getByRole("radio", { name: "Recent" })).toBeChecked();
+    expect(head()).toHaveTextContent("Activity");
+    expect(switcher()).toHaveAttribute("aria-pressed", "true");
   });
 });

@@ -4,9 +4,13 @@ import { PAGE_REF_IDS, type Item } from "@realm/contracts";
  * Pages, not objects: the sidebar's destination pages plus a space's own Overview. Their `refId` is
  * a well-known sentinel rather than a row (PAGE_REF_IDS), so there is nothing behind the item to
  * lose — deleting one and re-opening it from the sidebar produces the identical page.
+ *
+ * A session's Agents tab is one too, though its `refId` is the session's: it is a VIEW of that
+ * session's sub-agents with nothing of its own under it, and the session's bar makes it again,
+ * identical, the next time it is asked for.
  */
 export const PAGE_KINDS: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
-  ...(Object.keys(PAGE_REF_IDS) as Item["kind"][]), "space-page",
+  ...(Object.keys(PAGE_REF_IDS) as Item["kind"][]), "space-page", "agents",
 ]);
 
 /**

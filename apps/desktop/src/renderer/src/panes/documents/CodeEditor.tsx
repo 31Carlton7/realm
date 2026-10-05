@@ -29,7 +29,7 @@ import { forgetScroll, useScrollMemory } from "../scroll-memory";
  * tab that inserts a character instead of a level — which is why editing two wrong characters in a
  * source file meant leaving Realm for a real editor and coming back.
  */
-export function CodeEditor({ path, text, onChange, onSave, revealLine = null, onRevealed, scrollKey = null, blinkCaret = true }: {
+export function CodeEditor({ path, text, onChange, onSave, reveal = null, scrollKey = null, blinkCaret = true }: {
   /** The document's path. Decides the grammar, and names the editor for a screen reader. */
   path: string;
   text: string;
@@ -37,12 +37,10 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, on
   /** ⌘S. Optional: the pane autosaves anyway, and this only makes "save now" explicit. The binding
    *  is claimed either way, so the key never reaches the browser's own save. */
   onSave?: () => void;
-  /** 1-based line to put the cursor on when the file opens — what a `project.grep` row means by
-   *  "this match". Null for an ordinary open, which resumes wherever the reader left off. */
-  revealLine?: number | null;
-  /** Called once the editor has landed on `revealLine`, so whoever asked for it can spend the request
-   *  — a request left standing would land again on every remount of this file. */
-  onRevealed?: () => void;
+  /** A 1-based line to put the cursor on — what a `project.grep` row or a `file.ts:42` link means by
+   *  "this line". Null for an ordinary open, which resumes wherever the reader left off. An object so
+   *  that each ask is its own: the same line asked for twice is two trips to it, after a scroll away. */
+  reveal?: { line: number } | null;
   /** Where the reader was in this file, across the unmount a space switch causes (scroll-memory.ts). */
   scrollKey?: string | null;
   /** Whether the caret pulses. CodeMirror draws its own, so unlike the prompter's it can be told. */
@@ -59,12 +57,13 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, on
   const caret = useRef(new Compartment());
   /** The handlers, read through a ref so a new `onChange` identity never rebuilds the editor —
    *  rebuilding would throw away the undo history and the cursor on every keystroke. */
-  const handlers = useRef({ onChange, onSave, onRevealed });
-  handlers.current = { onChange, onSave, onRevealed };
+  const handlers = useRef({ onChange, onSave });
+  handlers.current = { onChange, onSave };
   /** The line asked for as the view is BUILT: a remembered scroll position must not be restored over
-   *  it, so it is forgotten before the scroller is attached. */
-  const revealAtBuild = useRef(revealLine);
-  revealAtBuild.current = revealLine;
+   *  it — the restore keeps re-applying itself while the content settles — so the mark is forgotten
+   *  before the scroller is attached. */
+  const revealAtBuild = useRef(reveal);
+  revealAtBuild.current = reveal;
   /** The last document this editor produced, to recognise its own value arriving back as a prop. */
   const lastEmitted = useRef<string | null>(null);
   /** What the pane currently holds. Read when a view is BUILT — which is usually mount, but is also
@@ -187,10 +186,10 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, on
   // ---- land on the line a search sent us to --------------------------------------------------------
   useEffect(() => {
     const v = view.current;
-    if (!v || revealLine === null) return;
+    if (!v || reveal === null) return;
     // Clamped rather than ignored when out of range: the file may have been edited between the search
     // and the open, and the top of the right file beats an error about the wrong line.
-    const line = v.state.doc.line(Math.min(Math.max(1, revealLine), v.state.doc.lines));
+    const line = v.state.doc.line(Math.min(Math.max(1, reveal.line), v.state.doc.lines));
     v.dispatch({
       selection: { anchor: line.from },
       // `center`, not `nearest`: a match scrolled to the last visible row is a match with no context
@@ -198,8 +197,7 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, on
       effects: EditorView.scrollIntoView(line.from, { y: "center" }),
     });
     v.focus();
-    handlers.current.onRevealed?.();
-  }, [revealLine, path]);
+  }, [reveal, path]);
 
   // ---- disk moved under us ------------------------------------------------------------------------
   useEffect(() => {

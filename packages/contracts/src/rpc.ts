@@ -21,7 +21,7 @@ import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
-import { DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
+import { DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
@@ -37,6 +37,7 @@ import { FailoverPolicySchema } from "./failover";
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
+import { TerminalProgramSchema } from "./terminal-programs";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -337,7 +338,7 @@ export const AgentProbeRowSchema = z.object({
   version: z.string().nullable(),
   loggedIn: z.boolean().nullable(),
   reason: z.string().nullable(),
-  models: z.array(z.object({ id: z.string(), label: z.string() })).nullable().optional(),
+  models: z.array(z.object({ id: z.string(), label: z.string(), fastMode: z.boolean().optional(), isDefault: z.boolean().optional() })).nullable().optional(),
 });
 
 /**
@@ -382,6 +383,10 @@ export const Methods = {
 
   "spaces.list":   { params: z.object({}), result: z.array(SpaceSchema) },
   "spaces.create": { params: z.object({ profileId: IdSchema, name: z.string().min(1), icon: z.string().default("folder"), color: HexColorSchema.optional() }), result: SpaceSchema },
+  /** The folder `spaces.create` would make for this name under this profile, right now — its slug,
+   *  and the `-2` it takes when the first choice is already on disk. Read-only: the New space sheet
+   *  asks it as the name is typed, to say where a space without a folder of its own will work. */
+  "spaces.folderFor": { params: z.object({ profileId: IdSchema, name: z.string().min(1) }), result: z.object({ path: z.string() }) },
   "spaces.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: HexColorSchema.optional(), profileId: IdSchema.optional(), sortOrder: z.number().int().optional(), activeItemId: IdSchema.nullable().optional() }), result: SpaceSchema },
   "spaces.reorder": { params: z.object({ ids: z.array(IdSchema) }), result: z.object({ ok: z.literal(true) }) },
   "spaces.setLayout": { params: z.object({ id: IdSchema, layout: LayoutSchema }), result: SpaceSchema },
@@ -600,6 +605,11 @@ export const Methods = {
   "terminals.prefill": { params: z.object({ terminalId: IdSchema, command: z.string() }), result: z.object({ ok: z.literal(true) }) },
   "terminals.resize": { params: z.object({ terminalId: IdSchema, cols: z.number().int(), rows: z.number().int() }), result: z.object({ ok: z.literal(true) }) },
   "terminals.close":  { params: z.object({ terminalId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** What every live terminal is running, keyed by terminal id — only the ones running something
+   *  other than their shell. A client reads it once on connect and keeps it with `terminal.program`,
+   *  because a tab that is not showing still says what its terminal is running, and that tab's
+   *  terminal may have started its program before this client was listening. */
+  "terminals.programs": { params: z.object({}), result: z.record(IdSchema, TerminalProgramSchema) },
 
   /** The browser trio is row + item only (Plan 11 W1): the native `WebContentsView` lives in Electron
    *  main and is driven over IPC, never through the server. These methods carry only what must survive
@@ -922,8 +932,10 @@ export const Methods = {
    * checkout when omitted), add `path` to its tab strip as the active tab, and broadcast
    * `documents.openRequested` so a mounted pane opens the tab and the store brings the item on screen.
    * The agent-facing `docs_open` tool and the store's own "open this lecture" both come through here.
+   * `path` comes back as the tab now names it — relative to the workspace root, whatever shape the
+   * caller sent — so a caller that wants a LINE of it shown can say which tab the line belongs to.
    */
-  "documents.openPath": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional(), path: z.string() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema, environmentId: IdSchema }) },
+  "documents.openPath": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional(), path: z.string() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema, environmentId: IdSchema, path: z.string() }) },
   /** A guide's quiz history from its sidecar; empty when there is none. */
   "documents.progressRead": { params: z.object({ documentsId: IdSchema, path: z.string() }), result: GuideProgressSchema },
   /** Fold one quiz attempt into the sidecar and return the updated history. */
@@ -1446,8 +1458,9 @@ export const Methods = {
   /** Fire once, now, WITHOUT moving the schedule's own clock — see `ScheduleService.runNow`. Answers
    *  the schedule, whose `lastRunId` now names the run this created. */
   "schedules.runNow": { params: z.object({ id: IdSchema }), result: ScheduleSchema },
+  /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
-    params: z.object({ spaceId: IdSchema, states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
+    params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
     result: z.object({ runs: z.array(RunSchema), nextCursor: z.string().nullable() }),
   },
   /** One run plus its full attempt log, oldest attempt first. Null result = no such run (a run the
@@ -1536,6 +1549,17 @@ export const Methods = {
    *  with the process, so this is a read of live state, not of a table — a pane opened after a run
    *  began has no other way to learn about it, and `delegation.changed` carries it from then on. */
   "delegation.running": { params: z.object({ sessionId: IdSchema }), result: z.object({ running: z.array(DelegatedRunSchema) }) },
+  /** Every session this one delegated to — its sub-agents, settled ones included, in the order they
+   *  were started. A read of tables, not of the engine: it answers for runs the registry has already
+   *  let go, and after a relaunch. */
+  "delegation.children": { params: z.object({ sessionId: IdSchema }), result: z.object({ children: z.array(DelegatedChildSchema) }) },
+  /** What the Agents tab's composer offers: the models a sub-agent can be put on, and what this
+   *  session itself runs — the one choice that needs no name at all. */
+  "delegation.models": { params: z.object({ sessionId: IdSchema }), result: z.object({
+    models: z.array(DelegableModelSchema), own: z.object({ kind: AgentKindSchema, label: z.string() }) }) },
+  /** The session's Agents tab, as an item of its space: the one it has, or a new one. Its `refId` is
+   *  the session's id — the tab is a view of that session and of nothing else. */
+  "delegation.tab": { params: z.object({ sessionId: IdSchema }), result: z.object({ itemId: IdSchema }) },
   /** `force` skips the server's TTL cache — what the install card's "Check again" and its window-focus
    *  refresh send, because a cached "not installed" is exactly what the user just fixed. */
   /**
@@ -1889,6 +1913,10 @@ export const Events = {
    *  pty is (re)spawned, which is exactly when a seq stops meaning anything. */
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string(), runId: z.string(), seq: z.number().int() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
+  /** The terminal's foreground program changed: an agent or a tool started, or the shell came back
+   *  (null). Whole state, like every broadcast but `terminal.data` — a client that missed one reads
+   *  `terminals.programs` and is current again. */
+  "terminal.program": z.object({ terminalId: IdSchema, program: TerminalProgramSchema.nullable() }),
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
   "session.event":    StoredSessionEventSchema.extend({ ephemeral: z.boolean() }),
   "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),

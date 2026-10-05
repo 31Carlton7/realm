@@ -793,6 +793,18 @@ describe("General → Updates row (Plan 15 W1)", () => {
     await waitFor(() => expect(api.calls).toContain("installUpdate"));
   });
 
+  it("an update whose download did not finish offers that download again, and the row follows its progress", async () => {
+    const { api } = await openApp({ updateStatus: { version: "1.0.0", state: { kind: "available", version: "1.1.0" } } });
+    expect(await screen.findByText("v1.1.0 is available. Its download did not finish.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Download v1.1.0" }));
+    await waitFor(() => expect(api.calls).toContain("downloadUpdate"));
+    expect(await screen.findByText("Downloading v1.1.0…")).toBeInTheDocument();
+    // Main's push, not a poll: the figure arrives while the page sits open.
+    act(() => api.emitUpdateStatus({ version: "1.0.0", state: { kind: "downloading", version: "1.1.0", percent: 61.7 } }));
+    expect(await screen.findByText("Downloading v1.1.0… 62%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check for updates" })).toBeDisabled();
+  });
+
   it("a failed check reports the error and leaves the button usable for a retry", async () => {
     await openApp({ updateStatus: { version: "1.0.0", state: { kind: "error", message: "ENOTFOUND github.com" } } });
     expect(await screen.findByText("Update check failed: ENOTFOUND github.com")).toBeInTheDocument();
@@ -1349,6 +1361,19 @@ describe("terminal scrollback", () => {
     fireEvent.change(sel, { target: { value: "bar" } });
     await waitFor(() => expect(store.getState().terminalCursorStyle).toBe("bar"));
     expect(api.calls).toContain("setSetting:terminals.cursorStyle=bar");
+  });
+
+  it("offers Realm's terminal colours or the shell's, Realm's until you choose", async () => {
+    /* THE mutant: read the stored value as anything but the two words, or default it to the shell's —
+       a terminal that has never been told then wears xterm's palette, whose blue and bright black are
+       under AA on Realm's ground. */
+    const { store, api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "General" }));
+    const group = screen.getByRole("group", { name: "Terminal colours" });
+    expect(within(group).getByRole("radio", { name: "Realm's" })).toBeChecked();
+    fireEvent.click(within(group).getByRole("radio", { name: "My shell's" }));
+    await waitFor(() => expect(store.getState().terminalColors).toBe("shell"));
+    expect(api.calls).toContain("setSetting:terminals.colors=shell");
   });
 
   it("gives the code editor's caret its own switch, and says why the prompter's is not in it", async () => {

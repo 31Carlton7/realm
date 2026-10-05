@@ -1,4 +1,4 @@
-import { TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, newId } from "@realm/contracts";
+import { TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, newId, type TerminalProgram } from "@realm/contracts";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import type { Db } from "../db/database";
@@ -15,6 +15,7 @@ import { portEnv } from "../workspace/ports";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
 import { TerminalManager } from "./manager";
+import { ForegroundWatcher, readForegroundArgv } from "./foreground";
 
 /**
  * Owns the terminal trio: DB row + sidebar item + pty. Nothing else should
@@ -41,6 +42,8 @@ export class TerminalService {
    *  arrived while the socket was down. The setting gates only whether it reaches disk. */
   private readonly scrollback = new Scrollback();
   private flushTimer: ReturnType<typeof setInterval> | null = null;
+  /** What each terminal is running — the program its tab names (foreground.ts). */
+  private readonly foreground: ForegroundWatcher;
   private closed = false;
   constructor(private d: {
     db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore; terminals: TerminalsStore;
@@ -53,6 +56,7 @@ export class TerminalService {
   }) {
     this.manager = new TerminalManager({
       onData: (terminalId, data) => {
+        this.foreground.poke(terminalId);
         const at = this.scrollback.append(terminalId, data);
         // A chunk with no ring is a chunk from a pty this service did not start — impossible through
         // `open`/`restoreAll`, which both call `newRun` first, and not worth inventing a seq for.
@@ -60,6 +64,7 @@ export class TerminalService {
       },
       onExit: (terminalId, exitCode) => {
         this.scrollback.endRun(terminalId);
+        this.foreground.forget(terminalId);
         if (this.closed) return; // shutting down: DB may already be closed
         // Row goes; item stays so the UI can show the pane as exited until the user removes it.
         // The row going takes its scrollback with it, by the cascade — which is why a shell that
@@ -71,6 +76,14 @@ export class TerminalService {
       },
     });
     const every = d.setInterval ?? ((fn, ms) => setInterval(fn, ms));
+    this.foreground = new ForegroundWatcher({
+      source: {
+        name: (id) => this.manager.foregroundName(id),
+        argv: (id) => { const tty = this.manager.ttyName(id); return tty ? readForegroundArgv(tty) : Promise.resolve(null); },
+      },
+      onChange: (terminalId, program) => { if (!this.closed) d.rpc.broadcast("terminal.program", { terminalId, program }); },
+      setInterval: every,
+    });
     this.flushTimer = every(() => this.flushHistory(), HISTORY_FLUSH_MS);
     // Node keeps the process alive for a pending interval; this one must not be the reason a daemon
     // with nothing to do refuses to exit.
@@ -116,6 +129,9 @@ export class TerminalService {
   }
 
   has(terminalId: string): boolean { return this.manager.has(terminalId); }
+
+  /** What every live terminal is running, for a client that has just connected. */
+  programs(): Record<string, TerminalProgram> { return this.foreground.programs(); }
 
   /**
    * What this terminal is SHOWING — its bytes run through a terminal emulator — rather than the
@@ -178,6 +194,7 @@ export class TerminalService {
         // appended to no ring is a chunk that never happened.
         this.scrollback.newRun(row.id, newId(), { cols, rows }, kept ? { data: kept.data, cols: kept.cols, rows: kept.rows } : null);
         this.manager.create({ id: row.id, cwd: row.cwd, shell: row.shell, cols, rows, env: this.envFor(row.spaceId, row.cwd), wrap: this.wrapFor(row.spaceId) });
+        this.foreground.watch(row.id);
         restored.push(row.id);
       } catch (e) {
         console.error(`[terminals] not restoring ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
@@ -214,10 +231,12 @@ export class TerminalService {
       // Before `create`, for `restoreAll`'s reason: the shell can print before the call returns.
       this.scrollback.newRun(terminalId, newId(), { cols: p.cols, rows: p.rows }, null);
       this.manager.create({ id: terminalId, cwd, cols: p.cols, rows: p.rows, shell, env: this.envFor(p.spaceId, cwd), wrap: this.wrapFor(p.spaceId) });
+      this.foreground.watch(terminalId);
       this.d.db.exec("COMMIT");
     } catch (e) {
       this.d.db.exec("ROLLBACK");
       this.scrollback.forget(terminalId);
+      this.foreground.forget(terminalId);
       if (this.manager.has(terminalId)) { try { this.manager.close(terminalId); } catch { /* best effort */ } }
       throw e;
     }
@@ -241,6 +260,7 @@ export class TerminalService {
     if (!row && !item && !alive) throw new NotFoundError("terminal", terminalId);
     if (alive) this.manager.close(terminalId);
     this.scrollback.forget(terminalId);
+    this.foreground.forget(terminalId);
     // The cascade takes the history row with the terminals row; this is for the case where the row
     // was already gone (pty exit) and the scrollback outlived it in memory.
     this.d.history?.delete(terminalId);
@@ -276,6 +296,7 @@ export class TerminalService {
     this.flushHistory();
     this.closed = true;
     if (this.flushTimer) { clearInterval(this.flushTimer); this.flushTimer = null; }
+    this.foreground.stop();
     this.manager.closeAll();
   }
 }

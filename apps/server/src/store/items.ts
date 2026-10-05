@@ -38,8 +38,15 @@ export class ItemsStore {
   listIncludingHidden(spaceId: string): Item[] {
     return (this.db.prepare(`${ITEMS} WHERE items.space_id = ? ORDER BY items.pinned DESC, items.sort_order, items.created_at`).all(spaceId) as Row[]).map(toItem);
   }
+  /** The item FOR an object. A session's Agents tab shares its session's id as its `refId` and is
+   *  skipped, so a session id keeps exactly one answer here — the session's own item, which renaming,
+   *  moving and deleting the session all go through. The tab is `findTab`'s. */
   findByRefId(refId: string): Item | null {
-    const r = this.db.prepare(`${ITEMS} WHERE items.ref_id = ?`).get(refId) as Row | undefined; return r ? toItem(r) : null;
+    const r = this.db.prepare(`${ITEMS} WHERE items.ref_id = ? AND items.kind != 'agents'`).get(refId) as Row | undefined; return r ? toItem(r) : null;
+  }
+  /** A session's Agents tab, if it has one. */
+  findTab(sessionId: string): Item | null {
+    const r = this.db.prepare(`${ITEMS} WHERE items.kind = 'agents' AND items.ref_id = ?`).get(sessionId) as Row | undefined; return r ? toItem(r) : null;
   }
   get(id: string): Item | null {
     const r = this.db.prepare(`${ITEMS} WHERE items.id = ?`).get(id) as Row | undefined; return r ? toItem(r) : null;

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { ModelPicker } from "./ModelPicker";
-import { modelRows } from "./model-rows";
+import { modelRows } from "./model-catalog";
 
 afterEach(cleanup);
 

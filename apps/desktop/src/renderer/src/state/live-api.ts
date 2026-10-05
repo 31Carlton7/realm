@@ -28,6 +28,7 @@ export const liveApi = (): Api => ({
   listEnvironments: (spaceId) => rpc().call("environments.list", { spaceId }),
   createWorktree: (spaceId, title) => rpc().call("environments.createWorktree", { spaceId, title }),
   createSpace: (input) => rpc().call("spaces.create", input),
+  spaceFolderFor: async (profileId, name) => (await rpc().call("spaces.folderFor", { profileId, name })).path,
   updateSpace: (input) => rpc().call("spaces.update", input),
   reorderSpaces: async (ids) => { await rpc().call("spaces.reorder", { ids }); },
   deleteSpace: async (id) => { await rpc().call("spaces.delete", { id }); },
@@ -203,7 +204,9 @@ export const liveApi = (): Api => ({
   computerAccessOpenSettings: (id) => window.realm.computerAccess.openSettings(id),
   updateStatus: () => window.realm.updates.status(),
   checkUpdates: () => window.realm.updates.check(),
+  downloadUpdate: () => window.realm.updates.download(),
   installUpdate: () => window.realm.updates.install(),
+  onUpdateStatus: (cb) => window.realm.updates.onChanged(cb),
   showDesktopNotification: (input) => window.realm.notify.show(input),
   // cuelume builds nothing until the first `play`, so importing it costs no AudioContext. It then
   // refuses to sound until the document has had a user gesture, checking
@@ -256,6 +259,7 @@ export const liveApi = (): Api => ({
   updateSchedule: (input) => rpc().call("schedules.update", input),
   deleteSchedule: (id) => rpc().call("schedules.delete", { id }),
   runScheduleNow: (id) => rpc().call("schedules.runNow", { id }),
+  listScheduleRuns: (spaceId, scheduleId, cursor, limit) => rpc().call("runs.list", { spaceId, scheduleId, cursor, limit }),
   listRuns: (spaceId, states, cursor = null, limit) => rpc().call("runs.list", { spaceId, ...(states ? { states } : {}), cursor, ...(limit !== undefined ? { limit } : {}) }),
   createRun: ({ spaceId, goal, title }) => rpc().call("runs.create", { spaceId, goal, ...(title ? { title } : {}) }),
   getRun: (id) => rpc().call("runs.get", { id }),
@@ -269,4 +273,7 @@ export const liveApi = (): Api => ({
   getReview: (environmentId) => rpc().call("review.get", { environmentId }),
   dismissReview: async (environmentId) => { await rpc().call("review.dismiss", { environmentId }); },
   listDelegatedRuns: async (sessionId) => (await rpc().call("delegation.running", { sessionId })).running,
+  listDelegatedChildren: async (sessionId) => (await rpc().call("delegation.children", { sessionId })).children,
+  delegableModels: (sessionId) => rpc().call("delegation.models", { sessionId }),
+  agentsTab: (sessionId) => rpc().call("delegation.tab", { sessionId }),
 });

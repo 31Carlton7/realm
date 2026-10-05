@@ -28,13 +28,13 @@ describe("a file opened from the transcript", () => {
     expect(allItems(layout)).toContain("i-a");
     expect(findSidePane(layout, "i-a")).toMatchObject({ itemId: docs, tabs: [docs] });
     // …and the line rides along, for the editor to land on when it opens.
-    expect(store.getState().documentReveal).toMatchObject({ path: "/tmp/web/lib/orgs.ts", line: 83 });
+    expect(store.getState().documentsAsk).toMatchObject({ documentsId: expect.any(String), path: "/tmp/web/lib/orgs.ts", line: 83 });
   });
 
   it("asked for with no session to sit beside, takes the focused pane as it always has", async () => {
     const { store } = await reading();
     await store.getState().openDocumentPath("/tmp/notes.md", null, "s1");
     expect(allItems(store.getState().layout!)).not.toContain("i-a");
-    expect(store.getState().documentReveal).toBeNull();
+    expect(store.getState().documentsAsk).toBeNull();
   });
 });

@@ -148,7 +148,7 @@ async function main() {
       summary: document.querySelector('.onboarding-summary')?.textContent ?? null,
       focused: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName,
       swatches: document.querySelectorAll('.onboarding-space .swatch').length,
-      iconTrigger: !!document.querySelector('.onboarding-space .icon-picker-trigger'),
+      iconTrigger: !!document.querySelector('.onboarding-space .space-tile'),
     };
   })()`;
 

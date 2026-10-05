@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, hasLeafIn, patchKey, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, type DropEdge } from "./store";
-import { allItems, findLeafOfItem, firstLeaf, itemIdOfLeaf, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { createAppStore, hasLeafIn, patchKey, spaceIsPlainFolder, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, type DropEdge } from "./store";
+import { allItems, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 import { DEFAULT_GROUND_ALPHA } from "@realm/ui";
 
@@ -201,6 +201,45 @@ describe("app store", () => {
     await store.getState().deleteSpace(store.getState().activeSpaceId!);
     expect(store.getState().activeSpaceId).toBe("s2");
     expect(store.getState().spaces.map((s) => s.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("createSpace lands IN the new space, on a new session holding the keyboard — never on its Overview", async () => {
+    /* Someone who just named a space came to work in it. THE mutant is the old landing: `selectSpace`,
+       which opens an empty space's Overview (its General settings) over the panes and starts nothing. */
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().createSpace({ name: "New", icon: "rocket", profileId: "p1", color: "#ff6b8b" });
+    const s = store.getState();
+    const made = s.spaces.find((x) => x.name === "New")!;
+    expect(made).toMatchObject({ icon: "rocket", color: "#ff6b8b" });
+    const started = Object.values(s.sessions).filter((x) => x.spaceId === made.id);
+    expect(started).toHaveLength(1);
+    expect(s.pageOverlay).toBeNull();
+    const focused = s.items.find((i) => i.id === itemIdOfLeaf(s.layout!, s.focusedLeafId!));
+    expect(focused).toMatchObject({ kind: "session", refId: started[0]!.id, spaceId: made.id });
+    expect(s.activeSpaceId).toBe(made.id);
+    // The keyboard goes with it, the way an open from a list hands it over (SessionPane takes it).
+    expect(s.keyboardFor?.sessionId).toBe(started[0]!.id);
+    // On the agent last used — the one a new session gets anywhere else.
+    expect(api.calls).toContain("createSession:claude");
+  });
+
+  it("createSpace's folder is the space's first project and where its session works; its memory is written before the session exists", async () => {
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().createSpace({ name: "Versed 2", icon: "folder", profileId: "p1", folder: "/Users/me/code/versed", memory: "Use pnpm." });
+    const made = store.getState().spaces.find((x) => x.name === "Versed 2")!;
+    const project = api.data.projects[made.id]?.[0];
+    expect(project).toMatchObject({ name: "versed", rootPath: "/Users/me/code/versed" });
+    const started = Object.values(store.getState().sessions).find((x) => x.spaceId === made.id)!;
+    expect(started.projectId).toBe(project!.id);
+    // Before, so the session's first turn reads it: memory is injected when an agent starts.
+    const order = api.calls.filter((c) => c.startsWith("setMemory:") || c.startsWith("createSession:"));
+    expect(order).toEqual([`setMemory:${made.id}:${"Use pnpm.".length}`, "createSession:claude"]);
+  });
+
+  it("createSpace writes no memory document when none was given, or only whitespace", async () => {
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().createSpace({ name: "Plain", icon: "folder", profileId: "p1", memory: "  \n" });
+    expect(api.calls.some((c) => c.startsWith("setMemory:"))).toBe(false);
   });
 
   /* The regression: only the DIALOG path compressed, so a photo DROPPED on the picker went to the
@@ -1098,16 +1137,27 @@ describe("app store", () => {
     });
   });
 
-  it("run() surfaces action errors and clearError resets", async () => {
+  it("run() surfaces an action's failure as an error toast, and dismissing it takes it down", async () => {
     const store = createAppStore(api);
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     store.getState().run(async () => { throw new Error("boom"); });
     await tick();
-    expect(store.getState().error).toBe("boom");
+    const [toast] = store.getState().toasts;
+    expect(toast).toMatchObject({ tone: "error", text: "boom" });
     expect(spy).toHaveBeenCalled();
-    store.getState().clearError();
-    expect(store.getState().error).toBeNull();
+    store.getState().dismissToast(toast!.id);
+    expect(store.getState().toasts).toEqual([]);
     spy.mockRestore();
+  });
+
+  it("a toast's id is the handle a caller takes its own down by — and only its own", async () => {
+    const store = createAppStore(api);
+    const a = store.getState().toast({ text: "Added button to Session." });
+    const b = store.getState().toast({ tone: "error", text: "boom" });
+    store.getState().dismissToast(a);
+    expect(store.getState().toasts.map((t) => t.id)).toEqual([b]);
+    store.getState().dismissToast("toast-nope");
+    expect(store.getState().toasts.map((t) => t.id)).toEqual([b]);
   });
 
   describe("sessions", () => {
@@ -1714,8 +1764,10 @@ describe("app store", () => {
       const store = createAppStore(a); await store.getState().boot();
       await store.getState().attachFromPicker("se1");
       expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/x/ok.png"]);
-      expect(store.getState().error).toContain("huge.png");
-      expect(store.getState().error).toContain("20 MB");
+      const [refusal] = store.getState().toasts;
+      expect(refusal?.tone).toBe("warning");
+      expect(refusal?.text).toContain("huge.png");
+      expect(refusal?.text).toContain("20 MB");
       // …and it never reaches the adapter, which is where it would have thrown mid-turn.
       await store.getState().sendMessage("se1", "look");
       expect(a.sent[0]!.attachments.map((x) => x.path)).toEqual(["/x/ok.png"]);
@@ -1727,7 +1779,7 @@ describe("app store", () => {
       const store = createAppStore(a); await store.getState().boot();
       await store.getState().attachFromPicker("se1");
       expect(store.getState().pendingAttachments.se1).toHaveLength(1);
-      expect(store.getState().error).toBeNull();
+      expect(store.getState().toasts).toEqual([]);
     });
 
     it("the same file attached twice is one attachment", async () => {
@@ -1969,6 +2021,23 @@ describe("app store", () => {
       expect(store.getState().sheet).toBeNull();
       expect(store.getState().layout).toBe(original);
       expect(store.getState().sheetSnap).toBeNull();
+    });
+
+    it("MUTANT: Create closes the New space sheet BEFORE it lands, so the new session is laid into the restored layout, not wiped by it", async () => {
+      /* The sheet now stays up while Create runs. Closing it is what puts the snapped layout back, so
+         closed AFTER the landing it would lay the pre-sheet arrangement over the session just opened.
+         THE mutant moves the close after the landing. */
+      const store = await seed();
+      store.getState().openSheet({ kind: "new-space" });
+      await store.getState().createSpace({ name: "Beside the web", icon: "folder", profileId: "p1" });
+      const s = store.getState();
+      expect(s.sheet).toBeNull();
+      expect(s.sheetSnap).toBeNull();
+      const made = s.spaces.find((x) => x.name === "Beside the web")!;
+      const session = Object.values(s.sessions).find((x) => x.spaceId === made.id)!;
+      expect(s.items.find((i) => i.id === itemIdOfLeaf(s.layout!, s.focusedLeafId!))?.refId).toBe(session.id);
+      // The user's own arrangement, unsnapped, with the session in it.
+      expect((s.layout as Extract<Layout, { type: "split" }>).sizes).toEqual([80, 20]);
     });
 
     it("items deleted while the sheet was open are pruned from the restored layout", async () => {
@@ -2406,15 +2475,40 @@ describe("diff panes", () => {
     expect(store.getState().items.filter((i) => i.kind === "diff").map((i) => i.id)).toEqual([itemId]);
   });
 
-  it("splits beside the focused pane instead of evicting it — the session must stay reachable", async () => {
+  it("opens as a tab of the focused pane's side pane — the pane keeps what it shows, and no column of its own", async () => {
     const a = withEnv();
     const store = createAppStore(a);
     await store.getState().boot();
-    await store.getState().openItem("i1"); // session occupies the only leaf, focused
+    await store.getState().openItem("i1"); // the terminal occupies the only leaf, focused
     await store.getState().openDiff("env1");
-    const open = allItems(store.getState().layout!);
-    expect(open).toContain("i1"); // the session was NOT evicted — there must be a way back
-    expect(open).toContain(store.getState().items.find((i) => i.kind === "diff")!.id);
+    const diff = store.getState().items.find((i) => i.kind === "diff")!.id;
+    // THE MUTANTS: the old split beside it, or an open in its place that evicts what was there.
+    expect(findSidePane(store.getState().layout!, "i1")?.tabs).toEqual([diff]);
+    expect(primaryLeaves(store.getState().layout!).map((l) => l.itemId)).toEqual(["i1"]);
+    expect(store.getState().focusedLeafId).toBe(findLeafOfItem(store.getState().layout!, diff)!.id);
+  });
+
+  it("joins the side pane of the session working in that checkout — beside its browser, not a third column", async () => {
+    // The owner's report (10-04): Changes opened as its own column beside a session and its browser.
+    const a = fakeApi({
+      environments: { s1: [env] },
+      diffs: { "/tmp/wt": { root: "/tmp/wt", branch: "realm/x", files: [], totalFiles: 0, truncated: false } },
+      sessions: [session("se1", "s1", { environmentId: "env1" })],
+      items: { s1: [item("i-se1", "s1", { kind: "session", refId: "se1", title: "Lead" }), item("i-br", "s1", { kind: "browser", refId: "br", title: "Browser" })] },
+    });
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openItem("i-se1");
+    await store.getState().openInSidePane("se1", "i-br");
+    store.getState().focusLeaf(findLeafOfItem(store.getState().layout!, "i-br")!.id);
+    await store.getState().openDiff("env1");
+    const diff = store.getState().items.find((i) => i.kind === "diff")!.id;
+    expect(findSidePane(store.getState().layout!, "i-se1")?.tabs).toEqual(["i-br", diff]);
+    expect(primaryLeaves(store.getState().layout!)).toHaveLength(1);
+    // A second open goes to that tab rather than making another.
+    await store.getState().openItem("i-br");
+    await store.getState().openDiff("env1");
+    expect(findSidePane(store.getState().layout!, "i-se1")).toMatchObject({ itemId: diff, tabs: ["i-br", diff] });
   });
 
   it("refreshes gitInfo alongside the diff, so the prompter's chips cannot disagree with the pane", async () => {
@@ -2759,6 +2853,8 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
     items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
     sessions: [session("se1", "s1", { environmentId: "envA", cwd: "/tmp/envA" })],
     environments: { s1: [env("envA", "s1", { kind: "primary" }), env("envB", "s1")] },
+    // The primary is a repository: worktrees branch from it.
+    gitInfo: { "/tmp/envA": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } },
   });
 
   it("setSessionEnvironment sends EXACTLY the picked id and renders the server's answer (cwd follows)", async () => {
@@ -2796,6 +2892,39 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
     const a = seed(); const store = createAppStore(a); await store.getState().boot();
     await store.getState().moveSessionToNewWorktree("se1");
     expect(a.data.environments.s1!.at(-1)!.branch).toBe("realm/session");
+  });
+
+  /* A space made from nothing is a plain folder (`~/Realm/<profile>/<space>`), and a plain folder has
+     no worktrees. THE mutant for both: drop the check, and the server's refusal — "…is not a git
+     repository, so it has no worktrees" — is what such a space shows the moment anyone asks. */
+  it("in a plain folder there is no worktree to move into: the session stays where it is, and nothing is raised", async () => {
+    const a = seed(); a.data.gitInfo = {};
+    const store = createAppStore(a); await store.getState().boot();
+    await store.getState().moveSessionToNewWorktree("se1");
+    expect(a.calls.filter((c) => c.startsWith("createWorktree:"))).toEqual([]);
+    expect(store.getState().sessions.se1?.environmentId).toBe("envA");
+    expect(store.getState().toasts).toEqual([]);
+    // …and the answer is kept where the prompter reads it, so it stops offering one.
+    expect(spaceIsPlainFolder(store.getState(), "s1")).toBe(true);
+  });
+
+  it("'New session in a worktree' in a plain folder opens the session in the folder, and says nothing", async () => {
+    const a = seed(); a.data.gitInfo = {};
+    const store = createAppStore(a); await store.getState().boot();
+    await store.getState().newSessionInWorktree(null, "s1");
+    expect(a.calls.filter((c) => c.startsWith("createWorktree:"))).toEqual([]);
+    expect(a.calls.filter((c) => c.startsWith("createSession:"))).toHaveLength(1);
+    expect(store.getState().toasts).toEqual([]);
+  });
+
+  it("a folder nobody has asked git about is not called plain — only an answer is", async () => {
+    const a = seed(); const store = createAppStore(a); await store.getState().boot();
+    expect(spaceIsPlainFolder(store.getState(), "s1")).toBe(false);
+    await store.getState().refreshGitInfo("/tmp/envA");
+    expect(spaceIsPlainFolder(store.getState(), "s1")).toBe(false); // a repository
+    a.data.gitInfo = {};
+    await store.getState().refreshGitInfo("/tmp/envA");
+    expect(spaceIsPlainFolder(store.getState(), "s1")).toBe(true);
   });
 
   it("moveSessionToSpace re-homes the session and its item, and leaves it on screen", async () => {
@@ -3089,7 +3218,7 @@ describe("attachPicked — a file main already wrote (Plan 26 W7b)", () => {
     await store.getState().boot();
     store.getState().attachPicked("se1", [shot("/tmp/huge.png", 21 * 1024 * 1024)]);
     expect(store.getState().pendingAttachments.se1).toEqual([]);
-    expect(store.getState().error).toContain("huge.png");
+    expect(store.getState().toasts.at(-1)?.text).toContain("huge.png");
   });
 });
 

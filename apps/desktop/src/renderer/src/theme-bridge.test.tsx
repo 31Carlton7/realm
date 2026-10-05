@@ -34,9 +34,9 @@ async function bridge(themePref: "light" | "dark" | "system") {
 it("re-colours the terminals already open when the face changes", async () => {
   const term = openTerminal();
   const store = await bridge("dark");
-  expect(term.options!.theme!.background).toBe("#00000000");
+  expect(term.options!.theme!.background).toBe("#1c1d1f00");
   act(() => store.setState({ themePref: "light" }));
-  expect(term.options!.theme!.background).toBe("#ffffff00");
+  expect(term.options!.theme!.background).toBe("#f9fafb00");
   expect(term.options!.minimumContrastRatio).toBe(4.5);
 });
 
@@ -46,7 +46,7 @@ it("follows the Mac's own switch under System, where the preference never change
   vi.stubGlobal("matchMedia", () => query);
   const term = openTerminal();
   await bridge("system");
-  expect(term.options!.theme!.background).toBe("#00000000");
+  expect(term.options!.theme!.background).toBe("#1c1d1f00");
   act(() => { query.matches = false; flip(); });
-  expect(term.options!.theme!.background).toBe("#ffffff00");
+  expect(term.options!.theme!.background).toBe("#f9fafb00");
 });

@@ -1,9 +1,31 @@
 import type { Skill } from "@realm/contracts";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { RefObject } from "react";
+import { useDissolve } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
+
+/**
+ * The scroller inside a typed-into popover (this one and the `/` list), and what it owes the keyboard.
+ *
+ * The popover's box is the SURFACE — its fill, its corner, its shadow — and a mask on it would fade
+ * the surface out along with the rows. So the rows scroll in a plain box inside it, and that box is
+ * what dissolves. The highlight is moved by the textarea's arrows, so it is brought into view here,
+ * clear of the band; a change the pointer made is left where it is, or hovering a row in the band
+ * would scroll the list out from under the pointer.
+ */
+export function usePickerScroller(active: number) {
+  const list = useRef<HTMLDivElement>(null);
+  const hovered = useRef<number | null>(null);
+  useAutoHideScrollbar(list);
+  useDissolve(list);
+  useEffect(() => {
+    if (active === hovered.current) return;
+    list.current?.querySelector<HTMLElement>("[data-active]")?.scrollIntoView?.({ block: "nearest" });
+  }, [active]);
+  return { list, hovered };
+}
 
 /** The characters a skill id may contain — must agree with contracts/mentions.ts, or the popover
  *  would offer a completion the send-time scan then refuses to recognise. */
@@ -61,22 +83,25 @@ export function MentionPicker({ skills, activeIndex, anchorRef, onPick, onHover,
   // No exit, because this one is driven by typing: it opens and closes between keystrokes, and a
   // ghost of it trailing the caret while the sentence carries on is noise rather than motion.
   const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
-  useAutoHideScrollbar(ref);
   const active = Math.min(activeIndex, skills.length - 1);
+  const { list, hovered } = usePickerScroller(active);
   return createPortal(
     <div ref={ref} id="mention-list" className="mention-picker" role="listbox" aria-label="Skills"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
         visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom left" }}>
-      {skills.map((s, i) => (
-        <div key={s.id} id={`mention-${s.id}`} role="option" tabIndex={-1}
-          className="mention-row" aria-selected={i === active} data-active={i === active || undefined}
-          onMouseEnter={() => onHover(i)}
-          onMouseDown={(e) => e.preventDefault() /* the textarea keeps focus; the caret must not move */}
-          onClick={() => onPick(s)}>
-          <span className="mention-row-id">@{s.id}</span>
-          <span className="mention-row-desc">{s.name !== s.id ? `${s.name} — ${s.description}` : s.description}</span>
-        </div>
-      ))}
+      {/* `presentation`, so the options stay the listbox's own children to assistive tech. */}
+      <div ref={list} className="mention-list" role="presentation">
+        {skills.map((s, i) => (
+          <div key={s.id} id={`mention-${s.id}`} role="option" tabIndex={-1}
+            className="mention-row" aria-selected={i === active} data-active={i === active || undefined}
+            onMouseEnter={() => { hovered.current = i; onHover(i); }}
+            onMouseDown={(e) => e.preventDefault() /* the textarea keeps focus; the caret must not move */}
+            onClick={() => onPick(s)}>
+            <span className="mention-row-id">@{s.id}</span>
+            <span className="mention-row-desc">{s.name !== s.id ? `${s.name} — ${s.description}` : s.description}</span>
+          </div>
+        ))}
+      </div>
     </div>,
     document.body,
   );

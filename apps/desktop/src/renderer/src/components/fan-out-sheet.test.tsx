@@ -6,7 +6,10 @@ import { fakeApi, item, space, type FakeApi } from "../state/store.test-fakes";
 
 afterEach(() => cleanup());
 
-async function open(api: FakeApi = fakeApi({ spaces: [space("s1", "p1", "Versed")] })) {
+/** What git says about the space's folder ("/tmp") when it is a repository. */
+const REPO = { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 };
+
+async function open(api: FakeApi = fakeApi({ spaces: [space("s1", "p1", "Versed")], gitInfo: { "/tmp": REPO } })) {
   api.data.items.s1 = [item("i1", "s1", { title: "One" })];
   const store = createAppStore(api); await store.getState().boot();
   render(<StoreContext.Provider value={store}><FanOutSheet /></StoreContext.Provider>);
@@ -90,6 +93,18 @@ describe("the fan-out sheet", () => {
     expect(screen.getByText(/so they cannot overwrite each other/)).toBeInTheDocument();
     fireEvent.click(sw);
     expect(screen.getByText(/will edit the same files at once/)).toBeInTheDocument();
+  });
+
+  it("a plain folder has no switch for worktrees it does not have, and says what sharing it means", async () => {
+    /* THE mutant: keep the switch, on, over a folder git has no repository in. The batch then dies on
+       its first worktree, and the sheet promised something the space could never do. */
+    const { api } = await open(fakeApi({ spaces: [space("s1", "p1", "Versed")] }));
+    await waitFor(() => expect(screen.queryByRole("checkbox")).toBeNull());
+    expect(screen.getByText(/Versed is a plain folder, not a git repository, so all 3 share it/)).toBeInTheDocument();
+    fireEvent.change(brief(), { target: { value: "Tidy the notes" } });
+    fireEvent.click(startButton());
+    await waitFor(() => expect(api.sent).toHaveLength(3));
+    expect(api.calls.filter((c) => c.startsWith("createWorktree:"))).toEqual([]);
   });
 
   it("offers only the agents this Mac can actually run", async () => {

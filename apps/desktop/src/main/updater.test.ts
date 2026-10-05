@@ -29,18 +29,29 @@ describe("updaterDecision — the hard gate (Plan 15 W1)", () => {
 });
 
 function fakeUpdater() {
-  const u: UpdaterLike & { checks: number; installed: number; fireDownloaded: (v: string) => void; nextResult: { isUpdateAvailable: boolean; updateInfo: { version: string } } | null; fail: Error | null } = {
+  const handlers = new Map<string, (arg: never) => void>();
+  const fire = (event: string, arg: unknown) => {
+    const h = handlers.get(event);
+    if (!h) throw new Error(`no ${event} listener registered`);
+    h(arg as never);
+  };
+  const u: UpdaterLike & { checks: number; downloads: number; installed: number; fireDownloaded: (v: string) => void; fireProgress: (percent: number) => void;
+    fireError: (message: string) => void; nextResult: { isUpdateAvailable: boolean; updateInfo: { version: string } } | null; fail: Error | null } = {
     autoDownload: false,
     checks: 0,
+    downloads: 0,
     installed: 0,
     nextResult: null,
     fail: null,
-    fireDownloaded: () => { throw new Error("no listener registered"); },
+    fireDownloaded: (v) => fire("update-downloaded", { version: v }),
+    fireProgress: (percent) => fire("download-progress", { percent }),
+    fireError: (message) => fire("error", new Error(message)),
     checkForUpdates() {
       this.checks++;
       return this.fail ? Promise.reject(this.fail) : Promise.resolve(this.nextResult);
     },
-    on(_event, cb) { this.fireDownloaded = (v) => cb({ version: v }); return this; },
+    downloadUpdate() { this.downloads++; return Promise.resolve([]); },
+    on(event: string, cb: (arg: never) => void) { handlers.set(event, cb); return this; },
     quitAndInstall() { this.installed++; },
   };
   return u;
@@ -77,7 +88,7 @@ describe("RealmUpdater", () => {
     const fake = fakeUpdater();
     const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
     fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
-    expect((await up.check()).state).toEqual({ kind: "downloading", version: "1.1.0" });
+    expect((await up.check()).state).toEqual({ kind: "downloading", version: "1.1.0", percent: null });
     up.install(); // not downloaded yet — must be a no-op
     expect(fake.installed).toBe(0);
     fake.fireDownloaded("1.1.0");
@@ -120,6 +131,74 @@ describe("RealmUpdater", () => {
     fake.fail = null;
     fake.nextResult = { isUpdateAvailable: false, updateInfo: { version: "1.0.0" } };
     expect((await up.check()).state).toEqual({ kind: "up-to-date" });
+  });
+
+  it("reports a download's progress while it runs, clamped, and nothing once it has finished", async () => {
+    const fake = fakeUpdater();
+    const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
+    await up.check();
+    fake.fireProgress(42.5);
+    expect(up.status().state).toEqual({ kind: "downloading", version: "1.1.0", percent: 42.5 });
+    fake.fireProgress(140);
+    expect(up.status().state).toEqual({ kind: "downloading", version: "1.1.0", percent: 100 });
+    fake.fireDownloaded("1.1.0");
+    // A late progress event must not drag a finished download back to "downloading".
+    fake.fireProgress(99);
+    expect(up.status().state).toEqual({ kind: "downloaded", version: "1.1.0" });
+  });
+
+  it("a failed download leaves the version available, and only then can a click start it again", async () => {
+    const fake = fakeUpdater();
+    const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
+    await up.check();
+    // THE MUTANT: download() honoured from `downloading` — a second fetch of the same update.
+    expect((await up.download()).state).toEqual({ kind: "downloading", version: "1.1.0", percent: null });
+    expect(fake.downloads).toBe(0);
+    fake.fireError("net::ERR_CONNECTION_RESET");
+    expect(up.status().state).toEqual({ kind: "available", version: "1.1.0" });
+    expect((await up.download()).state).toEqual({ kind: "downloading", version: "1.1.0", percent: null });
+    expect(fake.downloads).toBe(1);
+    up.install(); // not downloaded yet
+    expect(fake.installed).toBe(0);
+  });
+
+  it("a check's own failure is the check's error, not a lost download", async () => {
+    const fake = fakeUpdater();
+    const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
+    fake.checkForUpdates = function () {
+      this.checks++;
+      // electron-updater emits `error` AND rejects when the check itself fails.
+      this.fireError("ENOTFOUND github.com");
+      return Promise.reject(new Error("ENOTFOUND github.com"));
+    };
+    expect((await up.check()).state).toEqual({ kind: "error", message: "ENOTFOUND github.com" });
+  });
+
+  it("tells main about every change of state, so the windows hear progress without asking", async () => {
+    const fake = fakeUpdater();
+    const heard: string[] = [];
+    const up = new RealmUpdater({
+      version: "1.0.0", decision: { enabled: true }, load: async () => fake,
+      onChange: (s) => heard.push(s.state.kind === "downloading" ? `downloading:${s.state.percent}` : s.state.kind),
+    });
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
+    await up.check();
+    fake.fireProgress(10);
+    fake.fireDownloaded("1.1.0");
+    expect(heard).toEqual(["checking", "downloading:null", "downloading:10", "downloaded"]);
+  });
+
+  it("a check during a download, or after it, does not start electron-updater over", async () => {
+    const fake = fakeUpdater();
+    const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
+    await up.check();
+    expect((await up.check()).state.kind).toBe("downloading");
+    fake.fireDownloaded("1.1.0");
+    expect((await up.check()).state).toEqual({ kind: "downloaded", version: "1.1.0" });
+    expect(fake.checks).toBe(1);
   });
 
   it("a check while checking does not start a second electron-updater check", async () => {

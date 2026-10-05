@@ -225,6 +225,22 @@ describe("rpc methods", () => {
     expect((await c.call("spaces.update", { id: a.id, color: "red" })).ok).toBe(false);
     c.close();
   });
+  it("spaces.folderFor names the folder spaces.create then makes — the -2 included — and makes nothing itself", async () => {
+    /* The New space sheet prints this as where a space without a folder will work. THE mutants: an
+       answer that drifts from create's (a second slugify, a forgotten collision), or an ask that
+       makes the folder it was only asked about. */
+    const { home, c } = await boot();
+    const work = (await c.call("profiles.create", { name: "My Work!" })).result;
+    const first = (await c.call("spaces.folderFor", { profileId: work.id, name: "Cider App" })).result.path;
+    expect(first).toBe(join(home, "my-work", "cider-app"));
+    expect(existsSync(first)).toBe(false);
+    expect((await c.call("spaces.create", { profileId: work.id, name: "Cider App" })).result.folderPath).toBe(first);
+    const next = (await c.call("spaces.folderFor", { profileId: work.id, name: "Cider App" })).result.path;
+    expect(next).toBe(`${first}-2`);
+    expect((await c.call("spaces.create", { profileId: work.id, name: "Cider App" })).result.folderPath).toBe(next);
+    expect((await c.call("spaces.folderFor", { profileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "X" })).error.code).toBe("NOT_FOUND");
+    c.close();
+  });
 });
 
 /** Plan 7 W2 over the wire: the contract shapes, the broadcast, and the sessions.create seam. */

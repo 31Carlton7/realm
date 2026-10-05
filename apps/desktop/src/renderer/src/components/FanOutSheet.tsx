@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AGENT_META, SELECTABLE_AGENT_KINDS, type AgentKind } from "@realm/contracts";
 import { agentAvailability, isBlocked } from "../state/agent-availability";
-import { FAN_OUT_MAX, useApp } from "../state/store";
+import { FAN_OUT_MAX, spaceCheckoutPath, spaceIsPlainFolder, useApp } from "../state/store";
 import { Sheet } from "./Sheet";
 import { Spinner } from "./Spinner";
 
@@ -25,6 +25,12 @@ export function FanOutSheet() {
   const space = useApp((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId));
   const probe = useApp((s) => s.agentProbe);
   const probeAgents = useApp((s) => s.probeAgents);
+  /* A plain folder has no worktrees to give each agent, so it has no switch for them either — git is
+     asked when the sheet opens, as the probe is, rather than the switch being offered on a guess. */
+  const checkout = useApp((s) => (space ? spaceCheckoutPath(s, space.id) : null));
+  const plainFolder = useApp((s) => (space ? spaceIsPlainFolder(s, space.id) : false));
+  const refreshGitInfo = useApp((s) => s.refreshGitInfo);
+  useEffect(() => { if (checkout) run(() => refreshGitInfo(checkout)); }, [checkout, refreshGitInfo, run]);
   /* Asked for here rather than assumed. Nothing else on this page probes — the prompter does it on
      mount, and the Agents page is reachable without ever opening a session — so a fresh launch would
      offer every agent Realm knows about, including the ones this Mac cannot run. Unforced, so it
@@ -81,17 +87,21 @@ export function FanOutSheet() {
             </select>
           </label>
         </div>
-        <label className="fan-out-switch">
-          <input type="checkbox" checked={worktrees} onChange={(e) => setWorktrees(e.target.checked)} />
-          <span>
-            <strong>A worktree each</strong>
-            <span className="fan-out-note">
-              {worktrees
-                ? <>One <code>git worktree</code> per agent in {space ? <>{space.name}</> : "this space"}, so they cannot overwrite each other.</>
-                : <>All {count} run in the space folder and will edit the same files at once.</>}
+        {plainFolder ? (
+          <p className="fan-out-note">{space?.name ?? "This space"} is a plain folder, not a git repository, so all {count} share it and will edit the same files at once.</p>
+        ) : (
+          <label className="fan-out-switch">
+            <input type="checkbox" checked={worktrees} onChange={(e) => setWorktrees(e.target.checked)} />
+            <span>
+              <strong>A worktree each</strong>
+              <span className="fan-out-note">
+                {worktrees
+                  ? <>One <code>git worktree</code> per agent in {space ? <>{space.name}</> : "this space"}, so they cannot overwrite each other.</>
+                  : <>All {count} run in the space folder and will edit the same files at once.</>}
+              </span>
             </span>
-          </span>
-        </label>
+          </label>
+        )}
         <div className="sheet-actions">
           <button type="button" className="btn" onClick={closeSheet}>Cancel</button>
           <button type="submit" className="btn primary" disabled={!ready}>

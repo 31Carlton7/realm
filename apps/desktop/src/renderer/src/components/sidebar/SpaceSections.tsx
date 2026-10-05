@@ -1,7 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useMemo, useRef, useState, type DragEvent } from "react";
 import type { Space } from "@realm/contracts";
-import { useApp, useProfileSpaces } from "../../state/store";
+import { spaceIsPlainFolder, useApp, useProfileSpaces } from "../../state/store";
 import { Menu, type MenuItem } from "../Menu";
 import { SpaceIcon } from "../SpaceIcon";
 import { reorderWithin, rowsBySpace, sectionView, spaceTally, tallyWords, type ListRow, type SessionRow, type SidebarState, type Tally } from "./model";
@@ -65,6 +65,8 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
   const run = useApp((s) => s.run);
   const openSpacePage = useOpenSpacePage();
   const newSessionIn = useNewSessionIn();
+  // A plain folder has no worktrees, so its ⋯ offers no session in one (store.ts).
+  const plainFolder = useApp((s) => spaceIsPlainFolder(s, space.id));
   const tint = useSpaceTint(space.color);
   const [menu, setMenu] = useState(false);
   const more = useRef<HTMLButtonElement>(null);
@@ -78,8 +80,10 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
   const listId = `sb-section-${space.id}`;
   const reveal = window.realm?.files?.reveal;
   const items: MenuItem[] = [
-    { label: "New session in a worktree", icon: <Icon name="branch" size={16} />, onSelect: () => newSessionIn(space.id, true) },
-    { kind: "separator" },
+    ...(plainFolder ? [] : [
+      { label: "New session in a worktree", icon: <Icon name="branch" size={16} />, onSelect: () => newSessionIn(space.id, true) },
+      { kind: "separator" },
+    ] satisfies MenuItem[]),
     // Offered only where the desktop bridge has it — a reveal that cannot happen is not offered.
     ...(reveal ? [{ label: "Show in Finder", icon: <Icon name="folder" size={16} />, onSelect: () => { void reveal(space.folderPath); } }] : []),
     { label: "Connections", icon: <Icon name="connections-page" size={16} />, onSelect: () => openSpacePage(space.id, "connections") },

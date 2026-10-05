@@ -10,8 +10,9 @@ import { SimulatorInput, normalizedPoint } from "./sim-input";
 import { fitFramed, frameMetrics } from "./device-frame";
 import { artFor, fitDeviceArt } from "./device-art";
 import { useFileDrop } from "../../components/use-file-drop";
+import { useFadedScroller } from "../../components/ScrollFades";
 import { sortForDevice } from "./device-files";
-import { SimulatorHardware } from "./SimulatorBar";
+import { SimulatorToolbar } from "./SimulatorBar";
 import { LayaRecordRow } from "./LayaRecord";
 
 /**
@@ -82,6 +83,8 @@ export function SimulatorPane({ item, visible }: PaneProps) {
   }, [refId, applySimulatorState]);
 
   const udid = state.udid ?? row?.udid ?? null;
+  // The device list scrolls on a Mac with a long one, and dissolves at its ends as every list does.
+  const { ref: body, fades } = useFadedScroller();
   if (state.status === "running" && state.streamUrl && state.screen) {
     /* The platform comes off the ROW. The contract is explicit that it is carried rather than
        inferred, and it decides which device the stream is framed as — an emulator wearing an iPhone
@@ -90,7 +93,8 @@ export function SimulatorPane({ item, visible }: PaneProps) {
   }
   return (
     <div className="sim-pane">
-      <div className="sim-body">
+      {fades}
+      <div className="sim-body" ref={body}>
         {state.status === "failed"
           ? <Failed state={state} onRetry={() => void start(null)} onPick={(d, p, real) => void start(d, p, real)} />
           : state.status === "booting" || state.status === "serving"
@@ -247,9 +251,12 @@ function Screen({ state, visible, simulatorId, platform }: {
   state: SimulatorState; visible: boolean; simulatorId: string; platform: SimulatorPlatform | null;
 }) {
   const holder = useRef<HTMLDivElement>(null);
+  const above = useRef<HTMLDivElement>(null);
+  const below = useRef<HTMLDivElement>(null);
   const elements = useApp((s) => s.simulatorElements[simulatorId] ?? false);
   const picture = useRef<HTMLImageElement>(null);
-  const [box, setBox] = useState({ width: 0, height: 0 });
+  const [box, setBox] = useState({ width: 0, height: 0, gap: 0 });
+  const [rows, setRows] = useState({ above: 0, below: 0 });
   const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
   const [live, setLive] = useState(false);
   const frame = useFrameChoice(simulatorId);
@@ -290,9 +297,19 @@ function Screen({ state, visible, simulatorId, platform }: {
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
       const r = entry?.contentRect;
-      if (r) setBox({ width: r.width, height: r.height });
+      if (r) setBox({ width: r.width, height: r.height, gap: parseFloat(getComputedStyle(el).rowGap) || 0 });
     });
     ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // The toolbar's height and the Record row's, which change with what they hold — a recording's note,
+  // a phone's offer to go live — without the pane changing size at all.
+  useEffect(() => {
+    const a = above.current, b = below.current;
+    if (!a || !b) return;
+    const ro = new ResizeObserver(() => setRows({ above: a.offsetHeight, below: b.offsetHeight }));
+    ro.observe(a);
+    ro.observe(b);
     return () => ro.disconnect();
   }, []);
   // There is no DPR event — only a media query that stops matching when the window moves to a
@@ -310,13 +327,18 @@ function Screen({ state, visible, simulatorId, platform }: {
      `No frame` is the bare stream. Framed either way the picture gives up room, and it takes the
      device's OWN screen corner rather than the pane's — that is the radius that makes it read as a
      screen set into a device instead of a photograph pasted onto one. */
+  /* The device gets the stage less its toolbar and the row under it, and the gaps between the three.
+     They are one column, centred in the stage, so the toolbar stands on the device's top edge and the
+     Record row on its foot wherever the device ends up — not at the pane's two ends, with a phone
+     fitted to a narrow pane's width floating between them. */
+  const room = useMemo(() => ({ width: box.width, height: Math.max(0, box.height - rows.above - rows.below - 2 * box.gap) }), [box, rows]);
   const framed = frame.kind === "framed";
   const art = framed ? artFor(screen, platform) : null;
-  const onArt = useMemo(() => (art ? fitDeviceArt(screen, art, box) : null), [art, screen, box]);
+  const onArt = useMemo(() => (art ? fitDeviceArt(screen, art, room) : null), [art, screen, room]);
   const drawn = framed && !onArt;
   const laid = useMemo(
-    () => (drawn ? fitFramed(screen, box, dpr) : { fit: fitFramebuffer(screen, box, dpr), frame: frameMetrics(screen, 0, 0) }),
-    [drawn, screen, box, dpr],
+    () => (drawn ? fitFramed(screen, room, dpr) : { fit: fitFramebuffer(screen, room, dpr), frame: frameMetrics(screen, 0, 0) }),
+    [drawn, screen, room, dpr],
   );
   const fit = laid.fit;
   const width = onArt ? onArt.pictureWidth : fit.cssWidth;
@@ -374,55 +396,62 @@ function Screen({ state, visible, simulatorId, platform }: {
 
   return (
     <div className="sim-pane" data-dropping={drop.dropping || undefined} {...drop.handlers}>
-      <div className="sim-screen" ref={holder}
-        tabIndex={0} role="application" aria-label="Simulator screen"
-        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag}
-        onKeyDown={onKeyDown}
-        style={{
-          ["--sim-w" as string]: `${width}px`,
-          ["--sim-h" as string]: `${height}px`,
-          /* `path(...)`, not the bare path data. The stylesheet spends this straight into `clip-path`,
-             and a custom property holding `M49 0L303 0…` makes that declaration INVALID — which is
-             not a broken-looking screen but an unclipped one, so the device renders with square
-             corners inside a frame whose own corners are round. `MachinePane` wraps its clip the
-             same way. */
-          ["--sim-clip" as string]: clip ? `path("${clip}")` : "none",
-        }}>
-        {/* ONE wrapper for all three answers, and that is a mechanism rather than a tidy-up: the
-            picture is an `<img>` on an MJPEG stream, and re-parenting one drops the connection and
-            brings it back black. Swapping the frame used to swap the element around it, so changing
-            your mind about the frame cost you the screen for a second. The frame is now a data
-            attribute on a node that never moves. */}
-        <div className="sim-chassis" data-frame={onArt ? "art" : drawn ? "drawn" : "none"}
-          style={onArt
-            ? { width: `${onArt.frameWidth}px`, height: `${onArt.frameHeight}px` }
-            : drawn
-              ? { ["--sim-bezel" as string]: `${laid.frame.bezel}px`, ["--sim-outer-r" as string]: `${laid.frame.outerRadius}px` }
-              : undefined}>
-          <div className="sim-glass"
-            style={onArt ? { position: "absolute", left: `${onArt.pictureLeft}px`, top: `${onArt.pictureTop}px` } : undefined}>
-            {pictureEl}{overlay}
-          </div>
-          {/* The device, over its own screen. `aria-hidden` and no pointer events: it is a picture OF
-              the phone lying on the phone, and a press meant for the device has to reach it through
-              the parts of the art that overlap the screen's corners. Turned with the device — a
-              landscape stream in an upright frame is a picture of nothing. */}
-          {onArt && art && (
-            <img className="sim-art" src={art.src} alt="" aria-hidden="true" draggable={false}
-              style={{
-                width: `${onArt.artWidth}px`, height: `${onArt.artHeight}px`,
-                transform: `translate(${onArt.offsetX}px, ${onArt.offsetY}px) rotate(${onArt.rotation}deg)`,
-              }} />
-          )}
+      <div className="sim-stage" ref={holder}>
+        {/* What the device does and what its stream is doing, over the device. The pane bar above is
+            the pane's — in a side pane it is the tab strip, which keeps the width. */}
+        <div className="sim-above" ref={above}>
+          <SimulatorToolbar simulatorId={simulatorId} connected={live} width={box.width} frame={frame} shownAs={art?.name ?? null} />
         </div>
-        {!live && <p className="sim-connecting" role="status">Connecting the keyboard and touch…</p>}
+        <div className="sim-screen"
+          tabIndex={0} role="application" aria-label="Simulator screen"
+          onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag}
+          onKeyDown={onKeyDown}
+          style={{
+            ["--sim-w" as string]: `${width}px`,
+            ["--sim-h" as string]: `${height}px`,
+            /* `path(...)`, not the bare path data. The stylesheet spends this straight into `clip-path`,
+               and a custom property holding `M49 0L303 0…` makes that declaration INVALID — which is
+               not a broken-looking screen but an unclipped one, so the device renders with square
+               corners inside a frame whose own corners are round. `MachinePane` wraps its clip the
+               same way. */
+            ["--sim-clip" as string]: clip ? `path("${clip}")` : "none",
+          }}>
+          {/* ONE wrapper for all three answers, and that is a mechanism rather than a tidy-up: the
+              picture is an `<img>` on an MJPEG stream, and re-parenting one drops the connection and
+              brings it back black. Swapping the frame used to swap the element around it, so changing
+              your mind about the frame cost you the screen for a second. The frame is now a data
+              attribute on a node that never moves. */}
+          <div className="sim-chassis" data-frame={onArt ? "art" : drawn ? "drawn" : "none"}
+            style={onArt
+              ? { width: `${onArt.frameWidth}px`, height: `${onArt.frameHeight}px` }
+              : drawn
+                ? { ["--sim-bezel" as string]: `${laid.frame.bezel}px`, ["--sim-outer-r" as string]: `${laid.frame.outerRadius}px` }
+                : undefined}>
+            <div className="sim-glass"
+              style={onArt ? { position: "absolute", left: `${onArt.pictureLeft}px`, top: `${onArt.pictureTop}px` } : undefined}>
+              {pictureEl}{overlay}
+            </div>
+            {/* The device, over its own screen. `aria-hidden` and no pointer events: it is a picture OF
+                the phone lying on the phone, and a press meant for the device has to reach it through
+                the parts of the art that overlap the screen's corners. Turned with the device — a
+                landscape stream in an upright frame is a picture of nothing. */}
+            {onArt && art && (
+              <img className="sim-art" src={art.src} alt="" aria-hidden="true" draggable={false}
+                style={{
+                  width: `${onArt.artWidth}px`, height: `${onArt.artHeight}px`,
+                  transform: `translate(${onArt.offsetX}px, ${onArt.offsetY}px) rotate(${onArt.rotation}deg)`,
+                }} />
+            )}
+          </div>
+        </div>
+        {/* …and under it, what is done WITH the device: recording its use for Laya, and a phone's offer
+            to go live. The same pill as the toolbar, centred on the same line. */}
+        <div className="sim-under" ref={below}>
+          <LayaRecordRow simulatorId={simulatorId} />
+          {state.physical && (state.stills === "camera" || state.stills === "camera-denied") && <LiveOffer stills={state.stills} />}
+        </div>
       </div>
       {drop.dropping && <div className="session-drop" aria-hidden="true" />}
-      {/* The device's own buttons, under the device. The pane bar is for what the PANE does. */}
-      <SimulatorHardware item={{ refId: simulatorId } as never} />
-      <LayaRecordRow simulatorId={simulatorId} />
-      {state.physical && (state.stills === "camera" || state.stills === "camera-denied") && <LiveOffer stills={state.stills} />}
-      <FrameBar choice={frame} shownAs={art?.name ?? null} />
     </div>
   );
 }
@@ -490,31 +519,6 @@ function useFrameChoice(simulatorId: string): FrameChoice {
   }, [simulatorId]);
 
   return { kind, set };
-}
-
-/**
- * The frame's own control, under the device.
- *
- * Under it rather than in the pane bar, and this is the one exception to "a pane's actions live in
- * its bar": this is not an action on the DEVICE, it is what the picture of it looks like. Beside the
- * buttons that press real hardware it would read as the same kind of thing, and the first time
- * someone reached for Home and changed the shape of a phone instead they would know it was not.
- */
-function FrameBar({ choice, shownAs }: { choice: FrameChoice; shownAs: string | null }) {
-  return (
-    <div className="sim-frame-bar">
-      <div className="sim-frames" role="radiogroup" aria-label="Device frame">
-        {/* Which device the art is a picture of belongs on the TOOLTIP, not on the button. It is the
-            same string on every phone in a family — a label that read "iPhone 15 Pro" over an
-            iPhone 17 would be a claim about the device rather than about the frame. */}
-        <button type="button" className="btn sim-frame-opt" role="radio" aria-checked={choice.kind === "framed"}
-          title={shownAs ? `Shown in an ${shownAs}` : "Shown in a frame Realm draws"}
-          onClick={() => choice.set("framed")}>Frame</button>
-        <button type="button" className="btn sim-frame-opt" role="radio" aria-checked={choice.kind === "none"}
-          onClick={() => choice.set("none")}>No frame</button>
-      </div>
-    </div>
-  );
 }
 
 /**

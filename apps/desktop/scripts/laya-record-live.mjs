@@ -237,7 +237,9 @@ async function main() {
     }
     return false;
   }
-  const errorBar = () => evalIn(c, `document.querySelector('.error-bar span')?.textContent ?? null`);
+  // A refusal is an error toast at the window's foot (components/Toasts.tsx), not a bar.
+  const errorBar = () => evalIn(c, `document.querySelector('.toast[data-tone="error"] .toast-text')?.textContent ?? null`);
+  const clearError = () => evalIn(c, `(() => { document.querySelector('.toast[data-tone="error"] .toast-close')?.click(); return true; })()`);
 
   const status = () => api.call("laya.status", {});
   const RECORD = `document.querySelector('.sim-record-start')`;

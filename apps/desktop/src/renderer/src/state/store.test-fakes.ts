@@ -1,9 +1,9 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
-import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
+import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, mimeForPath, nextFireOf } from "@realm/contracts";
-import type { CliStatus, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -90,7 +90,7 @@ export const shipRow = (id: string, spaceId: string, extra: Partial<Ship> = {}):
 /** A durable run. Defaults to a queued run with no attempts yet. */
 export const runRow = (id: string, spaceId: string, extra: Partial<Run> = {}): Run =>
   ({ id, spaceId, title: `Run ${id}`, goal: `do ${id}`, agentKind: "claude", environmentId: null,
-    constraints: null, dedupeKey: null, state: "queued", attempt: 0, maxAttempts: 1, sessionId: null,
+    constraints: null, dedupeKey: null, state: "queued", attempt: 0, maxAttempts: 1, sessionId: null, scheduleId: null,
     deadlineAt: null, result: null, error: null, createdAt: 0, startedAt: null, settledAt: null, updatedAt: 0, ...extra });
 
 /** One attempt of a run. */
@@ -320,6 +320,10 @@ export type FakeData = {
   reviews?: Record<string, ReviewResult | null>;
   /** The delegation engine's live registry by delegating session id — what `delegation.running` answers. */
   delegatedRuns?: Record<string, DelegatedRun[]>;
+  /** Each lead session's sub-agents — what `delegation.children` answers. */
+  delegatedChildren?: Record<string, DelegatedChild[]>;
+  /** What `delegation.models` answers, for every session. */
+  delegableModels?: DelegableModels;
   /** What `search.query` answers (Plan 16 W2), regardless of query — palette tests script the groups.
    *  Delay it with `delays["search"]` to hold results in flight. */
   searchResults?: SearchResults;
@@ -359,6 +363,9 @@ export type FakeApi = Api & {
   /** Per-call artificial latency in ms, keyed like `calls` entries (used by race tests). */
   delays: Record<string, number>;
   onCreateTerminal: (() => void) | null;
+  /** Main's updater changing state on its own — a download's progress, its end, its failure — pushed
+   *  to whoever is watching, as `updates:changed` is. Also becomes what `updateStatus` answers. */
+  emitUpdateStatus: (status: UpdateStatus) => void;
   /** Live views of the fake's data (mutable). */
   data: Required<FakeData>;
 };
@@ -514,6 +521,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     notifications: overrides.notifications ?? [],
     reviews: overrides.reviews ?? {},
     delegatedRuns: overrides.delegatedRuns ?? {},
+    delegatedChildren: overrides.delegatedChildren ?? {},
+    delegableModels: overrides.delegableModels ?? { models: [], own: { kind: "claude", label: "Fable 5.1" } },
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
     artifacts: overrides.artifacts ?? [],
     iconAssets: overrides.iconAssets ?? {},
@@ -550,8 +559,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       },
     };
   };
+  const updateWatchers = new Set<(status: UpdateStatus) => void>();
   const api: FakeApi = {
     calls, disposed, destroyedBrowserViews, sent, savedScripts, queuedPrompts, planLimitRows, mcpWrites, importApplied, delays: {}, onCreateTerminal: null, data,
+    emitUpdateStatus: (status) => { data.updateStatus = status; for (const cb of updateWatchers) cb({ ...status }); },
     // Plan 17 W1. An in-memory filesystem keyed by workspace id: enough for the store's own tests to
     // exercise open/save without touching disk. The DocumentsPane's own behaviour is covered by
     // buffers.test.ts (the transitions) and the server's service.test.ts (the real filesystem).
@@ -606,7 +617,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const ws = data.documentWorkspaces[documentsId]!;
       const openPaths = ws.openPaths.includes(path) ? ws.openPaths : [...ws.openPaths, path];
       data.documentWorkspaces[documentsId] = { ...ws, openPaths, activePath: path };
-      return { documentsId, itemId, environmentId: ws.environmentId };
+      return { documentsId, itemId, environmentId: ws.environmentId, path };
     },
     readGuideProgress: async (documentsId, path) => {
       calls.push(`readGuideProgress:${documentsId}:${path}`);
@@ -629,7 +640,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const r = await api.openDocumentPath(spaceId, path);
       (data.documentFiles[r.documentsId] ??= {})[path] = `# ${title || "Lecture"}\n`;
       (data.lectures[spaceId] ??= []).unshift({ path, title: title || "Lecture 2026-09-02", date: "2026-09-02", hasTranscript: false, sizeBytes: 10 });
-      return { path, ...r };
+      return { ...r, path };
     },
     listLectures: async (spaceId) => { calls.push(`listLectures:${spaceId}`); return data.lectures[spaceId] ?? []; },
     plynnList: async () => { calls.push("plynnList"); return data.plynn; },
@@ -708,22 +719,26 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     libraryArtifacts: async (q) => {
       // The profile first, so the query itself stays the call log's last word.
       if (q.profileId != null) calls.push(`libraryArtifactsProfile:${q.profileId}`);
+      if (q.sessionId != null) calls.push(`libraryArtifactsSession:${q.sessionId}`);
       calls.push(`libraryArtifacts:${q.spaceId ?? "all"}:${q.kind ?? "any"}:${q.type ?? "any"}:${q.query ?? ""}`);
       await wait("libraryArtifacts");
       // A profile narrows to its spaces, as the server's join does.
       const ofProfile = (spaceId: string) => q.profileId == null || data.spaces.find((x) => x.id === spaceId)?.profileId === q.profileId;
-      const all = data.artifacts.filter((a) => ofProfile(a.spaceId));
+      const scoped = data.artifacts.filter((a) => ofProfile(a.spaceId)
+        && (q.spaceId == null || a.spaceId === q.spaceId) && (q.sessionId == null || a.sessionId === q.sessionId));
+      // One row per file, its newest — the server's collapse, done before the keyset as it is there.
+      const collapse = (rows: LibraryEntry[]) => !q.perFile ? rows
+        : [...rows].sort((a, b) => b.ts - a.ts || (a.id < b.id ? 1 : -1)).filter((a, i, all) => all.findIndex((x) => x.path === a.path) === i);
       const needle = (q.query ?? "").trim().toLowerCase();
-      const matching = all.filter((a) =>
-        (q.spaceId == null || a.spaceId === q.spaceId)
-        && (q.kind == null || a.kind === q.kind)
+      const matching = collapse(scoped.filter((a) =>
+        (q.kind == null || a.kind === q.kind)
         && (q.type == null || artifactTypeOf(a.ext) === q.type)
-        && (needle === "" || a.name.toLowerCase().includes(needle)));
+        && (needle === "" || a.name.toLowerCase().includes(needle))));
       // Same keyset the server uses, so a test that pages here is testing the page's real cursor.
       const before = q.before ?? null;
       const after = before === null ? matching
         : matching.filter((a) => a.ts < before.ts || (a.ts === before.ts && a.id < before.id));
-      const total = all.filter((a) => q.spaceId == null || a.spaceId === q.spaceId).length;
+      const total = collapse(scoped).length;
       return { entries: after.slice(0, q.limit ?? LIBRARY_PAGE_SIZE), total };
     },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
@@ -738,6 +753,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     createSpace: async (input) => {
       const s = space(`s${++n}`, input.profileId, input.name, { icon: input.icon, color: input.color ?? "#ffb454", sortOrder: data.spaces.length });
       data.spaces.push(s); return s;
+    },
+    /** The server's slugs, under a home of `/home`, without the `-2` it adds for a folder on disk. */
+    spaceFolderFor: async (profileId, name) => {
+      calls.push(`spaceFolderFor:${profileId}:${name}`);
+      const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "space";
+      return `/home/${slug(data.profiles.find((p) => p.id === profileId)?.name ?? "")}/${slug(name)}`;
     },
     updateSpace: async (input) => {
       const i = data.spaces.findIndex((x) => x.id === input.id); if (i < 0) throw new Error(`no space ${input.id}`);
@@ -1304,7 +1325,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       await wait("checkUpdates");
       return { ...data.updateStatus };
     },
+    // Main's own rule (updater.ts): only an `available` update starts downloading.
+    downloadUpdate: async () => {
+      calls.push("downloadUpdate");
+      const st = data.updateStatus.state;
+      if (st.kind === "available") data.updateStatus = { ...data.updateStatus, state: { kind: "downloading", version: st.version, percent: null } };
+      return { ...data.updateStatus };
+    },
     installUpdate: async () => { calls.push("installUpdate"); },
+    onUpdateStatus: (cb) => { updateWatchers.add(cb); return () => { updateWatchers.delete(cb); }; },
     // Mirrors main's gate exactly (notify.ts): a focused window suppresses the toast, and the call is
     // logged either way — so a test can tell "the renderer never asked" from "main said no".
     showDesktopNotification: async (input) => {
@@ -1375,6 +1404,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         id: `sch${data.schedules.length + 1}`, spaceId: input.spaceId, title: input.title, goal: input.goal,
         cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints ?? null,
         nextRunAt: nextFireOf(input.cron, Date.now()), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
+        newSessionPerRun: input.newSessionPerRun ?? true, archiveSucceeded: input.archiveSucceeded ?? false,
         createdAt: Date.now(), updatedAt: Date.now(),
       };
       data.schedules = [made, ...data.schedules];
@@ -1395,7 +1425,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     runScheduleNow: async (id) => {
       calls.push(`runScheduleNow:${id}`);
-      const next = data.schedules.map((r) => (r.id === id ? { ...r, lastRunAt: Date.now(), lastRunId: "run1", lastSkippedAt: null } : r));
+      // A firing is a run under the task, as the server's is: queued, in the schedule's space.
+      const fired = data.schedules.find((r) => r.id === id)!;
+      const run = runRow(`run${++n}`, fired.spaceId, { scheduleId: id, title: fired.title, goal: fired.goal, createdAt: Date.now() });
+      (data.runs[fired.spaceId] ??= []).unshift(run);
+      const next = data.schedules.map((r) => (r.id === id ? { ...r, lastRunAt: Date.now(), lastRunId: run.id, lastSkippedAt: null } : r));
       data.schedules = next;
       return next.find((r) => r.id === id)!;
     },
@@ -1479,6 +1513,17 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       }
       const page = rows.slice(0, cap);
       return { runs: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
+    },
+    listScheduleRuns: async (spaceId, scheduleId, cursor, limit) => {
+      calls.push(`listScheduleRuns:${scheduleId}`);
+      let rows = [...(data.runs[spaceId] ?? [])].filter((r) => r.scheduleId === scheduleId)
+        .sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      if (cursor) {
+        const [ts, id] = [Number(cursor.slice(0, cursor.indexOf(":"))), cursor.slice(cursor.indexOf(":") + 1)];
+        rows = rows.filter((r) => r.createdAt < ts || (r.createdAt === ts && r.id < id));
+      }
+      const page = rows.slice(0, limit);
+      return { runs: page, nextCursor: page.length === limit && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
     },
     createRun: async ({ spaceId, goal, title }) => {
       calls.push(`createRun:${spaceId}|${goal}`);
@@ -1685,6 +1730,17 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     getReview: async (environmentId) => { calls.push(`getReview:${environmentId}`); return { review: data.reviews[environmentId] ?? null }; },
     dismissReview: async (environmentId) => { calls.push(`dismissReview:${environmentId}`); data.reviews[environmentId] = null; },
     listDelegatedRuns: async (sessionId) => { calls.push(`listDelegatedRuns:${sessionId}`); return data.delegatedRuns[sessionId] ?? []; },
+    listDelegatedChildren: async (sessionId) => { calls.push(`listDelegatedChildren:${sessionId}`); return data.delegatedChildren[sessionId] ?? []; },
+    delegableModels: async (sessionId) => { calls.push(`delegableModels:${sessionId}`); return data.delegableModels; },
+    agentsTab: async (sessionId) => {
+      calls.push(`agentsTab:${sessionId}`);
+      const spaceId = data.sessions.find((x) => x.id === sessionId)?.spaceId ?? Object.keys(data.items)[0]!;
+      const existing = (data.items[spaceId] ?? []).find((i) => i.kind === "agents" && i.refId === sessionId);
+      if (existing) return { itemId: existing.id };
+      const it = item(`i${++n}`, spaceId, { kind: "agents", title: "Agents", refId: sessionId });
+      (data.items[spaceId] ??= []).push(it);
+      return { itemId: it.id };
+    },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

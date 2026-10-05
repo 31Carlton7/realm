@@ -52,14 +52,14 @@ describe("Reveal in Finder on a path an agent wrote", () => {
     // THE MUTANT: ignore the answer. A path the agent named and has since moved reads as a dead button.
     const { store } = await mount("I wrote `out/fit.py`.", async () => false);
     await revealFrom("out/fit.py");
-    await waitFor(() => expect(store.getState().error).toBe("Nothing is at out/fit.py. It may have been moved or deleted."));
+    await waitFor(() => expect(store.getState().toasts.at(-1)?.text).toBe("Nothing is at out/fit.py. It may have been moved or deleted."));
   });
 
   it("raises nothing when the reveal found it", async () => {
     const { store, reveal } = await mount("I wrote `out/fit.py`.", async () => true);
     await revealFrom("out/fit.py");
     await waitFor(() => expect(reveal).toHaveBeenCalled());
-    expect(store.getState().error).toBeNull();
+    expect(store.getState().toasts).toEqual([]);
   });
 
   it("opens a path in the editor the way Reveal finds it — against the session's directory", async () => {

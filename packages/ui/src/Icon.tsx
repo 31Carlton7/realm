@@ -39,13 +39,41 @@ import {
   // Settings' pages, each beside its glyph in the column (settings-index.ts), and the Library's toolbar.
   CpuIcon, DashboardSpeed02Icon, Cursor01Icon, CommandIcon, InboxDownloadIcon, FilterHorizontalIcon, LeftToRightListBulletIcon,
   SquareLockPasswordIcon,
-  // A file named in the transcript, by what kind of file it is (the renderer's `file-icon.ts`).
-  Typescript01Icon, JavaScriptIcon, ReactIcon, ThirdBracketSquareIcon, PythonIcon, Html5Icon, Css3Icon, JavaIcon,
-  PhpIcon, SqlIcon, Pdf01Icon, Xml01Icon, Svg01Icon, FileZipIcon, FileScriptIcon,
+  // The permission ladder's marks (Composer's permission control).
+  SecurityCheckIcon,
+  // A session's Agents tab: one box handing down to two (AgentsTab.tsx).
+  HierarchySquare02Icon,
+  // The window's two panel toggles: the sidebar on the left, the side pane on the right.
+  LayoutLeftIcon, LayoutRightIcon,
+  // What a terminal is running, beside its tab's title (terminal-programs.ts in contracts). The
+  // language marks are also what a file named in the transcript wears (the renderer's `file-icon.ts`).
+  JavaScriptIcon, Typescript01Icon, PythonIcon, GemIcon, JavaIcon, PhpIcon, PackageIcon, ServerStack01Icon, DatabaseIcon,
+  // A device's own toolbar (SimulatorBar.tsx): turning it, selecting its elements, its volume down.
+  ScreenRotationIcon, CursorRectangleSelection01Icon, VolumeLowIcon,
+  // The rest of the kinds of file the transcript names (the renderer's `file-icon.ts`).
+  ReactIcon, ThirdBracketSquareIcon, Html5Icon, Css3Icon, SqlIcon, Pdf01Icon, Xml01Icon, Svg01Icon, FileZipIcon, FileScriptIcon,
   // A turn's edits, put back (EditSummary.tsx).
   Undo02Icon,
 } from "@hugeicons-pro/core-stroke-rounded";
+import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
+
+/* Two shields the pack does not draw — one asking, one warning — made of its own parts: Shield01's
+   outline (the one SecurityCheck draws its tick inside), with HelpCircle's question mark and
+   AlertCircle's exclamation scaled into the interior the tick occupies. Same stroke, same caps, same
+   grid, so the three permission marks read as one family rather than two packs and a drawing. */
+const interior = (d: string, key: string) =>
+  ["path", { d, stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "1.5", key }] as const;
+const ShieldQuestionIcon: IconSvgElement = [
+  Shield01Icon[0]!,
+  interior("M10 9C10 7.89543 10.8954 7 12 7C13.1046 7 14 7.89543 14 9C14 9.6855 13.6551 10.2905 13.1294 10.6509C12.5826 11.0255 12 11.5373 12 12.2", "1"),
+  interior("M12 15H12.0072", "2"),
+];
+const ShieldAlertIcon: IconSvgElement = [
+  Shield01Icon[0]!,
+  interior("M12 7.5V11.5", "1"),
+  interior("M12 14.4883V14.4983", "2"),
+];
 
 export const icons = {
   add: Add01Icon, close: Cancel01Icon, folder: Folder01Icon, briefcase: Briefcase01Icon, cap: MortarboardIcon,
@@ -127,6 +155,9 @@ export const icons = {
      name it does not hold, silently, so the page wore a folder in the sidebar and in its own pane
      bar. `icon-kinds.test.ts` is what stops the next one lasting that long. */
   "agents-page": BotIcon,
+  /* A session's own sub-agents: one box handing work down to two. Not the page's bot — the page is
+     every agent there is, and this is the tree under one session, which is the thing the shape says. */
+  agents: HierarchySquare02Icon,
   /* A face in a circle, set apart from `profile-page`'s bare figure: the profile is a scope (its
      skills, connections and memory), and this page is the person. */
   "you-page": UserCircleIcon,
@@ -146,11 +177,30 @@ export const icons = {
   /* The Library's toolbar: the narrowing a filter menu does, and the view as rows beside `grid`'s
      view as tiles — the pair every file browser draws. */
   filter: FilterHorizontalIcon, list: LeftToRightListBulletIcon,
+  /* How freely a session's agent may act, as the prompter's permission control draws it: a shield
+     that asks (Ask each time), one that has already said yes (Accept edits), and one that warns
+     (Full access) — the rung that takes the gate away is the one whose mark says so. */
+  shieldQuestion: ShieldQuestionIcon, shieldCheck: SecurityCheckIcon, shieldAlert: ShieldAlertIcon,
+  /* The window's panel toggles, as Codex and every Mac editor draw them: a window with the panel
+     ruled off at its side. `sidebar` is the older glyph with list rows drawn in the panel — at 14px
+     beside the traffic lights the rows were a smudge, and the bare rule is the cleaner mark. */
+  panelLeft: LayoutLeftIcon, panelRight: LayoutRightIcon,
+  /* What a terminal's foreground program is, when it is a tool rather than an agent (an agent wears
+     its vendor's mark). The language for a runtime — node is the JS square, deno the TS one, Ruby a
+     gem — and the job for the rest: a package manager is a parcel, which is also what a dev server
+     started through one wears, and a container runtime is the server stack it stands for. */
+  javascript: JavaScriptIcon, typescript: Typescript01Icon, python: PythonIcon, gem: GemIcon, java: JavaIcon, php: PhpIcon,
+  package: PackageIcon, serverStack: ServerStack01Icon, database: DatabaseIcon,
+  /* A device's own controls. Rotate is a phone turning between two arrows — the `reload` arrow it wore
+     says "load again". The elements overlay is a selection drawn over the screen, the pointer in a
+     dashed box. Volume down is the speaker with one wave: the struck-through one it borrowed from
+     playback says mute, which is a different button. */
+  rotate: ScreenRotationIcon, select: CursorRectangleSelection01Icon, volumeLow: VolumeLowIcon,
   /* What kind of file a path names, where the pack draws it: a language's own badge (the TS and JS
-     squares Codex marks its file links with, `{ }` for JSON, the HTML and CSS shields), the format's
-     letters in a page for the rest, and a page with `< >` on it for source the pack has no mark for. */
-  fileTs: Typescript01Icon, fileJs: JavaScriptIcon, fileReact: ReactIcon, fileJson: ThirdBracketSquareIcon,
-  filePython: PythonIcon, fileHtml: Html5Icon, fileCss: Css3Icon, fileJava: JavaIcon, filePhp: PhpIcon, fileSql: SqlIcon,
+     squares Codex marks its file links with are the terminal's `typescript` and `javascript` above;
+     `{ }` for JSON, the HTML and CSS shields), the format's letters in a page for the rest, and a page
+     with `< >` on it for source the pack has no mark for. */
+  fileReact: ReactIcon, fileJson: ThirdBracketSquareIcon, fileHtml: Html5Icon, fileCss: Css3Icon, fileSql: SqlIcon,
   filePdf: Pdf01Icon, fileXml: Xml01Icon, fileSvg: Svg01Icon, fileZip: FileZipIcon, fileCode: FileScriptIcon,
   /* The open arc turning back — the mark Codex sets beside its own Undo, and what every editor draws
      for it. Not `reload`, whose closed circle means "again", which is the opposite. */

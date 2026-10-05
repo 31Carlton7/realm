@@ -33,13 +33,18 @@ export function updaterDecision(d: { packaged: boolean; signed: boolean; feedLiv
 
 /** What the Settings row renders — every state is a fact, none is decoration. `disabled` carries
  *  the reason so the row can say WHY instead of graying out mutely; `checking` only ever appears
- *  while a real electron-updater check is in flight. */
+ *  while a real electron-updater check is in flight.
+ *
+ *  `available` is a newer version this build knows of and is NOT fetching — the background download
+ *  failed, so a click can honestly start it again. `downloading` carries how far it has got, once
+ *  electron-updater has said (`null` until its first progress event: a 0% bar would be a claim). */
 export type UpdateState =
   | { kind: "disabled"; reason: UpdateDisabledReason }
   | { kind: "idle" }
   | { kind: "checking" }
   | { kind: "up-to-date" }
-  | { kind: "downloading"; version: string }
+  | { kind: "available"; version: string }
+  | { kind: "downloading"; version: string; percent: number | null }
   | { kind: "downloaded"; version: string }
   | { kind: "error"; message: string };
 export type UpdateStatus = { version: string; state: UpdateState };
@@ -49,7 +54,10 @@ export type UpdateStatus = { version: string; state: UpdateState };
 export type UpdaterLike = {
   autoDownload: boolean;
   checkForUpdates(): Promise<{ isUpdateAvailable: boolean; updateInfo: { version: string } } | null>;
+  downloadUpdate(): Promise<unknown>;
   on(event: "update-downloaded", cb: (info: { version: string }) => void): unknown;
+  on(event: "download-progress", cb: (progress: { percent: number }) => void): unknown;
+  on(event: "error", cb: (error: Error) => void): unknown;
   quitAndInstall(): void;
 };
 
@@ -61,8 +69,16 @@ export class RealmUpdater {
     decision: UpdaterDecision;
     load: () => Promise<UpdaterLike>;
     onDownloaded?: (version: string) => void;
+    /** Every change of state, as `status()` would answer it — what main pushes to the windows, so a
+     *  download's progress reaches the rail without the renderer polling for it. */
+    onChange?: (status: UpdateStatus) => void;
   }) {
     this.state = d.decision.enabled ? { kind: "idle" } : { kind: "disabled", reason: d.decision.reason };
+  }
+
+  private set(state: UpdateState): void {
+    this.state = state;
+    this.d.onChange?.(this.status());
   }
 
   status(): UpdateStatus {
@@ -73,21 +89,36 @@ export class RealmUpdater {
    *  renderer: even a hand-crafted IPC call cannot start electron-updater in a gated build. */
   async check(): Promise<UpdateStatus> {
     if (!this.d.decision.enabled) return this.status();
-    if (this.state.kind === "checking") return this.status();
-    this.state = { kind: "checking" };
+    // A check in flight, or a download already under way or done: a second check would only start
+    // electron-updater's download over again.
+    if (this.state.kind === "checking" || this.state.kind === "downloading" || this.state.kind === "downloaded") return this.status();
+    this.set({ kind: "checking" });
     try {
       const u = await this.ensure();
       const res = await u.checkForUpdates();
       // Only overwrite "checking": the update-downloaded event may have already advanced the state
-      // while checkForUpdates' promise was settling (autoDownload runs behind it).
-      if (this.state.kind === "checking") {
-        this.state = res?.isUpdateAvailable
-          ? { kind: "downloading", version: res.updateInfo.version }
-          : { kind: "up-to-date" };
+      // while checkForUpdates' promise was settling (autoDownload runs behind it). Read through
+      // `status()`, because the event's write is one the compiler cannot see from here.
+      if (this.status().state.kind === "checking") {
+        this.set(res?.isUpdateAvailable
+          ? { kind: "downloading", version: res.updateInfo.version, percent: null }
+          : { kind: "up-to-date" });
       }
     } catch (e) {
-      this.state = { kind: "error", message: e instanceof Error ? e.message : String(e) };
+      this.set({ kind: "error", message: e instanceof Error ? e.message : String(e) });
     }
+    return this.status();
+  }
+
+  /** Start the download again, only from `available` — the one state where a version is known and
+   *  nothing is fetching it. Anything else answers its state unchanged. */
+  async download(): Promise<UpdateStatus> {
+    if (this.state.kind !== "available" || !this.updater) return this.status();
+    const version = this.state.version;
+    this.set({ kind: "downloading", version, percent: null });
+    // A failure lands through the `error` event, which puts the version back to `available`; the
+    // promise's own rejection says the same thing again and is not a second fact.
+    await this.updater.downloadUpdate().catch(() => {});
     return this.status();
   }
 
@@ -102,8 +133,18 @@ export class RealmUpdater {
     const u = await this.d.load();
     u.autoDownload = true;
     u.on("update-downloaded", (info) => {
-      this.state = { kind: "downloaded", version: info.version };
+      this.set({ kind: "downloaded", version: info.version });
       this.d.onDownloaded?.(info.version);
+    });
+    u.on("download-progress", (p) => {
+      if (this.state.kind !== "downloading" || !Number.isFinite(p.percent)) return;
+      this.set({ ...this.state, percent: Math.max(0, Math.min(100, p.percent)) });
+    });
+    /* electron-updater reports a failed download as an `error` event — with autoDownload there is no
+       promise of ours to reject. A check's own failure is caught in `check` above, so this only
+       answers for a download, and leaves the version known: the rail's button can start it again. */
+    u.on("error", () => {
+      if (this.state.kind === "downloading") this.set({ kind: "available", version: this.state.version });
     });
     this.updater = u;
     return u;

@@ -162,7 +162,7 @@ describe("CommandPalette", () => {
   });
 
   it("'New session in a worktree' pins the session to a worktree it makes first (W2)", async () => {
-    const { store, api } = await mount();
+    const { store, api } = await mount({ gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } } });
     fireEvent.change(input(), { target: { value: "worktree" } });
     fireEvent.click(screen.getByRole("option", { name: /New session in a worktree/ }));
     await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
@@ -174,6 +174,13 @@ describe("CommandPalette", () => {
     expect(env.kind).toBe("worktree");
     expect(store.getState().environments[env.id]).toMatchObject({ kind: "worktree", branch: "realm/session" });
     expect(store.getState().sheet).toBeNull();
+  });
+
+  it("offers no session in a worktree where the space is a plain folder — it has none to make", async () => {
+    const { store } = await mount();
+    await act(async () => { await store.getState().refreshGitInfo("/tmp"); });
+    fireEvent.change(input(), { target: { value: "worktree" } });
+    expect(screen.queryByRole("option", { name: /New session in a worktree/ })).toBeNull();
   });
 
   it("a per-agent one-shot names its agent and routes through the very same newSession path", async () => {
@@ -475,12 +482,13 @@ describe("shortcut hints follow the keymap", () => {
 });
 
 /**
- * The three narrowings have to be tellable apart. A ⌘P that landed in "open a file" looked exactly
- * like a ⌘K until this landed — same placeholder, and an empty list whether the space had no checkout
- * or the query simply matched nothing. Both were found by running the real app, not by a test.
+ * The narrowed palette has to be tellable apart from ⌘K. A ⌘P that landed in "open a file" looked
+ * exactly like a ⌘K until this landed — same placeholder, and an empty list whether the space had no
+ * checkout or the query simply matched nothing. Both were found by running the real app, not by a
+ * test. (⌘P is the documents pane's search now; ⌘⇧P keeps the narrowing.)
  */
 describe("the narrowed palette says which question it is asking", () => {
-  const openIn = async (mode: "all" | "files" | "grep", over: Parameters<typeof fakeApi>[0] = {}) => {
+  const openIn = async (mode: "all" | "grep", over: Parameters<typeof fakeApi>[0] = {}) => {
     const api = fakeApi(over); const store = createAppStore(api); await store.getState().boot();
     act(() => store.getState().setPaletteOpen(true, mode));
     render(<StoreContext.Provider value={store}><CommandPalette /></StoreContext.Provider>);
@@ -488,14 +496,15 @@ describe("the narrowed palette says which question it is asking", () => {
   };
 
   it("names the mode in the placeholder", async () => {
-    await openIn("files");
-    expect(screen.getByRole("combobox")).toHaveAttribute("placeholder", "Open a file…");
+    await openIn("grep");
+    expect(screen.getByRole("combobox")).toHaveAttribute("placeholder", "Find in files…");
   });
 
   it("says a space with no checkout has nothing to search, rather than 'No matches'", async () => {
     /* THE MUTANT: fall back to "No matches". That sends someone hunting for a typo in a query that
        was never the problem — there is no checkout to match against. */
-    await openIn("files");
+    await openIn("grep");
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "parser" } });
     await waitFor(() => expect(screen.getByText(/no checkout yet/i)).toBeInTheDocument());
     expect(screen.queryByText("No matches")).toBeNull();
   });

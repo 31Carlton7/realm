@@ -318,6 +318,10 @@ const P = {
      *  Absent means the question was not answered — an agent that has no such concept, or a list the
      *  CLI declined — and the prompter offers nothing rather than guessing. */
     supportsFastMode: z.boolean().optional(),
+    /** The same answer for EVERY model the harness listed, keyed by the id a session would pin ("" for
+     *  the harness's own default). One session's handshake is then enough for the next session on any
+     *  of those models to offer the switch before its first message (`MODEL_FAST_SUPPORT_KEY`). */
+    fastModeModels: z.record(z.string(), z.boolean()).optional(),
     /** Whether Realm ASKED this handshake to continue an earlier conversation. False on a session's
      *  first boot, true on every boot after one. */
     resumeRequested: z.boolean().optional(),

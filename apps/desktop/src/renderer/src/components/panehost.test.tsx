@@ -371,6 +371,37 @@ describe("PaneHost", () => {
   });
 });
 
+describe("PaneHost side panes put away", () => {
+  const withSide: Layout = { type: "split", id: "col", dir: "row", sizes: [60, 40], children: [
+    { type: "leaf", id: "L1", itemId: "B" },
+    { type: "leaf", id: "S1", itemId: "A", tabs: ["A"], owner: "B" },
+  ] };
+
+  it("keeps the side pane mounted and draws nothing of it, divider included — the pane it serves takes the row", () => {
+    // THE MUTANT: unmount the strip to hide it — a browser's view, a terminal's scrollback and an
+    // agent's hold on the page would go with it.
+    const { container } = renderHost({ layout: withSide, sidePanesHidden: true });
+    const strip = container.querySelector('[data-leaf-id="S1"]')!;
+    expect(strip).not.toBeNull();
+    expect((strip.closest("[data-panel]") as HTMLElement).style.display).toBe("none");
+    expect((container.querySelector(".resize-handle") as HTMLElement).style.display).toBe("none");
+    expect((container.querySelector('[data-leaf-id="L1"]')!.closest("[data-panel]") as HTMLElement).style.display).not.toBe("none");
+  });
+
+  it("marks the bar at the window's top right — the side pane's while it is out, the main pane's once it is away", () => {
+    const shown = renderHost({ layout: withSide });
+    expect(shown.container.querySelector("[data-top-right]")).toHaveAttribute("data-leaf-id", "S1");
+    shown.unmount();
+    const hidden = renderHost({ layout: withSide, sidePanesHidden: true });
+    expect(hidden.container.querySelector("[data-top-right]")).toHaveAttribute("data-leaf-id", "L1");
+    // A row's top right is its LAST child, a column's is in its FIRST.
+    hidden.unmount();
+    const stacked: Layout = { type: "split", id: "v", dir: "col", sizes: [50, 50], children: [withSide, { type: "leaf", id: "L9", itemId: null }] };
+    const { container } = renderHost({ layout: stacked });
+    expect(container.querySelector("[data-top-right]")).toHaveAttribute("data-leaf-id", "S1");
+  });
+});
+
 describe("PaneHost divider double-click", () => {
   const threeCol: Layout = { type: "split", id: "root", dir: "row", sizes: [60, 25, 15], children: [
     { type: "leaf", id: "L1", itemId: "A" },
@@ -612,16 +643,6 @@ describe("App shell", () => {
     expect(l.children).toHaveLength(2);
     expect(l.children[1]).toMatchObject({ type: "leaf", itemId: null });
     expect(store.getState().focusedLeafId).toBe(l.children[1]!.id);
-  });
-
-  it("the error bar steps below the connection banner only while the socket is down", async () => {
-    const { store } = await mountMain("L1");
-    act(() => store.setState({ error: "boom" }));
-    expect(document.querySelector(".error-bar")).not.toHaveAttribute("data-under-banner");
-    act(() => store.setState({ connectionState: "reconnecting" }));
-    expect(document.querySelector(".error-bar")).toHaveAttribute("data-under-banner");
-    act(() => store.setState({ connectionState: "connected" }));
-    expect(document.querySelector(".error-bar")).not.toHaveAttribute("data-under-banner");
   });
 
 });

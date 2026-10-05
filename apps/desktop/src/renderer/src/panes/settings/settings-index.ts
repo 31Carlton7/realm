@@ -93,6 +93,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "terminal-cursor-blink", tab: "general", section: "Terminals", label: TERMINALS_CURSOR_BLINK_COPY.label, terms: "caret" },
   { id: "terminal-cursor-style", tab: "general", section: "Terminals", label: TERMINALS_CURSOR_STYLE_COPY.label, terms: "caret block bar underline shape" },
   { id: "terminal-dock", tab: "general", section: "Terminals", label: "Session terminal", terms: "bottom right position dock place shell" },
+  { id: "terminal-colors", tab: "general", section: "Terminals", label: "Terminal colours", terms: "colors palette ansi theme p10k powerlevel10k shell xterm" },
   { id: "updates", tab: "general", section: "Updates", label: "Check for updates", terms: "version restart install" },
   { id: "prevent-sleep", tab: "general", section: "Power", label: "Keep the Mac awake while agents work", terms: "sleep caffeinate battery idle" },
   { id: "low-power", tab: "general", section: "Power", label: "Low power", terms: "battery animation motion energy" },

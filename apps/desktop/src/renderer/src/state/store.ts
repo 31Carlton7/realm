@@ -1,5 +1,5 @@
-import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome } from "@realm/contracts";
-import { destinationTarget, pageItemId } from "./page-item";
+import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
+import { destinationTarget, pageHidesSidebar, pageItemId } from "./page-item";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
@@ -7,16 +7,17 @@ import {
   allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, openItem as layoutOpen, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   groupsFromLayout, SpaceGroupsSchema,
-  columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type StoredView, type WindowView,
+  columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, primaryLeaves, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type StoredView, type WindowView,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
-import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
+import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
+import { pushToast, type Toast, type ToastInput } from "./toasts";
 import { getMachineHub } from "../panes/machine/machine-hub";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, clampPaneAlpha, paneAlphaFromGround,
@@ -32,6 +33,13 @@ import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-
 import type { SettingsTab } from "../panes/settings/settings-index";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
+/** What the New space sheet hands over: the row, and what is made WITH it — the folder its sessions
+ *  work in (its first project) and its memory document. */
+export type NewSpaceInput = CreateSpaceInput & { folder?: string | null; memory?: string };
+/** What a New space attempt has made so far, filled in as each step lands. The sheet keeps one across
+ *  a failed Create and hands it back, so pressing Create again finishes the job rather than making a
+ *  second space beside the first. */
+export type NewSpaceProgress = { spaceId?: string; memory?: string; folder?: string; projectId?: string };
 export type NewProfileInput = { name: string; icon?: string; color?: string };
 export type UpdateProfileInput = { id: string; name?: string; icon?: string; color?: string };
 /** What deleting a profile takes with it. */
@@ -179,6 +187,8 @@ export type Api = {
   /** `environments.createWorktree` — makes the worktree on disk AND its row, as one operation. */
   createWorktree(spaceId: string, title: string | null): Promise<Environment>;
   createSpace(input: CreateSpaceInput): Promise<Space>;
+  /** `spaces.folderFor` — the folder `createSpace` would make for this name, without making it. */
+  spaceFolderFor(profileId: string, name: string): Promise<string>;
   updateSpace(input: UpdateSpaceInput): Promise<Space>;
   reorderSpaces(ids: string[]): Promise<void>;
   deleteSpace(id: string): Promise<void>;
@@ -212,7 +222,7 @@ export type Api = {
   renameDocumentFile(documentsId: string, from: string, to: string): Promise<{ path: string }>;
   /** Plan 22 (school workflows): previews, guide progress, lectures, the Plynn handoff. */
   previewInfo(): Promise<{ port: number; token: string }>;
-  openDocumentPath(spaceId: string, path: string, environmentId?: string): Promise<{ documentsId: string; itemId: string; environmentId: string }>;
+  openDocumentPath(spaceId: string, path: string, environmentId?: string): Promise<{ documentsId: string; itemId: string; environmentId: string; path: string }>;
   readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
   recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
   startLecture(spaceId: string, title: string): Promise<StartLectureResult>;
@@ -500,8 +510,14 @@ export type Api = {
    *  that same state rather than pretending to check. */
   updateStatus(): Promise<UpdateStatus>;
   checkUpdates(): Promise<UpdateStatus>;
+  /** Start the download of an update main knows of and is not fetching; main answers any other
+   *  state unchanged. */
+  downloadUpdate(): Promise<UpdateStatus>;
   /** Quit-and-install; main ignores it unless an update is actually downloaded. */
   installUpdate(): Promise<void>;
+  /** Every change of main's updater state, a download's progress included. Optional: a renderer
+   *  with no preload bridge simply never hears one. */
+  onUpdateStatus?(cb: (status: UpdateStatus) => void): () => void;
   /** Ask main to post an OS toast for a surfaced feed row. Answers whether one was actually shown —
    *  main suppresses it while the Realm window is focused, and that call is main's to make. */
   showDesktopNotification(input: { id: string; title: string; body: string | null }): Promise<boolean>;
@@ -601,6 +617,8 @@ export type Api = {
   deleteSchedule(id: string): Promise<{ deleted: boolean }>;
   runScheduleNow(id: string): Promise<Schedule>;
   listRuns(spaceId: string, states?: RunState[], cursor?: string | null, limit?: number): Promise<{ runs: Run[]; nextCursor: string | null }>;
+  /** `runs.list` narrowed to one schedule's runs — a task's history on the Scheduled page. */
+  listScheduleRuns(spaceId: string, scheduleId: string, cursor: string | null, limit: number): Promise<{ runs: Run[]; nextCursor: string | null }>;
   /** `runs.create` — queue a durable run. Returns the row plus whether it was newly created (a
    *  `dedupeKey` collision returns the live run instead of a second one). */
   createRun(input: { spaceId: string; goal: string; title?: string }): Promise<{ run: Run; created: boolean }>;
@@ -629,7 +647,17 @@ export type Api = {
    *  in memory, so this is the only way a pane mounted mid-run learns about it; from then on
    *  `delegation.changed` carries every change. */
   listDelegatedRuns(sessionId: string): Promise<DelegatedRun[]>;
+  /** `delegation.children` — every session this one delegated to, settled ones included. */
+  listDelegatedChildren(sessionId: string): Promise<DelegatedChild[]>;
+  /** `delegation.models` — what a sub-agent can be put on, and what this session runs itself. */
+  delegableModels(sessionId: string): Promise<DelegableModels>;
+  /** `delegation.tab` — the session's Agents tab, made the first time it is asked for. */
+  agentsTab(sessionId: string): Promise<{ itemId: string }>;
 };
+
+/** The Agents tab composer's catalog: one row per model on the route a delegation would take, and
+ *  the model the session itself is on — the one choice that needs no name. */
+export type DelegableModels = { models: DelegableModel[]; own: { kind: AgentKind; label: string } };
 
 /** The two narrowing dimensions Activity's chips apply — `undefined` means "not filtering by this". */
 export type McpCallsFilter = { sessionId?: string; serverId?: string };
@@ -708,12 +736,14 @@ export const PERSIST_DEBOUNCE_MS = 300;
 /** Where a pane a person opened goes when no pane was named: in place (false), beside the focused
  *  pane (true), or into the side pane of the session whose bar asked for it. */
 export type Beside = boolean | { sessionId: string };
-/** Which question the command palette is asking. One surface, three narrowings: ⌘K searches Realm's
- *  own records, ⌘P the checkout's file names, ⌘⇧F the checkout's contents. */
-export type PaletteMode = "all" | "files" | "grep";
-/** What a blank browser tab's new-tab page offers: the ⌘P palette, and the panes a session opens
- *  beside itself. */
-export type NewTabTool = "files" | "terminal" | "documents" | "simulator" | "machine";
+/** Which question the command palette is asking: ⌘K searches Realm's own records, ⌘⇧P the checkout's
+ *  contents. Finding a file by its NAME is the documents pane's own search (⌘P, `findInDocuments`). */
+export type PaletteMode = "all" | "grep";
+/** What a blank browser tab's new-tab page offers: the panes a session opens beside itself. */
+export type NewTabTool = "terminal" | "documents" | "simulator" | "machine";
+/** What a documents pane is asked from outside it: put the keyboard in its search, or show one of its
+ *  files at a line. `path` is the tab's own name for the file (`documents.openPath` answers it). */
+export type DocumentsAsk = { documentsId: string; seq: number } & ({ search: true } | { path: string; line: number });
 
 /** The space last made current — where a new session goes when no session has focus. Before Plan 27
  *  it was the room the window was in, which is why a home upgraded from rooms migrates from it. */
@@ -762,6 +792,8 @@ const SETTING_KONAMI_UNLOCKED = "ui.konamiUnlocked";
 /** Whether the sidebar is collapsed to the top rail. Persisted so a collapsed window stays
  *  collapsed across launches — the whole point of collapsing is reclaiming the column for good. */
 const SETTING_SIDEBAR_COLLAPSED = "ui.sidebarCollapsed";
+/** The side panes put away (`toggleSidePanes`): their tabs kept, the panes not drawn. */
+const SETTING_SIDE_PANES_HIDDEN = "ui.sidePanesHidden";
 /** How wide the sidebar column is, in pixels. Its own key rather than a field on the one above: the
  *  two answer different questions, and a width remembered through a collapse is what makes bringing
  *  the sidebar back restore the column the user had rather than the one Realm ships. */
@@ -790,6 +822,9 @@ export const EVENTS_PAGE = 1000;
 /** Activity's page size — matches `mcp.calls.list`'s own default, so "fewer than a page came back"
  *  (the "Load more" hide condition) means the same thing on both sides of the wire. */
 export const MCP_CALLS_PAGE = 50;
+/** How many of a task's runs the Scheduled page holds per fetch: enough to show three under the task
+ *  and know whether "Show older" has anything behind it. */
+export const SCHEDULE_RUNS_PAGE = 10;
 /** Ceiling on `mcpCalls` while the sheet is open and live events are prepending (W7 plan: "cap the
  *  in-memory list... so a chatty agent can't grow it unboundedly"). Only the live-prepend path
  *  (`applyMcpCall`) enforces this — `loadMoreMcpCalls` is a page the user explicitly asked for, and
@@ -961,6 +996,15 @@ export type AppState = {
   /** Sidebar hidden, its toggle moved to the top rail. The toggle is rendered in BOTH states —
    *  a collapse with no way back is a trap — which is why this is one boolean and not a mode. */
   sidebarCollapsed: boolean;
+  /** The side panes put away by the toggle at the window's top right: every side pane's tabs stay
+   *  open — mounted, a browser's page and an agent's hold on it included — and none is drawn, so
+   *  the panes they serve take the width. Window-wide rather than per pane, because it is one
+   *  control. Persisted, as the window's other arrangements are. */
+  sidePanesHidden: boolean;
+  /** The page that takes the sidebar away (`PAGE_SHELL`) on which the person asked for it back
+   *  anyway — that overlay itself, so the ask ends with the page and never touches their own
+   *  `sidebarCollapsed`. Read through `sidebarHidden` (selectors.ts), never on its own. */
+  sidebarOnPage: AppState["pageOverlay"];
   /** The column's width in pixels, inside SIDEBAR_WIDTH's range. Top-level because the shell paints
    *  it and the handle inside the sidebar writes it. */
   sidebarWidth: number;
@@ -1098,7 +1142,12 @@ export type AppState = {
    *  is in a worktree. Sparse by design: a space that has never run anything has none until one is
    *  created. Filter by `spaceId` for one space's. */
   environments: Record<string, Environment>;
-  error: string | null;
+  /** What the foot of the window is saying — newest last, at most `TOAST_LIMIT` (toasts.ts). A failed
+   *  `run` lands here, and so does every receipt that used to draw a notice of its own. */
+  toasts: Toast[];
+  /** The strip a browser view gives up at the window's foot while the toasts have nowhere else to
+   *  stand (`placeToastStack` found no clear spot), in window px. Null almost always. */
+  toastReserve: Rect | null;
   /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner. */
   connectionState: "connected" | "reconnecting";
   /** The user's keymap as the server last reported it, or Realm's defaults until it answers. Held
@@ -1106,6 +1155,10 @@ export type AppState = {
    *  list the handler reads — a hardcoded `⌘T` in a menu becomes a lie the moment someone rebinds it. */
   keybindings: readonly Keybinding[];
   paletteOpen: boolean;
+  /** The last thing a documents pane was asked to do from outside it — ⌘P's "search here", a line to
+   *  show — numbered so asking twice is two asks. Held here rather than sent to the pane because the
+   *  pane may not exist yet when it is asked: the open that makes it is the same gesture. */
+  documentsAsk: DocumentsAsk | null;
   /** The space overview (⌘⇧Space): every space across every profile, sectioned. Its own flag rather
    *  than a `Sheet`, for the same reason `paletteOpen` is — it must toggle from its own hotkey while
    *  open, which the sheet guard in hotkeys.ts forbids. */
@@ -1391,6 +1444,10 @@ export type AppState = {
   /** Held per space, like runs and ships: a space whose schedules nobody has opened has nothing to
    *  go stale, and `schedules.changed` only refetches for the ones a page is actually showing. */
   schedules: Record<string, Schedule[]>;
+  /** The runs each schedule fired, newest first, by schedule id — the Scheduled page's history under
+   *  each task. Held-only like `runs`: `runs.changed` folds a run into its schedule's list when that
+   *  list is held, and `nextCursor` is where "Show older" picks up. */
+  scheduleRuns: Record<string, { runs: Run[]; nextCursor: string | null }>;
   /** Which run the Tasks lens has selected, PER SPACE — the same posture as `spacePageTab`, so two
    *  space pages open side by side do not fight over one selection. */
   selectedRunId: Record<string, string | null>;
@@ -1401,6 +1458,14 @@ export type AppState = {
    *  delegation registry, mirrored. A session waiting on nothing holds no entry rather than an empty
    *  array, so the map stays the size of the delegation actually happening. */
   delegatedRuns: Record<string, DelegatedRun[]>;
+  /** Every sub-agent a lead session started (`delegation.children`), by LEAD session id — what its
+   *  Agents tab lists and its transcript's delegation lines read. Fetched while either is on screen,
+   *  and re-read on each `delegation.changed` for the lead, which is every begin, settle and collect. */
+  subagents: Record<string, DelegatedChild[]>;
+  /** What a lead's Agents tab was last asked to show: a plan to start the composer from ("Implement
+   *  with…"), or a row to bring into view (a transcript line). Counted, so the same ask twice is two
+   *  asks rather than a prop that did not change. */
+  agentsAsk: Record<string, { plan?: string; childId?: string; n: number }>;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -1408,11 +1473,6 @@ export type AppState = {
   checkpointAckStale: boolean;
   /** The last restore's outcome, so the sheet can say what happened and name the undo. */
   restoreResult: RestoreResult | null;
-  /** A line to land on in a file just opened by `openDocumentPath` — a file reference in the
-   *  transcript names one. Held here, not sent with the open, because the pane that lands on it may
-   *  not exist yet: it is read when the file's editor mounts, and spent there (`n` tells a second
-   *  click on the same line from the first). `path` is absolute; the pane's are workspace-relative. */
-  documentReveal: { documentsId: string; path: string; line: number; n: number } | null;
   /** Terminal side panel per session id (W4). Absent = never opened, which is also what keeps the pty
    *  unspawned: nothing reaches the server until an entry turns `open`. Persisted as one setting. */
   terminalPanel: Record<string, TerminalPanel>;
@@ -1615,7 +1675,13 @@ export type AppState = {
   /** The profile switcher's choice. A profile already open in another window brings THAT window
    *  forward and this one stays as it is; otherwise this window switches to it (`selectProfile`). */
   switchProfile(profileId: string): Promise<void>;
-  createSpace(input: CreateSpaceInput): Promise<void>;
+  /** The New space sheet's Create: the space, then a session in it with the keyboard — never the
+   *  space's Overview (see `openNewSpace`). The sheet stays up while it runs and is closed HERE, just
+   *  before the landing. `made` carries a failed attempt's work into the next; an aborted `signal` (the
+   *  sheet dismissed mid-run) stops it where it stands. */
+  createSpace(input: NewSpaceInput, attempt?: { made?: NewSpaceProgress; signal?: AbortSignal }): Promise<void>;
+  /** Where a space of this name would work if it is given no folder (`spaces.folderFor`). */
+  spaceFolderFor(profileId: string, name: string): Promise<string>;
   updateSpace(input: UpdateSpaceInput): Promise<void>;
   deleteSpace(id: string): Promise<void>;
   reorderSpaces(ids: string[]): Promise<void>;
@@ -1659,7 +1725,8 @@ export type AppState = {
   forgetEggPack(id: string): Promise<void>;
   /** Record that the konami sequence landed. One way: there is no relocking. */
   unlockKonami(): Promise<void>;
-  /** Flip the sidebar between full column and top rail, and persist it. */
+  /** Flip the sidebar between full column and top rail, and persist it. On a page that takes the
+   *  sidebar away it shows or hides it for that page alone, and persists nothing. */
   toggleSidebar(): Promise<void>;
   /** Lay the session file browser out as `view`, and remember it (`SETTING_FILES_VIEW`). */
   setFilesView(view: FilesView): Promise<void>;
@@ -1761,8 +1828,17 @@ export type AppState = {
    *
    * `focus` moves the keyboard to it, for a person who asked; an agent's open leaves the keyboard
    * where it is, and its tab comes to the front of the strip without taking anything else.
+   *
+   * THE way something becomes a tab of a session's side pane: every tool a session's bar opens
+   * (terminal, documents, browser, machine, simulator) and every agent's open lands here, whatever
+   * kind it is — make the item, then hand it to this. A person's open (`focus`) also brings the side
+   * panes back if they were put away (`sidePanesHidden`); an agent's quiet one adds its tab and
+   * leaves them as the person left them.
    */
   openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean }): Promise<boolean>;
+  /** The toggle at the window's top right: put every side pane away with its tabs, or bring them
+   *  back. With none on screen it opens one, on a new tab, beside the session in focus. */
+  toggleSidePanes(): Promise<void>;
   /** A tab moved within its strip (drag to reorder). */
   moveTab(leafId: string, itemId: string, index: number): Promise<void>;
   /**
@@ -2093,22 +2169,29 @@ export type AppState = {
      cached copy would be a second answer that can disagree with the one a spawn actually uses. */
   getSandbox(spaceId: string): Promise<SandboxState>;
   setSandbox(spaceId: string, prefs: ExecutionSandboxPrefs | null): Promise<SandboxState>;
-  /** The active space's primary checkout — what ⌘P and ⌘⇧F search. Null before environments land,
+  /** The active space's primary checkout — what ⌘⇧P searches. Null before environments land,
    *  which is a case the palette must say something about rather than showing an empty list. */
   projectCwd(): string | null;
-  searchProjectFiles(query: string): Promise<ProjectFilesResult | null>;
+  /** File names in a checkout: `cwd` when named (a documents pane searches its own), else the active
+   *  space's primary. */
+  searchProjectFiles(query: string, cwd?: string | null): Promise<ProjectFilesResult | null>;
   searchProjectText(query: string): Promise<ProjectGrepResult | null>;
-  /** Which question the palette is asking. ⌘K is "all"; ⌘P and ⌘⇧F open the same surface narrowed. */
+  /** Which question the palette is asking. ⌘K is "all"; ⌘⇧P opens the same surface narrowed. */
   paletteMode: PaletteMode;
   setPaletteOpen(open: boolean, mode?: PaletteMode): void;
-  /** The blank tab a file picked in the palette takes the place of — set when a new-tab page's Files
-   *  opens the palette, honoured only while that palette is up, and gone with it. */
-  paletteReplaces: string | null;
+  /**
+   * ⌘P: the documents pane, with the keyboard in its search — the one place a file is found, opened
+   * or made. The pane of the session the keyboard is in (or the one the focused side pane serves) as
+   * a tab of its side pane, the way its bar's Documents button opens it; with no session, the space's.
+   */
+  findInDocuments(): Promise<void>;
+  /** The pane that acted on `documentsAsk` says so, so a pane that mounts later — the same one, back
+   *  from a space switch — is not asked again. A newer ask than `seq` is left for its own pane. */
+  takeDocumentsAsk(seq: number): void;
   /**
    * A tool picked on a blank browser tab's new-tab page. It opens where the tab stood — a tab of the
-   * same strip, or the pane the browser had — and the blank tab goes. "files" opens the ⌘P palette
-   * instead, and the file picked there takes the tab's place. A terminal starts in, and documents
-   * open on, the checkout of the session the tab's side pane serves.
+   * same strip, or the pane the browser had — and the blank tab goes. A terminal starts in, and
+   * documents open on, the checkout of the session the tab's side pane serves.
    */
   openFromNewTab(itemId: string, tool: NewTabTool): Promise<void>;
   setKeybindings(rules: readonly Keybinding[]): void;
@@ -2192,6 +2275,9 @@ export type AppState = {
   /** Attach files already on disk and already described — a browser pane's screenshot, which main
    *  wrote and measured. Same path as a drop: the same cap, the same dedupe by path. */
   attachPicked(sessionId: string, picked: readonly PickedAttachment[]): void;
+  /** Attach files by path — a file listed by the documents pane, added to the next message. Main
+   *  describes them, as it does a drop; one that is no longer on disk is said, not silently skipped. */
+  attachPaths(sessionId: string, paths: readonly string[]): Promise<void>;
   /** Drop one pending attachment (its chip's ×). Keyed by path, which is unique within the row. */
   removeAttachment(sessionId: string, path: string): void;
   /**
@@ -2241,9 +2327,10 @@ export type AppState = {
   setCommitMessage(cwd: string, text: string): void;
   /** Commit, push and open a PR as one action; stores the outcome for the pane to explain. */
   ship(input: ShipInput): Promise<void>;
-  /** Open (or focus) the diff pane for an environment, in the environment's own space. The pane's
-   *  item has the ENVIRONMENT's id as its refId, so it survives the session that opened it and cannot
-   *  show another checkout's tree. */
+  /** Open (or go to) the diff for an environment, in the environment's own space — as a tab of the
+   *  side pane beside the session working in that checkout (else beside the pane in focus), never as
+   *  a pane of its own. The one way Changes opens, whoever asks. The item has the ENVIRONMENT's id as
+   *  its refId, so it survives the session that opened it and cannot show another checkout's tree. */
   openDiff(environmentId: string, targetLeafId?: string | null): Promise<void>;
   /** An edit card's Review: put the checkout's diff pane on one turn's changes, opened the way every
    *  diff pane is opened (`openDiff`), so it lands wherever that puts the pane. */
@@ -2252,20 +2339,24 @@ export type AppState = {
    *  `environmentId` omitted uses the primary checkout of `spaceId`, else of the current space.
    *  `beside` splits right and opens there instead of taking over the focused pane — the same
    *  argument `newBrowser` takes, and for the same reason: a pane opened FROM another pane is a
-   *  second view, not a replacement for the one you asked from. */
-  openDocuments(environmentId?: string | null, targetLeafId?: string | null, beside?: Beside, spaceId?: string | null): Promise<void>;
+   *  second view, not a replacement for the one you asked from. Answers the workspace it opened. */
+  openDocuments(environmentId?: string | null, targetLeafId?: string | null, beside?: Beside, spaceId?: string | null): Promise<{ documentsId: string; itemId: string } | null>;
   /**
    * Plan 22. Put one file on screen: the server adds it to the workspace's tab strip (creating the
    * workspace when needed) and the item comes into the layout. `documents.openRequested` — which
    * the server broadcasts for this AND for an agent's `docs_open` — is what a mounted pane opens
    * the tab on; `applyDocumentOpenRequested` is the store's half, and it leaves an item that is
    * already on screen alone.
+   *
+   * THE way into the documents pane by path, from anywhere: `at.line` (1-based) puts the cursor on
+   * that line of a code file, which is what a path quoted as `file.ts:42` means. Absolute and `~/`
+   * paths are taken as an agent writes them; the server places them in the workspace.
+   *
+   * `at.beside` opens the pane where `openDocuments` would — beside a session, as a tab of its side
+   * pane — rather than in the focused leaf's place: a file named in a transcript is a look at it, and
+   * the reader keeps the transcript they asked from.
    */
-  /** `line` lands the file's editor on that line (`documentReveal`); `beside` opens the pane where
-   *  `openDocuments` would — a session's side pane — instead of in the focused leaf's place. */
-  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null, opts?: { line?: number | null; beside?: Beside }): Promise<void>;
-  /** The documents pane landed on `documentReveal` number `n`; a later request is left standing. */
-  consumeDocumentReveal(n: number): void;
+  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null, at?: { line?: number; beside?: Beside }): Promise<void>;
   applyDocumentOpenRequested(p: { spaceId: string; environmentId: string; documentsId: string; itemId: string; path: string; openedBy?: string }): Promise<void>;
   /** Start a lecture in `spaceId` (else the current space): the dated notes file open in the documents
    *  pane as the main view, and a session beside it to ask things during class. Nothing is sent to
@@ -2310,6 +2401,25 @@ export type AppState = {
   /** The `delegation.changed` handler. The payload is the WHOLE set, so it replaces rather than
    *  merges; an empty one drops the key instead of parking an empty array nobody will clear. */
   applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
+  /** Re-read a lead's sub-agents into `subagents`. */
+  refreshSubagents(sessionId: string): Promise<void>;
+  /** The session's Agents tab, as a tab of its side pane the way its other tools open — with the
+   *  composer started from `plan`, or the row for `childId` brought into view, when asked. */
+  openAgentsTab(sessionId: string, ask?: { plan?: string; childId?: string }): Promise<void>;
+  /** The tab has taken what it was asked for; a remount must not take it again. */
+  clearAgentsAsk(sessionId: string): void;
+  /** `delegation.models`, for the composer. Not held in the store: it is read when the tab mounts. */
+  delegableModels(sessionId: string): Promise<DelegableModels>;
+  /**
+   * Send the Agents tab's instruction to the session's own agent.
+   *
+   * Not `sendMessage`, which carries the prompter's sidecars — its attachments, chips and session
+   * references — with whatever it sends: a half-written draft in the prompter is not part of what the
+   * Agents tab is asking for. And it leaves Plan first, answering a plan still waiting for approval
+   * with Keep planning: a lead in Plan can only start sub-agents that read, which is not what
+   * "build this" asked for.
+   */
+  delegateWork(sessionId: string, text: string): Promise<void>;
   /** The `session.agentOpened` handler. A durable run's worker opens beside the focused pane; a
    *  delegated child opens nowhere — it is listed under its lead's running-agents control — and is
    *  remembered so its clean finish can be read (`applyAgentSettled`). */
@@ -2415,8 +2525,12 @@ export type AppState = {
   /** Run a real update check (or receive the disabled state unchanged — main's gate decides).
    *  The interim `checking` shown is main's genuine in-flight state, not renderer theatre. */
   checkForUpdates(): Promise<void>;
+  /** Fetch an update main knows of but is not downloading (`available`) — a no-op in main otherwise. */
+  downloadUpdate(): Promise<void>;
   /** Restart into a downloaded update; a no-op in main unless one is actually downloaded. */
   installUpdate(): Promise<void>;
+  /** Hold `updateStatus` to main's every change while the returned stop has not been called. */
+  watchUpdateStatus(): () => void;
   /** Fetch the feed's first page (replacing what is held — sized to cover at least what was showing,
    *  so a refetch triggered by `notifications.changed` never shrinks the visible list). */
   refreshNotifications(): Promise<void>;
@@ -2462,6 +2576,10 @@ export type AppState = {
   setTerminalHistory(enabled: boolean): Promise<void>;
   setTerminalCursorBlink(on: boolean): Promise<void>;
   setTerminalCursorStyle(style: TerminalCursorStyle): Promise<void>;
+  /** Realm's sixteen colours or xterm's (Settings ▸ General ▸ Terminals). Reaches live terminals
+   *  through the hub. */
+  terminalColors: TerminalColorScheme;
+  setTerminalColors(scheme: TerminalColorScheme): Promise<void>;
   setEditorCursorBlink(on: boolean): Promise<void>;
   /** Which edge of a session pane its terminal (⌘J) docks to (Settings ▸ General ▸ Terminals). */
   terminalDock: TerminalDockEdge;
@@ -2509,11 +2627,16 @@ export type AppState = {
   refreshSchedules(spaceId: string): Promise<void>;
   /** The four schedule writes. Each re-lists rather than folding a row in: unlike a run, a schedule
    *  changes rarely, so a refetch costs nothing and there is one code path instead of two. */
-  createSchedule(input: CreateScheduleInput): Promise<void>;
-  updateSchedule(input: UpdateScheduleInput): Promise<void>;
+  createSchedule(input: CreateScheduleInput): Promise<Schedule>;
+  updateSchedule(input: UpdateScheduleInput): Promise<Schedule>;
   deleteSchedule(id: string, spaceId: string): Promise<void>;
-  /** Fire once now, without moving the schedule's own clock (see `ScheduleService.runNow`). */
-  runScheduleNow(id: string, spaceId: string): Promise<void>;
+  /** Fire once now, without moving the schedule's own clock (see `ScheduleService.runNow`). Answers
+   *  the schedule, whose `lastRunId` names the run this made. */
+  runScheduleNow(id: string, spaceId: string): Promise<Schedule>;
+  /** Re-fetch the first page of one schedule's runs. */
+  refreshScheduleRuns(schedule: Pick<Schedule, "id" | "spaceId">): Promise<void>;
+  /** The page after the one held — "Show older" under a task. */
+  loadOlderScheduleRuns(schedule: Pick<Schedule, "id" | "spaceId">): Promise<void>;
   /** Re-fetch one space's runs (first page). What the Tasks tab mounts and what `runs.changed`
    *  triggers for spaces already held. */
   refreshRuns(spaceId: string): Promise<void>;
@@ -2599,9 +2722,13 @@ export type AppState = {
    *  AND the row matches the active filter, and only once per id — the event can repeat (binding rule
    *  6), and a resend must not duplicate the row. */
   applyMcpCall(call: McpCall): void;
-  /** Run an action, surfacing any rejection in `error` (and console.error). Use at UI call sites. */
+  /** Run an action, surfacing any rejection as an error toast (and console.error). Use at UI call sites. */
   run(action: () => Promise<unknown>): void;
-  clearError(): void;
+  /** Put a toast up; the id is for a caller that may take its own down again (a receipt replaced by
+   *  the next one). */
+  toast(input: ToastInput): string;
+  dismissToast(id: string): void;
+  setToastReserve(rect: Rect | null): void;
 };
 
 /** The title "New worktree…" sends (Plan 12 W1): the draft's first few words — enough to recognise the
@@ -2610,6 +2737,25 @@ export type AppState = {
 export function worktreeTitleFrom(draft: string): string | null {
   const words = draft.trim().split(/\s+/).filter(Boolean).slice(0, 4).join(" ");
   return words ? words.slice(0, 40) : null;
+}
+
+/** The checkout a space's worktrees branch from: its primary environment, which is what
+ *  `environments.createWorktree` uses when no `from` is named — the space's own folder until one exists. */
+export function spaceCheckoutPath(s: Pick<AppState, "environments" | "spaces">, spaceId: string): string | null {
+  const primary = Object.values(s.environments).find((e) => e.spaceId === spaceId && e.kind === "primary");
+  return primary?.path ?? s.spaces.find((sp) => sp.id === spaceId)?.folderPath ?? null;
+}
+
+/**
+ * Whether git has said a space's own checkout is not a repository — a plain folder, which is what a
+ * space made from nothing is (`~/Realm/<profile>/<space>`). Such a space has no worktrees and cannot
+ * make one, so nothing offers to: offering it was how a space someone had just made came up under a
+ * red "is not a git repository, so it has no worktrees". A folder nobody has asked git about yet is
+ * NOT plain — the actions ask for themselves (`checkoutIsRepo`), and say nothing either way.
+ */
+export function spaceIsPlainFolder(s: Pick<AppState, "environments" | "spaces" | "gitInfo">, spaceId: string): boolean {
+  const path = spaceCheckoutPath(s, spaceId);
+  return path !== null && s.gitInfo[path] === null;
 }
 
 /** Prune-only: drop ids that no longer exist. Never adds — an unopened item is simply an item of its space. */
@@ -2692,6 +2838,11 @@ export type FocusDir = "left" | "right" | "up" | "down";
  * depend on the origin leaf's cross-axis position, which the tree does not encode. Null = no
  * neighbor that way (callers no-op).
  */
+/** Every side pane in the layout — the tabbed leaves, on screen or put away. */
+export function sidePaneLeaves(l: Layout): LayoutLeaf[] {
+  return l.type === "leaf" ? (l.tabs ? [l] : []) : l.children.flatMap(sidePaneLeaves);
+}
+
 export function neighborLeafId(l: Layout, leafId: string, dir: FocusDir): string | null {
   const axis = dir === "left" || dir === "right" ? "row" : "col";
   const forward = dir === "right" || dir === "down";
@@ -3102,7 +3253,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         next.push(a);
       }
       set({ pendingAttachments: { ...get().pendingAttachments, [sessionId]: next } });
-      if (refused.length > 0) set({ error: `Too large to attach — the limit is ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)}: ${refused.join(", ")}` });
+      if (refused.length > 0) get().toast({ tone: "warning", text: `Too large to attach — the limit is ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)}: ${refused.join(", ")}` });
     };
     /**
      * Put a history entry's IN-PANE view back — the half of a stop that no layout write can restore.
@@ -3241,6 +3392,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  itemsFetchSeq slot so any older in-flight refreshItems response is dropped instead of pruning
      *  the item this fetch is about to open. */
     /** Kick an event-driven git refresh for one session's cwd (no-op while the session is unknown). */
+    /**
+     * Ask git, now, whether a space's own checkout is a repository — and keep the answer where the
+     * prompter and the sidebar read it (`spaceIsPlainFolder`). Every action that would make a worktree
+     * asks this first instead of letting the server refuse, because a plain folder simply HAS no
+     * worktrees: that is a fact about the space, not a failure to report. (An empty repository reads
+     * the same way — git has no HEAD to branch a worktree from until its first commit.)
+     */
+    const checkoutIsRepo = async (spaceId: string): Promise<boolean> => {
+      const path = spaceCheckoutPath(get(), spaceId);
+      if (!path) return false;
+      await get().refreshGitInfo(path);
+      return get().gitInfo[path] != null;
+    };
     const refreshGitFor = (sessionId: string) => {
       const cwd = get().sessions[sessionId]?.cwd;
       if (cwd) get().run(() => get().refreshGitInfo(cwd));
@@ -3325,10 +3489,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       latestItemsLoad.set(sid, load);
       return load;
     };
-    /** File picks for a new tab still waiting on the server — see `applyDocumentOpenRequested`. */
-    let newTabPicks = 0;
-    /** Numbers each `documentReveal`, so spending one can never clear the request after it. */
-    let reveals = 0;
+    /** The documents pane's asks are numbered so the same ask made twice (⌘P, ⌘P) is two. */
+    let documentsAskSeq = 0;
     /**
      * What a new-tab page opened takes the blank tab's place: into the leaf holding it — a tab of the
      * same strip, where the new tab stood, or the pane itself — and the blank tab goes, since a
@@ -3361,6 +3523,32 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * not a reason to close what someone is reading.
      */
     const revealPanes = () => { if (get().pageOverlay) set({ pageOverlay: null }); };
+    /** `itemId` as a tab of the side pane of the main pane holding `owner` (an item id): the strip it
+     *  has, or a new one to its right. `openInSidePane`'s body once it has found its session; also what
+     *  the diff uses when the pane in focus is not a session (`openDiff`). */
+    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean } = {}): Promise<boolean> => {
+      const view = viewNow();
+      const layout = layoutOpenInSidePane(view.layout, owner, itemId);
+      if (!layout) return false;
+      const leaf = findLeafOfItem(layout, itemId)!;
+      if (opts.focus) {
+        revealPanes();
+        revealSidePanes();
+        set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
+      } else {
+        set(writeView({ ...view, layout }));
+      }
+      await persist();
+      return true;
+    };
+    /** Bring the side panes back if they were put away: a person just asked to look at something in
+     *  one (a tool from a session's bar, a tab, a row whose item is a tab), and a keyboard parked in
+     *  a pane nobody can see is a click that missed. */
+    const revealSidePanes = () => {
+      if (!get().sidePanesHidden) return;
+      set({ sidePanesHidden: false });
+      void api.setSetting(SETTING_SIDE_PANES_HIDDEN, false).catch(() => {});
+    };
 
     /** The newest session of a space that has a pane to open — by the session's own `updatedAt`,
      *  which is what "most recent" means to the person who last worked on it. */
@@ -3486,6 +3674,56 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       }
     };
     /**
+     * A new space, opened on its first session — how first run ends and how the New space sheet's
+     * Create does. Not on the space's Overview, which is where `selectSpace` takes a space with
+     * nothing in it: someone who has just named a space came to work in it, not to read its
+     * settings. A folder becomes the space's first project and the session opens IN it rather than
+     * in the empty folder Realm allocates; the memory is written before the session exists, so its
+     * first turn reads it. Then the keyboard, the way an open from a list hands it over, so the hand
+     * that pressed Create can type.
+     *
+     * The sheet asks with `made` and `signal`. `made` is what a failed attempt already made — that
+     * space, now wearing whatever was changed since, its memory and project — so a retry skips it.
+     * An aborted `signal` (the sheet dismissed while this ran) starts nothing further and moves
+     * nothing: whatever was already made stays made, and the window stays where the person went.
+     */
+    const openNewSpace = async (input: CreateSpaceInput & { folder: string | null; memory?: string; agentKind: AgentKind },
+      made: NewSpaceProgress = {}, signal?: AbortSignal) => {
+      const stopped = () => signal?.aborted === true;
+      const before = profileSpaceIds();
+      const row = { name: input.name, icon: input.icon, profileId: input.profileId, color: input.color };
+      const again = made.spaceId !== undefined && get().spaces.some((x) => x.id === made.spaceId);
+      const space = again ? await api.updateSpace({ id: made.spaceId!, ...row }) : await api.createSpace(row);
+      made.spaceId = space.id;
+      set({ spaces: again ? get().spaces.map((x) => (x.id === space.id ? space : x)) : [...get().spaces.filter((x) => x.id !== space.id), space] });
+      if (get().activeProfileId === input.profileId) await syncProfileSpaces(before);
+      else if (!stopped()) await get().selectProfile(input.profileId);
+      if (stopped()) return;
+      // A full replace, so a retry writes it only when it changed — cleared included.
+      const doc = input.memory?.trim() ? input.memory : "";
+      if (doc !== (made.memory ?? "")) { await get().saveMemoryDoc(space.id, doc); made.memory = doc; }
+      if (stopped()) return;
+      let projectId: string | null = null;
+      if (input.folder && made.projectId && made.folder === input.folder) projectId = made.projectId;
+      else if (input.folder) {
+        const project = await api.createProject(space.id, folderName(input.folder), input.folder);
+        made.projectId = projectId = project.id; made.folder = input.folder;
+        await get().refreshProjects(space.id);
+      }
+      if (stopped()) return;
+      const { session, itemId } = await api.createSession({ spaceId: space.id, agentKind: input.agentKind, projectId });
+      rememberAgent(input.agentKind);
+      if (inProfile(space.id)) mergeSession(session);
+      if (stopped()) return;
+      /* The sheet that asked closes now, BEFORE the session is opened: closing unwinds the snap a
+         wide browser pane was given for it (W2.4), and unwound after the landing it would lay the old
+         arrangement back over the session. `fork` closes its sheet first for the same reason. */
+      if (get().sheet?.kind === "new-space") get().closeSheet();
+      await adoptItem(space.id, itemId, null);
+      await get().openSession(session.id);
+      set({ keyboardFor: { sessionId: session.id, n: (get().keyboardFor?.n ?? 0) + 1 } });
+    };
+    /**
      * The window's view for the active profile, from what was saved — or, the first time a profile is
      * opened by a build without rooms, from the active split of the space it was last in, so the user
      * sees what they last saw. That migration is written straight back, so it happens once; the
@@ -3528,7 +3766,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const last = lastSpaceId && get().spaces.some((sp) => sp.id === lastSpaceId && sp.profileId === pid) ? lastSpaceId : null;
       set({
         activeProfileId: pid, items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}),
-        view: null, layout: null, focusedLeafId: null, peek: null, sheetSnap: null, error: null, offscreenBrowsers: [],
+        view: null, layout: null, focusedLeafId: null, peek: null, sheetSnap: null, offscreenBrowsers: [],
         // Diffs and patches are keyed by checkout path, and every pane that could show one belongs to
         // the profile being left.
         diffs: {}, diffLoading: {}, patches: {},
@@ -3645,6 +3883,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       try { return await fn(); } finally { if (--trailHeld === 0) noteStop(); }
     };
 
+    /** Toast ids, per window: the id is what a toast's timer and its exit are keyed to. */
+    let toastSeq = 0;
     let groundAlphaTimer: ReturnType<typeof setTimeout> | null = null;
     let paneAlphaTimer: ReturnType<typeof setTimeout> | null = null;
     let sidebarWidthTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3652,30 +3892,30 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidePanesHidden: false, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
-      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
+      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", documentsAsk: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
       spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, documentReveal: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], editorCursorBlink: EDITOR_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], editorCursorBlink: EDITOR_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       profileSpaces() { const pid = get().activeProfileId; return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_SIDEBAR_OPEN_SPACES), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
@@ -3688,6 +3928,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.systemInfo().catch(() => ({ machineName: "", userName: "", detachedSince: null })),
           // Same posture: a face that fails to load is an initial, never a failed boot.
           api.getAvatar().catch(() => null),
+          api.getSetting(SETTING_SIDE_PANES_HIDDEN),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         /* The panes' own value, or — in a home saved while one control moved both — the value that
@@ -3705,6 +3946,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, lowPower: lowPower === true,
           paneAlpha: carriedPane, reduceMotion: isReducedMotionPref(motion) ? motion : REDUCED_MOTION_DEFAULT,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
+          sidePanesHidden: sidePanesHidden === true,
           sidebarWidth: typeof sidebarWidth === "number" ? clampSidebarWidth(sidebarWidth) : SIDEBAR_WIDTH.default,
           // Rows unless the row says cards: an unset key, and a word a newer build wrote that this
           // one does not know, both get the layout the panel shipped with.
@@ -3771,6 +4013,8 @@ await get().refreshCustomThemes().catch(() => {});
         set({ editorCursorBlink: editorBlink !== false });
         const cursorStyle = await api.getSetting(TERMINALS_CURSOR_STYLE_KEY).catch(() => null);
         set({ terminalCursorStyle: isTerminalCursorStyle(cursorStyle) ? cursorStyle : TERMINALS_CURSOR_STYLE_DEFAULT });
+        const colorScheme = await api.getSetting(TERMINALS_COLORS_KEY).catch(() => null);
+        set({ terminalColors: isTerminalColorScheme(colorScheme) ? colorScheme : TERMINALS_COLORS_DEFAULT });
         const dockEdge = await api.getSetting(TERMINALS_DOCK_KEY).catch(() => null);
         set({ terminalDock: isTerminalDockEdge(dockEdge) ? dockEdge : TERMINALS_DOCK_DEFAULT });
         // Only an explicit `true` keeps a Mac awake: an unset key and a failed read both mean nobody
@@ -3931,15 +4175,11 @@ await get().refreshCustomThemes().catch(() => {});
         if (await api.focusProfileWindow(profileId)) return;
         await get().selectProfile(profileId);
       },
-      async createSpace(input) {
-        const before = profileSpaceIds();
-        const s = await api.createSpace(input);
-        set({ spaces: [...get().spaces.filter((x) => x.id !== s.id), s] });
-        await syncProfileSpaces(before);
-        // There, as a click on it would go: another profile's switches the window, and a space with
-        // nothing in it yet opens on its Overview.
-        await get().selectSpace(s.id);
+      async createSpace({ folder = null, memory, ...input }, attempt) {
+        // Another profile's switches the window, as a click on one of its spaces would.
+        await openNewSpace({ ...input, folder, memory, agentKind: get().lastAgentKind ?? FALLBACK_AGENT }, attempt?.made, attempt?.signal);
       },
+      spaceFolderFor(profileId, name) { return api.spaceFolderFor(profileId, name); },
       async updateSpace(input) {
         const before = profileSpaceIds();
         mergeSpace(await api.updateSpace(input));
@@ -4172,6 +4412,11 @@ await get().refreshCustomThemes().catch(() => {});
         await api.setSetting(SETTING_KONAMI_UNLOCKED, true);
       },
       async toggleSidebar() {
+        // A page with no sidebar of its own (PAGE_SHELL) gives it back for this visit only: ⌘B there
+        // is a person asking to see their spaces beside the page, not changing what every other
+        // screen does — and leaving the page leaves their own setting exactly as it was.
+        const page = get().pageOverlay;
+        if (page && pageHidesSidebar(page.kind)) { set({ sidebarOnPage: get().sidebarOnPage === page ? null : page }); return; }
         const next = !get().sidebarCollapsed;
         set({ sidebarCollapsed: next });
         await api.setSetting(SETTING_SIDEBAR_COLLAPSED, next);
@@ -4220,19 +4465,7 @@ await get().refreshCustomThemes().catch(() => {});
         // the very first screen can never be a dead end.
         const profileId = get().activeProfileId ?? get().profiles[0]?.id ?? (await get().createProfile("Personal")).id;
         await get().setDefaultAgent(agentKind);
-        // Made here rather than through `createSpace`, which lands on the new space's Overview: the
-        // screen after onboarding is a prompter, opened below.
-        const before = profileSpaceIds();
-        const space = await api.createSpace({ name, icon, profileId, color });
-        set({ spaces: [...get().spaces.filter((x) => x.id !== space.id), space] });
-        if (get().activeProfileId !== profileId) await get().selectProfile(profileId);
-        else await syncProfileSpaces(before);
-        // The folder becomes the space's first project, and the session opens IN it — not in the
-        // empty space folder Realm allocates, which is where a first session used to land even when
-        // the user had a repo in mind.
-        const project = folder ? await api.createProject(space.id, folderName(folder), folder) : null;
-        if (project) await get().refreshProjects(space.id);
-        await get().newSession({ agentKind, projectId: project?.id ?? null, spaceId: space.id });
+        await openNewSpace({ name, icon, color, profileId, folder, agentKind });
       },
       async pickAndLinkProject(spaceId = null) {
         const path = await api.pickFolder();
@@ -4338,18 +4571,27 @@ await get().refreshCustomThemes().catch(() => {});
         const owner = await sideOwnerOf(sessionId);
         if (!owner) return false;
         // Read after the walk: it may have fetched, and the view is whatever it is now.
-        const view = viewNow();
-        const layout = layoutOpenInSidePane(view.layout, owner, itemId);
-        if (!layout) return false;
-        const leaf = findLeafOfItem(layout, itemId)!;
-        if (opts.focus) {
-          revealPanes();
-          set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
-        } else {
-          set(writeView({ ...view, layout }));
+        return openInSidePaneOf(owner, itemId, opts);
+      },
+      async toggleSidePanes() {
+        const layout = get().layout ?? emptyLayout();
+        if (!sidePaneLeaves(layout).length) {
+          // None to show or hide: the toggle is the way to the side pane, as Codex's is to its panel,
+          // so it opens one — on a new tab, beside the session the keyboard is in or the first one on
+          // screen. With no session there is nothing for a side pane to serve, and nothing happens.
+          const owner = get().peekOwner();
+          const leaf = owner ? findLeafOfItem(layout, owner) : null;
+          if (!leaf) return;
+          set({ focusedLeafId: leaf.id });
+          await get().newTab();
+          return;
         }
-        await persist();
-        return true;
+        const hidden = !get().sidePanesHidden;
+        // The keyboard does not stay in a pane that has just gone: it goes to the session it served.
+        const focused = get().focusedLeafId ? findLeaf(layout, get().focusedLeafId!) : null;
+        const back = hidden && focused?.tabs ? columnOf(layout, focused.id)?.id ?? null : null;
+        set({ sidePanesHidden: hidden, ...(back ? { focusedLeafId: back } : {}) });
+        await api.setSetting(SETTING_SIDE_PANES_HIDDEN, hidden);
       },
       async moveTab(leafId, itemId, index) {
         const layout = get().layout; if (!layout) return;
@@ -4420,6 +4662,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (!layout) return false;
         const leaf = findLeafOfItem(layout, item.id)!;
         revealPanes();
+        revealSidePanes();
         set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id, peek: { item, owner } }));
         return true;
       },
@@ -4464,6 +4707,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (leafId === null) {
           const at = findLeafOfItem(current, itemId);
           if (at) {
+            if (at.tabs) revealSidePanes();
             // A tab behind another: "go there" means bringing it to the front of its strip too.
             const fronted = at.itemId === itemId ? view : { ...view, layout: layoutOpen(current, at.id, itemId) };
             // …and a pane focus parked on ANOTHER leaf would swallow the move: the pane asked for is
@@ -4486,6 +4730,7 @@ await get().refreshCustomThemes().catch(() => {});
         else if (focused?.tabs && item?.kind !== "session") layout = layoutOpen(current, focused.id, itemId);
         else layout = showInView(current, peekColumn ?? get().focusedLeafId, itemId);
         const leaf = findLeafOfItem(layout, itemId);
+        if (leaf?.tabs) revealSidePanes();
         set(writeView(revealing({ ...view, layout }, leaf?.id ?? null), { focusedLeafId: leaf?.id ?? null }));
         await persist();
       },
@@ -4666,7 +4911,8 @@ await get().refreshCustomThemes().catch(() => {});
         const { layout, focusedLeafId } = get();
         if (!layout || !focusedLeafId) return;
         const next = neighborLeafId(layout, focusedLeafId, dir);
-        if (next) set({ focusedLeafId: next });
+        // Not into a side pane that is put away: the keyboard would be somewhere nobody can see.
+        if (next && !(get().sidePanesHidden && findLeaf(layout, next)?.tabs)) set({ focusedLeafId: next });
       },
       resizeSplit(splitId, sizes) {
         const l = get().layout; if (!l) return;
@@ -4727,6 +4973,9 @@ await get().refreshCustomThemes().catch(() => {});
         for (const id of new Set([...Object.keys(get().delegatedRuns), ...Object.keys(get().transcripts)])) {
           get().run(() => get().refreshDelegatedRuns(id));
         }
+        // The lists of sub-agents are tables, not a registry, so they survived — but every child that
+        // began, settled or was collected while the socket was down went unannounced.
+        for (const id of Object.keys(get().subagents)) get().run(() => get().refreshSubagents(id));
       },
       // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
       setKeybindings(rules) { set({ keybindings: rules }); },
@@ -4734,19 +4983,34 @@ await get().refreshCustomThemes().catch(() => {});
       async removeScript(spaceId, id) { await api.removeScript(spaceId, id); await get().refreshScripts(spaceId); },
       async reorderScripts(spaceId, ids) { await api.reorderScripts(spaceId, ids); await get().refreshScripts(spaceId); },
       setPaletteOpen(open, mode = "all") {
-        // A new tab's mark lasts the one palette it was set on: across a ⌘⇧P from Files, which is the
-        // same palette asked a different question, and not into the next one opened.
-        const replaces = open && get().paletteOpen ? get().paletteReplaces : null;
-        set(open ? { paletteOpen: true, paletteMode: mode, paletteReplaces: replaces, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false, paletteMode: "all", paletteReplaces: null });
+        set(open ? { paletteOpen: true, paletteMode: mode, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false, paletteMode: "all" });
+      },
+      async findInDocuments() {
+        // ⌘P from inside ⌘⇧P's field is the same question put to the other surface, so that one goes.
+        if (get().paletteOpen) get().setPaletteOpen(false);
+        const s = get();
+        const focused = itemIdOfLeaf(s.layout, s.focusedLeafId);
+        const here = focused ? s.items.find((i) => i.id === focused) : undefined;
+        let opened: { documentsId: string; itemId: string } | null;
+        if (here?.kind === "documents") opened = { documentsId: here.refId, itemId: here.id };
+        else {
+          // The session the keyboard is in, the one the focused side pane serves, or the first one on
+          // screen — `peekOwner`'s answer, which is also where that session's Documents button opens.
+          const owner = s.peekOwner();
+          const ownerItem = owner ? s.items.find((i) => i.id === owner) : undefined;
+          const session = ownerItem ? s.sessions[ownerItem.refId] : undefined;
+          opened = session
+            ? await get().openDocuments(session.environmentId, null, { sessionId: session.id })
+            : await get().openDocuments(null, null, true);
+        }
+        if (opened) set({ documentsAsk: { documentsId: opened.documentsId, seq: ++documentsAskSeq, search: true } });
+      },
+      takeDocumentsAsk(seq) {
+        if (get().documentsAsk?.seq === seq) set({ documentsAsk: null });
       },
       async openFromNewTab(itemId, tool) {
         // The blank tab's own space: what opens in its place belongs where the tab did.
         const sid = get().items.find((i) => i.id === itemId)?.spaceId ?? get().activeSpaceId; if (!sid) return;
-        if (tool === "files") {
-          get().setPaletteOpen(true, "files");
-          set({ paletteReplaces: itemId });
-          return;
-        }
         // The session the tab's side pane serves, whose checkout the tool opens on. A browser that is
         // a pane of its own serves nobody, and the space's primary checkout is the server's default.
         const owner = findLeafOfItem(get().layout ?? emptyLayout(), itemId)?.owner;
@@ -5009,7 +5273,7 @@ await get().refreshCustomThemes().catch(() => {});
            it (it writes before it broadcasts). Re-read here, before the returns below, because the
            answer is wanted by sessions that have not STARTED — the next one on this model offers the
            switch before its first message only if this copy has heard. */
-        if (ev.event.type === "init" && ev.event.payload.supportsFastMode !== undefined) {
+        if (ev.event.type === "init" && (ev.event.payload.supportsFastMode !== undefined || ev.event.payload.fastModeModels)) {
           void get().run(() => get().refreshFastSupport());
         }
         /** This event makes no other write: the line, and the log's length, are the whole of it. */
@@ -5096,8 +5360,14 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async newSessionInWorktree(targetLeafId = null, spaceId = null) {
         const sid = spaceFor(spaceId); if (!sid) return;
-        // The worktree is created FIRST and the session pinned to it. If creating it throws (not a
-        // repository, no commits yet) no session is made at all — `run` surfaces the reason.
+        // A plain folder has no worktrees. The session asked for still opens — in the folder, the only
+        // checkout such a space has — and nothing is said, because nothing went wrong.
+        if (!(await checkoutIsRepo(sid))) {
+          await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, spaceId: sid }, targetLeafId);
+          return;
+        }
+        // The worktree is created FIRST and the session pinned to it. If creating it throws (git
+        // refused the add) no session is made at all — `run` surfaces the reason.
         const env = await api.createWorktree(sid, null);
         if (inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
         await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id, spaceId: sid }, targetLeafId);
@@ -5128,11 +5398,14 @@ await get().refreshCustomThemes().catch(() => {});
         const text = brief.trim(); if (!text) return [];
         const n = Math.max(1, Math.min(FAN_OUT_MAX, Math.trunc(count)));
         const started: Session[] = [];
+        // A plain folder has no worktrees to give each agent; they share the folder, which is all such
+        // a space has, rather than the batch failing on its first add.
+        const isolate = worktrees && await checkoutIsRepo(sid);
         try {
           for (let i = 0; i < n; i++) {
             // Named from the brief, like "New worktree…" does, so the branches say what they are for
             // and the server's slugifier settles the collision between N of the same name.
-            const env = worktrees ? await api.createWorktree(sid, worktreeTitleFrom(text)) : null;
+            const env = isolate ? await api.createWorktree(sid, worktreeTitleFrom(text)) : null;
             if (env && inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
             const { session } = await api.createSession({
               spaceId: sid, agentKind, ...(env ? { environmentId: env.id } : {}), userDispatched: true,
@@ -5417,7 +5690,10 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async moveSessionToNewWorktree(sessionId) {
         const s = get().sessions[sessionId]; if (!s) return;
-        // Create FIRST; if it throws (not a repo, no commits) the session stays where it was and `run`
+        // A plain folder has no worktree to move into, and the prompter does not offer one there; a
+        // request that arrives anyway leaves the session where it is.
+        if (!(await checkoutIsRepo(s.spaceId))) return;
+        // Create FIRST; if it throws (git refused the add) the session stays where it was and `run`
         // surfaces the reason — same shape as newSessionInWorktree.
         const env = await api.createWorktree(s.spaceId, worktreeTitleFrom(get().drafts[sessionId] ?? ""));
         if (inProfile(s.spaceId)) set({ environments: { ...get().environments, [env.id]: env } });
@@ -5737,8 +6013,8 @@ await get().refreshCustomThemes().catch(() => {});
         set({ spaceScripts: { ...get().spaceScripts, [spaceId]: scripts } });
       },
       projectCwd: () => Object.values(get().environments).find((e) => e.kind === "primary")?.path ?? null,
-      async searchProjectFiles(query) {
-        const cwd = get().projectCwd(); if (!cwd) return null;
+      async searchProjectFiles(query, cwd = get().projectCwd()) {
+        if (!cwd) return null;
         return api.projectFiles(cwd, query);
       },
       async searchProjectText(query) {
@@ -5878,6 +6154,14 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async attachFromPicker(sessionId) { addAttachments(sessionId, await api.pickFiles()); },
       attachPicked(sessionId, picked) { addAttachments(sessionId, picked); },
+      async attachPaths(sessionId, paths) {
+        const described = await api.describePaths([...paths]);
+        // Main describes only what is on disk, so a missing file comes back as nothing at all — said
+        // here, rather than as a click that added no chip.
+        const gone = paths.filter((p) => !described.some((d) => d.path === p));
+        if (gone.length > 0) get().toast({ tone: "warning", text: `No longer on disk: ${gone.map((p) => basenameOf(p)).join(", ")}` });
+        addAttachments(sessionId, described);
+      },
       removeAttachment(sessionId, path) {
         const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => a.path !== path);
         set({ pendingAttachments: { ...get().pendingAttachments, [sessionId]: left } });
@@ -6021,65 +6305,66 @@ await get().refreshCustomThemes().catch(() => {});
         if (!env) return;
         // The checkout's own space: a diff of another space's worktree is that space's item.
         const sid = env.spaceId;
-        // One diff pane per environment: a second "show changes" on the same checkout goes to the
-        // pane that already exists rather than accumulating identical panes.
-        const existing = get().items.find((i) => i.kind === "diff" && i.refId === environmentId);
-        // Same eviction bug openItemBeside exists to fix, just triggered by the user instead of an
-        // agent: replacing the focused leaf in place stranded the session with no way back. Open it
-        // beside instead — unless the caller named an explicit target leaf.
-        if (existing) {
-          if (targetLeafId === null) { await get().openItemBeside(existing.id); return; }
-          await get().openItem(existing.id, targetLeafId);
-          return;
+        // One diff per environment: a second "show changes" on the same checkout goes to the one that
+        // already exists rather than accumulating identical tabs.
+        let itemId = get().items.find((i) => i.kind === "diff" && i.refId === environmentId)?.id;
+        if (!itemId) {
+          const title = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? "Changes";
+          const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
+          await loadSpaceItems(sid);
+          if (!inProfile(sid)) return;
+          itemId = created.id;
         }
-        const title = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? "Changes";
-        const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
-        await adoptItem(sid, created.id, targetLeafId, true);
+        if (targetLeafId !== null) { await get().openItem(itemId, targetLeafId); return; }
+        const layout = get().layout ?? emptyLayout();
+        // On screen already — a tab, or a pane someone made of it: go there.
+        if (findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
+        /* A TAB of a side pane, never a column of its own (the owner, 10-04: "the diff changes should
+           also be a tab instead of its own pane"). Beside a session and its browser it was a third
+           column a third of the window wide. Every way in — the session's bar, the branch chip, the
+           summary, a space's page, a transcript's Review — comes through here, so every one of them
+           lands the same way: in the side pane of the session working in this checkout when one is on
+           screen, else of the pane in focus. With nothing on screen to be beside, the empty pane
+           takes it. */
+        const mains = primaryLeaves(layout).map((leaf) => leaf.itemId).filter((id): id is string => id !== null);
+        const items = get().items;
+        const working = mains.find((id) => {
+          const item = items.find((i) => i.id === id);
+          return item?.kind === "session" && get().sessions[item.refId]?.environmentId === environmentId;
+        });
+        const focused = get().focusedLeafId ? columnOf(layout, get().focusedLeafId)?.itemId ?? null : null;
+        const owner = working ?? focused ?? mains[0] ?? null;
+        if (owner && await openInSidePaneOf(owner, itemId, { focus: true })) return;
+        await get().openItem(itemId);
       },
       async openDocuments(environmentId = null, targetLeafId = null, beside = false, spaceId = null) {
         // The checkout's space when one is named; else the session's it is opened beside; else the
         // named or current space, whose primary checkout the server resolves.
         const sid = (environmentId ? get().environments[environmentId]?.spaceId : undefined) ?? spaceFor(spaceId ?? besideSpace(beside));
-        if (!sid) return;
+        if (!sid) return null;
         // No local "is it already open?" check, unlike openDiff: the SERVER enforces one workspace per
         // environment and returns the existing pair, so this call is idempotent and already answers
         // the question. Doing it here as well would need the environment id the caller may not have
         // passed (the primary checkout is resolved server-side) plus a cache of workspace rows to
         // resolve it against — two new pieces of state to keep honest, for an answer already in hand.
-        const { itemId } = await api.createDocuments(sid, environmentId ?? undefined);
+        const made = await api.createDocuments(sid, environmentId ?? undefined);
         const layout = get().layout;
-        if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId, targetLeafId); return; }
-        await adoptItem(sid, itemId, targetLeafId, beside);
+        if (layout && findLeafOfItem(layout, made.itemId)) await get().openItem(made.itemId, targetLeafId);
+        else await adoptItem(sid, made.itemId, targetLeafId, beside);
+        return made;
       },
-      async openDocumentPath(path, environmentId = null, spaceId = null, { line = null, beside = false } = {}) {
+      async openDocumentPath(path, environmentId = null, spaceId = null, at = {}) {
         const sid = (environmentId ? get().environments[environmentId]?.spaceId : undefined) ?? spaceFor(spaceId);
         if (!sid) return;
-        // Read before the round trip: the palette closes as the pick is made, and its close clears it.
-        // Only while it is open — a sheet or the spaces overview can take the palette down without
-        // clearing it, and a file opened from anywhere else then is not the new tab's pick.
-        const replacing = get().paletteOpen ? get().paletteReplaces : null;
-        if (replacing) newTabPicks++;
-        try {
-          const { itemId, documentsId } = await api.openDocumentPath(sid, path, environmentId ?? undefined);
-          if (line) set({ documentReveal: { documentsId, path, line, n: ++reveals } });
-          // Picked from a new-tab page's Files: the documents pane takes the blank tab's place.
-          if (replacing && findLeafOfItem(get().layout ?? emptyLayout(), replacing)) { await replaceNewTab(sid, replacing, itemId); return; }
-          const layout = get().layout;
-          if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
-          await adoptItem(sid, itemId, null, beside);
-        } finally {
-          if (replacing) newTabPicks--;
-        }
-      },
-      consumeDocumentReveal(n) {
-        if (get().documentReveal?.n === n) set({ documentReveal: null });
+        const opened = await api.openDocumentPath(sid, path, environmentId ?? undefined);
+        // Asked before the pane is brought up, so a pane this open is about to mount finds it there.
+        if (at.line) set({ documentsAsk: { documentsId: opened.documentsId, seq: ++documentsAskSeq, path: opened.path, line: at.line } });
+        const layout = get().layout;
+        if (layout && findLeafOfItem(layout, opened.itemId)) { await get().openItem(opened.itemId); return; }
+        await adoptItem(sid, opened.itemId, null, at.beside ?? false);
       },
       async applyDocumentOpenRequested({ spaceId, itemId, openedBy }) {
         if (!inProfile(spaceId)) return;
-        // This window's own pick for a new tab, still on its way back: `openDocumentPath` puts the
-        // file in the tab's place once its call returns, and this broadcast arrives first. Opened
-        // quietly beside the focused pane here, it would already be somewhere, and be gone to.
-        if (!openedBy && newTabPicks > 0) return;
         const leaf = findLeafOfItem(get().layout ?? emptyLayout(), itemId);
         // On screen in a pane of its own: the pane opens the tab itself.
         if (leaf && !leaf.tabs) return;
@@ -6172,6 +6457,40 @@ await get().refreshCustomThemes().catch(() => {});
       applyDelegationChanged({ sessionId, running }) {
         const { [sessionId]: _idle, ...rest } = get().delegatedRuns;
         set({ delegatedRuns: running.length === 0 ? rest : { ...rest, [sessionId]: running } });
+        // The same moment is a change in the lead's list of sub-agents — one began, settled, or was
+        // collected — wherever that list is being read: its Agents tab, or its transcript's lines.
+        if (get().subagents[sessionId] || get().transcripts[sessionId]) void get().run(() => get().refreshSubagents(sessionId));
+      },
+      async refreshSubagents(sessionId) {
+        const children = await api.listDelegatedChildren(sessionId);
+        set({ subagents: { ...get().subagents, [sessionId]: children } });
+      },
+      async openAgentsTab(sessionId, ask) {
+        if (ask) set({ agentsAsk: { ...get().agentsAsk, [sessionId]: { ...ask, n: (get().agentsAsk[sessionId]?.n ?? 0) + 1 } } });
+        const sid = get().sessions[sessionId]?.spaceId ?? get().allSessions[sessionId]?.spaceId;
+        if (!sid) return;
+        const { itemId } = await api.agentsTab(sessionId);
+        // Already a tab somewhere: brought to the front where it is. Otherwise the documents button's
+        // route — a tab of this session's side pane, with the keyboard, because a person asked.
+        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
+        await adoptItem(sid, itemId, null, { sessionId });
+      },
+      clearAgentsAsk(sessionId) {
+        if (!get().agentsAsk[sessionId]) return;
+        const { [sessionId]: _taken, ...agentsAsk } = get().agentsAsk;
+        set({ agentsAsk });
+      },
+      delegableModels: (sessionId) => api.delegableModels(sessionId),
+      async delegateWork(sessionId, text) {
+        // The lead may itself be someone's sub-agent; one the user writes to is theirs from here on,
+        // exactly as `sendMessage` has it.
+        delegatedChildren.delete(sessionId);
+        const waiting = (get().sessionStatus[sessionId] ?? get().sessions[sessionId]?.status) === "waiting_permission";
+        const plan = waiting ? get().transcripts[sessionId]?.t.pendingPermissions.find((p) => p.toolName === "ExitPlanMode") : undefined;
+        if (plan) await get().respondPermission(sessionId, plan.requestId, "deny");
+        const session = get().sessions[sessionId];
+        if (session && sessionModeOf(session.permissionMode) === "plan") await get().setSessionMode(sessionId, "build");
+        await api.sendMessage(sessionId, text, [], [], [], undefined, []);
       },
       async applyAgentOpened({ spaceId, sessionId, itemId }) {
         if (!inProfile(spaceId)) return;
@@ -6403,7 +6722,9 @@ await get().refreshCustomThemes().catch(() => {});
         if (held && held.state.kind !== "disabled") set({ updateStatus: { ...held, state: { kind: "checking" } } });
         set({ updateStatus: await api.checkUpdates() });
       },
+      async downloadUpdate() { set({ updateStatus: await api.downloadUpdate() }); },
       async installUpdate() { await api.installUpdate(); },
+      watchUpdateStatus() { return api.onUpdateStatus?.((status) => set({ updateStatus: status })) ?? (() => {}); },
       async refreshNotifications() {
         // Sized to cover what is already showing: a refetch triggered by a broadcast must not shrink
         // the list the user is scrolled into. Capped at the wire's own limit.
@@ -6548,6 +6869,10 @@ await get().refreshCustomThemes().catch(() => {});
       async setTerminalCursorStyle(style) {
         set({ terminalCursorStyle: style });
         await api.setSetting(TERMINALS_CURSOR_STYLE_KEY, style);
+      },
+      async setTerminalColors(scheme) {
+        set({ terminalColors: scheme });
+        await api.setSetting(TERMINALS_COLORS_KEY, scheme);
       },
       async setTerminalDock(edge) {
         set({ terminalDock: edge });
@@ -6696,13 +7021,30 @@ await get().refreshCustomThemes().catch(() => {});
         const rows = await api.listSchedules(spaceId);
         set({ schedules: { ...get().schedules, [spaceId]: rows } });
       },
-      async createSchedule(input) { await api.createSchedule(input); await get().refreshSchedules(input.spaceId); },
+      async createSchedule(input) { const made = await api.createSchedule(input); await get().refreshSchedules(input.spaceId); return made; },
       async updateSchedule(input) {
+        const before = Object.values(get().schedules).flat().find((x) => x.id === input.id);
         const next = await api.updateSchedule(input);
         await get().refreshSchedules(next.spaceId);
+        // Moved to another space: the one it left lists it no more.
+        if (before && before.spaceId !== next.spaceId) await get().refreshSchedules(before.spaceId);
+        return next;
       },
       async deleteSchedule(id, spaceId) { await api.deleteSchedule(id); await get().refreshSchedules(spaceId); },
-      async runScheduleNow(id, spaceId) { await api.runScheduleNow(id); await get().refreshSchedules(spaceId); },
+      async runScheduleNow(id, spaceId) { const fired = await api.runScheduleNow(id); await get().refreshSchedules(spaceId); return fired; },
+      async refreshScheduleRuns({ id, spaceId }) {
+        const page = await api.listScheduleRuns(spaceId, id, null, SCHEDULE_RUNS_PAGE);
+        set({ scheduleRuns: { ...get().scheduleRuns, [id]: page } });
+      },
+      async loadOlderScheduleRuns({ id, spaceId }) {
+        const held = get().scheduleRuns[id];
+        if (!held?.nextCursor) return;
+        const page = await api.listScheduleRuns(spaceId, id, held.nextCursor, SCHEDULE_RUNS_PAGE);
+        // Against the list as it stands NOW: a run that fired while the page was in flight went on top.
+        const now = get().scheduleRuns[id] ?? held;
+        const known = new Set(now.runs.map((r) => r.id));
+        set({ scheduleRuns: { ...get().scheduleRuns, [id]: { runs: [...now.runs, ...page.runs.filter((r) => !known.has(r.id))], nextCursor: page.nextCursor } } });
+      },
       async refreshRuns(spaceId) {
         const { runs } = await api.listRuns(spaceId);
         set({ runs: { ...get().runs, [spaceId]: runs } });
@@ -6726,6 +7068,13 @@ await get().refreshCustomThemes().catch(() => {});
       async retryRun(id) { await afterRunWrite(await api.retryRun(id)); },
       async approveRun(id, approved, note) { await afterRunWrite(await api.approveRun(id, approved, note)); },
       applyRunsChanged({ spaceId, run }) {
+        // A run a schedule fired goes under its task as well, newest first, wherever the Tasks lens is.
+        const history = run?.scheduleId ? get().scheduleRuns[run.scheduleId] : undefined;
+        if (run?.scheduleId && history) {
+          const at = history.runs.findIndex((r) => r.id === run.id);
+          set({ scheduleRuns: { ...get().scheduleRuns, [run.scheduleId]: {
+            ...history, runs: at === -1 ? [run, ...history.runs] : history.runs.map((r) => (r.id === run.id ? run : r)) } } });
+        }
         const held = get().runs[spaceId];
         // Held-only: a space whose runs nobody has asked for has nothing to go stale. A null `run`
         // (a bulk change with no single subject) refetches instead of guessing.
@@ -6930,10 +7279,24 @@ await get().refreshCustomThemes().catch(() => {});
       run(action) {
         action().catch((e: unknown) => {
           console.error(e);
-          set({ error: e instanceof Error ? e.message : String(e) });
+          get().toast({ tone: "error", text: e instanceof Error ? e.message : String(e) });
         });
       },
-      clearError() { set({ error: null }); },
+      toast(input) {
+        const id = `toast-${++toastSeq}`;
+        set({ toasts: pushToast(get().toasts, input, id) });
+        return id;
+      },
+      dismissToast(id) {
+        const cur = get().toasts;
+        if (cur.some((t) => t.id === id)) set({ toasts: cur.filter((t) => t.id !== id) });
+      },
+      setToastReserve(rect) {
+        const cur = get().toastReserve;
+        // Reference-stable like `setBrowserRect`: every browser pane re-syncs its view on a change.
+        if (cur === rect || (cur && rect && cur.x === rect.x && cur.y === rect.y && cur.width === rect.width && cur.height === rect.height)) return;
+        set({ toastReserve: rect });
+      },
     };
   });
 }

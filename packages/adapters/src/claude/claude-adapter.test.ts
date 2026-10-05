@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter, HIDDEN_ANSWER, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode } from "./claude-adapter";
+import { ClaudeAdapter, HIDDEN_ANSWER, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, fastModeByModel } from "./claude-adapter";
 import type { SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
@@ -429,6 +429,48 @@ describe("ClaudeAdapter", () => {
     it("does not mistake a different model that shares a prefix for a variant", async () => {
       // `claude-opus-5-5` is not a build of `claude-opus-5`; only a bracketed suffix is a variant.
       expect(await supportFrom([{ value: "opus[1m]", resolvedModel: `${MODEL}-5[1m]`, supportsFastMode: true }])).toBeUndefined();
+    });
+
+    it("restates the answer for EVERY model the CLI listed, so the next session on any of them knows", async () => {
+      /* THE BUG the owner hit: a new session on a model no earlier session had run showed no fast-mode
+         switch at all, because only the model each session asked for was ever remembered. The CLI
+         answers for its whole list in the same round trip, and that list is what this files. */
+      const a = new ClaudeAdapter({ query: fakeQuery({ models: [
+        { value: "default", resolvedModel: "claude-fable-5-1", supportsFastMode: false },
+        { value: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]", supportsFastMode: true },
+        { value: MODEL, supportsFastMode: true },
+        { value: "haiku", resolvedModel: "claude-haiku-4-5" },
+      ] }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [] });
+      const seen: SessionEvent[] = [];
+      const c = collectUntil(h.events, () => false, (e) => seen.push(e));
+      await h.send({ text: "hi", attachments: [] });
+      await new Promise<void>((res) => { const t = setInterval(() => { if (seen.some((e) => e.type === "init" && e.payload.fastModeModels)) { clearInterval(t); res(); } }, 5); });
+      await h.dispose(); await c;
+      const last = seen.filter((e) => e.type === "init").at(-1)!;
+      // The default row is the CLI's own default, filed under "" — what a session with no model asks
+      // for — and the model it resolves to; a model that stated nothing is left out, not filed `false`.
+      expect(last.type === "init" && last.payload.fastModeModels).toEqual({
+        "": false, "claude-fable-5-1": false, "claude-opus-5-5": true, [MODEL]: true,
+      });
+      expect(last.type === "init" && last.payload.supportsFastMode).toBe(true);
+    });
+
+    it("lets a model's own entry outrank a variant of it, and the default's resolution, in that map", () => {
+      // The single-model precedence above, applied across the list: listed in either order, the
+      // entry naming the id is the answer for it.
+      expect(fastModeByModel([
+        { value: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]", supportsFastMode: true },
+        { value: "claude-opus-5-5", supportsFastMode: false },
+      ])).toEqual({ "claude-opus-5-5": false });
+      expect(fastModeByModel([
+        { value: "claude-opus-5-5", supportsFastMode: false },
+        { value: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]", supportsFastMode: true },
+      ])).toEqual({ "claude-opus-5-5": false });
+      expect(fastModeByModel([
+        { value: "default", resolvedModel: "claude-sonnet-5", supportsFastMode: true },
+        { value: "sonnet", resolvedModel: "claude-sonnet-5", supportsFastMode: false },
+      ])).toEqual({ "": true, "claude-sonnet-5": false });
     });
 
     it("says nothing at all when the CLI declines the question, or does not know the model", async () => {

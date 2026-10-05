@@ -1,6 +1,6 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, basenameOf, fastSupportKey, offeredModes, sessionModeOf, type Item, type LinkChip, type SessionMode, type Skill, type TurnChanges, runnableCommands, type UserCommand } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, basenameOf, offeredModes, sessionModeOf, type Item, type LinkChip, type SessionMode, type Skill, type TurnChanges, runnableCommands, type UserCommand } from "@realm/contracts";
 
 /** A stable empty list for the commands selector. A fresh `[]` in the selector is a new reference on
  *  every render, which is how a zustand subscription turns into a render loop. */
@@ -8,7 +8,7 @@ const EMPTY_COMMANDS: readonly UserCommand[] = Object.freeze([]);
 
 /** Stable empty array for `useSyncExternalStore`: a fresh `[]` per render reads as a change forever. */
 const NO_LINKS: LinkChip[] = [];
-import { useApp, type PickedAttachment } from "../../state/store";
+import { spaceIsPlainFolder, useApp, type PickedAttachment } from "../../state/store";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import type { PaneProps } from "../registry";
 import type { MenuItem } from "../../components/Menu";
@@ -122,6 +122,7 @@ function useSessionActions(item: Item): BarAction[] {
   });
   const summaryLive = useSummaryLive(item);
   const openDocuments = useApp((s) => s.openDocuments);
+  const openAgentsTab = useApp((s) => s.openAgentsTab);
   const newBrowser = useApp((s) => s.newBrowser);
   const newMachine = useApp((s) => s.newMachine);
   const newSimulator = useApp((s) => s.newSimulator);
@@ -159,6 +160,13 @@ function useSessionActions(item: Item): BarAction[] {
          home. */
       onSelect: () => run(() => openDocuments(environmentId, null, { sessionId: id })),
     });
+    /* This session's sub-agents and the composer that hands them work — a tab of the side pane like
+       the documents before it, because what is in it is this session's and nobody else's. */
+    list.push({
+      id: "agents", label: "Agents", title: "Sub-agents", icon: "agents",
+      aria: `Open the sub-agents of ${item.title}`,
+      onSelect: () => run(() => openAgentsTab(id)),
+    });
     /* The last three take no precondition and are always offered, on one reasoning: each opens a
        PLACE YOU GO rather than a view of this session's checkout, so gating any of them on an
        environment would be gating it on something it has nothing to do with. The simulator in
@@ -181,7 +189,7 @@ function useSessionActions(item: Item): BarAction[] {
       onSelect: () => run(() => newSimulator(null, { sessionId: id })),
     });
     return list;
-  }, [id, item.title, dock, terminalDock, environmentId, summaryLive, toggleSessionDock, showSessionTerminal, openDocuments, newBrowser, newMachine, newSimulator, run]);
+  }, [id, item.title, dock, terminalDock, environmentId, summaryLive, toggleSessionDock, showSessionTerminal, openDocuments, openAgentsTab, newBrowser, newMachine, newSimulator, run]);
 }
 
 /**
@@ -288,6 +296,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const respondPermission = useApp((s) => s.respondPermission);
   const setParkedPermission = useApp((s) => s.setParkedPermission);
   const openSheet = useApp((s) => s.openSheet);
+  const openAgentsTabFor = useApp((s) => s.openAgentsTab);
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const setSessionAgent = useApp((s) => s.setSessionAgent);
   const setSessionMode = useApp((s) => s.setSessionMode);
@@ -327,9 +336,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // there. `spaceSkills` rows are store-held references, so the memo only re-filters on real change.
   const spaceSkillList = useApp((s) => { const sess = s.sessions[id]; return (sess && s.spaceSkills[sess.spaceId]) || NO_SKILLS; });
   const agentKind = useApp((s) => s.sessions[id]?.agentKind);
-  /* What the last session on this model heard about fast mode — the answer a session that has not
-     started yet can offer the switch on. Its own `init` overrides it the moment it has one. */
-  const rememberedFast = useApp((s) => { const sess = s.sessions[id]; return sess ? s.fastSupport[fastSupportKey(sess.agentKind, sess.model)] : undefined; });
+  /* What harnesses have said about fast mode, per model — the answer a session that has not started
+     yet can offer the switch on. Its own `init` overrides it the moment it has one. */
+  const fastSupport = useApp((s) => s.fastSupport);
   const mentionSkills = useMemo(
     () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList.filter((k) => k.enabled && k.valid) : NO_SKILLS),
     [agentKind, spaceSkillList],
@@ -360,6 +369,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const environments = useApp((s) => s.environments);
   const setSessionEnvironment = useApp((s) => s.setSessionEnvironment);
   const moveSessionToNewWorktree = useApp((s) => s.moveSessionToNewWorktree);
+  // A plain folder has no worktrees, so its prompter offers none (store.ts, `spaceIsPlainFolder`).
+  const plainFolder = useApp((s) => (session ? spaceIsPlainFolder(s, session.spaceId) : false));
   const connectors = useApp((s) => { const sess = s.sessions[id]; return (sess && s.connectors[sess.spaceId]) ?? null; });
   const refreshConnectors = useApp((s) => s.refreshConnectors);
   const pickAndLinkProject = useApp((s) => s.pickAndLinkProject);
@@ -444,7 +455,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const openDocumentPath = useApp((s) => s.openDocumentPath);
   const ownEnvironmentId = session?.environmentId ?? null;
   const checkoutRoot = useApp((s) => { const sess = s.sessions[id]; return sess ? s.environments[sess.environmentId]?.path ?? sess.cwd : null; });
-  const openFileAt = useCallback((path: string, line: number | null) => { run(() => openDocumentPath(path, ownEnvironmentId, null, { line, beside: { sessionId: id } })); },
+  const openFileAt = useCallback((path: string, line: number | null) => { run(() => openDocumentPath(path, ownEnvironmentId, null, { line: line ?? undefined, beside: { sessionId: id } })); },
     [run, openDocumentPath, ownEnvironmentId, id]);
   const checkout = useMemo(() => (checkoutRoot ? { root: checkoutRoot, onOpen: openFileAt } : null), [checkoutRoot, openFileAt]);
   /* The edit cards' half: every checkpoint in this checkout (whether a turn's Undo is honest), the
@@ -618,6 +629,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
+        // A plan, or an answer, handed to other models: this session's Agents tab, with it as the work.
+        onImplementWith={peek ? undefined : (text) => run(() => openAgentsTabFor(id, { plan: text }))}
+        sessionId={id}
         mode={sessionModeOf(session.permissionMode)}
         eggs={easterEggs} packLabels={packLabels}
         onPath={(p, at) => setPathMenu({ path: p, at })} checkout={checkout} turnEditing={turnEditing}
@@ -683,7 +697,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onManageSkills={() => openSpacePage(session.spaceId, "skills")}
             machineName={machineName} userName={userName} environments={spaceEnvironments}
             onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}
-            onNewWorktree={() => run(() => moveSessionToNewWorktree(id))}
+            onNewWorktree={plainFolder ? undefined : () => run(() => moveSessionToNewWorktree(id))}
             otherSpaces={otherSpaces} onMoveToSpace={(spaceId) => run(() => moveSessionToSpace(id, spaceId))}
             connectors={connectors} onConnectorsOpened={() => run(() => refreshConnectors(session.spaceId))}
             onAddFolder={() => run(() => pickAndLinkProject(session.spaceId))}
@@ -697,7 +711,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               onPause={() => run(() => setGoalStatus(id, "paused", "You paused it."))}
               onResume={() => run(() => resumeGoal(id))}
               onDrop={() => run(() => clearGoal(id))} />}
-            supportsFastMode={transcript.init?.supportsFastMode ?? rememberedFast}
+            sessionInit={transcript.init} fastSupport={fastSupport}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
             queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}
             onReleaseQueued={(queuedId) => run(() => releaseQueuedPrompt(id, queuedId))}

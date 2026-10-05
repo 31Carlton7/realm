@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scanMentions, stripMentionAts } from "@realm/contracts";
-import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, listItemAt, stepOverChip, toggleList, type Segment, appendQuote } from "./draft-format";
+import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, listItemAt, removeChip, stepOverChip, toggleList, type Segment, appendQuote } from "./draft-format";
 
 /** A compact readout of the runs that carry a class — plain text is the uninteresting majority. */
 const painted = (segs: Segment[]) => segs.filter((s) => s.kind).map((s) => [s.kind, s.text]);
@@ -223,6 +223,34 @@ describe("chipSpans — what the mirror paints is what a gesture can take", () =
     expect(spans("https://x.dev/@mac")).toEqual([]);
   });
 
+  /* The command opening the draft wears the same pill, so it answers the same gestures — a click
+     takes it whole — and it is a chip only where it is painted as one: a command that exists. */
+  it("carries the command opening the draft, and only one the prompter has", () => {
+    expect(chipSpans(highlightSegments("/goal ship it", [], [], ["goal"]))).toEqual([{ kind: "slash", start: 0, end: 5 }]);
+    expect(chipSpans(highlightSegments("/usr/bin is a path", [], [], ["goal"]))).toEqual([]);
+  });
+});
+
+describe("removeChip — the hover's ×", () => {
+  it("takes the token and the space it brought, so the sentence closes up", () => {
+    const draft = 'make @[button "Sign in"] blue';
+    expect(removeChip(spans(draft), draft, 5)).toEqual({ text: "make blue", start: 5, end: 5 });
+    expect(removeChip(spans("use @mac now"), "use @mac now", 4)).toEqual({ text: "use now", start: 4, end: 4 });
+  });
+
+  it("takes the space before it when the chip ends the draft", () => {
+    expect(removeChip(spans("make @[a]"), "make @[a]", 5)).toEqual({ text: "make", start: 4, end: 4 });
+    expect(removeChip(spans("@[a]"), "@[a]", 0)).toEqual({ text: "", start: 0, end: 0 });
+  });
+
+  it("takes one space and never two, nor a newline", () => {
+    expect(removeChip(spans("a @[b] c"), "a @[b] c", 2)).toEqual({ text: "a c", start: 2, end: 2 });
+    expect(removeChip(spans("line\n@[b]"), "line\n@[b]", 5)).toEqual({ text: "line\n", start: 5, end: 5 });
+  });
+
+  it("does nothing for an offset no chip starts at", () => {
+    expect(removeChip(spans("use @mac now"), "use @mac now", 5)).toBeNull();
+  });
 });
 
 describe("chipAround — a click aimed at a chip", () => {

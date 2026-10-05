@@ -58,6 +58,8 @@ import type { RunService } from "../runs/service";
 import type { ScheduleService } from "../schedules/service";
 import type { ReviewService } from "../delegation/review";
 import type { DelegationEngine } from "../delegation/engine";
+import type { DelegatedChildren } from "../delegation/children";
+import type { AgentRunService } from "../delegation/agent-run";
 import type { SearchService } from "../search/service";
 import type { ArtifactsStore } from "../store/artifacts";
 import type { ForkService } from "../sessions/fork";
@@ -88,6 +90,9 @@ export type Deps = {
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
+  /** A session's sub-agents read back from the tables, and its Agents tab. */
+  children: DelegatedChildren;
+  agentRuns: AgentRunService;
   laya: LayaService;
   agentSignIn: AgentSignInService;
 };
@@ -205,6 +210,7 @@ export function registerMethods(d: Deps): void {
 
   reg("spaces.list", () => d.spaces.listAll());
   reg("spaces.create", (p) => { const r = d.spaces.create(p); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.folderFor", (p) => ({ path: d.spaces.folderFor(p.profileId, p.name) }));
   reg("spaces.update", (p) => { const r = d.spaces.update(p); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.reorder", (p) => { d.spaces.reorder(p.ids); rpc.broadcast("spaces.changed", {}); return { ok: true as const }; });
   reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", {}); return r; });
@@ -630,7 +636,7 @@ export function registerMethods(d: Deps): void {
 
   // The Library's file browser. One indexed range scan and a count; no transcript is read, which is
   // the whole point of the `artifacts` index existing (see migration v25).
-  reg("library.artifacts", (p) => ({ entries: d.artifacts.list(p), total: d.artifacts.count(p.spaceId, p.profileId ?? null) }));
+  reg("library.artifacts", (p) => ({ entries: d.artifacts.list(p), total: d.artifacts.count(p.spaceId, p.profileId ?? null, { sessionId: p.sessionId ?? null, perFile: p.perFile }) }));
 
   // Import from the agent CLIs' own stores. `scan` is a pure read — it opens ~/.claude, ~/.codex and
   // ~/.cursor read-only and answers; nothing is created by looking. `apply` is the only writer, and
@@ -668,6 +674,7 @@ export function registerMethods(d: Deps): void {
   reg("terminals.prefill", async (p) => { await d.terminals.prefill(p.terminalId, p.command); return { ok: true as const }; });
   reg("terminals.resize", (p) => { d.terminals.resize(p.terminalId, p.cols, p.rows); return { ok: true as const }; });
   reg("terminals.close", (p) => { d.terminals.close(p.terminalId); return { ok: true as const }; });
+  reg("terminals.programs", () => d.terminals.programs());
 
   reg("browsers.create", (p) => d.browsers.open(p));
   reg("browsers.get", (p) => d.browsers.get(p.browserId));
@@ -884,6 +891,10 @@ export function registerMethods(d: Deps): void {
   // Live registry state, not a table: the engine holds it in memory and it dies with the process, so
   // a pane mounting mid-run has no other way to learn what its session is waiting on.
   reg("delegation.running", (p) => ({ running: d.delegation.liveRuns(p.sessionId) }));
+  // The tables' side of the same subject: every child a session ever started, settled ones included.
+  reg("delegation.children", (p) => ({ children: d.children.list(p.sessionId) }));
+  reg("delegation.models", (p) => d.agentRuns.catalogFor(p.sessionId));
+  reg("delegation.tab", (p) => d.children.tab(p.sessionId));
 
   reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
   reg("agents.probeOne", async (p) => (await d.sessions.probeAgent(p.kind)) ?? null);

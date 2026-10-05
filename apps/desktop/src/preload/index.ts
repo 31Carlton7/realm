@@ -192,7 +192,15 @@ contextBridge.exposeInMainWorld("realm", {
   updates: {
     status: (): Promise<UpdateStatus> => ipcRenderer.invoke("updates:status"),
     check: (): Promise<UpdateStatus> => ipcRenderer.invoke("updates:check"),
+    /** Start a download main knows of and is not running (`available`); any other state answers itself. */
+    download: (): Promise<UpdateStatus> => ipcRenderer.invoke("updates:download"),
     install: (): Promise<void> => ipcRenderer.invoke("updates:install"),
+    /** Every change of the updater's state — a download's progress included. */
+    onChanged: (cb: (status: UpdateStatus) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, status: UpdateStatus) => cb(status);
+      ipcRenderer.on("updates:changed", handler);
+      return () => ipcRenderer.removeListener("updates:changed", handler);
+    },
   },
   /** Desktop notifications (the feed's last hop). `show` resolves whether a toast was actually
    *  posted — main suppresses one while the window is focused, and the renderer does not second-guess

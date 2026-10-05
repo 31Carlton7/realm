@@ -43,8 +43,11 @@ const planFileName = (title: string): string => {
  * are there too, because the thing a reader most often wants to do with a plan is take it somewhere
  * else — and both act on the WHOLE plan, never on the preview.
  */
-export function PlanCard({ text, steps, onExpand, enter = false }: {
+export function PlanCard({ text, steps, onExpand, onImplementWith, enter = false }: {
   text?: string; steps?: PlanStep[];
+  /** Build this plan with sub-agents on other models: the Agents tab, opened with the plan in its
+   *  composer. Absent in the read-only mounts, which draw no button rather than a dead one. */
+  onImplementWith?: (plan: string) => void;
   /** Open the whole plan. Passed down from the pane rather than reached for from the store, because
    *  this card also renders in the read-only mounts (the fork preview, the suite), which have no
    *  store and no sheet host. Absent means the button is not drawn — never drawn dead. */
@@ -81,6 +84,14 @@ export function PlanCard({ text, steps, onExpand, enter = false }: {
           {onExpand && (
             <button type="button" className="icon-btn" aria-label="Expand plan" title="Expand plan" onClick={onExpand}>
               <Icon name="expand" size={14} />
+            </button>
+          )}
+          {/* The plan as the work for other models. It opens the Agents tab rather than starting
+              anything, but it begins paid work in the user's name, so no agent may press it. */}
+          {onImplementWith && (
+            <button type="button" className="btn-quiet plan-implement-with" data-no-agent="sub-agent launch" title="Hand this plan to sub-agents on other models"
+              onClick={() => onImplementWith(markdown)}>
+              <Icon name="agents" size={12} />Implement with…
             </button>
           )}
         </div>

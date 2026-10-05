@@ -213,6 +213,10 @@ Rules:
   pages assume a white canvas, so anything drawn inside it is a slab of another colour under the
   pane's translucent chrome; the browser pane's "lighter strip" was its host painting the panel tone
   where the view would be. The view comes back once its page has something of its own to show.
+- Something that must be SEEN beside a native view moves off it rather than being drawn under it: the
+  toast stack slides along the window's foot, a tooltip flips or goes beside its control, and where no
+  spot is clear a tooltip goes back to the system's own (macOS draws it above every view) while the view
+  under the toasts gives up a strip of its foot, on the pane's ground, for as long as they are up.
 - Contrast claims about a hairline are pixel measurements, not stylesheet readings. What `8% white`
   comes to depends on the ground it lands on, and no amount of reading the CSS will tell you. Take
   the mean luminance either side of the line and the line itself, in both faces, with the line
@@ -389,6 +393,9 @@ Using the same families across the app and site is a brand decision.
 - Marketing body: at least 16 px with a 1.5–1.6 line-height.
 - Marketing display type may scale fluidly, but keep one display statement per page.
 - Use the named weight ladder. Routine labels are 450–500; titles are 560; strong emphasis is 600.
+- The prompter's own text sits a rung up from body, at medium: what is being typed is the thing the
+  card exists for. It is set on the editor box, never on one of its two layers, so the painted
+  mirror and the caret's textarea cannot disagree about a glyph.
 - Headings balance; descriptions wrap prettily; reading copy stays near 60–75 characters.
 - Use tabular numerals for cost, usage, time, progress, and aligned comparisons.
 - Use mono only for code, commands, paths, identifiers, branches, models, timestamps, and machine
@@ -407,10 +414,24 @@ acronym that is uppercase anyway (a file extension on a tile).
 - Primary actions use the accent only when there is a clear primary action.
 - Focus is always visible and uses the accent ring.
 - Icon-only actions need an accessible name and a tooltip when the meaning is not universal.
+- A tooltip is the control's `title`, shown by the app's own layer (`tooltips.ts`) a fifth of a second
+  after the pointer arrives and at once on the next control — the system's took a second and a half,
+  which is a sweep across a toolbar that tells you nothing. Write the title as a plain sentence and end
+  it with the chord in brackets — "Search (⌘K)" — and the chord reads as a key.
+- A control that names a setting can be the value's mark and its name, with no chevron and no fill
+  at rest — the prompter's permission control, as Codex draws its own. Each rung of a ladder takes
+  its own mark from one family (a shield that asks, one that has said yes, one that warns), the
+  menu's rows wear the same marks, and only the rung that removes a gate keeps a tone: on its ink,
+  never as a resting fill, because a wash under a warning is a second warning about one setting.
 - A toggle names its state or carries `aria-pressed`, never both — "Unfocus Two, pressed" is a
   sentence at war with itself. Which one it takes is a fact about the accessible NAME, so it may not
   become a difference in the fill: "this control is on" gets ONE appearance across a bar, or the
   reader learns two of them.
+- A notice about something that already HAPPENED — a failed action, a refused file, a receipt — is a
+  toast at the window's foot that leaves on its own, waits while it is read, and never covers the
+  prompter's send button. A bar across the top that stays until closed is a chore charged for news.
+  What needs a DECISION — a permission, a sign-in, a server that has gone — is not a toast: it stays
+  where it is until it is answered.
 - State the screen has stopped showing belongs on the control that changes it, not on a strip that
   reports it. A focused pane hides its siblings, and the answer to that was a banner across the top
   of the window reading "Focused: <title> | Unfocus" — a whole row of chrome, and a second place to
@@ -441,6 +462,8 @@ acronym that is uppercase anyway (a file extension on a tile).
 - The arrow cursor over every control the app draws; the hand only over a link, where the click
   leaves what you are looking at. The hand on every button is the loudest single sign that a window
   is a web page.
+- A window-drag region takes every press that is not opted out of it, and a LABEL is a control: the
+  sidebar's old Spaces | Recent segments, labels round hidden radios, answered only on the radio's 13px.
 - Chrome is not text. Buttons, rows, tabs, bars and menus do not select on a drag or a double-click,
   and their glyphs do not lift off as drag ghosts. Content and fields keep selection.
 - A window that is not key greys its accent — selection, default button, checked boxes, lit
@@ -453,6 +476,13 @@ acronym that is uppercase anyway (a file extension on a tile).
   only surface that can open over a browser pane's native view — and draws its own only where there
   is no bridge (tests, and live scripts that set `REALM_HTML_MENUS`). A two-step confirm reopens the
   menu with its rebuilt rows, because an OS menu cannot change under the pointer.
+- The exception is a menu whose rows have to explain themselves — section heads, and a line after
+  each name saying what the row does — which an OS menu row cannot carry: the prompter's "+". It is
+  drawn in the app (`inApp`), and it owes everything the OS menu gave: the arrows across its
+  sections as one list, Return, Escape, focus home to its control, the pointer moving the one
+  highlight the keys move, and placement clear of a browser pane's native view (the popover hook
+  slides it along its anchor's edge). A description belongs to the row's description, never its
+  name, so a row is still found by what it is called.
 - A right-click in text gets what a Cocoa text view gives it: spelling guesses, Look Up, the link or
   image under the pointer, then the edit commands — and nothing at all where there is nothing to
   offer. Electron gives a page none of this on its own.
@@ -501,27 +531,33 @@ acronym that is uppercase anyway (a file extension on a tile).
   reasons it is not are worth telling apart, because one may resolve itself and another never
   will. Say nothing in the ordinary cases: a note that appears every time is a note nobody
   reads by the third session.
-- A list of things reached through several routes lists each thing under EVERY route that offers it.
-  The model picker groups by harness; once Cursor's catalog arrived, a Claude model both could run
-  resolved to the session's harness alone and vanished from the other heading, so a Cursor session
-  showed an empty Claude group and the only way to Fable-through-Claude was to pick it under Cursor
-  and change the route afterwards. Deduplicating the OBJECT (one favourite, one catalog entry, one
-  tick) is right; deduplicating its PLACEMENTS is what emptied the group. Refine the route in the
-  detail pane; do not make the list hide it.
+- A thing reached through several routes is listed ONCE, under the route a click takes, and its
+  other routes ride on its own row as one click each. The model picker first hid a second route
+  (Fable through Claude was reachable only by picking it under Cursor and re-routing in a detail
+  pane), then listed Fable under both headings, which read as two models and still chose the route
+  in a second place. Deduplicate the object AND its placements; never make a route a second step.
 - Offer a capability only where its OWNER has said it exists. A table in the app goes stale,
   and a control offered on a guess is one whose only outcome is a refusal. Where the owner has
   said nothing, show nothing — not a disabled control, which invites a user to work out how to
-  enable something nobody has claimed.
+  enable something nobody has claimed. The one exception is a REQUEST Realm can make and the owner
+  will answer: fast mode before a session's first turn is a switch that says "checked on the first
+  turn", because waiting for the answer made it unreachable for exactly the turn it was wanted on.
+  Where the owner said no, say which of its models say yes.
 - A link is shown as what it points AT. A pasted Slack permalink is ninety characters of nothing
   a person reads; its meaning is "this thread", and the chip says that: the app's mark, then a
   name (a thread's timestamp, an issue key, a page title). Only where Realm can name the link — a
   wrong name on a chip is worse than the URL, which at least says what it is. The agent is sent
   the link itself, as a markdown link, because its connection to that app is what opens it. The
-  chip is the SAME chip as a mention or a picked element: an icon and a name in the accent, inline
-  with the prose — no fill, no box. The pill read as a control dropped into a sentence. The icon
-  is what says which kind of thing it is (a skill's spark, a picked element's target, an app's
-  mark), drawn over the token's opening sigil so the painted run keeps every character's width.
-  Links in prose are colour and weight, no underline; hover restores it.
+  chip is the SAME chip as a mention, a picked element or the command opening a draft: a pill on
+  the chip rung, a quiet tint of its kind's tone, its mark and its name — the accent for what
+  reaches the agent, the success hue for a command that runs here, the warning tone for a skill that
+  will go as plain text. Bare accent text with no shape of its own was what a click turned into the
+  textarea's square selection; a chip with a shape is selected, hovered and removed as one thing —
+  a selection that is exactly a chip is the chip's to draw, and under the pointer its mark becomes
+  its ×. The icon says which kind of thing it is (a skill's spark, a picked element's target, an
+  app's mark), drawn over the token's opening sigil, and the pill is a shadow outside the glyphs, so
+  the painted run keeps every character's width. The sent message wears the same pill. Links in
+  prose are colour and weight, no underline; hover restores it.
 - A vendor that issues no client on the fly gets the user's own app, asked for BEFORE the sign-in
   and with the one fact nobody guesses right (the redirect URL) printed in the steps. A Connect that
   fails afterwards with "no client registered" is a door that opens onto a wall. Where the vendor
@@ -535,6 +571,11 @@ acronym that is uppercase anyway (a file extension on a tile).
   invisible until someone reached the same thing twice. Share the surface, not just the predicate:
   a list that knows more — where the file came from — adds a row to it, and a list that knows less
   draws that row not at all rather than half-filled.
+- A surface anchored to a control opens whole on ONE side of it: capped at the roomier side, with
+  its one flexible part (a list) giving way, or it lands on the control that opened it or runs off
+  the window — the model picker did both from a mid-window prompter. And anything in it that changes
+  with the highlight holds a fixed height: a surface that grows upward moves every row above a
+  taller line, and the row under the pointer with them.
 - Two overlays that both answer Escape answer it in MOUNT order, not stacking order, because both
   listen on the window. The one underneath was registered first and wins, so `stopPropagation` from
   the top surface cannot save it: expanding a picture out of a sheet closed the sheet too. A full
@@ -593,6 +634,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   bars anyway, and stands down on the rest (`data-overlay-scrollbars`, measured, not read from a
   preference that depends on what is plugged in — this Mac changed mode mid-session as its Bluetooth
   mouse came and went).
+- A column that opens or closes is a box that clips what it holds, its content riding one slide on
+  the box's moving edge; everything beside it — the panes, a page over them, a bar's title — is laid
+  out from that edge or moves on the same curve and duration. A layer placed against the window
+  instead lands on its final edge in the first frame, and what it covers flashes through beside it.
 - Contextual icon swaps use opacity, blur from 4 px to 0, and scale from 0.25 to 1 with no bounce.
 - Do not animate content merely because it scrolled into view.
 - Do not add parallax, auto-scrolling marquees, simulated typing, or decorative pulsing.
@@ -630,8 +675,21 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   unbounded length, so they keep the width and the shown item's own actions go to its menu. The
   agents still working are a count in the session's bar, and their list previews one on request;
   a tab dragged to an edge is how something becomes part of the user's own layout.
+- What a pane SHOWS keeps its controls with it, not in the pane's bar, which in a side pane is the tab
+  strip: the simulator's state and eight buttons there once left the tabs no width at all. A device
+  wears a toolbar centred over it — its state and the presses used every minute, the rest one click
+  away in an overflow that a narrow pane fills from the toolbar's end — and what is done WITH it
+  (recording it for Laya) sits under it in the same pill, so the two read as one instrument.
+- Work a clock starts is not work the person started. A scheduled run lands under its task on the
+  Scheduled page, unread until its session is read, rather than opening a pane beside whatever the
+  person is doing — and for it "never opened" is what unread means, where for a session somebody
+  started it means nothing was missed.
 - Pane focus, selection, zoom, navigation history, and group state must remain visibly distinct.
 - Empty panes should offer the shortest honest path to useful work.
+- Making a thing lands you IN it. Create on the New space sheet opens the space on a new session
+  with the keyboard in the prompter; it used to open the space's Overview, a page of settings for
+  something named a second earlier in order to work in it. Settings are where a thing is visited
+  later, and the sheet that made it has already asked everything that had no default.
 - Several agents need one page that answers "what should I look at": every session across every
   space by what it needs from you — blocked on a permission first, then working, failed, finished.
   The per-space badges say the same thing per space; the page says it once, with enough on each
@@ -669,6 +727,15 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - Provider, model, mode, workspace, and connector context belong near the composer because they
   change what the next send means.
 - Keep raw logs and exhaustive tool detail available without making them compete with the result.
+- Handing work to other models is a REQUEST to the session's own agent, in the user's words — not a
+  side door that starts sub-agents behind it. The Agents tab's composer only makes the request
+  well-formed: each model by the name the server resolves, the tools that do it named too. The agent
+  stays the one who splits the work, reads the reports and answers for them, and the transcript holds
+  the ask beside everything done about it.
+- A sub-agent in its lead's transcript is a line of its own — "Subagent finished · <task>", its model,
+  its time — and is never folded into the ledger. A fan-out is two starts and a wait in a row, which
+  is a run, and a settled run collapses to "Worked for 8s": the one thing a reader of a delegation
+  came for, hidden behind the one line that says nothing about it.
 - A closing line names the WORK, not the residue. "This session produced 1 file · 4 attached" is
   true and tells a reader coming back nothing; the ask, the files that changed, whether anything
   ran or failed, and then what came out is the shape of an answer. Derive it from the transcript
@@ -689,6 +756,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 ## Documents, diffs, terminals, and data
 
 - Editors and terminals use the available pane. Avoid centered card-width work areas.
+- A terminal's sixteen colours carry two jobs that pull apart: text a program prints on the pane's
+  ground, and the ground a powerline prompt prints its segments on. Author them for the text — every
+  text colour, bright black included, at AA on the ground, faint text at the app's secondary ink —
+  leave the 240 a program names itself to the program, and let xterm's contrast floor rescue the few
+  pairs that miss: low on the dark face, where those colours were chosen for a dark ground, AA on
+  the light one, where they were not. A tab names what its terminal runs; only an agent wears its
+  vendor's colour there, on its tile, so colour in a strip of tabs means an agent and nothing else.
 - Tabs identify open work; the active document also has a clear title and save state.
 - Rich and source modes preserve the same document identity.
 - Diffs use color plus signs, line structure, and labels. Color alone never carries add/delete state.
@@ -711,6 +785,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   narrowing a person reaches for. The rarer ones — which space, who made it — live behind a filter
   that lights while it narrows and says so as a chip by the tabs, undone from there: a list that is
   shorter than it should be has to say why. The toolbar is the column's head, outside its scroller.
+- A documents pane with nothing open is a home, not a void: what this session made and was given,
+  then the Library's, under one search that also reaches the checkout's own names, and a New that
+  says what every kind it writes is — a code file among them, since nothing else on screen says a
+  `.py` is a document the pane can write. Finding a file is that search; a palette that found one
+  and opened it somewhere else was a second door to the same room.
 - A file the app shows behaves like one in the Finder: Space opens it in Quick Look (Return still
   acts), it drags out to the Finder or into another app, and its menu offers Quick Look and the
   system Share menu. Each is offered only where the desktop bridge has it — a Space that swallows the

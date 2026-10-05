@@ -756,4 +756,25 @@ export const migrations: string[] = [
   UPDATE profiles SET browser_partition = 'persist:browser'
     WHERE rowid = (SELECT rowid FROM profiles ORDER BY sort_order, created_at, rowid LIMIT 1);
   `,
+  // v38 — scheduled tasks keep their runs (Realm v2's Scheduled page lists each task's history and
+  // opens any run's session).
+  //
+  // `runs.schedule_id`: the schedule whose firing created the run. No foreign key, the same log posture
+  // as v23's `last_run_id` the other way round — "schedule S fired run X" stays true after S is
+  // deleted. It IS backfilled, unlike the columns v31 to v37 add, because the fact is already on the
+  // row: the scheduler has always keyed a firing's run as `schedule:<schedule id>:<moment>`, and the
+  // backfill only reads that back. A key without the second colon is not one the scheduler wrote, and
+  // is left alone. Partial index, for the one question the page asks of it.
+  //
+  // `schedules.new_session_per_run`, defaulted 1: every schedule written before this already started
+  // each run in a fresh session — it was the only thing a run could do — so the default states the
+  // past. `schedules.archive_succeeded`, defaulted 0: nothing was ever archived on a schedule's behalf.
+  `
+  ALTER TABLE runs ADD COLUMN schedule_id TEXT;
+  UPDATE runs SET schedule_id = substr(dedupe_key, 10, instr(substr(dedupe_key, 10), ':') - 1)
+    WHERE dedupe_key LIKE 'schedule:%' AND instr(substr(dedupe_key, 10), ':') > 1;
+  CREATE INDEX runs_schedule ON runs(schedule_id, created_at DESC, id DESC) WHERE schedule_id IS NOT NULL;
+  ALTER TABLE schedules ADD COLUMN new_session_per_run INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE schedules ADD COLUMN archive_succeeded INTEGER NOT NULL DEFAULT 0;
+  `,
 ];

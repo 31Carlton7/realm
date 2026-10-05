@@ -345,6 +345,58 @@ export const CRON_PRESETS = [
   { label: "The 1st of each month at 09:00", expr: "0 9 1 * *" },
 ] as const;
 
+/* ────────────────────────────── cadence ────────────────────────────── */
+
+/** The repeats the task modal offers by name. Anything else is a hand-written expression, which the
+ *  modal keeps as one rather than forcing it into the nearest of these. */
+export const REPEATS = ["hourly", "daily", "weekdays", "weekly", "monthly"] as const;
+export type Repeat = (typeof REPEATS)[number];
+
+/** A recurring expression in the modal's terms: which repeat, and the clock fields it fixes. */
+export type Cadence =
+  | { repeat: "hourly"; minute: number }
+  | { repeat: "daily" | "weekdays"; hour: number; minute: number }
+  | { repeat: "weekly"; weekday: number; hour: number; minute: number }
+  | { repeat: "monthly"; day: number; hour: number; minute: number };
+
+/** The expression a cadence writes. Weekday 0 is Sunday, as `parseCron` folds it. */
+export function cronOf(c: Cadence): string {
+  switch (c.repeat) {
+    case "hourly": return `${c.minute} * * * *`;
+    case "daily": return `${c.minute} ${c.hour} * * *`;
+    case "weekdays": return `${c.minute} ${c.hour} * * 1-5`;
+    case "weekly": return `${c.minute} ${c.hour} * * ${c.weekday}`;
+    case "monthly": return `${c.minute} ${c.hour} ${c.day} * *`;
+  }
+}
+
+/**
+ * The cadence an expression is, or null when it is a one-shot or a shape the modal cannot name.
+ *
+ * Read off the PARSED fields rather than matched as text, so `@daily`, `0 9 * * *` and `00 09 * * *`
+ * all come back as the same Daily — an agent writing through `schedule_create` spells cron its own
+ * way, and the task it makes has to open in the modal looking like one made there. A shape that
+ * fixes fewer fields than its repeat needs (every fifteen minutes is not "hourly at :15") is not that
+ * repeat, and stays a custom expression the modal shows verbatim.
+ */
+export function cadenceOf(expr: string): Cadence | null {
+  if (isOnce(expr)) return null;
+  const c = parseCron(expr);
+  if (!c || c.month.size !== 12 || c.minute.size !== 1) return null;
+  const minute = [...c.minute][0]!;
+  if (c.hour.size === 24 && !c.domRestricted && !c.dowRestricted) return { repeat: "hourly", minute };
+  if (c.hour.size !== 1) return null;
+  const hour = [...c.hour][0]!;
+  if (!c.domRestricted && !c.dowRestricted) return { repeat: "daily", hour, minute };
+  if (c.dowRestricted && !c.domRestricted) {
+    if (c.dayOfWeek.size === 5 && [1, 2, 3, 4, 5].every((d) => c.dayOfWeek.has(d))) return { repeat: "weekdays", hour, minute };
+    if (c.dayOfWeek.size === 1) return { repeat: "weekly", weekday: [...c.dayOfWeek][0]!, hour, minute };
+    return null;
+  }
+  if (c.domRestricted && !c.dowRestricted && c.dayOfMonth.size === 1) return { repeat: "monthly", day: [...c.dayOfMonth][0]!, hour, minute };
+  return null;
+}
+
 /* ────────────────────────────── the row ────────────────────────────── */
 
 /**
@@ -382,9 +434,17 @@ export const ScheduleSchema = z.object({
   /** The run the last firing created, if it is still around. A plain string, not a foreign key: "this
    *  schedule produced run X" stays a true and useful statement after X is deleted. */
   lastRunId: z.string().nullable(),
-  /** The last time a firing was skipped for being older than the catch-up window. Null once a real
-   *  firing happens; the page shows it so a laptop's missed Monday is visible rather than silent. */
+  /** The last time a firing was skipped — older than the catch-up window, or (continuing one session)
+   *  due while the last run was still going. Null once a real firing happens; the page shows it so a
+   *  laptop's missed Monday is visible rather than silent. */
   lastSkippedAt: z.number().int().nullable(),
+  /** Each firing starts a session of its own (true), or continues the session the last run left —
+   *  the same conversation, one more turn. A run still going is never sent another turn: that firing
+   *  is skipped and recorded instead. */
+  newSessionPerRun: z.boolean(),
+  /** Put a run's session away once the run SUCCEEDS. A failed or interrupted run stays where the
+   *  sidebar shows it, because that is the one a person has to come back to. */
+  archiveSucceeded: z.boolean(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
 });
@@ -397,15 +457,21 @@ export const CreateScheduleSchema = z.object({
   cron: z.string().min(1).max(200),
   enabled: z.boolean().default(true),
   constraints: RunConstraintsSchema.nullable().default(null),
+  newSessionPerRun: z.boolean().default(true),
+  archiveSucceeded: z.boolean().default(false),
 });
 export type CreateScheduleInput = z.infer<typeof CreateScheduleSchema>;
 
 export const UpdateScheduleSchema = z.object({
   id: IdSchema,
+  /** Moves the schedule, and the runs it fires from then on, to another space. */
+  spaceId: IdSchema.optional(),
   title: z.string().min(1).max(200).optional(),
   goal: z.string().min(1).max(20_000).optional(),
   cron: z.string().min(1).max(200).optional(),
   enabled: z.boolean().optional(),
   constraints: RunConstraintsSchema.nullable().optional(),
+  newSessionPerRun: z.boolean().optional(),
+  archiveSucceeded: z.boolean().optional(),
 });
 export type UpdateScheduleInput = z.infer<typeof UpdateScheduleSchema>;

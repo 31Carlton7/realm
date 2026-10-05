@@ -227,8 +227,10 @@ export class CodexAdapter implements AgentAdapter {
       this.extraRootsSupported = true;
     }
     const models = p.available ? await this.listModels() : null;
-    // The picker's row is a name and an id; the tier is read again, by the session, off the same list.
-    return { kind: this.kind, ...p, models: models === null ? null : models.map(({ id, label }) => ({ id, label })) };
+    // The tier rides along with the row, so the prompter can offer Fast on a model before any session
+    // has asked — the catalog is the CLI's own statement, and it is already in hand here.
+    return { kind: this.kind, ...p, models: models === null ? null
+      : models.map(({ id, label, fast, isDefault }) => ({ id, label, fastMode: fast, ...(isDefault ? { isDefault } : {}) })) };
   }
 
   /**

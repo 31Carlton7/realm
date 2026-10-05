@@ -1,18 +1,17 @@
-import { AGENT_CLI_COMMANDS, AGENT_META, SELECTABLE_AGENT_KINDS, SPACE_COLORS, pickSpaceColor, type AgentKind } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, AGENT_META, SELECTABLE_AGENT_KINDS, pickSpaceColor, type AgentKind } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FALLBACK_AGENT, folderName, useApp } from "../state/store";
 import { agentAvailability, type AgentAvailability } from "../state/agent-availability";
 import { Spinner } from "./Spinner";
-import { useFileDrop } from "./use-file-drop";
-import { IconPicker } from "./IconPicker";
+import { DEFAULT_SPACE_ICON, SpaceFolderField, SpaceIdentityField } from "./space-fields";
 import markUrl from "../assets/realm-mark.svg";
 
 /** The name a space takes when the user types none: the folder's, else a plain word. */
 export const DEFAULT_SPACE_NAME = "Home";
-/** What the space wears until the user says otherwise. These used to be written into `createSpace`
- *  at the call site, which meant the first screen decided a space's identity and never showed it. */
-export const DEFAULT_SPACE_ICON = "folder";
+/** The colour the space wears until the user says otherwise. It and the icon (`DEFAULT_SPACE_ICON`)
+ *  used to be written into `createSpace` at the call site, which meant the first screen decided a
+ *  space's identity and never showed it. */
 export const DEFAULT_SPACE_COLOR = pickSpaceColor(0);
 
 /**
@@ -85,7 +84,6 @@ export function Onboarding() {
   const probeAgent = useApp((s) => s.probeAgent);
   const refreshCliStatus = useApp((s) => s.refreshCliStatus);
   const setDefaultAgent = useApp((s) => s.setDefaultAgent);
-  const pickFolder = useApp((s) => s.pickFolder);
   const completeOnboarding = useApp((s) => s.completeOnboarding);
   const run = useApp((s) => s.run);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -118,17 +116,11 @@ export function Onboarding() {
   // The pick is never hidden: an agent from the folded list that is the answer opens the fold.
   const othersOpen = showOthers || !isLead(agent);
 
-  // A folder dropped from the Finder. Chromium hands a directory over as a File with an empty type.
-  const pathForFile = useApp((s) => s.pathForFile);
-  /* The picker's upload tab files an image under a profile. The server seeds "Personal" on first
-     boot, so there is one here before this page renders; the fallback keeps the BUILT-IN icons
-     working on the one path where there is not. */
-  const profileId = useApp((s) => s.profiles[0]?.id ?? "");
-  const drop = useFileDrop((files) => {
-    const path = files.map((f) => pathForFile(f)).find(Boolean);
-    if (path) setFolder(path);
-  }, true);
-  const choose = () => run(async () => { const p = await pickFolder(); if (p) setFolder(p); });
+  /* The profile the space goes into (`completeOnboarding`'s pick): the picker's upload tab files an
+     image under it, and the folder field asks where a space there would live. The server seeds
+     "Personal" on first boot, so there is one here before this page renders; the fallback keeps the
+     BUILT-IN icons working on the one path where there is not. */
+  const profileId = useApp((s) => s.activeProfileId ?? s.profiles[0]?.id ?? "");
 
   const suggested = folder ? folderName(folder) : DEFAULT_SPACE_NAME;
   const submit = () => {
@@ -191,48 +183,16 @@ export function Onboarding() {
         </fieldset>
 
         {/* The space, whole. Name leads because it is the field that takes focus and the only one
-            anybody has to type; the folder sits beside it because picking one is what fills the
-            name's placeholder. */}
+            anybody has to type, with how the space will look beside it; the folder sits next to it
+            because picking one is what fills the name's placeholder. The New space sheet is made of
+            the same two fields. */}
         <fieldset className="onboarding-step onboarding-space">
           <legend className="onboarding-step-head"><span className="onboarding-step-n" aria-hidden="true">2</span>Name your space</legend>
           <p className="onboarding-step-sub">A space keeps one project's sessions, files and memory together. Add more any time.</p>
           <div className="onboarding-space-row">
-            <label className="field onboarding-name">
-              <span>Name</span>
-              <input ref={nameRef} aria-label="Space name" value={name} placeholder={suggested}
-                onChange={(e) => setName(e.target.value)} />
-            </label>
-            <div className="field onboarding-folder-field">
-              <span>Folder <span className="onboarding-optional">optional</span></span>
-              {/* The drop target is the whole field, and it says so only while something is over it. */}
-              <div className="onboarding-folder" data-dropping={drop.dropping || undefined} {...drop.handlers}>
-                {folder ? (
-                  <>
-                    <Icon name="folder" size={14} />
-                    <span className="onboarding-folder-path" title={folder}>{folder}</span>
-                    <button type="button" className="icon-btn" aria-label="Remove folder" onClick={() => setFolder(null)}><Icon name="close" size={12} /></button>
-                  </>
-                ) : (
-                  <>
-                    <button type="button" className="btn" onClick={choose}>Choose folder…</button>
-                    <span className="onboarding-note">{drop.dropping ? "Drop to use this folder" : "or drop a repo here"}</span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-          {/* How it looks in the sidebar: the same picker and swatches the space's own settings use, so
-              the control someone meets first is the control they meet again. */}
-          <div className="onboarding-look">
-            <span className="onboarding-look-label">Icon and colour</span>
-            <IconPicker icon={icon} profileId={profileId} onPick={setIcon} />
-            <div className="swatches" role="radiogroup" aria-label="Color">
-              {SPACE_COLORS.map((c) => (
-                <button key={c} type="button" role="radio" aria-checked={color === c} aria-label={`Color ${c}`}
-                  className="swatch" data-selected={color === c || undefined}
-                  style={{ background: c }} onClick={() => setColor(c)} />
-              ))}
-            </div>
+            <SpaceIdentityField nameRef={nameRef} name={name} onName={setName} placeholder={suggested}
+              icon={icon} onIcon={setIcon} color={color} onColor={setColor} profileId={profileId} />
+            <SpaceFolderField className="field" folder={folder} onFolder={setFolder} profileId={profileId} name={spaceName} />
           </div>
         </fieldset>
 

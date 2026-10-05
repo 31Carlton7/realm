@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
 import { dismissBootSplash } from "./boot-splash";
 import { bannerFor, type DaemonUiState } from "./components/daemon-banner";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { Rail } from "./components/sidebar/Rail";
+import { WindowLead } from "./components/sidebar/WindowLead";
+import { SidePaneToggle } from "./components/SidePaneToggle";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { NewProfileSheet } from "./components/profiles/NewProfileSheet";
 import { ProfileWindowBridge } from "./components/profiles/ProfileWindowBridge";
@@ -14,6 +16,7 @@ import { FanOutSheet } from "./components/FanOutSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette } from "./components/CommandPalette";
+import { Toasts } from "./components/Toasts";
 import { QuickChat } from "./components/QuickChat";
 import { PageOverlay } from "./components/PageOverlay";
 import { PageNavProvider } from "./components/page-nav";
@@ -25,7 +28,8 @@ import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
 import { persistBrowserPages } from "./panes/browser/persist-pages";
 import { Onboarding } from "./components/Onboarding";
-import { StoreContext, createAppStore, useApp, type AppState } from "./state/store";
+import { StoreContext, createAppStore, useApp, useAppStore, type AppState } from "./state/store";
+import { sidebarHidden } from "./state/selectors";
 import { useStore, type StoreApi } from "zustand";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
@@ -35,20 +39,25 @@ import { useApplyTheme } from "./theme/useTheme";
 import { useZoom } from "./theme/zoom";
 import { installRubberBand } from "./rubber-band";
 import { installPressTracking } from "./press-tracking";
+import { installTooltips } from "./tooltips";
 import "./panes";
 
 /**
  * The rail, the sidebar column and the content beside it (Plan 27).
  *
- * The rail is the window's left edge in every state: it holds the traffic lights in its top band, the
- * app's destinations, and the sidebar's own toggle. Collapsing takes the sidebar column out of the
- * row and nothing else — the rail stays, so the lights never land on pane chrome and the way back is
- * where it was.
+ * The rail is the window's left edge in every state, holding the app's destinations. Collapsing — or
+ * a page that has no use for the spaces (`PAGE_SHELL`) — closes the sidebar column and nothing else.
+ * The top row is the window's: the traffic lights, back and forward stay where they are in both
+ * states (WindowLead), and the sidebar's toggle joins them once the column is gone.
  *
- * Lives under the store provider so it can read `sidebarCollapsed`. Exported for the shell tests.
+ * A page is drawn inside the panes' column, over the panes, so it moves with them: when the sidebar
+ * opens or closes, the page and its bar travel in step with the pane bars they cover.
+ *
+ * Lives under the store provider so it can read the sidebar's state. Exported for the shell tests.
  */
 export function AppShell() {
-  const collapsed = useApp((s) => s.sidebarCollapsed);
+  const collapsed = useApp(sidebarHidden);
+  const folded = useSidebarFolded(collapsed);
   // The column's width is painted here rather than on the sidebar itself because the collapse
   // animation is a negative margin of exactly this number: one variable on the shell, read by
   // everything that has to agree with it.
@@ -58,8 +67,8 @@ export function AppShell() {
      away, and what someone sees on their first launch is the one page that is asking them something. */
   const firstRun = useApp((s) => s.booted && s.spaces.length === 0);
   return (
-    <div className="app" data-sidebar-collapsed={collapsed || undefined} data-first-run={firstRun || undefined}
-      style={{ "--sidebar-w": `${width}px` } as CSSProperties}>
+    <div className="app" data-sidebar-collapsed={collapsed || undefined} data-sidebar-folded={folded || undefined}
+      data-first-run={firstRun || undefined} style={{ "--sidebar-w": `${width}px` } as CSSProperties}>
       <Rail />
       {/* Mounted whether or not it is showing, so collapsing is a MOVE rather than an unmount —
           there is no exit animation for an element React has already removed. `inert` is what makes
@@ -68,9 +77,37 @@ export function AppShell() {
           live, which is a list of a few rows re-rendering in the background and the price of the
           thing sliding instead of vanishing. */}
       <Sidebar collapsed={collapsed} />
-      <main className="main"><Main /></main>
+      {/* App-level pages, over the workspace and never inside it — but inside the column the panes
+          are in, so the page's box IS the panes' box: it cannot be a frame behind or ahead of them
+          while the sidebar moves, which it was as a window-fixed layer with an inset of its own. */}
+      <main className="main"><Main /><PageOverlay /></main>
+      {/* After the panes: see WindowLead on why document order is what keeps its buttons clickable. */}
+      <WindowLead folded={folded} />
+      <SidePaneToggle />
     </div>
   );
+}
+
+/**
+ * Whether the sidebar has finished folding away, not just been asked to.
+ *
+ * Two things change hands at that moment rather than at the click: the frame's rim and its corner,
+ * which are the column's while any of it is on screen and the panes' once none is
+ * (`data-sidebar-folded`), and the toggle, which the column's own head row carries out and the
+ * window's lead takes over once the column is gone. Opening hands both back at once. The wait is the
+ * column's own transition, read off it, so under reduced motion — which has none — it folds at once.
+ */
+function useSidebarFolded(collapsed: boolean): boolean {
+  const [folded, setFolded] = useState(collapsed);
+  useLayoutEffect(() => {
+    if (!collapsed) { setFolded(false); return; }
+    const column = document.getElementById("app-sidebar");
+    const ms = column ? parseFloat(getComputedStyle(column).transitionDuration) * 1000 : 0;
+    if (!(ms > 0)) { setFolded(true); return; }
+    const timer = window.setTimeout(() => setFolded(true), ms);
+    return () => window.clearTimeout(timer);
+  }, [collapsed]);
+  return folded;
 }
 
 /** Writes the active space's palette to :root; lives under the store provider so it can read state. */
@@ -193,6 +230,13 @@ function PressTrackingBridge() {
   return null;
 }
 
+/** Every control's `title` as the app's own tooltip (tooltips.ts), kept clear of the browser views. */
+function TooltipBridge() {
+  const store = useAppStore();
+  useEffect(() => installTooltips(document, { avoid: () => store.getState().browserRects }), [store]);
+  return null;
+}
+
 /** The app's scrollers give at their ends (rubber-band.ts). Off under reduced motion, as AppKit's is. */
 function RubberBandBridge() {
   useEffect(() => installRubberBand(document, {
@@ -213,6 +257,7 @@ export function ThemeBridge() {
   const paneAlpha = useApp((s) => s.paneAlpha);
   const cursorBlink = useApp((s) => s.terminalCursorBlink);
   const cursorStyle = useApp((s) => s.terminalCursorStyle);
+  const terminalScheme = useApp((s) => s.terminalColors);
   /* The page zoom, onto `:root` as a number the stylesheet multiplies by. Chromium already scales
      every px when you press ⌘−; what this buys is the surfaces that should give up MORE than their
      share when you do — the prompter's column, today. */
@@ -226,6 +271,8 @@ export function ThemeBridge() {
   // that the light face's ground would swallow. `mode` rather than `pref`, because "System" changes
   // face without the preference changing.
   useEffect(() => { getTerminalHub().refreshColors(); }, [mode, color, themes, overrides, contrast]);
+  // Realm's sixteen or the shell's: the colours again, for the same reason.
+  useEffect(() => { getTerminalHub().setColorScheme(terminalScheme); }, [terminalScheme]);
   // Whether that cursor blinks is the same story: xterm takes it at construction, and a preference
   // that only reached the NEXT terminal is one nobody believes they changed.
   useEffect(() => { getTerminalHub().setCursorBlink(cursorBlink); }, [cursorBlink]);
@@ -266,20 +313,6 @@ function ConnectionBanner() {
       {copy.action === "quit-and-stop" && (
         <button onClick={() => void window.realm?.quitAndStopAgents?.()}>Quit &amp; stop agents</button>
       )}
-    </div>
-  );
-}
-
-function ErrorBar() {
-  const error = useApp((s) => s.error);
-  const clearError = useApp((s) => s.clearError);
-  // The fixed conn-banner hangs over the top edge where this bar sits; step below it while it shows.
-  const underBanner = useApp((s) => s.connectionState !== "connected");
-  if (!error) return null;
-  return (
-    <div className="error-bar" data-under-banner={underBanner || undefined} role="alert">
-      <span>{error}</span>
-      <button aria-label="Dismiss error" onClick={clearError}>✕</button>
     </div>
   );
 }
@@ -325,6 +358,7 @@ export function Main() {
   const resizeSplit = useApp((s) => s.resizeSplit);
   const equalizeSplit = useApp((s) => s.equalizeSplit);
   const zoomedLeafId = useApp((s) => s.view?.zoomedLeafId ?? null);
+  const sidePanesHidden = useApp((s) => s.sidePanesHidden);
   const focusPaneFull = useApp((s) => s.focusPaneFull);
   const unfocusPane = useApp((s) => s.unfocusPane);
   const run = useApp((s) => s.run);
@@ -335,13 +369,12 @@ export function Main() {
   // First run (W4): no spaces at all — the onboarding sheet, not a sentence pointing at a "+". It is
   // gated on `booted` because an unbooted store also has zero spaces, and on the space COUNT rather than
   // `activeSpaceId`, so it can never come back for someone who already has spaces.
-  if (booted && spaces.length === 0) return <><ErrorBar /><Onboarding /></>;
-  if (!spaceId) return <><ErrorBar /><div className="pane-placeholder muted">Create a space with the + in the sidebar.</div></>;
+  if (booted && spaces.length === 0) return <Onboarding />;
+  if (!spaceId) return <div className="pane-placeholder muted">Create a space with the + in the sidebar.</div>;
   return (
     <>
-      <ErrorBar />
       <PaneHost layout={layout ?? emptyLayout()} items={items} focusedLeafId={focusedLeafId}
-        zoomedLeafId={zoomedLeafId}
+        zoomedLeafId={zoomedLeafId} sidePanesHidden={sidePanesHidden}
         onZoom={(leafId) => run(() => focusPaneFull(leafId))}
         onUnzoom={() => run(() => unfocusPane())}
         onFocus={focusLeaf}
@@ -630,14 +663,12 @@ export function App() {
       <ScrollbarStyleBridge />
       <RubberBandBridge />
       <PressTrackingBridge />
+      <TooltipBridge />
       {/* Shared by the sidebar and the page over the panes, whose own rail can take the sidebar's
           column (components/page-nav.tsx). */}
       <PageNavProvider>
       <AppShell />
       <ConnectionBanner />
-      {/* App-level pages, over the workspace and never inside it. Before the sheets so a sheet opened
-          from a page still lands on top of it. */}
-      <PageOverlay />
       </PageNavProvider>
       <SheetHost />
       {/* Over everything and outside the layout: it takes no pane, so it belongs to the window
@@ -645,6 +676,8 @@ export function App() {
       <QuickChat />
       <CommandPalette />
       <SpaceOverview />
+      {/* What the window has to say, at its foot and over everything: a failed action, a receipt. */}
+      <Toasts />
     </StoreContext.Provider>
   );
 }

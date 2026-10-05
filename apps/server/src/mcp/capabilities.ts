@@ -33,7 +33,11 @@ const BLOCKS: Record<string, string> = {
     "survey, several unrelated fixes, a review running beside the next piece of work. Keep the work here when " +
     "a step needs the result of the step before it, when it is a single edit, or when you would finish it in a " +
     "handful of tool calls — a sub-agent costs a session start, cannot ask you anything once it is running, and " +
-    "hands back prose instead of the context you would have built yourself. Sub-agents cannot delegate further.",
+    "hands back prose instead of the context you would have built yourself. A sub-agent can run on another " +
+    "model: `constraints.model` takes a name as the user says it (\"GPT-6 Luna\", \"Fable\", \"Opus 5.5\") and " +
+    "Realm runs it on the agent that has it. When the user asks for work to be done by particular models — " +
+    "\"implement this plan with GPT-6 Luna\" — that request is the exception to keeping work here: start one " +
+    "sub-agent per model they named, and stay the one who collects and reports.",
 
   "realm-browser":
     "- **The browser.** `browser_open` opens a real browser pane in this space; `browser_snapshot` and " +

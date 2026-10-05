@@ -1,7 +1,20 @@
+import { bareToolName } from "@realm/contracts";
 import { blockKey, type Block } from "./transcript-model";
 import { toolSummary } from "./tool-summary";
 
 export type ToolBlock = Extract<Block, { kind: "tool" }>;
+
+/** The calls that start a Realm sub-agent, drawn as that sub-agent's own line (DelegationLine). A
+ *  refused call is an ordinary card, whose Error well is the only place the refusal's words show. */
+const SPAWNS = new Set(["agent_start", "agent_run"]);
+export const isDelegationLine = (b: ToolBlock): boolean => SPAWNS.has(bareToolName(b.name)) && !b.result?.isError;
+/** The call that collects them, drawn as a line of its own too (DelegationWait). */
+export const isDelegationWait = (b: ToolBlock): boolean => bareToolName(b.name) === "agent_wait" && !b.result?.isError;
+
+/** Calls that never fold into a run. A fan-out is two starts and a wait in a row — a run by the rule
+ *  below — and a run collapses to "Worked for 8s" once it settles, which hid the one thing a reader
+ *  of a delegation wants to see: each sub-agent, and how it ended. */
+const standsAlone = (b: ToolBlock): boolean => isDelegationLine(b) || isDelegationWait(b);
 
 /** §2.8: "the agent's work is a quiet ledger" — a run of consecutive tool calls collapses to one
  *  summary line ("18 tools · 5 files · 2 commands · 6m 12s") that expands into its steps.
@@ -64,9 +77,9 @@ export function groupTranscript(blocks: readonly Block[]): TranscriptItem[] {
   let i = 0;
   while (i < top.length) {
     const e = top[i]!;
-    if (!e.node) { out.push({ kind: "block", key: e.key, block: e.block, nested: NO_NESTED }); i++; continue; }
+    if (!e.node || standsAlone(e.node.block)) { out.push({ kind: "block", key: e.key, block: e.block, nested: e.node?.nested ?? NO_NESTED }); i++; continue; }
     const steps: ToolNode[] = [];
-    for (let n = top[i]?.node; n; n = top[i]?.node) { steps.push(n); i++; }
+    for (let n = top[i]?.node; n && !standsAlone(n.block); n = top[i]?.node) { steps.push(n); i++; }
     // Keyed on the run's first tool: a run only ever grows at its tail, so the group keeps its
     // identity — and the user's expand/collapse choice — as more tools land in it.
     if (steps.length >= GROUP_MIN) out.push({ kind: "group", key: `group:${steps[0]!.key}`, steps });

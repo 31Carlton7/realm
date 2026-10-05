@@ -12,6 +12,7 @@ import { PageIcon } from "../../components/PageIcon";
 import { browserMenuItems, parseBrowserMenuChoice, type BrowserMenuChoice } from "./browser-menu";
 import { sessionForPick } from "./pick-target";
 import { SETTLE_MS, isRealmItemDrag, shouldShowView } from "./view-sync";
+import { yieldViewTo } from "../../state/no-overlay";
 
 
 const NO_ACTIONS: BrowserActionTick[] = [];
@@ -138,7 +139,7 @@ function usePasskeyNotice(browserId: string) {
  * lands nowhere says so rather than being quietly dropped, because the user's evidence that it
  * worked is a chip appearing in a pane they may not be looking at.
  */
-function useElementPicker(browserId: string, store: StoreApi<AppState> | null, setNote: (note: string | null) => void) {
+function useElementPicker(browserId: string, store: StoreApi<AppState> | null, setNote: (note: string | null, icon?: IconName) => void) {
   const [armed, setArmed] = useState(false);
 
   // Only when armed: a pane that never picked has nothing to take down, and main would be answering
@@ -167,7 +168,7 @@ function useElementPicker(browserId: string, store: StoreApi<AppState> | null, s
       const accent = getComputedStyle(document.documentElement).getPropertyValue("--rl-accent").trim();
       picked = await getBrowserBridges().host.pickElement(browserId, accent || undefined);
     } catch {
-      setNote("Realm could not take control of this page — is DevTools open on it?");
+      setNote("Realm could not take control of this page — is DevTools open on it?", "alert");
     } finally {
       setArmed(false);
     }
@@ -219,7 +220,7 @@ function useAnnotate(browserId: string, spaceId: string, store: StoreApi<AppStat
       const dir = await server.screenshotDir(spaceId).catch(() => null);
       result = await host.annotate(browserId, accent || undefined, dir);
     } catch {
-      say("Realm could not take control of this page — is DevTools open on it?");
+      say("Realm could not take control of this page — is DevTools open on it?", "alert");
     } finally {
       setArmed(false);
     }
@@ -237,26 +238,28 @@ function useAnnotate(browserId: string, spaceId: string, store: StoreApi<AppStat
 }
 
 /**
- * The pane's receipt — for a pick, a screenshot, a cleared partition.
+ * The pane's receipt — for a pick, a screenshot, a cleared partition — as one of the window's toasts.
  *
  * It goes away on its own. It was a banner across the chrome with a manual dismiss, and it stayed
  * until you closed it — which for "Added button#submit to Refactor the parser" is a receipt for
  * something you have already watched happen. A toast is the right shape.
  *
- * It lives in the browser CHROME rather than floating over the pane, and that is not a compromise: a
- * native `WebContentsView` composites over anything in its rectangle (W2's no-overlay rule), so a
- * toast placed over the view is a toast nobody sees.
+ * It used to be a pill in the browser's CHROME, because a native `WebContentsView` composites over
+ * anything in its rectangle and a toast placed over the view is one nobody sees. The window's toasts
+ * stand clear of every view now (`placeToastStack`), so a receipt is simply one of them. One per pane:
+ * the next receipt replaces this pane's last, and `say(null)` takes it down.
  */
-function useToast() {
-  const [note, setNote] = useState<{ text: string; icon: IconName } | null>(null);
-  useEffect(() => {
-    if (!note) return;
-    const t = setTimeout(() => setNote(null), PICK_NOTE_MS);
-    return () => clearTimeout(t);
-  }, [note]);
-  /** The glyph names what the receipt is FOR — the picker's target, a screenshot's picture. */
-  const say = useCallback((text: string | null, icon: IconName = "target") => setNote(text === null ? null : { text, icon }), []);
-  return { note, say };
+function useToast(store: StoreApi<AppState> | null) {
+  const last = useRef<string | null>(null);
+  /** The glyph names what the receipt is FOR — the picker's target, a screenshot's picture. An alert
+   *  is a warning and a check a success, which wear their tone's own. */
+  const say = useCallback((text: string | null, icon: IconName = "target") => {
+    const st = store?.getState(); if (!st) return;
+    if (last.current) st.dismissToast(last.current);
+    last.current = text === null ? null
+      : st.toast(icon === "alert" ? { tone: "warning", text } : icon === "check" ? { tone: "success", text } : { tone: "info", text, icon });
+  }, [store]);
+  return { say };
 }
 
 /**
@@ -390,10 +393,6 @@ function useRecentVisits(spaceId: string, showing: boolean) {
  * throttle), and during pane drags the view hides outright rather than visibly trailing the
  * placeholder (the research's bounds-lag mitigation; drags are on the do-NOT-animate list).
  */
-/** How long the pick receipt stays up. Long enough to read a session name, short enough that it is
- *  gone before you look for the thing it is covering. */
-export const PICK_NOTE_MS = 3200;
-
 export function BrowserPane({ item, visible, focused }: PaneProps) {
   const browserId = item.refId;
   const [state, setState] = useState<BrowserViewState | null>(null);
@@ -420,6 +419,16 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   );
   const overlayRef = useRef(pageOverlay);
   overlayRef.current = pageOverlay;
+  /* The corner the window's toasts are holding, when they found nowhere else to stand: the view gives
+     up whatever of it falls inside its rectangle for as long as they are up (`yieldViewTo`). The rect
+     registered for the no-overlay machinery stays the WHOLE view — it is where the view stands, and
+     what the toasts measured as having no room beside it. */
+  const toastReserve = useSyncExternalStore(
+    useCallback((cb: () => void) => store?.subscribe(cb) ?? (() => {}), [store]),
+    useCallback(() => store?.getState().toastReserve ?? null, [store]),
+  );
+  const reserveRef = useRef(toastReserve);
+  reserveRef.current = toastReserve;
   /* Whose browser this is (Plan 27 Phase 2): the space's profile, whose cookie jar the view lives in.
      A space moved to another profile has to take its browser with it, and a view cannot change jars —
      so the effect below asks main for the view again, and main, finding the jar changed, makes a new
@@ -444,7 +453,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const { actions, driving } = useAgentWatch(store, browserId);
   const downloads = useBlockedDownloads(browserId, item.spaceId);
   const passkey = usePasskeyNotice(browserId);
-  const toast = useToast();
+  const toast = useToast(store);
   const picker = useElementPicker(browserId, store, toast.say);
   const annotate = useAnnotate(browserId, item.spaceId, store, toast.say);
   const find = useFindInPage(browserId, url);
@@ -474,7 +483,10 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     const sync = () => {
       if (!created || disposed) return;
       const r = el.getBoundingClientRect();
-      host.setBounds(browserId, { x: r.x, y: r.y, width: r.width, height: r.height }, window.devicePixelRatio,
+      const bounds = yieldViewTo({ x: r.x, y: r.y, width: r.width, height: r.height }, reserveRef.current);
+      // The strip given up shows the pane's ground rather than the placeholder's page white (styles.css).
+      el.toggleAttribute("data-yielded", bounds.height < r.height);
+      host.setBounds(browserId, bounds, window.devicePixelRatio,
         shouldShowView({ paneVisible: visibleRef.current, pageOverlay: overlayRef.current,
           dragging: flags.dragging, settled: flags.settled, hasUrl: flags.hasUrl, ready: flags.ready, failed: flags.failed }));
       // W2's no-overlay registration: the rect the native view paints (or will paint — transient
@@ -573,9 +585,10 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
    * (create, adopt, release) and re-running it on a visibility flip would tear the view down and
    * rebuild it. But `sync` reads both through refs, so nothing told main when either changed: opening
    * Settings over a browser left the native view painting over the page, and a pane moved into a
-   * hidden leaf would have done the same. One line, and it is the whole fix.
+   * hidden leaf would have done the same. One line, and it is the whole fix. The toasts' reserve rides
+   * the same line for the same reason: it changes the bounds without changing the pane.
    */
-  useEffect(() => { syncRef.current?.(); }, [visible, pageOverlay]);
+  useEffect(() => { syncRef.current?.(); }, [visible, pageOverlay, toastReserve]);
 
   // An empty pane's natural target is the address bar (like a fresh browser tab).
   useEffect(() => {
@@ -891,12 +904,6 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
           <button type="button" className="icon-btn" aria-label="Dismiss" onClick={passkey.clear}>
             <Icon name="close" size={12} />
           </button>
-        </div>
-      )}
-      {toast.note && (
-        <div className="browser-toast" role="status">
-          <Icon name={toast.note.icon} size={12} />
-          <span className="browser-toast-text">{toast.note.text}</span>
         </div>
       )}
       {/* At a device size main narrows the view to the device's box, centred here; the ground beside it

@@ -8,14 +8,14 @@ import { TYPE_ICON } from "./FileCard";
  * spells wears the page with its letters, and a shell script the terminal it runs in.
  */
 const BY_EXT: Record<string, IconName> = {
-  ts: "fileTs", mts: "fileTs", cts: "fileTs",
-  js: "fileJs", mjs: "fileJs", cjs: "fileJs",
+  ts: "typescript", mts: "typescript", cts: "typescript",
+  js: "javascript", mjs: "javascript", cjs: "javascript",
   jsx: "fileReact", tsx: "fileReact",
   json: "fileJson", jsonc: "fileJson", json5: "fileJson", webmanifest: "fileJson",
-  py: "filePython", pyi: "filePython", pyw: "filePython",
+  py: "python", pyi: "python", pyw: "python",
   html: "fileHtml", htm: "fileHtml",
   css: "fileCss", scss: "fileCss", sass: "fileCss", less: "fileCss",
-  java: "fileJava", php: "filePhp", sql: "fileSql", pdf: "filePdf",
+  java: "java", php: "php", sql: "fileSql", pdf: "filePdf",
   xml: "fileXml", plist: "fileXml", svg: "fileSvg",
   zip: "fileZip", tar: "fileZip", gz: "fileZip", tgz: "fileZip", rar: "fileZip", "7z": "fileZip",
   sh: "terminal", bash: "terminal", zsh: "terminal", fish: "terminal", command: "terminal",

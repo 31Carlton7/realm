@@ -42,9 +42,14 @@ export type FileProvenance = {
  * and then NONE of them are drawn — the alternative is three buttons that fail one after another,
  * which is a worse way to learn the same fact than the sentence that replaces them.
  */
-export function FilePreview({ path, from = null, onClose }: {
+export function FilePreview({ path, from = null, inPane: paneCanOpen, onClose }: {
   path: string;
   from?: FileProvenance | null;
+  /** Whether the documents pane can open this file, from a list that knows. The kind alone says so
+   *  for the space's own checkout; the documents pane's home asks this for files OUTSIDE the
+   *  checkout it is rooted at, which no kind can make it reach — and an "Open in the documents
+   *  pane" there would only be refused. */
+  inPane?: boolean;
   onClose: () => void;
 }) {
   const name = basenameOf(path);
@@ -89,7 +94,7 @@ export function FilePreview({ path, from = null, onClose }: {
   const gone = file === null;
   // The documents pane's own answer about the same file, which is what makes "Open" mean one thing
   // across the app: `isOpenableArtifact` IS `documentKindFor(path) !== "unsupported"`.
-  const inPane = isOpenableArtifact(path);
+  const inPane = paneCanOpen ?? isOpenableArtifact(path);
   // macOS `open` RUNS an `.app` or a `.command`, so handing a file over stays behind the mime table.
   // A `.gitignore` is listable, revealable and copyable, and is not something to hand to `open`.
   const toOs = isOpenablePath(path);
