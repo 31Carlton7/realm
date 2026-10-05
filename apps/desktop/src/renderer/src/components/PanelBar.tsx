@@ -13,10 +13,12 @@ import { useItemTitle } from "./ProgramMark";
 import { SpaceIcon } from "./SpaceIcon";
 import { useOpenSpacePage, useSpaceTint } from "./sidebar/use-sidebar-model";
 
-/** Slim per-panel header: item icon + click-to-rename title, per-kind meta (right), ⋯ menu + close.
- *  Split/close/focus stay leaf-scoped callbacks (the host owns focus semantics); rename/delete are
- *  item-scoped and go straight to the store, like the sidebar's context menu. */
-export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false, onZoom, onUnzoom }: {
+/** Slim per-panel header: item icon + click-to-rename title, per-kind meta (right), the kind's own
+ *  actions, ⋯ menu — and a close for the kinds that have one. A session has none: it is left from the
+ *  sidebar, the way it was reached (`closeIntent`). Split/close/focus stay leaf-scoped callbacks (the
+ *  host owns focus semantics); rename/delete are item-scoped and go straight to the store, like the
+ *  sidebar's context menu. */
+export function PanelBar({ item, leafId, tabs, onSplit, onClose, onUnsplit, zoomed = false, onZoom, onUnzoom }: {
   item: Item;
   /** A side pane's tabs, `item` the one showing. The strip takes the title's place, and each tab's
    *  own close stands in for the bar's last control. */
@@ -25,6 +27,9 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
   leafId: string;
   /** Absent when the view already shows two panes: a split it would refuse is not offered. */
   onSplit?: (dir: "row" | "col") => void; onClose: () => void;
+  /** Present while this session shares the window with something: the one row that takes it out of
+   *  the split, which is what ⌘W does here too. */
+  onUnsplit?: () => void;
   /** This pane is the one filling the host — the state its bar's focus toggle reads as ON. */
   zoomed?: boolean;
   onZoom?: () => void; onUnzoom?: () => void;
@@ -71,6 +76,9 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
   const Actions = paneActions[item.kind];
   const closeMenu = () => { setMenuOpen(false); setConfirmingDelete(false); };
   const deletesOnClose = DELETES_ON_CLOSE.has(item.kind);
+  /* A session that is a pane of its own has no close, in the bar or the menu (the owner, 10-05). Its
+     transcript outlives every pane, and it is left from the sidebar as it was reached. */
+  const closes = !!tabs || item.kind !== "session";
   /* The confirm is owed by the OBJECT, not by the button. A pty, a live web view and a document
      workspace are each something a stray click would cost you, so those arm first; a page has
      nothing under it, and a step that guards nothing is the dead chrome this bar bans. */
@@ -153,8 +161,9 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
           </>
         )}
         {/* The bar's last control: the × that lifts a pane out of the layout, or — for a page,
-            terminal, browser or documents pane — the trash that ends the thing itself. */}
-        {tabs ? null : !deletesOnClose ? (
+            terminal, browser or documents pane — the trash that ends the thing itself. A side
+            pane's tabs carry their own, and a session's bar ends with its menu. */}
+        {tabs || !closes ? null : !deletesOnClose ? (
           <button className="icon-btn" aria-label={`Close ${item.title}`} title="Close (⌘W)" onClick={onClose}><Icon name="close" size={14} /></button>
         ) : confirmingDelete ? (
           <button className="icon-btn danger panel-confirm" aria-label={`Really delete ${item.title}?`}
@@ -189,9 +198,13 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
           ...(zoomed
             ? (onUnzoom ? [{ label: "Unfocus pane", icon: <Icon name="unfocusPane" size={14} />, kbd: "⌘⇧F", onSelect: onUnzoom }] : [])
             : (onZoom ? [{ label: "Focus pane", icon: <Icon name="focusPane" size={14} />, kbd: "⌘⇧F", onSelect: onZoom }] : [])),
-          // Where the bar's own control deletes, this is the only route left to the layout-only
-          // close — so it says which of the two it is, instead of leaving "Close" to mean either.
-          { label: deletesOnClose ? "Close pane (keep in space)" : "Close", icon: <Icon name="close" size={14} />, kbd: "⌘W", onSelect: onClose },
+          /* The layout-only close, named for what it closes — the row ⌘W runs. A tab leaves its strip;
+             a session leaves a split it shares, and alone has no row at all. Where the bar's own
+             control deletes, the row says it keeps the thing, instead of leaving "Close" to mean either. */
+          ...(closes ? [{ label: deletesOnClose ? `Close ${tabs ? "tab" : "pane"} (keep in space)` : tabs ? "Close tab" : "Close",
+            icon: <Icon name="close" size={14} />, kbd: "⌘W", onSelect: onClose }]
+            : onUnsplit ? [{ label: "Remove from split", icon: <Icon name="close" size={14} />, kbd: "⌘W",
+              title: "Takes this session out of the split; it stays in the sidebar", onSelect: onUnsplit }] : []),
           // Delete lives in the bar for those kinds; repeating it here would be two controls for
           // one action, and only one of them would ever wear the armed state.
           ...(deletesOnClose || peek ? [] : [

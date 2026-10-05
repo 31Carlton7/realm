@@ -5,6 +5,7 @@ import type { DropEdge } from "../state/store";
 import { Icon } from "@realm/ui";
 import { PanelBar } from "./PanelBar";
 import { PaneFor } from "../panes/registry";
+import { closeIntent } from "../state/close-intent";
 import { isRealmPaneDrag, REALM_ITEM_TYPE, REALM_NEW_SESSION_TYPE } from "./drag-types";
 
 export type PaneHostProps = {
@@ -26,6 +27,9 @@ export type PaneHostProps = {
   onClose: (itemId: string) => void;
   /** Drop an EMPTY pane out of the layout. Keyed by leaf, because there is no item to key on. */
   onCloseEmpty?: (leafId: string) => void;
+  /** Take a session out of the split it shares — ⌘W's answer for that pane (`closeIntent`). Keyed by
+   *  leaf, because what leaves is decided by where the pane is. */
+  onUnsplit?: (leafId: string) => void;
   onSplit: (leafId: string, dir: "row" | "col") => void;
   onResize?: (splitId: string, sizes: number[]) => void;
   /** Double-click on a divider: put every child of that split back on equal shares. */
@@ -146,6 +150,10 @@ export function PaneHost(p: PaneHostProps) {
   /* The window shows one view of at most two panes (Plan 27), so a split it would refuse is not
      offered: a control whose only outcome is nothing happening is dead chrome. */
   const canSplit = primaryLeaves(p.layout).length < VIEW_MAX_PANES;
+  /* A session's bar has no close; while it shares the window its menu can take it out of the split.
+     Not under pane focus, where the other pane is out of sight and the row would remove the one on
+     screen to show a pane nobody was looking at — ⌘W still does it, as it closes whatever has focus. */
+  const unsplits = (leafId: string) => !zoomed && closeIntent(p.layout, leafId, (id) => byId.get(id))?.kind === "unsplit";
   return <div className="panehost" data-zoomed={zoomed ? true : undefined}>{renderNode(root)}</div>;
 
   function renderNode(n: Layout): JSX.Element {
@@ -158,6 +166,7 @@ export function PaneHost(p: PaneHostProps) {
           data-first-leaf={n.id === firstLeafId || undefined} data-top-right={n.id === topRightId || undefined}
           data-empty={!item || undefined} onPointerDownCapture={() => p.onFocus(n.id)}>
           {item && <PanelBar item={item} leafId={n.id} tabs={tabs} onSplit={canSplit ? (dir) => p.onSplit(n.id, dir) : undefined} onClose={() => p.onClose(item.id)}
+            onUnsplit={p.onUnsplit && unsplits(n.id) ? () => p.onUnsplit!(n.id) : undefined}
             zoomed={n.id === p.zoomedLeafId}
             onZoom={canFocus && p.onZoom ? () => p.onZoom!(n.id) : undefined} onUnzoom={canFocus ? p.onUnzoom : undefined} />}
           {/* An empty pane gets a bar of its own — a title-less strip whose only control is the trash

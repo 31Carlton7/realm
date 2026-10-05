@@ -60,19 +60,21 @@ async function mount(folders: Record<string, BrowseRow[]>, opts: { workspace?: b
   return { store, api, asked, attachmentThumbnail, ...view };
 }
 
-const open = () => fireEvent.click(screen.getByRole("button", { name: "Files for A session" }));
+const open = () => fireEvent.click(screen.getByRole("button", { name: "Summary and files for A session" }));
 const rowNames = () => [...document.querySelectorAll(".summary-row-name")].map((n) => n.textContent);
 const cards = () => [...document.querySelectorAll<HTMLElement>(".session-files .library-tile")];
 const cardNames = () => cards().map((c) => c.querySelector(".library-tile-name")?.textContent);
 const gridSwitch = () => screen.getByRole("button", { name: "Show as a grid" });
 
 describe("the session file browser", () => {
-  it("is offered for every session, unlike the summary", async () => {
-    /* The summary hides itself until the transcript has something in it. This one cannot: the case
-       it exists for is a file that never appears in a transcript at all — written by a script, zipped
-       by a shell line — so a button gated on the transcript would be missing exactly when it matters. */
+  it("is offered for every session, before it has anything to summarise", async () => {
+    /* The summary waits until the transcript has something in it. The files cannot: the case they
+       exist for is a file that never appears in a transcript at all — written by a script, zipped by
+       a shell line — so a button gated on the transcript would be missing exactly when it matters.
+       Their control is the summary's (one button for both), so it is the files it opens on here. */
     await mount({});
-    expect(screen.getByRole("button", { name: "Files for A session" })).toBeInTheDocument();
+    open();
+    expect(await screen.findByRole("dialog", { name: "Files for A session" })).toBeInTheDocument();
   });
 
   it("lists what is on disk, newest first, grouped by day", async () => {

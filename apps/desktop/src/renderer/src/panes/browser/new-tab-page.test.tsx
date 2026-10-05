@@ -50,9 +50,23 @@ describe("a blank tab's new-tab page", () => {
     store.setState({ keybindings: [...store.getState().keybindings, { key: "mod+p", command: "" }, { key: "mod+o", command: "palette.files" }] });
     const tools = within((await page()).getByRole("region", { name: "Tools" }));
     const rows = tools.getAllByRole("button");
-    expect(rows.map((r) => r.querySelector(".new-tab-row-label")!.textContent)).toEqual(["Documents", "Terminal", "Simulator", "Machine"]);
+    expect(rows.map((r) => r.querySelector(".new-tab-row-label")!.textContent)).toEqual(["Documents", "Terminal", "Agents", "Simulator", "Machine"]);
     expect(rows[0]!.querySelector("kbd")?.textContent).toBe("⌘O");
     expect(rows.slice(1).every((r) => r.querySelector("kbd") === null)).toBe(true);
+  });
+
+  it("opens the session's Agents in the tab's place — the page is how a session with no side pane reaches them", async () => {
+    // THE MUTANT: leave Agents off the page. The toggle at the window's top right opens a session's
+    // first side pane onto this page, so its sub-agents would be two menus away, not one row.
+    const { api, store } = await mount();
+    const blank = findSidePane(store.getState().layout!, "i-lead")!.itemId!;
+    fireEvent.click((await page()).getByRole("button", { name: "Agents" }));
+    await waitFor(() => {
+      const side = findSidePane(store.getState().layout!, "i-lead")!;
+      expect(store.getState().items.find((i) => i.id === side.itemId)?.kind).toBe("agents");
+    });
+    expect(api.calls).toContain("agentsTab:lead");
+    expect(store.getState().items.some((i) => i.id === blank)).toBe(false);
   });
 
   it("opens Terminal in the tab's place", async () => {

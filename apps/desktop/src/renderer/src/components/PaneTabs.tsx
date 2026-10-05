@@ -1,9 +1,10 @@
 import { Icon } from "@realm/ui";
 import { useLayoutEffect, useRef, useState, type DragEvent } from "react";
-import { chordsForCommand, displayKeyChord, type Item } from "@realm/contracts";
-import { useApp } from "../state/store";
+import { chordsForCommand, displayKeyChord, findLeaf, type Item, type KeyContext } from "@realm/contracts";
+import { useApp, useAppStore } from "../state/store";
 import { REALM_ITEM_TYPE } from "./drag-types";
 import { Menu } from "./Menu";
+import { SIDE_TOOLS, openSideTool, sideToolReady } from "./side-tools";
 import { DELETES_ON_CLOSE, PAGE_KINDS } from "./pane-close";
 import { ItemIcon } from "./PageIcon";
 import { terminalTitle, useTerminalPrograms } from "./ProgramMark";
@@ -25,9 +26,11 @@ import { ScrollFadesX } from "./ScrollFades";
  * two-step where there is something under it, as the bar's is.
  *
  * The "+" after the last tab is where a person adds one: a blank tab here, or the same tab with this
- * pane filling the host ("full view", which is pane focus). A menu rather than two buttons, because
- * the strip is the bar's data of unbounded length and a second control would come out of its width.
- * The menu is the shared one, so it goes round a browser view rather than under it (no-overlay.ts).
+ * pane filling the host ("full view", which is pane focus) — and, under them, every tool the session
+ * this pane serves can open beside it (`SIDE_TOOLS`), which is where the session's bar used to keep
+ * them. A menu rather than a row of buttons, because the strip is the bar's data of unbounded length
+ * and every control beside it would come out of its width. The menu is the shared one, so it goes
+ * round a browser view rather than under it (no-overlay.ts).
  *
  * A browser's tab wears its page's own icon once the page has offered one, as a browser's tabs do, and
  * the kind's glyph until then. A terminal's tab wears what it is running — an agent's tile, a tool's
@@ -56,6 +59,16 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
   const confirmDelete = useApp((s) => s.confirmDelete);
   const newTab = useApp((s) => s.newTab);
   const keybindings = useApp((s) => s.keybindings);
+  const store = useAppStore();
+  /* The session this strip serves, whose tools the "+" opens: a strip beside anything else (a diff
+     opened beside a terminal) has no tools to offer, only a new tab. */
+  const served = useApp((s) => {
+    const owner = s.layout ? findLeaf(s.layout, leafId)?.owner : undefined;
+    const it = owner ? s.items.find((i) => i.id === owner) : undefined;
+    return it?.kind === "session" ? it.refId : null;
+  });
+  /* Which of its tools can open now, as one string so the selector hands back something stable. */
+  const ready = useApp((s) => (served ? SIDE_TOOLS.filter((t) => sideToolReady(s, served, t.tool)).map((t) => t.tool).join(" ") : ""));
   const peekId = useApp((s) => s.peek?.item.id ?? null);
   const run = useApp((s) => s.run);
   const programOf = useTerminalPrograms(tabs.some((t) => t.kind === "terminal"));
@@ -80,10 +93,13 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
   const carriesItem = (e: DragEvent) => Array.from(e.dataTransfer.types).includes(REALM_ITEM_TYPE);
   /* From the keymap the handler reads, as the palette's hints are: a user who rebinds the chord sees
      their own, and an unbound command shows none rather than one Realm has no basis for. */
-  const chord = (command: string) => {
-    const c = chordsForCommand(keybindings, command)[0];
+  const chord = (command: string, context?: KeyContext) => {
+    const c = chordsForCommand(keybindings, command, context)[0];
     return c ? displayKeyChord(c) : undefined;
   };
+  /* A tool's chord is printed only where the row and the key run the same thing: ⌘J is this session's
+     terminal, ⌘P its documents, asked of a session in focus — the context the key's own rule names. */
+  const toolChord = (tool: string) => (tool === "terminal" ? chord("terminal.toggle", { sessionFocus: true }) : tool === "documents" ? chord("palette.files") : undefined);
   return (
     <div className="pane-strip">
       <ScrollFadesX scroller={strip} />
@@ -136,7 +152,8 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
           );
         })}
       </div>
-      <button ref={addBtn} type="button" className="icon-btn pane-tabs-add" aria-label="New tab" title="New tab"
+      <button ref={addBtn} type="button" className="icon-btn pane-tabs-add" aria-label="New tab"
+        title={served ? "New tab — a page, or one of this session's tools" : "New tab"}
         aria-haspopup="menu" aria-expanded={adding} onClick={() => setAdding((v) => !v)}>
         <Icon name="add" size={14} />
       </button>
@@ -146,6 +163,13 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
           /* The glyph pane focus wears in the bar and in every pane's menu, because this is that action. */
           { label: "New tab in full view", icon: <Icon name="focusPane" size={14} />, kbd: chord("pane.newTabFullView"),
             onSelect: () => run(() => newTab(leafId, { full: true })) },
+          ...(served ? [
+            { kind: "separator" as const },
+            ...SIDE_TOOLS.filter((t) => ready.split(" ").includes(t.tool)).map((t) => ({
+              label: t.label, icon: <Icon name={t.icon} size={14} />, kbd: toolChord(t.tool), title: t.hint,
+              onSelect: () => run(() => openSideTool(store.getState(), served, t.tool)),
+            })),
+          ] : []),
         ]} />
       )}
     </div>

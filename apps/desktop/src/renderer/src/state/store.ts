@@ -25,6 +25,7 @@ import { createContext, useCallback, useContext, useMemo, useSyncExternalStore }
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
 import { pushToast, type Toast, type ToastInput } from "./toasts";
 import { libraryAddNotices } from "./library-add";
+import { closeIntent } from "./close-intent";
 import type { LibraryAddInput, LibraryAddResult } from "@realm/contracts";
 import { getMachineHub } from "../panes/machine/machine-hub";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
@@ -735,7 +736,7 @@ export type Beside = boolean | { sessionId: string };
  *  contents. Finding a file by its NAME is the documents pane's own search (⌘P, `findInDocuments`). */
 export type PaletteMode = "all" | "grep";
 /** What a blank browser tab's new-tab page offers: the panes a session opens beside itself. */
-export type NewTabTool = "terminal" | "documents" | "simulator" | "machine";
+export type NewTabTool = "terminal" | "documents" | "agents" | "simulator" | "machine";
 /** What a documents pane is asked from outside it: put the keyboard in its search, or show one of its
  *  files at a line. `path` is the tab's own name for the file (`documents.openPath` answers it). */
 export type DocumentsAsk = { documentsId: string; seq: number } & ({ search: true } | { path: string; line: number });
@@ -1179,7 +1180,7 @@ export type AppState = {
    *  is every session until someone runs `/goal`. */
   goals: Record<string, Goal>;
   /** Live simulator state by simulatorId, from `simulator.status`. Absent means `off` — a pane
-   *  nobody has pointed at a device yet, which is what the session bar's button makes. */
+   *  nobody has pointed at a device yet, which is what the side pane's Simulator makes. */
   simulatorState: Record<string, SimulatorState>;
   /** Which machines are currently swallowing Realm's own shortcuts (Plan 25 W3). Absent is off,
    *  which is the default and the answer for every machine nobody has turned it on for. Renderer
@@ -1840,8 +1841,8 @@ export type AppState = {
    * `focus` moves the keyboard to it, for a person who asked; an agent's open leaves the keyboard
    * where it is, and its tab comes to the front of the strip without taking anything else.
    *
-   * THE way something becomes a tab of a session's side pane: every tool a session's bar opens
-   * (terminal, documents, browser, machine, simulator) and every agent's open lands here, whatever
+   * THE way something becomes a tab of a session's side pane: every tool a session opens beside
+   * itself (terminal, documents, browser, machine, simulator) and every agent's open lands here, whatever
    * kind it is — make the item, then hand it to this. A person's open (`focus`) also brings the side
    * panes back if they were put away (`sidePanesHidden`); an agent's quiet one adds its tab and
    * leaves them as the person left them.
@@ -1868,6 +1869,10 @@ export type AppState = {
   closeFromLayout(itemId: string): Promise<void>;
   /** Drop an empty pane out of the layout. Keyed by LEAF, because an empty pane has no item. */
   closeEmptyPane(leafId: string): Promise<void>;
+  /** ⌘W, and every control that says it: what closing means in `leafId` (the focused pane by
+   *  default) — a tab leaves its strip, a pane leaves its split, a session alone hands the keyboard to
+   *  its prompter (`closeIntent`). Nothing while a page covers the panes. Layout-only throughout. */
+  closeInPane(leafId?: string | null): Promise<void>;
   /** Destructive: closes from the layout, deletes the item server-side (kills ptys), and drops local
    *  terminal/session state. */
   deleteItem(itemId: string): Promise<void>;
@@ -2206,7 +2211,7 @@ export type AppState = {
   /**
    * ⌘P: the documents pane, with the keyboard in its search — the one place a file is found, opened
    * or made. The pane of the session the keyboard is in (or the one the focused side pane serves) as
-   * a tab of its side pane, the way its bar's Documents button opens it; with no session, the space's.
+   * a tab of its side pane, the way the side pane's Documents opens it; with no session, the space's.
    */
   findInDocuments(): Promise<void>;
   /** The pane that acted on `documentsAsk` says so, so a pane that mounts later — the same one, back
@@ -2294,8 +2299,9 @@ export type AppState = {
   /** Drop one pending attachment (its chip's ×). Keyed by path, which is unique within the row. */
   removeAttachment(sessionId: string, path: string): void;
   /**
-   * The session's terminal, where Settings ▸ General puts it. The pane bar's button, ⌘J and View ▸
-   * Show Terminal all run this, so the three cannot drift apart.
+   * The session's terminal, where Settings ▸ General puts it. The side pane's Terminal (or, docked at
+   * the foot, the session bar's toggle), ⌘J and View ▸ Show Terminal all run this, so they cannot drift
+   * apart.
    *
    * Right, the default: a tab of the session's side pane, with the keyboard — the one it already has,
    * or a new shell started in its checkout. Like the bar's other side-pane buttons, a second press goes
@@ -3200,7 +3206,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       !!sid && get().activeProfileId !== null && get().spaces.some((sp) => sp.id === sid && sp.profileId === get().activeProfileId);
     /** The space a create goes to: the one named, else the current one. */
     const spaceFor = (sid?: string | null): string | null => sid ?? get().activeSpaceId;
-    /** The space of the session a pane is opened beside — a tool from a session's bar is that
+    /** The space of the session a pane is opened beside — a tool from a session's side pane is that
      *  session's, whichever space the other pane on screen is from. */
     const besideSpace = (beside: Beside): string | null =>
       typeof beside === "object" ? get().sessions[beside.sessionId]?.spaceId ?? get().items.find((i) => i.kind === "session" && i.refId === beside.sessionId)?.spaceId ?? null : null;
@@ -3615,7 +3621,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       return true;
     };
     /** Bring the side panes back if they were put away: a person just asked to look at something in
-     *  one (a tool from a session's bar, a tab, a row whose item is a tab), and a keyboard parked in
+     *  one (a tool asked for by its key, a tab, a row whose item is a tab), and a keyboard parked in
      *  a pane nobody can see is a click that missed. */
     const revealSidePanes = () => {
       if (!get().sidePanesHidden) return;
@@ -3645,14 +3651,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       await loadSpaceItems(sid);
       if (!inProfile(sid)) return;
       if (edge && targetLeafId) { await get().openItemAt(itemId, targetLeafId, edge); return; }
-      // Opened from a session's own bar: a tab of that session's side pane, with the keyboard, since
-      // a person asked to look at it.
+      // Opened for a session — its side pane's "+", a key, the palette: a tab of that session's side
+      // pane, with the keyboard, since a person asked to look at it.
       if (typeof beside === "object" && targetLeafId === null && await get().openInSidePane(beside.sessionId, itemId, { focus: true })) return;
       if (beside !== false && targetLeafId === null) { await get().openItemBeside(itemId); return; }
       await get().openItem(itemId, targetLeafId);
     };
 
-    /** The terminal each session's terminal button made, by session id — what a press goes back to
+    /** The terminal each session's Terminal (⌘J, the side pane's "+") made, by session id — what a press goes back to
      *  after its tab was put away with ⌘W, rather than starting a second shell. In memory only: after
      *  a relaunch the tab in the session's side pane says the same thing, and `terminalTabOf` reads it. */
     const terminalTabs = new Map<string, string>();
@@ -4595,8 +4601,8 @@ await get().refreshCustomThemes().catch(() => {});
         const { itemId } = await api.createBrowser(sid);
         await adoptItem(sid, itemId, targetLeafId, beside);
       },
-      /** Beside, never instead — a machine opened from a session's bar is a place to look at
-       *  something WHILE the session works, exactly like the browser button next to it. */
+      /** Beside, never instead — a machine opened from a session's side pane is a place to look at
+       *  something WHILE the session works, exactly like a browser tab beside it. */
       async newMachine(targetLeafId = null, beside = false, spaceId = null) {
         const sid = spaceFor(spaceId ?? besideSpace(beside)); if (!sid) return;
         const { itemId } = await api.createMachine(sid, "New machine");
@@ -4712,8 +4718,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (!inProfile(sid)) return;
         if (strip) await get().openItem(itemId, strip.id);
         // No strip on screen: the focused session's side pane, made beside it if it has none — and with
-        // no session to be beside, an ordinary browser beside the focused pane, as the bar's own
-        // Browser button opens one.
+        // no session to be beside, an ordinary browser beside the focused pane.
         else if (!(focusedItem?.kind === "session" && await get().openInSidePane(focusedItem.refId, itemId, { focus: true }))) {
           await get().openItemBeside(itemId);
         }
@@ -4876,6 +4881,17 @@ await get().refreshCustomThemes().catch(() => {});
         const layout = layoutCloseLeaf(get().layout ?? emptyLayout(), leafId);
         set(writeLayout(layout, { focusedLeafId: focusIn(layout) }));
         await persist();
+      },
+      async closeInPane(leafId = null) {
+        // A page covers the panes: the one this would act on is under it, out of sight.
+        if (get().pageOverlay) return;
+        const s = get();
+        const intent = closeIntent(s.layout, leafId ?? s.focusedLeafId, (id) => (s.peek?.item.id === id ? s.peek.item : s.items.find((i) => i.id === id)));
+        if (!intent) return;
+        if (intent.kind === "empty") { await get().closeEmptyPane(intent.leafId); return; }
+        // The pulse a session opened from a list takes, so a card holding the keyboard keeps it.
+        if (intent.kind === "prompter") { set({ keyboardFor: { sessionId: intent.sessionId, n: (get().keyboardFor?.n ?? 0) + 1 } }); return; }
+        await get().closeFromLayout(intent.itemId);
       },
       async deleteItem(itemId) {
         await get().closeFromLayout(itemId);
@@ -5098,7 +5114,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (here?.kind === "documents") opened = { documentsId: here.refId, itemId: here.id };
         else {
           // The session the keyboard is in, the one the focused side pane serves, or the first one on
-          // screen — `peekOwner`'s answer, which is also where that session's Documents button opens.
+          // screen — `peekOwner`'s answer, which is also where its side pane's Documents opens.
           const owner = s.peekOwner();
           const ownerItem = owner ? s.items.find((i) => i.id === owner) : undefined;
           const session = ownerItem ? s.sessions[ownerItem.refId] : undefined;
@@ -5119,7 +5135,10 @@ await get().refreshCustomThemes().catch(() => {});
         const owner = findLeafOfItem(get().layout ?? emptyLayout(), itemId)?.owner;
         const ownerItem = owner ? get().items.find((i) => i.id === owner) : undefined;
         const session = ownerItem?.kind === "session" ? get().sessions[ownerItem.refId] : undefined;
-        const made = tool === "terminal" ? await api.createTerminal(sid, session?.cwd)
+        // A session's sub-agents are that session's or nobody's: a tab serving none has no Agents row.
+        if (tool === "agents" && !session) return;
+        const made = tool === "agents" ? await api.agentsTab(session!.id)
+          : tool === "terminal" ? await api.createTerminal(sid, session?.cwd)
           : tool === "documents" ? await api.createDocuments(sid, session?.environmentId)
           : tool === "simulator" ? await api.createSimulator(sid, "Simulator")
           : await api.createMachine(sid, "New machine");
@@ -6503,7 +6522,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
         /* A TAB of a side pane, never a column of its own (the owner, 10-04: "the diff changes should
            also be a tab instead of its own pane"). Beside a session and its browser it was a third
-           column a third of the window wide. Every way in — the session's bar, the branch chip, the
+           column a third of the window wide. Every way in — the branch chip, `/diff`, the
            summary, a space's page, a transcript's Review — comes through here, so every one of them
            lands the same way: in the side pane of the session working in this checkout when one is on
            screen, else of the pane in focus. With nothing on screen to be beside, the empty pane

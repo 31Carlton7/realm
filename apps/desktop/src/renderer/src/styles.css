@@ -1077,6 +1077,10 @@ kbd { font: 11px var(--font-mono); }
   flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 8px 8px 14px;
 }
 .summary-panel-head h3 { flex: 1; margin: 0; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+/* Summary | Files takes the title's place (SessionSummary.tsx, DockViews), on the left edge the
+   Files panel's own folder switch keeps under it. */
+.summary-panel-head:has(.dock-views) { padding-left: 8px; }
+.summary-panel-head .dock-views { margin-right: auto; }
 .session-summary, .subagent-dock { padding: 0 6px 8px; }
 /* As tall as its content, and no taller than the pane it docks to.
    `--summary-pane-h` is the measured pane height, written by SessionSummary.tsx; the inset it has to

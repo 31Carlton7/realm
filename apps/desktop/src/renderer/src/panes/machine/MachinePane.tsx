@@ -25,7 +25,7 @@ import { E2B_STREAM_PORT, SANDBOX_NOTES, describeEndpoint, parseMachineAddress, 
  */
 
 /** The pane's body is chosen by what is actually true, in this order. `unconfigured` is not a
- *  machine state — it is a row with no address yet, which is what the session bar's button makes. */
+ *  machine state — it is a row with no address yet, which is what the side pane's Machine makes. */
 type Body = "unconfigured" | "downloading" | "off" | "booting" | "running" | "failed";
 
 function bodyFor(machine: Machine | null, state: MachineState, downloading: boolean): Body {
