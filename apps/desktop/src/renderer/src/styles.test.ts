@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BAR_CHROME, actionsThatFit } from "./components/pane-bar-fit";
@@ -7,6 +7,7 @@ import { REALM_SEED, deriveVars } from "@realm/ui";
 import { AGENT_FRAME, oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
 import { MAX_ROWS_PX } from "./panes/session/Composer";
+import { PRESSABLE } from "./press-tracking";
 
 /** §6's motion table and its "do NOT animate" list are enforceable only against the stylesheet
  *  itself — jsdom has no layout, no compositor and no CSSOM for a raw file, so nothing else in the
@@ -1908,8 +1909,9 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(open).toContain("background: none");
     expect(open).toContain("padding: 0");
     // A drop target's cursor must not promise a zoom the file cannot do: only a tile main has
-    // confirmed is media gets zoom-in, and the mark only lands once that answer is back.
-    expect(open).toContain("cursor: default");
+    // confirmed is media gets zoom-in, and the mark only lands once that answer is back. Every other
+    // tile is a button that opens its file, and points like one (the pointer rule, by tag).
+    expect(open).not.toContain("cursor:");
     expect(bodiesFor(".attach-tile[data-media] .attach-open").join(" ")).toContain("cursor: zoom-in");
   });
 
@@ -2325,6 +2327,108 @@ describe("scrollbars", () => {
   });
 });
 
+/* The owner, 10-05: "every scrollable surface in the entire app to have our signature blur". The
+   dissolve is a mask a component asks for on its scroller (`useDissolve`, ScrollFades.tsx), so the
+   stylesheet alone cannot say a scroller has it: what is checked is the MARKUP — every element that
+   wears a scroller's class hands its ref to the hook — or that the scroller is named below with the
+   reason a dissolve would hurt it. */
+describe("every scroller dissolves", () => {
+  /** Scrollers that do not, each with why. */
+  const EXCEPTIONS: Record<string, string> = {
+    // Lines that scroll sideways. A line of code, a diff, a command or a formula is read to its last
+    // character, which is exactly where a dissolve sits; the scrollbar already says there is more.
+    ".md pre": "a fenced block's code lines, scrolling sideways",
+    ".code-body": "a file's code lines, scrolling sideways (it dissolves downwards where a tool's body caps it)",
+    ".fd-body": "a diff's lines, scrolling sideways",
+    ".diff-hunks": "a file's patch in the diff pane, scrolling sideways on its own panel",
+    ".install-cmd code": "one command to copy, scrolling sideways",
+    ".code-preview": "the code font's preview lines, scrolling sideways",
+    ".documents-raw": "a document's raw source lines, scrolling sideways",
+    ".math-display": "a typeset formula's line, scrolling sideways",
+    // Surfaces that own something a mask would take.
+    ".md-scroll": "a table whose column heads pin to its top, where a top band would dissolve the heads",
+    ".settings-tabs": "a segmented control lying down in a narrow pane: a mask would fade the track it sits in",
+    ".sched-card": "a scheduled task's card, whose own fill and rim a mask would dissolve with its rows",
+    ".ql-view": "Quick Look's render on a ground of its own, which a mask would fade with the picture",
+    ".media-viewer-canvas[data-pans]": "a zoomed picture being panned: its edges are the picture's pixels, which is what a zoom is for",
+    // Editors keep their engines' scrolling, as they keep its rubber-banding (design.md).
+    ".documents-rich-scroll": "the rich-text editor's page, where the caret can be on any line",
+    ".documents-rich-surface pre": "a code block inside the rich-text editor",
+    // A selector whose elements are all held to it under their own classes above.
+    ".tool-body pre": "the wells a tool's body holds — .tool-well, .term-out, .code-body — each held here by its own class",
+  };
+  /** Scrollers whose element wears no class of its own, found by where they are drawn instead. */
+  const BY_PLACE: Record<string, { file: string; tag: string }> = {
+    ".permission-details pre": { file: "panes/session/PermissionCard.tsx", tag: "pre" },
+    ".msg-error pre": { file: "panes/session/Transcript.tsx", tag: "pre" },
+  };
+  /** An element that wears a scroller's class without being the one that scrolls. */
+  const NOT_THE_SCROLLER: Record<string, string> = {
+    "panes/settings/SettingsPage.tsx .page-rail": "Settings' rail box never scrolls — narrow it is `overflow: visible`, and its lists are the strip",
+  };
+
+  const scrollers = [...new Set(RULES.filter((r) => /overflow(-[xy])?:\s*(auto|scroll)/.test(r.body)).flatMap(partsOf))];
+  const root = dirname(repoFile("apps/desktop/src/renderer/src/styles.css"));
+  const tsx = (function walk(dir: string): string[] {
+    return readdirSync(dir).flatMap((f) => {
+      const p = join(dir, f);
+      return statSync(p).isDirectory() ? walk(p) : /\.tsx$/.test(f) && !/\.test\./.test(f) ? [p] : [];
+    });
+  })(root).map((p) => ({ file: p.slice(root.length + 1), src: readFileSync(p, "utf8") }));
+
+  /** Every lower-case opening tag in a file, whole: to its first `>` outside braces and strings. */
+  const tags = (src: string): { tag: string; text: string; at: number }[] => {
+    const out: { tag: string; text: string; at: number }[] = [];
+    for (const m of src.matchAll(/<([a-z][\w-]*)[\s>/]/g)) {
+      if (/[\w"'`$.\]]/.test(src[m.index - 1] ?? "")) continue;
+      let depth = 0, quote: string | null = null, j = m.index + m[1]!.length + 1;
+      for (; j < src.length; j++) {
+        const ch = src[j]!;
+        if (quote) { if (ch === quote && src[j - 1] !== "\\") quote = null; continue; }
+        if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
+        if (ch === "{") depth++; else if (ch === "}") depth--; else if (ch === ">" && depth === 0) break;
+      }
+      out.push({ tag: m[1]!, text: src.slice(m.index, j + 1), at: m.index });
+    }
+    return out;
+  };
+  /** The names a file hands to the dissolve: to the hook, to the components that call it, or out of
+   *  the two helpers that return a scroller already wired. */
+  const dissolved = (src: string): Set<string> => new Set([
+    ...[...src.matchAll(/useDissolve\((\w+)/g)].map((m) => m[1]!),
+    ...[...src.matchAll(/<ScrollFades(?:X)? scroller=\{(\w+)\}/g)].map((m) => m[1]!),
+    ...[...src.matchAll(/const \{ ref: (\w+)[^}]*\} = useFadedScroller\(/g)].map((m) => m[1]!),
+    ...[...src.matchAll(/const \{ (\w+)[^}]*\} = usePickerScroller\(/g)].map((m) => m[1]!),
+  ]);
+  const wears = (text: string, cls: string): boolean =>
+    [...text.matchAll(/className=(?:"([^"]*)"|\{([^]*?)\}(?=\s|\/?>))/g)].some((m) => (m[1] ?? m[2] ?? "").split(/[\s"'`?:]+/).includes(cls));
+
+  it("is wired to the dissolve everywhere its element is drawn, or is named with its reason", () => {
+    expect(scrollers.length, "no scrollers read out of the stylesheet").toBeGreaterThan(40);
+    const bare: string[] = [];
+    for (const sel of scrollers) {
+      if (sel in EXCEPTIONS) continue;
+      const place = BY_PLACE[sel];
+      const cls = place ? null : /\.([\w-]+)(?:\[[^\]]*\]|:[\w-]+(?:\([^)]*\))?)*$/.exec(sel.split(" ").pop()!)?.[1];
+      if (!place && !cls) { bare.push(`${sel}: no class to find it by — name it in BY_PLACE or EXCEPTIONS`); continue; }
+      const sites = tsx.filter((f) => !place || f.file === place.file).flatMap((f) =>
+        tags(f.src).filter((t) => (place ? t.tag === place.tag : wears(t.text, cls!))).map((t) => ({ ...t, file: f.file, src: f.src })));
+      if (sites.length === 0) { bare.push(`${sel}: drawn nowhere in the renderer`); continue; }
+      for (const s of sites) {
+        if (`${s.file} ${sel}` in NOT_THE_SCROLLER) continue;
+        const ref = /\bref=\{(\w+)\}/.exec(s.text)?.[1];
+        if (!ref || !dissolved(s.src).has(ref)) bare.push(`${sel}: ${s.file}:${s.src.slice(0, s.at).split("\n").length} <${s.tag}${ref ? ` ref=${ref}` : ""}>`);
+      }
+    }
+    expect(bare).toEqual([]);
+  });
+
+  it("names nothing that is not a scroller", () => {
+    // An exception that outlived its scroller is a hole left open for the next one.
+    for (const sel of [...Object.keys(EXCEPTIONS), ...Object.keys(BY_PLACE)]) expect(scrollers, sel).toContain(sel);
+  });
+});
+
 describe("a side pane's tab strip", () => {
   it("keeps every tab's glyph whole, whatever the title beside it is doing", () => {
     /* The documents and device tabs drew smaller marks than a session's: the glyph was a flex item
@@ -2509,6 +2613,16 @@ describe("dividers", () => {
     expect(wrap).toContain("--fade-top-h");
     expect(bodiesFor(".subagent-scroll-wrap").join(" ")).toContain("--fade-h");
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".edge-fade"))), "the bands are gone").toEqual([]);
+  });
+
+  it("a docked panel arrives from the edge it docks to and never past it — its travel is the gap it rests at", () => {
+    /* The summary came in from 12px out to rest 8px in, so its first frames hung 4px past the window's
+       edge, and a window that could not run the animation left it there (new-surfaces-live measured
+       the panel at 1404 in a 1400px window). THE mutant: any travel wider than the inset — the
+       terminal dock rises from the foot by the same rule. */
+    expect(bodiesFor(".pane-dock").join(" ")).toContain("margin: var(--sidebar-inset)");
+    expect(blockAfter("@keyframes rl-summary-in")).toMatch(/from \{ translate: var\(--sidebar-inset\) 0;/);
+    expect(blockAfter("@keyframes rl-dock-up")).toMatch(/from \{ translate: 0 var\(--sidebar-inset\);/);
   });
 
   it("\"this icon button is on\" has ONE appearance, whichever attribute carries it", () => {
@@ -3078,6 +3192,19 @@ describe("row and control layout", () => {
  *  is a declaration that parses and nothing more. What is checkable here is the arithmetic: that each
  *  page shape is capped at what that shape's own parts add up to, read from the rules that state
  *  those parts, so a drift in either place fails. */
+describe("no header is pinned", () => {
+  it("nothing is sticky but a long table's column heads and a code block's line numbers", () => {
+    /* The owner, 10-05: "the header shouldn't be sticky at all". A page's head is in its column and
+       scrolls with it (page-heads.test.tsx mounts every page to hold that). Two pins stay, each a
+       thing read ACROSS while it scrolls rather than a header over a page: a markdown table's heads,
+       which name the columns of the rows passing under them, and a code block's numbers, which stay
+       beside the lines they count while the code scrolls sideways. THE mutant: `position: sticky` on
+       anything else. */
+    const pinned = RULES.filter((r) => /position:\s*sticky/.test(r.body)).flatMap(partsOf).sort();
+    expect(pinned).toEqual([".code-gutter", ".md thead th"]);
+  });
+});
+
 describe("the page measure", () => {
   /** A declaration from the first rule that states it for `sel` — the base rule, which the narrow
    *  container block further down the file overrides rather than replaces. */
@@ -3109,23 +3236,26 @@ describe("the page measure", () => {
     return MEASURES.get(sel)!;
   };
 
-  it("the header's indent is built from the SAME two numbers the rail is", () => {
-    /* The title now starts where the content column does, which on a railed page means clearing the
-       rail. Written as a literal, that number silently stops matching the moment the rail moves —
-       so the indent is `calc(gutter + rail + gap)` off the variables, and this is what says so. */
-    const indent = decl(".page:has(.page-rail) .page-head", "padding-left");
-    expect(indent).toContain("--page-rail-w");
-    expect(indent).toContain("--page-rail-gap");
+  it("the head stands in the column it names, so it takes no indent — and the rail starts level with its band", () => {
+    /* The head is the column's first child now (PageScroll), so it starts where the content does by
+       construction, and an indent written for the head ABOVE the column would push it past the
+       content it names. THE mutants: an indent back on the head, or the rail left at the body's top
+       edge, a whole title band above the head beside it. The band is one variable, so the two cannot
+       drift. */
+    expect(decl(".page-head", "padding")).toBe("var(--page-head-top) 0 18px");
+    const indented = RULES.filter((r) => r.selectors.some((s) => /\.page-head$/.test(s)) && /padding-(left|inline)/.test(r.body));
+    expect(indented).toEqual([]);
+    expect(decl(".page-body > .page-rail", "margin-top")).toBe("var(--page-head-top)");
     expect(decl(".page-rail", "width")).toBe("var(--page-rail-w)");
     expect(decl(".page-body", "gap")).toBe("var(--page-rail-gap)");
   });
 
-  it("head, rail and content are ONE centred block — the title stays over the column it introduces", () => {
-    // The mutant: drop `.page-head` from this rule. The form centres itself in the pane and the title
-    // that names it stays at the pane's left edge, introducing nothing.
-    const band = RULES.filter((r) => r.selectors.includes(".page-head") && r.body.includes("margin-inline: auto"));
+  it("rail and column are ONE centred block, and the head rides in the column — the title stays over what it introduces", () => {
+    // The mutant: centre the column alone. The rail would stand at the pane's left edge beside a
+    // column in the middle of it, belonging to neither.
+    const band = RULES.filter((r) => r.selectors.includes(".page-body") && r.body.includes("margin-inline: auto"));
     expect(band).toHaveLength(1);
-    expect(band[0]!.selectors).toContain(".page-body");
+    expect(band[0]!.selectors).not.toContain(".page-head");
     // The load-bearing one: an auto cross-axis margin switches a flex item's stretch OFF, so without
     // an explicit width each band shrinks to fit its own longest line instead of filling the cap.
     expect(band[0]!.body).toContain("width: 100%");
@@ -3902,8 +4032,10 @@ describe("Settings' search and grouped rail", () => {
 
   it("wide, the lists scroll under the search when the page is shorter than the rail", () => {
     /* 530px of rail against 479px of page at the 600px minimum window. THE mutant: let the rail
-       size to its content, and Import sits below the page with nothing to scroll it into view. */
-    expect(bodiesFor(".page-rail.settings-rail").join(" ")).toMatch(/max-height: 100%/);
+       size to its content, and Import sits below the page with nothing to scroll it into view. In the
+       page the rail starts a head's band down, so its cap gives that band back; in the sidebar's
+       column there is no band, and the cap is the column. */
+    expect(bodiesFor(".page-rail.settings-rail").join(" ")).toMatch(/max-height: calc\(100% - var\(--page-head-top, 0px\)\)/);
     const lists = bodiesFor(".settings-rail-lists").join(" ");
     expect(lists).toContain("min-height: 0");
     expect(lists).toContain("overflow-y: auto");
@@ -3942,21 +4074,69 @@ describe("prose reads in the content face", () => {
   });
 });
 
-describe("the Mac idiom", () => {
-  /* The hand is for links. THE mutant is any control asking for it again — one `cursor: pointer` on a
-     button is enough to make the window read as a page. */
-  it("points with the arrow at every control, and keeps the hand for the two link rules", () => {
-    const hand = RULES.filter((r) => r.body.includes("cursor: pointer")).flatMap(partsOf).sort();
-    // The empty session's place name is a link too (Plan 26 W8): accent, underlined under the pointer,
-    // and it goes somewhere — the space's page. So is a file the prose names (file-links.ts): it opens
-    // that file in the documents pane.
-    expect(hand).toEqual([".hero-greeting-place", ".md .md-file", ".md .md-path", ".page-row-link"]);
-    expect(bodiesFor("button").join(" ")).toContain("cursor: default");
-    // tokens.css loads first and used to put the hand back on every button; only links may ask there.
-    const tokenHands = [...tokensCss.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{[^{}]*cursor:\s*pointer/g)]
-      .map((m) => m[1]!.trim());
+describe("the pointer", () => {
+  /** The one rule that asks for the hand, and what it lists. */
+  const hands = RULES.filter((r) => /cursor:\s*pointer/.test(r.body));
+  const list = (hands[0]?.selectors ?? []).join(", ");
+
+  it("points with the hand at everything a click acts on, from ONE rule by tag and role, at no specificity", () => {
+    /* The owner's call (10-05): the hand over buttons and wherever it makes sense. THE mutants: a kind
+       of control left out of the list (every one of them keeps the arrow), a class rule asking for the
+       hand on its own (the next control like it does not), or the rule given specificity (every drag
+       handle, resize edge and zoomable picture loses its own cursor to it). */
+    expect(hands.flatMap(partsOf)).toHaveLength(1);
+    expect(list.startsWith(":where(")).toBe(true);
+    for (const part of ["button", "a[href]", "summary", "select", '[role="button"]', '[role="link"]', '[role="tab"]',
+      '[role="menuitem"]', '[role="menuitemradio"]', '[role="menuitemcheckbox"]', '[role="option"]', '[role="switch"]',
+      '[role="checkbox"]', '[role="radio"]', 'input:is([type="checkbox"], [type="radio"], [type="range"]',
+      'label:has(input:is([type="checkbox"], [type="radio"]))']) expect(list).toContain(part);
+    // Everything that tracks a press (press-tracking.ts) is something that points.
+    for (const sel of PRESSABLE.split(", ")) expect(list, sel).toContain(sel === '[role^="menuitem"]' ? '[role="menuitem"]' : sel.replace(/^input\[type="checkbox"\]$/, '[type="checkbox"]'));
+    // tokens.css loads first; a link is the one tag that asks there.
+    const tokenHands = [...tokensCss.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{[^{}]*cursor:\s*pointer/g)].map((m) => m[1]!.trim());
     expect(tokenHands).toEqual(["a"]);
+    expect(bodiesFor("button").join(" ")).not.toContain("cursor");
   });
+
+  it("no control turns the hand back off — the arrow is for what a click does nothing on", () => {
+    /* Sixty rules once wrote `cursor: default` to keep the Mac's arrow over their control, and each of
+       them would out-rank a rule of no specificity. THE mutant is one of them coming back. What may ask
+       for the arrow: a control that is off, and the handful of things that look like rows and are not
+       pressed, each named for why. */
+    const records: Record<string, string> = {
+      ".summary-fact": "a context fact in the summary, read and not pressed",
+      ".skill-file-name[data-inert]": "a skill's file the Library cannot open",
+      ".ghost-chip[data-static]": "a chip that only reports a value",
+      ".ship-row": "a record of a ship, whose PR link is the only thing in it that opens",
+      ".media-video .media-el": "a video's picture, which its own play control sits over",
+    };
+    const arrows = RULES.filter((r) => /cursor:\s*default/.test(r.body)).flatMap(partsOf);
+    const unexplained = arrows.filter((sel) => !(sel in records) && !/:disabled|\.disabled|aria-disabled/.test(sel));
+    expect(unexplained).toEqual([]);
+    expect(Object.keys(records).filter((sel) => !arrows.includes(sel)), "a record that no longer asks").toEqual([]);
+  });
+
+  it("gives the arrow back to a control that is off, and the I-beam to a field inside a row that points", () => {
+    // Both are rules of no specificity AFTER the hand, so they win by order and lose to any class.
+    const at = (re: RegExp) => RULES.findIndex((r) => re.test(r.body) && r.selectors.join(", ").startsWith(":where("));
+    const hand = at(/cursor:\s*pointer/), off = at(/cursor:\s*default/), field = at(/cursor:\s*text/);
+    expect(hand).toBeGreaterThanOrEqual(0);
+    expect(off).toBeGreaterThan(hand);
+    expect(field).toBeGreaterThan(hand);
+    expect(RULES[off]!.selectors.join(", ")).toContain(':disabled, [aria-disabled="true"]');
+    // `cursor` inherits, so a rename field inside a sidebar row would point without this.
+    for (const part of ["input:not(", "textarea", '[contenteditable="true"]']) expect(RULES[field]!.selectors.join(", ")).toContain(part);
+  });
+
+  it("keeps a drag handle's grab and a divider's resize, which the hand would otherwise take", () => {
+    expect(bodiesFor(".quick-chat-bar").join(" ")).toContain("cursor: grab");
+    expect(bodiesFor(".quick-chat-bar[data-dragging]").join(" ")).toContain("cursor: grabbing");
+    expect(bodiesFor(".sb-resize").join(" ")).toContain("cursor: col-resize");
+    expect(bodiesFor(".attach-tile[data-media] .attach-open").join(" ")).toContain("cursor: zoom-in");
+  });
+});
+
+describe("the Mac idiom", () => {
 
   it("does not let a drag or a double-click select the chrome, and leaves fields selectable inside it", () => {
     const chrome = RULES.find((r) => r.body.includes("user-select: none") && r.selectors.some((s) => s.includes(".sidebar")));

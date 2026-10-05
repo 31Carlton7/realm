@@ -1,7 +1,7 @@
 import { AGENT_META, SELECTABLE_AGENT_KINDS, AGENT_SKILL_SUPPORT, formatAttachmentSize, type SkillDetail, type SkillResource } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ScrollFades } from "../../components/ScrollFades";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ScrollFades, useDissolve } from "../../components/ScrollFades";
 import { Menu } from "../../components/Menu";
 import { MoveScopeConfirm } from "../../components/scoped/ScopeGroups";
 import { Markdown } from "../session/Markdown";
@@ -26,13 +26,18 @@ import { useApp } from "../../state/store";
  * fenced code and callouts included. A second renderer here would be a fork of the one thing worth
  * reusing.
  */
-export function SkillViewer({ spaceId, id, onBack }: { spaceId: string; id: string; onBack: () => void }) {
+export function SkillViewer({ spaceId, id, onBack, head }: { spaceId: string; id: string; onBack: () => void;
+  /** The page's head — the skill's name and the way back — first in the column, and scrolling with it. */
+  head?: ReactNode }) {
   const readSkill = useApp((s) => s.readSkill);
   const run = useApp((s) => s.run);
   const skillsChangedAt = useApp((s) => s.spaceSkills[spaceId]);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [failed, setFailed] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const toc = useRef<HTMLElement>(null);
+  useDissolve(toc);
+  useDissolve(toc, "x");
 
   /* Re-read whenever this space's library answers again — a toggle flipped from the header, a
      promote, or a `skills.changed` broadcast. The row inside the detail carries `enabled` and
@@ -54,6 +59,7 @@ export function SkillViewer({ spaceId, id, onBack }: { spaceId: string; id: stri
     return (
       <div className="page-body">
         <div className="page-scroll"><div className="page-content" ref={scroller}>
+          {head}
           <p className="env-empty">This skill is no longer in this space's library.</p>
           <button type="button" className="btn btn-quiet" onClick={onBack}>Back to skills</button>
         </div></div>
@@ -68,7 +74,7 @@ export function SkillViewer({ spaceId, id, onBack }: { spaceId: string; id: stri
           the page and only its contents change. Absent for a document with no headings, rather than
           an empty rail claiming a structure the skill does not have. */}
       {headings.length > 1 && (
-        <nav className="page-rail skill-toc" aria-label="Sections of this skill">
+        <nav className="page-rail skill-toc" ref={toc} aria-label="Sections of this skill">
           {headings.map((h) => (
             <a key={h.id} className="settings-tab page-rail-tab skill-toc-link" href={`#${h.id}`}
               data-level={h.level} data-selected={h.active || undefined}
@@ -81,6 +87,7 @@ export function SkillViewer({ spaceId, id, onBack }: { spaceId: string; id: stri
       <div className="page-scroll">
         <ScrollFades scroller={scroller} />
         <div className="page-content" ref={scroller}>
+          {head}
           {detail === null ? <p className="env-empty">Loading…</p> : (
             <article className="skill-view">
               <SkillHeader spaceId={spaceId} detail={detail} />

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { HeldRequest } from "./bridge";
+import { useDissolve } from "../../components/ScrollFades";
 
 /** How long a card ignores clicks after it appears. A view chooses when to ask, so it could ask
  *  under a pointer it knows is about to press; nothing a person decides happens in under this. */
@@ -19,13 +20,15 @@ export function ViewRequestCard({ request, serverName, onAllow, onDeny }: {
   request: HeldRequest; serverName: string; onAllow: () => void; onDeny: () => void;
 }) {
   const armedAt = useRef(Date.now() + ARM_MS);
+  const well = useRef<HTMLPreElement>(null);
+  useDissolve(well);
   useEffect(() => { armedAt.current = Date.now() + ARM_MS; }, [request]);
   const armed = (fn: () => void) => () => { if (Date.now() >= armedAt.current) fn(); };
   const copy = wording(request, serverName);
   return (
     <div className="app-view-request" role="group" aria-label={`Request from ${serverName}'s view`} data-no-agent="view request">
       <p className="app-view-request-title">{copy.title}</p>
-      {request.kind === "tool" && <pre className="app-view-request-well">{JSON.stringify(request.arguments, null, 2)}</pre>}
+      {request.kind === "tool" && <pre className="app-view-request-well" ref={well}>{JSON.stringify(request.arguments, null, 2)}</pre>}
       {request.kind === "message" && <p className="app-view-request-quote">{request.text}</p>}
       {request.kind === "link" && <LinkLine url={request.url} />}
       <p className="app-view-request-note">{copy.note}</p>

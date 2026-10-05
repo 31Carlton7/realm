@@ -100,6 +100,11 @@ Treat a Realm screen as a field of work, not a stack of cards.
   and the column already say Settings or Library, and a third copy of that word was the one heading
   on the page that said nothing about what was under it. Each section in the column wears a glyph
   beside its name, as Codex's do, so eleven pages are found by shape before they are read.
+- A page's head scrolls away with its page: it is the first thing in the column, never a band pinned
+  above it (the owner, 10-05: "the header shouldn't be sticky at all"). Pinned, a head is chrome the
+  page keeps paying for at every scroll position to repeat a name the bar already holds. What stays
+  put is what is used while the content moves — a page's rail, a sheet's title and its decision, a
+  long table's column heads — and nothing else.
 - Preserve source order as reading order. A visual split must still read sensibly when stacked.
 - Use empty space to isolate a focal object, not to make sparse content look premium.
 - Repetition is for true peers. If one object is decisive, give it different scale or placement.
@@ -279,6 +284,13 @@ Rules:
   width, because the rail is a column beside the content wide and a row above it narrow. The test is
   the hairline's test again — is the thing under the band content that scrolls past a fixed edge, or
   chrome that stays? Chrome never goes soft.
+- Every scroller dissolves where it has more to show (the owner, 10-05: "every scrollable surface…
+  our signature blur") — a page, a list, a popover, a sheet's body, a strip of tabs, a capped well of
+  output — and the exceptions are named, each for what a mask would take: a line read to its last
+  character (code, a diff, a command, a formula scrolling sideways), a surface whose own fill or
+  pinned heads are in the scroller (a table, a segmented track, a zoomed picture), and the editors,
+  whose caret can be on any line. A surface with a shadow never takes the mask itself; its rows
+  scroll inside it. `styles.test.ts` holds every scroller in the stylesheet to one or the other.
 - Chrome that lives INSIDE a scroller dissolves with it, and nothing can lift it out: a mask applies
   to everything the element paints, whatever its stacking order. That is survivable because a mask
   takes alpha rather than detail — a filter bar scrolling into the dissolve keeps its edges and reads
@@ -464,9 +476,13 @@ acronym that is uppercase anyway (a file extension on a tile).
   directions. The highlight is the current choice, and a choice is never half-made.
 - A sidebar row does not light under a passing pointer. Finder's, Mail's and Xcode's do not; the
   pointer reveals a row's own controls, and a click is what lights it.
-- The arrow cursor over every control the app draws; the hand only over a link, where the click
-  leaves what you are looking at. The hand on every button is the loudest single sign that a window
-  is a web page.
+- The hand over everything a click acts on — a button, a row, a tab, a chip, a menu row, a
+  disclosure, a label round a switch — from one rule by tag and role, so a control written tomorrow
+  points without asking. That is the owner's call (10-05), and it gives up the Mac's arrow over
+  controls on purpose. The arrow stays where a click does nothing: a control that is off, a row that
+  only reports, the scrim round a sheet. A field keeps the I-beam, a drag handle grab, a divider its
+  resize arrows. A `<div onClick>` is the one thing the rule cannot reach — it keeps the arrow, and
+  the keyboard cannot reach it either — so a press lands on a real control or on an element with a role.
 - A window-drag region takes every press that is not opted out of it, and a LABEL is a control: the
   sidebar's old Spaces | Recent segments, labels round hidden radios, answered only on the radio's 13px.
 - Chrome is not text. Buttons, rows, tabs, bars and menus do not select on a drag or a double-click,
@@ -817,7 +833,8 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - A browser of files leads with what KIND of thing a file is, as tabs, because that is the first
   narrowing a person reaches for. The rarer ones — which space, who made it — live behind a filter
   that lights while it narrows and says so as a chip by the tabs, undone from there: a list that is
-  shorter than it should be has to say why. The toolbar is the column's head, outside its scroller.
+  shorter than it should be has to say why. The toolbar rides under the page's head, in the column,
+  and scrolls away with it.
 - A documents pane with nothing open is a home, not a void: what this session made and was given,
   then the Library's, under one search that also reaches the checkout's own names, and a New that
   says what every kind it writes is — a code file among them, since nothing else on screen says a

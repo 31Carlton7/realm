@@ -4,6 +4,7 @@ import type { Notification, NotificationCategory } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { PendingRequest } from "../session/PendingRequest";
 import { PeekButton, usePeekable } from "../../components/PeekButton";
+import { PageScroll } from "../../components/ScrollFades";
 import { Sheet } from "../../components/Sheet";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import type { PaneProps } from "../registry";
@@ -80,17 +81,17 @@ export function NotificationsPage({ item }: PaneProps) {
     /* No `wash`. This was the one pane in the app wearing the accent gradient, and a decorated
        ground under a list of things that need attention competes with the attention. */
     <div className="page notifications-page-pane">
-      <header className="page-head">
-        <div className="page-title"><h1>Notifications</h1></div>
-        {/* The count rides the header as a fact rather than a sentence. "3 unread" is the only part
-            of the old sub-title that was not restating the page's own name. */}
-        {unread > 0 && <span className="notif-unread-count">{unread} unread</span>}
-        {unread > 0 && (
-          <button className="btn notif-mark-all" onClick={() => run(() => markNotificationsRead("all"))}>Mark all read</button>
-        )}
-      </header>
       <div className="page-body">
-        <div className="page-content notif-feed">
+        <PageScroll className="notif-feed">
+          <header className="page-head">
+            <div className="page-title"><h1>Notifications</h1></div>
+            {/* The count rides the header as a fact rather than a sentence. "3 unread" is the only part
+                of the old sub-title that was not restating the page's own name. */}
+            {unread > 0 && <span className="notif-unread-count">{unread} unread</span>}
+            {unread > 0 && (
+              <button className="btn notif-mark-all" onClick={() => run(() => markNotificationsRead("all"))}>Mark all read</button>
+            )}
+          </header>
           {notifications.length === 0 ? (
             <div className="notif-empty">
               <p className="notif-empty-line">Nothing has needed you.</p>
@@ -118,7 +119,7 @@ export function NotificationsPage({ item }: PaneProps) {
               {cursor && <button className="btn notif-more" onClick={() => run(() => loadMoreNotifications())}>Load more</button>}
             </>
           )}
-        </div>
+        </PageScroll>
       </div>
       {/* Over the feed rather than beside it. Reading one of these is something you finish and
           dismiss; it is not a place you work, and it does not deserve half the page while empty. */}

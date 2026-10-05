@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useApp, useProfileSpaces } from "../../state/store";
 import { usePageNavHost } from "../page-nav";
 import { useDissolve } from "../ScrollFades";
@@ -87,6 +87,11 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
  */
 function PageNavColumn({ label, setSlot }: { label: string; setSlot: (el: HTMLElement | null) => void }) {
   const close = useApp((s) => s.closePageOverlay);
+  /* The slot scrolls when a page's rail is longer than the column, and dissolves like the spaces it
+     stands in for. The page finds it through the same ref, handed over before the first paint. */
+  const nav = useRef<HTMLDivElement>(null);
+  useDissolve(nav);
+  useLayoutEffect(() => { setSlot(nav.current); return () => setSlot(null); }, [setSlot]);
   return (
     <div className="sb-page">
       <div className="sb-page-head">
@@ -94,7 +99,7 @@ function PageNavColumn({ label, setSlot }: { label: string; setSlot: (el: HTMLEl
           <Icon name="chevronLeft" size={14} /><span>Back</span>
         </button>
       </div>
-      <div className="sb-page-nav" ref={setSlot} />
+      <div className="sb-page-nav" ref={nav} />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { Icon } from "@realm/ui";
 import { createContext, memo, useContext, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import type { SessionStatus } from "@realm/contracts";
 import { Spinner } from "../../components/Spinner";
+import { useDissolve } from "../../components/ScrollFades";
 import { fileIconFor } from "../../components/file-icon";
 import { clip, editStat, editTarget, prettyJson, resultEditStat, toolSummary } from "./tool-summary";
 import { flattenRun, formatDuration, formatToolRun, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
@@ -59,6 +60,8 @@ export const RESULT_CLAMP = DRAW_LIMIT;
  *  picture Realm drew of it. `label` doubles as the button's accessible object ("Copy result"). */
 function Well({ label, text, error = false, rich = null }: { label: string; text: string; error?: boolean; rich?: ReactNode }) {
   const [showAll, setShowAll] = useState(false);
+  const well = useRef<HTMLPreElement>(null);
+  useDissolve(well);
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -81,7 +84,7 @@ function Well({ label, text, error = false, rich = null }: { label: string; text
           <Icon name="check" size={12} className="copied-icon" />
         </button>
       </div>
-      {rich ?? <pre className="tool-well" data-error={error || undefined}>{clamped ? text.slice(0, RESULT_CLAMP) : text}</pre>}
+      {rich ?? <pre className="tool-well" ref={well} data-error={error || undefined}>{clamped ? text.slice(0, RESULT_CLAMP) : text}</pre>}
       {!rich && clamped && (
         <button className="tool-expand" onClick={() => setShowAll(true)}>
           Show all ({Math.ceil(text.length / 1024)} KB)

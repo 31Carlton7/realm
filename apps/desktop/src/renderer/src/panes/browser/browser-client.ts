@@ -110,7 +110,7 @@ export type BrowserHostBridge = {
 /** The server side: the persisted row and the space's allowlist setting. */
 export type BrowserServerBridge = {
   get(browserId: string): Promise<Browser>;
-  update(browserId: string, patch: { url?: string; title?: string; favicon?: string }): Promise<void>;
+  update(browserId: string, patch: { url?: string; title?: string; favicon?: string; failed?: boolean }): Promise<void>;
   allowlist(spaceId: string): Promise<string[] | null>;
   /** Where this space's downloads land — `<project root>/downloads`, or null with no project. The
    *  SERVER decides, by the same rule the agent's downloads follow; the renderer never joins paths. */
