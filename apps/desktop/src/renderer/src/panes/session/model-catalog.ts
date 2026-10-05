@@ -369,7 +369,7 @@ export function effortOptions({ kind, model, agentProbe, info, remembered, init 
   /** `MODEL_EFFORTS_KEY`, as the store mirrors it. */
   remembered: Record<string, string[]>;
   /** This session's own handshake, where it has one. */
-  init?: { efforts?: EffortChoice[]; defaultEffort?: string } | null;
+  init?: { model?: string; efforts?: EffortChoice[]; defaultEffort?: string } | null;
 }): EffortOptions {
   if (!AGENT_TAKES_EFFORT[kind]) return NO_EFFORT;
   if (kind === "claude") {
@@ -381,7 +381,11 @@ export function effortOptions({ kind, model, agentProbe, info, remembered, init 
   }
   const probe = agentProbe.find((p) => p.kind === kind);
   if (kind === "codex") {
-    const m = probe?.models?.find((x) => (model === null ? x.isDefault === true : x.id === model));
+    // The thread's own model once its handshake has named it: a session left on Codex's default runs
+    // whatever Codex's config says, and the row Codex marks as its default is only the guess before
+    // then. A model its catalog does not carry takes no level from Realm, so it gets no track.
+    const id = model ?? init?.model ?? null;
+    const m = probe?.models?.find((x) => (id === null ? x.isDefault === true : x.id === id));
     return m?.efforts?.length ? { levels: choicesOf(m.efforts), defaultId: m.defaultEffort ?? null } : NO_EFFORT;
   }
   // An ACP agent's levels are its own names for them; a value with no name of its own reads as Realm

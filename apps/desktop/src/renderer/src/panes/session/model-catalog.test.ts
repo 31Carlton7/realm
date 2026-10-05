@@ -297,6 +297,15 @@ describe("effortOptions", () => {
     expect(ask({ kind: "codex", model: "gpt-9", agentProbe: [codex] }).levels).toEqual([]);
   });
 
+  it("reads a Codex default by the model its thread actually runs, once the handshake has named it", () => {
+    const codex = probe("codex", codexCatalog.map((m, i) => ({ ...m, efforts: i === 1 ? ["low", "medium", "high"] : ["low", "medium", "high", "xhigh"], defaultEffort: "medium" })));
+    expect(ids(ask({ kind: "codex", model: null, agentProbe: [codex], init: { model: "gpt-5.6-terra" } }))).toEqual(["low", "medium", "high"]);
+    // A thread on a model the catalog never lists (a config.toml pin, say) is handed no level, so it is offered none.
+    expect(ask({ kind: "codex", model: null, agentProbe: [codex], init: { model: "gpt-5.2" } }).levels).toEqual([]);
+    // A model the session picked since is the one the next turn runs.
+    expect(ids(ask({ kind: "codex", model: "gpt-5.6-sol", agentProbe: [codex], init: { model: "gpt-5.6-terra" } }))).toEqual(["low", "medium", "high", "xhigh"]);
+  });
+
   it("takes an ACP agent's own names for its levels, this session's over the probe's", () => {
     const opencode: AgentProbe = { ...probe("acp:opencode", null), efforts: [{ id: "low", label: "low" }, { id: "think", label: "Think hard" }], defaultEffort: "low" };
     expect(ask({ kind: "acp:opencode", agentProbe: [opencode] })).toEqual({ levels: [{ id: "low", label: "Low" }, { id: "think", label: "Think hard" }], defaultId: "low" });
