@@ -7337,6 +7337,7 @@ select { appearance: none; padding-right: 22px;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .documents-name:hover { background: var(--rl-hover); }
+.documents-name-ext { color: var(--rl-text-faint); }
 .documents-name-input {
   min-width: 0; flex: 0 1 340px; height: 24px; padding: 0 6px; margin-left: -6px;
   border: none; border-radius: var(--r-chip); background: var(--field); color: var(--rl-text-bright);
@@ -7431,8 +7432,6 @@ select { appearance: none; padding-right: 22px;
   text-align: left; border-radius: var(--r-ctl); corner-shape: squircle; font-size: 13px; color: var(--rl-text-bright);
   cursor: default; transition: background-color var(--dur-hover) ease;
 }
-/* A gutter the row's own control comes up in, kept at rest so nothing on the line moves under it. */
-.docs-home-row:has(> .docs-home-attach) > .docs-home-open { padding-right: 38px; }
 .docs-home-open:hover { background: var(--rl-hover); }
 .docs-home-open:is([data-pressed], :active:focus-visible) { background: var(--rl-active); }
 .docs-home-glyph { flex: none; display: grid; place-items: center; color: var(--rl-text-dim); }
@@ -7444,9 +7443,14 @@ select { appearance: none; padding-right: 22px;
 .docs-home-name mark { background: transparent; color: inherit; font-weight: var(--fw-strong); }
 /* Basis zero: the folder takes only what the name leaves, so it is the first thing to go. */
 .docs-home-detail { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rl-text-faint); }
-.docs-home-time { flex: none; margin-left: auto; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* The time keeps a column as wide as the row's own control, flush with the section head's action, and
+   that control comes up IN it — under the pointer, and for as long as the file is in the next message
+   — so nothing else on the line moves, and there is no empty gutter at rest. */
+.docs-home-time { flex: none; min-width: 28px; margin-left: auto; text-align: right; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .docs-home-attach { position: absolute; right: 4px; top: 50%; translate: 0 -50%; opacity: 0; transition: opacity var(--dur-hover) ease, background-color var(--dur-hover) ease; }
 .docs-home-row:is(:hover, :focus-within) > .docs-home-attach, .docs-home-attach[aria-pressed="true"] { opacity: 1; transition-duration: 0s; }
+.docs-home-row:has(> .docs-home-attach):is(:hover, :focus-within) .docs-home-time,
+.docs-home-row:has(> .docs-home-attach[aria-pressed="true"]) .docs-home-time { visibility: hidden; }
 .docs-home-attach[aria-pressed="true"] { color: var(--rl-accent); }
 .docs-home-note { margin: 0; padding: 2px 8px 6px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
 .docs-home-more { margin: 2px 0 0 4px; }

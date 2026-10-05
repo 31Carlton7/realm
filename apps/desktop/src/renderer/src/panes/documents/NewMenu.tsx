@@ -65,7 +65,7 @@ export function NewMenu({ variant, folder, onNewKind, onNewFile, onOpenExisting,
     ...NEW_KINDS.slice(0, 1).map(row),
     {
       label: "Code file…", icon: <Icon name="code" size={16} />,
-      detail: "Any language — the editor follows the extension",
+      detail: "TypeScript, Python, Swift and more",
       onSelect: () => { void taken().catch(() => new Set<string>()).then(setPrompt); },
     },
     ...NEW_KINDS.slice(1).map(row),

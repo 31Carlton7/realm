@@ -382,7 +382,9 @@ function TabStrip({ tabs, active, buffers, home, onHome, onSelect, onClose, menu
             data-active={path === active || undefined}>
             <button className="documents-tab-label" onClick={() => onSelect(path)} title={path}>
               <Icon name={iconFor(path)} size={12} />
-              <span>{documentStem(path)}</span>
+              {/* A code file is told apart by its extension — greet.ts and greet.tsx are two files, and
+                  the extension is what chose the editor — so its tab keeps it. A document's is its name. */}
+              <span>{documentKindFor(path) === "code" ? baseName(path) : documentStem(path)}</span>
               {/* One dot for "not yet on disk", so the tab strip answers "is my work saved?" at a
                   glance. A conflicted tab is marked differently — it needs a decision, not a wait. */}
               {b?.conflict ? <span className="documents-dot conflict" aria-label="Needs attention" />
@@ -424,7 +426,11 @@ function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onR
             onCommit={(s) => { onRename(s); onRenaming(false); }}
             onCancel={() => onRenaming(false)} />
         : <button type="button" className="documents-name" title={`${buffer.path} — click to rename`}
-            onClick={() => onRenaming(true)}>{documentStem(buffer.path)}</button>}
+            onClick={() => onRenaming(true)}>
+            {documentStem(buffer.path)}
+            {/* Shown, never edited: the rename field takes the name, and the extension stays the file's. */}
+            {kind === "code" && documentExtension(buffer.path) && <span className="documents-name-ext">.{documentExtension(buffer.path)}</span>}
+          </button>}
       <span className="documents-state t-xs muted" data-state={state} role="status">{stateLabel}</span>
       {structured && structured !== "pdf" && structured !== "render" && (
         <span className="documents-modes" role="group" aria-label="Editor mode">

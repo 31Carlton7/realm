@@ -287,7 +287,8 @@ function HomeRow({ file, query, onOpen, attach }: {
         <span className="docs-home-glyph" data-type={file.type}><Icon name={TYPE_ICON[file.type]} size={16} /></span>
         <span className="docs-home-name">{hit ? <>{hit.before}<mark>{hit.match}</mark>{hit.after}</> : file.name}</span>
         {file.detail && <span className="docs-home-detail">{file.detail}</span>}
-        {file.ts !== null && <span className="docs-home-time">{relTime(file.ts)}</span>}
+        {/* Drawn with or without a time, so every row keeps the column the control comes up in. */}
+        <span className="docs-home-time">{file.ts !== null ? relTime(file.ts) : ""}</span>
       </button>
       {attach && (
         // The name holds still and the state is `aria-pressed`: added, it reads "…, pressed".
