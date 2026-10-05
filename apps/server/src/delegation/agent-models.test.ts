@@ -242,10 +242,14 @@ describe("the lead's list of its sub-agents", () => {
     c.close();
   });
 
-  it("lists only the sessions this one delegated to — never the lead itself or a stranger", async () => {
+  it("lists only the sessions this one delegated to — never the lead itself, a stranger or a fork of it", async () => {
     const { ctx } = await boot();
     const c = await client(app.port);
     const stranger = app.sessions.create({ spaceId: ctx.spaceId, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: "default" });
+    // A fork names the session it came from, and is nobody's sub-agent. Mutant: drop the origin
+    // filter — every "Fork from here" would appear in the lead's Agents tab as a delegated child.
+    app.sessions.create({ spaceId: ctx.spaceId, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: "default",
+      dispatchedBy: { kind: "fork", sessionId: ctx.sessionId } });
     await app.agentRuns.start(ctx, { goal: "go" });
     const kids = (await c.call<{ children: Child[] }>("delegation.children", { sessionId: ctx.sessionId })).children;
     expect(kids.map((x) => x.session.id)).not.toContain(stranger.session.id);
@@ -279,6 +283,31 @@ describe("a session's Agents tab", () => {
     // Mutant: drop the kind filter from findByRefId — a rename, a move or a delete of the session
     // could then land on its tab, whichever row SQLite returned first.
     expect(items.findByRefId(ctx.sessionId)?.kind).toBe("session");
+    c.close();
+  });
+
+  it("findByRefId never answers with a tab, whichever row was written first", async () => {
+    // Row order is not a promise: VACUUM may renumber the rowids of a table keyed by TEXT. So the
+    // rule is pinned with the tab written FIRST. Mutant: drop the kind filter.
+    const { ctx } = await boot();
+    const items = new ItemsStore(app.db);
+    const ref = "01JBZZZZZZZZZZZZZZZZZZZZZZ";
+    items.create({ spaceId: ctx.spaceId, kind: "agents", title: "Agents", refId: ref });
+    items.create({ spaceId: ctx.spaceId, kind: "session", title: "S", refId: ref });
+    expect(items.findByRefId(ref)?.kind).toBe("session");
+    expect(items.findTab(ref)?.kind).toBe("agents");
+  });
+
+  it("moves with its session", async () => {
+    const { ctx } = await boot();
+    const c = await client(app.port);
+    const { itemId } = await c.call<{ itemId: string }>("delegation.tab", { sessionId: ctx.sessionId });
+    const space = app.sessions.get(ctx.sessionId).spaceId;
+    const profileId = new SpacesStore(app.db, tempDir("realm-am-space-")).get(space)!.profileId;
+    const other = new SpacesStore(app.db, tempDir("realm-am-space-")).create({ profileId, name: "T", icon: "folder" });
+    await app.sessions.moveToSpace(ctx.sessionId, other.id);
+    // Mutant: leave the tab behind — a session in one space with its Agents tab in another.
+    expect(new ItemsStore(app.db).get(itemId)?.spaceId).toBe(other.id);
     c.close();
   });
 
