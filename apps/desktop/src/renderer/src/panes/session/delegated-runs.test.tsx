@@ -284,8 +284,11 @@ describe("a delegation call links the sessions it started", () => {
     return store;
   }
 
+  /* `agent_wait`, the call that COLLECTS reports, keeps its list of the children it collected. A call
+     that STARTS one — agent_run, agent_start — is drawn as that sub-agent's own line instead, linked
+     to its row in the Agents tab (delegation-line.test.tsx). */
   it("names the child on the call, and previews it in the lead's side pane", async () => {
-    const store = await mountWith(call("mcp__realm__realm-agent__agent_run", trail("The mapper is fine.")));
+    const store = await mountWith(call("mcp__realm__realm-agent__agent_wait", trail("The mapper is fine.")));
     // THE MUTANT: compare the raw tool name. Every harness prefixes it — Claude's `mcp__realm__…`,
     // Codex's `realm.…` — so a set of bare names would never match one, and there is no way back.
     expect(links()).toEqual(["Agent: audit the mapper"]);
@@ -298,7 +301,7 @@ describe("a delegation call links the sessions it started", () => {
     // The child's report is the child's words, and it may name any session it likes. THE MUTANT:
     // link every id that resolves to a session, and a colleague the child merely mentioned becomes
     // a row on the lead's call, drawn as though the lead had delegated to it.
-    await mountWith(call("mcp__realm__realm-agent__agent_run", trail(`I compared notes with ${PEER_ID}.`)));
+    await mountWith(call("mcp__realm__realm-agent__agent_wait", trail(`I compared notes with ${PEER_ID}.`)));
     expect(links()).toEqual(["Agent: audit the mapper"]);
   });
 
