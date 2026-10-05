@@ -1094,6 +1094,11 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // with a 0% fallback, so a slider that never receives it is an empty track rather than a
       // broken one.
       "--fill",
+      // Where a point sits on the model picker's effort track (ModelPicker.tsx's `EffortTrack`): the
+      // fill, the knob and each dot carry their own fraction of the run, set inline because the
+      // number of levels is the model's, not the stylesheet's. Used with a 0 fallback, so a track
+      // that never receives it is empty rather than broken.
+      "--at",
       // The pane glyph's grid shape (sidebar/ItemList.tsx): how many columns and rows the layout
       // actually has, set inline because the mark is a picture of a tree that changes per item.
       // Both carry a fallback of 1, so a glyph that never receives them is still a single cell.
@@ -2650,6 +2655,8 @@ describe("light mode", () => {
     // The slider's handle is the switch's knob, for the same reason and with the same answer: two
     // round controls a few rows apart must not disagree about what a handle looks like.
     ['.slider-row input[type="range"]::-webkit-slider-thumb', "the same knob the switch wears"],
+    // …and so is the knob on the model picker's effort track, which is a slider in all but element.
+    [".mp-track-knob", "the same knob the switch wears"],
     [".attach-remove", "on the attached picture"], [".attach-remove:hover", "on the attached picture"],
     // An element's name, drawn over the DEVICE's own screen — whatever the simulator is showing is
     // the same in both modes, so the halo that keeps the name legible on it answers to the device.

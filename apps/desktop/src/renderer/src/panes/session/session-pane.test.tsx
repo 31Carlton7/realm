@@ -244,28 +244,35 @@ describe("SessionPane", () => {
     expect(store.getState().sessions.se1?.effort).toBeNull(); // the picker set model, not effort
   });
 
-  it("Send is disabled with an empty draft while idle; the picker's Effort section sets the effort option", async () => {
-    // Effort is edited inside the model picker and worn by the chip as a grey suffix: the edit
-    // applies via setSessionOptions with the `effort` key and touches nothing else, and a null effort
-    // shows nothing. A Claude session, because Claude's is the adapter that hands the level on.
+  it("Send is disabled with an empty draft while idle; the picker's effort track sets the effort option", async () => {
+    // Effort is edited on the track in the picker's foot and worn by the chip as a grey suffix: the
+    // edit applies via setSessionOptions with the `effort` key and touches nothing else. Unset, the
+    // chip wears the level the turn runs at anyway — the model's default. A Claude session, because
+    // Claude's adapter hands the level on.
     const { store } = await mountFresh();
     const send = screen.getByRole("button", { name: "Send" });
     expect(send).toBeDisabled();
     expect(send).toHaveAttribute("data-state", "send");
     expect(screen.queryByRole("button", { name: "Effort" })).toBeNull(); // the chip is gone
-    expect(document.querySelector(".model-chip .chip-effort")).toBeNull(); // null effort = no suffix
+    expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("High"); // the default in force
     openPicker();
-    const group = screen.getByRole("group", { name: "Effort" });
-    expect(within(group).getByRole("button", { name: "High" })).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(within(group).getByRole("button", { name: "High" }));
-    await waitFor(() => expect(store.getState().sessions.se1?.effort).toBe("high"));
+    const track = screen.getByRole("slider", { name: "Effort" });
+    expect(track).toHaveAttribute("aria-valuetext", "High");
+    expect(track).not.toHaveAttribute("data-effort"); // nothing chosen yet
+    expect(screen.queryByRole("button", { name: "Reset effort" })).toBeNull(); // nothing to reset
+    fireEvent.keyDown(track, { key: "ArrowLeft" });
+    await waitFor(() => expect(store.getState().sessions.se1?.effort).toBe("medium"));
     expect(store.getState().sessions.se1?.model).toBeNull(); // the effort edit set effort, not model
     expect(store.getState().sessions.se1?.permissionMode).toBe("default"); // …and not permission either
-    // A setting on the surface you are looking at: the segment answers, and the picker stays open
-    // for the model that may be next. Only picking a model closes it.
-    await waitFor(() => expect(within(group).getByRole("button", { name: "High" })).toHaveAttribute("aria-pressed", "true"));
+    // A setting on the surface you are looking at: the track answers, and the picker stays open for
+    // the model that may be next. Only picking a model closes it.
+    await waitFor(() => expect(track).toHaveAttribute("aria-valuetext", "Medium"));
     expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
-    expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("High"); // the suffix wears it
+    expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("Medium"); // the suffix wears it
+    // The reset hands the level back to the model: no level of Realm's at all, not "high" by name.
+    fireEvent.click(screen.getByRole("button", { name: "Reset effort" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.effort).toBeNull());
+    await waitFor(() => expect(track).toHaveAttribute("aria-valuetext", "High"));
   });
 
   it("model chip shows DEFAULT_MODEL_LABEL for the kind while session.model is null, and the chosen model after", async () => {
@@ -467,12 +474,12 @@ describe("SessionPane", () => {
     // AcpAdapter never transmits Realm's mode ids, so the picker would silently do nothing for an ACP agent.
     await mountKind("acp:cursor");
     expect(screen.queryByRole("button", { name: "Permission mode" })).toBeNull();
-    // The model chip still opens the picker — with no Effort section, because Cursor never receives
-    // Realm's level (it writes effort into its own model ids), and a control wired to nothing is
-    // the thing the per-kind tables exist to prevent.
+    // The model chip still opens the picker — with no effort track, because this Cursor offers no
+    // thought_level option to hand a level to (it writes effort into its own model ids), and a control
+    // wired to nothing is the thing the per-kind tables exist to prevent.
     openPicker();
     expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Effort" })).toBeNull();
+    expect(screen.queryByRole("slider", { name: "Effort" })).toBeNull();
   });
 });
 
@@ -841,16 +848,39 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
     expect(mark.querySelector("path")).toHaveAttribute("fill", "currentColor");
   });
 
-  it("wears no effort on the chip of a harness that never receives it", async () => {
-    // A Codex session can hold a level set under Claude before the switch; Codex drops it at thread
-    // start, so a suffix there would claim a setting nothing is applying.
+  it("wears no effort on the chip of a model its harness lists no levels for", async () => {
+    // A Codex session can hold a level set under Claude before the switch. Codex is handed a level
+    // only where its own catalog lists it for the model, so with no catalog a suffix would claim a
+    // setting nothing is applying.
     await mountFresh({ agentKind: "codex", effort: "high" });
     const chip = screen.getByRole("button", { name: "Model" });
     expect(chip.querySelector(".chip-effort")).toBeNull();
     expect(chip.getAttribute("title")).not.toContain("effort");
+    openPicker();
+    expect(screen.queryByRole("slider", { name: "Effort" })).toBeNull();
   });
 
-  it("the gray suffix shows the SESSION's effort, capitalised (`xhigh` → XHigh), and hides when unset", async () => {
+  it("gives a Codex model the levels its own catalog lists, from its own default", async () => {
+    const probe: AgentProbe[] = [{ kind: "codex", available: true, version: "0.154.0", loggedIn: true, reason: null,
+      models: [
+        { id: "gpt-sol", label: "GPT-Sol", isDefault: true, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium" },
+        { id: "gpt-terra", label: "GPT-Terra", efforts: ["low", "high"], defaultEffort: "high" },
+      ] }];
+    const { store } = await mountFresh({ agentKind: "codex" }, 0, probe);
+    await waitFor(() => expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("Medium"));
+    openPicker();
+    const track = screen.getByRole("slider", { name: "Effort" });
+    expect(track).toHaveAttribute("aria-valuemax", "3"); // four levels, a dot each
+    expect(track).toHaveAttribute("aria-valuetext", "Medium");
+    fireEvent.keyDown(track, { key: "End" });
+    await waitFor(() => expect(store.getState().sessions.se1?.effort).toBe("xhigh"));
+    // Another model, its own levels: a level it does not list is shown as its default, not kept.
+    await act(async () => { await store.getState().setSessionOptions("se1", { model: "gpt-terra" }); });
+    await waitFor(() => expect(screen.getByRole("slider", { name: "Effort" })).toHaveAttribute("aria-valuemax", "1"));
+    expect(screen.getByRole("slider", { name: "Effort" })).toHaveAttribute("aria-valuetext", "High");
+  });
+
+  it("the gray suffix shows the SESSION's effort, capitalised (`xhigh` → XHigh), and the model's default when unset", async () => {
     const a = await mountFresh({ effort: "xhigh" });
     expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("XHigh");
     a.unmount();
@@ -858,7 +888,7 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
     expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("Max");
     b.unmount();
     await mountFresh();
-    expect(document.querySelector(".model-chip .chip-effort")).toBeNull();
+    expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("High");
   });
 
   describe("overflow collapse", () => {
@@ -900,12 +930,12 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
       await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
     });
 
-    it("a row that fits keeps the permission chip; the menu carries only its permanent Effort section", async () => {
+    it("a row that fits keeps the permission chip; the menu carries only its permanent effort track", async () => {
       stageWidths(400, 500);
       await mountFresh();
       expect(screen.getByRole("button", { name: "Permission mode" })).toBeInTheDocument();
       openPicker();
-      expect(screen.getByRole("group", { name: "Effort" })).toBeInTheDocument(); // permanent, not overflow
+      expect(screen.getByRole("slider", { name: "Effort" })).toBeInTheDocument(); // permanent, not overflow
       expect(screen.queryByRole("group", { name: "Permissions" })).toBeNull();
     });
   });
@@ -1621,7 +1651,8 @@ describe("prompter model picker", () => {
       expect(screen.queryByRole("button", { name: "Harness" })).toBeNull();
       const chip = screen.getByRole("button", { name: "Model" });
       expect(chip).toHaveTextContent("Opus 5");
-      expect(chip.getAttribute("title")).toBe("Claude Opus 5 through Claude");
+      // …and the level the turn runs at, the model's default while the session has chosen none.
+      expect(chip.getAttribute("title")).toBe("Claude Opus 5 through Claude · High effort");
       expect(chip.querySelector("[data-brand]")).toHaveAttribute("data-brand", "claude"); // the HARNESS's mark
     });
 

@@ -418,6 +418,8 @@ function EffortTrack({ effort }: { effort: EffortControl }) {
   const ref = useRef<HTMLDivElement>(null);
   const span = levels.length - 1;
   const set = (i: number) => {
+    // A pointer event without a position (a synthetic one) names no dot.
+    if (!Number.isFinite(i)) return;
     const level = levels[Math.max(0, Math.min(span, i))]!;
     if (level.id !== effort.value) effort.onChange(level.id);
   };

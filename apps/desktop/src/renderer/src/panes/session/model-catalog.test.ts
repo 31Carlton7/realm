@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey, type ModelInfo } from "@realm/contracts";
 import {
-  agentRowHint, billingLead, chipLabel, effortLevels, fastModeAvailability, fastModeHint, fastModeShown, filterRows, flatten, groupRows,
+  agentRowHint, billingLead, chipLabel, effortCurrent, effortOptions, fastModeAvailability, fastModeHint, fastModeShown, fastModeTip, fastModeTitle, filterRows, flatten, groupRows,
   modelAbout, modelLabel, modelRows, resolveModelName, type FastMode, type ModelRow,
 } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
@@ -261,24 +261,62 @@ describe("names", () => {
   });
 });
 
-describe("effortLevels", () => {
+describe("effortOptions", () => {
   const entry = (efforts: string[]): ModelInfo => ({ key: "k", label: "L", vendor: "", priceIn: null, priceOut: null, context: null, efforts, blurb: null });
+  const ask = (over: Partial<Parameters<typeof effortOptions>[0]> = {}) =>
+    effortOptions({ kind: "claude", model: null, agentProbe: [], remembered: {}, ...over });
+  const ids = (o: ReturnType<typeof effortOptions>) => o.levels.map((l) => l.id);
 
-  it("offers nothing where the harness never receives the level", () => {
-    // Codex drops it at thread start and no ACP agent has a field for it: an effort control there is
-    // a setting wired to nothing.
-    for (const kind of ["codex", "acp:cursor", "acp:opencode", "fake"] as const) expect(effortLevels(kind, entry(["high"]))).toEqual([]);
+  it("offers nothing where the harness takes no level, or nothing has named any", () => {
+    // The scripted agent takes none; Codex with no catalog, and an ACP agent with no thought_level
+    // option, have named none — a control there would be a setting wired to nothing.
+    for (const kind of ["fake", "codex", "acp:cursor", "acp:opencode"] as const) expect(ask({ kind })).toEqual({ levels: [], defaultId: null });
   });
 
-  it("offers Realm's levels, narrowed to the ones the catalog says the model takes", () => {
-    expect(effortLevels("claude")).toEqual(["low", "medium", "high", "xhigh", "max"]);
-    expect(effortLevels("claude", entry(["max", "xhigh", "high", "medium", "low"]))).toEqual(["low", "medium", "high", "xhigh", "max"]);
-    expect(effortLevels("claude", entry(["high", "medium", "low", "minimal"]))).toEqual(["low", "medium", "high"]);
+  it("takes Claude's levels from what Claude Code said of the model, and its documented default", () => {
+    expect(ask({ model: "claude-haiku-4-5", remembered: { "claude:claude-haiku-4-5": [] } })).toEqual({ levels: [], defaultId: null });
+    const sonnet = ask({ model: "claude-sonnet-5", remembered: { "claude:claude-sonnet-5": ["low", "medium", "high"] } });
+    expect(ids(sonnet)).toEqual(["low", "medium", "high"]);
+    // The SDK documents `high` as the default ("Deep reasoning (default)").
+    expect(sonnet.defaultId).toBe("high");
+    expect(sonnet.levels.map((l) => l.label)).toEqual(["Low", "Medium", "High"]);
   });
 
-  it("does not read an empty or foreign list as a model with no levels", () => {
-    expect(effortLevels("claude", entry([]))).toEqual(["low", "medium", "high", "xhigh", "max"]);
-    expect(effortLevels("claude", entry(["minimal"]))).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  it("narrows Realm's levels by the public catalog until Claude Code has said, and never to nothing", () => {
+    expect(ids(ask())).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(ids(ask({ info: entry(["high", "medium", "low", "minimal"]) }))).toEqual(["low", "medium", "high"]);
+    expect(ids(ask({ info: entry([]) }))).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(ask({ info: entry(["low", "medium"]) }).defaultId).toBeNull(); // no `high` here to default to
+  });
+
+  it("takes Codex's levels and default from the model's own catalog row, the default row's from the marked model", () => {
+    const codex = probe("codex", codexCatalog.map((m, i) => ({ ...m, efforts: i === 1 ? ["low", "medium", "high"] : ["low", "medium", "high", "xhigh"], defaultEffort: "medium" })));
+    expect(ask({ kind: "codex", model: "gpt-5.6-terra", agentProbe: [codex] })).toMatchObject({ defaultId: "medium" });
+    expect(ids(ask({ kind: "codex", model: "gpt-5.6-terra", agentProbe: [codex] }))).toEqual(["low", "medium", "high"]);
+    expect(ids(ask({ kind: "codex", model: null, agentProbe: [codex] }))).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(ask({ kind: "codex", model: "gpt-9", agentProbe: [codex] }).levels).toEqual([]);
+  });
+
+  it("takes an ACP agent's own names for its levels, this session's over the probe's", () => {
+    const opencode: AgentProbe = { ...probe("acp:opencode", null), efforts: [{ id: "low", label: "low" }, { id: "think", label: "Think hard" }], defaultEffort: "low" };
+    expect(ask({ kind: "acp:opencode", agentProbe: [opencode] })).toEqual({ levels: [{ id: "low", label: "Low" }, { id: "think", label: "Think hard" }], defaultId: "low" });
+    expect(ask({ kind: "acp:opencode", agentProbe: [opencode], init: { efforts: [{ id: "deep", label: "Deep" }], defaultEffort: "deep" } }))
+      .toEqual({ levels: [{ id: "deep", label: "Deep" }], defaultId: "deep" });
+  });
+});
+
+describe("effortCurrent", () => {
+  const levels = [{ id: "low", label: "Low" }, { id: "medium", label: "Medium" }, { id: "high", label: "High" }];
+
+  it("is the session's own level where the model takes it, else the default the harness named", () => {
+    expect(effortCurrent({ levels, value: "high", defaultId: "medium" })).toEqual({ index: 2, choice: levels[2], chosen: true });
+    expect(effortCurrent({ levels, value: null, defaultId: "medium" })).toEqual({ index: 1, choice: levels[1], chosen: false });
+    // A level set under another model is not what runs on this one.
+    expect(effortCurrent({ levels, value: "max", defaultId: "medium" })).toEqual({ index: 1, choice: levels[1], chosen: false });
+  });
+
+  it("points at nothing where the session chose nothing and the harness named no default", () => {
+    expect(effortCurrent({ levels, value: null, defaultId: null })).toEqual({ index: -1, choice: null, chosen: false });
   });
 });
 
@@ -331,24 +369,42 @@ describe("fastModeAvailability", () => {
   });
 });
 
-describe("the fast-mode line and the chip's bolt", () => {
+describe("the fast-mode line, the bolt's tooltip and the chip's bolt", () => {
   const fast = (over: Partial<FastMode> = {}): FastMode =>
-    ({ on: false, state: null, reason: null, requested: null, onChange: () => {}, availability: { state: "offered", source: "session" }, ...over });
+    ({ on: false, state: null, reason: null, requested: null, onChange: () => {}, availability: { state: "offered", source: "session" },
+      tip: "Fast mode: 1.5x speed, increased usage.", ...over });
 
-  it("says the first turn will settle it where nothing has, switch on or off", () => {
-    for (const on of [false, true]) expect(fastModeHint(fast({ on, availability: { state: "unknown" } }))).toBe("Checked on the first turn.");
+  it("says nothing under an unpressed bolt — its tooltip says what is true of it", () => {
+    // A note that appears every time is a note nobody reads.
+    const each: FastMode["availability"][] = [{ state: "unknown" }, { state: "offered", source: "catalog" }, { state: "unavailable", source: "catalog", alternatives: ["GPT-5.6-Sol"] }];
+    for (const availability of each) {
+      expect(fastModeHint(fast({ availability }), "GPT-5.6-Terra")).toBeNull();
+    }
   });
 
-  it("names the alternatives for a model that cannot, and says nothing when there are none", () => {
-    expect(fastModeHint(fast({ availability: { state: "unavailable", source: "catalog", alternatives: ["GPT-5.6-Sol"] } }))).toBe("GPT-5.6-Sol offers it.");
-    expect(fastModeHint(fast({ availability: { state: "unavailable", source: "catalog", alternatives: ["Opus 5.5", "Sonnet 5", "Fable 5"] } })))
-      .toBe("Opus 5.5, Sonnet 5 and Fable 5 offer it.");
-    expect(fastModeHint(fast({ availability: { state: "unavailable", source: "catalog", alternatives: [] } }))).toBeNull();
+  it("says what a request will meet: the first turn's check, a model that cannot, or the report", () => {
+    expect(fastModeHint(fast({ on: true, availability: { state: "unknown" } }), "Fable 5.1")).toBe("Fast mode is asked for — the first turn checks it.");
+    expect(fastModeHint(fast({ on: true, availability: { state: "unavailable", source: "catalog", alternatives: ["GPT-5.6-Sol"] } }), "GPT-5.6-Terra"))
+      .toBe("Fast mode isn’t offered on GPT-5.6-Terra — GPT-5.6-Sol offers it.");
+    expect(fastModeHint(fast({ on: true, availability: { state: "unavailable", source: "catalog", alternatives: ["Opus 5.5", "Sonnet 5", "Fable 5"] } }), "Haiku 4.5"))
+      .toBe("Fast mode isn’t offered on Haiku 4.5 — Opus 5.5, Sonnet 5 and Fable 5 offer it.");
+    expect(fastModeHint(fast({ on: true, availability: { state: "unavailable", source: "catalog", alternatives: [] } }), "Haiku 4.5")).toBe("Fast mode isn’t offered on Haiku 4.5.");
+    expect(fastModeHint(fast({ on: true, state: "off", reason: "free", requested: true }), "Fable 5.1")).toMatch(/plan does not include/);
+    expect(fastModeHint(fast({ on: true, state: "off", reason: "free", requested: true, availability: { state: "unknown" } }), "Fable 5.1")).toMatch(/plan does not include/);
   });
 
-  it("falls through to what the last turn reported, once one has", () => {
-    expect(fastModeHint(fast({ on: true, state: "off", reason: "free", requested: true }))).toMatch(/plan does not include/);
-    expect(fastModeHint(fast({ on: true, state: "off", reason: "free", requested: true, availability: { state: "unknown" } }))).toMatch(/plan does not include/);
+  it("titles the bolt with what fast mode buys, what is still unchecked, or which models have it", () => {
+    expect(fastModeTitle(fast(), "GPT-5.6-Sol")).toBe("Fast mode: 1.5x speed, increased usage.");
+    expect(fastModeTitle(fast({ availability: { state: "unknown" } }), "Fable 5.1")).toBe("Fast mode: 1.5x speed, increased usage. The first turn checks whether Fable 5.1 can run it.");
+    expect(fastModeTitle(fast({ availability: { state: "unavailable", source: "catalog", alternatives: ["GPT-5.6-Sol"] } }), "GPT-5.6-Terra"))
+      .toBe("Fast mode isn’t offered on GPT-5.6-Terra — GPT-5.6-Sol offers it.");
+  });
+
+  it("takes the tooltip's words from the harness catalog where it has them", () => {
+    const codex = probe("codex", [{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fastMode: true, fastDescription: "1.5x speed, increased usage", isDefault: true }]);
+    expect(fastModeTip("codex", "gpt-5.6-sol", [codex])).toBe("Fast mode: 1.5x speed, increased usage.");
+    expect(fastModeTip("codex", null, [codex])).toBe("Fast mode: 1.5x speed, increased usage.");
+    expect(fastModeTip("claude", null, [])).toBe("Fast mode: faster responses, at a higher cost.");
   });
 
   it("wears the bolt for a request nothing has refused, and drops it the moment something has", () => {
