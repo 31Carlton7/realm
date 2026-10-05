@@ -1,11 +1,12 @@
 import { Icon } from "@realm/ui";
-import { useRef, useState, type DragEvent } from "react";
+import { useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import { chordsForCommand, displayKeyChord, type Item } from "@realm/contracts";
 import { useApp } from "../state/store";
 import { REALM_ITEM_TYPE } from "./drag-types";
 import { Menu } from "./Menu";
 import { DELETES_ON_CLOSE, PAGE_KINDS } from "./pane-close";
 import { ItemIcon } from "./PageIcon";
+import { ScrollFadesX } from "./ScrollFades";
 
 /**
  * A side pane's tab strip, in its bar where a single pane's title goes.
@@ -33,6 +34,11 @@ import { ItemIcon } from "./PageIcon";
  * A peek's tab says what it is twice over, in the shape and the words: an eye where the kind's glyph
  * goes and its title in italic, because it is the one tab here that will not be here tomorrow — and
  * it does not drag, since an edge would make it part of an arrangement it was never written into.
+ *
+ * More tabs than the bar has room for scroll sideways, and the strip dissolves at whichever end has
+ * more of it past the edge, as every scroller in the app does — it used to stop at a hard cut through
+ * the middle of a title. The "+" and the bar's own buttons are outside the scroller, so they stay
+ * crisp beside it.
  */
 export function PaneTabs({ leafId, tabs, activeId, onRename }: {
   leafId: string;
@@ -54,6 +60,19 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
   const [over, setOver] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const addBtn = useRef<HTMLButtonElement>(null);
+  const strip = useRef<HTMLDivElement>(null);
+  /* The tab showing is brought clear of the dissolve when it CHANGES — chosen from the sidebar, or
+     opened by an agent past the strip's end — so it is never the one selected under the fade or off
+     the edge. Only then: a strip someone has scrolled by hand stays where they put it. */
+  useLayoutEffect(() => {
+    const el = strip.current;
+    const tab = el?.querySelector<HTMLElement>(".pane-tab[data-active]");
+    if (!el || !tab) return;
+    const band = parseFloat(getComputedStyle(el).getPropertyValue("--fade-w")) || 0;
+    const s = el.getBoundingClientRect(), t = tab.getBoundingClientRect();
+    if (t.left < s.left + band) el.scrollLeft -= s.left + band - t.left;
+    else if (t.right > s.right - band) el.scrollLeft += t.right - (s.right - band);
+  }, [activeId]);
   const ids = tabs.map((t) => t.id);
   const carriesItem = (e: DragEvent) => Array.from(e.dataTransfer.types).includes(REALM_ITEM_TYPE);
   /* From the keymap the handler reads, as the palette's hints are: a user who rebinds the chord sees
@@ -64,7 +83,8 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
   };
   return (
     <div className="pane-strip">
-      <div className="pane-tabs" role="tablist" aria-label="Tabs">
+      <ScrollFadesX scroller={strip} />
+      <div className="pane-tabs" role="tablist" aria-label="Tabs" ref={strip}>
         {tabs.map((t, i) => {
           const active = t.id === activeId;
           const peek = t.id === peekId;

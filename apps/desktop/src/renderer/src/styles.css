@@ -1937,6 +1937,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-strip { display: flex; align-items: center; gap: 2px; flex: 1 1 auto; min-width: 0; margin-left: -6px; }
 .pane-tabs { display: flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 0;
   overflow-x: auto; scrollbar-width: none; }
+/* Its ends dissolve where it scrolls (`ScrollFadesX`), and the dissolve's own rule hands a scroller
+   its bar back on a Mac that draws classic ones — under a 28px row of tabs that bar would be the
+   tallest thing in the bar. The strip keeps none either way. */
+:root:not([data-overlay-scrollbars]) .pane-tabs[data-dissolve-x] { scrollbar-width: none; }
 .pane-tabs-add { flex: none; color: var(--rl-text-faint); }
 .pane-tabs-add[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* A width rather than a flex basis: the strip is sized from its tabs now that the "+" follows them, and
@@ -1951,6 +1955,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-tab-label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; height: 100%; padding: 0 2px 0 8px;
   font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-dim); text-align: left; }
 .pane-tab[data-active] .pane-tab-label { color: var(--rl-text-bright); }
+/* The glyph is a column of its own, never a share of the shortfall. Left to the flex default it shrank
+   with the title — an SVG's automatic minimum width is zero, since the UA clips its overflow — so every
+   tab whose title ran to an ellipsis drew a smaller mark, the longer the title the smaller: a
+   documents tab's at 5px wide beside a session's 14. (A page's own icon is `.page-icon`, already fixed.) */
+.pane-tab-label > svg { flex: none; }
 .panel[data-focused] .pane-tab[data-active] .pane-tab-label svg { color: var(--rl-accent); }
 .pane-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* A peek (W11b): the one tab that goes when the space does. */
@@ -1959,6 +1968,10 @@ button.panel-title:hover { background: var(--rl-hover); }
   transition: opacity var(--dur-hover) var(--ease-out-strong); }
 .pane-tab:hover .pane-tab-close, .pane-tab[data-active] .pane-tab-close, .pane-tab-close:focus-visible { opacity: 1; }
 .pane-tab-confirm { width: auto; padding: 0 8px; margin-right: 3px; font-size: 12px; white-space: nowrap; }
+/* The close's hit target stops at its tab's edge. The 6px every icon button reaches past itself went
+   3px past the last tab, and a scroller counts that as more of itself: a strip of two tabs that fit
+   measured 3px of slack, enough for its far end to dissolve over nothing. */
+.pane-tab > .icon-btn::after { inset: -3px; }
 /* The strip takes drops itself (reorder, join), so the pane's drop zones start under its bar. */
 .panel[data-tabbed] > .drop-overlay { top: 40px; }
 

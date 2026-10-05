@@ -2269,6 +2269,38 @@ describe("scrollbars", () => {
   });
 });
 
+describe("a side pane's tab strip", () => {
+  it("keeps every tab's glyph whole, whatever the title beside it is doing", () => {
+    /* The documents and device tabs drew smaller marks than a session's: the glyph was a flex item
+       that SHRANK with its title — an SVG's automatic minimum width is zero — so every tab whose
+       title ran to an ellipsis lost width off its mark, measured 5px across for "Documents · realm".
+       THE MUTANT: the glyph left to the flex default. A page's own icon is held the same way. */
+    expect(bodiesFor(".pane-tab-label > svg").join(" ")).toMatch(/flex: none/);
+    expect(bodiesFor(".page-icon").join(" ")).toMatch(/flex: none/);
+  });
+
+  it("stays without a scrollbar where the dissolve hands every other scroller its bar back", () => {
+    /* `[data-dissolve-x]` reclaims the bar on a Mac set to show classic scrollbars, so the strip's
+       own `scrollbar-width: none` loses to it the moment the strip dissolves. THE MUTANT: no
+       override, and a 10px bar appears under a 28px row of tabs on those Macs only. */
+    expect(bodiesFor(":root:not([data-overlay-scrollbars]) [data-dissolve-x]").join(" ")).toContain("scrollbar-width: auto");
+    expect(bodiesFor(":root:not([data-overlay-scrollbars]) .pane-tabs[data-dissolve-x]").join(" ")).toContain("scrollbar-width: none");
+  });
+
+  it("gives a tab's close a hit target that ends at the tab, so a strip that fits has nothing to scroll", () => {
+    /* Every icon button reaches 6px past itself, and the close sits 3px in from its tab's end: the
+       last tab's reached 3px past the strip, which the strip measured as slack and dissolved its far
+       end over. The reach may be no more than the gap between the close and its tab's edges. */
+    const close = bodiesFor(".pane-tab .pane-tab-close").join(" ");
+    const tab = bodiesFor(".pane-tab").join(" ");
+    const room = Math.min(Number(/margin-right: (\d+)px/.exec(close)?.[1]),
+      (Number(/height: (\d+)px/.exec(tab)?.[1]) - Number(/--btn-h: (\d+)px/.exec(close)?.[1])) / 2);
+    const reach = -Number(/inset: (-?\d+)px/.exec(bodiesFor(".pane-tab > .icon-btn::after").join(" "))?.[1]);
+    expect(room).toBe(3);
+    expect(reach).toBeLessThanOrEqual(room);
+  });
+});
+
 describe("dividers", () => {
   /** The table-list idiom: a rule drawn between every pair of adjacent rows. */
   const ADJACENT = /^(\.[a-z-]+) \+ \1$/;
