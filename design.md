@@ -539,6 +539,12 @@ acronym that is uppercase anyway (a file extension on a tile).
   Escape as Deny or Skip, and that is the card's whole surface; carried onto a page or popover whose
   Escape means "leave", the same key denied a request the person had only looked at. A surface that
   hosts a card catches Escape before the card does and leaves; a field being typed in keeps its own.
+- A control that starts keeping what a person does says so in words and asks first. Record for Laya
+  was a ring among a pane bar's icons that recorded on the click; it is now "Record my use of this
+  app…", and its sheet says what is kept and what is left out — read from the code that keeps it,
+  not from what it is for — where it goes, how big it gets and how it ends, and only Start records.
+  While it runs, its Stop is on the thing being recorded and at the foot of the rail, because a
+  recording goes on while its pane is out of sight.
 - Destructive actions must name their target and distinguish removing from a layout from deleting the
   underlying object.
 
