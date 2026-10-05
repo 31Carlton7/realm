@@ -9,7 +9,7 @@ import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { NewProfileSheet } from "./components/profiles/NewProfileSheet";
 import { ProfileWindowBridge } from "./components/profiles/ProfileWindowBridge";
 import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets";
-import { ArtifactSheet, SessionPlanSheet } from "./panes/session/SessionSummary";
+import { SessionPlanSheet } from "./panes/session/SessionSummary";
 import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { FanOutSheet } from "./components/FanOutSheet";
@@ -17,7 +17,9 @@ import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette } from "./components/CommandPalette";
 import { Toasts } from "./components/Toasts";
+import { AppPickerBridge } from "./app-pick/AppPicker";
 import { QuickChat } from "./components/QuickChat";
+import { MediaViewer } from "./components/viewer/MediaViewer";
 import { PageOverlay } from "./components/PageOverlay";
 import { PageNavProvider } from "./components/page-nav";
 import { SpaceOverview } from "./components/sidebar/SpaceOverview";
@@ -40,6 +42,7 @@ import { useZoom } from "./theme/zoom";
 import { installRubberBand } from "./rubber-band";
 import { installPressTracking } from "./press-tracking";
 import { installTooltips } from "./tooltips";
+import { installCaret } from "./caret";
 import "./panes";
 
 /**
@@ -237,6 +240,19 @@ function TooltipBridge() {
   return null;
 }
 
+/** The app's caret over every field (caret.ts), in the shape and motion Settings ▸ Appearance ▸ Cursor
+ *  chose. Subscribed rather than rendered: the layer is the DOM's, and a new preference reaches it
+ *  without re-rendering anything. */
+function CaretBridge() {
+  const store = useAppStore();
+  useEffect(() => {
+    const layer = installCaret(document, store.getState().caret);
+    const off = store.subscribe((s, prev) => { if (s.caret !== prev.caret) layer.configure(s.caret); });
+    return () => { off(); layer.uninstall(); };
+  }, [store]);
+  return null;
+}
+
 /** The app's scrollers give at their ends (rubber-band.ts). Off under reduced motion, as AppKit's is. */
 function RubberBandBridge() {
   useEffect(() => installRubberBand(document, {
@@ -329,7 +345,6 @@ function SheetHost() {
   if (sheet.kind === "new-lecture") return <NewLectureSheet />;
   if (sheet.kind === "wrap-up-lecture") return <WrapUpLectureSheet />;
   if (sheet.kind === "plynn-import") return <PlynnImportSheet />;
-  if (sheet.kind === "artifact") return <ArtifactSheet path={sheet.path} />;
   if (sheet.kind === "session-plan") return <SessionPlanSheet sessionId={sheet.sessionId} planId={sheet.planId} />;
   if (sheet.kind === "fan-out") return <FanOutSheet />;
   return null;
@@ -664,6 +679,7 @@ export function App() {
       <RubberBandBridge />
       <PressTrackingBridge />
       <TooltipBridge />
+      <CaretBridge />
       {/* Shared by the sidebar and the page over the panes, whose own rail can take the sidebar's
           column (components/page-nav.tsx). */}
       <PageNavProvider>
@@ -674,10 +690,14 @@ export function App() {
       {/* Over everything and outside the layout: it takes no pane, so it belongs to the window
           rather than to any one space's arrangement of it. */}
       <QuickChat />
+      {/* Every file the app shows opens here, over the window, with the session's prompter under it. */}
+      <MediaViewer />
       <CommandPalette />
       <SpaceOverview />
       {/* What the window has to say, at its foot and over everything: a failed action, a receipt. */}
       <Toasts />
+      {/* Select in Realm: the element picker over this window, above everything it can point at. */}
+      <AppPickerBridge />
     </StoreContext.Provider>
   );
 }

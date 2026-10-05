@@ -28,6 +28,7 @@ import { nextZoomFactor, searchUrl, type ViewRect } from "./browser-host";
 import { clearBrowsingData, saveBrowserScreenshot } from "./browser-controls";
 import { BrowserAgentHost } from "./browser-agent-host";
 import { AppDriveHost } from "./app-drive";
+import { registerAppPick } from "./app-pick";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
 import { ComputerUseHelper, axHelperPath } from "./computer-use-helper";
@@ -285,11 +286,48 @@ function holderOf(browserId: string, sender?: WebContents): { win: BrowserWindow
 }
 const paneFor = (browserId: string, sender?: WebContents): BrowserPane | null => holderOf(browserId, sender)?.pane ?? null;
 
+/* The element picker over Realm's own window (app-pick.ts): a window says when its person is picking,
+   and asks for the picture of a pick — always the window's OWN capture, and never inside a browser
+   pane's view. Keyed by the window's webContents, which is the only sender it answers. */
+const appPicks = registerAppPick({
+  on: (channel, fn) => ipcMain.on(channel, fn),
+  handle: (channel, fn) => ipcMain.handle(channel, fn),
+  windowOf: (sender) => {
+    const wc = sender as WebContents;
+    const win = BrowserWindow.fromWebContents(wc);
+    if (!win || win.isDestroyed() || win.webContents !== wc) return null;
+    return {
+      key: wc.id,
+      window: {
+        size: () => { const [width = 0, height = 0] = win.getContentSize(); return { width, height }; },
+        views: () => win.contentView.children.filter((v) => v.getVisible()).map((v) => v.getBounds()),
+        zoom: () => wc.getZoomFactor(),
+        capture: async (rect) => {
+          const image = await wc.capturePage(rect);
+          if (image.isEmpty()) return null;
+          // At the display's scale: the bitmap is that many times the DIP size `getSize` reports.
+          const { width, height } = image.getSize();
+          const bitmap = image.toBitmap();
+          const scale = Math.max(1, Math.round(Math.sqrt(bitmap.length / 4 / (width * height))));
+          return { bgra: new Uint8Array(bitmap), width: width * scale, height: height * scale };
+        },
+      },
+    };
+  },
+  save: async ({ bgra, width, height }, name) => {
+    if (!realmHome) throw new Error("Realm is still starting up");
+    const png = nativeImage.createFromBitmap(Buffer.from(bgra), { width, height }).toPNG();
+    return saveTempAttachment(realmHome, name, "image/png", png);
+  },
+});
+
 /* Realm driving its own window. Its CDP target is a window's own webContents — the one the person
    used last — so unlike the browser executor it holds no per-view state and survives as one instance;
-   `forget()` clears the snapshot index whenever the window it indexes changes or goes away. */
+   `forget()` clears the snapshot index whenever the window it indexes changes or goes away. It stands
+   down while anyone is picking, so an agent's click can never land as the person's pick. */
 let appDriveWindow: number | null = null;
 const appDriveHost = new AppDriveHost({
+  picking: () => appPicks.any(),
   attach: () => {
     const win = BrowserWindow.getFocusedWindow() ?? windows.primary();
     if (!win || win.isDestroyed()) return null;
@@ -452,7 +490,11 @@ async function createWindow(info: { port: number; home: string; token: string },
   // Native trackpad phases for the rubber band at a scroller's ends (macOS; optional helper).
   const phases = startScrollPhaseStream(win);
   const id = win.id;
+  // A reload or a closed window ends a pick its page can no longer finish.
+  const pickKey = win.webContents.id;
+  win.webContents.on("did-navigate", () => appPicks.set(pickKey, false));
   win.on("closed", () => {
+    appPicks.set(pickKey, false);
     phases.stop();
     windows.remove(win);
     windowPanes.delete(id);
@@ -1423,9 +1465,13 @@ ipcMain.handle("files:browse", async (_e, root: unknown, dir: unknown): Promise<
   try { return await browseFolder(root, typeof dir === "string" ? dir : ""); } catch { return null; }
 });
 /** Bigger than a tile's, because this one is meant to be read: a PDF's first page, a spreadsheet's
- *  first rows, a page of source. Same two producers as the tile — see `fileThumbnail`. */
+ *  first rows, a page of source. Same two producers as the tile — see `fileThumbnail`. `page` is the
+ *  media viewer's, which shows the page at the size of the window: 512px blown up to that is a page
+ *  nobody can read. */
 const PREVIEW_PX = 512;
-ipcMain.handle("files:preview", (_e, path: unknown): Promise<string | null> => fileThumbnail(realmHome, path, PREVIEW_PX));
+const PAGE_PX = 1600;
+ipcMain.handle("files:preview", (_e, path: unknown, size?: unknown): Promise<string | null> =>
+  fileThumbnail(realmHome, path, size === "page" ? PAGE_PX : PREVIEW_PX));
 /** Looser than the other three on purpose: a DIRECTORY is a real thing to reveal, and the transcript's
  *  path menu offers this for one — as does `~/…`, and a path relative to `base`. See `existingPath`.
  *  Answers whether there was anything to reveal, so a menu that asked can say when there was not. */

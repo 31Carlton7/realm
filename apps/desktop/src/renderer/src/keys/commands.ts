@@ -2,6 +2,7 @@ import { itemIdOfLeaf, type Item } from "@realm/contracts";
 import type { KeyContext } from "@realm/contracts";
 import type { StoreApi } from "zustand";
 import { isEditableTarget } from "../hotkeys";
+import { startAppPick } from "../app-pick/start";
 import type { AppState } from "../state/store";
 
 /**
@@ -29,7 +30,9 @@ export function keyContext(s: AppState, target: EventTarget | null): KeyContext 
      other half of it, published so a `when` clause can say "only in a terminal". */
   const terminalFocus = target instanceof HTMLElement && target.closest(".xterm") !== null;
   return {
-    overlayOpen: s.paletteOpen || s.spacesOpen || sheetOpen,
+    // The media viewer covers the window as the palette does: a pane behind it is not the one a chord
+    // should split, close or move off — and a space switched under it would be shown nowhere.
+    overlayOpen: s.paletteOpen || s.spacesOpen || sheetOpen || s.viewer !== null,
     paletteOpen: s.paletteOpen,
     spacesOpen: s.spacesOpen,
     sheetOpen,
@@ -101,6 +104,8 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
        means the same thing by the same name, and `openQuickChat` already no-ops when one is up. */
     "session.quickChat": () => { const s = get(); s.run(() => s.openQuickChat()); },
     "session.attachFiles": withSession((s, id) => s.run(() => s.attachFromPicker(id))),
+    // Wherever the focus is: the pick goes to the session a web pick would (`startAppPick`).
+    "session.selectInRealm": () => startAppPick(store),
     "session.dispatchDraft": withSession((s, id) => s.run(() => s.dispatchDraft(id))),
     /* The `when` clause already gates this on a running session, and the check is here as well
        because a user may bind the command with no clause at all — and "interrupt" on an idle agent

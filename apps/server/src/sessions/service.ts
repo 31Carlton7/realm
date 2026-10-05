@@ -541,10 +541,11 @@ export class SessionService {
       ? this.d.skills.list(s.spaceId).skills : [];
     const mac = library.find((x) => x.id === MAC_SKILL_ID && x.valid);
     const files = this.refAttachments(refs);
-    // The blocks ride the same way and in this order: what the user picked ON a page, who else they
-    // pointed at, then the files and apps they named. Appended to the user's own text rather than
-    // sent as a system note, because all three agent wires take one markdown string and nothing else.
-    const context = elementContext(msg.elements ?? []) + sessionRefContext(msg.sessionRefs ?? [])
+    // The blocks ride the same way and in this order: what the user picked ON a page or in Realm's
+    // window, who else they pointed at, then the files and apps they named. Appended to the user's own
+    // text rather than sent as a system note, because all three agent wires take one markdown string
+    // and nothing else. A pick in Realm's window names its picture only if it is still attached.
+    const context = elementContext(msg.elements ?? [], msg.attachments) + sessionRefContext(msg.sessionRefs ?? [])
       + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld });
     const attachments = [...msg.attachments, ...files.attach];
     if (tokens.length === 0) return { text: msg.text + context, attachments };

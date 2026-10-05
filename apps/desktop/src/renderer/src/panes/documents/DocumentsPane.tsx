@@ -504,7 +504,7 @@ function Editor({ buffer, kind, mode, documentsId, reveal, onChange, onSave }: {
      (scroll-memory.ts). Per VIEW as well as per file: the rich column and the source text are two
      different heights of the same document, and an offset taken in one is meaningless in the other. */
   const sourceScroll = useScrollMemory(`doc:${documentsId}:source:${buffer.path}`);
-  const blinkCaret = useApp((s) => s.editorCursorBlink);
+  const blinkCaret = useApp((s) => s.caret.animation !== "solid");
   // A PDF and a Quick Look render have no text at all, so neither has a source view to toggle to.
   const showStructured = structured !== null && (mode === "rich" || structured === "pdf" || structured === "render");
   return (

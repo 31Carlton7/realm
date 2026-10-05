@@ -10,6 +10,7 @@ import { DocumentsPane } from "./DocumentsPane";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { exited } from "../../components/popover-exit.test-fakes";
+import { MediaViewer } from "../../components/viewer/MediaViewer";
 
 /**
  * The documents pane's home (DocumentsHome.tsx): what a pane beside a session shows before a file
@@ -47,7 +48,7 @@ async function mount(o: { artifacts?: LibraryEntry[]; files?: Record<string, str
   } else {
     await store.getState().openItem("i-docs");
   }
-  const ui = render(<StoreContext.Provider value={store}><DocumentsPane item={docsItem} visible /></StoreContext.Provider>);
+  const ui = render(<StoreContext.Provider value={store}><DocumentsPane item={docsItem} visible /><MediaViewer /></StoreContext.Provider>);
   return { api, store, ui };
 }
 
@@ -99,7 +100,7 @@ describe("the documents home", () => {
     expect(screen.getByRole("button", { name: "Files" })).toBeTruthy();
   });
 
-  it("opens a file the pane cannot reach in the preview, which does not offer the pane", async () => {
+  it("opens a file the pane cannot reach in the media viewer, which does not offer the pane", async () => {
     // A download the user attached: outside the checkout, so no tab could hold it. THE MUTANT: open
     // it as a tab anyway — the server refuses the path and the click ends in an error.
     const { api } = await mount({ artifacts: [art("a3", "lead", "/Users/ada/Downloads/brief.pdf", 200, { kind: "upload" })] });
@@ -107,6 +108,19 @@ describe("the documents home", () => {
     fireEvent.click(rowFor("brief.pdf"));
     expect(await screen.findByRole("dialog", { name: "brief.pdf" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Open in the documents pane" })).toBeNull();
+    expect(api.calls.some((c) => c.startsWith("readDocument:"))).toBe(false);
+  });
+
+  it("opens a picture in the media viewer even inside the checkout, asked about in this session", async () => {
+    /* Media is looked at in the viewer, with the session's prompter under it — a tab of Quick Look's
+       render of a screenshot was the one way a picture opened without it. The pane is still a click
+       away on the viewer's own bar. THE MUTANT: let a picture take the tab branch with the rest. */
+    const { api, store } = await mount({ artifacts: [art("a4", "lead", "shots/hero.png", 300)] });
+    await screen.findByRole("region", { name: "This session" });
+    fireEvent.click(rowFor("hero.png"));
+    expect(await screen.findByRole("dialog", { name: "hero.png" })).toBeTruthy();
+    expect(store.getState().viewer).toMatchObject({ sessionId: "lead", files: [{ path: `${ROOT}/shots/hero.png`, inPane: true }] });
+    expect(screen.getByRole("button", { name: "Open in the documents pane" })).toBeTruthy();
     expect(api.calls.some((c) => c.startsWith("readDocument:"))).toBe(false);
   });
 

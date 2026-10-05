@@ -33,7 +33,7 @@
 .cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
 .diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
-.file-preview-path, .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
+.files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .mention-row-id, .mp-about code,
 .msg-error pre, .office-drawn-size, .office-kept, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
@@ -1111,55 +1111,11 @@ kbd { font: 11px var(--font-mono); }
 .summary-row-glyph { flex: none; color: var(--rl-text-faint); }
 .summary-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
 .summary-row-meta { flex: none; font-size: 11px; color: var(--rl-text-faint); }
-/* ── The file preview ──────────────────────────────────────────────────────
-   One file, opened from the Library's grid or from a session summary's outputs. The picture on top,
-   then the facts, then where it came from — falling order of how much each says about a file whose
-   name the sheet's own title has already given.
-
-   The picture sits in no well of its own. It is either a `.media-*` frame, which brings its own
-   surface and hairline, or QuickLook's render, which gets the same inset outline every image in the
-   app wears. A frame around either would be a second box around a thing that already has one. */
-/* The preview WELL: the sheet's own width, not a square floated in the middle of it.
-   A QuickLook render of a text file is a tall page. Centred at its natural size it was a small
-   square of unreadable grey in a wide sheet — the picture was there and said nothing. Filling the
-   column and cropping to the TOP shows the first lines at a size they can be read at, which is the
-   only part of a page-of-source anyone looks at in a preview.
-   `--inset` is the surface ladder's well, one step under the sheet's `--surface`: recessed, which is
-   what a thing you look INTO should be, and it is what makes the crop's edge legible without a
-   second border around a picture that already carries its own outline. */
-.file-preview-art { width: 100%; margin: 0 0 12px; border-radius: var(--r-panel); overflow: hidden;
-  background: var(--inset); box-shadow: var(--shadow-hairline); }
-/* Media keeps its own frame, which brings its own sizing — the well only has to not squeeze it. */
-.file-preview-art > * { display: block; margin: 0 auto; }
-/* Until the load handler has measured it, a picture is drawn the safe way: contained, at its own
-   size. A `page` that flashed at icon size is a beat of the old behaviour; an `icon` that flashed
-   full-bleed is a 480px file-type glyph, which is the failure worth avoiding. */
-.file-preview-still { display: block; max-width: 100%; max-height: 200px; margin: 0 auto;
-  object-fit: contain; border-radius: 0; box-shadow: none; }
-/* A render of the file's CONTENT. It fills the column and is cropped to its top, because the first
-   lines are the whole of what a preview of a page is read for. */
-.file-preview-still[data-fit="page"] { width: 100%; max-width: none; max-height: 260px;
-  object-fit: cover; object-position: top center; }
-/* A generic type icon. It is a mark, not a picture — drawn at a mark's size, with air around it. */
-.file-preview-still[data-fit="icon"] { width: auto; max-height: 128px; margin: 24px auto; }
 /* The path is machine state, so it reads in mono and wraps at any character — a long path must not
    push the sheet wider than the column it was centered over. */
-.summary-file-path, .file-preview-path { margin: 0 0 4px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
+.summary-file-path { margin: 0 0 4px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
   color: var(--rl-text-dim); overflow-wrap: anywhere; }
-.file-preview-detail { margin: 0; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-.summary-file-note, .file-preview-note { margin: 8px 0 0; font-size: 12px; color: var(--rl-warning); }
-/* Provenance reads as one line, and the button in it is the quiet kind: it is a fact about the file
-   that happens to be reachable, not a third action competing with the two in the footer. */
-.file-preview-from { display: flex; align-items: center; gap: 6px; margin-top: 10px; min-width: 0;
-  font-size: 12px; color: var(--rl-text-faint); }
-.file-preview-from .btn-quiet { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-preview-from-gone { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The overflow takes the far end of the footer and the primary keeps the near one, so the decision
-   and the drawer of secondary verbs never trade places as the action set changes with the file. */
-/* An icon-only control, so it takes the app's icon-button shape rather than a text button's. At a
-   near-square aspect the painted superellipse (--sq-n-ctl: 3) reads as a rounded SQUARE, which is
-   what the hover fill was drawing here — the flat sides of a wide button are what normally hide it. */
-.file-preview-more { margin-right: auto; }
+.summary-file-note { margin: 8px 0 0; font-size: 12px; color: var(--rl-warning); }
 /* One slot for the whole menu, sized to the glyph so every label starts on the same left edge. */
 .menu-icon { flex: none; display: grid; place-items: center; width: 16px; height: 16px; }
 .menu-icon-img { width: 16px; height: 16px; object-fit: contain; }
@@ -2672,6 +2628,160 @@ button.panel-title:hover { background: var(--rl-hover); }
   to { opacity: 1; transform: translateX(-50%); }
 }
 
+/* ── The caret (v2) ─────────────────────────────────────────────────────────
+   The text cursor, as Settings ▸ Appearance ▸ Cursor has it (caret.ts): one drawn caret over whichever
+   field has the keyboard, with that field's own caret transparent for exactly as long as the drawn one
+   stands in for it (`data-rl-caret`). Everything paints in `--caret` — the accent, or the ink of the
+   text — and a solid block redraws the character under it in `--caret-ink`, the ground behind it.
+
+   One tempo, the platform's own blink: half a second shown, half gone. The fades share it, so going
+   from Blink to Smooth fade changes how the caret goes out and not how often, and Pulse breathes at
+   a little over twice it, slow enough to read as rest rather than as a signal. A loop period is a
+   tempo, not the duration of a change, so it is a property here and not a rung of the motion ladder.
+   A glide IS a change, on the drag rung — quick enough that typing never waits on it. Reduce motion
+   and Low power hold every caret still (`data-caret-still`); a window nobody is typing in shows no
+   drawn caret at all, as it shows none of the platform's. */
+:root { --caret: var(--rl-accent); --caret-ink: var(--rl-accent-contrast); --caret-tempo: 1s;
+  --caret-motion: none; --caret-motion-x: none; --caret-block: none; }
+:root[data-caret-colour="text"] { --caret: var(--rl-text-bright); --caret-ink: var(--rl-panel); }
+/* `-x` is an underline's: it expands across, where a bar and a block expand up and down. `block` is a
+   terminal's block, which xterm draws and which goes out by its colours rather than its opacity. */
+:root[data-caret-animation="blink"] { --caret-motion: rl-caret-blink var(--caret-tempo) step-end infinite;
+  --caret-motion-x: var(--caret-motion); --caret-block: rl-caret-block-blink var(--caret-tempo) step-end infinite; }
+:root[data-caret-animation="smooth"] { --caret-motion: rl-caret-smooth var(--caret-tempo) ease-in-out infinite;
+  --caret-motion-x: var(--caret-motion); --caret-block: rl-caret-block-smooth var(--caret-tempo) ease-in-out infinite; }
+:root[data-caret-animation="phase"] { --caret-motion: rl-caret-phase var(--caret-tempo) ease-in-out infinite;
+  --caret-motion-x: var(--caret-motion); --caret-block: rl-caret-block-phase var(--caret-tempo) ease-in-out infinite; }
+:root[data-caret-animation="expand"] { --caret-motion: rl-caret-expand var(--caret-tempo) ease-in-out infinite;
+  --caret-motion-x: rl-caret-expand-x var(--caret-tempo) ease-in-out infinite; --caret-block: rl-caret-block-expand var(--caret-tempo) ease-in-out infinite; }
+:root[data-caret-animation="pulse"] { --caret-motion: rl-caret-pulse calc(var(--caret-tempo) * 2.4) ease-in-out infinite;
+  --caret-motion-x: var(--caret-motion); --caret-block: rl-caret-block-pulse calc(var(--caret-tempo) * 2.4) ease-in-out infinite; }
+/* Ten blinks after the caret last moved, then still: the blink is for finding the caret again, and
+   someone reading what they wrote has already found it. */
+:root[data-caret-animation="rest"] { --caret-motion: rl-caret-blink var(--caret-tempo) step-end 10;
+  --caret-motion-x: var(--caret-motion); --caret-block: rl-caret-block-blink var(--caret-tempo) step-end 10; }
+@keyframes rl-caret-blink { 50% { opacity: 0; } }
+@keyframes rl-caret-smooth { 0%, 30% { opacity: 1; } 55%, 70% { opacity: 0; } }
+@keyframes rl-caret-phase { 0%, 10% { opacity: 1; } 45%, 55% { opacity: 0; } 90% { opacity: 1; } }
+@keyframes rl-caret-expand { 0%, 10% { clip-path: inset(0); } 45%, 55% { clip-path: inset(50% 0); } 90% { clip-path: inset(0); } }
+@keyframes rl-caret-expand-x { 0%, 10% { clip-path: inset(0); } 45%, 55% { clip-path: inset(0 50%); } 90% { clip-path: inset(0); } }
+@keyframes rl-caret-pulse { 50% { opacity: .35; } }
+/* The platform's caret, wherever it is still the one drawn — an email or a number field, an input
+   method composing, the thin blinking line that IS the platform's — in the same colour; and none at
+   all while the drawn one stands in for it. */
+input, textarea, [contenteditable] { caret-color: var(--caret); }
+:is(input, textarea, [contenteditable])[data-rl-caret] { caret-color: transparent; }
+/* Over every layer that can hold a field — a sheet, the palette, quick chat, a popover's search — since
+   a field drawn over the caret would hide it from the person typing in it. What floats over a field
+   hides its caret the other way: caret.ts asks the window what is at the caret's spot, and draws
+   nothing under a toast, a menu or a sheet that covers it. */
+.caret-layer { position: fixed; inset: 0; z-index: 130; pointer-events: none; overflow: hidden; contain: strict; }
+.caret-layer:not([data-shown]) { display: none; }
+.caret-clip { position: absolute; left: 0; top: 0; overflow: hidden; }
+.caret-layer .caret { position: absolute; left: 0; top: 0; background: var(--caret); animation: var(--caret-motion); }
+:root[data-caret^="underline"] .caret-layer .caret { animation: var(--caret-motion-x); }
+:root:is([data-caret="pill"], [data-caret="beam"]) .caret-layer .caret { border-radius: var(--r-pill); }
+/* A bar that thins to nothing at both ends: read as light, not as a rule. */
+:root[data-caret="beam"] .caret-layer .caret { background: linear-gradient(transparent, var(--caret) 24%, var(--caret) 76%, transparent); }
+:root[data-caret^="block"] .caret-layer .caret { border-radius: var(--r-sm); }
+:root[data-caret="block-soft"] .caret-layer .caret { background: color-mix(in oklab, var(--caret) 34%, transparent); }
+:root[data-caret="block-outline"] .caret-layer .caret { background: none; box-shadow: inset 0 0 0 1px var(--caret); }
+.caret-glyph { display: none; }
+:root[data-caret="block"] .caret-glyph { display: block; white-space: pre; color: var(--caret-ink); }
+.caret-layer .caret[data-glide] { transition: transform var(--dur-drag) var(--ease-out-strong), width var(--dur-drag) var(--ease-out-strong), height var(--dur-drag) var(--ease-out-strong); }
+:root[data-caret-still] .caret-layer .caret { animation: none; transition: none; }
+/* Where a plain field is measured: a copy standing exactly on it, invisible and inert. */
+.caret-mirror { position: fixed; left: 0; top: 0; margin: 0; box-sizing: border-box; border-style: solid; border-color: transparent;
+  transform-origin: 0 0; overflow: hidden; visibility: hidden; pointer-events: none; contain: strict; white-space: pre-wrap; }
+
+/* The code editor's primary caret is the drawn one (CodeEditor.tsx says where it is), so CodeMirror's
+   own steps aside while it is drawn; the cursors CodeMirror alone draws take the caret's colour
+   (code-theme.ts). */
+.cm-editor[data-rl-caret] .cm-cursor-primary { visibility: hidden; }
+
+/* A terminal's cursor. xterm's DOM renderer marks the cursor's cell — focused or not, blinking or not,
+   which of its three shapes — and leaves the mark off a cursor a program has hidden, so the cell IS
+   the cursor's place and the rest of the shape is drawn on it: a bar and an underline on its
+   `::before`, xterm's own paint taken off, and xterm's block in the caret's colours. xterm writes its
+   rules into the page after this sheet, scoped to a class of its own, so these carry one class more
+   than its and answer its `!important` with one. While a program holds a shape of its own
+   (`data-caret-program`, terminal-hub.ts) the refinements stand down and what it asked for is drawn
+   plainly. A blinking cursor moves as the caret does, or blinks plainly where the caret is Solid. */
+/* The text's ink, in a terminal, is the terminal's own (terminal-palette.ts, on the host as `--term-fg`). */
+:root[data-caret-colour="text"] .terminal-host[data-caret] { --caret: var(--term-fg, var(--rl-text-bright)); }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor:is(.xterm-cursor-bar, .xterm-cursor-underline) {
+  position: relative; z-index: 0; box-shadow: none !important; border-bottom-style: none !important; animation: none !important; }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor:is(.xterm-cursor-bar, .xterm-cursor-underline)::before {
+  content: ""; position: absolute; pointer-events: none; background: var(--caret); }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before { left: 0; top: 0; bottom: 0; width: 2px; }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-underline::before { left: 0; right: 0; bottom: 0; height: 2px; }
+.terminal-host[data-caret="line-thin"]:not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before { width: 1px; }
+.terminal-host:is([data-caret="pill"], [data-caret="beam"]):not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before {
+  width: 3px; border-radius: var(--r-pill); }
+.terminal-host[data-caret="beam"]:not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before {
+  background: linear-gradient(transparent, var(--caret) 24%, var(--caret) 76%, transparent); }
+.terminal-host:is([data-caret="block-soft"], [data-caret="block-outline"]):not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before {
+  right: 0; width: auto; border-radius: var(--r-sm); }
+/* Behind the character, which keeps its own colour: the cell is its own stacking context above. */
+.terminal-host[data-caret="block-soft"]:not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before {
+  z-index: -1; background: color-mix(in oklab, var(--caret) 34%, transparent); }
+.terminal-host[data-caret="block-outline"]:not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-bar::before {
+  background: none; box-shadow: inset 0 0 0 1px var(--caret); }
+.terminal-host[data-caret="underline-thin"]:not([data-caret-program]) .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-underline::before { height: 1px; }
+.terminal-host[data-caret] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block { background-color: var(--caret); color: var(--caret-ink); }
+.terminal-host[data-caret] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block:not(.xterm-cursor-blink) { background-color: var(--caret) !important; color: var(--caret-ink) !important; }
+.terminal-host[data-caret] .xterm .xterm-rows .xterm-cursor.xterm-cursor-outline { outline-color: var(--caret); }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink:is(.xterm-cursor-bar, .xterm-cursor-underline)::before { animation: var(--caret-motion); }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink.xterm-cursor-underline::before { animation: var(--caret-motion-x); }
+.terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink.xterm-cursor-block { animation: var(--caret-block) !important; }
+:root[data-caret-animation="solid"] .terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink:is(.xterm-cursor-bar, .xterm-cursor-underline)::before {
+  animation: rl-caret-blink var(--caret-tempo) step-end infinite; }
+:root[data-caret-animation="solid"] .terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink.xterm-cursor-block {
+  animation: rl-caret-block-blink var(--caret-tempo) step-end infinite !important; }
+/* An expanding block shrinks its fill toward the middle of the cell, the character back in its own
+   ink as the fill leaves it. */
+:root[data-caret-animation="expand"] .terminal-host[data-caret] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-blink.xterm-cursor-block {
+  background-color: transparent; background-image: linear-gradient(var(--caret), var(--caret)); background-repeat: no-repeat; background-position: center; }
+:root[data-caret-still] .terminal-host .xterm-cursor, :root[data-caret-still] .terminal-host .xterm-cursor::before { animation: none !important; }
+@keyframes rl-caret-block-blink { 50% { background-color: transparent; color: inherit; } }
+@keyframes rl-caret-block-smooth { 0%, 30% { background-color: var(--caret); color: var(--caret-ink); } 55%, 70% { background-color: transparent; color: inherit; } }
+@keyframes rl-caret-block-phase { 0%, 10% { background-color: var(--caret); color: var(--caret-ink); } 45%, 55% { background-color: transparent; color: inherit; } 90% { background-color: var(--caret); color: var(--caret-ink); } }
+@keyframes rl-caret-block-expand { 0%, 10% { background-size: 100% 100%; color: var(--caret-ink); } 45%, 55% { background-size: 100% 0%; color: inherit; } 90%, 100% { background-size: 100% 100%; color: var(--caret-ink); } }
+@keyframes rl-caret-block-pulse { 50% { background-color: color-mix(in oklab, var(--caret) 35%, transparent); } }
+
+/* Settings ▸ Appearance ▸ Cursor (CaretSettings.tsx). The tiles are the app icon picker's grammar at a
+   control's size — no fill until the pointer is on one, the 2px accent ring for the choice — and
+   change at once both ways, as any choice from a row of them does. Each draws its shape standing
+   before a letter, in the face the shape will stand in: the UI face, or a terminal's code face. */
+.caret-shapes { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; margin: 0; padding: 0; border: 0; }
+.caret-shape { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-panel); cursor: default; }
+.caret-shape:hover { background: var(--rl-hover); }
+.caret-shape[data-selected] { background: var(--rl-hover); box-shadow: inset 0 0 0 2px var(--rl-accent); }
+.caret-shape input { position: absolute; opacity: 0; pointer-events: none; }
+.caret-shape:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.caret-sample { font: var(--fw-medium) 15px/20px var(--font-ui); color: var(--rl-text-dim); white-space: pre; }
+.caret-shapes[data-mono] .caret-sample { font: 13px/20px var(--font-mono); }
+/* Untracked, as every surface in the code face is (the list at the top of this sheet says why). */
+.caret-shapes[data-mono] .caret-sample { letter-spacing: normal; }
+.caret-shape[data-selected] .caret-sample { color: var(--rl-text-bright); }
+.caret-sample-at { position: relative; border-radius: var(--r-sm); }
+.caret-sample-at:is([data-shape^="line"], [data-shape="pill"], [data-shape="beam"], [data-shape^="underline"])::before {
+  content: ""; position: absolute; background: var(--caret); }
+.caret-sample-at:is([data-shape^="line"], [data-shape="pill"], [data-shape="beam"])::before { top: 0; bottom: 0; left: -1px; width: 2px; }
+.caret-sample-at[data-shape="line-thin"]::before { left: 0; width: 1px; }
+.caret-sample-at:is([data-shape="pill"], [data-shape="beam"])::before { left: -1.5px; width: 3px; border-radius: var(--r-pill); }
+.caret-sample-at[data-shape="beam"]::before { background: linear-gradient(transparent, var(--caret) 24%, var(--caret) 76%, transparent); }
+.caret-sample-at[data-shape^="underline"]::before { left: 0; right: 0; bottom: 0; height: 2px; }
+.caret-sample-at[data-shape="underline-thin"]::before { height: 1px; }
+.caret-sample-at[data-shape="block"] { background: var(--caret); color: var(--caret-ink); }
+.caret-sample-at[data-shape="block-soft"] { background: color-mix(in oklab, var(--caret) 34%, transparent); }
+.caret-sample-at[data-shape="block-outline"] { box-shadow: inset 0 0 0 1px var(--caret); }
+/* The preview, in the prompter's own type, so the caret is tried where it is most often seen. */
+.caret-preview { display: block; width: 100%; box-sizing: border-box; margin: 0; padding: 10px 12px; resize: none;
+  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-ctl); background: var(--field); color: var(--rl-text-bright);
+  font: var(--fw-medium) 15px/1.55 var(--font-ui); }
+.caret-preview:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+
 /* ── The tooltip (v2) ───────────────────────────────────────────────────────
    One layer for the window (tooltips.ts): the `title` every control carries, in the app's own type a
    fifth of a second after the pointer arrives, where the system's grey box took a second and a half.
@@ -2698,6 +2808,47 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Concentric with the tip's corner: four pixels in from its edge, so four off its radius. */
 .tooltip-key { flex: none; padding: 0 4px; border-radius: calc(var(--r-chip) - 4px);
   background: var(--tooltip-border); color: var(--tooltip-muted); font: 11px/16px var(--font-ui); letter-spacing: .02em; }
+
+/* ── Select in Realm: the element picker over the app's own window (app-pick/) ──────────────
+   The web picker's outline (browser-agent.ts), drawn here in the app's tokens: a fine accent line over a
+   soft accent fill, its corner concentric with what it outlines — the geometry is the picker's, inline —
+   and a small label in the tooltip's dark skin naming the element the way its chip will. It glides
+   from one element to the next on the press rung and never takes the pointer. The hint says how to
+   get out, on the same dark skin, and is gone for the frames a capture of the window takes, as the
+   outline is. Over everything it can point at, the tooltip included, and under only the drawn caret,
+   which sits over every layer there is (caret.ts). */
+.app-picker { position: fixed; inset: 0; z-index: 125; pointer-events: none; }
+.app-picker-box { position: absolute; left: 0; top: 0; box-sizing: border-box; opacity: 0;
+  border: 1.5px solid var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 12%, transparent);
+  transition: transform var(--dur-press) var(--ease-out-strong), width var(--dur-press) var(--ease-out-strong),
+    height var(--dur-press) var(--ease-out-strong), border-radius var(--dur-press) var(--ease-out-strong),
+    opacity var(--dur-press) var(--ease-fade), background-color var(--dur-press) var(--ease-fade); }
+.app-picker-label { position: absolute; left: 0; top: 0; display: flex; gap: 6px; height: 20px; padding: 0 7px;
+  border-radius: calc(var(--r-chip) - 4px); background: var(--tooltip-bg); color: var(--tooltip-fg);
+  box-shadow: 0 0 0 var(--hairline-w) var(--tooltip-border), var(--shadow-card-lift);
+  font: var(--fw-strong) 11px/20px var(--font-ui); white-space: nowrap; opacity: 0;
+  transition: transform var(--dur-press) var(--ease-out-strong), opacity var(--dur-press) var(--ease-fade); }
+.app-picker-component { font-weight: var(--fw-medium); color: var(--tooltip-muted); }
+.app-picker :is(.app-picker-box, .app-picker-label)[data-on] { opacity: 1; }
+.app-picker [data-instant] { transition: none; }
+/* The pick answered: a beat of deeper fill, then the fade — the web picker's confirmation. */
+.app-picker .app-picker-box[data-picked] { opacity: 0; background-color: color-mix(in srgb, var(--rl-accent) 26%, transparent);
+  transition: background-color var(--dur-drag) var(--ease-fade), opacity var(--dur-swap) var(--ease-fade) var(--dur-drag); }
+.app-picker-hint { position: fixed; z-index: 125; top: 48px; left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 12px 0 10px; border-radius: var(--r-pill); pointer-events: none;
+  background: var(--tooltip-bg); color: var(--tooltip-fg); box-shadow: 0 0 0 var(--hairline-w) var(--tooltip-border), var(--shadow-card-lift);
+  font: var(--fw-medium) 12px/16px var(--font-ui); white-space: nowrap;
+  animation: rl-app-pick-hint var(--dur-slow) var(--spring-smooth) both; }
+.app-picker-sep { color: var(--tooltip-muted); }
+.app-picker-hint kbd { padding: 0 4px; border-radius: calc(var(--r-chip) - 4px); background: var(--tooltip-border);
+  color: var(--tooltip-muted); font: 11px/16px var(--font-ui); letter-spacing: .02em; }
+@keyframes rl-app-pick-hint { from { opacity: 0; translate: -50% -4px; } }
+/* While it is up, nothing in the window drags it — a pane's bar is a thing to point at — and no
+   frame takes the pointer away from the window's own document. */
+:root[data-app-picking] * { -webkit-app-region: no-drag !important; }
+:root[data-app-picking] iframe { pointer-events: none; }
+:root:not([data-app-picking]) .app-picker-hint,
+:root[data-app-pick-capturing] :is(.app-picker, .app-picker-hint) { visibility: hidden; }
 
 /* ── Toasts (v2) ────────────────────────────────────────────────────────────
    The window's notices, at its foot (components/Toasts.tsx): a failed action, a refused file, a pane's
@@ -3509,7 +3660,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagents-compose { position: relative; display: flex; flex-direction: column; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface); }
 .subagents-compose:focus-within { box-shadow: 0 0 0 1px var(--line-strong); }
 .subagents-work { display: block; width: 100%; min-height: 64px; max-height: 220px; field-sizing: content; padding: 13px 16px 6px; border: none; outline: none; resize: none;
-  background: transparent; font: inherit; font-size: 14px; line-height: 20px; color: var(--ink); caret-color: var(--rl-accent); }
+  background: transparent; font: inherit; font-size: 14px; line-height: 20px; color: var(--ink); caret-color: var(--caret); }
 .subagents-work::placeholder { color: var(--ink-3); }
 .subagents-tasks { display: flex; flex-direction: column; gap: 4px; padding: 2px 12px 4px; }
 .subagents-task { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); align-items: center; gap: 10px; }
@@ -4484,7 +4635,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-highlight { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
   font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px;
   white-space: pre-wrap; overflow-wrap: break-word; color: var(--rl-text-bright); }
-.composer-input { border: none; outline: none; resize: none; background: transparent; color: transparent; font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px; min-height: 44px; max-height: 186px; caret-color: var(--rl-accent); position: relative; z-index: 1; }
+.composer-input { border: none; outline: none; resize: none; background: transparent; color: transparent; font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px; min-height: 44px; max-height: 186px; caret-color: var(--caret); position: relative; z-index: 1; }
 /* The glyphs are the mirror's job. `-webkit-text-fill-color` is what actually hides them in Chromium;
    `color` alone still paints the text on some platforms. The placeholder has to opt back IN, since it
    has no mirror behind it — the mirror is empty in exactly the state the placeholder shows. */
@@ -5618,7 +5769,9 @@ select { appearance: none; padding-right: 22px;
   .sim-body,
   /* Scheduled tasks: the page's column and a task's card — and a sheet that scrolls its body between
      a head and a foot that stay put, which the Schedule a task modal does */
-  .sched-col-body, .sched-card, .sheet-body
+  .sched-col-body, .sched-card, .sheet-body,
+  /* the media viewer's zoomed picture, whose bars are where it is in the picture */
+  .media-viewer-canvas[data-pans]
 ) { scrollbar-width: thin; }
 /* The sidebar's list is the one scroller that cannot take the standard properties, and it is worth
    the fork because two separate things go wrong without it.
@@ -6029,7 +6182,7 @@ select { appearance: none; padding-right: 22px;
   background: var(--surface); box-shadow: var(--shadow-card); }
 .commit-card:focus-within { box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-card); }
 .commit-message { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright);
-  font: inherit; font-size: 14px; line-height: 1.5; padding: 12px 14px 4px; caret-color: var(--rl-accent); }
+  font: inherit; font-size: 14px; line-height: 1.5; padding: 12px 14px 4px; caret-color: var(--caret); }
 .commit-message::placeholder { color: var(--rl-text-faint); }
 .diff-commit-bar { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 8px 8px; }
 .diff-staged-count { flex: 1; min-width: 0; padding-left: 6px; font-size: 12px; color: var(--rl-text-faint);
@@ -8031,36 +8184,125 @@ select { appearance: none; padding-right: 22px;
 .media-action + .media-action { margin-left: 0; }
 .media-action:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 
-/* Full-window viewer. A portal to <body>, so the transcript's own stacking context and its
-   backdrop-filter fade cannot clip it. */
-.media-lightbox {
-  position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; gap: 12px;
-  align-items: center; justify-content: center; padding: 32px;
-  /* Opaque, and deliberately NOT backdrop-filter. A <video> is composited on its own layer, and
-     Chromium paints that layer over a backdrop-filtered overlay even though the overlay is above it
-     in the stacking order and wins hit-testing — so a transcript video showed straight through the
-     dim. Verified by sampling the composited screenshot, not by eye (scripts/media-live.mjs). */
-  background: oklch(0.13 0 0 / 0.97);
+/* ── The media viewer (components/viewer) ──
+   One file over the whole window, the session's prompter docked under it. Its ground is the window's
+   own canvas, so the file rests on the face the rest of the app wears — a light field in light mode,
+   as Codex's viewer is, rather than the near-black box the lightbox was in both. Opaque: at 97% the
+   workspace under it measured 7 levels through on either face, which is not context, it is every
+   label in the window ghosting beside the file's own name (media-viewer-live.mjs).
+   NOT a backdrop-filter, for two reasons it is worth keeping apart: a blur over the window's material
+   composites toward a smudge (design.md), and Chromium paints a <video> layer straight through a
+   filtered overlay however it is stacked (scripts/media-live.mjs measured it). Over the quick chat
+   (70) and under the toasts and menus, which it raises: its prompter's model list opens over it. */
+.media-viewer {
+  position: fixed; inset: 0; z-index: 75; display: flex; flex-direction: column; outline: none;
+  background: var(--canvas); color: var(--rl-text-bright);
   animation: rl-fade-in var(--dur-swap) var(--ease-out-strong);
 }
-.media-stage { max-width: min(1200px, 100%); max-height: calc(100vh - 120px); display: flex; }
-.media-stage .media-video, .media-stage .media-image { box-shadow: var(--rl-shadow); background: transparent; }
-/* The in-transcript height cap does not apply here — the whole point of the lightbox is the file at
-   the size the window can give it. */
-.media-stage .media-el { max-height: calc(100vh - 120px); max-width: min(1200px, 100%); width: auto; background: transparent; }
-/* A video in the stage still fills what it is given — the cap above is what bounds it. */
-.media-stage .media-video { width: min(1200px, 100%); }
-/* The transcript's own frames are hidden while the lightbox is up, and this is load-bearing rather
-   than tidiness: a <video> is composited on its own layer and Chromium paints that layer OVER the
-   overlay, even opaque, even promoted — translateZ, isolation, will-change and contain were each
-   measured and none of them reorder it. Sampling the composited screenshot showed the video adding
-   ~44 levels of brightness straight through the dim (scripts/media-live.mjs). Hiding the frames is
-   the only thing that actually works, and it costs nothing: they are behind a full-window overlay. */
-body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
-.media-lightbox-bar { display: flex; align-items: center; gap: 10px; max-width: 100%; color: #fff; }
-.media-lightbox-bar .media-name, .media-lightbox-bar .media-detail { color: rgb(255 255 255 / .72); }
-.media-lightbox-bar .media-action { color: rgb(255 255 255 / .72); }
-.media-lightbox-bar .media-action:hover { background: rgb(255 255 255 / .14); color: #fff; }
+/* The window's top row, as every page's bar is: it moves the window, past the traffic lights, and its
+   controls opt out of the drag. */
+.media-viewer-head { flex: none; display: flex; align-items: center; gap: 12px; height: var(--frame-top);
+  padding: 0 12px 0 var(--lead-x); user-select: none; -webkit-user-select: none; -webkit-app-region: drag; }
+.media-viewer-head button { -webkit-app-region: no-drag; }
+/* The name is the one item of unbounded length in the row, so it alone yields; the count and the
+   size beside it are a few characters that always fit. */
+.media-viewer-title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.media-viewer-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.media-viewer-count, .media-viewer-detail { flex: none; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.media-viewer-from { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--rl-text-dim); }
+span.media-viewer-from { align-self: center; }
+.media-viewer-actions { flex: none; display: flex; align-items: center; gap: 2px; }
+
+.media-viewer-body { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 4px 20px 0; }
+/* The file takes whatever the prompter and its exchange leave, and never less than a picture's worth. */
+.media-viewer-stagewrap { position: relative; flex: 1 1 auto; min-height: 160px; width: 100%; display: flex; }
+.media-viewer-stage { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 10px; }
+.media-viewer-note { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 46ch;
+  text-align: center; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
+.media-viewer-glyph { color: var(--rl-text-faint); }
+
+/* A picture: fitted, never above its own size, and panned once it is bigger than the box. The canvas
+   is the scroller and at least the box's size, so a picture smaller than it sits centred in it. */
+.media-viewer-canvas { flex: 1 1 auto; min-height: 0; width: 100%; overflow: hidden; }
+.media-viewer-canvas[data-pans] { overflow: auto; cursor: grab; }
+.media-viewer-canvas[data-pans]:active { cursor: grabbing; }
+.media-viewer-canvas-inner { display: grid; place-items: center; min-width: 100%; min-height: 100%; }
+/* The edge every picture in the app gets (`.md img`): white at low alpha on dark, black on light —
+   drawn inside it, so a screenshot of a page on a ground of the same tone still has one. */
+.media-viewer-img { display: block; max-width: 100%; max-height: 100%; user-select: none; -webkit-user-select: none;
+  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+:root[data-mode="light"] .media-viewer-img { outline-color: rgba(0, 0, 0, 0.1); }
+/* The zoom, a small pill under the picture — Codex's tool strip, holding the one tool a viewer owes
+   every picture. The readout is the way between fit and actual size. It rests on the ground beside
+   the file rather than floating over it, so it takes the card's edge and lift: the overlay's long
+   shadow reached up onto a page of a PDF as a grey smudge across its foot. */
+.media-viewer-tools { flex: none; display: flex; align-items: center; gap: 2px; padding: 3px;
+  border-radius: var(--r-pill); background: var(--surface); box-shadow: var(--shadow-card); }
+.media-viewer-zoom { min-width: 52px; height: 28px; padding: 0 8px; border: none; border-radius: var(--r-pill); background: none;
+  font-size: 12px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim);
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.media-viewer-zoom:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); transition: none; }
+.media-viewer-tools-sep { flex: none; width: var(--hairline-w); height: 16px; margin: 0 4px; background: var(--line-strong); }
+/* Marks: the picture and its marks are one box, the marks an SVG in the picture's own pixels laid
+   exactly over it. The pen takes the crosshair, the cursor every markup tool draws with. */
+.media-viewer-frame { position: relative; line-height: 0; }
+.media-viewer-canvas[data-drawing] .media-viewer-frame { cursor: crosshair; touch-action: none; }
+.media-viewer-marks { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.media-viewer-marks polyline { fill: none; stroke: var(--rl-danger); stroke-linecap: round; stroke-linejoin: round; }
+.media-viewer-marks-note { flex: none; white-space: nowrap; color: var(--rl-text-dim); }
+/* A video or a sound keeps the transcript's own player, given the window's width. Resting, so no
+   shadow: the raised stack drew a dark halo the size of the window round a clip on the dark face. */
+.media-viewer-player { display: flex; justify-content: center; width: min(1200px, 100%); max-height: 100%; }
+.media-viewer-player .media-video { width: auto; max-width: 100%; max-height: 100%; background: transparent; }
+.media-viewer-player .media-el { max-height: calc(100vh - 260px); max-width: 100%; width: auto; background: transparent; }
+.media-viewer-player .media-audio { width: min(560px, 100%); background: var(--surface); }
+
+/* Previous and next, on the stage's two edges, while there is more than one file to walk. */
+.media-viewer-step { position: absolute; top: 50%; translate: 0 -50%; z-index: 1; display: grid; place-items: center;
+  width: 36px; height: 36px; border: none; border-radius: var(--r-pill); background: var(--surface); color: var(--rl-text-dim);
+  box-shadow: var(--shadow-overlay); transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.media-viewer-step[data-dir="prev"] { left: 0; }
+.media-viewer-step[data-dir="next"] { right: 0; }
+.media-viewer-step:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); transition: none; }
+.media-viewer-step:disabled { color: var(--rl-text-faint); box-shadow: var(--shadow-hairline); }
+
+/* The quick chat about the file: its exchange, where its questions go, and the prompter — on the
+   prompter's own column, so the answer reads where the next question is typed. */
+.media-viewer-chat { flex: none; display: flex; flex-direction: column; min-height: 0; width: min(var(--prompter-w), 100%); }
+.media-viewer-thread { display: flex; min-height: 0; max-height: 30vh; }
+/* The transcript's metrics are a pane's; this is a strip under a picture. The ramps shorten and the
+   padding clears what is left of them, as the quick chat's do. */
+.media-viewer .transcript { padding: 14px 4px 16px; }
+.media-viewer .transcript-wrap { --fade-top-h: 16px; --fade-h: 18px; }
+.media-viewer .transcript-col { max-width: none; }
+/* A picture the answer names is already on the stage, so the exchange shows it small: a mark of the
+   result, which a click puts back on the stage. What the question carried is on the stage too, and
+   a closing line counting what this one exchange produced restates the answer above it, so neither
+   is drawn here — both stay in the session's own transcript, where they mean something. */
+.media-viewer .transcript .media-el { max-height: 72px; }
+.media-viewer .msg-user-files:has(~ .msg-user), .media-viewer .msg-transcript-summary { display: none; }
+.media-viewer-waiting { margin: 0 4px 8px; font-size: 12px; color: var(--rl-text-faint); }
+.media-viewer-owner { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0 6px 6px; font-size: 12px; color: var(--rl-text-faint); }
+.media-viewer-owner-mark { flex: none; }
+.media-viewer-owner-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; border: none;
+  background: none; font: inherit; color: var(--rl-text-dim); }
+button.media-viewer-owner-name:hover { color: var(--rl-text-bright); text-decoration: underline; }
+.media-viewer .composer-dock { width: 100%; margin: 0 0 max(14px, env(safe-area-inset-bottom)); }
+/* A file held over the viewer: the pane's own glow round the whole window, naming the gesture in the
+   middle of it, as the quick chat's does — over the file and the prompter alike, since both take it. */
+.media-viewer .media-viewer-drop { inset: 8px; z-index: 3; display: grid; place-items: center; border-radius: var(--r-float); }
+
+/* The workspace's own frames are hidden while the viewer is up. A <video> is composited on its own
+   layer, and Chromium painted that layer OVER the lightbox's 97% ground — translateZ, isolation,
+   will-change and contain were each measured and none of them reorder it (scripts/media-live.mjs).
+   Over this opaque ground it measured nothing through with the rule taken out
+   (media-viewer-live.mjs), so the rule is a guard for the day the ground is not opaque, and it costs
+   nothing: the frames are behind a full-window overlay. Scoped to the app's own tree, because the
+   viewer's exchange is a transcript too and its frames are the point. */
+body[data-media-viewer] .app .media-el { visibility: hidden; }
 
 /* An embedded ![](…) sits in the prose that referred to it, so it keeps a paragraph's rhythm rather
    than the strip's. The placeholder span is display:block for the same reason — it holds a frame. */

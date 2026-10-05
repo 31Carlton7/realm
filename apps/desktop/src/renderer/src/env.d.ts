@@ -50,6 +50,11 @@ interface Window {
     /** Settings ▸ Appearance ▸ Reduce motion: main changes what this window reports for
      *  `prefers-reduced-motion`. Optional like the other late bridges — jsdom has none. */
     motion?: { set(pref: import("@realm/contracts").ReducedMotionPref): Promise<void> };
+    /** The element picker over this window (main/app-pick.ts). Optional like the other late bridges. */
+    appPick?: {
+      arm(on: boolean): void;
+      capture(rect: { x: number; y: number; w: number; h: number }, ground: [number, number, number] | null, name: string): Promise<{ file: PickedFile | null; webView: boolean }>;
+    };
     /** Settings ▸ General ▸ Power: tells main the keep-awake switch moved. */
     power?: { preventSleep(on: boolean): Promise<void> };
     /** The apps installed on this Mac and their icons (the prompter's `@` list). Optional like every
@@ -115,8 +120,9 @@ interface Window {
       browse?(root: string, dir: string): Promise<{ dir: string; truncated: boolean;
         entries: { path: string; name: string; isDir: boolean; size: number; mtimeMs: number }[] } | null>;
       /** A readable picture of the file (a decoded image, or QuickLook's render of a PDF, a sheet,
-       *  a page of source). Null for a type macOS has no generator for. */
-      preview(path: string): Promise<string | null>;
+       *  a page of source). Null for a type macOS has no generator for. `page` is the media viewer's
+       *  window-sized render; the default is a preview's. */
+      preview(path: string, size?: "page"): Promise<string | null>;
       /** Select it in the Finder. `~/…` is the home folder and a relative path is relative to `base`
        *  — the way an agent writes them. False when nothing is there to select. */
       reveal(path: string, base?: string): Promise<boolean>;

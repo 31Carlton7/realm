@@ -8,7 +8,6 @@ import { FileCard, TYPE_ICON } from "../../components/FileCard";
 import { ScrollFades } from "../../components/ScrollFades";
 import { groupByDay } from "../library/LibraryFiles";
 import { DOCK_PIN_MIN_PANE, useDockDismiss, useDockPinned, usePaneRect } from "./pane-dock";
-import { SummaryLightbox } from "./SessionSummary";
 
 /**
  * The session's files, read off the disk.
@@ -68,25 +67,19 @@ export function SessionFilesHost({ item }: { item: Item }) {
      summary resolves its own the same way, and for the same reason. */
   const barRef = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => { barRef.current = anchor.current?.closest(".panel-bar") ?? null; });
-  const [lightbox, setLightbox] = useState<string | null>(null);
   return (
     <>
       <span ref={anchor} className="panel-anchor" aria-hidden="true" />
-      {open && (
-        <FilesPanel item={item} anchorRef={anchor} barRef={barRef}
-          onClose={() => closeSessionDock(id)} onLightbox={setLightbox} />
-      )}
-      {lightbox && <SummaryLightbox path={lightbox} onClose={() => setLightbox(null)} />}
+      {open && <FilesPanel item={item} anchorRef={anchor} barRef={barRef} onClose={() => closeSessionDock(id)} />}
     </>
   );
 }
 
-function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
+function FilesPanel({ item, anchorRef, barRef, onClose }: {
   item: Item;
   anchorRef: React.RefObject<HTMLElement | null>;
   barRef: React.RefObject<HTMLElement | null>;
   onClose: () => void;
-  onLightbox: (path: string) => void;
 }) {
   const id = item.refId;
   const ref = useRef<HTMLDivElement>(null);
@@ -128,20 +121,24 @@ function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
 
   useEffect(() => { void load(dir); }, [load, dir, beat, status]);
 
-  const openSheet = useApp((s) => s.openSheet);
+  const openViewer = useApp((s) => s.openViewer);
   const openDocumentPath = useApp((s) => s.openDocumentPath);
   const run = useApp((s) => s.run);
-  /* The same three answers the summary gives, because a file must not open two ways depending on
-     which list reached it: a picture opens in the transcript's lightbox, anything the documents pane
-     can edit opens there, and everything else — a zip, a binary — opens the sheet that can hand it to
-     the Finder. */
+  /* The same answers the summary gives, because a file must not open two ways depending on which list
+     reached it: a picture opens in the media viewer — with the folder's other pictures beside it, the
+     way the Finder's space bar walks a folder — anything the documents pane can edit opens there, and
+     everything else, a zip or a binary, opens in the viewer too, which says what Realm can do with it. */
   const absOf = (row: BrowseRow) => (root ? `${root.path}/${row.path}` : row.path);
+  const isMedia = (row: BrowseRow) => !row.isDir && (typeOf(row.name) === "image" || typeOf(row.name) === "video");
   const openRow = (row: BrowseRow) => {
     if (row.isDir) { setDir(row.path); return; }
     const abs = absOf(row);
-    const type = typeOf(row.name);
-    if (type === "image" || type === "video") { onLightbox(abs); return; }
-    if (documentKindFor(abs) === "unsupported") { openSheet({ kind: "artifact", path: abs }); onClose(); return; }
+    if (isMedia(row)) {
+      const shown = (rows ?? []).filter(isMedia);
+      openViewer({ files: shown.map((r) => ({ path: absOf(r), name: r.name })), index: shown.indexOf(row), sessionId: id });
+      return;
+    }
+    if (documentKindFor(abs) === "unsupported") { openViewer({ files: [{ path: abs, name: row.name }], sessionId: id }); onClose(); return; }
     onClose();
     run(() => openDocumentPath(abs, environmentId));
   };

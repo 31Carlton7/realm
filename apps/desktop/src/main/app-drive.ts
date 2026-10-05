@@ -45,7 +45,14 @@ const UNNAMED_REGION = "protected surface";
 export type AppDriveDeps = {
   /** CDP into the app window, or null when there is no window (the daemon runs headless). */
   attach(): { send: CdpSend } | null;
+  /** Whether the person is pointing at a part of the window for their prompter (app-pick.ts). Every
+   *  act waits that out: a click landing while they aim would be taken as THEIR pick. */
+  picking?(): boolean;
 };
+
+/** What an act is told while the person is picking. A plain failure rather than `realm_protected`:
+ *  it is over in a moment, and trying again afterwards is exactly right. */
+export const PICKING_REFUSAL = "the user is pointing at a part of Realm's window for their prompt, and nothing in it can be pressed until they have — try again in a moment.";
 
 export class AppDriveHost {
   /** The previous snapshot's fingerprints, so `*[new]` markers mean the same thing here as in a
@@ -68,6 +75,7 @@ export class AppDriveHost {
   setAccent(accent: string): void { this.accent = accent; }
 
   async act(action: BrowserAction): Promise<BrowserActResult> {
+    if (this.d.picking?.()) return { ok: false, error: PICKING_REFUSAL };
     const cdp = this.require();
     const ref = refOf(action);
     if (ref !== null) {
