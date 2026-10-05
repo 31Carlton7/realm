@@ -1507,7 +1507,7 @@ function NotificationsTab() {
           ))}
         </ul>
       )}
-      <p className="settings-hint">Switching one off stops new rows from being written; the feed keeps what is already in it.</p>
+      <p className="settings-hint">Switching one off stops Realm telling you about it from now on.</p>
     </div>
   );
 }
