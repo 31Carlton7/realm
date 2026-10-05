@@ -6,7 +6,7 @@
  * reaches it over the browserHost bridge.
  */
 import {
-  acceptsUpload, AGENT_FRAME, mimeForPath, normalizeOrigin,
+  acceptsUpload, AGENT_FRAME, AGENT_MARK_ATTR, AGENT_MARK_FRAME, mimeForPath, normalizeOrigin,
   PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX,
   UPLOAD_CHOOSER_TIMEOUT_MS, UPLOAD_DROP_MAX_BYTES, UPLOAD_MAX_FILES,
   type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal,
@@ -1120,13 +1120,13 @@ export async function readPageText(send: CdpSend): Promise<string> {
  * stays presence-based (`attrs[HIGHLIGHT_ATTR] !== undefined`), which covers every value for free;
  * only the removals narrow.
  */
-export const HIGHLIGHT_ATTR = "data-realm-agent-highlight";
+export const HIGHLIGHT_ATTR = AGENT_MARK_ATTR;
 
 /** The attribute's values. `css` is the injected stylesheet, tagged so the snapshot filter excludes
  *  it for free and so neither sweep takes it — it is shared by every mark and outlives all of them. */
 export const MARK_RING = "ring";
 export const MARK_CURSOR = "cursor";
-export const MARK_FRAME = "frame";
+export const MARK_FRAME = AGENT_MARK_FRAME;
 const MARK_CSS = "css";
 
 /** How long the ring stays before fading itself out. Long enough for the eye to land where the click

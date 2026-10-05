@@ -44,6 +44,14 @@ contextBridge.exposeInMainWorld("realm", {
   motion: {
     set: (pref: ReducedMotionPref): Promise<void> => ipcRenderer.invoke("motion:set", pref),
   },
+  /** The element picker over this window (main/app-pick.ts): whether the person is picking, and the
+   *  picture of a pick — the window's own capture of the element and a margin, kept where a pasted
+   *  image goes. `ground` is the theme's page colour the capture's translucency is laid over. */
+  appPick: {
+    arm: (on: boolean): void => ipcRenderer.send("app-pick:arm", on),
+    capture: (rect: { x: number; y: number; w: number; h: number }, ground: [number, number, number] | null, name: string): Promise<{ file: PickedFile | null; webView: boolean }> =>
+      ipcRenderer.invoke("app-pick:capture", rect, ground, name),
+  },
   /** Settings ▸ General ▸ Power. Main holds the blocker; this only tells it the switch moved. */
   power: {
     preventSleep: (on: boolean): Promise<void> => ipcRenderer.invoke("power:prevent-sleep", on),

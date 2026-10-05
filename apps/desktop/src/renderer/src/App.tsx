@@ -17,6 +17,7 @@ import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette } from "./components/CommandPalette";
 import { Toasts } from "./components/Toasts";
+import { AppPickerBridge } from "./app-pick/AppPicker";
 import { QuickChat } from "./components/QuickChat";
 import { PageOverlay } from "./components/PageOverlay";
 import { PageNavProvider } from "./components/page-nav";
@@ -676,6 +677,8 @@ export function App() {
       <SpaceOverview />
       {/* What the window has to say, at its foot and over everything: a failed action, a receipt. */}
       <Toasts />
+      {/* Select in Realm: the element picker over this window, above everything it can point at. */}
+      <AppPickerBridge />
     </StoreContext.Provider>
   );
 }
