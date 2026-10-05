@@ -122,6 +122,10 @@ import { FailoverService } from "./sessions/failover";
 import { ImportService } from "./import/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
+import { AppViewsStore } from "./store/app-views";
+import { AppViews } from "./apps/views";
+import { AppViewServer } from "./apps/server";
+import { AppViewService } from "./apps/service";
 import { ExecutionSandboxService } from "./sandbox/service";
 import { machineName } from "./machine-name";
 import { userFirstName } from "./user-name";
@@ -790,7 +794,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // service takes it as a late-bound hook object, the same knot `notifications` and `browserAgents`
   // are tied with.
   let failover: FailoverService | null = null;
-  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url),
+  // MCP Apps: the views servers draw for tool calls. The gateway reports a call that drew one, the
+  // session service pairs it with the agent's own record of the call, and the views listener frames
+  // it — each mounted view on an origin of its own.
+  const appViews = new AppViews({ store: new AppViewsStore(db) });
+  const appViewServer = new AppViewServer();
+  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url), views: appViews,
     // A browser-agent child is only-mode (realm-browser and nothing else); an agent_run child — and
     // a reviewer child (W3) — is exclude-mode (the space's FULL surface minus the delegation
     // provider — the gateway half of depth-1: a reviewer sees neither agent tool nor agent_review).
@@ -918,7 +927,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     queued: (sessionId) => sessions.queuedFor(sessionId).length > 0,
     log: (line) => console.log(line),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, summaries, planLimits, documents, goals,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, summaries, planLimits, documents, goals, views: appViews,
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
@@ -1159,6 +1168,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
+    appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, log: (line) => console.log(line) }),
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
        and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —
        a daemon with nothing to do must not be held open by its own timer. */
@@ -1199,6 +1209,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // every `sessions.create` → send hands an adapter), and well before the RPC socket opens to clients.
   await mcpGateway.listen();
   await preview.listen();
+  await appViewServer.listen();
   await machineProxy.listen();
   const port = await rpc.listen(opts.port, "127.0.0.1", {
     token: opts.token,
@@ -1239,6 +1250,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Realm's test runner comes off every phone it is on: a phone is its owner's once Realm is gone.
     await simulators.closeAll();
     await preview.close();
+    await appViewServer.close();
     await mcpGateway.close();
     await mcpHub.close();
     await rpc.close();

@@ -76,6 +76,7 @@ import type { ShipsStore } from "../store/ships";
 import type { PortAllocator } from "../workspace/ports";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import type { LayaService } from "../laya/service";
+import type { AppViewService } from "../apps/service";
 import { NotFoundError, RpcError } from "../store/rows";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
@@ -96,6 +97,8 @@ export type Deps = {
   agentRuns: AgentRunService;
   laya: LayaService;
   agentSignIn: AgentSignInService;
+  /** The views MCP servers draw for tool calls (MCP Apps). */
+  appViews: AppViewService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -497,6 +500,8 @@ export function registerMethods(d: Deps): void {
     try { return { tools: (await d.hub.tools(p.id)).map((t) => ({ name: t.name, description: t.description })), error: null }; }
     catch (e) { return { tools: [], error: e instanceof Error ? e.message : String(e) }; }
   });
+  reg("apps.view", (p) => d.appViews.open(p.viewId));
+  reg("apps.release", (p) => { d.appViews.release(p.url); return { ok: true as const }; });
   reg("mcp.setAllowedTools", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     d.mcp.setAllowedTools(p.spaceId, p.id, p.tools);

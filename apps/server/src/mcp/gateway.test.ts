@@ -19,7 +19,9 @@ import { waitFor } from "../test-utils";
 import { McpHub } from "./hub";
 import { McpService } from "./service";
 import { McpGateway } from "./gateway";
-import { makeStubServer, type StubServer } from "./fixtures/stub-server";
+import { makeStubServer, type StubServer, type StubServerOptions } from "./fixtures/stub-server";
+import type { DrawnView } from "../apps/views";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 /** Records every `rpc.broadcast` call instead of sending it anywhere — there is no WebSocket client in
  *  these tests, only the gateway's own use of `RpcServer` as an event bus. */
@@ -44,7 +46,7 @@ type App = {
   sessionId: string;
   /** Wires a server row's connect straight to a stub's in-memory transport, bypassing stdio/http/sse
    *  entirely — same seam `hub.test.ts` uses. */
-  addServer(name: string, opts?: { onCall?: (tool: string, args: unknown) => void; transport?: "stdio" | "http" }): { row: McpServerRow; stub: StubServer };
+  addServer(name: string, opts?: { onCall?: (tool: string, args: unknown) => void; transport?: "stdio" | "http" } & StubServerOptions): { row: McpServerRow; stub: StubServer };
   /** A row whose transport factory always throws — stands in for a dead/unreachable upstream. */
   addBrokenServer(name: string): McpServerRow;
   /** A second (or third...) space with its own session, sharing this app's server rows — for tests that
@@ -66,6 +68,8 @@ async function setupApp(opts: {
   /** Stands in for the delegation registries' toolset shapes — W5's only-mode restriction
    *  (`string[]`) and Plan 13 W1's exclude mode (`{ exclude }`). */
   sessionToolset?: (sessionId: string) => import("./gateway").SessionToolset;
+  /** Where a call that drew a view is reported (MCP Apps) — a recording stand-in for `AppViews`. */
+  views?: { drew(sessionId: string, v: DrawnView): void };
 } = {}): Promise<App> {
   const home = tempDir("realm-mcp-gw-");
   const db = openDatabase(join(home, "realm.db"));
@@ -106,7 +110,7 @@ async function setupApp(opts: {
     },
   });
   const rpc = new RecordingRpc();
-  const gateway = new McpGateway({ hub, mcp, sessions: sessionsStore, calls, rpc, servers, onOauthCallback: opts.onOauthCallback, sessionToolset: opts.sessionToolset });
+  const gateway = new McpGateway({ hub, mcp, sessions: sessionsStore, calls, rpc, servers, onOauthCallback: opts.onOauthCallback, sessionToolset: opts.sessionToolset, views: opts.views });
   const port = await gateway.listen();
 
   const app: App = {
@@ -948,5 +952,72 @@ describe("per-session toolset exclusion (Plan 13 W1)", () => {
     expect(blocked.isError).toBe(true);
     expect(asText(blocked)).toContain("depth-1");
     await r.client.close();
+  });
+});
+
+describe("MCP Apps: a tool's view, and the tools only a view may call", () => {
+  const CHART: Tool = { name: "show_chart", description: "Chart it", inputSchema: { type: "object" }, _meta: { ui: { resourceUri: "ui://stub/chart" } } };
+  const REFRESH: Tool = { name: "refresh_chart", description: "For the view", inputSchema: { type: "object" }, _meta: { ui: { resourceUri: "ui://stub/chart", visibility: ["app"] } } };
+  const PLAIN: Tool = { name: "plain", description: "No view", inputSchema: { type: "object" } };
+  // Pretty-printed rows: what the gateway's compression shortens for the agent (minified, tabulated).
+  const BIG = JSON.stringify(Array.from({ length: 40 }, (_, i) => ({ id: i, release: `1.${i}`, sizeKb: 400 + i * 7 })), null, 2);
+  const RESULTS: Record<string, CallToolResult> = {
+    show_chart: { content: [{ type: "text", text: BIG }], structuredContent: { values: [3, 1, 2] } },
+  };
+  const RESOURCES = [{ uri: "ui://stub/chart", mimeType: "text/html;profile=mcp-app", text: "<p>chart</p>" }];
+
+  async function withViews() {
+    const drawn: { sessionId: string; v: DrawnView }[] = [];
+    const app = await setupApp({ views: { drew: (sessionId, v) => drawn.push({ sessionId, v }) } });
+    const calls: string[] = [];
+    const { row } = app.addServer("charts", { tools: [CHART, REFRESH, PLAIN], results: RESULTS, resources: RESOURCES, onCall: (t) => calls.push(t) });
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    return { app, row, drawn, calls };
+  }
+
+  it("never lists a tool only its view may call", async () => {
+    // THE MUTANT: list every tool the server has, and the agent is handed a button meant for the view.
+    const { app } = await withViews();
+    const { client } = await connectClient(app);
+    expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual(["charts__plain", "charts__show_chart"]);
+    await client.close();
+  });
+
+  it("refuses the agent a view-only tool even by name, without the call reaching the server", async () => {
+    const { app, calls } = await withViews();
+    const { client } = await connectClient(app);
+    const r = (await client.callTool({ name: "charts__refresh_chart", arguments: {} })) as CallToolResult;
+    expect(r.isError).toBe(true);
+    expect(asText(r)).toMatch(/for that server's view to call, not the agent/);
+    expect(calls).toEqual([]);
+    expect(app.calls.list({ sessionId: app.sessionId })[0]).toMatchObject({ ok: false, resultSummary: "blocked: a view-only tool" });
+    await client.close();
+  });
+
+  it("reports a call to a tool with a view, with the server's whole result — not the one compressed for the agent", async () => {
+    const { app, row, drawn } = await withViews();
+    const { client } = await connectClient(app);
+    const r = (await client.callTool({ name: "charts__show_chart", arguments: { values: [3, 1, 2] } })) as CallToolResult;
+    expect(asText(r).length).toBeLessThan(BIG.length);
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0]).toMatchObject({ sessionId: app.sessionId, v: { serverId: row.id, serverName: "charts", tool: "show_chart", fullName: "charts__show_chart", resourceUri: "ui://stub/chart", input: { values: [3, 1, 2] } } });
+    expect(drawn[0]!.v.result).toEqual(RESULTS.show_chart);
+    expect(drawn[0]!.v.def).toMatchObject({ name: "show_chart", _meta: CHART._meta });
+    // …and its template is read now, so the view finds it held.
+    await waitFor(async () => (await app.hub.uiResource(row.id, "ui://stub/chart")).html === "<p>chart</p>");
+    await client.close();
+  });
+
+  it("reports nothing for a tool with no view, or for a server whose views are switched off", async () => {
+    const { app, row, drawn } = await withViews();
+    const { client } = await connectClient(app);
+    await client.callTool({ name: "charts__plain", arguments: {} });
+    app.mcp.setShowsViews(row.id, false);
+    await client.callTool({ name: "charts__show_chart", arguments: { values: [1] } });
+    expect(drawn).toEqual([]);
+    app.mcp.setShowsViews(row.id, true);
+    await client.callTool({ name: "charts__show_chart", arguments: { values: [1] } });
+    expect(drawn).toHaveLength(1);
+    await client.close();
   });
 });
