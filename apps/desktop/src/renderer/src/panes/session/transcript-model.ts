@@ -1,4 +1,4 @@
-import type { AcpSessionMode, SessionEvent, SessionEventPayload } from "@realm/contracts";
+import type { AcpSessionMode, AskCard, SessionEvent, SessionEventPayload } from "@realm/contracts";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
@@ -86,7 +86,8 @@ export type Block =
       stopped?: boolean };
 
 export type Rating = "up" | "down";
-export type PendingPermission = { requestId: string; toolName: string; input: Record<string, unknown>; title: string };
+/** `ask` is set when the request is a question — the card Realm wrote for it (`permission_request.ask`). */
+export type PendingPermission = { requestId: string; toolName: string; input: Record<string, unknown>; title: string; ask?: AskCard };
 export type Usage = { costUsd: number; inputTokens: number; outputTokens: number; numTurns: number;
   /** How much of the window the conversation occupies, as the harness measured it — see the `usage`
    *  event's own note for why this is never derived from the numbers beside it. Undefined for every
@@ -228,7 +229,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       return { ...t, blocks };
     }
     case "permission_request": {
-      const p = { requestId: e.payload.requestId, toolName: e.payload.toolName, input: e.payload.input, title: e.payload.title };
+      const p: PendingPermission = { requestId: e.payload.requestId, toolName: e.payload.toolName, input: e.payload.input, title: e.payload.title, ...(e.payload.ask ? { ask: e.payload.ask } : {}) };
       return { ...t, pendingPermissions: [...t.pendingPermissions.filter((x) => x.requestId !== p.requestId), p] };
     }
     case "permission_response": {

@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { LINK_SERVICE_META, chipRuns, mediaCandidatesIn, type SessionMode, type SessionStatus } from "@realm/contracts";
+import { LINK_SERVICE_META, chipRuns, mediaCandidatesIn, type AskAnswers, type SessionMode, type SessionStatus } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { CommandCopy } from "../../components/CommandCopy";
 import type { PermissionDecision } from "../../state/store";
@@ -165,7 +165,7 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
 export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote }: {
-  transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
+  transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
   /** The session this log is — what a sub-agent's line links back to (its row in this session's
    *  Agents tab). Null in the read-only mounts, where the line reads and links nowhere. */
   sessionId?: string | null;

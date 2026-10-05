@@ -1,205 +1,299 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, within } from "@testing-library/react";
-import { QuestionCard, parseQuestions, type Question } from "./QuestionCard";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { AskCardSchema, type AskCard, type AskQuestion } from "@realm/contracts";
+import { StoreContext, createAppStore } from "../../state/store";
+import { fakeApi } from "../../state/store.test-fakes";
+import { QuestionCard, askCardFor, askerLine } from "./QuestionCard";
 
 afterEach(() => cleanup());
 
-const q = (over: Partial<Question> = {}): Question => ({
-  question: "Which database?", header: "Database", multiSelect: false, allowOther: true, secret: false,
-  options: [{ label: "Postgres", description: "Relational, boring, correct" }, { label: "SQLite", description: "Local, zero-ops" }],
+const codex = { kind: "agent" as const, name: "Codex", agent: "codex" as const };
+const cardOf = (questions: Partial<AskQuestion>[], over: Partial<AskCard> = {}): AskCard => AskCardSchema.parse({
+  asker: codex, mode: "question",
+  questions: questions.map((q, i) => ({ id: `q${i}`, prompt: `Question ${i}?`, kind: "choice", ...q })),
+  ...over,
+});
+const db = (over: Partial<AskQuestion> = {}): Partial<AskQuestion> => ({
+  id: "db", prompt: "Which database?", header: "Database", kind: "choice", allowOther: true,
+  options: [{ value: "pg", label: "Postgres", description: "Relational, boring, correct" }, { value: "sqlite", label: "SQLite", description: "Local, zero-ops" }],
   ...over,
 });
 
-const rowsOf = (card: HTMLElement) => within(card).getAllByRole("button").filter((b) => b.classList.contains("question-option"));
+const mount = (card: AskCard, props: { onAnswer?: () => void; onSkip?: () => void; ownsEscape?: boolean } = {}) => {
+  const onAnswer = props.onAnswer ?? vi.fn();
+  const onSkip = props.onSkip ?? vi.fn();
+  const r = render(<QuestionCard card={card} onAnswer={onAnswer} onSkip={onSkip} ownsEscape={props.ownsEscape} />);
+  const el = r.container.querySelector<HTMLElement>(".question-card")!;
+  return { el, onAnswer, onSkip };
+};
+const rowsOf = (el: HTMLElement) => [...el.querySelectorAll<HTMLElement>(".question-option, .question-tile")];
 
-describe("parseQuestions — only a genuinely question-shaped payload gets the question card", () => {
-  it("accepts a well-formed AskUserQuestion payload", () => {
-    const parsed = parseQuestions("AskUserQuestion", { questions: [{ question: "Pick?", header: "H", multiSelect: false, options: [{ label: "A", description: "d" }, { label: "B" }] }] });
-    expect(parsed).toEqual([{ question: "Pick?", header: "H", multiSelect: false, allowOther: true, secret: false, options: [{ label: "A", description: "d" }, { label: "B" }] }]);
+describe("askCardFor — a question is told apart by Realm's card, never by the agent's arguments", () => {
+  it("draws a request carrying a card as that card", () => {
+    const ask = cardOf([db()]);
+    expect(askCardFor({ toolName: "item/tool/requestUserInput", input: {}, ask })).toEqual(ask);
   });
-  it("refuses any other tool, so a Bash call can never render as a question", () => {
-    expect(parseQuestions("Bash", { questions: [{ question: "Pick?", options: [{ label: "A" }] }] })).toBeNull();
+
+  it("reads Claude's AskUserQuestion from before cards rode the event, and names Claude", () => {
+    const card = askCardFor({ toolName: "AskUserQuestion", input: { questions: [{ question: "Pick?", options: [{ label: "A" }] }] } })!;
+    expect(card.asker.name).toBe("Claude");
+    expect(card.questions[0]).toMatchObject({ id: "Pick?", kind: "choice" });
   });
+
+  it("refuses any other tool, so a Bash call can never draw as a question", () => {
+    expect(askCardFor({ toolName: "Bash", input: { questions: [{ question: "Pick?", options: [{ label: "A" }] }] } })).toBeNull();
+  });
+
+  it("falls back on a card that would leave no row to answer on, or one Realm already declined", () => {
+    expect(askCardFor({ toolName: "ui_ask", input: {}, ask: { asker: codex, mode: "question", questions: [{ id: "a", prompt: "?", kind: "choice", options: [] }] } as never })).toBeNull();
+    expect(askCardFor({ toolName: "elicitation", input: {}, ask: cardOf([db()], { refused: "It asked for a password." }) })).toBeNull();
+  });
+});
+
+describe("the card names who is asking", () => {
   it.each([
-    ["no questions key", {}],
-    ["empty questions", { questions: [] }],
-    ["question missing text", { questions: [{ header: "H", options: [{ label: "A" }] }] }],
-    ["question with neither options nor free text", { questions: [{ question: "Pick?", options: [], allowOther: false }] }],
-    ["option missing a label", { questions: [{ question: "Pick?", options: [{ description: "d" }] }] }],
-  ])("falls back (null) on malformed input: %s", (_name, input) => {
-    expect(parseQuestions("AskUserQuestion", input as Record<string, unknown>)).toBeNull();
+    [{ kind: "agent", name: "Codex" }, "Codex asks"],
+    [{ kind: "server", name: "Linear" }, "Linear's MCP server asks"],
+    [{ kind: "server", name: "notion", via: "Codex" }, "notion's MCP server asks, through Codex"],
+  ] as const)("%o reads %s", (asker, line) => {
+    expect(askerLine(asker)).toBe(line);
+    const { el } = mount(cardOf([db()], { asker }));
+    expect(el.querySelector(".question-from")).toHaveTextContent(line);
+  });
+
+  it("draws every label as plain text — markup an agent sends is never rendered", () => {
+    const { el } = mount(cardOf([db({ prompt: "<img src=x onerror=alert(1)>", options: [{ value: "a", label: "<b>bold</b>" }] })]));
+    expect(el.querySelector("img")).toBeNull();
+    expect(el.querySelector("b")).toBeNull();
+    expect(within(el).getByRole("heading")).toHaveTextContent("<img src=x onerror=alert(1)>");
+  });
+
+  it("carries data-no-agent, so an agent driving the window cannot answer for the user", () => {
+    const { el } = mount(cardOf([db()]));
+    expect(el).toHaveAttribute("data-no-agent", "question");
   });
 });
 
-describe("parseQuestions — free text", () => {
-  it("accepts a question with no options as a free-text prompt", () => {
-    const parsed = parseQuestions("AskUserQuestion", { questions: [{ question: "Name?", options: [] }] });
-    expect(parsed).toEqual([{ question: "Name?", header: "", multiSelect: false, allowOther: true, secret: false, options: [] }]);
+describe("a choice", () => {
+  it("shows the question and its options as labelled rows, with the free-text row last", () => {
+    const { el } = mount(cardOf([db()]));
+    expect(within(el).getByRole("heading")).toHaveTextContent("Which database?");
+    expect(rowsOf(el).map((r) => r.getAttribute("aria-label"))).toEqual(["Postgres", "SQLite", "Something else"]);
+    expect(el).toHaveTextContent("Relational, boring, correct");
+    expect(el.querySelector(".question-tag")).toHaveTextContent("Database");
   });
 
-  it("carries allowOther and secret through, defaulting free text on and masking off", () => {
-    const [plain] = parseQuestions("AskUserQuestion", { questions: [{ question: "Pick?", options: [{ label: "A" }] }] })!;
-    const [locked] = parseQuestions("AskUserQuestion", { questions: [{ question: "Pick?", options: [{ label: "A" }], allowOther: false, secret: true }] })!;
-    expect([plain!.allowOther, plain!.secret]).toEqual([true, false]);
-    expect([locked!.allowOther, locked!.secret]).toEqual([false, true]);
-  });
-});
-
-describe("QuestionCard", () => {
-  it("renders a question with no options as the free-text row alone", () => {
-    const { container } = render(<QuestionCard questions={[q({ options: [] })]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    expect(rowsOf(card).map((r) => r.getAttribute("aria-label"))).toEqual(["Something else"]);
+  it("answers with the option's value, keyed by the question's id", () => {
+    const { el, onAnswer } = mount(cardOf([db()]));
+    fireEvent.click(rowsOf(el)[1]!);
+    expect(onAnswer).toHaveBeenCalledWith({ db: "sqlite" });
   });
 
-  it("hides the free-text row when the requester does not offer it", () => {
-    const { container } = render(<QuestionCard questions={[q({ allowOther: false })]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    expect(rowsOf(card).map((r) => r.getAttribute("aria-label"))).toEqual(["Postgres", "SQLite"]);
-  });
-
-  it("wraps the arrow keys over the options alone when there is no free-text row", () => {
-    const { container } = render(<QuestionCard questions={[q({ allowOther: false })]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    const rows = rowsOf(card);
-    rows[0]!.focus();
-    fireEvent.keyDown(card, { key: "ArrowUp" });
-    expect(document.activeElement).toBe(rows[1]); // last option, not a free-text row that is not there
-  });
-
-  it("masks a secret free-text answer while it is typed", () => {
-    const { container } = render(<QuestionCard questions={[q({ options: [], secret: true })]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    fireEvent.click(within(card).getByRole("button", { name: "Something else" }));
-    expect(within(card).getByLabelText("Your answer")).toHaveAttribute("type", "password");
-  });
-
-  it("leaves an ordinary free-text answer visible", () => {
-    const { container } = render(<QuestionCard questions={[q({ options: [] })]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    fireEvent.click(within(card).getByRole("button", { name: "Something else" }));
-    expect(within(card).getByLabelText("Your answer")).toHaveAttribute("type", "text");
-  });
-
-  it("shows the question and its options as real labelled rows — not a JSON blob", () => {
-    const { container } = render(<QuestionCard questions={[q()]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    expect(within(card).getByRole("heading")).toHaveTextContent("Which database?");
-    const rows = rowsOf(card);
-    expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual(["Postgres", "SQLite", "Something else"]);
-    expect(card).toHaveTextContent("Relational, boring, correct");
-    expect(card.querySelector(".question-num")).toHaveTextContent("1");
-  });
-
-  it("clicking an option answers with that option's label, keyed by the question text", () => {
-    const onAnswer = vi.fn();
-    const { container } = render(<QuestionCard questions={[q()]} onAnswer={onAnswer} onSkip={vi.fn()} />);
-    fireEvent.click(rowsOf(container.querySelector<HTMLElement>(".question-card")!)[1]!);
-    expect(onAnswer).toHaveBeenCalledWith({ "Which database?": "SQLite" });
-  });
-
-  it("a number key picks that option outright", () => {
-    const onAnswer = vi.fn();
-    const { container } = render(<QuestionCard questions={[q()]} onAnswer={onAnswer} onSkip={vi.fn()} />);
-    fireEvent.keyDown(container.querySelector(".question-card")!, { key: "1" });
-    expect(onAnswer).toHaveBeenCalledWith({ "Which database?": "Postgres" });
-  });
-
-  it("several questions are answered one at a time, and every answer arrives together at the end", () => {
-    const onAnswer = vi.fn();
-    const two = [q(), q({ question: "Which runtime?", options: [{ label: "Node" }, { label: "Bun" }] })];
-    const { container } = render(<QuestionCard questions={two} onAnswer={onAnswer} onSkip={vi.fn()} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    expect(card.querySelector(".question-pager")).toHaveTextContent("1 of 2");
-
-    fireEvent.click(rowsOf(card)[0]!); // Postgres
-    expect(onAnswer).not.toHaveBeenCalled(); // still one question to go — nothing is submitted yet
-    expect(within(card).getByRole("heading")).toHaveTextContent("Which runtime?");
-    expect(card.querySelector(".question-pager")).toHaveTextContent("2 of 2");
-
-    fireEvent.click(rowsOf(card)[1]!); // Bun
-    expect(onAnswer).toHaveBeenCalledWith({ "Which database?": "Postgres", "Which runtime?": "Bun" });
-  });
-
-  it("multi-select toggles rather than advancing, and Continue submits the picks comma-joined", () => {
-    const onAnswer = vi.fn();
-    const { container } = render(<QuestionCard questions={[q({ multiSelect: true })]} onAnswer={onAnswer} onSkip={vi.fn()} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    const cont = within(card).getByRole("button", { name: /Continue/ });
-    expect(cont).toBeDisabled(); // nothing picked yet
-
-    fireEvent.click(rowsOf(card)[0]!);
-    fireEvent.click(rowsOf(card)[1]!);
-    expect(onAnswer).not.toHaveBeenCalled(); // a toggle is not an answer
-    expect(rowsOf(card)[0]!).toHaveAttribute("aria-pressed", "true");
-
-    fireEvent.click(cont);
-    expect(onAnswer).toHaveBeenCalledWith({ "Which database?": "Postgres, SQLite" });
-  });
-
-  it("a re-clicked multi-select row is un-picked", () => {
-    const onAnswer = vi.fn();
-    const { container } = render(<QuestionCard questions={[q({ multiSelect: true })]} onAnswer={onAnswer} onSkip={vi.fn()} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    fireEvent.click(rowsOf(card)[0]!);
-    fireEvent.click(rowsOf(card)[1]!);
-    fireEvent.click(rowsOf(card)[0]!); // un-pick Postgres
-    fireEvent.click(within(card).getByRole("button", { name: /Continue/ }));
-    expect(onAnswer).toHaveBeenCalledWith({ "Which database?": "SQLite" });
-  });
-
-  it("'Something else' takes free text — the escape hatch the tool's own schema promises", () => {
-    const onAnswer = vi.fn();
-    const { container } = render(<QuestionCard questions={[q()]} onAnswer={onAnswer} onSkip={vi.fn()} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    fireEvent.click(within(card).getByRole("button", { name: "Something else" }));
-    const input = within(card).getByRole("textbox", { name: "Your answer" });
-    fireEvent.change(input, { target: { value: "DuckDB" } });
-    fireEvent.click(within(card).getByRole("button", { name: "Answer" }));
-    expect(onAnswer).toHaveBeenCalledWith({ "Which database?": "DuckDB" });
-  });
-
-  it("Esc inside the free-text row backs out to the options instead of skipping the request", () => {
-    const onSkip = vi.fn();
-    const { container } = render(<QuestionCard questions={[q()]} onAnswer={vi.fn()} onSkip={onSkip} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    fireEvent.click(within(card).getByRole("button", { name: "Something else" }));
-    fireEvent.keyDown(card, { key: "Escape" });
-    expect(onSkip).not.toHaveBeenCalled();
-    expect(within(card).getByRole("button", { name: "Something else" })).toBeInTheDocument();
-  });
-
-  it("Skip on the only question, with nothing answered, is a skip of the request", () => {
-    const onSkip = vi.fn(); const onAnswer = vi.fn();
-    const { container } = render(<QuestionCard questions={[q()]} onAnswer={onAnswer} onSkip={onSkip} />);
-    fireEvent.click(container.querySelector<HTMLElement>(".question-skip")!);
-    expect(onSkip).toHaveBeenCalled();
-    expect(onAnswer).not.toHaveBeenCalled();
-  });
-
-  it("skipping the last of several still submits the answers already given", () => {
-    const onAnswer = vi.fn(); const onSkip = vi.fn();
-    const two = [q(), q({ question: "Which runtime?", options: [{ label: "Node" }, { label: "Bun" }] })];
-    const { container } = render(<QuestionCard questions={two} onAnswer={onAnswer} onSkip={onSkip} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    fireEvent.click(rowsOf(card)[0]!); // answer the first
-    fireEvent.click(card.querySelector<HTMLElement>(".question-skip")!); // skip the second
-    expect(onAnswer).toHaveBeenCalledWith({ "Which database?": "Postgres" });
-    expect(onSkip).not.toHaveBeenCalled();
-  });
-
-  it("arrow keys move the selection across the options and the free-text row", () => {
-    const { container } = render(<QuestionCard questions={[q()]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
-    const card = container.querySelector<HTMLElement>(".question-card")!;
-    const selected = () => card.querySelector<HTMLElement>(".question-option[data-selected]")!.getAttribute("aria-label");
-    expect(selected()).toBe("Postgres");
-    fireEvent.keyDown(card, { key: "ArrowDown" });
+  it("a number key picks that option outright, and an arrow moves the highlight", () => {
+    const { el, onAnswer } = mount(cardOf([db()]));
+    const selected = () => el.querySelector(".question-option[data-selected]")!.getAttribute("aria-label");
+    fireEvent.keyDown(rowsOf(el)[0]!, { key: "ArrowDown" });
     expect(selected()).toBe("SQLite");
-    fireEvent.keyDown(card, { key: "ArrowDown" });
-    expect(selected()).toBe("Something else");
-    fireEvent.keyDown(card, { key: "ArrowDown" }); // wraps
-    expect(selected()).toBe("Postgres");
-    fireEvent.keyDown(card, { key: "ArrowUp" });
-    expect(selected()).toBe("Something else");
+    fireEvent.keyDown(rowsOf(el)[0]!, { key: "1" });
+    expect(onAnswer).toHaveBeenCalledWith({ db: "pg" });
+  });
+
+  it("'Something else' takes free text, and Esc inside it backs out instead of skipping", () => {
+    const { el, onAnswer, onSkip } = mount(cardOf([db()]));
+    fireEvent.click(within(el).getByRole("button", { name: "Something else" }));
+    const input = within(el).getByRole("textbox", { name: "Your answer" });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onSkip).not.toHaveBeenCalled();
+    fireEvent.click(within(el).getByRole("button", { name: "Something else" }));
+    fireEvent.change(within(el).getByRole("textbox", { name: "Your answer" }), { target: { value: "DuckDB" } });
+    fireEvent.click(within(el).getByRole("button", { name: "Answer" }));
+    expect(onAnswer).toHaveBeenCalledWith({ db: "DuckDB" });
+  });
+
+  it("several picks toggle, and Continue sends them as a list", () => {
+    const { el, onAnswer } = mount(cardOf([db({ kind: "multi", allowOther: false })]));
+    const cont = within(el).getByRole("button", { name: /Continue/ });
+    expect(cont).toBeDisabled();
+    fireEvent.click(rowsOf(el)[0]!); fireEvent.click(rowsOf(el)[1]!); fireEvent.click(rowsOf(el)[0]!);
+    expect(onAnswer).not.toHaveBeenCalled();
+    fireEvent.click(cont);
+    expect(onAnswer).toHaveBeenCalledWith({ db: ["sqlite"] });
+  });
+
+  it("draws options with pictures as tiles, each with its picture's well", () => {
+    const { el, onAnswer } = mount(cardOf([{ id: "look", prompt: "Which look?", kind: "choice",
+      options: [{ value: "Calm", label: "Calm", image: "/repo/mockups/calm.png" }, { value: "Bold", label: "Bold", image: "/repo/mockups/bold.png" }] }]));
+    const tiles = [...el.querySelectorAll(".question-tile")];
+    expect(tiles).toHaveLength(2);
+    // No bridge in the suite, so the well shows the image glyph — never a URL the agent wrote.
+    expect(tiles[0]!.querySelector(".question-tile-pic")).not.toBeNull();
+    fireEvent.click(tiles[1]!);
+    expect(onAnswer).toHaveBeenCalledWith({ look: "Bold" });
+  });
+
+  it("asks a yes-or-no as two rows that answer yes or no", () => {
+    const { el, onAnswer } = mount(cardOf([{ id: "go", prompt: "Ship it?", kind: "confirm" }]));
+    expect(rowsOf(el).map((r) => r.getAttribute("aria-label"))).toEqual(["Yes", "No"]);
+    fireEvent.click(rowsOf(el)[1]!);
+    expect(onAnswer).toHaveBeenCalledWith({ go: "no" });
+  });
+
+  it("filters a long list of branches and marks the current one", () => {
+    const branches = Array.from({ length: 10 }, (_, i) => ({ value: `feat/${i}`, label: `feat/${i}`, ...(i === 3 ? { current: true } : {}) }));
+    const { el } = mount(cardOf([{ id: "base", prompt: "Which branch?", kind: "branch", options: branches, default: "feat/3" }]));
+    expect(el.querySelector(".question-option[data-selected]")).toHaveAttribute("aria-label", "feat/3");
+    expect(el.querySelector(".question-option[data-selected]")).toHaveTextContent("Current");
+    fireEvent.change(within(el).getByRole("textbox", { name: "Filter the options" }), { target: { value: "/7" } });
+    expect(rowsOf(el).map((r) => r.getAttribute("aria-label"))).toEqual(["feat/7"]);
+  });
+});
+
+describe("paging, skipping and Escape", () => {
+  const two = () => cardOf([db(), { id: "rt", prompt: "Which runtime?", kind: "choice", options: [{ value: "node", label: "Node" }, { value: "bun", label: "Bun" }] }]);
+
+  it("answers several questions one at a time and hands every answer back together", () => {
+    const { el, onAnswer } = mount(two());
+    expect(el.querySelector(".question-pager")).toHaveTextContent("1 of 2");
+    fireEvent.click(rowsOf(el)[0]!);
+    expect(onAnswer).not.toHaveBeenCalled();
+    expect(within(el).getByRole("heading")).toHaveTextContent("Which runtime?");
+    fireEvent.click(rowsOf(el)[1]!);
+    expect(onAnswer).toHaveBeenCalledWith({ db: "pg", rt: "bun" });
+  });
+
+  it("skipping the last of several still sends what was answered; skipping everything is a skip", () => {
+    const first = mount(two());
+    fireEvent.click(rowsOf(first.el)[0]!);
+    fireEvent.click(first.el.querySelector<HTMLElement>(".question-skip")!);
+    expect(first.onAnswer).toHaveBeenCalledWith({ db: "pg" });
+    cleanup();
+    const none = mount(cardOf([db()]));
+    fireEvent.click(none.el.querySelector<HTMLElement>(".question-skip")!);
+    expect(none.onSkip).toHaveBeenCalled();
+    expect(none.onAnswer).not.toHaveBeenCalled();
+  });
+
+  it("offers no Skip on a question the asker requires", () => {
+    const { el } = mount(cardOf([db({ required: true })]));
+    expect(el.querySelector(".question-skip")).toBeNull();
+  });
+
+  it("Esc skips the whole request where the card owns it, and names a form's dismissal Decline", () => {
+    const owned = mount(cardOf([db()]));
+    fireEvent.keyDown(owned.el, { key: "Escape" });
+    expect(owned.onSkip).toHaveBeenCalled();
+    cleanup();
+    const form = mount(cardOf([db()], { mode: "form", asker: { kind: "server", name: "Linear" } }), { ownsEscape: false });
+    fireEvent.keyDown(form.el, { key: "Escape" });
+    expect(form.onSkip).not.toHaveBeenCalled();
+    expect(within(form.el).getByRole("button", { name: "Decline" })).toBeTruthy();
+  });
+});
+
+describe("a typed answer", () => {
+  it("is the field itself, sent with Enter", () => {
+    const { el, onAnswer } = mount(cardOf([{ id: "name", prompt: "Name it", kind: "text" }]));
+    const input = within(el).getByRole("textbox", { name: "Your answer" });
+    fireEvent.change(input, { target: { value: "  Atlas  " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onAnswer).toHaveBeenCalledWith({ name: "Atlas" });
+  });
+
+  it("is masked when secret, kept exactly as typed, and says where it goes", () => {
+    const { el, onAnswer } = mount(cardOf([{ id: "key", prompt: "Paste the deploy token", kind: "text", secret: true }]));
+    const input = el.querySelector<HTMLInputElement>(".question-text-input")!;
+    expect(input).toHaveAttribute("type", "password");
+    expect(el.querySelector(".question-note")).toHaveTextContent("Goes to Codex only");
+    fireEvent.change(input, { target: { value: " tok_live " } });
+    fireEvent.click(within(el).getByRole("button", { name: /Answer/ }));
+    expect(onAnswer).toHaveBeenCalledWith({ key: " tok_live " });
+  });
+
+  it("holds a number to its range before it can be sent", () => {
+    const { el } = mount(cardOf([{ id: "n", prompt: "How many?", kind: "text", format: "integer", min: 1, max: 8 }]));
+    const input = el.querySelector<HTMLInputElement>(".question-text-input")!;
+    const answer = within(el).getByRole("button", { name: /Answer/ });
+    fireEvent.change(input, { target: { value: "12" } });
+    expect(answer).toBeDisabled();
+    fireEvent.change(input, { target: { value: "3" } });
+    expect(answer).toBeEnabled();
+  });
+
+  it("asks a date with the date field", () => {
+    const { el, onAnswer } = mount(cardOf([{ id: "due", prompt: "When is it due?", kind: "time", format: "date" }]));
+    const input = el.querySelector<HTMLInputElement>(".question-text-input")!;
+    expect(input).toHaveAttribute("type", "date");
+    fireEvent.change(input, { target: { value: "2026-10-09" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onAnswer).toHaveBeenCalledWith({ due: "2026-10-09" });
+  });
+});
+
+describe("who builds each step", () => {
+  const models = [
+    { value: "claude-opus-5-5", label: "Claude Opus 5.5", agent: "claude" as const, own: true },
+    { value: "gpt-6-luna", label: "GPT-6 Luna", agent: "codex" as const },
+    { value: "claude-fable-5-1", label: "Claude Fable 5.1", agent: "claude" as const },
+  ];
+  const steps = () => cardOf([{ id: "who", prompt: "Who builds each step?", kind: "model", options: models,
+    rows: [{ id: "1", label: "Write the migration" }, { id: "2", label: "Wire the toggle" }] }]);
+
+  it("gives every step a model chip, defaulted to the session's own", () => {
+    const { el } = mount(steps());
+    const chips = within(el).getAllByRole("button", { name: /^Model for / });
+    expect(chips.map((c) => c.getAttribute("aria-label"))).toEqual(["Model for Write the migration: Claude Opus 5.5", "Model for Wire the toggle: Claude Opus 5.5"]);
+    expect(chips[0]).toHaveTextContent("this session");
+  });
+
+  it("answers with one model id per step, in step order — the ids agent_start takes", async () => {
+    const { el, onAnswer } = mount(steps());
+    fireEvent.click(within(el).getByRole("button", { name: /^Model for Wire the toggle/ }));
+    // The chooser is portalled out of the card, so it carries the no-agent claim itself.
+    const chooser = await screen.findByRole("dialog", { name: "Models" });
+    expect(chooser).toHaveAttribute("data-no-agent", "question");
+    fireEvent.click(within(chooser).getByText("GPT-6 Luna"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Models" })).toBeNull());
+    fireEvent.click(within(el).getByRole("button", { name: /Continue/ }));
+    expect(onAnswer).toHaveBeenCalledWith({ who: ["claude-opus-5-5", "gpt-6-luna"] });
+  });
+
+  it("answers a one-model question with the id alone", () => {
+    const { el, onAnswer } = mount(cardOf([{ id: "m", prompt: "Which model?", kind: "model", options: models }]));
+    fireEvent.click(within(el).getByRole("button", { name: /Continue/ }));
+    expect(onAnswer).toHaveBeenCalledWith({ m: "claude-opus-5-5" });
+  });
+});
+
+describe("a file", () => {
+  it("searches the session's own workspace and answers with the path", async () => {
+    const api = fakeApi({ projectFiles: { hits: [{ path: "src/app.ts", score: 1, segments: [{ text: "src/", match: false }, { text: "app", match: true }, { text: ".ts", match: false }] }], truncated: false, source: "git" } });
+    const store = createAppStore(api);
+    const onAnswer = vi.fn();
+    const card = cardOf([{ id: "f", prompt: "Which file?", kind: "file" }], { workspace: "/repo" });
+    render(<StoreContext.Provider value={store}><QuestionCard card={card} onAnswer={onAnswer} onSkip={vi.fn()} /></StoreContext.Provider>);
+    const row = await screen.findByRole("option", { name: "src/app.ts" });
+    expect(api.calls).toContain("projectFiles:/repo:");
+    expect(row.querySelector("mark")).toHaveTextContent("app");
+    fireEvent.click(row);
+    expect(onAnswer).toHaveBeenCalledWith({ f: "src/app.ts" });
+  });
+});
+
+describe("a page to open", () => {
+  it("shows the whole address as text with the host set apart, and opens only on the click", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const card = cardOf([{ id: "url", prompt: "Authorize access", kind: "link", url: "http://xn--lnear-6ta.app/connect?id=1" }],
+      { mode: "url", asker: { kind: "server", name: "Linear" } });
+    const { el, onAnswer } = mount(card);
+    expect(el.querySelector("a")).toBeNull();
+    expect(el.querySelector(".question-link")).toHaveTextContent("http://xn--lnear-6ta.app/connect?id=1");
+    expect(el.querySelector(".question-link-host")).toHaveTextContent("xn--lnear-6ta.app");
+    expect([...el.querySelectorAll(".question-warn")].map((w) => w.textContent)).toEqual([
+      expect.stringContaining("not encrypted"), expect.stringContaining("look-alike letters")]);
+    expect(open).not.toHaveBeenCalled();
+    act(() => { fireEvent.click(within(el).getByRole("button", { name: "Open xn--lnear-6ta.app" })); });
+    expect(open).toHaveBeenCalledWith("http://xn--lnear-6ta.app/connect?id=1", "_blank");
+    expect(onAnswer).toHaveBeenCalledWith({ url: "opened" });
+    open.mockRestore();
   });
 });

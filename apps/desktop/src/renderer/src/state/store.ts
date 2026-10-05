@@ -31,6 +31,7 @@ import { exportFileName, exportSessionMarkdown } from "../panes/session/export-s
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 import type { SettingsTab } from "../panes/settings/settings-index";
+import type { AskAnswers } from "@realm/contracts";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 /** What the New space sheet hands over: the row, and what is made WITH it — the folder its sessions
@@ -384,7 +385,7 @@ export type Api = {
   /** `limits.get` — every provider's plan quota as last reported. */
   planLimits(): Promise<PlanLimits[]>;
   recordFeedback(id: string, messageId: string, rating: Rating | null): Promise<void>;
-  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): Promise<void>;
+  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
   /** `sessions.setAgent` — rejected by the server once the session has any event. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<Session>;
@@ -1982,7 +1983,7 @@ export type AppState = {
    *  is on screen before the round trip, because a thumb that waits on the disk reads as a dead
    *  button. The broadcast that follows lands on the same reducer and settles to the same state. */
   rateMessage(sessionId: string, messageId: string, rating: Rating | null): Promise<void>;
-  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): Promise<void>;
+  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<void>;
   /** Move a session between Build and Plan (the prompter's mode chip), parking and restoring the
    *  permission mode around the trip. See the implementation for why the parking is necessary. */
@@ -2149,6 +2150,8 @@ export type AppState = {
    *  which is a case the palette must say something about rather than showing an empty list. */
   projectCwd(): string | null;
   searchProjectFiles(query: string): Promise<ProjectFilesResult | null>;
+  /** `project.files` over one session's own workspace — what a question's file field searches. */
+  searchFilesIn(cwd: string, query: string): Promise<ProjectFilesResult>;
   searchProjectText(query: string): Promise<ProjectGrepResult | null>;
   /** Which question the palette is asking. ⌘K is "all"; ⌘P and ⌘⇧F open the same surface narrowed. */
   paletteMode: PaletteMode;
@@ -5937,6 +5940,7 @@ await get().refreshCustomThemes().catch(() => {});
         const cwd = get().projectCwd(); if (!cwd) return null;
         return api.projectFiles(cwd, query);
       },
+      searchFilesIn: (cwd, query) => api.projectFiles(cwd, query, 8),
       async searchProjectText(query) {
         const cwd = get().projectCwd(); if (!cwd) return null;
         return api.projectGrep(cwd, query);

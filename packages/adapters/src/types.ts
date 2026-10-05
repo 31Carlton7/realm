@@ -1,4 +1,4 @@
-import type { AgentKind, AgentModel, SessionEvent } from "@realm/contracts";
+import type { AgentKind, AgentModel, AskAnswers, SessionEvent } from "@realm/contracts";
 
 /**
  * One MCP server on its way to an agent.
@@ -104,9 +104,10 @@ export interface AgentHandle {
   readonly events: AsyncIterable<SessionEvent>;
   /** Resolves once the message has been accepted (attachments read and enqueued); errors are reported as `error` events. */
   send(message: UserMessage): Promise<void>;
-  /** `answers` is carried only by question-shaped tools (AskUserQuestion); adapters that have no
-   *  question surface ignore it and answer the plain allow/deny they always did. */
-  respondPermission(requestId: string, decision: PermissionDecision, answers?: Record<string, string>): void;
+  /** `answers` is carried only by a question (`permission_request.ask`): question id -> what was chosen
+   *  or typed. An adapter that raised no question ignores it and answers the plain allow/deny it
+   *  always did. */
+  respondPermission(requestId: string, decision: PermissionDecision, answers?: AskAnswers): void;
   interrupt(): Promise<void>;
   setOptions(opts: { model?: string; permissionMode?: string; fastMode?: boolean }): Promise<void>;
   dispose(): Promise<void>;
