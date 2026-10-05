@@ -1969,16 +1969,20 @@ function UpdatesField() {
   const status = useApp((s) => s.updateStatus);
   const refreshUpdateStatus = useApp((s) => s.refreshUpdateStatus);
   const checkForUpdates = useApp((s) => s.checkForUpdates);
+  const downloadUpdate = useApp((s) => s.downloadUpdate);
   const installUpdate = useApp((s) => s.installUpdate);
+  const watchUpdateStatus = useApp((s) => s.watchUpdateStatus);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshUpdateStatus()); }, [run, refreshUpdateStatus]);
+  useEffect(() => watchUpdateStatus(), [watchUpdateStatus]);
   if (!status) return <p className="env-empty">Loading…</p>;
   const st = status.state;
   const desc =
     st.kind === "disabled" ? UPDATE_DISABLED_COPY[st.reason]
     : st.kind === "checking" ? "Checking for updates…"
     : st.kind === "up-to-date" ? "You're on the latest version."
-    : st.kind === "downloading" ? `Downloading v${st.version}…`
+    : st.kind === "available" ? `v${st.version} is available. Its download did not finish.`
+    : st.kind === "downloading" ? `Downloading v${st.version}…${st.percent === null ? "" : ` ${Math.round(st.percent)}%`}`
     : st.kind === "downloaded" ? `v${st.version} is ready — restart to finish installing.`
     : st.kind === "error" ? `Update check failed: ${st.message}`
     : "Realm checks for updates on launch. You can also check now.";
@@ -1992,6 +1996,8 @@ function UpdatesField() {
       </div>
       {st.kind === "downloaded"
         ? <button type="button" className="btn" onClick={() => run(() => installUpdate())}>Restart to update</button>
+        : st.kind === "available"
+        ? <button type="button" className="btn" onClick={() => run(() => downloadUpdate())}>Download v{st.version}</button>
         : <button type="button" className="btn" disabled={st.kind === "disabled" || st.kind === "checking" || st.kind === "downloading"}
             onClick={() => run(() => checkForUpdates())}>
             Check for updates

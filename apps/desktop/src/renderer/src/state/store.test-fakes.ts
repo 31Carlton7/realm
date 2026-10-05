@@ -361,6 +361,9 @@ export type FakeApi = Api & {
   /** Per-call artificial latency in ms, keyed like `calls` entries (used by race tests). */
   delays: Record<string, number>;
   onCreateTerminal: (() => void) | null;
+  /** Main's updater changing state on its own — a download's progress, its end, its failure — pushed
+   *  to whoever is watching, as `updates:changed` is. Also becomes what `updateStatus` answers. */
+  emitUpdateStatus: (status: UpdateStatus) => void;
   /** Live views of the fake's data (mutable). */
   data: Required<FakeData>;
 };
@@ -553,8 +556,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       },
     };
   };
+  const updateWatchers = new Set<(status: UpdateStatus) => void>();
   const api: FakeApi = {
     calls, disposed, destroyedBrowserViews, sent, savedScripts, queuedPrompts, planLimitRows, mcpWrites, importApplied, delays: {}, onCreateTerminal: null, data,
+    emitUpdateStatus: (status) => { data.updateStatus = status; for (const cb of updateWatchers) cb({ ...status }); },
     // Plan 17 W1. An in-memory filesystem keyed by workspace id: enough for the store's own tests to
     // exercise open/save without touching disk. The DocumentsPane's own behaviour is covered by
     // buffers.test.ts (the transitions) and the server's service.test.ts (the real filesystem).
@@ -1313,7 +1318,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       await wait("checkUpdates");
       return { ...data.updateStatus };
     },
+    // Main's own rule (updater.ts): only an `available` update starts downloading.
+    downloadUpdate: async () => {
+      calls.push("downloadUpdate");
+      const st = data.updateStatus.state;
+      if (st.kind === "available") data.updateStatus = { ...data.updateStatus, state: { kind: "downloading", version: st.version, percent: null } };
+      return { ...data.updateStatus };
+    },
     installUpdate: async () => { calls.push("installUpdate"); },
+    onUpdateStatus: (cb) => { updateWatchers.add(cb); return () => { updateWatchers.delete(cb); }; },
     // Mirrors main's gate exactly (notify.ts): a focused window suppresses the toast, and the call is
     // logged either way — so a test can tell "the renderer never asked" from "main said no".
     showDesktopNotification: async (input) => {

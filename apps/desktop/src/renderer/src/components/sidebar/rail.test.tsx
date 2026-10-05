@@ -18,6 +18,7 @@ async function mount(over: FakeData = {}, shell = false) {
 afterEach(() => cleanup());
 
 const rail = () => screen.getByRole("navigation", { name: "Destinations" });
+const lead = () => document.querySelector<HTMLElement>(".window-lead")!;
 
 describe("the rail", () => {
   it("holds the app's destinations as icon buttons, each with a name and a tooltip", async () => {
@@ -57,19 +58,21 @@ describe("the rail", () => {
     expect(container.querySelector(".sb-badge")).toBeNull();
   });
 
-  it("carries the window's back and forward only while the sidebar is folded away", async () => {
-    // Open, they are the sidebar's head row's (WindowNav): one pair in the window, not two.
-    await mount();
-    expect(within(rail()).queryByRole("button", { name: "Go back" })).toBeNull();
-    cleanup();
-    await mount({ settings: { "ui.sidebarCollapsed": true } });
-    expect(within(rail()).getByRole("button", { name: "Go back" })).toBeInTheDocument();
+  it("holds no back and forward of its own in either state — they are the window's, beside the lights", async () => {
+    // THE MUTANT: the old pair under the traffic lights while the sidebar is folded, which moved the
+    // destinations down a row every time it folded.
+    for (const collapsed of [false, true]) {
+      await mount({ settings: { "ui.sidebarCollapsed": collapsed } }, true);
+      expect(within(rail()).queryByRole("button", { name: "Go back" })).toBeNull();
+      expect(within(lead()).getByRole("button", { name: "Go back" })).toBeInTheDocument();
+      cleanup();
+    }
   });
 
-  it("steps the window back and forward, greyed at either end of the trail", async () => {
-    const { store } = await mount({ settings: { "ui.sidebarCollapsed": true } });
-    const back = () => within(rail()).getByRole("button", { name: "Go back" });
-    const forward = () => within(rail()).getByRole("button", { name: "Go forward" });
+  it("steps the window back and forward from the lead, greyed at either end of the trail", async () => {
+    const { store } = await mount({ settings: { "ui.sidebarCollapsed": true } }, true);
+    const back = () => within(lead()).getByRole("button", { name: "Go back" });
+    const forward = () => within(lead()).getByRole("button", { name: "Go forward" });
     expect(back()).toBeDisabled();
     expect(forward()).toBeDisabled();
     await act(async () => { await store.getState().selectSpace("s2"); });
@@ -82,11 +85,11 @@ describe("the rail", () => {
   });
 
   it("prints the person's own chord for back and forward, not the shipped one", async () => {
-    const { store } = await mount({ settings: { "ui.sidebarCollapsed": true } });
+    const { store } = await mount({ settings: { "ui.sidebarCollapsed": true } }, true);
     const rules = DEFAULT_KEYBINDINGS.map((r) => (r.command === "window.back" ? { ...r, key: "mod+[" } : r));
     act(() => store.getState().setKeybindings(rules));
-    expect(within(rail()).getByRole("button", { name: "Go back" })).toHaveAttribute("title", "Go back (⌘[)");
-    expect(within(rail()).getByRole("button", { name: "Go forward" })).toHaveAttribute("title", "Go forward (⌃⇧-)");
+    expect(within(lead()).getByRole("button", { name: "Go back" })).toHaveAttribute("title", "Go back (⌘[)");
+    expect(within(lead()).getByRole("button", { name: "Go forward" })).toHaveAttribute("title", "Go forward (⌃⇧-)");
   });
 
   it("opens the page about you and Settings from the person at its foot", async () => {
@@ -102,17 +105,49 @@ describe("the rail", () => {
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("settings-page"));
   });
 
-  it("shows the update control only once an update is downloaded, and it restarts into it", async () => {
-    const first = await mount();
-    // Asked for when the window is at the front — and only then is "nothing to show" an answer.
-    await waitFor(() => expect(first.store.getState().updateStatus?.state.kind).toBe("disabled"));
-    expect(within(rail()).queryByRole("button", { name: /Restart to update/ })).toBeNull();
-    cleanup();
-    const { api } = await mount({ updateStatus: { version: "1.0.0", state: { kind: "downloaded", version: "1.1.0" } } });
-    const update = await within(rail()).findByRole("button", { name: "Restart to update to v1.1.0" });
-    expect(update.closest(".rail-foot")).not.toBeNull();
-    fireEvent.click(update);
+  it("shows no update control while main knows of no newer version", async () => {
+    // THE MUTANT: a disc for any state but the three that name a version — a control for an update
+    // that does not exist.
+    for (const state of [{ kind: "disabled", reason: "unsigned" }, { kind: "idle" }, { kind: "checking" }, { kind: "up-to-date" }, { kind: "error", message: "ENOTFOUND github.com" }] as const) {
+      const { store } = await mount({ updateStatus: { version: "1.0.0", state } });
+      await waitFor(() => expect(store.getState().updateStatus?.state.kind).toBe(state.kind));
+      expect(rail().querySelector(".rail-update"), state.kind).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("offers an available update's download, naming the version, and shows it downloading once asked", async () => {
+    /* `available` is a version main knows of and is not fetching — its background download failed.
+       THE MUTANT: the old rail, which drew nothing until an update was already downloaded. */
+    const { api } = await mount({ updateStatus: { version: "1.0.0", state: { kind: "available", version: "1.1.0" } } });
+    const button = await within(rail()).findByRole("button", { name: "Download Realm v1.1.0" });
+    expect(button.closest(".rail-foot")).not.toBeNull();
+    expect(button).toHaveAttribute("title", "Realm v1.1.0 is available — download it");
+    fireEvent.click(button);
+    await waitFor(() => expect(api.calls).toContain("downloadUpdate"));
+    expect(api.calls).not.toContain("installUpdate");
+    expect(await within(rail()).findByRole("progressbar", { name: "Downloading Realm v1.1.0" })).toBeInTheDocument();
+  });
+
+  it("follows a download as main pushes it, then restarts into the finished update", async () => {
+    const { api } = await mount({ updateStatus: { version: "1.0.0", state: { kind: "downloading", version: "1.1.0", percent: null } } });
+    const bar = await within(rail()).findByRole("progressbar", { name: "Downloading Realm v1.1.0" });
+    // Until main has said how far it is, the bar claims no figure.
+    expect(bar).not.toHaveAttribute("aria-valuenow");
+    // Nothing to press while it downloads: waiting is the whole of the state.
+    expect(within(rail()).queryByRole("button", { name: /Realm v1\.1\.0/ })).toBeNull();
+    // THE MUTANT: no subscription to main's push — the ring would sit still until the window next
+    // came to the front.
+    act(() => api.emitUpdateStatus({ version: "1.0.0", state: { kind: "downloading", version: "1.1.0", percent: 42.4 } }));
+    await waitFor(() => expect(bar).toHaveAttribute("aria-valuenow", "42"));
+    expect(bar).toHaveAttribute("title", "Downloading Realm v1.1.0 — 42%");
+    expect(bar.style.getPropertyValue("--update-progress")).toBe("42%");
+    act(() => api.emitUpdateStatus({ version: "1.0.0", state: { kind: "downloaded", version: "1.1.0" } }));
+    const restart = await within(rail()).findByRole("button", { name: "Restart to update to Realm v1.1.0" });
+    expect(within(rail()).queryByRole("progressbar")).toBeNull();
+    fireEvent.click(restart);
     await waitFor(() => expect(api.calls).toContain("installUpdate"));
+    expect(api.calls).not.toContain("downloadUpdate");
   });
 
   it("carries the Stop of a recording for Laya while one runs anywhere, and nothing otherwise", async () => {
@@ -131,12 +166,14 @@ describe("the rail", () => {
     await waitFor(() => expect(within(rail()).queryByRole("button", { name: /^Stop recording/ })).toBeNull());
   });
 
-  it("stays on screen when the sidebar is collapsed, with the way back in it", async () => {
+  it("stays on screen when the sidebar is collapsed, and the way back is beside the traffic lights", async () => {
     const { store } = await mount({ settings: { "ui.sidebarCollapsed": true } }, true);
     expect(store.getState().sidebarCollapsed).toBe(true);
     expect(document.getElementById("app-sidebar")).toHaveAttribute("inert");
     expect(rail().closest("[inert]")).toBeNull();
-    expect(within(rail()).getByRole("button", { name: "Show sidebar (⌘B)" })).toBeInTheDocument();
     expect(within(rail()).getByRole("button", { name: "Home" })).toBeInTheDocument();
+    // The toggle left the rail's foot for the top row (the owner, 10-04).
+    expect(within(rail()).queryByRole("button", { name: /sidebar/ })).toBeNull();
+    expect(within(lead()).getByRole("button", { name: "Show sidebar (⌘B)" })).toBeInTheDocument();
   });
 });

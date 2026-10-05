@@ -164,7 +164,11 @@ interface Window {
     updates: {
       status(): Promise<UpdateStatus>;
       check(): Promise<UpdateStatus>;
+      /** Start the download of an `available` update; any other state answers itself unchanged. */
+      download(): Promise<UpdateStatus>;
       install(): Promise<void>;
+      /** Every change of the updater's state, a download's progress included. */
+      onChanged(cb: (status: UpdateStatus) => void): () => void;
     };
     /** Desktop notifications (the feed's last hop). `show` answers whether a toast was posted — main
      *  suppresses one while the window is focused. `onActivate` carries a clicked toast's row id. */
@@ -248,7 +252,8 @@ type UpdateState =
   | { kind: "idle" }
   | { kind: "checking" }
   | { kind: "up-to-date" }
-  | { kind: "downloading"; version: string }
+  | { kind: "available"; version: string }
+  | { kind: "downloading"; version: string; percent: number | null }
   | { kind: "downloaded"; version: string }
   | { kind: "error"; message: string };
 interface UpdateStatus { version: string; state: UpdateState }

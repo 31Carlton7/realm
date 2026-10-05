@@ -334,27 +334,45 @@ kbd { font: 11px var(--font-mono); }
    prefers-reduced-transparency both reach it. --page flips with data-mode, so one rule serves both
    themes and every palette. */
 /* Square: the rail is the window's left edge now, and wears the window's rounded corners (below).
-   The rule down its right stays gone: a change of surface is the boundary. */
+   The rule down its right stays gone: a change of surface is the boundary.
+
+   The column OPENS AND CLOSES; it does not travel. It is a box `--sidebar-open` of the sidebar's
+   width that clips what it holds, and everything it holds is on one wrapper that slides with its right
+   edge (`.sidebar-slide`) — so the head row and the list leave together, at the column's edge, and no
+   part of the sidebar is ever drawn outside its own box. It used to slide out UNDER the rail on a
+   negative margin, and the rail's translucent ground showed the rows and the head passing beneath the
+   destinations and the traffic lights (reported 10-04, with a video).
+
+   One number drives the box, the slide and the head row's clip, registered so it interpolates, so the
+   three cannot disagree on any frame. The panes beside it take the room by flex, and a page over them
+   is inside their column, so the pane bars and the page's bar move in step without a timeline of their
+   own. A width rather than a transform for the box because the panes have to be given the room; the
+   rows do not relay out, because the slide holds them at the sidebar's full width. §6's on-screen
+   movement rung, because that is what this is. */
+@property --sidebar-open { syntax: "<number>"; inherits: true; initial-value: 1; }
 .sidebar {
   /* relative for `.sb-resize`, which is placed against this column's own right edge. */
-  width: var(--sidebar-w); flex: none; position: relative; display: flex; flex-direction: column; min-height: 0;
-  -webkit-app-region: drag;
-  /* §6's on-screen-movement rung, because that is what this is: the column leaves to the left and
-     the panes take the room it gives up. Margin rather than width — a width transition relays out
-     every row inside the sidebar on every frame, and the rows are not what is moving. It slides
-     UNDER the rail (which stacks above it), and opacity rides along at the shorter rung so the column
-     is gone before the gap closes. */
-  transition: margin-inline-start var(--dur-move) var(--ease-in-out-strong), opacity var(--dur-base) ease;
+  width: calc(var(--sidebar-w) * var(--sidebar-open)); flex: none; position: relative; display: flex; min-height: 0;
+  overflow: hidden; -webkit-app-region: drag;
+  --sidebar-open: 1;
+  transition: --sidebar-open var(--dur-move) var(--ease-in-out-strong);
 }
-.sidebar[data-collapsed] { margin-inline-start: calc(-1 * var(--sidebar-w)); opacity: 0; }
-.sidebar button, .sidebar input, .sb-resize { -webkit-app-region: no-drag; }
-/* Folded away, the column slides UNDER the rail — and Electron lays the window's drag regions down in
-   document order, not stacking order. The rail comes first, so a drag region left on the folded
-   column lands back over the rail's buttons and macOS takes every click on them for the start of a
-   window drag: the sidebar folded and its own toggle could not bring it back. A folded sidebar has
-   nothing to be dragged by, so it takes no part in the window's regions at all — `initial`, not
-   `none`: measured in this Chromium, an explicit `none` computes as `no-drag`, which would leave a
-   hole in the rail's own drag region where the column sits under it. */
+.sidebar[data-collapsed] { --sidebar-open: 0; }
+.sidebar-slide { flex: none; width: var(--sidebar-w); min-height: 0; display: flex; flex-direction: column;
+  translate: calc(var(--sidebar-w) * (var(--sidebar-open) - 1)) 0; }
+/* A LABEL is a control too. The lens's two segments are labels round hidden radios, and with only
+   buttons and inputs opted out, the column's drag region covered every pixel of them but the 13px
+   radio parked at the start of each word: a click on "Recent" anywhere else started a window drag
+   and never reached the page (reported 10-04 as "hard to click"). The whole track opts out, so the
+   gap between the segments is not a dead strip either. */
+.sidebar button, .sidebar input, .sidebar label, .sb-lens, .sb-resize { -webkit-app-region: no-drag; }
+/* Folded away, the column is a box with no width, but what it holds is still laid out — slid off to
+   the left, across the rail — and Electron lays the window's drag regions down in document order, not
+   stacking order or clipping. The rail comes first, so a drag region left on the folded column lands
+   back over the rail's buttons and macOS takes every click on them for the start of a window drag:
+   the sidebar folded and could not be brought back. A folded sidebar has nothing to be dragged by, so
+   it takes no part in the window's regions at all — `initial`, not `none`: measured in this Chromium,
+   an explicit `none` computes as `no-drag`, which would leave a hole in the rail's own drag region. */
 .sidebar[data-collapsed], .sidebar[data-collapsed] * { -webkit-app-region: initial; }
 
 /* ── The column's own edge, as a control ──
@@ -433,8 +451,8 @@ kbd { font: 11px var(--font-mono); }
 :root { --chrome-tint: var(--overlay-lighten-200); --frame-r: var(--r-panel); --frame-top: 40px; }
 :root[data-mode="light"] { --chrome-tint: var(--overlay-darken-200); }
 .app-rail { background: linear-gradient(var(--chrome-tint), var(--chrome-tint)), var(--sidebar-ground); }
-.sb-header, .sb-page-head { background: var(--chrome-tint); }
-/* Under the rail's z-index (2): collapsing slides the sidebar beneath the rail, rim and all. */
+/* The column's rim and corner are the COLUMN's, which does not slide: it closes from its right edge,
+   so the sheet's corner stays where it always is, at the rail, until the column has gone. */
 .sidebar::before, .main::before { content: ""; position: absolute; z-index: 1; pointer-events: none;
   top: var(--frame-top); left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-line-strong); }
 .sidebar::before { bottom: 0; border-left: var(--hairline-w) solid var(--rl-line-strong); border-top-left-radius: var(--frame-r); }
@@ -448,32 +466,50 @@ kbd { font: 11px var(--font-mono); }
   linear-gradient(var(--chrome-tint), var(--chrome-tint)) top / 100% var(--frame-top) no-repeat,
   linear-gradient(var(--sidebar-ground), var(--sidebar-ground)) top / 100% var(--frame-top) no-repeat,
   linear-gradient(var(--pane-ground), var(--pane-ground)) 0 var(--frame-top) / 100% 100% no-repeat; }
-/* Collapsed, the sheet starts at the panes: they take the left edge and the corner, and the line that
+/* Folded, the sheet starts at the panes: they take the left edge and the corner, and the line that
    stood between the sidebar and them has nothing to stand between — the rail is chrome, as the row is.
    The corner is a HOLE in the panes' ground (a quarter-disc of it, and nothing outside the curve), so
    the chrome laid there composites on the desktop exactly as the rail beside it does. Over the panes'
-   own translucent ground the same tint read a shade darker than the rail. */
-.app[data-sidebar-collapsed] > .main { border-left: 0; background:
+   own translucent ground the same tint read a shade darker than the rail.
+   FOLDED rather than collapsed: the corner is the column's for as long as any of the column is on
+   screen, and changes hands when it has finished closing (App.tsx, `useSidebarFolded`) — handed over
+   at the click, the panes drew a rounded corner at an edge that was still beside the sidebar. */
+.app[data-sidebar-folded] > .main { border-left: 0; background:
   linear-gradient(var(--chrome-tint), var(--chrome-tint)) top / 100% var(--frame-top) no-repeat,
   linear-gradient(var(--sidebar-ground), var(--sidebar-ground)) top / 100% var(--frame-top) no-repeat,
   radial-gradient(circle at 100% 100%, var(--pane-ground) calc(var(--frame-r) - 0.5px), transparent var(--frame-r)) 0 var(--frame-top) / var(--frame-r) var(--frame-r) no-repeat,
   linear-gradient(var(--pane-ground), var(--pane-ground)) var(--frame-r) var(--frame-top) / 100% var(--frame-r) no-repeat,
   linear-gradient(var(--pane-ground), var(--pane-ground)) 0 calc(var(--frame-top) + var(--frame-r)) / 100% 100% no-repeat;
   background-origin: border-box; }
-.app[data-sidebar-collapsed] .main::before { bottom: 0; border-left: var(--hairline-w) solid var(--rl-line-strong); border-top-left-radius: var(--frame-r); }
-.app[data-sidebar-collapsed] .main::after { content: ""; position: absolute; z-index: 1; pointer-events: none; top: var(--frame-top); left: 0;
+.app[data-sidebar-folded] .main::before { bottom: 0; border-left: var(--hairline-w) solid var(--rl-line-strong); border-top-left-radius: var(--frame-r); }
+.app[data-sidebar-folded] .main::after { content: ""; position: absolute; z-index: 1; pointer-events: none; top: var(--frame-top); left: 0;
   width: var(--frame-r); height: var(--frame-r);
   background: radial-gradient(circle at 100% 100%, transparent calc(var(--frame-r) - 0.5px), var(--chrome-tint) var(--frame-r)),
     radial-gradient(circle at 100% 100%, transparent calc(var(--frame-r) - 0.5px), var(--sidebar-ground) var(--frame-r)); }
 /* A page over the panes covers their bars too; their titles would show through the page's own bar,
    which is clear so that the head row under it is the chrome everywhere else in the row (below). */
 :root:has(.page-overlay) .main .panel-bar { visibility: hidden; }
+/* …and so would the dividers between them: below the head row the page's ground covers them, but in
+   the row the bar is clear, and a split's divider ran on up through it as a stray rule beside the
+   page's name. */
+:root:has(.page-overlay) .main .resize-handle { visibility: hidden; }
 /* ── The sidebar's head row (Plan 27) ──
-   The profile, then search and a new session, in the traffic lights' 40px band beside the rail — the
-   same band the first pane's bar sits in, so the three read as one line across the window. The
-   profile's name is the one thing here of unbounded length, so it gives way first; the two glyphs
-   never shrink. */
-.sb-header { flex: none; height: 40px; display: flex; align-items: center; gap: 4px; padding: 0 10px 0 12px; }
+   Its toggle, search and a new session at the column's far end, in the traffic lights' 40px band — the
+   band the first pane's bar sits in, so the row reads as one line across the window. The band's start
+   is the window's (WindowLead: the lights, back and forward), so what this row draws is clipped clear
+   of them: while the column slides, the glyphs leave at the lead's edge rather than passing under it.
+   The clip rides the slide (`--sidebar-open`), which keeps it still on the window while the row moves.
+   The band's ground is the column's own (below), so the clip takes nothing from it. */
+.sb-header { flex: none; height: var(--frame-top); display: flex; align-items: center; padding: 0 10px 0 12px;
+  clip-path: inset(0 0 0 calc(var(--lead-nav-end) - var(--rail-w) + var(--sidebar-w) * (1 - var(--sidebar-open)))); }
+/* The column's first row: the profile whose spaces it lists — or, while a page's sections have the
+   column, the Back that gives the spaces back (`.sb-page-head`). On the list's 16px inset, so the mark
+   sits over the rows' marks; under the rim and outside the scroller, so it holds still while the list
+   moves under it. It moved down out of the head row when the rail narrowed to Codex's width: the
+   lights now cross into that row, and it could not hold them, the profile, back and forward, the
+   toggle and two actions at the sidebar's own width. The profile's name is the one thing in the row of
+   unbounded length, and it has the row to itself. */
+.sb-title { flex: none; display: flex; align-items: center; height: 44px; padding-top: 6px; }
 .sb-profile { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .sb-profile:hover:not(:disabled) { background: var(--rl-hover); }
@@ -482,9 +518,6 @@ kbd { font: 11px var(--font-mono); }
 .sb-profile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-profile-caret { flex: none; color: var(--rl-text-faint); }
 .sb-header-actions { flex: none; margin-left: auto; display: flex; align-items: center; gap: 2px; }
-/* The window's back and forward, beside the profile in the head row (WindowNav) — in the rail they keep
-   the gap above the destinations; here they sit on the row's own line. */
-.sb-header .rail-nav { flex: none; margin: 0 0 0 2px; }
 .sb-header .icon-btn[data-dragging] { opacity: .45; }
 
 /* ── A page's rail in this column (components/page-nav.tsx) ─────────────────────────────────────
@@ -493,9 +526,9 @@ kbd { font: 11px var(--font-mono); }
    row anatomy — 32px rows, text 8px in from the column's 16px, nothing lit under a passing pointer,
    the active fill once chosen, the column's own group labels — so it reads as the same sidebar listing
    something else, under a Back where the profile switcher was. The spaces stay mounted, hidden. */
-.sb-header[hidden], .sb-list[hidden] { display: none; }
+.sb-list[hidden] { display: none; }
 .sb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.sb-page-head { flex: none; height: 40px; display: flex; align-items: center; padding: 0 10px 0 12px; }
+.sb-page-head { flex: none; height: 44px; display: flex; align-items: center; padding: 6px 16px 0; }
 .sb-page-back { flex: none; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .sb-page-back:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
@@ -533,29 +566,79 @@ kbd { font: 11px var(--font-mono); }
 .sb-needs > .group-label, .sb-pinned:first-child > .group-label { padding-top: 4px; }
 .sb-need-answer { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 8px; }
 /* ── The rail (Plan 27) ──
-   The window's left edge in every state: the traffic lights sit in its top 40px (main places them at
-   x:12, y:14, and the three run to about 66px — the rail is as wide as they need), the window's back
-   and forward under them while the sidebar is folded away (open, they are its head row's), then the
-   app's destinations, and at the foot the sidebar's toggle, the
-   person and a ready update. Collapsing folds the sidebar away and leaves this, so nothing in the main
-   column has to make room for the lights in either state.
+   The window's left edge in every state: the app's destinations, and at the foot a newer Realm and the
+   person. As narrow as its icons with an even 8px round each of them — Codex's 52px — so the traffic
+   lights (main places them at x:12, y:14, and the three run to about 66px) are wider than the rail and
+   run on across the top row. That row is the window's: the lights, back and forward, then — folded —
+   the sidebar's toggle (WindowLead), and whatever sits under them in the row makes room.
    Chrome, with the head row: a step off the sidebar's ground (the window's frame, above), so the
-   sidebar's list and the panes read as one sheet set into it. It stacks over the sidebar so the
-   sidebar slides out underneath it, and it carries the window's rounded left corners. */
-:root { --rail-w: 76px; }
-.sidebar { background: var(--sidebar-ground); } /* the rail's is the frame's chrome, above */
+   sidebar's list and the panes read as one sheet set into it. It carries the window's rounded left
+   corners, and stacks over the sidebar's column. */
+:root { --rail-w: 52px;
+  /* Where the traffic lights end, and the window's lead after them: back and forward (two 28px
+     buttons, 2px apart), then — while the sidebar is folded — its toggle, 4px on. Content under the
+     lead starts 8px past whichever of the two it has to clear. */
+  --lights-end: 66px; --lead-x: calc(var(--lights-end) + 10px);
+  --lead-nav-end: calc(var(--lead-x) + 2 * 28px + 2px + 8px);
+  --lead-end: calc(var(--lead-x) + 2 * 28px + 2px + 4px + 28px + 8px); }
+/* The column's ground, and the head band's chrome over its top 40px — the column's, not the head
+   row's, because the row slides and is clipped and the band must not be. */
+.sidebar { background:
+  linear-gradient(var(--chrome-tint), var(--chrome-tint)) top / 100% var(--frame-top) no-repeat,
+  var(--sidebar-ground); }
+/* The sidebar stands a hair above the panes (the owner, 10-04: "put that shadow on the sidebar"), so
+   its edge casts a very light shade onto them: drawn at the panes' left edge, below the head row only
+   — the row is one chrome ground across the window and casts nothing — and above a page as well as
+   the panes, since a page is what stands beside the sidebar then. On `.main`, whose left edge IS the
+   column's right edge on every frame, so the shade rides the column open and closed; once the column
+   has folded away there is nothing to cast it, and the pseudo-element is the panes' corner instead
+   (the frame, above). Its own step per face, because the same black reads heavier on the light ground
+   (design.md: do not assume the light face mirrors the dark), set by measurement to about the depth of
+   Codex's own sheet shadow: five or six levels of 255 at the edge, gone in 8px. */
+:root { --seam-shade: oklch(0 0 0 / 0.14); --seam-w: 8px; }
+:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.02); }
+.app:not([data-sidebar-folded]) > .main::after { content: ""; position: absolute; z-index: 36; pointer-events: none;
+  top: var(--frame-top); bottom: 0; left: 0; width: var(--seam-w);
+  background: linear-gradient(to right, var(--seam-shade), transparent); }
 .app-rail { position: relative; z-index: 2; width: var(--rail-w); flex: none; min-height: 0;
-  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 40px 0 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: calc(var(--frame-top) + 8px) 0 8px;
   border-radius: var(--r-float) 0 0 var(--r-float); corner-shape: squircle; -webkit-app-region: drag; }
 .app-rail button { -webkit-app-region: no-drag; }
-.rail-nav { display: flex; gap: 2px; margin-bottom: 10px; }
-.rail-nav-btn { display: grid; place-items: center; width: 28px; height: 26px; border-radius: var(--r-ctl); corner-shape: squircle;
+/* ── The window's lead (WindowLead) ──
+   Back and forward beside the traffic lights, on their line, and the sidebar's toggle after them once
+   the column has folded away — arriving then, on a short fade, rather than appearing at the click
+   over a head row still sliding out. Over whatever the row holds under it: above a page (35), under
+   every scrim (40 and up). Its buttons opt out of the drag regions the bars under it lay down, and win
+   because the lead comes after them in the document. */
+.window-lead { position: fixed; z-index: 36; top: 0; left: var(--lead-x); height: var(--frame-top);
+  display: flex; align-items: center; gap: 4px; }
+.window-lead button { -webkit-app-region: no-drag; }
+.window-lead > .icon-btn { animation: rl-lead-in var(--dur-fast) var(--ease-out-strong); }
+@keyframes rl-lead-in { from { opacity: 0; } }
+.app[data-first-run] > .window-lead { display: none; }
+/* …and under the lead while the sidebar is away, the bar at the window's top-left — the first pane's
+   (`data-first-leaf`, PaneHost) or a page's — starts its own content past the lights, back, forward
+   and the toggle. On the column's own timing, so its title travels with the edge rather than jumping
+   to where it will end up at the click. */
+/* ── The side panes' toggle (SidePaneToggle), at the window's top right ──
+   Codex's panel toggle: window chrome on the top row's far end, its bar's own 12px in, lit while the
+   side panes are out. The bar under it — whichever pane is at the window's top right — leaves it room
+   (`data-top-right`, PaneHost), and the bar's action budget follows, since it measures the bar's
+   content box. Above the panes' bars in the document, so its button wins their drag regions. */
+.window-trail { position: fixed; z-index: 36; top: 0; right: 12px; height: var(--frame-top); display: flex; align-items: center; }
+.window-trail button { -webkit-app-region: no-drag; }
+.panel[data-top-right] > .panel-bar { padding-right: calc(12px + 28px + 6px); }
+.panel[data-first-leaf] > .panel-bar, .page-overlay-bar { transition: padding-left var(--dur-move) var(--ease-in-out-strong); }
+.app[data-sidebar-collapsed] .panel[data-first-leaf] > .panel-bar, .app[data-sidebar-collapsed] .page-overlay-bar {
+  padding-left: calc(var(--lead-end) - var(--rail-w)); }
+.rail-nav { display: flex; gap: 2px; }
+.rail-nav-btn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-ctl); corner-shape: squircle;
   color: var(--rl-text-faint); }
 .rail-nav-btn:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); }
-.rail-group, .rail-foot { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.rail-group, .rail-foot { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 /* The foot sits at the bottom of the column however tall the window is. */
 .rail-foot { margin-top: auto; }
-.rail-btn { position: relative; overflow: visible; display: grid; place-items: center; width: 40px; height: 36px;
+.rail-btn { position: relative; overflow: visible; display: grid; place-items: center; width: 36px; height: 36px;
   border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-dim); }
 .rail-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Lit while its page is up — one rung past hover, so on always reads as more than under the pointer. */
@@ -564,8 +647,21 @@ kbd { font: 11px var(--font-mono); }
    its centre near the glyph's corner, so the glyph under it is still the glyph it is. */
 .rail-glyph { position: relative; display: grid; place-items: center; }
 .rail-glyph .sb-badge { top: -8px; right: -12px; }
-/* A ready update is the one control here that wants a click soon, so it takes the accent. */
-.rail-update { color: var(--rl-accent); }
+/* A newer Realm (RailUpdate): the accent disc Codex keeps at the foot of its rail. It is the one
+   control here that wants a click soon, so it is the one filled thing in the column — white on the
+   fill in both modes, as every accent-filled control is. A press darkens the fill (design.md: a press
+   is a fill, not a size). While it downloads there is nothing to press, so it takes no hover; its
+   share runs round the disc instead: a conic fill on a box a few px wider, masked to a 2px band, the
+   rail's own progress track under the accent's run. */
+.rail-update, .rail-update:hover { color: var(--rl-accent-contrast); }
+.rail-update-disc { position: relative; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--rl-accent); }
+.rail-update:is([data-pressed], :active:focus-visible) .rail-update-disc { background: var(--rl-accent-press); }
+.rail-update[data-state="downloading"]:hover { background: none; }
+.rail-update[data-state="downloading"] .rail-update-disc::before { content: ""; position: absolute; inset: -4px; border-radius: 50%;
+  background: conic-gradient(var(--rl-accent) var(--update-progress, 0%), var(--mark) 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); }
 /* A count at a rail glyph's shoulder — Home's waiting count and the bell's unread (`.rail-glyph`).
    `overflow: visible` and negative offsets on purpose: a badge that overhangs its glyph is how every
    bell on this platform is drawn, and a digit squeezed inside would go under the type floor.
@@ -1987,8 +2083,13 @@ button.panel-title:hover { background: var(--rl-hover); }
    that quietly broke four things at once, because a page is not a floating object: quick chat opened
    behind Settings, ⌘K opened behind it, a sheet raised from a page landed under the page that raised
    it, and any menu portalled out of a page's own body was painted over by that page. A page is a
-   SCREEN — the bottom of the overlay stack, not the top. */
-.page-overlay { position: fixed; z-index: 35; inset: 0 0 0 calc(var(--rail-w) + var(--sidebar-w, 0px));
+   SCREEN — the bottom of the overlay stack, not the top.
+   Laid out INSIDE the panes' column (AppShell's `.main`), over exactly the panes' box, rather than
+   inset from the window by numbers of its own: so while the sidebar opens or closes, the page and its
+   bar are wherever the panes are on every frame. Window-fixed, it jumped to its final edge at the
+   click, and for the length of the motion the panes it covers showed through beside it (reported
+   10-04). `.main` makes no stacking context, so the rung above still ranks it against the window. */
+.page-overlay { position: absolute; z-index: 35; inset: 0;
   display: flex; flex-direction: column; min-width: 0;
   /* Its ground below the head row only: the row is the panes' chrome showing through the page's bar
      (the window's frame). */
@@ -1998,9 +2099,6 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* A rise and a fade, not a slide: the page replaces what was there rather than arriving from a
    direction, and a horizontal move would imply it came from the sidebar it is not part of. */
 @keyframes rl-page-in { from { translate: 0 6px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
-/* Collapsed, the sidebar is pulled off by its own negative margin and the page takes its width back —
-   never the rail's, which holds the buttons that open and close it and the way back to the sidebar. */
-.page-overlay[data-sidebar-collapsed] { inset: 0 0 0 var(--rail-w); }
 /* One bar, carrying what the overlay IS and the way out. The hairline is earned here — the page's
    own scroller genuinely passes under it. */
 /* No rule under it. The bar holds the page's own name and the control that closes it — chrome FOR
@@ -2018,21 +2116,18 @@ button.panel-title:hover { background: var(--rl-hover); }
      button opts back out, as a pane bar's buttons do. */
   -webkit-app-region: drag; }
 .page-overlay-bar button { -webkit-app-region: no-drag; }
-/* The frame's rim, carried over the panes it covers: along its top, and — collapsed, where it meets the
+/* The frame's rim, carried over the panes it covers: along its top, and — folded, where it meets the
    rail — down its left edge and round the corner. `.main`'s own rim stands down while a page is up,
    or the two would draw the corner's curve twice through the hole below. Open, the page stands against
-   the sidebar: the line between them is `.main`'s in the head row and the page's own below it. */
+   the sidebar, and the line between them is `.main`'s own border, which the page sits beside rather
+   than over now that it is laid out in `.main`. */
 :root:has(.page-overlay) .main::before { display: none; }
 .page-overlay::before { content: ""; position: absolute; z-index: 1; pointer-events: none;
   top: var(--frame-top); left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-line-strong); }
-/* Below the head row only: in the row, `.main`'s own line beside the sidebar shows through the page's
-   clear bar, and a border here would draw it twice. */
-.page-overlay:not([data-sidebar-collapsed])::after { content: ""; position: absolute; z-index: 1; pointer-events: none;
-  top: var(--frame-top); bottom: 0; left: 0; border-left: var(--hairline-w) solid var(--rl-line); }
-.page-overlay[data-sidebar-collapsed]::before { bottom: 0; border-left: var(--hairline-w) solid var(--rl-line-strong); border-top-left-radius: var(--frame-r); }
-/* Collapsed, the page's ground keeps the same hole at the corner the panes' does, so the chrome `.main`
+.app[data-sidebar-folded] .page-overlay::before { bottom: 0; border-left: var(--hairline-w) solid var(--rl-line-strong); border-top-left-radius: var(--frame-r); }
+/* Folded, the page's ground keeps the same hole at the corner the panes' does, so the chrome `.main`
    lays there shows through it. */
-.page-overlay[data-sidebar-collapsed] { background:
+.app[data-sidebar-folded] .page-overlay { background:
   radial-gradient(circle at 100% 100%, var(--rl-panel) calc(var(--frame-r) - 0.5px), transparent var(--frame-r)) 0 var(--frame-top) / var(--frame-r) var(--frame-r) no-repeat,
   linear-gradient(var(--rl-panel), var(--rl-panel)) var(--frame-r) var(--frame-top) / 100% var(--frame-r) no-repeat,
   linear-gradient(var(--rl-panel), var(--rl-panel)) 0 calc(var(--frame-top) + var(--frame-r)) / 100% 100% no-repeat;

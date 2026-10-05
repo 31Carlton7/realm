@@ -1,12 +1,10 @@
 import { Icon, type IconName } from "@realm/ui";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { DestinationPageKind } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { Avatar } from "../Avatar";
 import { Menu } from "../Menu";
 import { RailRecording } from "./RailRecording";
-import { SidebarToggle } from "./SidebarToggle";
-import { WindowNav } from "./WindowNav";
 import { waitingCount } from "./model";
 import { useChord } from "./use-sidebar-model";
 
@@ -15,23 +13,19 @@ import { useChord } from "./use-sidebar-model";
  *
  * The sidebar beside it gets you to your work; the rail gets you to the app's pages — Home (the
  * Agents page), Library, Connections, Scheduled tasks and the notifications — and at its foot to the
- * person (their page, Settings), an update that is ready, and the Stop of a recording for Laya. It
- * is never collapsed: ⌘B folds the sidebar away and leaves this, so Home's count and the way back
- * are always on screen.
+ * Stop of a recording for Laya, a newer Realm, and the person (their page, Settings). It is never
+ * collapsed: ⌘B folds the sidebar away and leaves this, so Home's count is always on screen.
  *
- * The traffic lights sit in its top band, and — while the sidebar is folded away, so the head row that
- * carries them is gone — the window's own back and forward under them. Nothing
- * here opens a surface over the panes except the OS menu at its foot, which may (design.md: menus
- * are the system's).
+ * As narrow as its icons and an even margin round them, Codex's: the traffic lights are wider than it
+ * and run on across the top row, which is the window's (WindowLead) rather than this column's. Nothing
+ * here opens a surface over the panes except the OS menu at its foot, which may (design.md: menus are
+ * the system's).
  */
 export function Rail() {
-  // The window's back and forward are the sidebar's head row's while there is a sidebar (WindowNav).
-  const collapsed = useApp((s) => s.sidebarCollapsed);
   const waiting = useApp((s) => waitingCount({ sessionStatus: s.sessionStatus, quickChatId: s.quickChat?.sessionId ?? null }));
   const unread = useApp((s) => s.notificationsUnread);
   return (
     <nav className="app-rail" aria-label="Destinations">
-      {collapsed && <WindowNav />}
       <div className="rail-group">
         {/* Home's count is the one number that says something waits on you when the sidebar is away. */}
         <RailPage kind="agents-page" label="Home" icon="home" count={waiting} countLabel={`${waiting} waiting on you`}
@@ -42,10 +36,10 @@ export function Rail() {
         <RailPage kind="notifications-page" label="Notifications" count={unread} countLabel={`${unread} unread`} />
       </div>
       <div className="rail-foot">
-        <SidebarToggle />
-        <RailYou />
-        <RailUpdate />
+        {/* The two that wear a state, then the person, at the very foot as Codex keeps them. */}
         <RailRecording />
+        <RailUpdate />
+        <RailYou />
       </div>
     </nav>
   );
@@ -103,23 +97,51 @@ function RailYou() {
 }
 
 /**
- * An update that is downloaded and waiting for a restart — and nothing at all otherwise. Main's
- * updater says which state it is in; there is no push, so the window asks each time it comes back
- * to the front, which is when a person could act on the answer.
+ * A newer Realm, at the foot of the rail: the accent disc Codex keeps in the same place. Shown
+ * whenever main's updater knows of a newer version, and nothing at all otherwise — a control for an
+ * update that does not exist is the dead chrome this rail refuses.
+ *
+ * Each state offers only what it can do. An `available` update (its background download failed)
+ * starts the download again. One that is downloading has nothing to press — waiting is the whole of
+ * it — so it is a progress bar, its share drawn round the disc once main has said how far it is. A
+ * downloaded one restarts into it, and wears the restart glyph rather than the download arrow, so
+ * the disc says which of the two a click will do before it is hovered. The version is in every
+ * name, because "an update" is not something a person can decide about.
+ *
+ * Main pushes every change (`updates:changed`), which is what moves the ring; the window also asks
+ * when it comes to the front, the one moment a missed push would matter.
  */
 function RailUpdate() {
   const status = useApp((s) => s.updateStatus);
   const refreshUpdateStatus = useApp((s) => s.refreshUpdateStatus);
+  const watchUpdateStatus = useApp((s) => s.watchUpdateStatus);
+  const downloadUpdate = useApp((s) => s.downloadUpdate);
   const installUpdate = useApp((s) => s.installUpdate);
   const windowActive = useApp((s) => s.windowActive);
   const run = useApp((s) => s.run);
+  useEffect(() => watchUpdateStatus(), [watchUpdateStatus]);
   useEffect(() => { if (windowActive) run(() => refreshUpdateStatus()); }, [windowActive, refreshUpdateStatus, run]);
-  if (status?.state.kind !== "downloaded") return null;
-  const version = status.state.version;
+  const st = status?.state;
+  if (!st || (st.kind !== "available" && st.kind !== "downloading" && st.kind !== "downloaded")) return null;
+  const version = `v${st.version}`;
+  if (st.kind === "downloading") {
+    const percent = st.percent === null ? null : Math.round(st.percent);
+    return (
+      <span className="rail-btn rail-update" data-state="downloading" role="progressbar" aria-label={`Downloading Realm ${version}`}
+        aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined}
+        title={percent === null ? `Downloading Realm ${version}…` : `Downloading Realm ${version} — ${percent}%`}
+        style={percent === null ? undefined : ({ "--update-progress": `${percent}%` } as CSSProperties)}>
+        <span className="rail-update-disc"><Icon name="download" size={14} /></span>
+      </span>
+    );
+  }
+  const ready = st.kind === "downloaded";
   return (
-    <button type="button" className="rail-btn rail-update" aria-label={`Restart to update to v${version}`}
-      title={`v${version} is ready — restart to finish installing`} onClick={() => run(() => installUpdate())}>
-      <Icon name="download" size={18} />
+    <button type="button" className="rail-btn rail-update" data-state={st.kind}
+      aria-label={ready ? `Restart to update to Realm ${version}` : `Download Realm ${version}`}
+      title={ready ? `Realm ${version} is ready — restart to finish installing` : `Realm ${version} is available — download it`}
+      onClick={() => run(() => (ready ? installUpdate() : downloadUpdate()))}>
+      <span className="rail-update-disc"><Icon name={ready ? "reload" : "download"} size={14} /></span>
     </button>
   );
 }

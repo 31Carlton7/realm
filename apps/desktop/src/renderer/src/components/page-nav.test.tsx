@@ -32,7 +32,7 @@ async function mount(overrides: FakeData = {}) {
 
 const sidebar = () => document.getElementById("app-sidebar")!;
 const page = () => document.querySelector(".page-overlay")!;
-const open = (store: Awaited<ReturnType<typeof mount>>["store"], kind: "library-page" | "settings-page" | "connections-page") =>
+const open = (store: Awaited<ReturnType<typeof mount>>["store"], kind: "library-page" | "settings-page" | "agents-page") =>
   act(() => { store.getState().openDestinationPage(kind); });
 
 afterEach(() => cleanup());
@@ -48,7 +48,10 @@ describe("a page's rail in the sidebar's place", () => {
     expect(side.getByRole("radio", { name: "Skills" })).toBeInTheDocument();
     expect(side.getByRole("button", { name: "Back" })).toBeInTheDocument();
     expect(sidebar().querySelector(".sb-list")).toHaveAttribute("hidden");
-    expect(sidebar().querySelector(".sb-header")).toHaveAttribute("hidden");
+    // Back stands where the profile does, at the head of what the column lists — and the profile
+    // goes with the spaces it names.
+    expect(side.getByRole("button", { name: "Back" }).closest(".sb-page-head")).not.toBeNull();
+    expect(side.queryByRole("button", { name: /^Profile:/ })).toBeNull();
     expect(side.queryByRole("button", { name: "New space" })).toBeNull();
     expect(page().querySelector(".page-rail")).toBeNull();
     expect(within(page() as HTMLElement).queryByRole("radio", { name: "Files" })).toBeNull();
@@ -77,10 +80,10 @@ describe("a page's rail in the sidebar's place", () => {
   });
 
   it("leaves the sidebar alone for a page with no rail of its own", async () => {
-    // THE MUTANT: hand the column over for every page — Connections has nothing to put there.
+    // THE MUTANT: hand the column over for every page — the Agents page has nothing to put there.
     const { store } = await mount();
-    await open(store, "connections-page");
-    await screen.findByRole("dialog", { name: "Connections" });
+    await open(store, "agents-page");
+    await screen.findByRole("dialog", { name: "Agents" });
     expect(sidebar().querySelector(".sb-page")).toBeNull();
     expect(sidebar().querySelector(".sb-list")).not.toHaveAttribute("hidden");
   });

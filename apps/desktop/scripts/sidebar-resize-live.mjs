@@ -197,16 +197,17 @@ async function main() {
   const min = await evalIn(c, `__live.metrics()`);
   check("it stops at the minimum", min.sidebar.width === 200, min.sidebar);
   // The floor is a claim about the column's own chrome. The destinations are the rail's now and never
-  // narrow; what is left in the column with a fixed shape is its header — the profile switcher and
-  // the actions beside it — and none of it may be pushed out of the column or under its neighbour at
-  // the narrowest the column goes. (A session TITLE clips at any width — that is the title being long,
-  // not the column being narrow, and it is why the floor is not measured on one.)
+  // narrow; what is left in the column with a fixed shape is its head row — the toggle, search and a
+  // new session at its far end, with the window's own back and forward (WindowLead) at the row's start
+  // — and none of it may be pushed out of the column or under the lead at the narrowest the column
+  // goes. (A session TITLE clips at any width — that is the title being long, not the column being
+  // narrow, and it is why the floor is not measured on one.)
   const head = await evalIn(c, `(() => { const sb = document.querySelector('.sidebar').getBoundingClientRect();
-    const prof = document.querySelector('.sb-header .sb-profile').getBoundingClientRect();
+    const lead = [...document.querySelectorAll('.window-lead button')].at(-1).getBoundingClientRect();
     const acts = [...document.querySelectorAll('.sb-header-actions button')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.getAttribute('aria-label'), left: Math.round(r.left), right: Math.round(r.right) }; });
-    return { sidebarRight: Math.round(sb.right), profileRight: Math.round(prof.right), acts }; })()`);
-  check("the header's actions stay inside the column, clear of the profile switcher, at the narrowest it goes",
-    head.acts.length > 0 && head.acts.every((a) => a.right <= head.sidebarRight && a.left >= head.profileRight), head);
+    return { sidebarRight: Math.round(sb.right), leadRight: Math.round(lead.right), acts }; })()`);
+  check("the head row's actions stay inside the column, clear of the window's back and forward, at the narrowest it goes",
+    head.acts.length > 0 && head.acts.every((a) => a.right <= head.sidebarRight && a.left >= head.leadRight), head);
   save("min", (await c.send("Page.captureScreenshot", { format: "png" })).data);
 
   // ── 4. A widened column still gets out of the way ───────────────────────
@@ -223,7 +224,7 @@ async function main() {
   save("collapsed", (await c.send("Page.captureScreenshot", { format: "png" })).data);
 
   // ── 5. And it is still there on the next launch ─────────────────────────
-  await evalIn(c, `(() => { document.querySelector('button[aria-label^="Show sidebar"]').click(); return true; })()`);
+  await evalIn(c, `(() => { document.querySelector('.window-lead button[aria-label^="Show sidebar"]').click(); return true; })()`);
   await sleep(700);
   const restored = await evalIn(c, `__live.metrics()`);
   check("bringing it back brings back the width it had", restored.sidebar.width === 400, restored.sidebar);

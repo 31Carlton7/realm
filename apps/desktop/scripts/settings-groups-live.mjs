@@ -350,7 +350,7 @@ async function main() {
      The strip is the rail lying down INSIDE the page, which it is only while the page holds its own
      rail: with the sidebar open, Settings' sections are in the sidebar's column (page-nav.tsx). So the
      sidebar is collapsed for this, and the rail comes back into the page where it can lie down. */
-  await evalIn(c, `(() => { document.querySelector('.app-rail button[aria-label^="Hide sidebar"]').click(); return true; })()`);
+  await evalIn(c, `(() => { document.querySelector('.sb-header button[aria-label^="Hide sidebar"]').click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.settings-page-pane .page-rail.settings-rail')`), 5000, "the rail back in the page");
   await size(600);
   await sleep(500);
@@ -374,7 +374,7 @@ async function main() {
   check("…and the content starts under the strip", narrow.col.t >= narrow.lists.b, { col: narrow.col, lists: narrow.lists });
   await shoot(c, "narrow-dark", { x: 0, y: Math.max(0, narrow.rail.t - 60), width: 600, height: 300 });
   await size(1300);
-  await evalIn(c, `(() => { document.querySelector('.app-rail button[aria-label^="Show sidebar"]').click(); return true; })()`);
+  await evalIn(c, `(() => { document.querySelector('.window-lead button[aria-label^="Show sidebar"]').click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.sb-page-nav .page-rail.settings-rail')`), 5000, "the rail back in the sidebar");
   await sleep(400);
 

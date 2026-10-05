@@ -1,5 +1,5 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
-import { destinationTarget, pageItemId } from "./page-item";
+import { destinationTarget, pageHidesSidebar, pageItemId } from "./page-item";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
@@ -13,7 +13,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -510,8 +510,14 @@ export type Api = {
    *  that same state rather than pretending to check. */
   updateStatus(): Promise<UpdateStatus>;
   checkUpdates(): Promise<UpdateStatus>;
+  /** Start the download of an update main knows of and is not fetching; main answers any other
+   *  state unchanged. */
+  downloadUpdate(): Promise<UpdateStatus>;
   /** Quit-and-install; main ignores it unless an update is actually downloaded. */
   installUpdate(): Promise<void>;
+  /** Every change of main's updater state, a download's progress included. Optional: a renderer
+   *  with no preload bridge simply never hears one. */
+  onUpdateStatus?(cb: (status: UpdateStatus) => void): () => void;
   /** Ask main to post an OS toast for a surfaced feed row. Answers whether one was actually shown —
    *  main suppresses it while the Realm window is focused, and that call is main's to make. */
   showDesktopNotification(input: { id: string; title: string; body: string | null }): Promise<boolean>;
@@ -776,6 +782,8 @@ const SETTING_KONAMI_UNLOCKED = "ui.konamiUnlocked";
 /** Whether the sidebar is collapsed to the top rail. Persisted so a collapsed window stays
  *  collapsed across launches — the whole point of collapsing is reclaiming the column for good. */
 const SETTING_SIDEBAR_COLLAPSED = "ui.sidebarCollapsed";
+/** The side panes put away (`toggleSidePanes`): their tabs kept, the panes not drawn. */
+const SETTING_SIDE_PANES_HIDDEN = "ui.sidePanesHidden";
 /** How wide the sidebar column is, in pixels. Its own key rather than a field on the one above: the
  *  two answer different questions, and a width remembered through a collapse is what makes bringing
  *  the sidebar back restore the column the user had rather than the one Realm ships. */
@@ -978,6 +986,15 @@ export type AppState = {
   /** Sidebar hidden, its toggle moved to the top rail. The toggle is rendered in BOTH states —
    *  a collapse with no way back is a trap — which is why this is one boolean and not a mode. */
   sidebarCollapsed: boolean;
+  /** The side panes put away by the toggle at the window's top right: every side pane's tabs stay
+   *  open — mounted, a browser's page and an agent's hold on it included — and none is drawn, so
+   *  the panes they serve take the width. Window-wide rather than per pane, because it is one
+   *  control. Persisted, as the window's other arrangements are. */
+  sidePanesHidden: boolean;
+  /** The page that takes the sidebar away (`PAGE_SHELL`) on which the person asked for it back
+   *  anyway — that overlay itself, so the ask ends with the page and never touches their own
+   *  `sidebarCollapsed`. Read through `sidebarHidden` (selectors.ts), never on its own. */
+  sidebarOnPage: AppState["pageOverlay"];
   /** The column's width in pixels, inside SIDEBAR_WIDTH's range. Top-level because the shell paints
    *  it and the handle inside the sidebar writes it. */
   sidebarWidth: number;
@@ -1684,7 +1701,8 @@ export type AppState = {
   forgetEggPack(id: string): Promise<void>;
   /** Record that the konami sequence landed. One way: there is no relocking. */
   unlockKonami(): Promise<void>;
-  /** Flip the sidebar between full column and top rail, and persist it. */
+  /** Flip the sidebar between full column and top rail, and persist it. On a page that takes the
+   *  sidebar away it shows or hides it for that page alone, and persists nothing. */
   toggleSidebar(): Promise<void>;
   /** Lay the session file browser out as `view`, and remember it (`SETTING_FILES_VIEW`). */
   setFilesView(view: FilesView): Promise<void>;
@@ -1786,8 +1804,17 @@ export type AppState = {
    *
    * `focus` moves the keyboard to it, for a person who asked; an agent's open leaves the keyboard
    * where it is, and its tab comes to the front of the strip without taking anything else.
+   *
+   * THE way something becomes a tab of a session's side pane: every tool a session's bar opens
+   * (terminal, documents, browser, machine, simulator) and every agent's open lands here, whatever
+   * kind it is — make the item, then hand it to this. A person's open (`focus`) also brings the side
+   * panes back if they were put away (`sidePanesHidden`); an agent's quiet one adds its tab and
+   * leaves them as the person left them.
    */
   openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean }): Promise<boolean>;
+  /** The toggle at the window's top right: put every side pane away with its tabs, or bring them
+   *  back. With none on screen it opens one, on a new tab, beside the session in focus. */
+  toggleSidePanes(): Promise<void>;
   /** A tab moved within its strip (drag to reorder). */
   moveTab(leafId: string, itemId: string, index: number): Promise<void>;
   /**
@@ -2452,8 +2479,12 @@ export type AppState = {
   /** Run a real update check (or receive the disabled state unchanged — main's gate decides).
    *  The interim `checking` shown is main's genuine in-flight state, not renderer theatre. */
   checkForUpdates(): Promise<void>;
+  /** Fetch an update main knows of but is not downloading (`available`) — a no-op in main otherwise. */
+  downloadUpdate(): Promise<void>;
   /** Restart into a downloaded update; a no-op in main unless one is actually downloaded. */
   installUpdate(): Promise<void>;
+  /** Hold `updateStatus` to main's every change while the returned stop has not been called. */
+  watchUpdateStatus(): () => void;
   /** Fetch the feed's first page (replacing what is held — sized to cover at least what was showing,
    *  so a refetch triggered by `notifications.changed` never shrinks the visible list). */
   refreshNotifications(): Promise<void>;
@@ -2752,6 +2783,11 @@ export type FocusDir = "left" | "right" | "up" | "down";
  * depend on the origin leaf's cross-axis position, which the tree does not encode. Null = no
  * neighbor that way (callers no-op).
  */
+/** Every side pane in the layout — the tabbed leaves, on screen or put away. */
+export function sidePaneLeaves(l: Layout): LayoutLeaf[] {
+  return l.type === "leaf" ? (l.tabs ? [l] : []) : l.children.flatMap(sidePaneLeaves);
+}
+
 export function neighborLeafId(l: Layout, leafId: string, dir: FocusDir): string | null {
   const axis = dir === "left" || dir === "right" ? "row" : "col";
   const forward = dir === "right" || dir === "down";
@@ -3432,6 +3468,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * not a reason to close what someone is reading.
      */
     const revealPanes = () => { if (get().pageOverlay) set({ pageOverlay: null }); };
+    /** Bring the side panes back if they were put away: a person just asked to look at something in
+     *  one (a tool from a session's bar, a tab, a row whose item is a tab), and a keyboard parked in
+     *  a pane nobody can see is a click that missed. */
+    const revealSidePanes = () => {
+      if (!get().sidePanesHidden) return;
+      set({ sidePanesHidden: false });
+      void api.setSetting(SETTING_SIDE_PANES_HIDDEN, false).catch(() => {});
+    };
 
     /** The newest session of a space that has a pane to open — by the session's own `updatedAt`,
      *  which is what "most recent" means to the person who last worked on it. */
@@ -3775,7 +3819,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, toasts: [], toastReserve: null,
+      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidePanesHidden: false, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
@@ -3798,7 +3842,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_SIDEBAR_OPEN_SPACES), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
@@ -3811,6 +3855,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.systemInfo().catch(() => ({ machineName: "", userName: "", detachedSince: null })),
           // Same posture: a face that fails to load is an initial, never a failed boot.
           api.getAvatar().catch(() => null),
+          api.getSetting(SETTING_SIDE_PANES_HIDDEN),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         /* The panes' own value, or — in a home saved while one control moved both — the value that
@@ -3828,6 +3873,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, lowPower: lowPower === true,
           paneAlpha: carriedPane, reduceMotion: isReducedMotionPref(motion) ? motion : REDUCED_MOTION_DEFAULT,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
+          sidePanesHidden: sidePanesHidden === true,
           sidebarWidth: typeof sidebarWidth === "number" ? clampSidebarWidth(sidebarWidth) : SIDEBAR_WIDTH.default,
           // Rows unless the row says cards: an unset key, and a word a newer build wrote that this
           // one does not know, both get the layout the panel shipped with.
@@ -4291,6 +4337,11 @@ await get().refreshCustomThemes().catch(() => {});
         await api.setSetting(SETTING_KONAMI_UNLOCKED, true);
       },
       async toggleSidebar() {
+        // A page with no sidebar of its own (PAGE_SHELL) gives it back for this visit only: ⌘B there
+        // is a person asking to see their spaces beside the page, not changing what every other
+        // screen does — and leaving the page leaves their own setting exactly as it was.
+        const page = get().pageOverlay;
+        if (page && pageHidesSidebar(page.kind)) { set({ sidebarOnPage: get().sidebarOnPage === page ? null : page }); return; }
         const next = !get().sidebarCollapsed;
         set({ sidebarCollapsed: next });
         await api.setSetting(SETTING_SIDEBAR_COLLAPSED, next);
@@ -4451,12 +4502,33 @@ await get().refreshCustomThemes().catch(() => {});
         const leaf = findLeafOfItem(layout, itemId)!;
         if (opts.focus) {
           revealPanes();
+          revealSidePanes();
           set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
         } else {
           set(writeView({ ...view, layout }));
         }
         await persist();
         return true;
+      },
+      async toggleSidePanes() {
+        const layout = get().layout ?? emptyLayout();
+        if (!sidePaneLeaves(layout).length) {
+          // None to show or hide: the toggle is the way to the side pane, as Codex's is to its panel,
+          // so it opens one — on a new tab, beside the session the keyboard is in or the first one on
+          // screen. With no session there is nothing for a side pane to serve, and nothing happens.
+          const owner = get().peekOwner();
+          const leaf = owner ? findLeafOfItem(layout, owner) : null;
+          if (!leaf) return;
+          set({ focusedLeafId: leaf.id });
+          await get().newTab();
+          return;
+        }
+        const hidden = !get().sidePanesHidden;
+        // The keyboard does not stay in a pane that has just gone: it goes to the session it served.
+        const focused = get().focusedLeafId ? findLeaf(layout, get().focusedLeafId!) : null;
+        const back = hidden && focused?.tabs ? columnOf(layout, focused.id)?.id ?? null : null;
+        set({ sidePanesHidden: hidden, ...(back ? { focusedLeafId: back } : {}) });
+        await api.setSetting(SETTING_SIDE_PANES_HIDDEN, hidden);
       },
       async moveTab(leafId, itemId, index) {
         const layout = get().layout; if (!layout) return;
@@ -4527,6 +4599,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (!layout) return false;
         const leaf = findLeafOfItem(layout, item.id)!;
         revealPanes();
+        revealSidePanes();
         set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id, peek: { item, owner } }));
         return true;
       },
@@ -4571,6 +4644,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (leafId === null) {
           const at = findLeafOfItem(current, itemId);
           if (at) {
+            if (at.tabs) revealSidePanes();
             // A tab behind another: "go there" means bringing it to the front of its strip too.
             const fronted = at.itemId === itemId ? view : { ...view, layout: layoutOpen(current, at.id, itemId) };
             // …and a pane focus parked on ANOTHER leaf would swallow the move: the pane asked for is
@@ -4593,6 +4667,7 @@ await get().refreshCustomThemes().catch(() => {});
         else if (focused?.tabs && item?.kind !== "session") layout = layoutOpen(current, focused.id, itemId);
         else layout = showInView(current, peekColumn ?? get().focusedLeafId, itemId);
         const leaf = findLeafOfItem(layout, itemId);
+        if (leaf?.tabs) revealSidePanes();
         set(writeView(revealing({ ...view, layout }, leaf?.id ?? null), { focusedLeafId: leaf?.id ?? null }));
         await persist();
       },
@@ -4771,7 +4846,8 @@ await get().refreshCustomThemes().catch(() => {});
         const { layout, focusedLeafId } = get();
         if (!layout || !focusedLeafId) return;
         const next = neighborLeafId(layout, focusedLeafId, dir);
-        if (next) set({ focusedLeafId: next });
+        // Not into a side pane that is put away: the keyboard would be somewhere nobody can see.
+        if (next && !(get().sidePanesHidden && findLeaf(layout, next)?.tabs)) set({ focusedLeafId: next });
       },
       resizeSplit(splitId, sizes) {
         const l = get().layout; if (!l) return;
@@ -6553,7 +6629,9 @@ await get().refreshCustomThemes().catch(() => {});
         if (held && held.state.kind !== "disabled") set({ updateStatus: { ...held, state: { kind: "checking" } } });
         set({ updateStatus: await api.checkUpdates() });
       },
+      async downloadUpdate() { set({ updateStatus: await api.downloadUpdate() }); },
       async installUpdate() { await api.installUpdate(); },
+      watchUpdateStatus() { return api.onUpdateStatus?.((status) => set({ updateStatus: status })) ?? (() => {}); },
       async refreshNotifications() {
         // Sized to cover what is already showing: a refetch triggered by a broadcast must not shrink
         // the list the user is scrolled into. Capped at the wire's own limit.

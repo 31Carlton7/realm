@@ -3,20 +3,21 @@ import { Icon } from "@realm/ui";
 import { useState } from "react";
 import { FALLBACK_AGENT, useApp } from "../../state/store";
 import { REALM_NEW_SESSION_TYPE } from "../drag-types";
-import { ProfileSwitcher } from "./ProfileSwitcher";
+import { SidebarToggle } from "./SidebarToggle";
 import { useChord } from "./use-sidebar-model";
-import { WindowNav } from "./WindowNav";
 
 /**
- * The sidebar's head row, in the same 40px band as the traffic lights beside it: the profile, then
- * search and a new session (Plan 27).
+ * The sidebar's head row, in the traffic lights' 40px band: its own toggle, search and a new session,
+ * at the column's far end (Plan 27, as Codex lays its top row out).
+ *
+ * The row's start belongs to the window, not the column: the lights and back and forward sit there
+ * whether or not there is a sidebar (WindowLead), and this row's content is clipped clear of them as
+ * it slides (`.sb-header`). The profile is the column's first row under it (`.sb-title`).
  *
  * A new session goes into the space you are in — today's room, the space of the session in focus.
  * Each space's section offers its own + on hover, and Quick chat is a keystroke rather than a row.
- * The profile's name is the one thing here of unbounded length, so it is what gives way to the two
- * glyphs; neither of them ever shrinks.
  */
-export function SidebarHeader({ hidden = false }: { hidden?: boolean } = {}) {
+export function SidebarHeader() {
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   // The tooltip names the agent you will actually get: the last one used, else Realm's fallback.
@@ -26,12 +27,9 @@ export function SidebarHeader({ hidden = false }: { hidden?: boolean } = {}) {
   const newSession = useChord("session.new");
   const [dragging, setDragging] = useState(false);
   return (
-    <div className="sb-header" hidden={hidden || undefined}>
-      <ProfileSwitcher />
-      {/* The window's back and forward: the head row is the window's, and the profile is where you
-          are, so where you were goes beside it (WindowNav). */}
-      <WindowNav />
+    <div className="sb-header">
       <span className="sb-header-actions">
+        <SidebarToggle />
         <button type="button" className="icon-btn" aria-label="Search" title={search ? `Search (${search})` : "Search"}
           onClick={() => setPaletteOpen(true)}><Icon name="search" size={14} /></button>
         {/* Draggable as the old row was: dropped on a pane, it puts a new session there. */}

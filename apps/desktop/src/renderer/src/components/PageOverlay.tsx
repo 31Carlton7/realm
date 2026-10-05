@@ -1,6 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useRef, type CSSProperties } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef } from "react";
 import { PaneFor } from "../panes/registry";
 import { PAGE_LABEL, pageItemOf } from "../state/page-item";
 import { InPageOverlay } from "./page-nav";
@@ -18,7 +17,9 @@ import { useApp } from "../state/store";
  *
  * So it is an overlay, and one at a time. It covers the pane host and nothing else — the rail and the
  * sidebar stay reachable, because the buttons that open these pages are in the rail and a cover that
- * hid them would make the only way out the one control this draws.
+ * hid them would make the only way out the one control this draws. It is drawn inside the panes' own
+ * column (AppShell's `.main`) rather than over the window, so its box is the panes' box in every frame:
+ * when the sidebar opens or closes, the page, its bar and the panes under it move as one.
  *
  * The page components are untouched. What they want from an `Item` is a kind, a refId and the space
  * to read from; `pageItemOf` hands them exactly that, built rather than stored.
@@ -26,10 +27,6 @@ import { useApp } from "../state/store";
 export function PageOverlay() {
   const page = useApp((s) => s.pageOverlay);
   const close = useApp((s) => s.closePageOverlay);
-  // The overlay is portalled to `body`, so it cannot read the collapse or the column's width off
-  // `.app` as a descendant — it carries both itself, and the stylesheet insets it past them.
-  const sidebarCollapsed = useApp((s) => s.sidebarCollapsed);
-  const sidebarWidth = useApp((s) => s.sidebarWidth);
   const ref = useRef<HTMLDivElement>(null);
 
   /* Escape closes, and nothing else does from the keyboard. Registered while the overlay is up, so
@@ -49,12 +46,10 @@ export function PageOverlay() {
   const item = useMemo(() => (page ? pageItemOf(page) : null), [page]);
   if (!page || !item) return null;
 
-  return createPortal(
+  return (
     // Not `aria-modal`: the rail and the sidebar stay live beside it, and a page's own sections may be
     // drawn in the sidebar's column (page-nav.tsx) — a modal claim would hide them from a screen reader.
-    <div className="page-overlay" role="dialog" aria-label={PAGE_LABEL[page.kind] ?? "Page"}
-      data-sidebar-collapsed={sidebarCollapsed || undefined} ref={ref} tabIndex={-1}
-      style={{ "--sidebar-w": `${sidebarWidth}px` } as CSSProperties}>
+    <div className="page-overlay" role="dialog" aria-label={PAGE_LABEL[page.kind] ?? "Page"} ref={ref} tabIndex={-1}>
       <header className="page-overlay-bar">
         <Icon name={page.kind} size={14} className="page-overlay-mark" />
         <span className="page-overlay-title">{PAGE_LABEL[page.kind] ?? "Page"}</span>
@@ -68,7 +63,6 @@ export function PageOverlay() {
       <div className="page-overlay-body">
         <InPageOverlay value={true}><PaneFor item={item} visible focused /></InPageOverlay>
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }
