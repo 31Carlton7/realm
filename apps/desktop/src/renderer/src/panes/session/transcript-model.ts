@@ -1,4 +1,4 @@
-import { AskCardSchema, askCardFromAskUserQuestion, type AcpSessionMode, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { AskCardSchema, askCardFromAskUserQuestion, type AcpSessionMode, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges } from "@realm/contracts";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
@@ -19,7 +19,9 @@ export type Block =
   /** `background` is set only on a call that launched a BACKGROUND sub-agent: `running` from the
    *   moment the launch result lands, `stopped` when the harness notifies. Absent on every ordinary
    *   call, including a blocking sub-agent — whose "still going" is simply `result === null`. */
-  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; ts: number }
+  /** `toolKind` and `paths` are an ACP call's own account of itself (the `tool_call` event's `kind`
+   *  and `paths`) — absent for every other agent, whose tool names say both. */
+  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; toolKind?: string; paths?: string[]; ts: number }
   /** `fix` is the thing to do about it, carried from the server on the failures where Realm knows
    *   one (today: an auth failure it re-probed). Absent on every other error, which is most of
    *   them — a block that invented a remedy would be worse than the bare message. */
@@ -96,7 +98,14 @@ export type Block =
       /** The user pressed stop. The line says so instead of reporting the work as finished — and it
        *  is the only thing the transcript keeps about a cancelled turn, because the harness's own
        *  diagnostic for one is a fact about an API call, not about anything the reader did. */
-      stopped?: boolean };
+      stopped?: boolean;
+      /** The turn ended on a failure: the harness settled it with `error`, or the last thing it left
+       *  in the log is the error it died on. The line says "Failed after", because the run label's
+       *  playful past tense reads as a job that finished. Never set alongside `stopped`. */
+      failed?: boolean;
+      /** Measured from the user's message rather than from a `running` status, because the turn never
+       *  reported one (see `unsettledTurn`). The line uses plain words for it, not the run's verb. */
+      derived?: boolean };
 
 export type Rating = "up" | "down";
 /** `ask` is set when the request is a question — the card Realm wrote for it (`permission_request.ask`). */
@@ -146,6 +155,11 @@ export type Transcript = {
    *  the ordinary case — no generator, no Claude CLI, a decline, or a turn the user has already
    *  answered — and it is exactly when the prompter falls back to the deterministic ladder. */
   promptHint: { text: string; throughSeq: number } | null;
+  /** What each turn did to its checkout, as git measured it at the settle (`turn_changes`), keyed by
+   *  the `ts` of the run line it belongs to. Keyed rather than placed, because the measurement lands
+   *  after the settle — sometimes after the next message has already gone — and must still sit with
+   *  its own turn. Optional: absent on every transcript nothing has been measured in. */
+  changes?: Record<number, TurnChanges>;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
@@ -201,6 +215,32 @@ const dropPending = (blocks: Block[]): Block[] => {
 
 const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for (let i = blocks.length - 1; i >= 0; i--) if (pred(blocks[i]!)) return i; return -1; };
 
+/** What the agent said or did, as opposed to the seams and marks Realm draws around it. */
+const AGENT_OUTPUT = new Set<Block["kind"]>(["assistant", "thinking", "tool", "error", "plan"]);
+
+/**
+ * The trailing turn, when it produced something and was never banked as a run.
+ *
+ * The run line is written when a `running` status settles, and a turn that failed before its agent
+ * ever reported running — a CLI that would not start, a send into an adapter that had already exited
+ * — never opened one. It still has two real timestamps, the message that asked and the last thing
+ * that came back, and those are enough to say when it ended and how long it took. Null when the turn
+ * already has its run line, has produced nothing yet, or has no message of the user's to measure from.
+ */
+function unsettledTurn(blocks: readonly Block[]): { startedAt: number; lastTs: number; failed: boolean } | null {
+  let last: Block | null = null;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]!;
+    if (b.kind === "run") return null;
+    if (b.kind === "user") return last ? { startedAt: b.ts, lastTs: last.ts, failed: last.kind === "error" } : null;
+    if (!last && AGENT_OUTPUT.has(b.kind)) last = b;
+  }
+  return null;
+}
+
+const derivedRun = (u: { startedAt: number; failed: boolean }, ts: number): Block =>
+  ({ kind: "run", ms: Math.max(0, ts - u.startedAt), startedAt: u.startedAt, ts, derived: true, ...(u.failed ? { failed: true } : {}) });
+
 /** Pure reducer: normalized session events → what the transcript renders. Deltas accumulate into the open
  *  streaming assistant block; the final `assistant_text` replaces it. */
 /**
@@ -218,7 +258,15 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
        written about the turn that had just ended, and the moment the user sends anything it is a
        suggestion about a turn that is no longer the last one. The prompter shows the deterministic
        ladder in the gap until the next settle produces a new one. */
-    case "user_message": blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ts: e.ts }); return { ...t, blocks, promptHint: null };
+    case "user_message": {
+      // The turn before this one never settled into a run line: it is closed at the last thing it
+      // produced, ahead of the unseen mark if this event carries one — it is the end of a turn the
+      // reader has already seen.
+      const open = t.run ? null : unsettledTurn(t.blocks);
+      if (open) blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
+      blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ts: e.ts });
+      return { ...t, blocks, promptHint: null };
+    }
     case "assistant_delta": {
       if (last?.kind === "assistant" && last.messageId === e.payload.messageId && last.streaming) blocks[blocks.length - 1] = { ...last, text: last.text + e.payload.delta };
       else blocks.push({ kind: "assistant", messageId: e.payload.messageId, text: e.payload.delta, streaming: true, ts: e.ts });
@@ -239,7 +287,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
         const b = q >= 0 ? blocks[q] : undefined;
         if (b && b.kind === "question") { blocks[q] = { ...b, toolUseId: e.payload.toolUseId }; return { ...t, blocks }; }
       }
-      blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}), result: null, ts: e.ts });
+      blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}),
+        ...(e.payload.kind ? { toolKind: e.payload.kind } : {}), ...(e.payload.paths?.length ? { paths: e.payload.paths } : {}), result: null, ts: e.ts });
       return { ...t, blocks };
     }
     case "tool_result": {
@@ -338,6 +387,9 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     case "prompt_hint":
       return t.promptHint && t.promptHint.throughSeq > e.payload.throughSeq ? t
         : { ...t, promptHint: { text: e.payload.text, throughSeq: e.payload.throughSeq } };
+    // Beside the blocks, not among them: it belongs to a run line that is already on screen.
+    case "turn_changes":
+      return { ...t, changes: { ...t.changes, [e.payload.settledAt]: e.payload } };
     case "feedback": {
       const { [e.payload.messageId]: _prev, ...rest } = t.feedback;
       return { ...t, feedback: e.payload.rating ? { ...rest, [e.payload.messageId]: e.payload.rating } : rest };
@@ -404,12 +456,22 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
           return { ...t, run: { ...run, waitingSince: e.ts } };
         // idle / error / ended all settle the run. Each also arrives with no run open — an adapter
         // announces `idle` when it boots and `ended` after the `idle` that closed the last turn — and
-        // there the event is nothing: no clock was started, so there is no span to report.
+        // there the event is nothing: no clock was started, so there is no span to report. Unless the
+        // turn produced something without ever starting one (`unsettledTurn`), which still gets its
+        // line, dated at the last thing it produced rather than at whenever the adapter went quiet.
         default: {
-          if (!run) return t;
+          if (!run) {
+            const open = unsettledTurn(t.blocks);
+            if (!open) return t;
+            blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
+            return { ...t, blocks };
+          }
           const waited = run.waitedMs + (run.waitingSince === null ? 0 : e.ts - run.waitingSince);
+          // A stop wins over a failure: the harness's diagnostic for a cancelled turn is about the
+          // API call it cut short, and the reader pressed stop — that is what the line has to say.
+          const failed = e.payload.status === "error" || last?.kind === "error";
           blocks.push({ kind: "run", ms: Math.max(0, e.ts - run.startedAt - waited), startedAt: run.startedAt, ts: e.ts,
-            ...(e.payload.interrupted ? { stopped: true } : {}) });
+            ...(e.payload.interrupted ? { stopped: true } : failed ? { failed: true } : {}) });
           return { ...t, blocks, run: null };
         }
       }

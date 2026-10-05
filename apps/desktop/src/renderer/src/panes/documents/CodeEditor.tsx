@@ -11,7 +11,7 @@ import { EDITOR_CURSOR_BLINK_RATE } from "@realm/contracts";
 import { codeLanguageFor, type CodeLanguage } from "./code-languages";
 import { loadCodeMode } from "./code-modes";
 import { realmCodeTheme } from "./code-theme";
-import { useScrollMemory } from "../scroll-memory";
+import { forgetScroll, useScrollMemory } from "../scroll-memory";
 
 /**
  * The source editor for a `code` document (CodeMirror 6).
@@ -59,6 +59,11 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
    *  rebuilding would throw away the undo history and the cursor on every keystroke. */
   const handlers = useRef({ onChange, onSave });
   handlers.current = { onChange, onSave };
+  /** The line asked for as the view is BUILT: a remembered scroll position must not be restored over
+   *  it — the restore keeps re-applying itself while the content settles — so the mark is forgotten
+   *  before the scroller is attached. */
+  const revealAtBuild = useRef(reveal);
+  revealAtBuild.current = reveal;
   /** The last document this editor produced, to recognise its own value arriving back as a prop. */
   const lastEmitted = useRef<string | null>(null);
   /** What the pane currently holds. Read when a view is BUILT — which is usually mount, but is also
@@ -135,6 +140,7 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
     /* The scroller is CodeMirror's own element, not one React rendered, so the hook cannot be
        attached as a ref and is called by hand. Its ref-callback cleanup is real (it removes the
        scroll listener and the settle loop) and is simply not in the hook's `void` return type. */
+    if (revealAtBuild.current !== null && scrollKey) forgetScroll(scrollKey);
     const detach = (attachScroll as (el: HTMLElement | null) => (() => void) | void)(v.scrollDOM);
     return () => {
       // `void` in the hook's return type, a real cleanup at runtime — checked rather than cast twice.

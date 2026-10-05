@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type SessionStatus, type AskAnswers } from "@realm/contracts";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { fileMark } from "./mention-sources";
 import { CommandCopy } from "../../components/CommandCopy";
@@ -13,10 +13,14 @@ import { sourcesFor, type Source } from "./message-sources";
 import { PendingRequest } from "./PendingRequest";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion } from "./QuestionCard";
-import { ToolCard, ToolGroup } from "./ToolCard";
+import { ToolCard, ToolCwd, ToolGroup } from "./ToolCard";
 import { LeadSessionContext } from "./DelegationLine";
-import { finishedAt, finishedOn, formatDuration, groupTranscript, withEnter } from "./tool-group";
-import { blockKey, lastUserMessage, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
+import { formatDuration, groupTranscript, withEnter } from "./tool-group";
+import { blockKey, lastUserMessage, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
+import { stampLabel, stampTitle, useNow } from "./timestamps";
+import { touchedFiles, type FileLinkContext } from "./file-links";
+import { EditSummary } from "./EditSummary";
+import { turnEdits, undoOffer, type TurnEdits } from "./turn-edits";
 import { useDissolve } from "../../components/ScrollFades";
 import { runLabelFor, type RunLabel } from "./run-label";
 import { formatTokens } from "./SessionUsage";
@@ -28,6 +32,14 @@ import { SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type S
 
 /** Permission cards share the blocks' key space; the prefix keeps a requestId from colliding with one. */
 const permKey = (requestId: string) => `perm:${requestId}`;
+/** A turn's edit card, keyed off the run line it sits above. */
+const editKey = (runKey: string) => `edit:${runKey}`;
+/** A turn's measured changes, listed the way its card lists them (in the order the turn edited
+ *  them), so Review opens on the files in the order the reader just read them. */
+const inCardOrder = (c: TurnChanges, card: TurnEdits): TurnChanges => {
+  const byPath = new Map(c.files.map((f) => [f.path, f]));
+  return { ...c, files: card.files.map((f) => byPath.get(f.shown)).filter((f): f is TurnChanges["files"][number] => f !== undefined) };
+};
 
 function Thinking({ text, enter }: { text: string; enter?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -37,6 +49,20 @@ function Thinking({ text, enter }: { text: string; enter?: boolean }) {
       {open && <Markdown text={text} className="thinking-body" />}
     </div>
   );
+}
+
+/**
+ * What a settled turn's line says about it. The run's own verb in the past tense — "Simmered for 4s"
+ * under the "Simmering…" the reader was watching — except where that would misreport the turn: one
+ * the user stopped, one that failed, and one measured from the outside because it never reported
+ * running, which has no verb of its own to settle into.
+ */
+function runSummary(b: Extract<Block, { kind: "run" }>, eggs: boolean, packLabels: readonly RunLabel[]): string {
+  const took = formatDuration(b.ms);
+  if (b.stopped) return `Stopped after ${took}`;
+  if (b.failed) return `Failed after ${took}`;
+  if (b.derived) return `Worked for ${took}`;
+  return `${runLabelFor(b.startedAt, undefined, eggs, packLabels).past} for ${took}`;
 }
 
 /** Stable empty default: a fresh array per render would re-run the label memo every keystroke. */
@@ -152,10 +178,13 @@ function UserAttachments({ attachments }: { attachments: readonly { path: string
  * strip that appeared, changed and disappeared as the sentence completed would be worse than one
  * that waits for the full stop.
  */
-function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetry, retryBusy, rating, onRate, onPath, onImplementWith, sources = NO_SOURCES }: {
+function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetry, retryBusy, rating, onRate, onPath, onImplementWith, sources = NO_SOURCES, fileLinks }: {
   text: string; streaming: boolean; enter: boolean; cwd: string | null;
   /** Hand this answer to other models as the work to build — see `Transcript`'s prop. */
   onImplementWith?: (text: string) => void;
+  /** The checkout, for the files this message names — handed over only once it has finished, for
+   *  the media strip's reason: half a path is a different path. */
+  fileLinks?: FileLinkContext;
   /** A file path in the prose was clicked. Absent in the read-only mounts, which leave paths as
    *  plain text rather than drawing a control that opens nothing. */
   onPath?: (path: string, at: HTMLElement) => void;
@@ -175,7 +204,7 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
     // direct children only, and the message stopped being one the moment it grew a wrapper.
     <div className="msg-assistant-row" data-enter={enter || undefined}
       data-state={streaming ? "streaming" : "complete"} aria-busy={streaming}>
-      <Markdown className="msg-assistant" text={text} cite={cite} onPath={onPath} arrive />
+      <Markdown className="msg-assistant" text={text} cite={cite} onPath={onPath} arrive files={streaming ? undefined : fileLinks} />
       <MediaStrip files={files} />
       {actions && !streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate}
         onImplementWith={onImplementWith && (() => onImplementWith(text))} />}
@@ -187,7 +216,7 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
   /** The session this log is — what a sub-agent's line links back to (its row in this session's
    *  Agents tab). Null in the read-only mounts, where the line reads and links nowhere. */
@@ -195,6 +224,15 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   /** Hand a plan, or an answer, to other models: the Agents tab, opened with it. Absent in the
    *  read-only mounts, which draw no button for it rather than a dead one. */
   onImplementWith?: (text: string) => void;
+  /** The session's checkout and how to open a file in it — what turns a file the prose names into a
+   *  link (file-links.ts). Null in the read-only mounts, which leave those names as text. `onOpen`
+   *  must be stable: it is part of what every finished message re-checks its links against. */
+  checkout?: { root: string; onOpen: (path: string, line: number | null) => void } | null;
+  /** What the "Edited N files" cards need beyond the checkout: whose turns these are, every
+   *  checkpoint in the checkout (what decides whether Undo is honest), and where Review and Undo go.
+   *  Null in the read-only mounts, which draw no card. */
+  turnEditing?: { sessionId: string; checkpoints: readonly Checkpoint[] | undefined;
+    onReview: (changes: TurnChanges, asked: string | null) => void; onUndo: (checkpointId: string) => void } | null;
   /** Ask the last user message again. Offered on the newest assistant message only: "retry" names
    *  the turn that just finished, and a button on message three of forty would silently act on
    *  message forty instead. Absent in the read-only mounts the suite and the fork preview use. */
@@ -299,9 +337,15 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   }, [transcript.blocks]);
   // §6: 180ms enter, new items only. Everything on screen at mount is seeded as already-seen, so
   // re-rendering, scrolling, or coming back to this session never replays an entrance.
+  /* Each settled turn's edits, and every turn as Undo weighs it (turn-edits.ts). The card is its own
+     entry in the enter tracker: it lands a beat after its run line, when git's account arrives. */
+  const edits = useMemo(() => (turnEditing
+    ? turnEdits(transcript.blocks, { changes: transcript.changes, checkpoints: turnEditing.checkpoints, sessionId: turnEditing.sessionId, cwd, root: checkout?.root ?? null })
+    : null), [transcript.blocks, transcript.changes, turnEditing, cwd, checkout?.root]);
   const isEntering = useEnterTracker([
     ...transcript.blocks.map(blockKey),
     ...permissions.map((p) => permKey(p.requestId)),
+    ...[...(edits?.cards.keys() ?? [])].map(editKey),
   ]);
 
   /* The ONE place the pin is written, so the pin and the remembered mark can never disagree — and
@@ -384,6 +428,20 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
      the pane bar rules no line — without it a message scrolling up to the bar arrives at a hard cut. */
   useDissolve(ref);
   const wrap = useRef<HTMLDivElement>(null);
+  // The reader's day, for choosing how each timestamp is said — never for what time it says.
+  const now = useNow();
+  /* What a bare file name in the prose may resolve to. Kept as the SAME set while its contents hold:
+     every streaming delta rebuilds the block list, and a new set each time would have every finished
+     message on screen re-check its links once per token. */
+  const touchedRef = useRef<Set<string> | null>(null);
+  const touched = useMemo(() => {
+    const next = cwd ? touchedFiles(transcript.blocks, transcript.changes, cwd) : null;
+    const prev = touchedRef.current;
+    if (prev && next && prev.size === next.size && [...next].every((p) => prev.has(p))) return prev;
+    return (touchedRef.current = next);
+  }, [cwd, transcript.blocks, transcript.changes]);
+  const fileLinks = useMemo<FileLinkContext | undefined>(() => (checkout && cwd && touched
+    ? { cwd, root: checkout.root, known: touched, onOpen: checkout.onOpen } : undefined), [checkout, cwd, touched]);
 
   return (
     <div className="transcript-wrap" ref={wrap}>
@@ -395,6 +453,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
       <div className="transcript" ref={ref} onScroll={onScroll} role="log" aria-live="polite" aria-label="Transcript">
         <LeadSessionContext.Provider value={sessionId}>
         <div className="transcript-col">
+        <ToolCwd.Provider value={cwd}>
         {groupTranscript(transcript.blocks).map((it) => {
           if (it.kind === "group")
             // The group container itself never animates in: when a run crosses the grouping
@@ -421,9 +480,14 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                 {b.goal
                   ? <GoalTurn kind={b.goal} text={b.text} />
                   : b.text && <UserText text={b.text} mentionIds={mentionIds} refs={b.refs} appIcons={appIcons} />}
+                {/* When it was sent, under the bubble — shown to the pointer, and to the keyboard,
+                    which is why it takes focus: a time only a mouse can reveal is one a keyboard
+                    reader never gets. */}
+                <time className="msg-user-at" dateTime={new Date(b.ts).toISOString()} title={stampTitle(b.ts)}
+                  aria-label={`Sent ${stampTitle(b.ts)}`} tabIndex={0}>{stampLabel(b.ts, now)}</time>
               </div>);
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
-              actions={settled && key === lastAssistantKey} onPath={onPath} onImplementWith={onImplementWith}
+              actions={settled && key === lastAssistantKey} onPath={onPath} onImplementWith={onImplementWith} fileLinks={fileLinks}
               onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy}
               rating={transcript.feedback[b.messageId] ?? null}
               onRate={onRate && ((r) => onRate(b.messageId, r))}
@@ -452,13 +516,27 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             // long did that take" is a question asked after the fact, not during.
             // A turn the user stopped says so, on the same quiet line and in the same place. It does
             // not get the run's playful past tense: "Simmered for 4s" reads as a job that finished.
-            case "run": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>
-              <span>{b.stopped ? `Stopped after ${formatDuration(b.ms)}` : `${runLabelFor(b.startedAt, undefined, eggs, packLabels).past} for ${formatDuration(b.ms)}`}</span>
-              {/* When it finished. A duration alone reads the same whether the run ended a minute
-                  ago or last Tuesday, and a transcript you come back to is where that matters. The
-                  full date rides the tooltip, because a clock time is ambiguous across midnight. */}
-              <span className="msg-run-at" title={finishedOn(b.ts)}>{finishedAt(b.ts)}</span>
-            </div>;
+            case "run": {
+              /* What the turn changed, just above the line that closes it — the "Edited N files" card,
+                 Codex's. Only on a turn that changed something, and only where a transcript can act
+                 on one. */
+              const edited = edits?.cards.get(key);
+              const measured = transcript.changes?.[b.ts];
+              return <Fragment key={key}>
+                {edited && turnEditing && <EditSummary edits={edited} enter={isEntering(editKey(key))}
+                  undo={undoOffer(edited, edits!.turns, turnEditing.checkpoints, turnEditing.sessionId)}
+                  onOpen={(p) => checkout?.onOpen(p, null)}
+                  onReview={measured ? () => turnEditing.onReview(inCardOrder(measured, edited), edited.asked) : undefined}
+                  onUndo={turnEditing.onUndo} />}
+                <div className="msg-run muted" data-enter={enter || undefined}>
+                  <span>{runSummary(b, eggs, packLabels)}</span>
+                  {/* When it finished. A duration alone reads the same whether the run ended a minute
+                      ago or last Tuesday, and a transcript you come back to is where that matters.
+                      Dated from the settle itself, and the full date rides the tooltip. */}
+                  <time className="msg-run-at" dateTime={new Date(b.ts).toISOString()} title={stampTitle(b.ts)}>{stampLabel(b.ts, now)}</time>
+                </div>
+              </Fragment>;
+            }
             // The seam. Everything above it is one agent's voice and everything below is another's,
             // so it is drawn AS a seam — a rule across the column with the sentence set into it —
             // rather than as a card, which would read as one more thing an agent said.
@@ -516,6 +594,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}
         <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} written={transcript.summary?.text ?? null} />
+        </ToolCwd.Provider>
         </div>
         </LeadSessionContext.Provider>
       </div>

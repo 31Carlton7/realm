@@ -10,6 +10,7 @@ import { mediaExtension, mediaRefsIn } from "./media/md-media";
 import { MediaFrame, MediaLightbox } from "./media/MediaView";
 import { useMediaByCandidate } from "./media/use-media";
 import { markPaths } from "./file-paths";
+import { markFileRefs, useFileLinks, type FileLinkContext } from "./file-links";
 import { NO_ARRIVALS, arrivalLength, markArrivals, noteArrival, type Arrivals } from "./arrival-fade";
 
 marked.setOptions({ gfm: true, breaks: false });
@@ -176,12 +177,14 @@ export function renderMarkdown(text: string, cite: readonly string[] = []): stri
   return decorate(DOMPurify.sanitize(html, { USE_PROFILES: { html: true, mathMl: true, svg: true }, ADD_ATTR: ["target"] }), cite);
 }
 
-/** The sanitized html with its file paths marked (see `file-paths.ts`). Split from `renderMarkdown`
- *  so the citation tests can read one without the other, and so a caller that has no session to open
- *  a path INTO can skip the pass entirely. */
+/** The sanitized html with its file paths marked (see `file-paths.ts`), and the places a file in the
+ *  session's checkout might be named marked for `useFileLinks` to confirm (`file-links.ts`). Split
+ *  from `renderMarkdown` so the citation tests can read one without the other, and so a caller that
+ *  has no session to open a path INTO can skip the pass entirely. */
 export function renderMarkdownWithPaths(text: string, cite: readonly string[] = []): string {
   const doc = new DOMParser().parseFromString(renderMarkdown(text, cite), "text/html");
   markPaths(doc.body);
+  markFileRefs(doc.body);
   return doc.body.innerHTML;
 }
 
@@ -190,8 +193,11 @@ export function renderMarkdownWithPaths(text: string, cite: readonly string[] = 
  *
  *  §6's entrance is NOT this component's to carry: the rule reaches `.transcript-col`'s direct
  *  children, and the prose has a wrapper above it that owns the mark instead. */
-export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, arrive = false }: {
+export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, arrive = false, files }: {
   text: string; className?: string; cite?: readonly string[];
+  /** The session's checkout, for drawing a file the prose names as a link that opens it. Absent — a
+   *  read-only mount, a message still streaming — leaves every such name as the agent wrote it. */
+  files?: FileLinkContext;
   /** Fade in text that arrives after the first render (`arrival-fade.ts`). For prose that STREAMS —
    *  everything else that renders markdown is written once and has nothing arriving. */
   arrive?: boolean;
@@ -205,11 +211,19 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, ar
   // After `useMediaPortals`, whose layout effect writes the markup this one marks: a component's
   // layout effects run in the order its hooks were called.
   useArrivalFade(body, html, arrive);
+  // Last: it replaces marked runs with links, and the arrival fade must have read the text first.
+  useFileLinks(body, html, files);
   // Copy buttons live inside dangerouslySetInnerHTML, so they are wired by delegation; the ✓ hold
   // is a DOM attribute (the injected nodes are outside React's tree), timers cleared on unmount.
   const timers = useRef(new Map<Element, ReturnType<typeof setTimeout>>());
   useEffect(() => () => { for (const t of timers.current.values()) clearTimeout(t); }, []);
   const onClick = (e: ReactMouseEvent) => {
+    const file = e.target instanceof Element ? e.target.closest<HTMLElement>(".md-file") : null;
+    if (file && files) {
+      const line = file.getAttribute("data-line");
+      files.onOpen(file.getAttribute("data-file") ?? "", line ? Number(line) : null);
+      return;
+    }
     const path = e.target instanceof Element ? e.target.closest<HTMLElement>(".md-path") : null;
     if (path && onPath) { onPath(path.getAttribute("data-path") ?? "", path); return; }
     const btn = e.target instanceof Element ? e.target.closest(".md-copy") : null;
@@ -231,7 +245,15 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, ar
         // The inline-code paths are `<code role="button" tabindex="0">`, which the browser does not
         // activate on Enter or Space the way it does a real `<button>`. The bare-text ones are real
         // buttons and already work; handling both here costs one branch and keeps them equivalent.
+        // A file link is an inline `role="link"` for the same reason, and answers the same keys.
         if (e.key !== "Enter" && e.key !== " ") return;
+        const file = e.target instanceof Element ? e.target.closest<HTMLElement>(".md-file") : null;
+        if (file && files) {
+          e.preventDefault();
+          const line = file.getAttribute("data-line");
+          files.onOpen(file.getAttribute("data-file") ?? "", line ? Number(line) : null);
+          return;
+        }
         const el = e.target instanceof Element ? e.target.closest<HTMLElement>("code.md-path") : null;
         if (!el || !onPath) return;
         e.preventDefault();

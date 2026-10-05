@@ -42,7 +42,8 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
-.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code {
+.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
+.edit-counts {
   letter-spacing: normal;
 }
 
@@ -3224,6 +3225,13 @@ a.msg-chip:hover { background: color-mix(in oklab, var(--accent-tint), var(--rl-
 .msg-user-row[data-from] { gap: 3px; }
 .msg-user-row[data-from] .msg-user { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 30%, transparent); }
 .msg-user-from { font-size: 11px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding-right: 2px; }
+/* When the message was sent (Transcript.tsx), under the bubble at its edge — shown to the pointer and
+   to the keyboard, never at rest, where a clock time under every message would be the loudest column
+   in a quiet log. It keeps its line while hidden, so nothing moves as it appears; the hover lands at
+   once and only the release fades. */
+.msg-user-at { padding-right: 2px; border-radius: var(--r-chip); font-size: 12px; line-height: 16px;
+  color: var(--rl-text-faint); font-variant-numeric: tabular-nums; opacity: 0; transition: opacity var(--dur-hover) ease; }
+.msg-user-row:hover .msg-user-at, .msg-user-at:focus-visible { opacity: 1; transition-duration: 0s; }
 /* The goal's own turns: the attribution IS the control that opens them. Right-aligned with the rest
    of the user column, and quiet — it is a label first and a disclosure second. */
 .msg-goal-turn { display: inline-flex; align-items: center; gap: 2px; }
@@ -3340,6 +3348,14 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   transition: color var(--dur-hover) ease; }
 .md .md-path:hover { color: var(--rl-accent); text-decoration: none; }
 .md .md-path:focus-visible { outline: 2px solid color-mix(in srgb, var(--rl-accent) 55%, transparent); outline-offset: 1px; }
+/* A file in the session's checkout, named in the prose (file-links.ts): Codex's file reference — the
+   file type's mark, then the path and the line — and otherwise a link like any other here: the
+   accent and the label weight, no box, the underline on hover. Inline, so a long path wraps with the
+   sentence; the mark sits on the text's x-height rather than its baseline. */
+.md .md-file { color: var(--rl-accent); font-weight: var(--fw-label); border-radius: var(--r-chip); cursor: pointer; }
+.md .md-file:hover .md-file-name { text-decoration: underline; text-underline-offset: 2px; }
+.md .md-file:focus-visible { outline: 2px solid color-mix(in srgb, var(--rl-accent) 55%, transparent); outline-offset: 1px; }
+.md-file-mark { display: inline-block; margin-right: 4px; vertical-align: -2px; }
 .md pre { margin: 6px 0 8px; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--rl-frame); overflow-x: auto; }
 .md pre code { padding: 0; background: none; }
 /* Plan 9 W2 — BUI CodeBlock: fenced code is an editor panel now — a surface card behind a hairline
@@ -3537,9 +3553,40 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    than the live label — it is scrollback now, not the thing to watch — and tabular so a column of
    these down a long session does not jitter as the digits change. */
 .msg-run { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-/* Dimmer than the duration beside it. "How long did that take" is the question the line is answering;
-   "when did it end" is the one you only ask on the way back to an old session. */
-.msg-run-at { color: color-mix(in srgb, var(--rl-text-faint) 72%, transparent); }
+/* The same ink as the duration beside it, not a step under it: "when did it end" is half of what the
+   line is for, and the faint tier is the quietest one that still clears AA — a timestamp mixed below
+   it was a timestamp a reader had to squint at. */
+.msg-run-at { color: var(--rl-text-faint); }
+/* ── A turn's edits (EditSummary.tsx): Codex's "Edited 2 files +20 −3" card ───────────────────────
+   A card the eye rests in, so it wears the curve and no ring: the surface fill is the whole boundary,
+   and its head is not ruled off from its rows — the title and its two actions are chrome for the
+   card, not a section of it. The card's curve is the picker cards' rung so the rows' own corners
+   nest inside it (20 = 12 of padding + the 8 a row rounds by). */
+.edit-summary { display: flex; flex-direction: column; gap: 2px; margin: 2px 0; padding: 12px;
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); }
+/* The actions wrap under the title in a narrow pane rather than pushing Review off the card's edge;
+   the title itself never breaks — "Edited / 2 files" is one phrase. */
+.edit-summary-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-height: 30px; padding: 0 8px 6px; }
+.edit-summary-title { font-size: 14px; font-weight: var(--fw-label); color: var(--rl-text-bright); white-space: nowrap; }
+.edit-summary-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.edit-summary-undo { display: inline-flex; align-items: center; gap: 5px; }
+/* What a missing Undo, or a list cut short, is said in: quiet, and true. */
+.edit-summary-quiet { margin: 0; padding: 0 8px; font-size: 12px; color: var(--rl-text-faint); }
+.edit-summary-files { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.edit-file { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 30px; padding: 5px 8px;
+  border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; color: var(--rl-text-dim); }
+button.edit-file:hover { background: var(--rl-hover); }
+/* The directory gives way first and the name never does: the name is the file, and a row cut down to
+   "web/lib/agent/chat-ru…" has lost the one part a reader came for. */
+.edit-file-path { flex: 1 1 auto; min-width: 0; display: flex; white-space: nowrap; }
+.edit-file-dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--rl-text-faint); }
+.edit-file-name { flex: none; color: var(--rl-text-bright); font-weight: var(--fw-title); }
+.edit-file[data-deleted] .edit-file-name { text-decoration: line-through; text-decoration-color: var(--rl-text-faint); }
+.edit-file-note { flex: none; font-size: 12px; color: var(--rl-text-faint); }
+.edit-counts { flex: none; display: inline-flex; gap: 6px; font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
+.edit-add { color: var(--rl-success); }
+.edit-del { color: var(--rl-danger); }
+.edit-summary-more { align-self: flex-start; margin: 2px 4px 0; }
 /* The closing line of a settled session. Quieter than the run label above it and italic, because it
    is the one line in the transcript that is Realm talking about the session rather than anything
    that happened in it — a register the reader should be able to tell apart without reading the
@@ -3589,8 +3636,17 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    would have opening the parent rotate every chevron and unfold every body beneath it. */
 .tool-card[data-open] > .tool-row > .tool-chevron, .tool-group[data-open] > .tool-group-row > .tool-chevron { transform: rotate(90deg); }
 .tool-name { font-size: 13px; font-weight: var(--fw-label); flex: none; }
+/* An edit's target (ToolCard's `ToolFile`): the file type's mark, the directory dimmed and the name
+   bright — the edit card's own row, so the call and the turn's summary name a file one way. The path
+   gives way first; the mark and any "and 2 more" keep their width. */
+.tool-file { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.tool-file-mark { flex: none; color: var(--ink-2); }
+.tool-file-path { min-width: 0; display: flex; white-space: nowrap; }
+.tool-file-dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--rl-text-faint); }
+.tool-file-name { flex: none; color: var(--rl-text-bright); font-weight: var(--fw-title); }
+.tool-file-more { flex: none; font-size: 12px; color: var(--rl-text-faint); }
 /* Measured counts (editStat): green adds, red deletes, mono tabular — BUI's `+74 −41`. */
-.tool-stat { flex: none; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+.tool-stat { flex: none; display: inline-flex; gap: 4px; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
 .tool-stat-add { color: var(--green); }
 .tool-stat-del { color: var(--red); }
 
@@ -4875,6 +4931,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .search-field,
 :root[data-squircle] .palette,
 :root[data-squircle] .md-code,
+:root[data-squircle] .edit-summary,
 :root[data-squircle] .subagents-compose,
 :root[data-squircle] .diff-review,
 :root[data-squircle] .composer,
@@ -5142,6 +5199,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
    with no background of its own, so there is nothing at the corners for the square clip to reveal. */
 :root[data-squircle] .md-code { --sq-fill: var(--surface); box-shadow: none; }
+/* A turn's edit card is content in the log for the same reason, and on the card rung (see the card). */
+:root[data-squircle] .edit-summary { --sq-fill: var(--surface); box-shadow: none;
+  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* The Agents tab's composer, on the prompter's curve and painted like it; its focus edge moves to
    the painter, because a box-shadow would trace the square border box `border-radius: 0` leaves. */
 :root[data-squircle] .subagents-compose { --sq-fill: var(--surface); }
@@ -5834,6 +5894,9 @@ select { appearance: none; padding-right: 22px;
 .diff-status[data-status="conflicted"] { color: var(--rl-warning); }
 .diff-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .diff-dir { color: var(--rl-text-faint); }
+/* The message that asked for the turn a review is showing — what names it. The unbounded item in the
+   head, so it is the one that gives way. */
+.diff-turn-asked { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--rl-text-faint); }
 .diff-base { color: var(--rl-text-bright); }
 .diff-counts { flex: none; display: flex; gap: 6px; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
 .diff-counts .diff-add { color: var(--rl-success); }

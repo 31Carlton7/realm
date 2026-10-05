@@ -3904,8 +3904,9 @@ describe("the Mac idiom", () => {
   it("points with the arrow at every control, and keeps the hand for the two link rules", () => {
     const hand = RULES.filter((r) => r.body.includes("cursor: pointer")).flatMap(partsOf).sort();
     // The empty session's place name is a link too (Plan 26 W8): accent, underlined under the pointer,
-    // and it goes somewhere — the space's page.
-    expect(hand).toEqual([".hero-greeting-place", ".md .md-path", ".page-row-link"]);
+    // and it goes somewhere — the space's page. So is a file the prose names (file-links.ts): it opens
+    // that file in the documents pane.
+    expect(hand).toEqual([".hero-greeting-place", ".md .md-file", ".md .md-path", ".page-row-link"]);
     expect(bodiesFor("button").join(" ")).toContain("cursor: default");
     // tokens.css loads first and used to put the hand back on every button; only links may ask there.
     const tokenHands = [...tokensCss.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{[^{}]*cursor:\s*pointer/g)]
