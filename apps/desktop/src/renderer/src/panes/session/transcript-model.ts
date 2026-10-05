@@ -1,4 +1,4 @@
-import type { AcpSessionMode, SessionEvent, SessionEventPayload } from "@realm/contracts";
+import type { AcpSessionMode, MentionRef, SessionEvent, SessionEventPayload } from "@realm/contracts";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
@@ -7,7 +7,9 @@ export type Block =
    *  W5) still renders a bubble naming its files rather than an empty one. */
   /** `from` is present only when ANOTHER session delivered this message (Plan 20). Absent means the
    *  user typed it — the ordinary case — and the pane must not attribute those to anyone. */
-  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; goal?: "continuation" | "budget"; ts: number }
+  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; goal?: "continuation" | "budget";
+      /** What the message's `@[…]` chips named, so each keeps its mark in the log. */
+      refs?: MentionRef[]; ts: number }
   | { kind: "assistant"; messageId: string; text: string; streaming: boolean; ts: number }
   | { kind: "thinking"; messageId: string; text: string; ts: number }
   /** `parentToolUseId` is the Task/Agent call this one was made UNDER — Claude's
@@ -189,7 +191,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
        written about the turn that had just ended, and the moment the user sends anything it is a
        suggestion about a turn that is no longer the last one. The prompter shows the deterministic
        ladder in the gap until the next settle produces a new one. */
-    case "user_message": blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ts: e.ts }); return { ...t, blocks, promptHint: null };
+    case "user_message": blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ts: e.ts }); return { ...t, blocks, promptHint: null };
     case "assistant_delta": {
       if (last?.kind === "assistant" && last.messageId === e.payload.messageId && last.streaming) blocks[blocks.length - 1] = { ...last, text: last.text + e.payload.delta };
       else blocks.push({ kind: "assistant", messageId: e.payload.messageId, text: e.payload.delta, streaming: true, ts: e.ts });

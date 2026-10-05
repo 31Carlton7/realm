@@ -967,7 +967,7 @@ kbd { font: 11px var(--font-mono); }
 /* ── Mention picker (prompter, W4): @-completion over the space's enabled skills ── */
 /* Same raised-surface language as .menu; rows echo .mp-row but focus never enters — the highlight is
    driven from the textarea's own keyboard, so there is no :focus styling to define. */
-.mention-picker { z-index: 100; width: min(380px, 80vw); display: flex; flex-direction: column; overflow: hidden;
+.mention-picker { z-index: 100; width: min(420px, 86vw); display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
 /* The rows scroll INSIDE the surface, so the dissolve at their ends fades rows and never the card
    (`usePickerScroller`). The skill picker's depth, for the reason it has the model picker's. */
@@ -976,6 +976,18 @@ kbd { font: 11px var(--font-mono); }
 .mention-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle; cursor: default;
   transition: background-color var(--dur-hover) ease; }
 .mention-row[data-active] { background: var(--hover); }
+/* The `@` list's rows (mention-sources.ts): a mark — an app's own icon, a file's type, a skill's
+   spark, @Mac's Apple mark — then the name, then the quiet line, Codex's grammar for this list. The
+   mark is centred on the row and holds its 16px box while an app's icon is on its way, so the name
+   never shifts when the picture lands. A group's head is the + menu's: sentence case at the caption
+   rung, the quietest ink, on the rows' own left edge. */
+.mention-row-mark { flex: none; align-self: center; display: grid; place-items: center; width: 16px; height: 16px; color: var(--rl-text-dim); }
+.mention-row-mark > img { display: block; width: 16px; height: 16px; }
+.mention-row[data-kind="mac"] .mention-row-mark { color: var(--rl-text-bright); }
+.mention-row-name { flex: none; max-width: 62%; font-size: 13px; line-height: 16px; color: var(--rl-text-bright);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-head { padding: 7px 8px 4px; font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
+.mention-head:not(:first-child) { margin-top: 4px; }
 
 /* ── The session summary panel (SessionSummary.tsx) ──────────────────────
    Anchored under the pane bar's info button, right-aligned, on the same surface and the same layered
@@ -4224,6 +4236,12 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    not, and text in a window that is not key keeps its colour on a Mac. */
 .ch-mention, .ch-element { --chip-ink: var(--accent-ink); --chip-tone: var(--rl-accent); --chip-tint: var(--accent-tint); --chip-dx: 0.75px; --chip-mark-x: 0.75px; }
 .ch-element { --chip-dx: -1px; --chip-mark-x: 4px; }
+/* An app chip's mark is the app's own icon — a picture with its own margin, so it sits a little left
+   of where a glyph does — and a chip whose app macOS will not let Realm drive takes the warning tone,
+   with the note under the card saying why. */
+.ch-element[data-ref="app"] { --chip-mark-x: 2.5px; }
+.ch-element[data-warn] { --chip-ink: var(--rl-warning); --chip-tone: var(--rl-warning); --chip-tint: var(--orange-tint); }
+.chip-sigil > .chip-mark.chip-app { width: 14px; height: 14px; }
 /* Declared but no longer resolvable: the `@` goes as plain text. Same warning tone as the note the
    card already shows under it, so the two read as one statement about the same token; the dotted
    underline is what says "this will not resolve" without colour alone saying it. */
@@ -4263,6 +4281,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .chip-remove:hover { color: var(--rl-text-bright); }
 /* The same chip in the log wears the same mark and the same pill (`.msg-chip`). */
 .msg-chip-mark { flex: none; margin-right: 4px; }
+.msg-chip-app { width: 14px; height: 14px; }
 
 /* ── The Connections marketplace: apps a space connects to in one click ──
    Cards on the page ground, each a mark in a well, a name, a line, and one action. The well is the

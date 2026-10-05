@@ -1,6 +1,6 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, basenameOf, offeredModes, sessionModeOf, type Item, type LinkChip, type SessionMode, type Skill, runnableCommands, type UserCommand } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type Skill, runnableCommands, type UserCommand } from "@realm/contracts";
 
 /** A stable empty list for the commands selector. A fresh `[]` in the selector is a new reference on
  *  every render, which is how a zustand subscription turns into a render loop. */
@@ -34,6 +34,7 @@ import type { SlashCommand } from "./slash-commands";
 const NO_ATTACHMENTS: PickedAttachment[] = [];
 const NO_SKILLS: Skill[] = [];
 const NO_MENTIONS: string[] = [];
+const NO_REFS: MentionRef[] = [];
 
 const STATUS_LABEL = { idle: "Idle", running: "Running", waiting_permission: "Needs permission", error: "Error", ended: "Ended" } as const;
 
@@ -335,6 +336,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // be handed — empty for a Cursor (or fake) session, which is what keeps `@` from opening anything
   // there. `spaceSkills` rows are store-held references, so the memo only re-filters on real change.
   const spaceSkillList = useApp((s) => { const sess = s.sessions[id]; return (sess && s.spaceSkills[sess.spaceId]) || NO_SKILLS; });
+  /* @Mac: the `mac` skill, offered wherever the space's library holds it — on or off, and whatever the
+     agent, because where it cannot be invoked it is handed over by its instructions instead. */
+  const macSkill = useMemo(() => spaceSkillList.find((k) => k.id === MAC_SKILL_ID && k.valid) ?? null, [spaceSkillList]);
   const agentKind = useApp((s) => s.sessions[id]?.agentKind);
   /* What harnesses have said about fast mode, per model — the answer a session that has not started
      yet can offer the switch on. Its own `init` overrides it the moment it has one. */
@@ -345,7 +349,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   );
   // The transcript recognises a sent message's `@name` against this same live set, so a bubble's
   // chips and the composer's agree about what is a skill and what is just an address.
-  const liveMentionIds = useMemo(() => mentionSkills.map((k) => k.id), [mentionSkills]);
+  const liveMentionIds = useMemo(() => {
+    const ids = mentionSkills.map((k) => k.id);
+    return macSkill && !ids.includes(MAC_SKILL_ID) ? [...ids, MAC_SKILL_ID] : ids;
+  }, [mentionSkills, macSkill]);
   // The "+ → Skills" picker's source: the same space list, unfiltered by enabled — the picker's whole
   // job is to show what is NOT on yet. Still gated on the agent, because a Cursor session cannot be
   // handed a skills directory at all and a picker there would promise something that never arrives.
@@ -357,9 +364,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // Recognised mentions whose skill has since been disabled/deleted — the draft still carries the
   // token, so the prompter warns that it will go as plain text.
   const staleMentions = useMemo(() => {
-    const live = new Set(mentionSkills.map((k) => k.id));
+    const live = new Set(liveMentionIds);
     return draftMentionIds.filter((m) => !live.has(m));
-  }, [draftMentionIds, mentionSkills]);
+  }, [draftMentionIds, liveMentionIds]);
   const attachFiles = useApp((s) => s.attachFiles);
   const attachFromPicker = useApp((s) => s.attachFromPicker);
   const removeAttachment = useApp((s) => s.removeAttachment);
@@ -491,6 +498,34 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     const here = spaces.find((s) => s.id === session?.spaceId);
     return here ? spaces.filter((s) => s.profileId === here.profileId && s.id !== here.id) : [];
   }, [spaces, session?.spaceId]);
+  /* The `@` list beyond the skills (mention-sources.ts): the checkout's files and the Library over the
+     wire, the apps and their icons from main by way of the store, and whether macOS lets Realm drive
+     them. Every function is held still, because the list keys its fetches on them. */
+  const installedApps = useApp((st) => st.installedApps);
+  const appIcons = useApp((st) => st.appIcons);
+  const accessibility = useApp((st) => { const row = st.computerAccess?.rows.find((r) => r.id === "accessibility"); return row ? row.state === "granted" : null; });
+  const loadInstalledApps = useApp((st) => st.loadInstalledApps);
+  const ensureAppIcons = useApp((st) => st.ensureAppIcons);
+  const refreshComputerAccess = useApp((st) => st.refreshComputerAccess);
+  const addMentionRef = useApp((st) => st.addMentionRef);
+  const mentionFilesFor = useApp((st) => st.mentionFiles);
+  const libraryArtifacts = useApp((st) => st.libraryArtifacts);
+  const draftRefs = useApp((st) => st.draftRefs[id] ?? NO_REFS);
+  const profileId = spaces.find((s) => s.id === session?.spaceId)?.profileId ?? null;
+  const mentionFiles = useCallback(async (q: string) => (await mentionFilesFor(id, q)).hits, [id, mentionFilesFor]);
+  const mentionLibrary = useCallback(async (q: string) => (await libraryArtifacts({ profileId, query: q, limit: 20 })).entries, [profileId, libraryArtifacts]);
+  // Each opening re-reads both: an app installed, or Accessibility granted, since the last `@`.
+  const onMentionOpen = useCallback(() => { run(() => loadInstalledApps()); run(() => refreshComputerAccess()); }, [run, loadInstalledApps, refreshComputerAccess]);
+  const ensureIcons = useCallback((paths: readonly string[]) => { void ensureAppIcons(paths); }, [ensureAppIcons]);
+  const addRef = useCallback((ref: UnlabelledRef, candidates: readonly string[]) => addMentionRef(id, ref, candidates), [id, addMentionRef]);
+  const cwd = session?.cwd ?? "";
+  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef }),
+    [cwd, macSkill, installedApps, appIcons, accessibility, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef]);
+  /* The apps the log's own messages named keep their icons after a relaunch: asked for once each,
+     when the transcript first carries them. */
+  const loggedApps = useMemo(() => [...new Set(transcript.blocks.flatMap((b) => (b.kind === "user" && b.refs ? b.refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])) : [])))].join("\n"),
+    [transcript.blocks]);
+  useEffect(() => { if (loggedApps) ensureIcons(loggedApps.split("\n")); }, [loggedApps, ensureIcons]);
 
   /* EVERY hook is above this line, and that is load-bearing rather than tidy: an early return with
      hooks below it renders a different NUMBER of hooks depending on whether the session row has
@@ -618,7 +653,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         // Keyed by SESSION, not by pane: a space switch tears this pane down and rebuilds it, and
         // what the reader is owed back is their place in this log (scroll-memory.ts).
         scrollKey={id}
-        mentionIds={liveMentionIds}
+        mentionIds={liveMentionIds} appIcons={appIcons}
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))}
         onRetry={() => { setSends((n) => n + 1); run(() => retryLastTurn(id)); }}
         onRate={(messageId, rating) => run(() => rateMessage(id, messageId, rating))} />
@@ -691,6 +726,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               onDrop={() => run(() => clearGoal(id))} />}
             sessionInit={transcript.init} fastSupport={fastSupport}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
+            mentions={mentionSources} refs={draftRefs}
             queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}
             onReleaseQueued={(queuedId) => run(() => releaseQueuedPrompt(id, queuedId))}
             onDropQueued={(queuedId) => run(() => dequeuePrompt(id, queuedId))} />}

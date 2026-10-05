@@ -44,6 +44,8 @@ export const MentionRefSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("app"), label: LabelSchema, name: z.string().min(1).max(120), bundleId: z.string().regex(BUNDLE_ID_RE), path: AbsolutePathSchema }),
 ]);
 export type MentionRef = z.infer<typeof MentionRefSchema>;
+/** A ref before the draft has given it a label — each kind's own fields, minus the one the store picks. */
+export type UnlabelledRef = { [K in MentionRef["kind"]]: Omit<Extract<MentionRef, { kind: K }>, "label"> }[MentionRef["kind"]];
 
 /** An application on this Mac, as main's scan of the Applications folders found it. */
 export type InstalledApp = {

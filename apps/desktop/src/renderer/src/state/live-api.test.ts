@@ -52,6 +52,17 @@ describe("liveApi wire params", () => {
     ]);
   });
 
+  it("carries the named files and apps only when the draft has some", async () => {
+    calls.length = 0;
+    const ref = { kind: "file" as const, label: "auth.ts", path: "/repo/src/auth.ts" };
+    await liveApi().sendMessage("se1", "see @[auth.ts]", [], [], [], undefined, [], [ref]);
+    await liveApi().sendMessage("se1", "plain", [], [], [], undefined, [], []);
+    expect(calls).toEqual([
+      { method: "sessions.send", params: { id: "se1", text: "see @[auth.ts]", attachments: [], mentions: [], mentionRefs: [ref] } },
+      { method: "sessions.send", params: { id: "se1", text: "plain", attachments: [], mentions: [] } },
+    ]);
+  });
+
   it("passes terminal writes through byte for byte — no newline is added on the way out", async () => {
     calls.length = 0;
     await liveApi().writeTerminal("t1", "npm install -g @anthropic-ai/claude-code");
