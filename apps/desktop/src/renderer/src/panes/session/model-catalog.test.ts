@@ -413,6 +413,15 @@ describe("resolveModelName", () => {
     expect(resolve("opus")).toMatchObject({ modelId: "claude-opus-5-5" });
   });
 
+  it("takes the newest version even where the catalog lists an older one first", () => {
+    // List order is the vendor's, and a live catalog promises nothing about it: "luna" is the newest
+    // Luna, not whichever the probe happened to hand over first.
+    const lunas = modelRows({ kind: "codex", model: null, canSwitchAgent: true, agentProbe: [probe("codex", [
+      { id: "gpt-5.6-luna", label: "GPT-5.6-Luna" }, { id: "gpt-6-luna", label: "GPT-6-Luna" },
+    ])] });
+    expect(resolveModelName("luna", lunas)).toMatchObject({ modelId: "gpt-6-luna", exact: false });
+  });
+
   it("treats a version as one word, so Fable 5 is never Fable 5.1", () => {
     expect(resolve("fable 5")).toMatchObject({ modelId: "claude-fable-5" });
     expect(resolve("Claude Fable 5.1")).toMatchObject({ modelId: "claude-fable-5-1", exact: true });
