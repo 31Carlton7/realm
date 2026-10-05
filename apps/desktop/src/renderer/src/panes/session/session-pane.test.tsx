@@ -2156,10 +2156,10 @@ describe("prompter attachments", () => {
   it("refuses a file over the 20 MB cap in the UI, with the reason", async () => {
     const { store } = await mountFor("claude", [picked("/x/huge.png", "image/png", 21 * 1024 * 1024)]);
     attach();
-    await waitFor(() => expect(store.getState().error).toBeTruthy());
+    await waitFor(() => expect(store.getState().toasts).toHaveLength(1));
     expect(chips()).toHaveLength(0);
-    expect(store.getState().error).toContain("huge.png");
-    expect(store.getState().error).toContain("20 MB");
+    expect(store.getState().toasts[0]!.text).toContain("huge.png");
+    expect(store.getState().toasts[0]!.text).toContain("20 MB");
   });
 
   it("dropping files on the card attaches them and marks the card while the drag is over it", async () => {

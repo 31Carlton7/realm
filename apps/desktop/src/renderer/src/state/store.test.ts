@@ -1098,16 +1098,27 @@ describe("app store", () => {
     });
   });
 
-  it("run() surfaces action errors and clearError resets", async () => {
+  it("run() surfaces an action's failure as an error toast, and dismissing it takes it down", async () => {
     const store = createAppStore(api);
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     store.getState().run(async () => { throw new Error("boom"); });
     await tick();
-    expect(store.getState().error).toBe("boom");
+    const [toast] = store.getState().toasts;
+    expect(toast).toMatchObject({ tone: "error", text: "boom" });
     expect(spy).toHaveBeenCalled();
-    store.getState().clearError();
-    expect(store.getState().error).toBeNull();
+    store.getState().dismissToast(toast!.id);
+    expect(store.getState().toasts).toEqual([]);
     spy.mockRestore();
+  });
+
+  it("a toast's id is the handle a caller takes its own down by — and only its own", async () => {
+    const store = createAppStore(api);
+    const a = store.getState().toast({ text: "Added button to Session." });
+    const b = store.getState().toast({ tone: "error", text: "boom" });
+    store.getState().dismissToast(a);
+    expect(store.getState().toasts.map((t) => t.id)).toEqual([b]);
+    store.getState().dismissToast("toast-nope");
+    expect(store.getState().toasts.map((t) => t.id)).toEqual([b]);
   });
 
   describe("sessions", () => {
@@ -1714,8 +1725,10 @@ describe("app store", () => {
       const store = createAppStore(a); await store.getState().boot();
       await store.getState().attachFromPicker("se1");
       expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/x/ok.png"]);
-      expect(store.getState().error).toContain("huge.png");
-      expect(store.getState().error).toContain("20 MB");
+      const [refusal] = store.getState().toasts;
+      expect(refusal?.tone).toBe("warning");
+      expect(refusal?.text).toContain("huge.png");
+      expect(refusal?.text).toContain("20 MB");
       // …and it never reaches the adapter, which is where it would have thrown mid-turn.
       await store.getState().sendMessage("se1", "look");
       expect(a.sent[0]!.attachments.map((x) => x.path)).toEqual(["/x/ok.png"]);
@@ -1727,7 +1740,7 @@ describe("app store", () => {
       const store = createAppStore(a); await store.getState().boot();
       await store.getState().attachFromPicker("se1");
       expect(store.getState().pendingAttachments.se1).toHaveLength(1);
-      expect(store.getState().error).toBeNull();
+      expect(store.getState().toasts).toEqual([]);
     });
 
     it("the same file attached twice is one attachment", async () => {
@@ -3089,7 +3102,7 @@ describe("attachPicked — a file main already wrote (Plan 26 W7b)", () => {
     await store.getState().boot();
     store.getState().attachPicked("se1", [shot("/tmp/huge.png", 21 * 1024 * 1024)]);
     expect(store.getState().pendingAttachments.se1).toEqual([]);
-    expect(store.getState().error).toContain("huge.png");
+    expect(store.getState().toasts.at(-1)?.text).toContain("huge.png");
   });
 });
 

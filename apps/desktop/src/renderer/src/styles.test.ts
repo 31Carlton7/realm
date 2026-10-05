@@ -69,10 +69,10 @@ it("gives up the app's tracking on every surface that uses the mono face, so its
   expect([...monoSelectors].filter((s) => !reset.includes(s))).toEqual([]);
 });
 
-/* The two system notices — the socket-down banner and the error bar — are the only surfaces in the
-   app that a state change alone puts on screen. They used to cut in fully formed. */
+/* The socket-down banner is the one surface in the app that a state change alone puts at the top of
+   the window. It used to cut in fully formed. (The error bar that stood beside it is a toast now.) */
 it("brings the system notices in on the transcript's own entrance rung, from the edge each hangs off", () => {
-  for (const sel of [".conn-banner", ".error-bar"]) {
+  for (const sel of [".conn-banner"]) {
     const body = bodiesFor(sel).join(" ");
     expect(body, `${sel} enters with no animation`).toMatch(/animation:\s*rl-[a-z-]+ var\(--dur-enter\) var\(--ease-out-strong\)/);
   }
@@ -191,6 +191,20 @@ describe("§6 motion table", () => {
     // the fade, a long one parks a finished surface on screen — so they are pinned to each other here.
     const hook = readFileSync(repoFile("apps/desktop/src/renderer/src/components/use-anchored-popover.ts"), "utf8");
     expect(Number(hook.match(/const EXIT_MS = (\d+);/)?.[1])).toBe(LADDER["--dur-press"]);
+  });
+
+  /* A toast rises on the spring a surface arrives on and leaves on a shorter fade, and the component
+     holds a leaving one in the DOM on a timer. THE mutants: the two numbers drifting apart (a clipped
+     fade, or a finished toast parked on screen), a leaving toast still catching clicks, and the line
+     across its foot running on while the clock it draws is stopped. */
+  it("toasts arrive on the spring, leave on a shorter fade the DOM waits out, and their line stops with their clock", () => {
+    expect(bodiesFor(".toast").join(" ")).toContain(`animation: rl-toast-rise ${dur("--dur-slow")} var(--spring-smooth)`);
+    const leaving = bodiesFor(".toast[data-leaving]").join(" ");
+    expect(leaving).toContain(`opacity ${dur("--dur-swap")} var(--ease-fade)`);
+    expect(leaving).toContain("pointer-events: none");
+    const toasts = readFileSync(repoFile("apps/desktop/src/renderer/src/components/Toasts.tsx"), "utf8");
+    expect(Number(toasts.match(/export const TOAST_EXIT_MS = (\d+);/)?.[1])).toBe(LADDER["--dur-swap"]);
+    expect(bodiesFor(".toast[data-paused] .toast-progress").join(" ")).toContain("animation-play-state: paused");
   });
 
   it("transcript items enter at 180ms with a 6px rise, gated on the data-enter mark Transcript.tsx sets", () => {
