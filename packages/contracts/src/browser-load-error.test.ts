@@ -48,8 +48,22 @@ describe("describeLoadError", () => {
     expect(page.title).toBe("Your connection isn't private");
     expect(page.reason).toBe("The certificate 127.0.0.1 sent isn't from an authority this Mac trusts.");
     expect(page.note).toMatch(/won't open it/);
-    // Nothing in the copy offers to carry on anyway.
-    expect([page.reason, page.note, ...page.tips].join(" ")).not.toMatch(/proceed|continue|anyway|unsafe/i);
+  });
+
+  it("offers no way past any certificate or TLS failure, on this Mac or anywhere else", () => {
+    /* THE mutant: a "proceed anyway" slipped into one branch's tips. A pane an agent can drive is the
+       last place to hand someone a casual way past a certificate Realm cannot verify. */
+    const codes: Record<string, number> = {
+      ERR_CERT_AUTHORITY_INVALID: -202, ERR_CERT_DATE_INVALID: -201, ERR_CERT_COMMON_NAME_INVALID: -200, ERR_CERT_REVOKED: -206,
+      ERR_CERT_WEAK_KEY: -211, ERR_SSL_PROTOCOL_ERROR: -107, ERR_SSL_VERSION_OR_CIPHER_MISMATCH: -113,
+    };
+    for (const [name, code] of Object.entries(codes)) {
+      for (const url of ["https://127.0.0.1:8893/", "https://bank.example/"]) {
+        const page = describeLoadError(err(name, code, url));
+        expect(page.mark, `${name} ${url}`).toBe("lock");
+        expect([page.reason, page.note, ...page.tips].join(" "), `${name} ${url}`).not.toMatch(/proceed|continue|anyway|unsafe|ignore|bypass/i);
+      }
+    }
   });
 
   it("knows a certificate failure by its range as well as by its name", () => {
