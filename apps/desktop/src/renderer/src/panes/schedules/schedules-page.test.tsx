@@ -226,6 +226,6 @@ describe("the task's card", () => {
     await mount({ schedules: [schedule({ lastRunAt: NOW.getTime() - 8 * DAY, lastSkippedAt: NOW.getTime() - DAY })] });
     fireEvent.click(task("Morning triage"));
     const card = await screen.findByRole("complementary", { name: "Morning triage details" });
-    expect(within(card).getByText(/^Missed a run yesterday at /)).toBeInTheDocument();
+    expect(within(card).getByText(/^Missed a run yesterday 12:00 PM$/)).toBeInTheDocument();
   });
 });

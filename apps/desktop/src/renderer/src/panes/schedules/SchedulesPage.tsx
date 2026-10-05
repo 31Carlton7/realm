@@ -11,7 +11,7 @@ import { formatEffort } from "../session/ModelPicker";
 import { summarize } from "../session/session-summary";
 import { ScheduleModal, type ModalOpen } from "./ScheduleModal";
 import {
-  SUGGESTIONS, blankDraft, cadenceSentence, draftOfSuggestion, filterSchedules, runMoment, runState, runUnread, shortWhen,
+  SUGGESTIONS, blankDraft, cadenceSentence, draftOfSuggestion, filterSchedules, lowerRelative, runMoment, runState, runUnread, shortWhen,
   taskLine, upcomingOrder, whenPhrase,
 } from "./schedule-model";
 
@@ -68,6 +68,8 @@ export function SchedulesPage({ item, visible, focused = false }: PaneProps) {
 
   const all = useMemo(() => upcomingOrder(spaces.flatMap((sp) => bySpace[sp.id] ?? [])), [spaces, bySpace]);
   const listed = useMemo(() => filterSchedules(all, query), [all, query]);
+  // A suggestion somebody has already taken up is a task now, under its own name in Upcoming.
+  const suggested = useMemo(() => SUGGESTIONS.filter((t) => !all.some((s) => s.title === t.title)), [all]);
 
   // Each task's first page of runs, once per task: what its unread mark and its history read. Asked
   // for here rather than on expand, because the mark is on a task whose runs are folded away.
@@ -138,9 +140,9 @@ export function SchedulesPage({ item, visible, focused = false }: PaneProps) {
                 onRun={(r) => select(s.id, r.id)} onOlder={() => showOlder(s)} />
             ))}
           </ul>
-          <div className="group-label">Suggested</div>
+          {suggested.length > 0 && <div className="group-label">Suggested</div>}
           <ul className="sched-suggested">
-            {SUGGESTIONS.map((t) => (
+            {suggested.map((t) => (
               <li key={t.title}>
                 <button type="button" className="sched-suggestion" onClick={() => setModal({ draft: draftOfSuggestion(t, vantage, defaultKind) })}>
                   <span className="sched-suggestion-name">{t.title}</span>
@@ -361,11 +363,11 @@ function TaskCard({ schedule, run, onEdit, onRunNow, onGone }: {
       <ul className="sched-card-facts">
         {run && <li className="sched-card-fact"><Icon name="artifact" size={14} />{outputs === 1 ? "1 output" : `${outputs} outputs`}</li>}
         {schedule.enabled && schedule.nextRunAt !== null && (
-          <li className="sched-card-fact"><Icon name="clock" size={14} />Next {whenPhrase(schedule.nextRunAt)}</li>
+          <li className="sched-card-fact"><Icon name="clock" size={14} />Next run {lowerRelative(shortWhen(schedule.nextRunAt))}</li>
         )}
         {/* Named, never swallowed: a laptop that slept through Monday did not run Monday's task. */}
         {missed && (
-          <li className="sched-card-fact" data-tone="warn"><Icon name="alert" size={14} />Missed a run {whenPhrase(schedule.lastSkippedAt!)}</li>
+          <li className="sched-card-fact" data-tone="warn"><Icon name="alert" size={14} />Missed a run {lowerRelative(shortWhen(schedule.lastSkippedAt!))}</li>
         )}
         <li className="sched-card-fact" title="The model each run starts on">
           <Icon name={AGENT_META[model.kind].icon} size={14} />{model.text}

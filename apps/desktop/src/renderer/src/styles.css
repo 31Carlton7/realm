@@ -6177,9 +6177,13 @@ select { appearance: none; padding-right: 22px;
 .sched-modal-name::placeholder, .sched-modal-goal::placeholder { color: var(--rl-text-faint); }
 .sched-modal-name:focus, .sched-modal-goal:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .sched-modal .settings-row { min-height: 48px; padding: 8px 12px 8px 16px; }
+/* A row with another under it hands its bottom edge to that row's inset divider. Left on, the two
+   lines stack into one twice as heavy that runs the card's full width — measured, 2px at the ends
+   and 4px through the middle. */
+.sched-modal .settings-row:has(+ .settings-row) { border-bottom-color: transparent; }
 /* A setting's value, as Codex sets it: quiet text at the row's end that is a menu, the control's ring
    only under the pointer. Still a native select — a Mac menu, type-to-select and all. */
-.sched-select { flex: none; max-width: 60%; border-color: transparent; background-color: transparent; color: var(--rl-text-dim);
+.sched-select { flex: none; max-width: 60%; field-sizing: content; border-color: transparent; background-color: transparent; color: var(--rl-text-dim);
   transition: background-color var(--dur-hover) ease; }
 .sched-select:hover, .sched-select:focus-visible { background-color: var(--rl-hover); }
 .sched-cron, .sched-date { flex: none; height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);

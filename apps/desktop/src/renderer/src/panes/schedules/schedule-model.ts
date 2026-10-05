@@ -35,7 +35,7 @@ export const whenPhrase = (ts: number, now = Date.now()): string =>
   lowerRelative(whenLabel(ts, now).replace(/\b(AM|PM)\b/g, (m) => m.toLowerCase()));
 
 /** "Yesterday 4:01 PM" as the middle of a sentence — the relative word lowered, nothing else. */
-const lowerRelative = (label: string): string =>
+export const lowerRelative = (label: string): string =>
   /^(Today|Tomorrow|Yesterday)\b/.test(label) ? label[0]!.toLowerCase() + label.slice(1) : label;
 
 /**
@@ -292,13 +292,13 @@ export const minuteOptions = (current: number): number[] => {
 export const SUGGESTIONS: readonly { title: string; blurb: string; goal: string; every: Repeat; time: string; weekday?: number }[] = [
   {
     title: "Weekly review",
-    blurb: "Sum up the week's sessions and commits in this space as a short status update",
+    blurb: "A short status update from the week's sessions and commits",
     goal: "Look back over this week in this space. List its sessions with agent_peers, read the week's commits on every branch with `git log --since='7 days ago' --all`, and note any branch that is still unmerged. Write a short status update in three parts: what shipped, what is in progress, and what is blocked.",
     every: "weekly", time: "16:00", weekday: 5,
   },
   {
     title: "Morning brief",
-    blurb: "What changed in the repository since yesterday, and what needs attention today",
+    blurb: "What changed since yesterday, and what needs attention today",
     goal: "Give me a short start-of-day brief for this space's repository: what changed since yesterday (`git log --since=yesterday`), which branches have work that is not merged, and anything that looks broken or half-finished. Keep it under ten lines.",
     every: "weekdays", time: "08:00",
   },
