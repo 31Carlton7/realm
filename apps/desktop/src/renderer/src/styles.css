@@ -2859,8 +2859,9 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
    and a small label in the tooltip's dark skin naming the element the way its chip will. It glides
    from one element to the next on the press rung and never takes the pointer. The hint says how to
    get out, on the same dark skin, and is gone for the frames a capture of the window takes, as the
-   outline is. Over everything, the tooltip included: it can point at any of it. */
-.app-picker { position: fixed; inset: 0; z-index: 130; pointer-events: none; }
+   outline is. Over everything it can point at, the tooltip included, and under only the drawn caret,
+   which sits over every layer there is (caret.ts). */
+.app-picker { position: fixed; inset: 0; z-index: 125; pointer-events: none; }
 .app-picker-box { position: absolute; left: 0; top: 0; box-sizing: border-box; opacity: 0;
   border: 1.5px solid var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 12%, transparent);
   transition: transform var(--dur-press) var(--ease-out-strong), width var(--dur-press) var(--ease-out-strong),
@@ -2877,7 +2878,7 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 /* The pick answered: a beat of deeper fill, then the fade — the web picker's confirmation. */
 .app-picker .app-picker-box[data-picked] { opacity: 0; background-color: color-mix(in srgb, var(--rl-accent) 26%, transparent);
   transition: background-color var(--dur-drag) var(--ease-fade), opacity var(--dur-swap) var(--ease-fade) var(--dur-drag); }
-.app-picker-hint { position: fixed; z-index: 130; top: 48px; left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 6px;
+.app-picker-hint { position: fixed; z-index: 125; top: 48px; left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 6px;
   height: 28px; padding: 0 12px 0 10px; border-radius: var(--r-pill); pointer-events: none;
   background: var(--tooltip-bg); color: var(--tooltip-fg); box-shadow: 0 0 0 var(--hairline-w) var(--tooltip-border), var(--shadow-card-lift);
   font: var(--fw-medium) 12px/16px var(--font-ui); white-space: nowrap;
