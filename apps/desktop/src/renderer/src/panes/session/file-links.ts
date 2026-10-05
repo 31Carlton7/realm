@@ -212,6 +212,7 @@ export function touchedFiles(blocks: readonly Block[], changes: Readonly<Record<
   for (const b of blocks) {
     if (b.kind !== "tool") continue;
     add(b.input["file_path"] ?? b.input["notebook_path"]);
+    for (const p of b.paths ?? []) add(p);
     const patch = b.input["changes"];
     if (b.name === "apply_patch" && Array.isArray(patch)) for (const c of patch) add((c as Record<string, unknown> | null)?.["path"]);
   }

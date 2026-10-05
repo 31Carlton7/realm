@@ -17,7 +17,9 @@ export type Block =
   /** `background` is set only on a call that launched a BACKGROUND sub-agent: `running` from the
    *   moment the launch result lands, `stopped` when the harness notifies. Absent on every ordinary
    *   call, including a blocking sub-agent — whose "still going" is simply `result === null`. */
-  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; ts: number }
+  /** `toolKind` and `paths` are an ACP call's own account of itself (the `tool_call` event's `kind`
+   *  and `paths`) — absent for every other agent, whose tool names say both. */
+  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; toolKind?: string; paths?: string[]; ts: number }
   /** `fix` is the thing to do about it, carried from the server on the failures where Realm knows
    *   one (today: an auth failure it re-probed). Absent on every other error, which is most of
    *   them — a block that invented a remedy would be worse than the bare message. */
@@ -248,7 +250,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       return { ...t, blocks };
     }
     case "thinking": blocks.push({ kind: "thinking", messageId: e.payload.messageId, text: e.payload.text, ts: e.ts }); return { ...t, blocks };
-    case "tool_call": blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}), result: null, ts: e.ts }); return { ...t, blocks };
+    case "tool_call": blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}),
+      ...(e.payload.kind ? { toolKind: e.payload.kind } : {}), ...(e.payload.paths?.length ? { paths: e.payload.paths } : {}), result: null, ts: e.ts }); return { ...t, blocks };
     case "tool_result": {
       const i = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
       const b = i >= 0 ? blocks[i] : undefined;

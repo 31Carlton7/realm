@@ -1,5 +1,5 @@
 import type { Checkpoint, TurnChanges, TurnFile } from "@realm/contracts";
-import { fileDiffsFor } from "./rich/diff";
+import { fileDiffsFor, isUnifiedDiff, parseUnifiedDiff } from "./rich/diff";
 import { blockKey, type Block } from "./transcript-model";
 import { normalizePath } from "./file-links";
 
@@ -56,12 +56,15 @@ function measured(c: TurnChanges, asked: string | null): TurnEdits {
   };
 }
 
-/** A settled call's diff, worked out once. The reducer keeps every settled block's object, so a
- *  transcript re-derived on each streaming delta finds the answer here instead of re-diffing every
- *  edit it has ever drawn. */
+/** Whether an ACP call's result is the unified diff its edit was drawn as (map-acp.ts). */
+const acpEdit = (b: Extract<Block, { kind: "tool" }>) => b.toolKind === "edit" && !!b.result && isUnifiedDiff(b.result.content);
+
+/** A settled call's diff, worked out once: from its own two sides (Claude, Codex), or from the diff
+ *  an ACP agent's result carries. The reducer keeps every settled block's object, so a transcript
+ *  re-derived on each streaming delta finds the answer here instead of re-diffing every edit. */
 const diffsOf = new WeakMap<object, ReturnType<typeof fileDiffsFor>>();
 function callDiffs(b: Extract<Block, { kind: "tool" }>): ReturnType<typeof fileDiffsFor> {
-  if (!diffsOf.has(b)) diffsOf.set(b, fileDiffsFor(b.name, b.input));
+  if (!diffsOf.has(b)) diffsOf.set(b, acpEdit(b) ? parseUnifiedDiff(b.result!.content, b.paths?.[0] ?? "") : fileDiffsFor(b.name, b.input));
   return diffsOf.get(b)!;
 }
 
@@ -70,12 +73,12 @@ function callDiffs(b: Extract<Block, { kind: "tool" }>): ReturnType<typeof fileD
 function fromTools(tools: readonly Extract<Block, { kind: "tool" }>[], cwd: string, root: string): EditedFile[] {
   const byPath = new Map<string, EditedFile>();
   for (const b of tools) {
-    if (!EDIT_TOOLS.has(b.name) || !b.result || b.result.isError) continue;
+    if (!b.result || b.result.isError || !(EDIT_TOOLS.has(b.name) || acpEdit(b))) continue;
     for (const d of callDiffs(b) ?? []) {
       if (!d.path) continue;
       const path = normalizePath(d.path.startsWith("/") ? d.path : `${cwd}/${d.path}`);
       if (!path) continue;
-      const created = b.name === "Write" && CREATED.test(b.result.content);
+      const created = (b.name === "Write" && CREATED.test(b.result.content)) || (acpEdit(b) && b.result.content.startsWith("--- /dev/null"));
       const known = b.name !== "Write" || created ? !d.note : false;
       const prev = byPath.get(path);
       const add = (a: number | null, n: number) => (a === null || !known ? null : a + n);

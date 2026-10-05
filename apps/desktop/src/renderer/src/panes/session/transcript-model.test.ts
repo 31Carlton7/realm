@@ -50,6 +50,18 @@ describe("a plan the agent proposed", () => {
 
 });
 
+describe("an ACP call's own account of itself", () => {
+  it("carries the kind and the files it named onto the block, and nothing for a call that stated neither", () => {
+    const t = reduceAll([
+      sessionEvent("tool_call", { toolUseId: "c1", name: "Editing orgs.ts", input: {}, parentToolUseId: null, kind: "edit", paths: ["/w/orgs.ts"] }),
+      sessionEvent("tool_call", { toolUseId: "c2", name: "Edit", input: { file_path: "/w/a.ts" }, parentToolUseId: null }),
+    ]);
+    expect(t.blocks[0]).toMatchObject({ toolKind: "edit", paths: ["/w/orgs.ts"] });
+    expect(t.blocks[1]).not.toHaveProperty("toolKind");
+    expect(t.blocks[1]).not.toHaveProperty("paths");
+  });
+});
+
 describe("a tool call a sub-agent made", () => {
   it("carries `parentToolUseId` onto the block, and leaves it absent for a call the agent made itself", () => {
     let t = emptyTranscript();

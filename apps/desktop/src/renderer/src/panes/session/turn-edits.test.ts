@@ -57,6 +57,16 @@ describe("what a turn changed", () => {
     expect(editTotals(card.files)).toBeNull();
   });
 
+  it("counts an ACP agent's edits off the diffs its results carry, a new file as added", () => {
+    const acp = (id: string, path: string, diff: string, ts: number): Block =>
+      ({ kind: "tool", toolUseId: id, name: `Editing ${path}`, input: {}, toolKind: "edit", paths: [path], result: { content: diff, isError: false }, ts });
+    const blocks = [user("edit", 100),
+      acp("a1", "/w/app/x.ts", "--- /w/app/x.ts\n+++ /w/app/x.ts\n@@ -2,1 +2,2 @@\n-b\n+B\n+c", 110),
+      acp("a2", "/w/app/new.ts", "--- /dev/null\n+++ /w/app/new.ts\n@@ -0,0 +1,1 @@\n+hi", 120), run(200)];
+    const card = turnEdits(blocks, opts()).cards.get("run:3")!;
+    expect(card.files.map((f) => [f.shown, f.status, f.additions, f.deletions])).toEqual([["x.ts", "modified", 2, 1], ["new.ts", "added", 1, 0]]);
+  });
+
   it("waits for the measurement of the newest turn a checkpoint fronted, instead of flashing the calls' numbers", () => {
     const blocks = [user("edit", 100), edit("e1", "/w/app/a.ts", "x", "y", 110), run(200)];
     const checkpoints = [cp("cp1", 90)];

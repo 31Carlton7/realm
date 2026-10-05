@@ -1,8 +1,9 @@
 import { Icon } from "@realm/ui";
-import { memo, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import type { SessionStatus } from "@realm/contracts";
 import { Spinner } from "../../components/Spinner";
-import { clip, editStat, prettyJson, toolSummary } from "./tool-summary";
+import { fileIconFor } from "../../components/file-icon";
+import { clip, editStat, editTarget, prettyJson, resultEditStat, toolSummary } from "./tool-summary";
 import { flattenRun, formatDuration, formatToolRun, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
 import { ToolInputBody, ToolResultBody } from "./rich/ToolViews";
 import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolMediaPath, toolResultView } from "./rich/tool-view";
@@ -14,6 +15,32 @@ type ToolState = "running" | "ok" | "error" | "none";
 
 /** How long the copy button holds its ✓ before cross-fading back to the copy glyph (§6 icon swap). */
 const COPIED_MS = 1400;
+
+/** The session's directory, for saying an edited file's path from where the agent stands. Provided
+ *  by the transcript; absent — a card drawn somewhere with no session — the path is said whole. */
+export const ToolCwd = createContext<string | null>(null);
+
+/**
+ * The file an editing call changed, named the way the turn's edit card and the prose name it: the
+ * file type's mark, the directory dimmed and the name bright. One shape for Claude's `Edit`, Codex's
+ * `apply_patch` and an ACP agent's edit, because to the reader they are the same act — and a mono
+ * chip of the raw path said less, at more width, than the three parts of it a reader looks for.
+ */
+function ToolFile({ path, more }: { path: string; more: number }) {
+  const cwd = useContext(ToolCwd)?.replace(/\/+$/, "") ?? null;
+  const shown = cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
+  const cut = shown.lastIndexOf("/");
+  return (
+    <span className="tool-file" title={path}>
+      <Icon name={fileIconFor(path)} size={14} className="tool-file-mark" />
+      <span className="tool-file-path">
+        {cut >= 0 && <span className="tool-file-dir">{shown.slice(0, cut + 1)}</span>}
+        <span className="tool-file-name">{shown.slice(cut + 1)}</span>
+      </span>
+      {more > 0 && <span className="tool-file-more">and {more} more</span>}
+    </span>
+  );
+}
 
 /** Giant tool results are clamped to this many chars behind a "Show all" expander (A-M2) — an agent
  *  cat-ing a bundle must not wedge the transcript. Copy always takes the full text.
@@ -106,7 +133,10 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
   const state: ToolState = block.result ? (block.result.isError ? "error" : "ok") : live ? "running" : "none";
   const summary = clip(toolSummary(block.name, block.input));
-  const stat = editStat(block.name, block.input);
+  /* An edit names its file and its counts, from the call's own two sides where it carries them, or
+     from the diff an ACP agent's result carries (map-acp.ts). */
+  const target = editTarget(block);
+  const stat = editStat(block.name, block.input) ?? resultEditStat(block);
   /* The drawn forms of this call's payloads, or null where the raw well is still the best showing
      (rich/tool-view.ts). Computed only once the body has been built — a transcript of 300 collapsed
      cards must not diff 300 payloads to render a row nobody opened. */
@@ -134,7 +164,8 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
           {state === "error" && <Icon name="errorCircle" size={14} />}
         </span>
         <span className="tool-name">{block.name}</span>
-        {summary && <span className="tool-summary" title={summary}>{summary}</span>}
+        {target ? <ToolFile path={target.path} more={target.more} />
+          : summary && <span className="tool-summary" title={summary}>{summary}</span>}
         {stat && (
           /* A zero side is dropped rather than printed: "−0" on a pure addition is a count of
              nothing, and it reads as a deletion until the eye gets to the digit. */

@@ -11,7 +11,7 @@ import { MessageSources } from "./MessageSources";
 import { sourcesFor, type Source } from "./message-sources";
 import { PendingRequest } from "./PendingRequest";
 import { PlanCard } from "./PlanCard";
-import { ToolCard, ToolGroup } from "./ToolCard";
+import { ToolCard, ToolCwd, ToolGroup } from "./ToolCard";
 import { formatDuration, groupTranscript, withEnter } from "./tool-group";
 import { blockKey, lastUserMessage, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { stampLabel, stampTitle, useNow } from "./timestamps";
@@ -410,6 +410,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
       <SelectionBar scrollRef={ref} wrapRef={wrap} onQuote={onQuote} />
       <div className="transcript" ref={ref} onScroll={onScroll} role="log" aria-live="polite" aria-label="Transcript">
         <div className="transcript-col">
+        <ToolCwd.Provider value={cwd}>
         {groupTranscript(transcript.blocks).map((it) => {
           if (it.kind === "group")
             // The group container itself never animates in: when a run crosses the grouping
@@ -547,6 +548,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}
         <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} written={transcript.summary?.text ?? null} />
+        </ToolCwd.Provider>
         </div>
       </div>
       {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={12} /> New messages</button>}
