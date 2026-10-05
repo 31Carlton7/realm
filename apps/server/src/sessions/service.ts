@@ -186,6 +186,8 @@ export class SessionService {
   private probeCache = new ProbeCache(() => this.probeAll());
 
   probe(opts: { force?: boolean } = {}): Promise<ProbeResult[]> { return this.probeCache.get(opts); }
+  /** The last probe's rows, stale or not, without spending a new one — see `ProbeCache.peek`. */
+  probeCached(): { rows: ProbeResult[]; fresh: boolean } | null { const p = this.probeCache.peek(); return p && { rows: p.value, fresh: p.fresh }; }
 
   /**
    * One agent's probe, fresh, for a caller that needs to know about one CLI now. Every adapter's

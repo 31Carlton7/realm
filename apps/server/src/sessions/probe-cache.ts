@@ -57,6 +57,13 @@ export class ProbeCache<T = ProbeResult[]> {
     return p;
   }
 
+  /** The last answer, however old, without starting a probe — or null when there has never been
+   *  one. For a caller inside somebody else's wait (a tool call) that would rather read what the
+   *  picker last saw than spend a probe of every agent finding out again. */
+  peek(): { value: T; fresh: boolean } | null {
+    return this.cached ? { value: this.cached.value, fresh: this.now() - this.cached.at < this.ttlMs } : null;
+  }
+
   /**
    * Rewrite part of the answer with something learned more recently than the rest — one agent probed
    * on its own, say, the moment its sign-in finished. The cached value takes it without its age

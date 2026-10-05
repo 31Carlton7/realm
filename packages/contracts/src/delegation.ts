@@ -20,9 +20,15 @@ import { SkillIdSchema } from "./skills";
  *   time budget, stated honestly in the tool description); `timeoutMs` overrides it wholesale.
  * - `skills` narrows the child's skill set to a SUBSET of the space's enabled skills; an id that is
  *   not enabled-and-valid in the space refuses the whole call loudly.
+ * - `model` puts the child on a model by the name a person uses for it ("GPT-6 Luna", "Fable",
+ *   "Opus 5.5", or an id). The server resolves it against the models the agents on this Mac reported
+ *   (`delegation/models.ts`) to the harness that runs it, so it needs no `agentKind` beside it; with
+ *   one, the name is looked up on that harness alone. Omitted, the child runs on its parent's model
+ *   when it runs on its parent's harness, and on the harness's default otherwise.
  */
 export const AgentRunConstraintsSchema = z.object({
   agentKind: AgentKindSchema.optional(),
+  model: z.string().trim().min(1).max(120).optional(),
   environmentId: IdSchema.optional(),
   newWorktree: z.union([z.boolean(), z.string().min(1).max(80)]).optional(),
   /** Both read-only modes are requestable: they are the two most restrictive things a parent can ask

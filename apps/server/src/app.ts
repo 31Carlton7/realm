@@ -86,7 +86,7 @@ import { McpService, oauthStatusOf } from "./mcp/service";
 import { McpHub } from "./mcp/hub";
 import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
-import type { McpServerStatus } from "@realm/contracts";
+import type { AgentKind, McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
 import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
@@ -834,7 +834,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   browserAgents = new BrowserAgentService({ settings, sessions, rpc, engine: delegationEngine, skillsRoot: skills.root, fallbackKind: opts.browserAgent?.fallbackKind, timeouts: opts.browserAgent?.timeouts });
   agentRuns = new AgentRunService({ settings, sessions, rpc, engine: delegationEngine, environments: envService, skills, otherDelegation: browserAgents,
-    fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.agentRun?.timeouts, maxDepth: opts.agentRun?.maxDepth });
+    fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.agentRun?.timeouts, maxDepth: opts.agentRun?.maxDepth,
+    // A model named by a delegating agent resolves against the same probe rows the model picker
+    // draws, so "GPT-6 Luna" in a tool call and "GPT-6 Luna" in the picker are the same model.
+    models: { known: () => sessions.probeCached(), refresh: () => sessions.probe(), kinds: Object.keys(adapterRegistry) as AgentKind[] } });
   // The reviewer recipe (W3): same engine, read-only cap, review-origin children. `otherDelegation`
   // fans across BOTH sibling registries — no delegated child of any kind may mint a reviewer.
   const agentRunsFinal = agentRuns, browserAgentsFinal = browserAgents;
