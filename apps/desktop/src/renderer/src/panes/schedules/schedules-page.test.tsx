@@ -145,7 +145,8 @@ describe("the Schedule a task modal", () => {
   it("creates exactly what the menus say, instructions verbatim, and lands on the new task", async () => {
     const { store } = await mount();
     const dialog = await open();
-    const goal = "Plan the release, then have GPT-6 Luna implement it with sub-agents.\n\n  Keep notes in docs/release.md.";
+    // Ends in a newline on purpose: an instruction is sent as typed, and a trim would be a rewrite.
+    const goal = "Plan the release, then have GPT-6 Luna implement it with sub-agents.\n\n  Keep notes in docs/release.md.\n";
     fireEvent.change(within(dialog).getByLabelText("Task name"), { target: { value: "  Release prep  " } });
     fireEvent.change(within(dialog).getByLabelText("Instructions"), { target: { value: goal } });
     fireEvent.change(within(dialog).getByLabelText("Repeat"), { target: { value: "weekly" } });
