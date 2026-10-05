@@ -359,7 +359,7 @@ describe("a line asked for from the transcript", () => {
   it("is asked for by opening a path at a line", async () => {
     const { store } = renderPane({ "src/orgs.ts": source });
     store.setState({ activeSpaceId: "s1" });
-    await store.getState().openDocumentPath("/w/app/src/orgs.ts", null, "s1", 83);
+    await store.getState().openDocumentPath("/w/app/src/orgs.ts", null, "s1", { line: 83 });
     expect(store.getState().documentReveal).toMatchObject({ documentsId: expect.any(String), path: "/w/app/src/orgs.ts", line: 83 });
     await store.getState().openDocumentPath("/w/app/src/orgs.ts", null, "s1");
     expect(store.getState().documentReveal).toMatchObject({ line: 83 }); // an open with no line asks for none

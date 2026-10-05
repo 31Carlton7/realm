@@ -2261,7 +2261,9 @@ export type AppState = {
    * the tab on; `applyDocumentOpenRequested` is the store's half, and it leaves an item that is
    * already on screen alone.
    */
-  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null, line?: number | null): Promise<void>;
+  /** `line` lands the file's editor on that line (`documentReveal`); `beside` opens the pane where
+   *  `openDocuments` would — a session's side pane — instead of in the focused leaf's place. */
+  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null, opts?: { line?: number | null; beside?: Beside }): Promise<void>;
   /** The documents pane landed on `documentReveal` number `n`; a later request is left standing. */
   consumeDocumentReveal(n: number): void;
   applyDocumentOpenRequested(p: { spaceId: string; environmentId: string; documentsId: string; itemId: string; path: string; openedBy?: string }): Promise<void>;
@@ -6047,7 +6049,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId, targetLeafId); return; }
         await adoptItem(sid, itemId, targetLeafId, beside);
       },
-      async openDocumentPath(path, environmentId = null, spaceId = null, line = null) {
+      async openDocumentPath(path, environmentId = null, spaceId = null, { line = null, beside = false } = {}) {
         const sid = (environmentId ? get().environments[environmentId]?.spaceId : undefined) ?? spaceFor(spaceId);
         if (!sid) return;
         // Read before the round trip: the palette closes as the pick is made, and its close clears it.
@@ -6062,7 +6064,7 @@ await get().refreshCustomThemes().catch(() => {});
           if (replacing && findLeafOfItem(get().layout ?? emptyLayout(), replacing)) { await replaceNewTab(sid, replacing, itemId); return; }
           const layout = get().layout;
           if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
-          await adoptItem(sid, itemId, null);
+          await adoptItem(sid, itemId, null, beside);
         } finally {
           if (replacing) newTabPicks--;
         }

@@ -439,12 +439,13 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   /** The file path whose menu is open, and the element it was clicked on. */
   const [pathMenu, setPathMenu] = useState<{ path: string; at: HTMLElement } | null>(null);
   /* A file the prose names inside this session's checkout opens straight in the documents pane, at
-     the line it named. Stable, because every finished message re-checks its links against it. */
+     the line it named — beside the session, as the bar's own Documents does, never in its place.
+     Stable, because every finished message re-checks its links against it. */
   const openDocumentPath = useApp((s) => s.openDocumentPath);
   const ownEnvironmentId = session?.environmentId ?? null;
   const checkoutRoot = useApp((s) => { const sess = s.sessions[id]; return sess ? s.environments[sess.environmentId]?.path ?? sess.cwd : null; });
-  const openFileAt = useCallback((path: string, line: number | null) => { run(() => openDocumentPath(path, ownEnvironmentId, null, line)); },
-    [run, openDocumentPath, ownEnvironmentId]);
+  const openFileAt = useCallback((path: string, line: number | null) => { run(() => openDocumentPath(path, ownEnvironmentId, null, { line, beside: { sessionId: id } })); },
+    [run, openDocumentPath, ownEnvironmentId, id]);
   const checkout = useMemo(() => (checkoutRoot ? { root: checkoutRoot, onOpen: openFileAt } : null), [checkoutRoot, openFileAt]);
   /* The edit cards' half: every checkpoint in this checkout (whether a turn's Undo is honest), the
      turn's own diff for Review, and Undo through the checkpoint restore's own confirmation. */
