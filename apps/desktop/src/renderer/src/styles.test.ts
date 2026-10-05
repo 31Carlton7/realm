@@ -1735,7 +1735,8 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
        the `.btn` the Record control was, whose painter trades the lift for a ring. */
     const pill = RULES.find((r) => partsOf(r).includes(".sim-toolbar") && partsOf(r).includes(".sim-record-start"));
     expect(pill && partsOf(pill).sort()).toEqual([".sim-live", ".sim-record-start", ".sim-recording", ".sim-toolbar"]);
-    for (const decl of ["height: 32px", "border-radius: 999px", "background: var(--rl-raised)", "box-shadow: var(--shadow-card)"]) {
+    // Its lift is the object surface every file and Library item wears too (asserted with them below).
+    for (const decl of ["height: 32px", "border-radius: 999px", "background: var(--rl-raised)", "box-shadow: var(--rl-object-shadow)"]) {
       expect(pill!.body).toContain(decl);
     }
     // What sits inside a pill is a pill, under the painter too — or Stop is a squircle in a capsule.
@@ -1924,7 +1925,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(RULES.some((r) => r.selectors.includes(".btn-quiet:disabled"))).toBe(false);
   });
 
-  it("an attachment is a SQUARE on the field fill behind a hairline ring — no name, no label column", () => {
+  it("an attachment is a SQUARE on the field fill under the object's border and shadow — no name, no label column", () => {
     const tile = bodiesFor(".attach-tile").join(" ");
     // Square, and the same square in both directions: a chip that grows with its filename is the
     // thing this replaced. Both sides now come off ONE property, which is also what the corner
@@ -1935,7 +1936,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".msg-user-files .attach-tile").join(" ")).toContain("--attach-tile: 56px");
     const art = bodiesFor(".attach-art").join(" ");
     expect(art).toContain("background: var(--field)");
-    expect(art).toContain("box-shadow: var(--shadow-hairline)");
+    expect(art).toContain("box-shadow: var(--rl-object-shadow)");
     /* The corner is a proportion of the tile, not a flat length, and it is the squircle ratio rather
        than the control one — `--sq-ratio-ctl` would spend the whole 44px box and render the circular
        fallback as a disc (see the token's own note). `corner-shape` makes it a true superellipse on
@@ -2919,6 +2920,27 @@ describe("light mode", () => {
     expect(lightBlocks).not.toContain("--fill-bevel");
     for (const sel of [".btn.primary", ".composer-send", ".btn.destructive"])
       expect(bodiesFor(sel).join(" "), sel).toContain("box-shadow: var(--fill-bevel)");
+  });
+
+  it("every file and Library item stands on the device toolbar's own border and shadow — one token, never a copy", () => {
+    /* The owner, 10-05: "Files and library items should have a very slight shadow under them instead of
+       being just a flat square. And also it should have a light border. Look at the simulator and the
+       bar that has the live indicator… That should be the shadow and border used for any library item."
+       So the toolbar and the items all wear ONE token. THE MUTANTS: an item put back on a flat inset rim
+       (or on no edge), an item given the toolbar's stack copied rather than named, the toolbar moved to
+       another stack on its own, and a picture tile's ring traced back inside the border round it. */
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-shadow: var(--shadow-card)");
+    expect(RULES.filter((r) => /(^|[;\s])--rl-object-shadow\s*:/.test(r.body)), "defined once, so there is one place to change it").toHaveLength(1);
+    for (const sel of [".sim-toolbar", ".library-tile", ".library-row-mark", ".saved-turn-open", ".docs-home-glyph[data-type]", ".attach-art"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("box-shadow: var(--rl-object-shadow)");
+      expect(body, `${sel} keeps a rim of its own as well`).not.toMatch(/border: var\(--hairline-w\) solid|inset 0 0 0 var\(--hairline-w\)/);
+    }
+    // One ring round a picture: the tile's, outside it. A second traced inside sat half a pixel off it.
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".library-tile[data-thumb]::after")))).toEqual([]);
+    expect(bodiesFor(".library-tile").join(" ")).toContain("overflow: hidden");
+    // A file the agent will drop keeps its warning ring, and rests on the same lift as every other.
+    expect(bodiesFor('.attach-tile[data-disposition="ignored"] .attach-art').join(" ")).toContain("box-shadow: 0 0 0 var(--hairline-w) var(--orange), var(--shadow-card-lift)");
   });
 
   it("a file card set into the dock's raised surface takes the raised frame step, and light's is no weaker than dark's", () => {

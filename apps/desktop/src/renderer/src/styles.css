@@ -110,6 +110,12 @@
   --rl-tile: var(--overlay-lighten-200);
   --rl-tile-hover: var(--overlay-lighten-300);
   --rl-tile-press: var(--overlay-lighten-400);
+  /* What an OBJECT rests on — a file's tile and its square in a row, a saved turn, a file on a message
+     or in the prompter, and the device's toolbar: a light border and a very slight shadow, the card
+     stack (the owner, 10-05, of the toolbar: "That should be the shadow and border used for any
+     library item"). Named once for all of them, so the toolbar pointed at and the files it was
+     pointed at for cannot drift apart; `styles.test.ts` holds each to it. */
+  --rl-object-shadow: var(--shadow-card);
   /* borders: BUI hairlines are solid and crisp, not alpha — hairline = line now */
   --rl-line: var(--line);                        /* BUI --line */
   --rl-line-strong: var(--line-strong);          /* BUI --line-strong */
@@ -1743,7 +1749,7 @@ kbd { font: 11px var(--font-mono); }
    the device rather than as a strip of chrome and a stray button — and what sits inside a pill is a
    pill too, its corner the outer one less the 2px or 4px between them. */
 .sim-toolbar, .sim-record-start, .sim-recording, .sim-live {
-  height: 32px; border-radius: 999px; background: var(--rl-raised); box-shadow: var(--shadow-card); }
+  height: 32px; border-radius: 999px; background: var(--rl-raised); box-shadow: var(--rl-object-shadow); }
 /* The state, a rule, the four presses and the overflow. A narrow pane takes it apart in the order
    `toolbar-fit.ts` states, and its numbers are this rule's: 2px of padding, 2px gaps, 28px buttons. */
 .sim-toolbar { display: flex; align-items: center; gap: 2px; max-width: 100%; padding: 2px; }
@@ -4645,9 +4651,11 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    once rather than this tile becoming the one that curves differently. `overflow: hidden` is what
    makes the thumbnail take the corner too, which is the point for MEDIA: the glyph tiles would look
    the same either way, an image would not. */
+/* A file is an object wherever it is shown, and here too it stands under the object's border and
+   shadow rather than a flat ring. */
 .attach-art { position: absolute; inset: 0; display: grid; place-items: center;
   border-radius: calc(var(--attach-tile) * var(--sq-ratio-media)); corner-shape: squircle;
-  background: var(--field); box-shadow: var(--shadow-hairline);
+  background: var(--field); box-shadow: var(--rl-object-shadow);
   color: var(--rl-text-faint); overflow: hidden; }
 .attach-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
 /* The whole face of the tile is the open control, and it adds no box of its own: the well underneath
@@ -4684,7 +4692,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   background: linear-gradient(to top, rgb(0 0 0 / .72), rgb(0 0 0 / 0)); }
 /* A file the agent will simply discard must not look like one it will read (§2.4: colour = state). */
 .attach-tile[data-disposition="ignored"] .attach-art { color: var(--orange); background: var(--orange-tint);
-  box-shadow: 0 0 0 var(--hairline-w) var(--orange); }
+  box-shadow: 0 0 0 var(--hairline-w) var(--orange), var(--shadow-card-lift); }
 .attach-tile[data-disposition="ignored"] .attach-glyph { color: var(--rl-warning); }
 /* The tip: the name the tile stopped spelling out. Above the tile, because the tile row sits at the
    top of the composer card and the text the user is writing is below it. Nothing between here and
@@ -7559,12 +7567,12 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .library-empty { padding: 8px 0; }
 /* The Library's Saved section (LibrarySaved.tsx). Each turn says three things — what was asked, how it
    was answered, whose session — so it is a card with air round it rather than a row under a rule, on
-   the settings card's fill and rim. The card is the control that goes there; the ribbon in its corner
-   unsaves, filled in the accent as the track card's is. */
+   the settings card's fill, standing on the page as every Library item does. The card is the control
+   that goes there; the ribbon in its corner unsaves, filled in the accent as the track card's is. */
 .saved-turns { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .saved-turn { position: relative; display: flex; }
 .saved-turn-open { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 12px 48px 12px 16px; text-align: left;
-  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel);
+  background: var(--rl-card); box-shadow: var(--rl-object-shadow); border-radius: var(--r-panel);
   transition: background-color var(--dur-hover) ease; }
 .saved-turn-open:hover { background: var(--rl-card-hover); }
 .saved-turn-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -7587,11 +7595,15 @@ button.cr-finding-where:hover { text-decoration: underline; }
 /* The tile: ONE square for every file, so the grid's shape never changes from file to file. A file
    with no picture is its name at the top, its glyph in the middle and what the list knows at the
    foot; a file whose picture IS the file is that picture, edge to edge. */
+/* It stands on the page as an object does, under a light border and a very slight shadow (the owner,
+   10-05: "instead of being just a flat square"), rather than a rim traced inside a flat square. The
+   border is OUTSIDE the box, so a picture filling the tile keeps the tile's corner and the border runs
+   round it — never a second ring laid over the picture's edge. */
 .library-tile {
   position: relative; display: flex; flex-direction: column; gap: 6px;
   width: 100%; aspect-ratio: 1; padding: 14px 14px 12px; text-align: left; font: inherit; border: none; overflow: hidden;
   border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-tile);
-  box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-card-rim);
+  box-shadow: var(--rl-object-shadow);
   transition: background var(--dur-hover) ease;
 }
 /* Every card opens, so every card answers the mouse — the preview is where "what can Realm do with
@@ -7621,13 +7633,13 @@ button.cr-finding-where:hover { text-decoration: underline; }
    it back first. Everything beside it is a fixed 12px glyph. */
 .library-tile-session { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A picture tile. The picture fills the square — anchored to the TOP, because the top of a page is
-   the part that names it — under the one-device-pixel outline every image in the app wears. Its name
-   and provenance come up over a scrim under the pointer or the focus ring, at once, and fade on the
-   way out (design.md: hover arrives instantly). The scrim is a picture's, so its ink is white on
-   both faces. */
+   the part that names it — clipped to the tile's corner, with the tile's own border round it as the
+   one-device-pixel outline every image in the app wears. (It had its own outline traced inside; with
+   the border outside, that was a second ring half a pixel from the first.) Its name and provenance
+   come up over a scrim under the pointer or the focus ring, at once, and fade on the way out
+   (design.md: hover arrives instantly). The scrim is a picture's, so its ink is white on both faces. */
 .library-tile[data-thumb] { padding: 0; }
 .library-tile-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
-.library-tile[data-thumb]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset var(--shadow-hairline); pointer-events: none; }
 .library-tile-caption {
   position: absolute; inset: auto 0 0 0; display: flex; flex-direction: column; gap: 3px; padding: 32px 12px 10px;
   background: linear-gradient(to top, rgb(0 0 0 / 0.8), rgb(0 0 0 / 0.55) 55%, transparent);
@@ -7645,8 +7657,10 @@ button.cr-finding-where:hover { text-decoration: underline; }
 }
 .library-row:hover { background: var(--rl-hover); }
 .library-row:is([data-pressed], :active:focus-visible) { background: var(--rl-active); }
+/* In a row the file is its square, and the square is the object: the row itself stays a line of a
+   list, lit under the pointer, rather than becoming a card stacked on the next. */
 .library-row-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-chip); corner-shape: squircle; overflow: hidden;
-  background: var(--rl-tile); color: var(--rl-text-dim); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-card-rim); }
+  background: var(--rl-tile); color: var(--rl-text-dim); box-shadow: var(--rl-object-shadow); }
 .library-row-mark[data-type="document"], .library-row-mark[data-type="video"], .library-row-mark[data-type="audio"] { color: var(--rl-accent); }
 .library-row-mark[data-type="image"] { color: var(--rl-success); }
 .library-row-mark[data-type="data"] { color: var(--orange); }
@@ -8099,6 +8113,10 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .docs-home-open:hover { background: var(--rl-hover); }
 .docs-home-open:is([data-pressed], :active:focus-visible) { background: var(--rl-active); }
 .docs-home-glyph { flex: none; display: grid; place-items: center; color: var(--rl-text-dim); }
+/* A file in the list is its square, as in the Library's rows — the glyph on the tile's fill, under the
+   object's border and shadow — at the row's own scale. Only a file's: the Create row's mark is not one. */
+.docs-home-glyph[data-type] { width: 24px; height: 24px; border-radius: var(--r-chip); corner-shape: squircle;
+  background: var(--rl-tile); box-shadow: var(--rl-object-shadow); }
 .docs-home-glyph[data-type="document"], .docs-home-glyph[data-type="video"], .docs-home-glyph[data-type="audio"] { color: var(--rl-accent); }
 .docs-home-glyph[data-type="image"] { color: var(--rl-success); }
 .docs-home-glyph[data-type="data"] { color: var(--orange); }
