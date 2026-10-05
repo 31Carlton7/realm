@@ -7390,7 +7390,7 @@ select { appearance: none; padding-right: 22px;
    is almost always "the thing from this afternoon", and a flat list sorted by date answers it only
    after you have counted rows. The toolbar is the column's own head and stands outside its
    scroller, so it never dissolves with the files moving under it. */
-.library-files { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.library-files { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 /* Inset by the scroller's own bleed, so the tabs' first edge and the first tile's sit on one line. */
 .library-toolbar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; margin: 0 0 14px; }
 .library-types { flex: 1; min-width: 0; }
@@ -7415,10 +7415,12 @@ select { appearance: none; padding-right: 22px;
   background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); corner-shape: squircle; }
 .library-offer-text { flex: 1; min-width: 0; margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
 .library-offer-actions { flex: none; display: flex; gap: 8px; }
-/* Files held over the page: the pane's own glow round all of it, naming the gesture in its middle, as
-   the media viewer's and the quick chat's do. On the page rather than in its scroller, so it holds
-   still while the files under it move. */
-.library-files .library-drop { inset: 8px; z-index: 3; display: grid; place-items: center; border-radius: var(--r-float); }
+/* Files held over the page: a pane's own glow, inset from the page's edge as a session pane's is from
+   its own, naming the gesture in its middle as the media viewer's and the quick chat's do. On the page
+   and not in the column of files, whose content runs to its edges — a ring drawn there went through
+   the title and the first tile. Above the page's scroller, so it holds still while the files move. */
+.library-page-pane { position: relative; }
+.library-page-pane > .library-drop { z-index: 3; display: grid; place-items: center; }
 .library-narrowing { gap: 5px; padding-right: 8px; }
 .library-narrowing > svg { color: var(--rl-text-faint); }
 .library-empty { padding: 8px 0; }

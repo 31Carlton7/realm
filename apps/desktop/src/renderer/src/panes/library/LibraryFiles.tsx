@@ -1,12 +1,11 @@
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref } from "react";
 import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, type ArtifactType, type LibraryAddResult, type LibraryEntry } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { folderOffer, folderOfferText, nameList, offerCount } from "../../state/library-add";
 import { FileCard, FileRow } from "../../components/FileCard";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { PageScroll } from "../../components/ScrollFades";
-import { useFileDrop } from "../../components/use-file-drop";
 
 type Scope = "space" | "all";
 
@@ -110,9 +109,14 @@ function walkGrid(e: ReactKeyboardEvent<HTMLElement>) {
  * profile (`library.add`), and they are listed as any other file is, with "Added" where the others
  * name a session. A dropped folder is a question, not a copy: the page asks before its files come in.
  */
-export function LibraryFiles({ spaceId, head }: { spaceId: string;
+/** What the Library page hands the files it takes from a drop. The page is the drop target — the whole
+ *  of it, as a pane is a session's — and this column is what knows what to do with them. */
+export type LibraryFilesHandle = { drop(files: File[]): void };
+
+export function LibraryFiles({ spaceId, head, ref }: { spaceId: string;
   /** The page's head, drawn first in this column and scrolling away with it, the toolbar under it. */
-  head?: ReactNode }) {
+  head?: ReactNode;
+  ref?: Ref<LibraryFilesHandle> }) {
   const libraryArtifacts = useApp((s) => s.libraryArtifacts);
   // "Every space" is every space of THIS window's profile — profiles are separate homes for their
   // spaces, and the sidebar beside this page lists only its own.
@@ -229,12 +233,14 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
   });
   /* A drop names files by where they are on disk. One with no place on disk — dragged out of a web
      page, say — is not a file Realm can copy, and says so rather than vanishing. */
-  const drop = useFileDrop((dropped) => {
-    const paths = dropped.map((f) => pathForFile(f));
-    const nowhere = dropped.filter((_, i) => !paths[i]).map((f) => f.name || "a file");
-    if (nowhere.length > 0) toast({ tone: "warning", text: `Only files on this Mac can be added: ${nameList(nowhere)}.` });
-    run(() => add(paths.filter(Boolean)));
-  });
+  useImperativeHandle(ref, () => ({
+    drop(dropped) {
+      const paths = dropped.map((f) => pathForFile(f));
+      const nowhere = dropped.filter((_, i) => !paths[i]).map((f) => f.name || "a file");
+      if (nowhere.length > 0) toast({ tone: "warning", text: `Only files on this Mac can be added: ${nameList(nowhere)}.` });
+      run(() => add(paths.filter(Boolean)));
+    },
+  }));
 
   const groups = groupByDay(entries);
   const narrowed = scope !== "all" || kind !== "all";
@@ -245,7 +251,7 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
   ];
 
   return (
-    <div className="library-files" data-dropping={drop.dropping || undefined} {...drop.handlers}>
+    <div className="library-files">
       <PageScroll wide>
         {head}
         <div className="library-toolbar">
@@ -356,12 +362,6 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
             and no spinner sitting under it forever. */}
         {!done && <div ref={sentinel} className="library-more">{loading ? "Loading…" : ""}</div>}
       </PageScroll>
-      {/* Over the whole page and not its scroller, so the glow holds still while the files move. */}
-      {drop.dropping && (
-        <div className="session-drop library-drop" aria-hidden="true">
-          <span className="quick-chat-drop-label"><Icon name="add" size={14} />Drop to add to the Library</span>
-        </div>
-      )}
     </div>
   );
 }
