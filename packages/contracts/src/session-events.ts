@@ -20,7 +20,12 @@ const P = {
   assistant_text: z.object({ messageId: z.string(), text: z.string() }),
   assistant_delta: z.object({ messageId: z.string(), delta: z.string() }),
   thinking: z.object({ messageId: z.string(), text: z.string() }),
-  tool_call: z.object({ toolUseId: z.string(), name: z.string(), input: z.record(z.unknown()), parentToolUseId: z.string().nullable() }),
+  /** `kind` and `paths` are what an ACP agent says about a call beside its free-text title — ACP's
+   *  `ToolKind` (`edit`, `read`, `execute`…) and the files its `locations` name. They are how the
+   *  transcript knows an ACP call edited a file at all, since its name is a sentence. Absent for every
+   *  other agent, whose tool names already say both, and on every call written before they existed. */
+  tool_call: z.object({ toolUseId: z.string(), name: z.string(), input: z.record(z.unknown()), parentToolUseId: z.string().nullable(),
+    kind: z.string().optional(), paths: z.array(z.string()).optional() }),
   tool_result: z.object({ toolUseId: z.string(), content: z.string(), isError: z.boolean() }),
   /**
    * A sub-agent the HARNESS is running in its own process, started or stopped.
