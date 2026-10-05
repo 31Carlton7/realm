@@ -811,6 +811,15 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
     expect(mark.querySelector("path")).toHaveAttribute("fill", "currentColor");
   });
 
+  it("wears no effort on the chip of a harness that never receives it", async () => {
+    // A Codex session can hold a level set under Claude before the switch; Codex drops it at thread
+    // start, so a suffix there would claim a setting nothing is applying.
+    await mountFresh({ agentKind: "codex", effort: "high" });
+    const chip = screen.getByRole("button", { name: "Model" });
+    expect(chip.querySelector(".chip-effort")).toBeNull();
+    expect(chip.getAttribute("title")).not.toContain("effort");
+  });
+
   it("the gray suffix shows the SESSION's effort, capitalised (`xhigh` → XHigh), and hides when unset", async () => {
     const a = await mountFresh({ effort: "xhigh" });
     expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("XHigh");
