@@ -5340,8 +5340,9 @@ select { appearance: none; padding-right: 22px;
   /* page panes */
   .cp-list, .activity-list, .task-detail-result, .notif-feed, .delegation-list,
   .lecture-list, .install-cmd code, .code-preview, .cli-job-output,
-  /* documents */
+  /* documents — the home's lists, and the new code file's languages, included */
   .documents-tabs, .documents-picker, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
+  .docs-home-scroll, .code-file-languages,
   /* the prompter — only the pinned strips' copies of the lists are bounded enough to scroll */
   .composer-todos .todo-list, .agents-pop .delegation-list,
   /* the sub-agent panel: the column itself, and the two prose panels it caps */
@@ -7403,6 +7404,7 @@ select { appearance: none; padding-right: 22px;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .documents-name:hover { background: var(--rl-hover); }
+.documents-name-ext { color: var(--rl-text-faint); }
 .documents-name-input {
   min-width: 0; flex: 0 1 340px; height: 24px; padding: 0 6px; margin-left: -6px;
   border: none; border-radius: var(--r-chip); background: var(--field); color: var(--rl-text-bright);
@@ -7464,6 +7466,77 @@ select { appearance: none; padding-right: 22px;
 .documents-picker-list button > svg { flex: none; color: var(--rl-text-faint); }
 .documents-picker-list button:hover:not(:disabled) { background: var(--hover); }
 .documents-picker-list button:disabled { opacity: .4; cursor: default; }
+/* The home's tab: a glyph alone, so its label is padded evenly rather than for a word and a close. */
+.documents-home-tab .documents-tab-label { padding: 5px 8px; }
+
+/* ── The documents pane's home (DocumentsHome.tsx) ──────────────────────────
+   What the pane shows with nothing open, and behind its first tab when something is: the search and
+   New in the head, then this session's files and the Library's, a file to a line. The head stands
+   OUTSIDE the scroller, so the search stays put and legible while the lists move under it. One line
+   a file, because a side pane is narrow and two-line rows there read as one block of prose; the line
+   is ordered so the folder gives way before the name does, and the time keeps its column. */
+.docs-home { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.docs-home-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; }
+.docs-home-search { position: relative; flex: 1; min-width: 0; display: block; }
+.docs-home-search > svg { position: absolute; left: 11px; top: 50%; translate: 0 -50%; color: var(--rl-text-faint); pointer-events: none; }
+.docs-home-search > .search-field { --search-h: 32px; padding-left: 32px; padding-right: 44px; }
+/* ⌘P, from the keymap — said inside the field it opens, until something is typed there. */
+.docs-home-kbd { position: absolute; right: 9px; top: 50%; translate: 0 -50%; pointer-events: none; }
+.docs-home-new { --btn-h: 32px; padding: 0 9px; gap: 5px; }
+.docs-home-new-chevron { color: var(--rl-text-faint); }
+/* A column so a page with nothing on it can centre its one message; sections are flex items that
+   keep their own height (`min-height: auto`), so a long list still scrolls rather than squashing. */
+.docs-home-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
+  padding: 4px 8px 16px; --fade-h: 28px; --fade-top-h: 24px; }
+.docs-home-section { flex: none; }
+.docs-home-section + .docs-home-section, .docs-home-section + .docs-home-create, .docs-home-section + .docs-home-none { margin-top: 14px; }
+.docs-home-section-head { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 2px 2px 8px; }
+.docs-home-section-head h3 { flex: 1; min-width: 0; margin: 0; font-size: 12px; line-height: 16px; font-weight: var(--fw-title); color: var(--rl-text-dim); }
+.docs-home-rows { flex: none; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.docs-home-row { position: relative; display: flex; align-items: center; min-width: 0; }
+.docs-home-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px;
+  text-align: left; border-radius: var(--r-ctl); corner-shape: squircle; font-size: 13px; color: var(--rl-text-bright);
+  cursor: default; transition: background-color var(--dur-hover) ease;
+}
+.docs-home-open:hover { background: var(--rl-hover); }
+.docs-home-open:is([data-pressed], :active:focus-visible) { background: var(--rl-active); }
+.docs-home-glyph { flex: none; display: grid; place-items: center; color: var(--rl-text-dim); }
+.docs-home-glyph[data-type="document"], .docs-home-glyph[data-type="video"], .docs-home-glyph[data-type="audio"] { color: var(--rl-accent); }
+.docs-home-glyph[data-type="image"] { color: var(--rl-success); }
+.docs-home-glyph[data-type="data"] { color: var(--orange); }
+.docs-home-glyph[data-type="code"] { color: var(--rl-text-bright); }
+.docs-home-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); }
+.docs-home-name mark { background: transparent; color: inherit; font-weight: var(--fw-strong); }
+/* Basis zero: the folder takes only what the name leaves, so it is the first thing to go. */
+.docs-home-detail { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rl-text-faint); }
+/* The time keeps a column as wide as the row's own control, flush with the section head's action, and
+   that control comes up IN it — under the pointer, and for as long as the file is in the next message
+   — so nothing else on the line moves, and there is no empty gutter at rest. */
+.docs-home-time { flex: none; min-width: 28px; margin-left: auto; text-align: right; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.docs-home-attach { position: absolute; right: 4px; top: 50%; translate: 0 -50%; opacity: 0; transition: opacity var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+.docs-home-row:is(:hover, :focus-within) > .docs-home-attach, .docs-home-attach[aria-pressed="true"] { opacity: 1; transition-duration: 0s; }
+.docs-home-row:has(> .docs-home-attach):is(:hover, :focus-within) .docs-home-time,
+.docs-home-row:has(> .docs-home-attach[aria-pressed="true"]) .docs-home-time { visibility: hidden; }
+.docs-home-attach[aria-pressed="true"] { color: var(--rl-accent); }
+.docs-home-note { margin: 0; padding: 2px 8px 6px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.docs-home-more { margin: 2px 0 0 4px; }
+.docs-home-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.new-doc-menu { min-width: 300px; max-width: min(400px, calc(100vw - 24px)); }
+/* "Code file…": a name, the languages that set its extension, and what the name will open as. */
+.code-file-prompt { width: 300px; max-width: calc(100vw - 24px); padding: 6px; }
+.code-file-name { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 4px 4px 8px; }
+.code-file-head { font-size: 12px; line-height: 16px; font-weight: var(--fw-title); color: var(--rl-text-dim); }
+.code-file-name > .search-field { --search-h: 30px; }
+.code-file-languages { flex: 0 1 auto; min-height: 0; max-height: 224px; overflow-y: auto; --fade-h: 24px; --fade-top-h: 24px; }
+.code-file-language { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: var(--r-chip); font-size: 13px; color: var(--rl-text-bright); cursor: default; }
+.code-file-language:hover { background: var(--hover); }
+.code-file-language[aria-selected="true"] { background: var(--rl-active); }
+.code-file-language-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-file-language-ext { flex: none; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.code-file-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 4px 2px; }
+.code-file-says { flex: 1; min-width: 0; margin: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.code-file-says[data-tone="warning"] { color: var(--rl-warning); }
 
 /* ── Rich markdown editor (Plan 17 W2) ───────────────────────────────────── */
 .documents-rich { display: flex; flex-direction: column; min-height: 0; height: 100%; }

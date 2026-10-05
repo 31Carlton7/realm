@@ -23,12 +23,11 @@ export const SEARCH_DEBOUNCE_MS = 120;
 /** One character matches everything and helps no one; deep search starts at two. */
 export const SEARCH_MIN_QUERY = 2;
 
-/** What the one palette calls itself in each of its three narrowings. Without this the surface is
- *  byte-identical in all three and a ⌘P that landed in the wrong mode is indistinguishable from a
- *  ⌘P that did nothing. */
+/** What the one palette calls itself in each of its narrowings. Without this the surface is
+ *  byte-identical in both and a ⌘⇧P that landed in the wrong mode is indistinguishable from a ⌘⇧P
+ *  that did nothing. */
 export const PALETTE_PLACEHOLDER: Record<PaletteMode, string> = {
   all: "Search…",
-  files: "Open a file…",
   grep: "Find in files…",
 };
 
@@ -151,7 +150,6 @@ function PaletteBody({ closing }: { closing: boolean }) {
     return chord ? <kbd>{displayKeyChord(chord)}</kbd> : undefined;
   }, [keybindings]);
   const paletteMode = useApp((s) => s.paletteMode);
-  const searchProjectFiles = useApp((s) => s.searchProjectFiles);
   const searchProjectText = useApp((s) => s.searchProjectText);
   const openDocumentPath = useApp((s) => s.openDocumentPath);
   const newSession = useApp((s) => s.newSession);
@@ -218,39 +216,33 @@ function PaletteBody({ closing }: { closing: boolean }) {
     return () => clearTimeout(t);
   }, [deepQuery, searchDeep]);
 
-  /* ⌘P / ⌘⇧F: the same palette, narrowed to a checkout. Debounced and stale-guarded with the same
-     `searchSeq` the deep search uses, so a slow grep can never overwrite a newer keystroke's answer.
-     Kept separate from `deep` rather than folded into it because these search a DIRECTORY and that
-     one searches Realm's records — one of them can be null because there is no checkout, which is a
-     different sentence from "no results". */
+  /* ⌘⇧P: the same palette, narrowed to a checkout's contents. Debounced and stale-guarded with the
+     same `searchSeq` the deep search uses, so a slow grep can never overwrite a newer keystroke's
+     answer. Kept separate from `deep` rather than folded into it because this searches a DIRECTORY and
+     that one searches Realm's records — this one can be null because there is no checkout, which is a
+     different sentence from "no results". A file by its NAME is the documents pane's search (⌘P). */
   const [project, setProject] = useState<{ forQuery: string; rows: Entry[]; cwd: boolean } | null>(null);
   useEffect(() => {
     if (paletteMode === "all") { setProject(null); return; }
     const seq = ++searchSeq.current;
-    // ⌘P with no query is the first N files; ⌘⇧F with no query would be every line in the repo.
-    if (paletteMode === "grep" && deepQuery.length < SEARCH_MIN_QUERY) { setProject(null); return; }
+    // With no query it would be every line in the repo.
+    if (deepQuery.length < SEARCH_MIN_QUERY) { setProject(null); return; }
     setSearching(true);
     const t = setTimeout(() => {
-      const open = (path: string) => run(async () => { await openDocumentPath(path); setPaletteOpen(false); });
-      const answer: Promise<Entry[] | null> = paletteMode === "files"
-        ? searchProjectFiles(deepQuery).then((r) => r && r.hits.map((h): Entry => ({
-            id: `file:${h.path}`, section: "Files", deep: true,
-            label: h.path, display: <Snippet parts={h.segments} />,
-            icon: <Icon name="documents" size={16} />, run: () => open(h.path),
-          })))
-        : searchProjectText(deepQuery).then((r) => r && r.hits.map((h): Entry => ({
-            id: `grep:${h.path}:${h.line}`, section: "In files", deep: true,
-            label: `${h.path}:${h.line}`, hint: <Snippet parts={h.segments} />,
-            icon: <Icon name="code" size={16} />, run: () => open(h.path),
-          })));
-      void answer.then((rows) => {
+      // At the line that matched: the hit is a line, and the top of the file is not where it is.
+      const open = (path: string, line: number) => run(async () => { await openDocumentPath(path, null, null, { line }); setPaletteOpen(false); });
+      void searchProjectText(deepQuery).then((r) => r && r.hits.map((h): Entry => ({
+        id: `grep:${h.path}:${h.line}`, section: "In files", deep: true,
+        label: `${h.path}:${h.line}`, hint: <Snippet parts={h.segments} />,
+        icon: <Icon name="code" size={16} />, run: () => open(h.path, h.line),
+      }))).then((rows) => {
         if (searchSeq.current !== seq) return;
         setProject({ forQuery: deepQuery, rows: rows ?? [], cwd: rows !== null });
         setSearching(false);
       }).catch(() => { if (searchSeq.current === seq) { setProject(null); setSearching(false); } });
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [paletteMode, deepQuery, searchProjectFiles, searchProjectText, openDocumentPath, setPaletteOpen, run]);
+  }, [paletteMode, deepQuery, searchProjectText, openDocumentPath, setPaletteOpen, run]);
 
   const entries = useMemo<Entry[]>(() => {
     const l = layout ?? emptyLayout();

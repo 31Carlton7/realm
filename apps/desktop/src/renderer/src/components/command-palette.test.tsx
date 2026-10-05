@@ -482,12 +482,13 @@ describe("shortcut hints follow the keymap", () => {
 });
 
 /**
- * The three narrowings have to be tellable apart. A ⌘P that landed in "open a file" looked exactly
- * like a ⌘K until this landed — same placeholder, and an empty list whether the space had no checkout
- * or the query simply matched nothing. Both were found by running the real app, not by a test.
+ * The narrowed palette has to be tellable apart from ⌘K. A ⌘P that landed in "open a file" looked
+ * exactly like a ⌘K until this landed — same placeholder, and an empty list whether the space had no
+ * checkout or the query simply matched nothing. Both were found by running the real app, not by a
+ * test. (⌘P is the documents pane's search now; ⌘⇧P keeps the narrowing.)
  */
 describe("the narrowed palette says which question it is asking", () => {
-  const openIn = async (mode: "all" | "files" | "grep", over: Parameters<typeof fakeApi>[0] = {}) => {
+  const openIn = async (mode: "all" | "grep", over: Parameters<typeof fakeApi>[0] = {}) => {
     const api = fakeApi(over); const store = createAppStore(api); await store.getState().boot();
     act(() => store.getState().setPaletteOpen(true, mode));
     render(<StoreContext.Provider value={store}><CommandPalette /></StoreContext.Provider>);
@@ -495,14 +496,15 @@ describe("the narrowed palette says which question it is asking", () => {
   };
 
   it("names the mode in the placeholder", async () => {
-    await openIn("files");
-    expect(screen.getByRole("combobox")).toHaveAttribute("placeholder", "Open a file…");
+    await openIn("grep");
+    expect(screen.getByRole("combobox")).toHaveAttribute("placeholder", "Find in files…");
   });
 
   it("says a space with no checkout has nothing to search, rather than 'No matches'", async () => {
     /* THE MUTANT: fall back to "No matches". That sends someone hunting for a typo in a query that
        was never the problem — there is no checkout to match against. */
-    await openIn("files");
+    await openIn("grep");
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "parser" } });
     await waitFor(() => expect(screen.getByText(/no checkout yet/i)).toBeInTheDocument());
     expect(screen.queryByText("No matches")).toBeNull();
   });

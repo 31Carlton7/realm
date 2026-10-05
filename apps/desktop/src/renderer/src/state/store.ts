@@ -222,7 +222,7 @@ export type Api = {
   renameDocumentFile(documentsId: string, from: string, to: string): Promise<{ path: string }>;
   /** Plan 22 (school workflows): previews, guide progress, lectures, the Plynn handoff. */
   previewInfo(): Promise<{ port: number; token: string }>;
-  openDocumentPath(spaceId: string, path: string, environmentId?: string): Promise<{ documentsId: string; itemId: string; environmentId: string }>;
+  openDocumentPath(spaceId: string, path: string, environmentId?: string): Promise<{ documentsId: string; itemId: string; environmentId: string; path: string }>;
   readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
   recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
   startLecture(spaceId: string, title: string): Promise<StartLectureResult>;
@@ -728,12 +728,14 @@ export const PERSIST_DEBOUNCE_MS = 300;
 /** Where a pane a person opened goes when no pane was named: in place (false), beside the focused
  *  pane (true), or into the side pane of the session whose bar asked for it. */
 export type Beside = boolean | { sessionId: string };
-/** Which question the command palette is asking. One surface, three narrowings: ⌘K searches Realm's
- *  own records, ⌘P the checkout's file names, ⌘⇧F the checkout's contents. */
-export type PaletteMode = "all" | "files" | "grep";
-/** What a blank browser tab's new-tab page offers: the ⌘P palette, and the panes a session opens
- *  beside itself. */
-export type NewTabTool = "files" | "terminal" | "documents" | "simulator" | "machine";
+/** Which question the command palette is asking: ⌘K searches Realm's own records, ⌘⇧P the checkout's
+ *  contents. Finding a file by its NAME is the documents pane's own search (⌘P, `findInDocuments`). */
+export type PaletteMode = "all" | "grep";
+/** What a blank browser tab's new-tab page offers: the panes a session opens beside itself. */
+export type NewTabTool = "terminal" | "documents" | "simulator" | "machine";
+/** What a documents pane is asked from outside it: put the keyboard in its search, or show one of its
+ *  files at a line. `path` is the tab's own name for the file (`documents.openPath` answers it). */
+export type DocumentsAsk = { documentsId: string; seq: number } & ({ search: true } | { path: string; line: number });
 
 /** The space last made current — where a new session goes when no session has focus. Before Plan 27
  *  it was the room the window was in, which is why a home upgraded from rooms migrates from it. */
@@ -1145,6 +1147,10 @@ export type AppState = {
    *  list the handler reads — a hardcoded `⌘T` in a menu becomes a lie the moment someone rebinds it. */
   keybindings: readonly Keybinding[];
   paletteOpen: boolean;
+  /** The last thing a documents pane was asked to do from outside it — ⌘P's "search here", a line to
+   *  show — numbered so asking twice is two asks. Held here rather than sent to the pane because the
+   *  pane may not exist yet when it is asked: the open that makes it is the same gesture. */
+  documentsAsk: DocumentsAsk | null;
   /** The space overview (⌘⇧Space): every space across every profile, sectioned. Its own flag rather
    *  than a `Sheet`, for the same reason `paletteOpen` is — it must toggle from its own hotkey while
    *  open, which the sheet guard in hotkeys.ts forbids. */
@@ -2145,22 +2151,29 @@ export type AppState = {
      cached copy would be a second answer that can disagree with the one a spawn actually uses. */
   getSandbox(spaceId: string): Promise<SandboxState>;
   setSandbox(spaceId: string, prefs: ExecutionSandboxPrefs | null): Promise<SandboxState>;
-  /** The active space's primary checkout — what ⌘P and ⌘⇧F search. Null before environments land,
+  /** The active space's primary checkout — what ⌘⇧P searches. Null before environments land,
    *  which is a case the palette must say something about rather than showing an empty list. */
   projectCwd(): string | null;
-  searchProjectFiles(query: string): Promise<ProjectFilesResult | null>;
+  /** File names in a checkout: `cwd` when named (a documents pane searches its own), else the active
+   *  space's primary. */
+  searchProjectFiles(query: string, cwd?: string | null): Promise<ProjectFilesResult | null>;
   searchProjectText(query: string): Promise<ProjectGrepResult | null>;
-  /** Which question the palette is asking. ⌘K is "all"; ⌘P and ⌘⇧F open the same surface narrowed. */
+  /** Which question the palette is asking. ⌘K is "all"; ⌘⇧P opens the same surface narrowed. */
   paletteMode: PaletteMode;
   setPaletteOpen(open: boolean, mode?: PaletteMode): void;
-  /** The blank tab a file picked in the palette takes the place of — set when a new-tab page's Files
-   *  opens the palette, honoured only while that palette is up, and gone with it. */
-  paletteReplaces: string | null;
+  /**
+   * ⌘P: the documents pane, with the keyboard in its search — the one place a file is found, opened
+   * or made. The pane of the session the keyboard is in (or the one the focused side pane serves) as
+   * a tab of its side pane, the way its bar's Documents button opens it; with no session, the space's.
+   */
+  findInDocuments(): Promise<void>;
+  /** The pane that acted on `documentsAsk` says so, so a pane that mounts later — the same one, back
+   *  from a space switch — is not asked again. A newer ask than `seq` is left for its own pane. */
+  takeDocumentsAsk(seq: number): void;
   /**
    * A tool picked on a blank browser tab's new-tab page. It opens where the tab stood — a tab of the
-   * same strip, or the pane the browser had — and the blank tab goes. "files" opens the ⌘P palette
-   * instead, and the file picked there takes the tab's place. A terminal starts in, and documents
-   * open on, the checkout of the session the tab's side pane serves.
+   * same strip, or the pane the browser had — and the blank tab goes. A terminal starts in, and
+   * documents open on, the checkout of the session the tab's side pane serves.
    */
   openFromNewTab(itemId: string, tool: NewTabTool): Promise<void>;
   setKeybindings(rules: readonly Keybinding[]): void;
@@ -2244,6 +2257,9 @@ export type AppState = {
   /** Attach files already on disk and already described — a browser pane's screenshot, which main
    *  wrote and measured. Same path as a drop: the same cap, the same dedupe by path. */
   attachPicked(sessionId: string, picked: readonly PickedAttachment[]): void;
+  /** Attach files by path — a file listed by the documents pane, added to the next message. Main
+   *  describes them, as it does a drop; one that is no longer on disk is said, not silently skipped. */
+  attachPaths(sessionId: string, paths: readonly string[]): Promise<void>;
   /** Drop one pending attachment (its chip's ×). Keyed by path, which is unique within the row. */
   removeAttachment(sessionId: string, path: string): void;
   /**
@@ -2302,16 +2318,20 @@ export type AppState = {
    *  `environmentId` omitted uses the primary checkout of `spaceId`, else of the current space.
    *  `beside` splits right and opens there instead of taking over the focused pane — the same
    *  argument `newBrowser` takes, and for the same reason: a pane opened FROM another pane is a
-   *  second view, not a replacement for the one you asked from. */
-  openDocuments(environmentId?: string | null, targetLeafId?: string | null, beside?: Beside, spaceId?: string | null): Promise<void>;
+   *  second view, not a replacement for the one you asked from. Answers the workspace it opened. */
+  openDocuments(environmentId?: string | null, targetLeafId?: string | null, beside?: Beside, spaceId?: string | null): Promise<{ documentsId: string; itemId: string } | null>;
   /**
    * Plan 22. Put one file on screen: the server adds it to the workspace's tab strip (creating the
    * workspace when needed) and the item comes into the layout. `documents.openRequested` — which
    * the server broadcasts for this AND for an agent's `docs_open` — is what a mounted pane opens
    * the tab on; `applyDocumentOpenRequested` is the store's half, and it leaves an item that is
    * already on screen alone.
+   *
+   * THE way into the documents pane by path, from anywhere: `at.line` (1-based) puts the cursor on
+   * that line of a code file, which is what a path quoted as `file.ts:42` means. Absolute and `~/`
+   * paths are taken as an agent writes them; the server places them in the workspace.
    */
-  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null): Promise<void>;
+  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null, at?: { line?: number }): Promise<void>;
   applyDocumentOpenRequested(p: { spaceId: string; environmentId: string; documentsId: string; itemId: string; path: string; openedBy?: string }): Promise<void>;
   /** Start a lecture in `spaceId` (else the current space): the dated notes file open in the documents
    *  pane as the main view, and a session beside it to ask things during class. Nothing is sent to
@@ -3439,8 +3459,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       latestItemsLoad.set(sid, load);
       return load;
     };
-    /** File picks for a new tab still waiting on the server — see `applyDocumentOpenRequested`. */
-    let newTabPicks = 0;
+    /** The documents pane's asks are numbered so the same ask made twice (⌘P, ⌘P) is two. */
+    let documentsAskSeq = 0;
     /**
      * What a new-tab page opened takes the blank tab's place: into the leaf holding it — a tab of the
      * same strip, where the new tab stood, or the pane itself — and the blank tab goes, since a
@@ -3845,7 +3865,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidePanesHidden: false, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
-      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
+      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", documentsAsk: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
       spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
@@ -4931,19 +4951,34 @@ await get().refreshCustomThemes().catch(() => {});
       async removeScript(spaceId, id) { await api.removeScript(spaceId, id); await get().refreshScripts(spaceId); },
       async reorderScripts(spaceId, ids) { await api.reorderScripts(spaceId, ids); await get().refreshScripts(spaceId); },
       setPaletteOpen(open, mode = "all") {
-        // A new tab's mark lasts the one palette it was set on: across a ⌘⇧P from Files, which is the
-        // same palette asked a different question, and not into the next one opened.
-        const replaces = open && get().paletteOpen ? get().paletteReplaces : null;
-        set(open ? { paletteOpen: true, paletteMode: mode, paletteReplaces: replaces, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false, paletteMode: "all", paletteReplaces: null });
+        set(open ? { paletteOpen: true, paletteMode: mode, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false, paletteMode: "all" });
+      },
+      async findInDocuments() {
+        // ⌘P from inside ⌘⇧P's field is the same question put to the other surface, so that one goes.
+        if (get().paletteOpen) get().setPaletteOpen(false);
+        const s = get();
+        const focused = itemIdOfLeaf(s.layout, s.focusedLeafId);
+        const here = focused ? s.items.find((i) => i.id === focused) : undefined;
+        let opened: { documentsId: string; itemId: string } | null;
+        if (here?.kind === "documents") opened = { documentsId: here.refId, itemId: here.id };
+        else {
+          // The session the keyboard is in, the one the focused side pane serves, or the first one on
+          // screen — `peekOwner`'s answer, which is also where that session's Documents button opens.
+          const owner = s.peekOwner();
+          const ownerItem = owner ? s.items.find((i) => i.id === owner) : undefined;
+          const session = ownerItem ? s.sessions[ownerItem.refId] : undefined;
+          opened = session
+            ? await get().openDocuments(session.environmentId, null, { sessionId: session.id })
+            : await get().openDocuments(null, null, true);
+        }
+        if (opened) set({ documentsAsk: { documentsId: opened.documentsId, seq: ++documentsAskSeq, search: true } });
+      },
+      takeDocumentsAsk(seq) {
+        if (get().documentsAsk?.seq === seq) set({ documentsAsk: null });
       },
       async openFromNewTab(itemId, tool) {
         // The blank tab's own space: what opens in its place belongs where the tab did.
         const sid = get().items.find((i) => i.id === itemId)?.spaceId ?? get().activeSpaceId; if (!sid) return;
-        if (tool === "files") {
-          get().setPaletteOpen(true, "files");
-          set({ paletteReplaces: itemId });
-          return;
-        }
         // The session the tab's side pane serves, whose checkout the tool opens on. A browser that is
         // a pane of its own serves nobody, and the space's primary checkout is the server's default.
         const owner = findLeafOfItem(get().layout ?? emptyLayout(), itemId)?.owner;
@@ -5946,8 +5981,8 @@ await get().refreshCustomThemes().catch(() => {});
         set({ spaceScripts: { ...get().spaceScripts, [spaceId]: scripts } });
       },
       projectCwd: () => Object.values(get().environments).find((e) => e.kind === "primary")?.path ?? null,
-      async searchProjectFiles(query) {
-        const cwd = get().projectCwd(); if (!cwd) return null;
+      async searchProjectFiles(query, cwd = get().projectCwd()) {
+        if (!cwd) return null;
         return api.projectFiles(cwd, query);
       },
       async searchProjectText(query) {
@@ -6087,6 +6122,14 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async attachFromPicker(sessionId) { addAttachments(sessionId, await api.pickFiles()); },
       attachPicked(sessionId, picked) { addAttachments(sessionId, picked); },
+      async attachPaths(sessionId, paths) {
+        const described = await api.describePaths([...paths]);
+        // Main describes only what is on disk, so a missing file comes back as nothing at all — said
+        // here, rather than as a click that added no chip.
+        const gone = paths.filter((p) => !described.some((d) => d.path === p));
+        if (gone.length > 0) get().toast({ tone: "warning", text: `No longer on disk: ${gone.map((p) => basenameOf(p)).join(", ")}` });
+        addAttachments(sessionId, described);
+      },
       removeAttachment(sessionId, path) {
         const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => a.path !== path);
         set({ pendingAttachments: { ...get().pendingAttachments, [sessionId]: left } });
@@ -6266,42 +6309,30 @@ await get().refreshCustomThemes().catch(() => {});
         // The checkout's space when one is named; else the session's it is opened beside; else the
         // named or current space, whose primary checkout the server resolves.
         const sid = (environmentId ? get().environments[environmentId]?.spaceId : undefined) ?? spaceFor(spaceId ?? besideSpace(beside));
-        if (!sid) return;
+        if (!sid) return null;
         // No local "is it already open?" check, unlike openDiff: the SERVER enforces one workspace per
         // environment and returns the existing pair, so this call is idempotent and already answers
         // the question. Doing it here as well would need the environment id the caller may not have
         // passed (the primary checkout is resolved server-side) plus a cache of workspace rows to
         // resolve it against — two new pieces of state to keep honest, for an answer already in hand.
-        const { itemId } = await api.createDocuments(sid, environmentId ?? undefined);
+        const made = await api.createDocuments(sid, environmentId ?? undefined);
         const layout = get().layout;
-        if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId, targetLeafId); return; }
-        await adoptItem(sid, itemId, targetLeafId, beside);
+        if (layout && findLeafOfItem(layout, made.itemId)) await get().openItem(made.itemId, targetLeafId);
+        else await adoptItem(sid, made.itemId, targetLeafId, beside);
+        return made;
       },
-      async openDocumentPath(path, environmentId = null, spaceId = null) {
+      async openDocumentPath(path, environmentId = null, spaceId = null, at = {}) {
         const sid = (environmentId ? get().environments[environmentId]?.spaceId : undefined) ?? spaceFor(spaceId);
         if (!sid) return;
-        // Read before the round trip: the palette closes as the pick is made, and its close clears it.
-        // Only while it is open — a sheet or the spaces overview can take the palette down without
-        // clearing it, and a file opened from anywhere else then is not the new tab's pick.
-        const replacing = get().paletteOpen ? get().paletteReplaces : null;
-        if (replacing) newTabPicks++;
-        try {
-          const { itemId } = await api.openDocumentPath(sid, path, environmentId ?? undefined);
-          // Picked from a new-tab page's Files: the documents pane takes the blank tab's place.
-          if (replacing && findLeafOfItem(get().layout ?? emptyLayout(), replacing)) { await replaceNewTab(sid, replacing, itemId); return; }
-          const layout = get().layout;
-          if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
-          await adoptItem(sid, itemId, null);
-        } finally {
-          if (replacing) newTabPicks--;
-        }
+        const opened = await api.openDocumentPath(sid, path, environmentId ?? undefined);
+        // Asked before the pane is brought up, so a pane this open is about to mount finds it there.
+        if (at.line) set({ documentsAsk: { documentsId: opened.documentsId, seq: ++documentsAskSeq, path: opened.path, line: at.line } });
+        const layout = get().layout;
+        if (layout && findLeafOfItem(layout, opened.itemId)) { await get().openItem(opened.itemId); return; }
+        await adoptItem(sid, opened.itemId, null);
       },
       async applyDocumentOpenRequested({ spaceId, itemId, openedBy }) {
         if (!inProfile(spaceId)) return;
-        // This window's own pick for a new tab, still on its way back: `openDocumentPath` puts the
-        // file in the tab's place once its call returns, and this broadcast arrives first. Opened
-        // quietly beside the focused pane here, it would already be somewhere, and be gone to.
-        if (!openedBy && newTabPicks > 0) return;
         const leaf = findLeafOfItem(get().layout ?? emptyLayout(), itemId);
         // On screen in a pane of its own: the pane opens the tab itself.
         if (leaf && !leaf.tabs) return;

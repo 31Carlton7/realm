@@ -119,10 +119,11 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
       if (environmentId) s.run(() => s.openDiff(environmentId));
     }),
     "palette.toggle": () => { const s = get(); s.setPaletteOpen(!s.paletteOpen); },
-    /* Both open the ONE palette, narrowed. `setPaletteOpen(true, mode)` rather than a separate
-       surface: a user who lands in "find in files" and wanted "open a file" should be one keystroke
-       away, not one dismissal and one keystroke away. */
-    "palette.files": () => get().setPaletteOpen(true, "files"),
+    /* ⌘P is the documents pane's search: one place where a file is found, opened, made and added to
+       a message, rather than a palette that found a file and then opened a pane somewhere else. The
+       id keeps its old name because people's own keybindings are stored against it. From ⌘⇧P's field
+       it is still one keystroke across — the palette goes and the pane's search takes the keyboard. */
+    "palette.files": () => { const s = get(); s.run(() => s.findInDocuments()); },
     "palette.grep": () => get().setPaletteOpen(true, "grep"),
     "sidebar.toggle": () => { const s = get(); s.run(() => s.toggleSidebar()); },
     "activity.open": () => { const s = get(); s.run(() => s.openActivity()); },

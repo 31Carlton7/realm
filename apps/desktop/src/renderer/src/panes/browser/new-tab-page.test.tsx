@@ -42,14 +42,15 @@ async function mount() {
 const page = async () => within(await screen.findByRole("region", { name: "New tab" }));
 
 describe("a blank tab's new-tab page", () => {
-  it("lists the session's tools, Files with the chord the keymap gives the file palette", async () => {
+  it("lists the session's tools, Documents first with the chord the keymap gives finding a file", async () => {
     // THE MUTANT: print ⌘P from a literal. A user who moved "Open a file" elsewhere is shown a key
-    // that no longer opens it.
+    // that no longer opens it. And no Files row: finding a file is the documents pane's own search,
+    // and a second row for it opened the same search somewhere else.
     const { store } = await mount();
     store.setState({ keybindings: [...store.getState().keybindings, { key: "mod+p", command: "" }, { key: "mod+o", command: "palette.files" }] });
     const tools = within((await page()).getByRole("region", { name: "Tools" }));
     const rows = tools.getAllByRole("button");
-    expect(rows.map((r) => r.querySelector(".new-tab-row-label")!.textContent)).toEqual(["Files", "Terminal", "Documents", "Simulator", "Machine"]);
+    expect(rows.map((r) => r.querySelector(".new-tab-row-label")!.textContent)).toEqual(["Documents", "Terminal", "Simulator", "Machine"]);
     expect(rows[0]!.querySelector("kbd")?.textContent).toBe("⌘O");
     expect(rows.slice(1).every((r) => r.querySelector("kbd") === null)).toBe(true);
   });
@@ -66,10 +67,14 @@ describe("a blank tab's new-tab page", () => {
     expect(store.getState().items.some((i) => i.id === blank)).toBe(false);
   });
 
-  it("opens the file palette from Files", async () => {
+  it("opens Documents in the tab's place, not the palette", async () => {
     const { store } = await mount();
-    fireEvent.click((await page()).getByRole("button", { name: /^Files/ }));
-    await waitFor(() => expect(store.getState()).toMatchObject({ paletteOpen: true, paletteMode: "files" }));
+    fireEvent.click((await page()).getByRole("button", { name: /^Documents/ }));
+    await waitFor(() => {
+      const side = findSidePane(store.getState().layout!, "i-lead")!;
+      expect(store.getState().items.find((i) => i.id === side.itemId)?.kind).toBe("documents");
+    });
+    expect(store.getState().paletteOpen).toBe(false);
   });
 
   it("lists the profile's recent pages, and one chosen loads in this tab rather than a new one", async () => {
