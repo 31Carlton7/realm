@@ -65,10 +65,13 @@ const FILLER = new Set(["a", "an", "the", "on", "via", "through", "thru", "with"
 /** A version token: `5`, `5.1`, `4.5`, a date stamp. Everything else in a name is its family. */
 const VERSION = /^\d+(\.\d+)*$/;
 
-/** A name's tokens, by the same fold the picker keys models on. An ACP id's `[reasoning=…]`
- *  parameter suffix is a setting, not part of the name, and goes first. */
+/** An ACP id's `[reasoning=medium,fast=false]` suffix is a setting of the model, not part of its
+ *  name: two of them are one model run two ways, and neither is what a person types. */
+const withoutParams = (name: string): string => name.replace(/\[[^\]]*\]\s*$/, "");
+
+/** A name's tokens, by the same fold the picker keys models on. */
 function tokensOf(name: string): string[] {
-  return canonicalModelKey(name.replace(/\[[^\]]*\]\s*$/, "")).split("-").filter(Boolean);
+  return canonicalModelKey(withoutParams(name)).split("-").filter(Boolean);
 }
 
 /** Whether a label is a raw wire id (`claude-fable-5-1`) rather than a written name — model-rows'
@@ -101,14 +104,15 @@ export function delegableModels(probes: readonly ProbedAgent[], registered: read
     const live = probe?.models && probe.models.length > 0 ? probe.models : null;
     const ready = readyOf(probe);
     for (const m of live ?? AGENT_MODELS[kind]) {
-      const key = canonicalModelKey(m.label);
+      const label = withoutParams(m.label);
+      const key = canonicalModelKey(label);
       const seen = byKey.get(key);
       if (seen) {
         seen.routes.push({ kind, id: m.id, ready });
-        if (looksLikeId(seen.label) && !looksLikeId(m.label)) seen.label = m.label;
+        if (looksLikeId(seen.label) && !looksLikeId(label)) seen.label = label;
         continue;
       }
-      const entry: DelegableModel = { key, label: m.label, kind, id: m.id, ready, routes: [{ kind, id: m.id, ready }] };
+      const entry: DelegableModel = { key, label, kind, id: m.id, ready, routes: [{ kind, id: m.id, ready }] };
       byKey.set(key, entry);
       out.push(entry);
     }

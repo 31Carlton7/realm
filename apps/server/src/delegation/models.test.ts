@@ -18,7 +18,7 @@ const CODEX_MODELS = [
 ];
 const CURSOR_MODELS = [
   { id: "claude-fable-5-1", label: "claude-fable-5-1" }, { id: "gpt-5.3-codex[reasoning=medium,fast=false]", label: "gpt-5.3-codex" },
-  { id: "composer-2", label: "Composer 2" }, { id: "grok-4.6", label: "Grok 4.6" },
+  { id: "composer", label: "Composer" }, { id: "composer-2", label: "Composer 2" }, { id: "grok-4.6", label: "grok-4.6" },
 ];
 
 function probes(over: Partial<Record<AgentKind, Partial<ProbedAgent>>> = {}): ProbedAgent[] {
@@ -65,6 +65,13 @@ describe("a model's name picks the harness that runs it", () => {
 
   it("an ACP id's parameter suffix is a setting, not part of the name", () => {
     expect(choice("gpt-5.3-codex")).toMatchObject({ kind: "acp:cursor", model: "gpt-5.3-codex[reasoning=medium,fast=false]" });
+    // Two settings of one model, labelled with their raw ids: one model to a person, not two names
+    // to choose between. Mutant: keep the suffix — "reasoning", "high" and "medium" become words of
+    // two different names, and the plain name is ambiguous between them.
+    const rows = probes({ "acp:cursor": { models: [
+      { id: "gpt-5.3-codex[reasoning=medium]", label: "gpt-5.3-codex[reasoning=medium]" },
+      { id: "gpt-5.3-codex[reasoning=high]", label: "gpt-5.3-codex[reasoning=high]" }] } });
+    expect(choice("gpt-5.3-codex", { probes: rows })).toEqual({ kind: "acp:cursor", model: "gpt-5.3-codex[reasoning=medium]", label: "gpt-5.3-codex" });
   });
 });
 
@@ -79,6 +86,13 @@ describe("a family name means its newest member", () => {
     // Mutant: drop the exact-name preference — then "Opus 5" is just another Opus and the newest wins.
     expect(choice("Opus 5").model).toBe("claude-opus-5");
     expect(choice("Claude Opus 5").model).toBe("claude-opus-5");
+  });
+
+  it("…but a name that IS a model's whole name means that model, not a newer sibling", () => {
+    // Cursor lists both "Composer" and "Composer 2". Mutant: drop the exact-name preference — they
+    // are then one family two versions apart, and the newer one answers to the older one's name.
+    expect(choice("Composer")).toMatchObject({ kind: "acp:cursor", model: "composer" });
+    expect(choice("Composer 2")).toMatchObject({ kind: "acp:cursor", model: "composer-2" });
   });
 
   it("Sonnet and Haiku each name their one model", () => {
@@ -180,7 +194,7 @@ describe("an unknown name is refused with the names that would work", () => {
     expect(m).toContain('no model called "GPT-7"');
     expect(m).toContain("- Claude: Claude Fable 5.1, Claude Fable 5, Claude Opus 5.5");
     expect(m).toContain("- Codex: GPT-6 Luna, GPT-6 Astra");
-    expect(m).toContain("- Cursor: gpt-5.3-codex, Composer 2, Grok 4.6");
+    expect(m).toContain("- Cursor: gpt-5.3-codex, Composer, Composer 2, grok-4.6");
   });
 
   it("points at a near miss without picking it — 5.6 is not 6", () => {
@@ -200,6 +214,15 @@ describe("the catalog", () => {
     expect(fable).toHaveLength(1);
     expect(fable[0]!.label).toBe("Claude Fable 5.1");
     expect(fable[0]!.routes.map((r) => r.kind)).toEqual(["claude", "acp:cursor"]);
+  });
+
+  it("takes a written name over an id from whichever harness reports one, even a later one", () => {
+    // Cursor reports Grok by its bare id and comes first; Grok's own CLI names it. Mutant: keep the
+    // first label — the menu and every report would say "grok-4.6" where a name exists.
+    const rows = probes({ "acp:grok": { available: true, loggedIn: true, reason: null, models: [{ id: "grok-4.6", label: "Grok 4.6" }] } });
+    const grok = delegableModels(rows, KINDS).find((m) => m.key === "4.6-grok")!;
+    expect(grok.label).toBe("Grok 4.6");
+    expect(grok.routes.map((r) => r.kind)).toEqual(["acp:cursor", "acp:grok"]);
   });
 
   it("lists a registered kind's static models when its probe reported none", () => {
