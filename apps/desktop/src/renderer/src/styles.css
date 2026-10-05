@@ -5250,6 +5250,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .subagents-compose,
 :root[data-squircle] .diff-review,
 :root[data-squircle] .cr-review,
+:root[data-squircle] .cr-ask-where,
 :root[data-squircle] .composer,
 :root[data-squircle] .composer-drop-hint,
 :root[data-squircle] .composer-todos,
@@ -5593,7 +5594,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    the edge cannot belong to just one of the three. */
 :root[data-squircle] .composer-goal,
 :root[data-squircle] .composer-todos,
-:root[data-squircle] .composer-overstrip {
+:root[data-squircle] .composer-overstrip,
+:root[data-squircle] .cr-ask-where {
   --sq-fill: var(--rl-frame); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
   --sq-radius-bottom: 0px;
 }
@@ -7182,7 +7184,7 @@ select { appearance: none; padding-right: 22px;
    the request being read, under one bar: its two tabs at the left, its own actions at the right,
    ending in Submit review. The prompter is docked at the foot, over the content, which keeps a
    prompter's height of room under its last line so nothing reads behind it. */
-.code-review-page { flex-direction: row; --cr-ask-room: 156px; }
+.code-review-page { flex-direction: row; --cr-ask-room: 156px; --cr-tree-w: 272px; }
 .cr-col { flex: none; width: 300px; min-height: 0; display: flex; flex-direction: column;
   background: var(--rl-frame); border-right: var(--hairline-w) solid var(--rl-line); }
 .cr-col-head { flex: none; display: flex; align-items: center; gap: 4px; padding: 16px 12px 6px 24px; }
@@ -7377,10 +7379,10 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .cr-field::placeholder { color: var(--rl-text-faint); }
 .cr-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 
-.cr-tree { flex: 0 0 272px; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 0 4px; }
+.cr-tree { flex: 0 0 var(--cr-tree-w); min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 0 4px; }
 .cr-tree-filter { position: relative; flex: none; }
 .cr-tree-filter .cr-col-search-mark { left: 10px; }
-.cr-tree-rows { flex: 1; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 0 0 var(--cr-ask-room); --fade-top-h: 12px; --fade-h: 40px; }
+.cr-tree-rows { flex: 1; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 0 0 16px; --fade-top-h: 12px; --fade-h: 40px; }
 .cr-tree-row { width: 100%; display: flex; align-items: center; gap: 6px; min-height: 28px; padding-right: 8px; text-align: left;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 13px; color: var(--rl-text-dim); }
 .cr-tree-row[data-kind="dir"] { color: var(--rl-text-faint); }
@@ -7391,22 +7393,35 @@ button.cr-finding-where:hover { text-decoration: underline; }
 @container cr-main (max-width: 760px) { .cr-tree { display: none; } }
 
 /* The prompter, docked at the foot of the request: where the question goes, the exchange it has had,
-   and the card — on the prompter's own column, over the content. */
-.cr-ask { position: absolute; left: 50%; bottom: 0; z-index: 2; transform: translateX(-50%);
-  width: min(var(--prompter-w), calc(100% - 32px)); display: flex; flex-direction: column; min-height: 0; max-height: 70%; }
-.cr-ask-thread { display: flex; min-height: 0; max-height: 36vh; margin-bottom: 6px; border-radius: var(--r-float);
+   and the card — on the prompter's own column, over the content. Beside the file tree it centres on
+   the diffs and leaves the tree whole: the tree is a list to be read to its last row. */
+.cr-view:has(.cr-tree) { --cr-aside: var(--cr-tree-w); }
+@container cr-main (max-width: 760px) { .cr-view:has(.cr-tree) { --cr-aside: 0px; } }
+.cr-ask { position: absolute; left: calc((100% - var(--cr-aside, 0px)) / 2); bottom: 0; z-index: 2; transform: translateX(-50%);
+  width: min(var(--prompter-w), calc(100% - var(--cr-aside, 0px) - 32px)); display: flex; flex-direction: column; min-height: 0; max-height: 70%; }
+.cr-ask-thread { display: flex; min-height: 0; max-height: 30vh; margin-bottom: 6px; border-radius: var(--r-float);
   background: var(--surface); box-shadow: var(--shadow-overlay); overflow: hidden; }
 .cr-ask .transcript { padding: 14px 4px 16px; }
 .cr-ask .transcript-wrap { --fade-top-h: 16px; --fade-h: 18px; }
 .cr-ask .transcript-col { max-width: none; }
 .cr-ask .msg-transcript-summary { display: none; }
-.cr-ask-where { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0 6px 6px; font-size: 12px; color: var(--rl-text-faint); }
+/* Where the question goes, on a tab of its own above the card — the over-strip's geometry (frame
+   fill, 10px inset, sliding 10px under the card), which is Codex's "Choose project". It floats over
+   the request, so it needs a ground of its own as the card does. */
+.cr-ask-where { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0;
+  margin: 0 10px -10px; padding: 6px 10px 16px; background: var(--rl-frame); font-size: 12px; color: var(--rl-text-faint);
+  border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; user-select: none; -webkit-user-select: none; }
+.cr-ask .composer-dock { position: relative; z-index: 1; }
 .cr-ask-place { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 60%; padding: 2px 6px; border-radius: var(--r-chip);
   font-size: 12px; color: var(--rl-text-dim); }
 .cr-ask-place:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .cr-ask-place-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cr-ask-owner { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding: 0; font-size: 12px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cr-ask-owner:hover { color: var(--rl-text-bright); text-decoration: underline; }
+.cr-ask-new { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-ask-fold { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: var(--r-chip);
+  font-size: 12px; color: var(--rl-text-faint); }
+.cr-ask-fold:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .cr-ask .composer-dock { width: 100%; margin: 0 0 max(12px, env(safe-area-inset-bottom)); }
 
 /* The two sheets off the bar: how to review (the gear) and Submit review. Popovers, so they grow out
@@ -7433,7 +7448,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .cr-decision-text { display: flex; flex-direction: column; gap: 1px; }
 .cr-decision-name { font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 .cr-decision-line { font-size: 13px; line-height: 18px; color: var(--rl-text-faint); }
-.cr-pending { gap: 2px; max-height: 160px; overflow-y: auto; }
+.cr-pending { gap: 2px; max-height: 160px; overflow-x: hidden; overflow-y: auto; }
 .cr-pending-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; font-size: 13px; color: var(--rl-text-dim); }
 .cr-pending-where { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-bright); }
 .cr-pending-body { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

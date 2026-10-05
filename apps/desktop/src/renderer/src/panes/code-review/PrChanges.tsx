@@ -120,13 +120,13 @@ export function PrChanges({ detail, review, draft, setDraft, split, tree, jump }
       <div ref={scroller} className="cr-diffs">
         {files.truncated && <p className="diff-note">GitHub lists the first {files.files.length} of {detail.changedFiles} changed files; the rest are on GitHub.</p>}
         {shown.length === 0 && <p className="cr-empty-line cr-diffs-none">{filter ? "No changed file matches that." : "This pull request changes no files."}</p>}
-        <div style={{ height: win.top }} aria-hidden="true" />
+        <div style={{ height: win.top, overflowAnchor: "none" }} aria-hidden="true" />
         {win.drawn.map((f) => (
           <FileDiffBlock key={f.path} file={f} detail={detail} headSha={headSha} split={split} hidden={hidden.has(f.path)}
             patch={heldPatches.get(patchId(key, headSha, f.path))} measure={win.measure}
             findings={findings.get(f.path) ?? []} draft={draft} setDraft={setDraft} onToggle={() => toggleHidden(f.path)} />
         ))}
-        <div style={{ height: win.bottom }} aria-hidden="true" />
+        <div style={{ height: win.bottom, overflowAnchor: "none" }} aria-hidden="true" />
       </div>
       {tree && <FileTreeColumn files={files.files} shown={shown} filter={filter} onFilter={setFilter} current={win.current} onPick={(p) => win.scrollTo(p)} />}
     </div>
@@ -135,9 +135,13 @@ export function PrChanges({ detail, review, draft, setDraft, split, tree, jump }
 
 /**
  * The window over a list of files: which are drawn, the spacers' heights either side, the file at
- * the top of the view, and a way to bring one to the top. Heights are measured as files are drawn;
- * a file above the view that turns out taller or shorter than estimated moves the scroll position by
- * the difference, so the line being read does not jump.
+ * the top of the view, and a way to bring one to the top. Heights are measured as files are drawn.
+ *
+ * What a measurement above the view does to the line being read is the browser's to settle: its
+ * scroll anchoring holds the visible file still while the content above it changes height. Doing it
+ * here as well counted every change twice — at the end of the list, where the browser also clamps,
+ * each measurement pushed the view a file further up, until Show-the-end landed near the top. The
+ * spacers are kept out of anchor selection, so the anchor is always a file.
  */
 function useFileWindow(scroller: RefObject<HTMLDivElement | null>, files: readonly PrFile[], split: boolean, hidden: ReadonlySet<string>) {
   const heights = useRef(new Map<string, number>());
@@ -154,12 +158,20 @@ function useFileWindow(scroller: RefObject<HTMLDivElement | null>, files: readon
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `measured` is the heights map changing
   }, [files, split, hidden, measured]);
-  // Read through refs by `measure`, so its identity holds across every measurement it causes.
-  const live = useRef({ files, offsets, split, hidden });
-  live.current = { files, offsets, split, hidden };
+  // Read through a ref by `measure`, so its identity holds across every measurement it causes.
+  const live = useRef({ split });
+  live.current = { split };
 
+  /* Attached to whatever element the ref holds NOW, checked on every render: the scroller is drawn
+     only once the files have arrived, so an effect keyed on the ref object alone would run once
+     against nothing and never listen (useScrollEdges's own lesson). */
+  const attached = useRef<{ el: HTMLElement; off: () => void } | null>(null);
   useEffect(() => {
-    const el = scroller.current; if (!el) return;
+    const el = scroller.current;
+    if (attached.current?.el === el) return;
+    attached.current?.off();
+    attached.current = null;
+    if (!el) return;
     let frame = 0;
     const read = () => { frame = 0; setView((v) => (v.top === el.scrollTop && v.height === el.clientHeight ? v : { top: el.scrollTop, height: el.clientHeight })); };
     const onScroll = () => { if (!frame) frame = requestAnimationFrame(read); };
@@ -167,8 +179,9 @@ function useFileWindow(scroller: RefObject<HTMLDivElement | null>, files: readon
     el.addEventListener("scroll", onScroll, { passive: true });
     const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(read);
     ro?.observe(el);
-    return () => { el.removeEventListener("scroll", onScroll); ro?.disconnect(); if (frame) cancelAnimationFrame(frame); };
-  }, [scroller]);
+    attached.current = { el, off: () => { el.removeEventListener("scroll", onScroll); ro?.disconnect(); if (frame) cancelAnimationFrame(frame); } };
+  });
+  useEffect(() => () => { attached.current?.off(); attached.current = null; }, []);
 
   const first = Math.max(0, upper(offsets, view.top - OVERSCAN) - 1);
   const last = Math.min(files.length, upper(offsets, view.top + view.height + OVERSCAN));
@@ -176,18 +189,11 @@ function useFileWindow(scroller: RefObject<HTMLDivElement | null>, files: readon
   const current = files[Math.max(0, upper(offsets, view.top + 8) - 1)]?.path ?? null;
 
   const measure = useCallback((path: string, h: number) => {
-    const { files: fs, offsets: at, split: sp, hidden: hid } = live.current;
-    const k = `${sp}:${path}`;
-    const before = heights.current.get(k);
-    if (before === h) return;
-    const i = fs.findIndex((f) => f.path === path);
-    const el = scroller.current;
-    const prev = before ?? (i >= 0 ? estimate(fs[i]!, sp, hid.has(path)) : h);
+    const k = `${live.current.split}:${path}`;
+    if (heights.current.get(k) === h) return;
     heights.current.set(k, h);
-    // A file wholly above the view changed height: hold the view where it was.
-    if (el && i >= 0 && at[i + 1]! <= el.scrollTop) el.scrollTop += h - prev;
     setMeasured((n) => n + 1);
-  }, [scroller]);
+  }, []);
 
   const scrollTo = useCallback((path: string) => {
     const i = files.findIndex((f) => f.path === path);

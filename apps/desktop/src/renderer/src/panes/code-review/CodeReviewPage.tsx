@@ -47,10 +47,10 @@ export function CodeReviewPage({ item }: PaneProps) {
   if (status.state !== "ready" || !profileId) {
     return <div className="page code-review-page"><Setup status={status} vantage={vantage} checking={checking} onCheck={() => void check(true)} /></div>;
   }
-  return <Ready login={status.login} profileId={profileId} vantage={vantage} />;
+  return <Ready login={status.login} profileId={profileId} vantage={vantage} onLost={() => void check(true)} />;
 }
 
-function Ready({ login, profileId, vantage }: { login: string | null; profileId: string; vantage: string }) {
+function Ready({ login, profileId, vantage, onLost }: { login: string | null; profileId: string; vantage: string; onLost: () => void }) {
   const run = useApp((s) => s.run);
   const [selected, setSelected] = useState<PrRef | null>(pageHeld.selection);
   const [pins, setPins] = useState<PrSummary[]>([]);
@@ -73,7 +73,7 @@ function Ready({ login, profileId, vantage }: { login: string | null; profileId:
 
   return (
     <div className="page code-review-page">
-      <PrColumn login={login} pins={pins} selected={selected} onSelect={(ref) => select(ref)} onSignIn={() => signIn(GH_LOGIN_COMMAND)} />
+      <PrColumn login={login} pins={pins} selected={selected} onSelect={(ref) => select(ref)} onSignIn={() => signIn(GH_LOGIN_COMMAND)} onLost={onLost} />
       <div className="cr-main">
         {selected ? (
           <PrView key={prKey(selected)} pr={selected} login={login} profileId={profileId} vantage={vantage} places={places}

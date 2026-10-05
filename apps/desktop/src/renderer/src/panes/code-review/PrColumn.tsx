@@ -20,12 +20,15 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * It wears the sidebar's row anatomy, as the Scheduled page's column does: rows 8px in, the active
  * fill once chosen, nothing lit under a passing pointer.
  */
-export function PrColumn({ login, pins, selected, onSelect, onSignIn }: {
+export function PrColumn({ login, pins, selected, onSelect, onSignIn, onLost }: {
   login: string | null;
   pins: PrSummary[];
   selected: PrRef | null;
   onSelect: (pr: PrRef, row: PrSummary | null) => void;
   onSignIn: () => void;
+  /** gh answered that it is gone or signed out: the page goes back to setup rather than drawing
+   *  three lists that each say so. */
+  onLost: () => void;
 }) {
   const run = useApp((s) => s.run);
   /* The lists as they were last drawn, so coming back to the page shows them at once rather than
@@ -49,7 +52,11 @@ export function PrColumn({ login, pins, selected, onSelect, onSignIn }: {
     if (!cur || force) put(section, { ...(cur ?? LOADING), state: cur && !force ? cur.state : "loading" });
     codeReview.list(section, null, force).then(
       (page) => put(section, { prs: page.prs, next: page.nextCursor, state: "ready", error: null }),
-      (e: unknown) => put(section, { ...LOADING, state: "error", error: message(e) }),
+      (e: unknown) => {
+        put(section, { ...LOADING, state: "error", error: message(e) });
+        const code = (e as { code?: unknown } | null)?.code;
+        if (code === "GH_SIGNED_OUT" || code === "GH_MISSING") onLost();
+      },
     );
   };
   const showMore = (section: PrSection) => {

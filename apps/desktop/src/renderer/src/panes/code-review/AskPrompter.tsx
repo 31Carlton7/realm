@@ -53,6 +53,9 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
   const [pick, setPick] = useState<{ kind: AgentKind; model: string | null }>({ kind: lastAgentKind ?? FALLBACK_AGENT, model: null });
   const [sends, setSends] = useState(0);
   const [asking, setAsking] = useState(false);
+  /* The exchange folds away: it stands over the request, and once its answer is read the request is
+     what the person came back to. A new question opens it again. */
+  const [shown, setShown] = useState(true);
   const owner = useApp((s) => (thread ? s.sessions[thread.sessionId] : undefined));
   const entry = useApp((s) => (thread ? s.transcripts[thread.sessionId] : undefined));
   const status: SessionStatus = useApp((s) => (thread ? s.sessionStatus[thread.sessionId] ?? s.sessions[thread.sessionId]?.status ?? "idle" : "idle"));
@@ -74,6 +77,7 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
   const ask = (text: string) => run(async () => {
     if (!place) return;
     setSends((n) => n + 1);
+    setShown(true);
     setAsking(true);
     try {
       const sent = attachments;
@@ -105,7 +109,7 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
 
   return (
     <section className="cr-ask" aria-label="Ask about this pull request">
-      {exchange && exchange.blocks.length > 0 && (
+      {exchange && exchange.blocks.length > 0 && shown && (
         <div className="cr-ask-thread">
           <Transcript transcript={exchange} sessionStatus={status} visible focused={false} cwd={continuing?.cwd || null}
             mode={sessionModeOf(session.permissionMode)} sends={sends}
@@ -118,7 +122,13 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
           <button type="button" className="cr-ask-owner" onClick={openOwner} title={`Open ${continuing.title} — your questions and their answers stay in its transcript`}>
             <Icon name={AGENT_META[continuing.agentKind].icon} size={12} colored />{continuing.title}
           </button>
-        ) : <span className="cr-quiet" title="The first question starts a session there, with the pull request attached">New session</span>}
+        ) : <span className="cr-ask-new" title="The first question starts a session there, with the pull request attached">New session</span>}
+        {exchange && exchange.blocks.length > 0 && (
+          <button type="button" className="cr-ask-fold" aria-expanded={shown} onClick={() => setShown((v) => !v)}
+            title={shown ? "Fold the answers away" : "Show the answers"}>
+            {shown ? "Hide answers" : "Show answers"}<Icon name={shown ? "chevronDown" : "chevronUp"} size={12} />
+          </button>
+        )}
       </div>
       <Composer compact session={session} status={asking ? "running" : status} gitInfo={null} hero={false} spaceName=""
         placeholder={`Ask about ${prName(detail.ref)}`}
