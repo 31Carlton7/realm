@@ -32,6 +32,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9243), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8803);
@@ -184,8 +185,8 @@ async function main() {
   if (!found) throw new Error("no store under React's root");
 
   // ── 1. A device pane, live, with the control under its picture ──────────────────────────────
-  const openSim = await evalIn(c, `[...document.querySelectorAll('.panel-bar button')].map((b) => b.getAttribute('aria-label')).find((l) => l?.startsWith('Open a simulator beside')) ?? null`);
-  await evalIn(c, `[...document.querySelectorAll('.panel-bar button')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify(openSim)}).click(), true`);
+  // A simulator is opened from the session's side pane — the session's bar carries no tools.
+  await openSideTool(c, null, "Simulator");
   await until(() => evalIn(c, `!!document.querySelector('.sim-pane')`), 15000, "simulator pane");
   const simulatorId = await until(() => evalIn(c, `${store("items")}.find((i) => i.kind === 'simulator')?.refId ?? null`), 10000, "simulator item");
   await sleep(600);

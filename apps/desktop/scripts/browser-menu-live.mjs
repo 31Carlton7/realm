@@ -47,6 +47,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 /** Chromium's switches for a window that is covered or in the background: lay it out and run its timers
@@ -328,17 +329,9 @@ async function main() {
   await until(() => evalIn(c, `[...document.querySelectorAll('.item-list .item-row')].some((b) => b.textContent.includes(${JSON.stringify(TITLE)}))`), 20_000, "session row");
   await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
   await until(() => evalIn(c, `[...document.querySelectorAll('.panel-title')].some((t) => t.textContent === ${JSON.stringify(TITLE)})`), 10_000, "session pane");
-  // A browser BESIDE the session, from the session's own bar — the way a person opens one to look at
-  // something while the session works.
-  const opened = await evalIn(c, `(() => {
-    const b = document.querySelector('[aria-label=${JSON.stringify(`Open a browser beside ${TITLE}`)}]');
-    if (b) { b.click(); return "bar"; }
-    return null; })()`);
-  if (!opened) {
-    await evalIn(c, `(() => { document.querySelector('[aria-label=${JSON.stringify(`Pane menu for ${TITLE}`)}]').click(); return true; })()`);
-    await until(() => evalIn(c, `!!document.querySelector('[role=menuitem]')`), 5_000, "pane menu");
-    await evalIn(c, `(() => { [...document.querySelectorAll('[role=menuitem]')].find((m) => m.textContent.includes("Browser")).click(); return true; })()`);
-  }
+  // A browser BESIDE the session, as a new tab of its side pane — the way a person opens one to look
+  // at something while the session works.
+  await openSideTool(c, TITLE, "New tab");
   await until(() => evalIn(c, `!!document.querySelector('.browser-pane input[aria-label=Address]')`), 10_000, "browser pane");
   const go = async (pathname) => {
     await evalIn(c, `(() => {

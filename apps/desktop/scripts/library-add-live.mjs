@@ -28,6 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
@@ -483,7 +484,7 @@ async function main() {
   // ── 5. The documents pane's home lists them under Library ──────────────────────────────────────
   await escape(c);
   await until(() => evalIn(c, `!document.querySelector('.page-overlay')`), 5_000, "the Library put away");
-  await press(c, `button[aria-label=${JSON.stringify(`Open documents for ${TITLE}`)}]`);
+  await openSideTool(c, TITLE, "Documents");
   await until(() => evalIn(c, `!!document.querySelector('.docs-home section[aria-label="Library"] .docs-home-row')`), 15_000, "the documents home");
   await sleep(600);
   const home$ = await evalIn(c, `[...document.querySelectorAll('.docs-home section[aria-label="Library"] .docs-home-row')].map((r) => ({

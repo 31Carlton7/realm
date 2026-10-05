@@ -4,8 +4,8 @@
  *
  * Boots the REAL app on a scratch REALM_HOME, fills the space's folder with `fs` the way an agent's
  * shell would — real 2880×1800 captures, a phone-shaped picture, a document, an archive, data, a
- * script, a sub-folder — some of it dated yesterday, then opens a session's Files panel and switches
- * it to cards.
+ * script, a sub-folder — some of it dated yesterday, then opens a session's Files panel (its Summary
+ * and files button, on a session with nothing to summarise) and switches it to cards.
  *
  * What only a real window can show, because jsdom lays nothing out:
  *   - how many columns the dock's real width holds, and what a card measures inside it;
@@ -113,7 +113,7 @@ async function openPanel(c) {
   await until(async () => {
     const open = await evalIn(c, `(() => {
       if (document.querySelector('.session-files')) return true;
-      document.querySelector('.panel-bar [aria-label^="Files for"]')?.click();
+      document.querySelector('.panel-bar [aria-label^="Summary and files for"]')?.click();
       return !!document.querySelector('.session-files');
     })()`);
     return open || null;
@@ -264,7 +264,7 @@ async function main() {
     return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 20000, "composer");
   await evalIn(c, `(() => { document.querySelector('button[aria-label="New session"]')?.click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.panel-bar [aria-label^="Files for"]')`), 20000, "the Files button");
+  await until(() => evalIn(c, `!!document.querySelector('.panel-bar [aria-label^="Summary and files for"]')`), 20000, "the Files button");
   await sleep(1200);
   await openPanel(c);
 
@@ -393,7 +393,7 @@ async function main() {
   await api.call("settings.set", { key: "ui.theme", value: "light" });
   api.close();
   await c.send("Page.reload", {});
-  await until(() => evalIn(c, `!!document.querySelector('.panel-bar [aria-label^="Files for"]')`), 30000, "the session after reload");
+  await until(() => evalIn(c, `!!document.querySelector('.panel-bar [aria-label^="Summary and files for"]')`), 30000, "the session after reload");
   await sleep(1200);
   await openPanel(c);
   await until(async () => (await evalIn(c, `document.querySelectorAll('.session-files .library-tile').length`)) >= 13 || null, 8000, "cards after reload");

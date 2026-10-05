@@ -723,6 +723,14 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   unbounded length, so they keep the width and the shown item's own actions go to its menu. The
   agents still working are a count in the session's bar, and their list previews one on request;
   a tab dragged to an edge is how something becomes part of the user's own layout.
+- A pane's bar carries what is about the thing it heads; what is opened BESIDE it is launched from
+  where it lands. A session's bar is its crumb, the count of its agents working, its status, one
+  control for what it made — the summary and the files, told apart in the dock's own head — and its
+  menu. Documents, its terminal, its agents, a page, a device and a machine are rows of the side
+  pane's "+" and of a new tab's page, with their chords, and in the palette. Seven glyphs that each
+  opened something somewhere else were the loudest thing at the top of the window and said nothing
+  about the session (the owner, 10-05); a "+" is the one control a strip of tabs can spare, because
+  every button beside it comes out of the tabs' width.
 - What a pane SHOWS keeps its controls with it, not in the pane's bar, which in a side pane is the tab
   strip: the simulator's state and eight buttons there once left the tabs no width at all. A device
   wears a toolbar centred over it — its state and the presses used every minute, the rest one click
@@ -762,12 +770,20 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   and nothing else (the owner, 10-05): a × at the bar's far end was one more way out, away from the
   ones used to arrive.
 - Closing a pane should never imply deleting the object behind it. That rule is about objects that
-  outlive their pane — a session's transcript, a diff's checkout — and the × in a pane bar is right
-  exactly where one exists. It has no work to do where there is nothing underneath: a terminal,
-  browser or documents pane is a thing opened at a moment and finished with (a destination page has
-  no close at all — above). A × on those closes into a drift of rows in the space that nobody asked
-  to keep, and the user reads it as the pane refusing to go away. Give those bars the trash instead,
-  and leave the layout-only close on ⌘W and in the ⋯ menu, named so it says which of the two it is.
+  outlive their pane — a session's transcript, a diff's checkout — and a session goes further: it has
+  no close at all (the owner, 10-05). It is reached from the sidebar and left the same way, and a ×
+  on its bar was a way out to nowhere a click on another row does not go. ⌘W closes what the keyboard
+  is IN: a tab leaves its side pane; a pane leaves the split it shares — its menu says Remove from
+  split, the one way back to a single pane — and beside an empty box the box goes instead; a session
+  alone closes nothing, and the keyboard goes to its prompter rather than the key doing nothing anyone
+  can see. One answer (`close-intent.ts`) feeds the key, the menu bar, the palette and the menu, so
+  none of them can name one thing and do another.
+- A × in a pane bar is right where an object outlives the pane and is not a session — a diff, a
+  machine. It has no work to do where there is nothing underneath: a terminal, browser or documents
+  pane is a thing opened at a moment and finished with (a destination page has no close at all —
+  above). A × on those closes into a drift of rows in the space that nobody asked to keep, and the
+  user reads it as the pane refusing to go away. Give those bars the trash instead, and leave the
+  layout-only close on ⌘W and in the ⋯ menu, named so it says which of the two it is.
 - A confirm step is owed by the OBJECT, not by the destructive-looking button. A pty, a live web
   view and a document workspace are each something a stray click would cost you, so those arm first;
   a page has nothing under it, and a second click that guards nothing is chrome charged for a

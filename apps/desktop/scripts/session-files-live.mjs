@@ -2,7 +2,8 @@
  * Live check for the session's file browser (run with: node apps/desktop/scripts/session-files-live.mjs)
  *
  * Boots the REAL app on a scratch REALM_HOME, writes files into the space's folder the way an agent's
- * shell command would, opens a session and presses Files.
+ * shell command would, opens a session and presses its Summary and files button — which opens on the
+ * files, since a session that has run nothing has nothing to summarise.
  *
  * What only a real run can show: the panel reads the DISK. Every other list of a session's files in
  * this app is folded out of the transcript — the summary's Outputs, the Library's index — so a file
@@ -127,7 +128,7 @@ async function main() {
 
   // A session to press the button on. The fake agent needs no CLI on this machine.
   await evalIn(c, `(() => { document.querySelector('button[aria-label="New session"]')?.click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.panel-bar [aria-label^="Files for"]')`), 20000, "the Files button");
+  await until(() => evalIn(c, `!!document.querySelector('.panel-bar [aria-label^="Summary and files for"]')`), 20000, "the Files button");
 
   const before = await evalIn(c, `!!document.querySelector('.session-files')`);
   check("the panel is closed until it is asked for", before === false);
@@ -140,7 +141,7 @@ async function main() {
   await until(async () => {
     const open = await evalIn(c, `(() => {
       if (document.querySelector('.session-files')) return true;
-      document.querySelector('.panel-bar [aria-label^="Files for"]')?.click();
+      document.querySelector('.panel-bar [aria-label^="Summary and files for"]')?.click();
       return !!document.querySelector('.session-files');
     })()`);
     return open || null;
@@ -153,8 +154,8 @@ async function main() {
       console.error("DIAGNOSTIC", JSON.stringify(await evalIn(c, `(() => {
         const el = document.querySelector('.session-files');
         return { panel: !!el, html: el ? el.innerHTML.slice(0, 400) : null,
-                 button: !!document.querySelector('.panel-bar [aria-label^="Files for"]'),
-                 pressed: document.querySelector('.panel-bar [aria-label^="Files for"]')?.getAttribute('aria-expanded') ?? null };
+                 button: !!document.querySelector('.panel-bar [aria-label^="Summary and files for"]'),
+                 pressed: document.querySelector('.panel-bar [aria-label^="Summary and files for"]')?.getAttribute('aria-expanded') ?? null };
       })()`)));
       throw e;
     });
@@ -194,7 +195,7 @@ async function main() {
   const trace = [];
   const rows = await until(async () => {
     const seen = await evalIn(c, `(() => {
-      const btn = document.querySelector('.panel-bar [aria-label^="Files for"]');
+      const btn = document.querySelector('.panel-bar [aria-label^="Summary and files for"]');
       return { open: !!document.querySelector('.session-files'), expanded: btn?.getAttribute('aria-expanded') ?? null,
                names: [...document.querySelectorAll('.session-files .summary-row-name')].map((n) => n.textContent) };
     })()`);

@@ -32,6 +32,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
@@ -222,9 +223,9 @@ async function main() {
   await evalIn(c, `(() => { for (const b of document.querySelectorAll('.panel-bar button[aria-label^="Close"]')) if (!b.closest('.panel').textContent.includes(${JSON.stringify(TITLE)})) b.click(); return true; })()`);
   await sleep(500);
 
-  // ── 1. Documents, from the session's bar: a tab of its side pane, on a home that is not a void ──
-  const opened = await evalIn(c, `(() => { const b = document.querySelector('button[aria-label=${JSON.stringify(`Open documents for ${TITLE}`)}]'); if (!b) return false; b.click(); return true; })()`);
-  check("the session bar has a Documents button", opened);
+  // ── 1. Documents, from the session's side pane: a tab of it, on a home that is not a void ──────
+  const opened = await openSideTool(c, TITLE, "Documents").then(() => true, () => false);
+  check("the session's side pane offers Documents", opened);
   await until(() => evalIn(c, `!!document.querySelector('.docs-home .pane-empty')`), 10_000, "empty home");
   await sleep(500);
   const empty = await evalIn(c, `(() => { const h = document.querySelector('.docs-home');

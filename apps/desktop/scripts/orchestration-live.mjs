@@ -27,6 +27,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
@@ -200,8 +201,9 @@ async function main() {
   await sleep(500);
 
   // ── 1. The Agents tab opens as a tab of the session's side pane ───────────────────────────
-  const opened = await evalIn(c, `(() => { const b = document.querySelector('button[aria-label=${JSON.stringify(`Open the sub-agents of ${TITLE}`)}]'); if (!b) return false; b.click(); return true; })()`);
-  check("the session bar has an Agents button", opened);
+  // From the session's side pane — its first opens on a new tab whose page lists the tools.
+  const opened = await openSideTool(c, TITLE, "Agents").then(() => true, () => false);
+  check("the session's side pane opens its Agents", opened);
   await until(() => evalIn(c, `!!document.querySelector('.subagents')`), 10_000, "agents tab");
   const tabs = () => evalIn(c, `[...document.querySelectorAll('.panehost .panel')].map((p) => ({ title: p.querySelector('.panel-title')?.textContent ?? null, tabs: [...p.querySelectorAll('[role=tab]')].map((t) => ({ name: t.textContent, selected: t.getAttribute('aria-selected') === 'true' })) }))`);
   const firstTabs = await tabs();

@@ -255,7 +255,7 @@ async function main() {
   await shot(c, "seam", { x: seam.box.l - 12, y: seam.box.t - 40, width: seam.box.w + 24, height: 100 });
 
   /* ── 2b. The summary side panel ─────────────────────────────────────────── */
-  const summaryBtn = `.panel-actions [aria-label^="Summary of"]`;
+  const summaryBtn = `.panel-actions [aria-label^="Summary and files for"]`;
   await until(() => evalIn(c, `!!document.querySelector('${summaryBtn}')`), 20000, "summary button");
   await evalIn(c, `(() => { document.querySelector('${summaryBtn}').click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.session-summary')`), 10000, "summary panel");
