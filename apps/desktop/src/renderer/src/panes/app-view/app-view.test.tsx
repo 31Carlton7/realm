@@ -21,12 +21,14 @@ vi.mock("../../rpc/client", () => ({
       calls.push({ method, params });
       if (method === "apps.view") return answer;
       if (method === "apps.release") return { ok: true };
+      if (method === "apps.callTool") return { content: [{ type: "text", text: "Refreshed." }], structuredContent: { values: [9] } };
       throw new Error(`unexpected ${method}`);
     },
   }),
 }));
 
 import { AppView, VIEW_SANDBOX } from "./AppView";
+import { ARM_MS } from "./ViewRequestCard";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi } from "../../state/store.test-fakes";
 
@@ -105,5 +107,104 @@ describe("a view's frame", () => {
     expect(document.querySelector(".app-view")?.getAttribute("data-mode")).toBe("tab");
     expect(screen.queryByRole("button", { name: "Open in a tab" })).toBeNull();
     expect(frame()!.getAttribute("loading")).toBeNull();
+  });
+});
+
+describe("what a view asks for, held until the user clicks", () => {
+  /** The view, speaking: a message posted from its own frame on its own origin, with every answer
+   *  the bridge posts back to that frame recorded. */
+  async function speaking() {
+    const m = await mount();
+    await waitFor(() => expect(frame()?.contentWindow).toBeTruthy());
+    const win = frame()!.contentWindow!;
+    const answers: any[] = [];
+    vi.spyOn(win, "postMessage").mockImplementation(((msg: any) => { answers.push(msg); }) as any);
+    const say = (data: unknown) => act(async () => { window.dispatchEvent(new MessageEvent("message", { data, origin: ORIGIN, source: win })); await new Promise((r) => setTimeout(r, 0)); });
+    await say({ jsonrpc: "2.0", id: 1, method: "ui/initialize", params: { appInfo: { name: "Charts", version: "1" }, appCapabilities: {}, protocolVersion: "2026-01-26" } });
+    await say({ jsonrpc: "2.0", method: "ui/notifications/initialized" });
+    return { ...m, answers, say };
+  }
+  const card = () => document.querySelector<HTMLElement>(".app-view-request");
+  const press = async (name: string) => { await act(async () => { fireEvent.click(screen.getByRole("button", { name })); await new Promise((r) => setTimeout(r, 0)); }); };
+  const armed = () => act(async () => { await new Promise((r) => setTimeout(r, ARM_MS + 30)); });
+
+  it("tells the view it may ask for each of the three, and nothing more", async () => {
+    const { answers } = await speaking();
+    expect(answers[0].result.hostCapabilities).toEqual({ serverTools: {}, message: { text: {} }, openLinks: {}, sandbox: { permissions: {}, csp: VIEW.csp } });
+  });
+
+  it("holds a tool call on Realm's card, and with no click nothing is called", async () => {
+    // THE MUTANT: answer `tools/call` straight through, and the view runs a vendor's tool on its own say.
+    const { say } = await speaking();
+    await say({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "refresh_chart", arguments: { title: "Bundle" } } });
+    expect(card()).not.toBeNull();
+    expect(card()!.getAttribute("data-no-agent")).toBe("view request");
+    expect(card()!.textContent).toContain("The view from Charts asks to run refresh_chart.");
+    expect(card()!.textContent).toContain('"title": "Bundle"');
+    await armed();
+    expect(calls.some((c) => c.method === "apps.callTool")).toBe(false);
+  });
+
+  it("ignores a click that lands before the card could have been read", async () => {
+    const { say } = await speaking();
+    await say({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "refresh_chart", arguments: {} } });
+    await press("Run refresh_chart");
+    expect(card()).not.toBeNull();
+    expect(calls.some((c) => c.method === "apps.callTool")).toBe(false);
+  });
+
+  it("runs it on Allow and hands the view the result; on Don't run tells it no, and runs nothing", async () => {
+    const { say, answers } = await speaking();
+    await say({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "refresh_chart", arguments: { title: "Bundle" } } });
+    await armed();
+    await press("Run refresh_chart");
+    await waitFor(() => expect(answers.some((a) => a.id === 7)).toBe(true));
+    expect(calls.find((c) => c.method === "apps.callTool")?.params).toEqual({ viewId: VIEW.viewId, name: "refresh_chart", arguments: { title: "Bundle" } });
+    expect(answers.find((a) => a.id === 7)).toEqual({ jsonrpc: "2.0", id: 7, result: { content: [{ type: "text", text: "Refreshed." }], structuredContent: { values: [9] } } });
+    expect(card()).toBeNull();
+    calls.length = 0;
+    await say({ jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "refresh_chart", arguments: {} } });
+    await armed();
+    await press("Don't run");
+    await waitFor(() => expect(answers.some((a) => a.id === 8)).toBe(true));
+    expect(answers.find((a) => a.id === 8).error.message).toBe("The user did not allow the call");
+    expect(calls.some((c) => c.method === "apps.callTool")).toBe(false);
+  });
+
+  it("puts a message in the prompter beside what the user was writing — it never sends it", async () => {
+    const { say, answers, store } = await speaking();
+    store.getState().setDraft(VIEW.sessionId, "My own words");
+    await say({ jsonrpc: "2.0", id: 9, method: "ui/message", params: { role: "user", content: [{ type: "text", text: "Which release grew most?" }] } });
+    expect(card()!.textContent).toContain("Which release grew most?");
+    await armed();
+    await press("Put in the prompter");
+    expect(store.getState().drafts[VIEW.sessionId]).toBe("My own words\n\nWhich release grew most?");
+    expect(answers.find((a) => a.id === 9)).toEqual({ jsonrpc: "2.0", id: 9, result: {} });
+    expect(calls.some((c) => c.method === "sessions.send")).toBe(false);
+  });
+
+  it("opens a link only on the click, with the whole address on the card and its host set apart", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { say } = await speaking();
+    await say({ jsonrpc: "2.0", id: 10, method: "ui/open-link", params: { url: "https://example.com/releases/sizes" } });
+    expect(document.querySelector(".app-view-request-host")?.textContent).toBe("example.com");
+    expect(card()!.querySelector("a")).toBeNull();
+    await armed();
+    expect(open).not.toHaveBeenCalled();
+    await press("Open example.com");
+    expect(open).toHaveBeenCalledWith("https://example.com/releases/sizes", "_blank");
+    open.mockRestore();
+  });
+
+  it("drops a request still waiting when the view goes: the card goes with the frame, and nothing it asked for happens", async () => {
+    const { say, answers, unmount, store } = await speaking();
+    await say({ jsonrpc: "2.0", id: 11, method: "ui/message", params: { role: "user", content: [{ type: "text", text: "hi" }] } });
+    expect(card()).not.toBeNull();
+    unmount();
+    await act(async () => { await new Promise((r) => setTimeout(r, ARM_MS + 30)); });
+    expect(card()).toBeNull();
+    expect(store.getState().drafts[VIEW.sessionId] ?? "").toBe("");
+    // The frame is gone, so it is told nothing more — not even the refusal.
+    expect(answers.find((a) => a.id === 11)).toBeUndefined();
   });
 });

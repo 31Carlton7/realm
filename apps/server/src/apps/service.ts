@@ -1,4 +1,6 @@
 import type { MethodResult } from "@realm/contracts";
+import { RpcError } from "../store/rows";
+import type { McpGateway } from "../mcp/gateway";
 import type { McpHub } from "../mcp/hub";
 import type { McpService } from "../mcp/service";
 import type { McpServersStore } from "../store/mcp";
@@ -20,6 +22,9 @@ import type { AppViews } from "./views";
 export class AppViewService {
   constructor(private readonly d: {
     views: AppViews; hub: McpHub; mcp: McpService; servers: McpServersStore; sessions: SessionsStore; server: AppViewServer;
+    /** Where a view's own tool call goes once the user has allowed it — the gateway's policy and
+     *  Activity, exactly as an agent's call meets them. */
+    gateway: Pick<McpGateway, "callForView">;
     /** Where the CSP each view is served under is written down — the spec's audit trail. */
     log?: (line: string) => void;
   }) {}
@@ -51,5 +56,17 @@ export class AppViewService {
 
   release(url: string): void {
     this.d.server.release(url);
+  }
+
+  /**
+   * A tool call a view asked for, which the user has just allowed (`apps.callTool`). Only the view's
+   * own server is reachable from here — the record names it, not the caller — and only while that
+   * server is still showing views at all.
+   */
+  async callTool(viewId: string, name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const v = this.d.views.get(viewId);
+    if (!v) throw new RpcError("NOT_FOUND", "Realm no longer has this view.");
+    if (!this.d.mcp.showsViews(v.serverId)) throw new RpcError("APP_VIEWS_OFF", `${v.serverName}'s views are switched off.`);
+    return await this.d.gateway.callForView(v.sessionId, v.serverId, name, args) as Record<string, unknown>;
   }
 }

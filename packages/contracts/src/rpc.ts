@@ -1300,6 +1300,12 @@ export const Methods = {
   },
   /** A mounted view went away: its address stops serving. A no-op for one already released. */
   "apps.release": { params: z.object({ url: z.string() }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * A tool call a view asked for, made because the user clicked to allow it — never on the view's say
+   * alone. Its own server only, under the space's policy, recorded in Activity. The result is the
+   * server's `CallToolResult`, handed back to the view and to no agent.
+   */
+  "apps.callTool": { params: z.object({ viewId: IdSchema, name: z.string().min(1), arguments: z.record(z.unknown()).default({}) }), result: z.record(z.unknown()) },
 
   /**
    * This space's Realm memory document plus the state of its opt-in `AGENTS.md`. The document lives at

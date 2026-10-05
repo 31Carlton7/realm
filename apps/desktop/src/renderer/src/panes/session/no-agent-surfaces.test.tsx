@@ -81,6 +81,14 @@ const SURFACES = [
     file: "apps/desktop/src/renderer/src/panes/session/MessageActions.tsx",
     on: "msg-implement-with",
   },
+  /* A view an MCP server drew asking, through Realm, to run one of its tools, to put words in the
+     prompter, or to open a page. The user's click is the whole gate, so an agent able to press it
+     would be the agent running the vendor's tool for itself. */
+  {
+    what: "a view's request, held for the user",
+    file: "apps/desktop/src/renderer/src/panes/app-view/ViewRequestCard.tsx",
+    on: 'className="app-view-request"',
+  },
 ];
 
 describe("surfaces no agent may act in", () => {

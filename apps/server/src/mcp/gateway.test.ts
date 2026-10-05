@@ -1021,3 +1021,50 @@ describe("MCP Apps: a tool's view, and the tools only a view may call", () => {
     await client.close();
   });
 });
+
+describe("MCP Apps: a view's own call, once the user allowed it", () => {
+  const OPEN: Tool = { name: "refresh_chart", description: "For the view", inputSchema: { type: "object" }, _meta: { ui: { resourceUri: "ui://stub/chart", visibility: ["app"] } } };
+  const BOTH: Tool = { name: "show_chart", description: "Chart it", inputSchema: { type: "object" }, _meta: { ui: { resourceUri: "ui://stub/chart" } } };
+  const AGENT_ONLY: Tool = { name: "delete_board", description: "The agent's", inputSchema: { type: "object" }, _meta: { ui: { visibility: ["model"] } } };
+  const FRESH: CallToolResult = { content: [{ type: "text", text: "Refreshed." }], structuredContent: { values: [9, 8, 7] } };
+
+  async function withView() {
+    const app = await setupApp();
+    const calls: string[] = [];
+    const { row } = app.addServer("charts", { tools: [OPEN, BOTH, AGENT_ONLY], results: { refresh_chart: FRESH }, onCall: (t) => calls.push(t) });
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    return { app, row, calls };
+  }
+
+  it("runs a tool open to views, hands the view the server's whole result, and records the call as the view's", async () => {
+    const { app, row, calls } = await withView();
+    expect(await app.gateway.callForView(app.sessionId, row.id, "refresh_chart", { title: "Bundle" })).toEqual(FRESH);
+    expect(await app.gateway.callForView(app.sessionId, row.id, "show_chart", {})).toMatchObject({ content: [{ type: "text" }] });
+    expect(calls).toEqual(["refresh_chart", "show_chart"]);
+    const logged = app.calls.list({ sessionId: app.sessionId });
+    expect(logged.map((c) => [c.tool, c.ok])).toEqual(expect.arrayContaining([["refresh_chart", true], ["show_chart", true]]));
+    expect(logged.find((c) => c.tool === "refresh_chart")!.resultSummary).toBe("From its view: Refreshed.");
+  });
+
+  it("refuses a tool the server kept for the agent, and one it does not have, without reaching it", async () => {
+    // THE MUTANT: skip the visibility check, and a view can run the tool its server said only the
+    // agent may — the spec's MUST, gone.
+    const { app, row, calls } = await withView();
+    const agentOnly = await app.gateway.callForView(app.sessionId, row.id, "delete_board", {});
+    expect(agentOnly.isError).toBe(true);
+    expect(asText(agentOnly)).toMatch(/no tool "delete_board" its view may call/);
+    expect((await app.gateway.callForView(app.sessionId, row.id, "nope", {})).isError).toBe(true);
+    expect(calls).toEqual([]);
+    expect(app.calls.list({ sessionId: app.sessionId }).every((c) => !c.ok && c.resultSummary.startsWith("blocked: a view's call"))).toBe(true);
+  });
+
+  it("meets the space's policy now, not as it stood when the view was drawn", async () => {
+    const { app, row, calls } = await withView();
+    app.mcp.setAllowedTools(app.spaceId, row.id, ["show_chart"]);
+    expect(asText(await app.gateway.callForView(app.sessionId, row.id, "refresh_chart", {}))).toMatch(/not enabled for this space/);
+    app.mcp.setAllowedTools(app.spaceId, row.id, null);
+    app.mcp.setEnabled(app.spaceId, row.id, false);
+    expect(asText(await app.gateway.callForView(app.sessionId, row.id, "refresh_chart", {}))).toMatch(/turned off in this space/);
+    expect(calls).toEqual([]);
+  });
+});

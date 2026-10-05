@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerConfig } from "@realm/adapters";
-import { visibleToModel } from "@realm/contracts";
+import { callableByApp, visibleToModel } from "@realm/contracts";
 import type { DrawnView } from "../apps/views";
 import type { RpcServer } from "../rpc/server";
 import type { SessionsStore } from "../store/sessions";
@@ -623,6 +623,44 @@ export class McpGateway {
       // A thrown hub failure is already sanitized (see `hub.ts`'s `sanitize()`). Surfacing it as an
       // `isError: true` CallToolResult rather than letting it propagate as a JSON-RPC protocol error
       // gives the agent the same shape of failure it would get from any other failed tool call.
+      return errorResult(message);
+    }
+  }
+
+  /**
+   * A view's own call to its server (MCP Apps `tools/call`), made once the user clicked to allow it.
+   *
+   * The same policy the agent's calls meet, asked again now rather than trusted from when the view was
+   * drawn: the server must still be on in the session's space, and the tool in its allowlist. Then the
+   * spec's own rule — the tool's visibility must include `app` — and its server is the view's own,
+   * because the view's server is the only one this is ever asked about. It lands in Activity under
+   * the session like any call, its summary saying the view made it. The result goes back to the view
+   * whole; nothing is compressed, because no agent reads it.
+   */
+  async callForView(sessionId: string, serverId: string, tool: string, args: Record<string, unknown>): Promise<CallToolResult> {
+    const session = this.d.sessions.get(sessionId);
+    const row = this.d.servers.get(serverId);
+    const argsJson = JSON.stringify(args);
+    if (!session || !row) return errorResult("mcp: this view's session or server no longer exists.");
+    if (!this.d.mcp.effectiveServerIds(session.spaceId).includes(serverId)) {
+      return this.blocked(sessionId, serverId, row.name, tool, argsJson, `mcp: "${row.name}" is turned off in this space.`, "blocked: a view's call, server off in this space");
+    }
+    const allowed = this.d.mcp.allowedTools(session.spaceId, serverId);
+    if (allowed && !allowed.includes(tool)) {
+      return this.blocked(sessionId, serverId, row.name, tool, argsJson, `mcp: "${tool}" on "${row.name}" is not enabled for this space.`, "blocked: a view's call, tool not in this space's allowlist");
+    }
+    const live = await this.d.hub.toolOf(serverId, tool).catch(() => null);
+    if (!live || !callableByApp(live.ui)) {
+      return this.blocked(sessionId, serverId, row.name, tool, argsJson, `mcp: "${row.name}" has no tool "${tool}" its view may call.`, "blocked: a view's call to a tool not open to views");
+    }
+    const start = Date.now();
+    try {
+      const result = await this.d.hub.call(serverId, tool, args, { sessionId });
+      this.record(sessionId, serverId, row.name, tool, argsJson, result.isError !== true, Date.now() - start, truncate(`From its view: ${summarize(result)}`));
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.record(sessionId, serverId, row.name, tool, argsJson, false, Date.now() - start, truncate(`From its view: ${message}`));
       return errorResult(message);
     }
   }

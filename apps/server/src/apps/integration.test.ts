@@ -131,6 +131,23 @@ describe("a tool call that draws a view, end to end", () => {
     rpc.close();
   }, 30_000);
 
+  it("runs a tool the view asked for through apps.callTool — its own server's, the one kept from the agent", async () => {
+    const { app, home } = await boot();
+    const { sessionId, serverId } = seed(app, home);
+    await app.sessions.send(sessionId, { text: "chart", attachments: [] });
+    await waitFor(() => results(app, sessionId).length === 1, { timeout: 15_000 });
+    const viewId = results(app, sessionId)[0]!.payload.view!.viewId;
+    const rpc = await client(app.port);
+    const fresh = await rpc.call("apps.callTool", { viewId, name: "refresh_chart", arguments: { title: "Bundle size", labels: ["1.4", "1.5"] } });
+    expect(fresh.structuredContent).toMatchObject({ title: "Bundle size", labels: ["1.4", "1.5"] });
+    expect(fresh.structuredContent.values).toHaveLength(2);
+    // Never the agent's to see, and never any but its own server's to reach.
+    expect(results(app, sessionId)).toHaveLength(1);
+    new SettingsStore(app.db).set("mcp.viewsHidden", [serverId]);
+    await expect(rpc.call("apps.callTool", { viewId, name: "refresh_chart", arguments: {} })).rejects.toThrow(/views are switched off/);
+    rpc.close();
+  }, 30_000);
+
   it("is kept across a relaunch: the reopened transcript names the view, and it opens again", async () => {
     const { app, home } = await boot();
     const { sessionId } = seed(app, home);

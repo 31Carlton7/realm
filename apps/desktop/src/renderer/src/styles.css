@@ -3673,6 +3673,20 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   border-radius: var(--r-squircle-screen); corner-shape: squircle; }
 .app-view[data-mode="tab"] .app-view-frame { flex: 1; min-height: 0; }
 .app-view[data-mode="tab"] .app-view-loading { flex: 1; }
+/* What a view asked to do, held for the user (ViewRequestCard.tsx). The request card's shell — a
+   raised surface with the lift every card that waits on an answer wears — set under the frame and
+   outside it, where nothing the view draws can reach. */
+.app-view-request { margin-top: 8px; padding: 14px; border-radius: var(--r-panel); background: var(--rl-raised); box-shadow: var(--shadow-card);
+  display: flex; flex-direction: column; gap: 8px; }
+.app-view-request-title { margin: 0; color: var(--ink); font-size: 14px; line-height: 20px; font-weight: var(--fw-label); }
+.app-view-request-note { margin: 0; color: var(--ink-2); font-size: 12px; }
+.app-view-request-well { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font: 12px var(--font-mono);
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; color: var(--ink-2); }
+/* A message is read as prose: the words the agent would be handed, whole. */
+.app-view-request-text { font: 13px/18px var(--font-sans); color: var(--ink); }
+.app-view-request-link { margin: 0; font: 12px var(--font-mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.app-view-request-host { color: var(--rl-text-bright); font-weight: var(--fw-title); }
+.app-view-request-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ── Inline UI in the transcript (Plan 24 W1) ──────────────────────────────────
    A tool card's body used to be two `<pre>`s: `JSON.stringify(input, null, 2)` and the raw result

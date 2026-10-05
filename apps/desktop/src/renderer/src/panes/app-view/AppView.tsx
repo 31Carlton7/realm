@@ -2,9 +2,19 @@ import { Icon } from "@realm/ui";
 import { findLeafOfItem, type AppView as AppViewData, type AppViewRef, type MethodResult } from "@realm/contracts";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { rpc } from "../../rpc/client";
-import { useApp } from "../../state/store";
-import { ViewBridge, type DisplayMode, type HostCapabilities } from "./bridge";
+import { useApp, useAppStore } from "../../state/store";
+import { ViewBridge, type DisplayMode, type HeldRequest, type HostCapabilities } from "./bridge";
 import { hostStyles, hostTheme, onThemeChange } from "./host-context";
+import { ViewRequestCard } from "./ViewRequestCard";
+
+/** What a view is told when the user says no — the spec's own wording where it has one. */
+const DENIED: Record<HeldRequest["kind"], string> = {
+  tool: "The user did not allow the call",
+  message: "Message sending denied by the user",
+  link: "Link opening denied by user",
+};
+
+type Held = { request: HeldRequest; resolve: (r: Record<string, unknown>) => void; reject: (e: Error) => void };
 
 /** The frame's sandbox: scripts, its own origin (so a view's storage works, on an origin nobody else
  *  shares), and forms it handles in script. No popups, no top navigation, no modals, no downloads,
@@ -139,6 +149,34 @@ function ViewFrame({ view, mode, serverName, tool, onOpenTab }: { view: AppViewD
   const [expanded, setExpanded] = useState(false);
   const bridge = useRef<ViewBridge | null>(null);
   const displayMode = useRef<DisplayMode>("inline");
+  const store = useAppStore();
+  /* The request waiting on the user, if any. The bridge holds one at a time; one still waiting when
+     the frame goes is refused, so the view is not left waiting on a card that no longer exists. */
+  const [held, setHeld] = useState<Held | null>(null);
+  const heldNow = useRef<Held | null>(null);
+  heldNow.current = held;
+  useEffect(() => () => heldNow.current?.reject(new Error("The view closed before the user answered")), []);
+
+  const answer = async (allow: boolean) => {
+    const h = held;
+    if (!h) return;
+    setHeld(null);
+    if (!allow) { h.reject(new Error(DENIED[h.request.kind])); return; }
+    try {
+      const r = h.request;
+      if (r.kind === "tool") {
+        h.resolve(await rpc().call("apps.callTool", { viewId: view.viewId, name: r.name, arguments: r.arguments }));
+      } else if (r.kind === "message") {
+        // Added to whatever the user was writing, never in place of it.
+        const draft = (store.getState().drafts[view.sessionId] ?? "").trimEnd();
+        store.getState().setDraft(view.sessionId, draft ? `${draft}\n\n${r.text}` : r.text);
+        h.resolve({});
+      } else {
+        window.open(r.url, "_blank");
+        h.resolve({});
+      }
+    } catch (e) { h.reject(e instanceof Error ? e : new Error(String(e))); }
+  };
 
   const dimensions = useCallback(() => {
     const box = frame.current?.getBoundingClientRect();
@@ -157,12 +195,16 @@ function ViewFrame({ view, mode, serverName, tool, onOpenTab }: { view: AppViewD
       input: view.input,
       result: view.result,
       onSize: ({ height }) => { if (height !== undefined) setAsked(height); },
+      hold: (request) => new Promise((resolve, reject) => setHeld({ request, resolve, reject })),
       initialize: ({ availableDisplayModes }) => {
         // A tab is the view's whole pane — "fullscreen" in the spec's words — where the view says it
         // can be shown that way; otherwise it is the inline view, given more room.
         const shown: DisplayMode = mode === "tab" && availableDisplayModes.includes("fullscreen") ? "fullscreen" : "inline";
         displayMode.current = shown;
-        const hostCapabilities: HostCapabilities = { sandbox: { permissions: {}, csp: view.csp } };
+        // What a view may ask, each held for the user's click: its server's tools, words for the
+        // agent (text, into the prompter), a page opened. Nothing else — no model context, no
+        // sampling, no downloads — is offered, so a view that asks is refused.
+        const hostCapabilities: HostCapabilities = { serverTools: {}, message: { text: {} }, openLinks: {}, sandbox: { permissions: {}, csp: view.csp } };
         return {
           displayMode: shown,
           hostCapabilities,
@@ -236,6 +278,7 @@ function ViewFrame({ view, mode, serverName, tool, onOpenTab }: { view: AppViewD
       <iframe ref={frame} className="app-view-frame" src={view.url} sandbox={VIEW_SANDBOX} referrerPolicy="no-referrer"
         title={tool ? `${serverName}: ${tool}` : `View from ${serverName}`} style={height !== undefined ? { height } : undefined}
         {...(mode === "inline" ? { loading: "lazy" as const } : {})} />
+      {held && <ViewRequestCard request={held.request} serverName={serverName} onAllow={() => void answer(true)} onDeny={() => void answer(false)} />}
     </>
   );
 }

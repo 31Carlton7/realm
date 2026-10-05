@@ -502,6 +502,7 @@ export function registerMethods(d: Deps): void {
   });
   reg("apps.view", (p) => d.appViews.open(p.viewId));
   reg("apps.release", (p) => { d.appViews.release(p.url); return { ok: true as const }; });
+  reg("apps.callTool", (p) => d.appViews.callTool(p.viewId, p.name, p.arguments));
   reg("mcp.setAllowedTools", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     d.mcp.setAllowedTools(p.spaceId, p.id, p.tools);
