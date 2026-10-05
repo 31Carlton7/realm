@@ -89,4 +89,18 @@ describe("app icon", () => {
     const tiles = [...picker.matchAll(/\{ id: "([a-z]+)"/g)].map((m) => m[1]);
     expect(tiles).toEqual([...APP_ICON_IDS]);
   });
+
+  /* The pictures are rendered from resources/icon-src/icons.mjs, so the drawing is a fourth list. A
+     colouring added there and not here would be rendered and never offered; one removed there would
+     leave a stale picture behind that no render replaces. */
+  it("every picture is one the icon source draws, at the 256 px the Dock is handed", () => {
+    const source = readFileSync(join(__dirname, "../../../../resources/icon-src/icons.mjs"), "utf8");
+    const drawn = [...source.matchAll(/^ {4}id: "([a-z]+)",$/gm)].map((m) => m[1]);
+    expect(drawn).toEqual([...APP_ICON_IDS]);
+    for (const id of APP_ICON_IDS) {
+      const png = readFileSync(join(__dirname, "../renderer/src/assets/app-icons", `${id}.png`));
+      // IHDR's width and height, big-endian, straight after the signature and the chunk header.
+      expect([png.readUInt32BE(16), png.readUInt32BE(20)], id).toEqual([256, 256]);
+    }
+  });
 });
