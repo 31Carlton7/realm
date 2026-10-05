@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import { useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
+import { useDissolve } from "../../components/ScrollFades";
 
 /** The session's own model, as the chooser lists it: the one choice that is made by leaving the
  *  model's name out of the instruction. */
@@ -41,6 +42,8 @@ export function ModelChooser({ anchor, models, own, picked, onToggle, onClose, l
   align?: "left" | "right";
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  useDissolve(list);
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef: anchor, align, placement: "up", onClose, returnFocusRef: anchor, exit: true });
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -83,7 +86,7 @@ export function ModelChooser({ anchor, models, own, picked, onToggle, onClose, l
           aria-controls="subagents-chooser-list" aria-activedescendant={flat[at] ? `subagents-opt-${flat[at]!.key}` : undefined}
           onChange={(e) => { setQuery(e.target.value); setActive(0); }} />
       </div>
-      <div className="subagents-chooser-list" id="subagents-chooser-list" role="listbox" aria-multiselectable="true" aria-label="Models">
+      <div className="subagents-chooser-list" ref={list} id="subagents-chooser-list" role="listbox" aria-multiselectable="true" aria-label="Models">
         {groups.length === 0 && <p className="subagents-chooser-empty">No model matches “{query.trim()}”.</p>}
         {groups.map((g) => (
           <div key={g.label} role="group" aria-label={g.label}>

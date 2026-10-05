@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BAR_CHROME, actionsThatFit } from "./components/pane-bar-fit";
@@ -2279,6 +2279,107 @@ describe("scrollbars", () => {
       .flatMap((r) => r.selectors)
       .filter((sel) => !covered.has(leaf(sel)) && !exempt.has(leaf(sel)));
     expect([...new Set(uncovered)].sort()).toEqual([]);
+  });
+});
+
+/* The owner, 10-05: "every scrollable surface in the entire app to have our signature blur". The
+   dissolve is a mask a component asks for on its scroller (`useDissolve`, ScrollFades.tsx), so the
+   stylesheet alone cannot say a scroller has it: what is checked is the MARKUP — every element that
+   wears a scroller's class hands its ref to the hook — or that the scroller is named below with the
+   reason a dissolve would hurt it. */
+describe("every scroller dissolves", () => {
+  /** Scrollers that do not, each with why. */
+  const EXCEPTIONS: Record<string, string> = {
+    // Lines that scroll sideways. A line of code, a diff, a command or a formula is read to its last
+    // character, which is exactly where a dissolve sits; the scrollbar already says there is more.
+    ".md pre": "a fenced block's code lines, scrolling sideways",
+    ".code-body": "a file's code lines, scrolling sideways (it dissolves downwards where a tool's body caps it)",
+    ".fd-body": "a diff's lines, scrolling sideways",
+    ".diff-hunks": "a file's patch in the diff pane, scrolling sideways on its own panel",
+    ".install-cmd code": "one command to copy, scrolling sideways",
+    ".code-preview": "the code font's preview lines, scrolling sideways",
+    ".documents-raw": "a document's raw source lines, scrolling sideways",
+    ".math-display": "a typeset formula's line, scrolling sideways",
+    // Surfaces that own something a mask would take.
+    ".md-scroll": "a table whose column heads pin to its top, where a top band would dissolve the heads",
+    ".settings-tabs": "a segmented control lying down in a narrow pane: a mask would fade the track it sits in",
+    ".sched-card": "a scheduled task's card, whose own fill and rim a mask would dissolve with its rows",
+    ".ql-view": "Quick Look's render on a ground of its own, which a mask would fade with the picture",
+    // Editors keep their engines' scrolling, as they keep its rubber-banding (design.md).
+    ".documents-rich-scroll": "the rich-text editor's page, where the caret can be on any line",
+    ".documents-rich-surface pre": "a code block inside the rich-text editor",
+    // A selector whose elements are all held to it under their own classes above.
+    ".tool-body pre": "the wells a tool's body holds — .tool-well, .term-out, .code-body — each held here by its own class",
+  };
+  /** Scrollers whose element wears no class of its own, found by where they are drawn instead. */
+  const BY_PLACE: Record<string, { file: string; tag: string }> = {
+    ".permission-details pre": { file: "panes/session/PermissionCard.tsx", tag: "pre" },
+    ".msg-error pre": { file: "panes/session/Transcript.tsx", tag: "pre" },
+  };
+  /** An element that wears a scroller's class without being the one that scrolls. */
+  const NOT_THE_SCROLLER: Record<string, string> = {
+    "panes/settings/SettingsPage.tsx .page-rail": "Settings' rail box never scrolls — narrow it is `overflow: visible`, and its lists are the strip",
+  };
+
+  const scrollers = [...new Set(RULES.filter((r) => /overflow(-[xy])?:\s*(auto|scroll)/.test(r.body)).flatMap(partsOf))];
+  const root = dirname(repoFile("apps/desktop/src/renderer/src/styles.css"));
+  const tsx = (function walk(dir: string): string[] {
+    return readdirSync(dir).flatMap((f) => {
+      const p = join(dir, f);
+      return statSync(p).isDirectory() ? walk(p) : /\.tsx$/.test(f) && !/\.test\./.test(f) ? [p] : [];
+    });
+  })(root).map((p) => ({ file: p.slice(root.length + 1), src: readFileSync(p, "utf8") }));
+
+  /** Every lower-case opening tag in a file, whole: to its first `>` outside braces and strings. */
+  const tags = (src: string): { tag: string; text: string; at: number }[] => {
+    const out: { tag: string; text: string; at: number }[] = [];
+    for (const m of src.matchAll(/<([a-z][\w-]*)[\s>/]/g)) {
+      if (/[\w"'`$.\]]/.test(src[m.index - 1] ?? "")) continue;
+      let depth = 0, quote: string | null = null, j = m.index + m[1]!.length + 1;
+      for (; j < src.length; j++) {
+        const ch = src[j]!;
+        if (quote) { if (ch === quote && src[j - 1] !== "\\") quote = null; continue; }
+        if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
+        if (ch === "{") depth++; else if (ch === "}") depth--; else if (ch === ">" && depth === 0) break;
+      }
+      out.push({ tag: m[1]!, text: src.slice(m.index, j + 1), at: m.index });
+    }
+    return out;
+  };
+  /** The names a file hands to the dissolve: to the hook, to the components that call it, or out of
+   *  the two helpers that return a scroller already wired. */
+  const dissolved = (src: string): Set<string> => new Set([
+    ...[...src.matchAll(/useDissolve\((\w+)/g)].map((m) => m[1]!),
+    ...[...src.matchAll(/<ScrollFades(?:X)? scroller=\{(\w+)\}/g)].map((m) => m[1]!),
+    ...[...src.matchAll(/const \{ ref: (\w+)[^}]*\} = useFadedScroller\(/g)].map((m) => m[1]!),
+    ...[...src.matchAll(/const \{ (\w+)[^}]*\} = usePickerScroller\(/g)].map((m) => m[1]!),
+  ]);
+  const wears = (text: string, cls: string): boolean =>
+    [...text.matchAll(/className=(?:"([^"]*)"|\{([^]*?)\}(?=\s|\/?>))/g)].some((m) => (m[1] ?? m[2] ?? "").split(/[\s"'`?:]+/).includes(cls));
+
+  it("is wired to the dissolve everywhere its element is drawn, or is named with its reason", () => {
+    expect(scrollers.length, "no scrollers read out of the stylesheet").toBeGreaterThan(40);
+    const bare: string[] = [];
+    for (const sel of scrollers) {
+      if (sel in EXCEPTIONS) continue;
+      const place = BY_PLACE[sel];
+      const cls = place ? null : /\.([\w-]+)(?:\[[^\]]*\]|:[\w-]+(?:\([^)]*\))?)*$/.exec(sel.split(" ").pop()!)?.[1];
+      if (!place && !cls) { bare.push(`${sel}: no class to find it by — name it in BY_PLACE or EXCEPTIONS`); continue; }
+      const sites = tsx.filter((f) => !place || f.file === place.file).flatMap((f) =>
+        tags(f.src).filter((t) => (place ? t.tag === place.tag : wears(t.text, cls!))).map((t) => ({ ...t, file: f.file, src: f.src })));
+      if (sites.length === 0) { bare.push(`${sel}: drawn nowhere in the renderer`); continue; }
+      for (const s of sites) {
+        if (`${s.file} ${sel}` in NOT_THE_SCROLLER) continue;
+        const ref = /\bref=\{(\w+)\}/.exec(s.text)?.[1];
+        if (!ref || !dissolved(s.src).has(ref)) bare.push(`${sel}: ${s.file}:${s.src.slice(0, s.at).split("\n").length} <${s.tag}${ref ? ` ref=${ref}` : ""}>`);
+      }
+    }
+    expect(bare).toEqual([]);
+  });
+
+  it("names nothing that is not a scroller", () => {
+    // An exception that outlived its scroller is a hole left open for the next one.
+    for (const sel of [...Object.keys(EXCEPTIONS), ...Object.keys(BY_PLACE)]) expect(scrollers, sel).toContain(sel);
   });
 });
 

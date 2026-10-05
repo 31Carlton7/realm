@@ -129,6 +129,8 @@ function ReviewSection({ environmentId, review }: { environmentId: string; revie
   const run = useApp((s) => s.run);
   const reviewerItem = items.find((i) => i.kind === "session" && i.refId === review.sessionId);
   const note = REVIEW_OUTCOME_NOTE[review.outcome];
+  const body = useRef<HTMLDivElement>(null);
+  useDissolve(body);
   return (
     <section className="diff-review" aria-label="Review" data-partial={note ? "" : undefined}>
       <div className="diff-review-head">
@@ -153,7 +155,7 @@ function ReviewSection({ environmentId, review }: { environmentId: string; revie
       </div>
       {note && <p className="diff-review-note">{note}</p>}
       {/* Agent output, visibly fenced off from Realm's own chrome — the reviewer's words, verbatim. */}
-      <div className="diff-review-body" data-agent-output>
+      <div className="diff-review-body" ref={body} data-agent-output>
         <Markdown text={review.text} />
       </div>
     </section>

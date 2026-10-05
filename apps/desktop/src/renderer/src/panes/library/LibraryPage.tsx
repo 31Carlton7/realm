@@ -1,7 +1,7 @@
 import type { MemoryState } from "@realm/contracts";
-import { PageScroll } from "../../components/ScrollFades";
+import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { Icon } from "@realm/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "../../state/store";
 import { memoryReaderNames } from "../../components/settings/MemoryPanel";
 import { MemoryDoc } from "../../components/settings/MemoryDoc";
@@ -44,6 +44,8 @@ export function LibraryPage({ item }: PaneProps) {
      section shows, and the sections show different things. */
   const profileName = useApp((s) => s.profiles.find((p) => p.id === space?.profileId)?.name ?? "");
   const [tab, setTab] = useState<LibraryTab>("files");
+  const railStrip = useRef<HTMLFieldSetElement>(null);
+  useDissolve(railStrip, "x");
   /* The skill being READ, if any. Store state rather than the tab's kind, because the space page's
      and the profile page's Skills lists open a skill by naming it here and then opening this page —
      one skill viewer, reached the same way from all three lists. Opening one replaces the page's
@@ -62,7 +64,7 @@ export function LibraryPage({ item }: PaneProps) {
   const shown: LibraryTab = openSkill !== null ? "skills" : tab;
   const pick = (next: LibraryTab) => { if (openSkill !== null) setLibrarySkill(spaceId, null); setTab(next); };
   const rail = (
-    <fieldset className="page-rail">
+    <fieldset className="page-rail" ref={railStrip}>
       <legend className="visually-hidden">Library section</legend>
       {LIBRARY_TABS.map((t) => (
         <label key={t.id} className="settings-tab page-rail-tab" data-selected={shown === t.id || undefined}>

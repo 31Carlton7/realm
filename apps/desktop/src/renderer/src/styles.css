@@ -537,7 +537,8 @@ kbd { font: 11px var(--font-mono); }
    the active fill once chosen, the column's own group labels — so it reads as the same sidebar listing
    something else, under a Back where the profile switcher was. The spaces stay mounted, hidden. */
 .sb-list[hidden] { display: none; }
-.sb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* The slot under Back scrolls a rail longer than the column, and dissolves on the list's own depths. */
+.sb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; --fade-h: 44px; --fade-top-h: 12px; }
 .sb-page-head { flex: none; display: flex; align-items: center; padding: 6px 16px 0; }
 .sb-page-back { flex: none; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
@@ -1327,7 +1328,7 @@ kbd { font: 11px var(--font-mono); }
 /* The document's headings, in the rail's column and on the rail's metrics. Capped to the body's own
    height and scrolling inside that, so a skill with forty sections does not push the page taller
    than the pane. */
-.skill-toc { max-height: 100%; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; }
+.skill-toc { max-height: 100%; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; --fade-h: 24px; --fade-top-h: 24px; }
 .skill-toc-link { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none;
   transition: color var(--dur-hover) ease; }
 /* A sub-heading is indented and quieter — the shape of the document, not a second list of peers. */
@@ -1904,7 +1905,8 @@ kbd { font: 11px var(--font-mono); }
 .ip-emoji-groups { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px 8px; }
 .ip-emoji-group-btn { padding: 3px 7px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 11px; color: var(--rl-text-dim); background: var(--rl-panel); }
 .ip-emoji-group-btn[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
-.ip-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; max-height: min(46vh, 300px); overflow-y: auto; }
+.ip-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; max-height: min(46vh, 300px); overflow-y: auto;
+  --fade-h: 24px; --fade-top-h: 24px; scroll-padding-block: 24px; }
 .ip-emoji { font-size: 18px; }
 .ip-empty { padding: 14px 6px; text-align: center; font-size: 12px; color: var(--rl-text-dim); width: 100%; }
 .ip-generate { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
@@ -1986,6 +1988,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    its bar back on a Mac that draws classic ones — under a 28px row of tabs that bar would be the
    tallest thing in the bar. The strip keeps none either way. */
 :root:not([data-overlay-scrollbars]) .pane-tabs[data-dissolve-x] { scrollbar-width: none; }
+/* The same for every other strip that keeps no bar — the documents pane's open files, a page's rail
+   lying down in a narrow pane (and a skill's contents, which keep none standing up either), the
+   activity calendar: the dissolve hands each its bar back, and each already says it runs on by fading. */
+:root:not([data-overlay-scrollbars]) :is(.documents-tabs, .page-rail, .cal-scroll):is([data-dissolve], [data-dissolve-x]) { scrollbar-width: none; }
 .pane-tabs-add { flex: none; color: var(--rl-text-faint); }
 .pane-tabs-add[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* A width rather than a flex basis: the strip is sized from its tabs now that the "+" follows them, and
@@ -2367,7 +2373,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The brief and the report are PROSE — what the parent wrote and what came back — on the app's one
    markdown treatment, capped so neither buries the working between them. */
 .subagent-prose { font-size: 13px; color: var(--rl-text-dim); }
-.subagent-brief .subagent-prose, .subagent-report .subagent-prose { max-height: 200px; overflow-y: auto; overscroll-behavior: contain; }
+.subagent-prose-scroll { max-height: 200px; overflow-y: auto; overscroll-behavior: contain; --fade-top-h: 16px; --fade-h: 24px; }
 .subagent-report[data-error] .subagent-head { color: var(--rl-danger); }
 .subagent-steps { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .subagent-empty { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-faint); }
@@ -2458,7 +2464,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .machine-starting { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px;
   color: var(--rl-terminal-ink-dim); font-size: 13px; pointer-events: none; }
 
-.machine-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px; }
+.machine-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px; --fade-h: 24px; --fade-top-h: 24px; }
 .machine-rest, .machine-connect { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 380px; }
 .machine-title { margin: 0; font-size: 18px; font-weight: var(--fw-title); letter-spacing: -0.01em; color: var(--rl-text-bright); }
 /* Mono, because it is machine state: an address and a port. */
@@ -2608,7 +2614,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* A blank tab's tools (NewTabPage): one column of rows, set high in the pane rather than centred in
    it — the address field it continues is at the top, and a list floated to the middle of a tall
    pane reads as an empty state rather than as the next thing to pick. Scrolls past a short pane. */
-.new-tab { position: absolute; inset: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center;
+.new-tab { position: absolute; inset: 0; overflow-y: auto; --fade-top-h: 24px; --fade-h: 28px; display: flex; flex-direction: column; align-items: center;
   gap: 20px; padding: 48px 16px 24px; }
 .new-tab-section { width: min(360px, 100%); display: flex; flex-direction: column; gap: 6px; }
 .new-tab-label { margin: 0 0 0 10px; font-size: 12px; font-weight: var(--fw-title); color: var(--rl-text-dim); }
@@ -2624,7 +2630,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    left-aligned column at a reading measure, set a little above the middle of the pane — the address
    that failed is already in the bar above it. Scrolls in a pane too short to hold it. Content, not
    chrome: the code and the reason can be selected and copied. */
-.browser-error { position: absolute; inset: 0; overflow-y: auto; display: flex; }
+.browser-error { position: absolute; inset: 0; overflow-y: auto; display: flex; --fade-top-h: 24px; --fade-h: 28px; }
 .browser-error-body { margin: auto; width: min(480px, 100%); padding: 32px 24px 12%; display: flex; flex-direction: column; align-items: flex-start;
   animation: rl-error-in var(--dur-enter) var(--ease-fade); }
 @keyframes rl-error-in { from { opacity: 0; } to { opacity: 1; } }
@@ -2923,11 +2929,16 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 
 /* ── Sheets / palette (raised) ─────────────────────────────────────────── */
 .sheet-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: var(--scrim); }
-.sheet { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; border-radius: var(--r-float); background: var(--surface); color: var(--rl-text-bright);
+/* A column: the head and the foot hold, and the body between them scrolls and dissolves at its ends.
+   The panel itself never scrolls — a mask takes everything the element paints, and on the panel that
+   is its shadow and its corners. The head is the dialog's title and its close, the foot its decision,
+   and a sheet that scrolled them away lost both exactly when it grew long enough to need them. */
+.sheet { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); display: flex; flex-direction: column; overflow: hidden;
+  border-radius: var(--r-float); background: var(--surface); color: var(--rl-text-bright);
   box-shadow: var(--shadow-overlay); outline: none; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 6px; }
 .sheet-head h3 { margin: 0; font-size: 15px; font-weight: var(--fw-title); }
-.sheet-body { padding: 8px 18px 18px; }
+.sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 18px 18px; --fade-top-h: 24px; --fade-h: 28px; }
 /* The sheet's decision, held at the end of what it is a decision about. Its own hairline, because
    a bar of buttons flush against scrolling prose reads as the last paragraph of it. */
 .sheet-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px;
@@ -3032,7 +3043,7 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .palette-input { display: flex; align-items: center; gap: 10px; padding: 14px 18px; color: var(--rl-text-dim); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
 .palette-input kbd { padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); } /* kbd chips keep line-strong (§3) */
-.palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
+.palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; --fade-h: 24px; --fade-top-h: 24px; scroll-padding-block: 24px; }
 .palette-opt { --fill: transparent; background: var(--fill); display: flex; align-items: center; gap: 10px; padding: 8px 10px; --btn-h: 34px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; }
 .palette-opt.selected, .palette-opt:hover { --fill: var(--hover); }
 .palette-opt.disabled { opacity: .45; cursor: default; }
@@ -3059,7 +3070,7 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .spaces-search { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: var(--hairline-w) solid var(--rl-hairline); color: var(--rl-text-dim); }
 .spaces-search input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
 .spaces-search kbd { padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); }
-.spaces-list { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px 14px; }
+.spaces-list { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px 14px; --fade-top-h: 24px; --fade-h: 28px; }
 .spaces-section + .spaces-section { margin-top: 14px; }
 .spaces-section-head { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
 .spaces-section-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
@@ -3353,6 +3364,18 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 }
 [data-dissolve-x~="start"] { --dissolve-start: var(--fade-w, 28px); }
 [data-dissolve-x~="end"] { --dissolve-end: var(--fade-w, 28px); }
+/* Both at once, for a scroller that can run out either way — Settings' rail stands its lists up as a
+   column wide and lays them down as a strip narrow. The two masks are intersected, so each pair of
+   ends answers for itself; either rule alone would replace the other's mask outright. */
+[data-dissolve][data-dissolve-x] {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--dissolve-top), #000 calc(100% - var(--dissolve-bottom)), transparent),
+    linear-gradient(to right, transparent 0, #000 var(--dissolve-start), #000 calc(100% - var(--dissolve-end)), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--dissolve-top), #000 calc(100% - var(--dissolve-bottom)), transparent),
+    linear-gradient(to right, transparent 0, #000 var(--dissolve-start), #000 calc(100% - var(--dissolve-end)), transparent);
+  mask-composite: intersect;
+  transition: --dissolve-top var(--dur-fast) ease, --dissolve-bottom var(--dur-fast) ease,
+    --dissolve-start var(--dur-fast) ease, --dissolve-end var(--dur-fast) ease;
+}
 
 /* The thumb is held clear of the mask beside the scrollbar rules, where the reasoning about
    Chromium's two scrollbar APIs already lives — see `[data-dissolve]` down there. */
@@ -3585,7 +3608,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .thinking-toggle:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
 .md.thinking-body { margin-top: 4px; padding: 8px 10px; border-left: 2px solid var(--rl-line); color: var(--rl-text-dim); }
 .msg-error { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: var(--r-ctl); color: var(--rl-danger); background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); }
-.msg-error pre { margin: 0; white-space: pre-wrap; font: 12px var(--font-mono); max-height: 240px; overflow: auto; }
+.msg-error pre { margin: 0; white-space: pre-wrap; font: 12px var(--font-mono); max-height: 240px; overflow: auto; --fade-h: 24px; --fade-top-h: 16px; }
 /* The message and, when Realm knows one, the command that fixes it — stacked in one column beside
    the glyph so the command aligns with the sentence it answers rather than with the icon. */
 .msg-error-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
@@ -3616,7 +3639,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    above. Bounded like every other drawn surface — the delegation caps keep this list short, but the
    prompter is below it and must not be pushed off the pane by a list that got long anyway. */
 .delegation-list { margin-left: 15px; padding-left: 12px; border-left: var(--hairline-w) solid var(--line); display: flex; flex-direction: column; gap: 1px;
-  max-height: 132px; overflow-y: auto; }
+  max-height: 132px; overflow-y: auto; --fade-h: 16px; --fade-top-h: 16px; }
 .delegation-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 26px; padding: 3px 8px;
   border-radius: var(--r-ctl); text-align: left; font-size: 12px; color: var(--ink); }
 .delegation-item:hover { background: var(--rl-hover); }
@@ -3700,7 +3723,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagents-chooser { width: 300px; max-width: calc(100vw - 24px); padding: 6px; gap: 2px; }
 .subagents-chooser-search { display: flex; align-items: center; gap: 8px; padding: 4px 8px 6px; color: var(--ink-3); }
 .subagents-chooser-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
-.subagents-chooser-list { max-height: 320px; overflow-y: auto; overscroll-behavior: contain; }
+.subagents-chooser-list { max-height: 320px; overflow-y: auto; overscroll-behavior: contain; --fade-h: 24px; --fade-top-h: 24px; scroll-padding-block: 24px; }
 .subagents-chooser-head { display: flex; align-items: baseline; gap: 6px; padding: 8px 8px 4px; font-size: 12px; font-weight: var(--fw-title); color: var(--ink-2); }
 .subagents-chooser-note { font-size: 12px; font-weight: var(--fw-medium); color: var(--ink-3); }
 .subagents-chooser-row { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 8px; border-radius: var(--r-ctl); font-size: 13px; color: var(--ink); }
@@ -3875,7 +3898,8 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-copy:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .tool-expand { align-self: flex-start; margin-top: 4px; font-size: 11px; color: var(--rl-text-dim); padding: 2px 6px; border-radius: var(--r-chip); background: var(--rl-raised); }
 .tool-expand:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.tool-well, .tool-body pre, .permission-details pre { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font: 12px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
+.tool-well, .tool-body pre, .permission-details pre { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font: 12px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto;
+  --fade-h: 24px; --fade-top-h: 16px; }
 .tool-body pre[data-error] { color: var(--rl-danger); }
 
 /* ── Inline UI in the transcript (Plan 24 W1) ──────────────────────────────────
@@ -3911,7 +3935,8 @@ button.edit-file:hover { background: var(--rl-hover); }
 
 /* A file, with a line-number rail (rich/ToolViews.tsx CodeBlock). The rail is its own column and
    neither column wraps, so the numbers stay in register while the code scrolls under them. */
-.code-block { display: flex; align-items: stretch; background: var(--rl-frame); border-radius: var(--r-chip); overflow: hidden; max-height: 420px; overflow-y: auto; }
+.code-block { display: flex; align-items: stretch; background: var(--rl-frame); border-radius: var(--r-chip); overflow: hidden; max-height: 420px; overflow-y: auto;
+  --fade-h: 24px; --fade-top-h: 16px; }
 .code-gutter { flex: none; padding: 8px 8px 8px 10px; text-align: right; white-space: pre; user-select: none;
   font: 12px/1.65 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint);
   background: var(--inset); position: sticky; left: 0; }
@@ -3975,7 +4000,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 .cmd-meta { display: flex; gap: 8px; padding: 0 10px 7px 28px; font-size: 11px; color: var(--rl-text-faint); }
 .cmd-cwd { font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .term-out { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-terminal-bg); color: var(--ink-2);
-  font: 12px/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+  font: 12px/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; --fade-h: 24px; --fade-top-h: 16px; }
 /* Shown only where the payload carried a code (Codex's `[exit N]`); §3 status-pill treatment. */
 .term-exit { display: inline-block; margin-top: 6px; padding: 2px 7px; border-radius: var(--r-chip);
   font: 11px var(--font-mono); color: var(--rl-success); background: var(--green-tint); }
@@ -4039,7 +4064,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 /* The permission card's preview of what it is about to approve. Given the card's own width and no
    inner card of its own — it is the subject of the question, not an attachment to it. */
 .permission-preview { margin: 2px 0 2px; }
-.permission-preview .fd-file, .permission-preview .code-block { max-height: 300px; overflow: auto; }
+.permission-preview .fd-file, .permission-preview .code-block { max-height: 300px; overflow: auto; --fade-h: 24px; --fade-top-h: 16px; }
 
 /* ── Markdown: callouts, task lists, tables, math ─────────────────────────── */
 /* GitHub admonitions (`> [!WARNING]`). Left rail in the state's own colour, header in the same —
@@ -4902,7 +4927,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-todos-clip { overflow: hidden; min-height: 0; }
 /* Bounded, or a twenty-step plan eats the transcript it is supposed to sit above. `contain` because
    running off the end of the list must not carry the scroll into the log behind it. */
-.composer-todos .todo-list { margin-top: 8px; max-height: 248px; overflow-y: auto; overscroll-behavior: contain; }
+.composer-todos .todo-list { margin-top: 8px; max-height: 248px; overflow-y: auto; overscroll-behavior: contain; --fade-h: 24px; --fade-top-h: 16px; }
 
 /* ── Running agents: a count in the session's bar, and the list it opens ──────────────
    A chip in the bar's meta rather than a strip on the prompter: the agents a session has working are
@@ -4919,7 +4944,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 /* Bounded for a fan-out of twenty: the list scrolls inside the popover, and running off its end must
    not carry the scroll into the transcript under it. */
-.agents-pop .delegation-list { margin: 0; padding: 0; border: none; max-height: 280px; overflow-y: auto; overscroll-behavior: contain; }
+.agents-pop .delegation-list { margin: 0; padding: 0; border: none; max-height: 280px; overflow-y: auto; overscroll-behavior: contain; --fade-h: 24px; --fade-top-h: 24px; }
 /* The row whose agent the drawer is showing. It needs to be told apart from a HOVERED row, and the
    active fill alone cannot do it — `--rl-active` and `--rl-hover` are one rung apart, so the two read
    as the same state and the pointer decides which. The fill says "this one", and the mark going
@@ -5507,7 +5532,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .app[data-first-run] > .main::before, .app[data-first-run] > .main::after { display: none; }
 .onboarding-stage {
   position: relative; flex: 1; min-height: 0; overflow: auto; display: grid; justify-items: center;
-  align-content: safe center; padding: 56px 24px 40px;
+  align-content: safe center; padding: 56px 24px 40px; --fade-top-h: 24px; --fade-h: 40px;
 }
 .onboarding-stage::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 44px; -webkit-app-region: drag; }
 .onboarding { position: relative; width: min(640px, 100%); display: flex; flex-direction: column; gap: 30px;
@@ -5717,12 +5742,12 @@ select { appearance: none; padding-right: 22px;
   .cp-list, .activity-list, .task-detail-result, .notif-feed, .delegation-list,
   .lecture-list, .install-cmd code, .code-preview, .cli-job-output,
   /* documents — the home's lists, and the new code file's languages, included */
-  .documents-tabs, .documents-picker, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
+  .documents-picker-list, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
   .docs-home-scroll, .code-file-languages,
   /* the prompter — only the pinned strips' copies of the lists are bounded enough to scroll */
   .composer-todos .todo-list, .agents-pop .delegation-list,
   /* the sub-agent panel: the column itself, and the two prose panels it caps */
-  .subagent-body, .subagent-prose,
+  .subagent-body, .subagent-prose-scroll,
   /* a session's Agents tab: its list of sub-agents, and the composer's model chooser */
   .subagents-scroll, .subagents-chooser-list,
   /* the Google Fonts browser's result list */
@@ -6135,7 +6160,7 @@ select { appearance: none; padding-right: 22px;
 .diff-review-note { margin: 0; font-size: 12px; color: var(--rl-text-faint); }
 .diff-review-title { font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .diff-review-dim { color: var(--rl-text-faint); }
-.diff-review-body { overflow-y: auto; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
+.diff-review-body { overflow-y: auto; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); --fade-h: 24px; --fade-top-h: 16px; }
 
 /* Commit dock: the prompter's card (§4), one size down. No fill behind it and no rule above it —
    the list already dissolves into the dock through the fade, and a divider would draw that seam a
@@ -6183,7 +6208,7 @@ select { appearance: none; padding-right: 22px;
 /* Checkpoints (W4). Same vocabulary as the worktree sheet — hazard in danger ink, caveats in faint,
    the stale-count warning in amber — because they are the same question asked about a different
    destructive act, and two different-looking confirms would teach the user to stop reading. */
-.cp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; }
+.cp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; --fade-h: 24px; --fade-top-h: 24px; }
 .cp-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--r-ctl); corner-shape: squircle; }
 .cp-row:hover { background: var(--rl-hover); }
 /* The undo point is the one row whose meaning differs from its neighbours, so it is the one row that
@@ -6314,7 +6339,7 @@ select { appearance: none; padding-right: 22px;
 /* `.chip-filter` rides `.btn-quiet`'s hover/press feel (see the §6 transition lists above); this only
    adds the toggled-on look, echoing `.icon-choice[data-selected]`'s accent-ring treatment. */
 .chip-filter[aria-pressed="true"] { color: var(--rl-accent); background: var(--rl-active); box-shadow: inset 0 0 0 1px var(--rl-accent); }
-.activity-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 420px; overflow-y: auto; }
+.activity-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 420px; overflow-y: auto; --fade-h: 24px; --fade-top-h: 24px; }
 /* `.activity-row-main` layers onto `.tool-row` (full-width pressable row, no press-scale — see the §6
    comment above `.tool-row` in the transitions block) with its own column grid. */
 .activity-row-main { display: grid; grid-template-columns: 56px 1fr auto 52px 18px; gap: 10px; }
@@ -6760,7 +6785,8 @@ select { appearance: none; padding-right: 22px;
    (530px against 479 at 600), so the lists scroll under a search that stays put rather than the
    last pages falling off the bottom with nothing to scroll them back. */
 .page-rail.settings-rail { min-height: 0; max-height: calc(100% - var(--page-head-top, 0px)); }
-.settings-rail-lists { display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
+.settings-rail-lists { display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain;
+  --fade-h: 24px; --fade-top-h: 24px; }
 .settings-search { flex: none; }
 /* `--field` is the canvas itself on the light face (both 0.961), so a field laid on this page's
    ground had no edge at all there. The raised surface is the step the light cards already take off
@@ -6776,6 +6802,7 @@ select { appearance: none; padding-right: 22px;
 @container (max-width: 640px) {
   .page-rail.settings-rail { flex-direction: column; gap: 8px; overflow: visible; max-height: none; }
   .settings-rail-lists { flex-direction: row; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
+  :root:not([data-overlay-scrollbars]) .settings-rail-lists[data-dissolve-x] { scrollbar-width: none; }
   /* Each headed list keeps its own width in the strip. Left to shrink (`.page-rail-list` is
      `min-width: 0`), the lists squeezed to the strip's width and their tabs ran over each other. */
   .settings-rail-lists > .page-rail-list { flex: none; }
@@ -7015,8 +7042,6 @@ select { appearance: none; padding-right: 22px;
 
 /* The Schedule a task modal. Its body scrolls between a head and a foot that stay put, as Codex's
    does, so Create is reachable however long the instructions grow. */
-.sheet:has(.sched-modal) { display: flex; flex-direction: column; overflow: hidden; }
-.sheet:has(.sched-modal) > .sheet-body { flex: 1; min-height: 0; overflow-y: auto; }
 .sched-modal { display: flex; flex-direction: column; gap: 12px; }
 /* The two text fields wear the card's own fill and rim, so the form reads as one set of surfaces. */
 .sched-modal-name, .sched-modal-goal { width: 100%; padding: 0 14px; border-radius: var(--r-panel); border: var(--hairline-w) solid var(--rl-card-rim);
@@ -7396,7 +7421,7 @@ select { appearance: none; padding-right: 22px;
 .task-detail-goal { color: var(--rl-text-dim); }
 /* The result is the run's whole deliverable, so it scrolls rather than truncating — a report the
    user is waiting for must never be cut off by its container. */
-.task-detail-result { max-height: 260px; overflow-y: auto; color: var(--rl-text-bright); }
+.task-detail-result { max-height: 260px; overflow-y: auto; color: var(--rl-text-bright); --fade-h: 24px; --fade-top-h: 16px; }
 .task-detail-error { color: var(--rl-danger); }
 .task-detail-ask { padding: 10px; border: 1px solid var(--rl-accent); border-radius: var(--r-ctl);
   background: color-mix(in srgb, var(--rl-accent) 8%, transparent); }
@@ -7625,7 +7650,7 @@ select { appearance: none; padding-right: 22px;
 .cli-job-state { flex: 1; min-width: 0; font-size: 12px; color: var(--rl-text-dim); }
 .cli-job[data-state="failed"] .cli-job-state { color: var(--rl-warning); }
 .cli-job-output { margin: 0; max-height: 180px; overflow: auto; font: 11px/1.5 var(--font-mono);
-  color: var(--rl-text-dim); white-space: pre-wrap; word-break: break-word; user-select: text; }
+  color: var(--rl-text-dim); white-space: pre-wrap; word-break: break-word; user-select: text; --fade-h: 24px; --fade-top-h: 16px; }
 .tcc-row { align-items: flex-start; }
 .tcc-row .btn-quiet { flex: none; margin-top: 1px; }
 .tcc-state { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
@@ -7748,7 +7773,7 @@ select { appearance: none; padding-right: 22px;
    chrome, and the tabs' own pill shapes already say where they end. */
 .documents-tabs {
   display: flex; align-items: center; gap: 2px; padding: 6px 8px; overflow-x: auto;
-  flex: 0 0 auto; overflow-y: hidden;
+  flex: 0 0 auto; overflow-y: hidden; scrollbar-width: none;
 }
 .documents-tab { display: flex; align-items: center; border-radius: var(--r-ctl); corner-shape: squircle; flex: 0 0 auto;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
@@ -7832,14 +7857,17 @@ select { appearance: none; padding-right: 22px;
 /* The open-a-file panel: a floating surface card over the editor, on the same shadow and the same
    entrance as every other popover in the app — not a flat strip welded under the tab bar. */
 .documents-topbar { position: relative; flex: 0 0 auto; }
+/* The rows scroll INSIDE the surface, under its head, so the dissolve fades rows and never the
+   picker's own corner and shadow. */
 .documents-picker {
   position: absolute; z-index: 30; top: calc(100% + 4px); left: 12px; right: 12px; max-height: 60vh;
-  overflow: auto; padding: 4px; border-radius: var(--r-panel); background: var(--surface);
+  display: flex; flex-direction: column; overflow: hidden; padding: 4px; border-radius: var(--r-panel); background: var(--surface);
   box-shadow: var(--shadow-overlay); animation: rl-menu-in var(--dur-pop) var(--spring-smooth);
 }
 .documents-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 4px 6px 6px 10px; font-family: var(--font-mono); }
-.documents-picker-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.documents-picker-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; --fade-h: 24px; --fade-top-h: 24px; scroll-padding-block: 24px; }
 .documents-picker-list button {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; text-align: left;
   border-radius: var(--r-chip); color: var(--rl-text-bright); font-size: 13px;
@@ -8047,7 +8075,7 @@ select { appearance: none; padding-right: 22px;
   color: var(--rl-text-faint); }
 .sheet-lede { margin: 0; font-size: 13px; color: var(--rl-text-dim); line-height: 1.5; }
 .sheet-lede code { font-size: 12px; }
-.lecture-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; }
+.lecture-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; --fade-h: 24px; --fade-top-h: 24px; }
 .lecture-row {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl); corner-shape: squircle;
   background: none; color: var(--rl-text-bright); font: inherit; text-align: left;
@@ -8422,7 +8450,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .font-browser { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding: 10px;
   border-radius: var(--r-panel); background: var(--rl-frame); }
 .font-results { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none;
-  max-height: 220px; overflow-y: auto; overscroll-behavior: contain; }
+  max-height: 220px; overflow-y: auto; overscroll-behavior: contain; --fade-h: 24px; --fade-top-h: 24px; }
 .font-results li { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 13px; }
 .font-result-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
 .font-result-cat { flex: none; font-size: 11px; color: var(--rl-text-faint); }

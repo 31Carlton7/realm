@@ -1,7 +1,7 @@
 import { AGENT_META, SELECTABLE_AGENT_KINDS, AGENT_SKILL_SUPPORT, formatAttachmentSize, type SkillDetail, type SkillResource } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ScrollFades } from "../../components/ScrollFades";
+import { ScrollFades, useDissolve } from "../../components/ScrollFades";
 import { Menu } from "../../components/Menu";
 import { MoveScopeConfirm } from "../../components/scoped/ScopeGroups";
 import { Markdown } from "../session/Markdown";
@@ -35,6 +35,9 @@ export function SkillViewer({ spaceId, id, onBack, head }: { spaceId: string; id
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [failed, setFailed] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const toc = useRef<HTMLElement>(null);
+  useDissolve(toc);
+  useDissolve(toc, "x");
 
   /* Re-read whenever this space's library answers again — a toggle flipped from the header, a
      promote, or a `skills.changed` broadcast. The row inside the detail carries `enabled` and
@@ -71,7 +74,7 @@ export function SkillViewer({ spaceId, id, onBack, head }: { spaceId: string; id
           the page and only its contents change. Absent for a document with no headings, rather than
           an empty rail claiming a structure the skill does not have. */}
       {headings.length > 1 && (
-        <nav className="page-rail skill-toc" aria-label="Sections of this skill">
+        <nav className="page-rail skill-toc" ref={toc} aria-label="Sections of this skill">
           {headings.map((h) => (
             <a key={h.id} className="settings-tab page-rail-tab skill-toc-link" href={`#${h.id}`}
               data-level={h.level} data-selected={h.active || undefined}

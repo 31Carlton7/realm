@@ -95,6 +95,13 @@ const NO_SOURCES: readonly Source[] = [];
  * HERE — what the agent was handed is a fact about the run, and a log that hid it would be lying by
  * omission — it is just not the loudest thing in the column.
  */
+/** An error's own words, capped, in a box that dissolves at an end once there is more of them. */
+function ErrorText({ text }: { text: string }) {
+  const box = useRef<HTMLPreElement>(null);
+  useDissolve(box);
+  return <pre ref={box}>{text}</pre>;
+}
+
 function GoalTurn({ kind, text }: { kind: "continuation" | "budget"; text: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -512,7 +519,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}>
               <Icon name="alert" size={14} />
               <div className="msg-error-body">
-                <pre>{b.message}</pre>
+                <ErrorText text={b.message} />
                 {b.fix?.command && <CommandCopy command={b.fix.command} />}
               </div>
             </div>;

@@ -13,7 +13,7 @@ import { SkillsPanel } from "../../components/settings/SkillsPanel";
 import { MemoryPanel } from "../../components/settings/MemoryPanel";
 import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
-import { PageScroll } from "../../components/ScrollFades";
+import { PageScroll, useDissolve } from "../../components/ScrollFades";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -416,6 +416,8 @@ function RunDetail({ run: r, spaceId, onJump }: { run: Run; spaceId: string; onJ
   const approveRun = useApp((s) => s.approveRun);
   const run = useApp((s) => s.run);
   const [note, setNote] = useState("");
+  const result = useRef<HTMLParagraphElement>(null);
+  useDissolve(result);
   // The note belongs to the run being answered, not to the panel — switching runs must not carry one
   // run's half-typed reply onto another's approval.
   useEffect(() => { setNote(""); }, [r.id]);
@@ -443,7 +445,7 @@ function RunDetail({ run: r, spaceId, onJump }: { run: Run; spaceId: string; onJ
           <h4>This run needs you</h4>
           {/* The ask itself is the run's last report — shown verbatim, because paraphrasing the
               question is how a person answers the wrong one. */}
-          {r.result && <p className="task-detail-result">{r.result}</p>}
+          {r.result && <p className="task-detail-result" ref={result}>{r.result}</p>}
           <label className="visually-hidden" htmlFor={`run-note-${r.id}`}>Your reply</label>
           <textarea id={`run-note-${r.id}`} className="task-detail-note" rows={3} value={note}
             placeholder="Your answer — sent to the run when you approve it."
@@ -458,7 +460,7 @@ function RunDetail({ run: r, spaceId, onJump }: { run: Run; spaceId: string; onJ
       {r.state !== "blocked" && (r.result ?? r.error) && (
         <section className="task-detail-block">
           <h4>{r.error && !r.result ? "Why it stopped" : "Result"}</h4>
-          {r.result && <p className="task-detail-result">{r.result}</p>}
+          {r.result && <p className="task-detail-result" ref={result}>{r.result}</p>}
           {r.error && <p className="task-detail-error">{r.error}</p>}
         </section>
       )}
@@ -607,6 +609,8 @@ const PAGE_TABS: { id: SpacePageTab; label: string; icon: IconName }[] = [
  */
 export function SpacePage({ item }: PaneProps) {
   const spaceId = item.refId;
+  const railStrip = useRef<HTMLFieldSetElement>(null);
+  useDissolve(railStrip, "x");
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
   const sessions = useApp((s) => s.sessions);
   const tab = useApp((s) => s.spacePageTab[spaceId] ?? "general");
@@ -627,7 +631,7 @@ export function SpacePage({ item }: PaneProps) {
         {/* The sheet's native-radio tab idiom, stood upright: arrow keys move, one tab stop. Over the
             panes it takes the sidebar's column (page-nav.tsx). */}
         <PageRail label="Overview">
-        <fieldset className="page-rail">
+        <fieldset className="page-rail" ref={railStrip}>
           <legend className="visually-hidden">Space page section</legend>
           {PAGE_TABS.map((t) => (
             <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>

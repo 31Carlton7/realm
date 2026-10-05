@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PlynnImportResult, PlynnMeeting } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useApp } from "../state/store";
 import { Sheet } from "./Sheet";
+import { useDissolve } from "./ScrollFades";
 
 const fmtWhen = (iso: string | null): string => {
   if (!iso) return "undated";
@@ -29,6 +30,8 @@ export function PlynnImportSheet() {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<PlynnImportResult | null>(null);
+  const scroller = useRef<HTMLUListElement>(null);
+  useDissolve(scroller);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +74,7 @@ export function PlynnImportSheet() {
               Copies the checked recordings under <code>lectures/</code> in {space ? <strong>{space.name}</strong> : "this space"}, with a
               header naming the source. Plynn’s own files stay where they are.
             </p>
-            <ul className="lecture-list" aria-label="Plynn recordings">
+            <ul className="lecture-list" ref={scroller} aria-label="Plynn recordings">
               {state.meetings.map((m) => (
                 <li key={m.file}>
                   <label className="lecture-row" data-imported={m.imported || undefined}>
