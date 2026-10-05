@@ -201,6 +201,79 @@ const LANDING = `(() => {
   };
 })()`;
 
+/**
+ * The line pixels down a column through the seam between a settings row and the row under it,
+ * measured off a real capture. Two columns: the row's MIDDLE, where the inset divider runs, and 6px in
+ * from its left edge — inside the divider's 16px inset, where nothing should be drawn at all. Before
+ * the fix the edge column crossed the upper row's full-width bottom border and the middle crossed it
+ * AND the divider; the check reads both against the old rule put back.
+ */
+async function seam(c, upperSel) {
+  const g = await evalIn(c, `(() => { const u = document.querySelector(${JSON.stringify(upperSel)}); u.scrollIntoView({ block: "center" });
+    const r = u.getBoundingClientRect();
+    return { left: r.left, right: r.right, y: r.bottom }; })()`);
+  await sleep(150);
+  const cut = async (y) => (await c.send("Page.captureScreenshot", { format: "png",
+    clip: { x: g.left - 4, y: y - 8, width: g.right - g.left + 8, height: 16, scale: 1 } })).data;
+  const at = await cut(g.y);
+  // The capture is handed to the page and read through a canvas there — node has no PNG decoder.
+  const count = (cssX) => evalIn(c, `(async () => {
+    const img = new Image(); img.src = "data:image/png;base64," + window.__seamPng; await img.decode();
+    const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height; const x2 = cv.getContext("2d"); x2.drawImage(img, 0, 0);
+    const k = img.width / ${g.right - g.left + 8}; const x = Math.round(${cssX} * k);
+    const lum = []; for (let y = 0; y < img.height; y++) { const d = x2.getImageData(x, y, 1, 1).data; lum.push(0.2126 * d[0] + 0.7152 * d[1] + 0.0722 * d[2]); }
+    const fill = [...lum].sort((a, b) => a - b)[Math.floor(lum.length / 2)];
+    return lum.filter((v) => Math.abs(v - fill) > 3).length; })()`);
+  const read = async (b64, cssX) => { await evalIn(c, `(() => { window.__seamPng = ${JSON.stringify(b64)}; return true; })()`); return count(cssX); };
+  return { edge: await read(at, 4 + 6), middle: await read(at, 4 + (g.right - g.left) / 2) };
+}
+
+/** Settings, opened the way a person opens it (⌘K, "settings"), on the first page with a card of two
+ *  or more rows — measured, photographed, and put away again with Escape. */
+async function settingsSeam(c, face) {
+  await evalIn(c, `(async () => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await new Promise((r) => setTimeout(r, 25));
+    const input = document.querySelector(".palette input");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "settings");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    for (let i = 0; i < 40; i++) {
+      const hit = [...document.querySelectorAll(".palette-list [role=option], .palette-list button")].find((b) => /open settings/i.test(b.textContent));
+      if (hit) { hit.click(); break; }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector(".settings-page-pane")`), 10000, "Settings");
+  const page = await until(() => evalIn(c, `(async () => {
+    const pair = () => [...document.querySelectorAll(".settings-page-pane .page-content .settings-row")]
+      .find((r) => r.nextElementSibling?.classList.contains("settings-row") && r.getBoundingClientRect().height > 0 && r.nextElementSibling.getBoundingClientRect().height > 0);
+    for (const tab of [null, ...document.querySelectorAll(".settings-rail input[type=radio]")]) {
+      if (tab) { tab.click(); await new Promise((r) => setTimeout(r, 250)); }
+      const u = pair();
+      if (u) { document.querySelectorAll("[data-live-seam]").forEach((e) => e.removeAttribute("data-live-seam")); u.setAttribute("data-live-seam", "");
+        return document.querySelector(".settings-rail input[type=radio]:checked")?.value ?? "the first page"; }
+    }
+    return null; })()`), 8000, "a Settings page with a card of rows");
+  console.log(`INFO ${face}: Settings page measured: ${page}`);
+  await seamCheck(c, `${face}, Settings ▸ ${page}`, "[data-live-seam]");
+  await evalIn(c, `(() => { document.querySelector("[data-live-seam]").parentElement.setAttribute("data-live-card", ""); return true; })()`);
+  await shot(c, `${face}-seam-settings`, "[data-live-card]");
+  await press(c, "Escape");
+  await until(() => evalIn(c, `!document.querySelector(".settings-page-pane")`), 5000, "Settings put away").catch(() => {});
+}
+
+/** The old rule, put back for one measurement: the mutant the seam check has to be able to see. */
+const DOUBLED = `.settings-row:has(+ .settings-row) { border-bottom: var(--hairline-w) solid var(--rl-card-rim) !important; }`;
+async function seamCheck(c, where, upperSel) {
+  const fixed = await seam(c, upperSel);
+  await evalIn(c, `(() => { const st = document.createElement('style'); st.id = 'live-doubled'; st.textContent = ${JSON.stringify(DOUBLED)}; document.head.append(st); return true; })()`);
+  const doubled = await seam(c, upperSel);
+  await evalIn(c, `(() => { document.getElementById('live-doubled')?.remove(); return true; })()`);
+  // Read against the old rule put back: it drew two lines where this draws one, the second full-width.
+  check(`${where}: one line between two rows — half the old seam's ink, and nothing inside the divider's inset`,
+    fixed.edge === 0 && fixed.middle > 0 && doubled.edge > 0 && doubled.middle === 2 * fixed.middle, { fixed, doubled });
+}
+
 async function main() {
   for (const p of [CDP_PORT, SERVER_PORT]) if (!(await portFree(p))) throw new Error(`port ${p} is in use — refusing to run`);
   const wrapper = path.join(scratch, "wrapper.mjs");
@@ -325,6 +398,8 @@ async function main() {
   await shot(c, "dark-filled-window");
   const summary = await evalIn(c, `(() => { const p = document.querySelector('.new-space-summary'); return { text: p.textContent, h: Math.round(p.getBoundingClientRect().height) }; })()`);
   check("the line by Create is one line", summary.h <= 20, summary);
+  await seamCheck(c, "dark, the sheet", '.new-space .settings-group > .space-folder');
+  await shot(c, "dark-seam-sheet", '.new-space .settings-group');
 
   // Enter, from the name — the one gesture the fast path is.
   await click(c, 'input[aria-label="Space name"]', "the name field");
@@ -347,6 +422,65 @@ async function main() {
   const memory = versed ? await api.call("memory.get", { spaceId: versed.id }) : null;
   check("the memory typed is the space's memory", memory?.doc === "Use pnpm. Run the tests before handing anything back.", memory?.doc);
 
+  /* ── A Create that fails after the space is made: busy, then the error beside Create, then a
+     second Create that finishes the same space. The server's refusal is real; what provokes it is
+     the harness rewriting the session request to name a space that does not exist. ───────────── */
+  const repo2 = path.join(scratch, "code", "resilient");
+  fs.mkdirSync(repo2, { recursive: true });
+  await openSheet(c);
+  await c.send("Input.insertText", { text: "Resilient" });
+  await click(c, '[role="radio"][aria-label="Color #4cc9f0"]', "a colour");
+  await dropFolder(c, await evalIn(c, `__live.box(document.querySelector('.space-folder'))`), repo2);
+  await until(() => evalIn(c, `!!document.querySelector('.space-folder-path')`), 5000, "the second repo");
+  await evalIn(c, `(() => {
+    const send = WebSocket.prototype.send;
+    window.__live.unhold = () => { WebSocket.prototype.send = send; };
+    WebSocket.prototype.send = function (data) {
+      try {
+        const m = JSON.parse(data);
+        if (m.method === "sessions.create" && !window.__live.held) {
+          window.__live.held = true;
+          m.params.spaceId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+          const ws = this; setTimeout(() => send.call(ws, JSON.stringify(m)), 1500);
+          return;
+        }
+      } catch {}
+      return send.call(this, data);
+    };
+    return true; })()`);
+  await click(c, 'input[aria-label="Space name"]', "the name field");
+  await press(c, "Enter");
+  await sleep(500);
+  const busy = await evalIn(c, `(() => { const b = document.querySelector('.new-space button[type="submit"]');
+    return { label: b.textContent, busy: b.getAttribute('aria-busy'), disabled: b.disabled, fieldsLocked: document.querySelector('.new-space-fields').disabled,
+      cancel: !document.querySelector('.new-space-foot .btn:not(.primary)').disabled, open: !!__live.sheet(),
+      dim: getComputedStyle(document.querySelector('.new-space-fields')).opacity }; })()`);
+  check("while Create runs the sheet stays up: Create busy, the fields locked and dimmed, Cancel live", busy.open && busy.label.includes("Creating") && busy.busy === "true"
+    && busy.disabled && busy.fieldsLocked && busy.cancel && Number(busy.dim) < 1, busy);
+  await shot(c, "dark-busy", '[role="dialog"][aria-label="New space"]');
+  const failed = await until(() => evalIn(c, `(() => { const a = document.querySelector('.new-space-foot [role="alert"]'); return a ? a.textContent : null; })()`), 8000, "the error beside Create")
+    .catch(() => null);
+  const kept = await evalIn(c, `({ name: document.querySelector('input[aria-label="Space name"]').value, folder: document.querySelector('.space-folder-path')?.textContent ?? null,
+    colour: document.querySelector('[role="radio"][aria-label="Color #4cc9f0"]').getAttribute('aria-checked'), open: !!__live.sheet(),
+    enabled: !document.querySelector('.new-space-fields').disabled })`);
+  check("a failure says what went wrong beside Create, in the sheet", typeof failed === "string" && failed.startsWith("The space was created, but didn't open:"), failed);
+  check("…and keeps every field, unlocked", kept.open && kept.enabled && kept.name === "Resilient" && kept.folder === repo2 && kept.colour === "true", kept);
+  await shot(c, "dark-failed", '[role="dialog"][aria-label="New space"]');
+  await evalIn(c, `(() => { window.__live.unhold(); return true; })()`);
+  await click(c, '.new-space button[type="submit"]', "Create, again");
+  const resumed = await until(async () => { const l = await evalIn(c, LANDING); return !l.sheetOpen && l.composerFocused ? l : null; }, 10000, "the retry to land")
+    .catch(async () => evalIn(c, LANDING));
+  check("Create again lands in the new session, prompter focused", !resumed.sheetOpen && resumed.composerFocused, resumed);
+  const resilient = (await api.call("spaces.list", {})).filter((s) => s.name === "Resilient");
+  check("…in the one space the failed run made — not a second beside it", resilient.length === 1, resilient.map((s) => s.id));
+  const rProjects = resilient[0] ? await api.call("projects.list", { spaceId: resilient[0].id }) : [];
+  const rSessions = resilient[0] ? (await api.call("sessions.listAll", {})).filter((s) => s.spaceId === resilient[0].id) : [];
+  check("…with one project and one session, working in the dropped repo", rProjects.length === 1 && rSessions.length === 1 && rSessions[0].cwd === repo2,
+    { projects: rProjects.map((p) => p.rootPath), sessions: rSessions.map((s) => s.cwd) });
+
+  /* ── Settings, built of the same rows ─────────────────────────────────────────────────────── */
+  await settingsSeam(c, "dark");
+
   /* ── The light face: an emoji, no folder, Create by the mouse ────────────────────────────── */
   await api.call("settings.set", { key: "ui.theme", value: "light" });
   await c.send("Page.reload", {});
@@ -367,12 +501,15 @@ async function main() {
   await sleep(300);
   await shot(c, "light-filled", '[role="dialog"][aria-label="New space"]');
   await shot(c, "light-filled-window");
+  await seamCheck(c, "light, the sheet", '.new-space .settings-group > .space-folder');
+  await shot(c, "light-seam-sheet", '.new-space .settings-group');
   await click(c, '[role="dialog"][aria-label="New space"] button[type="submit"]', "Create");
   const landedLight = await until(async () => { const l = await evalIn(c, LANDING); return !l.sheetOpen && l.composerFocused ? l : null; }, 10000, "a session holding the keyboard")
     .catch(async () => evalIn(c, LANDING));
   check("light: Create by the mouse lands in the new session too, prompter focused", !landedLight.sheetOpen && landedLight.composerFocused && landedLight.pageOverlay === null, landedLight);
   await sleep(600);
   await shot(c, "light-landed");
+  await settingsSeam(c, "light");
   const notes = (await api.call("spaces.list", {})).find((s) => s.name === "Field notes");
   check("light: the emoji is the space's icon", notes?.icon?.startsWith("emoji:"), notes?.icon);
   const notesSessions = notes ? (await api.call("sessions.listAll", {})).filter((s) => s.spaceId === notes.id) : [];
