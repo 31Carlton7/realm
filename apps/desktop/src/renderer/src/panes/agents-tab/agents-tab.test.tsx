@@ -31,10 +31,10 @@ const CATALOG: DelegableModels = { own: { kind: "claude", label: "Claude Opus 5.
   { key: "5.4-gpt-nano-openai", label: "openai/gpt-5.4-nano", kind: "acp:fx", id: "openai/gpt-5.4-nano", ready: true },
 ] };
 
-async function mount(over: { lead?: typeof LEAD; children?: DelegatedChild[]; status?: Record<string, "idle" | "running" | "waiting_permission"> } = {}) {
+async function mount(over: { lead?: typeof LEAD; children?: DelegatedChild[]; status?: Record<string, "idle" | "running" | "waiting_permission">; idle?: boolean } = {}) {
   const lead = over.lead ?? LEAD;
   const api = fakeApi({ items: ITEMS, sessions: [lead, LUNA, FABLE], delegatedChildren: { se1: over.children ?? CHILDREN }, delegableModels: CATALOG,
-    delegatedRuns: { se1: [{ sessionId: "se2", startedAt: 0, detached: true, owned: true }] } });
+    delegatedRuns: over.idle ? {} : { se1: [{ sessionId: "se2", startedAt: 0, detached: true, owned: true }] } });
   const store = createAppStore(api); await store.getState().boot();
   store.setState({
     sessionStatus: { se2: "running", se3: "idle", ...over.status },
@@ -82,7 +82,9 @@ describe("the list of a session's sub-agents", () => {
   });
 
   it("re-reads after the socket comes back — what changed while it was down went unannounced", async () => {
-    const { api, store } = await mount();
+    // A lead with nothing in flight and no transcript loaded: the delegated-runs refetch never names
+    // it, so only the list's own refetch can. Mutant: drop it from the reconnect.
+    const { api, store } = await mount({ idle: true });
     await card(/^Write the tests\./);
     const before = api.calls.filter((c) => c === "listDelegatedChildren:se1").length;
     store.getState().applyConnectionState("reconnecting");
