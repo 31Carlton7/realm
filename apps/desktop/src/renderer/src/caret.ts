@@ -178,9 +178,9 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
   const ro = typeof win.ResizeObserver === "function" ? new win.ResizeObserver(() => schedule(PLACE)) : null;
   const motion = win.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
 
-  /** Whether the platform's own caret is the one asked for — never for a source, which hides its own. */
+  /** Whether a field's caret is the drawn one: always for a source, which hides its own, and otherwise
+   *  wherever the platform's cannot be what was asked for. */
   const drawnFor = (el: HTMLElement): boolean => sources.has(el) || nativeCaret(drawnCaret(prefs, still), support) === null;
-  const focused = (el: HTMLElement): boolean => doc.activeElement === el && doc.hasFocus();
 
   /** The field the caret belongs in: the focused one, or — while nothing is being typed in — the
    *  Settings preview, so a shape or an animation can be watched while it is being chosen. */
@@ -241,6 +241,8 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
   /** A typical character's advance, for a block standing at the end of a line. */
   const typicalWidth = (el: Element) => (parseFloat(win.getComputedStyle(el).fontSize) || 14) * 0.6;
 
+  /** The caret at offset `at` of text laid out as the field lays it out — a mirror of it, or a text node
+   *  of the region itself — from the characters either side. */
   const between = (text: Node, at: number, chars: string, width: number): CaretSpot | null => {
     const before = at > 0 && chars[at - 1] !== "\n" ? charBox(text, at - 1, true) : null;
     const after = charBox(text, at);
