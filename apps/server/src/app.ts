@@ -45,6 +45,7 @@ import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
 import { createUiAgentProvider, listBranches } from "./ui/agent-tools";
+import { createHubElicitation } from "./mcp/elicitation";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
 import { DecisionLog } from "./laya/log";
@@ -85,7 +86,7 @@ import { ThemesService } from "./themes/service";
 import { FontsService } from "./fonts/service";
 import { McpServersStore, McpCallLogStore } from "./store/mcp";
 import { McpService, oauthStatusOf } from "./mcp/service";
-import { McpHub } from "./mcp/hub";
+import { McpHub, type HubElicit } from "./mcp/hub";
 import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
 import type { AgentKind, McpServerStatus } from "@realm/contracts";
@@ -701,8 +702,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       gateway?.notifyToolsChanged();
     },
   });
+  // A server's question mid-call goes to the broker's card, which is built further down; nothing asks
+  // before a session has made a call, by which point it exists.
+  let hubElicit: HubElicit | null = null;
   const mcpHub = new McpHub({
     servers: mcpServersStore,
+    elicit: (r) => (hubElicit ? hubElicit(r) : Promise.resolve({ action: "decline" as const })),
     // The OAuth seam. `McpOauth` sanitizes its own errors — the hub cannot redact a token that only ever
     // existed inside an error thrown in here (see the seam's own doc comment in `hub.ts`).
     authHeaders: (row) => oauth.headers(row),
@@ -828,6 +833,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       layaShadow.permissionEvent(sessionId, ev);
     },
   });
+  hubElicit = createHubElicitation({ broker: browserBroker, serverName: (id) => mcpServersStore.get(id)?.name ?? null });
   const artifacts = new ArtifactsStore(db, settings);
   const sessionEvents = new SessionEventsStore(db, artifacts);
   // Hoisted: `defaultAdapters()` builds live adapter instances, and failover must check membership

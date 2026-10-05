@@ -6,7 +6,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { openDatabase } from "../db/database";
 import { McpServersStore, type McpServerRow } from "../store/mcp";
 import { waitFor } from "../test-utils";
-import { McpHub } from "./hub";
+import { McpHub, type HubElicit } from "./hub";
 import { makeStubServer, type StubServer } from "./fixtures/stub-server";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -479,4 +479,53 @@ describe("stdio integration (real process)", () => {
       await hub.close();
     }
   }, 20_000);
+});
+
+describe("a server asking the user mid-call (MCP elicitation)", () => {
+  const form = { mode: "form", message: "Which team?", requestedSchema: { type: "object", properties: { team: { type: "string", enum: ["eng", "design"] } }, required: ["team"] } };
+  const asking = (elicit?: HubElicit, o: { callTimeoutMs?: number } = {}) => {
+    const stub = makeStubServer({ elicitation: form });
+    return new McpHub({ servers, onStatus: () => {}, authHeaders: noAuth, makeTransport: () => stub.connectInMemory(), ...(elicit ? { elicit } : {}), ...o });
+  };
+  const answerOf = (r: { content: unknown[] }) => JSON.parse((r.content[0] as { text: string }).text) as { action: string; content?: unknown };
+
+  it("puts the question to the one session whose call is open, and hands its answer back", async () => {
+    // THE MUTANT: build the hub's client with no capabilities, as it was. The server cannot ask at
+    // all, and its tool fails rather than reaching anyone.
+    const row = newRow();
+    const seen: { serverId: string; sessionId: string; message: unknown }[] = [];
+    const hub = asking(async ({ serverId, sessionId, params }) => { seen.push({ serverId, sessionId, message: params.message }); return { action: "accept", content: { team: "eng" } }; });
+    const r = await hub.call(row.id, "ask", {}, { sessionId: "s1" });
+    expect(seen).toEqual([{ serverId: row.id, sessionId: "s1", message: "Which team?" }]);
+    expect(answerOf(r)).toEqual({ action: "accept", content: { team: "eng" } });
+  });
+
+  it("declines when it cannot tell whose question it is", async () => {
+    const row = newRow();
+    let release: (r: { action: "accept"; content: { team: string } }) => void = () => {};
+    const asked: string[] = [];
+    const hub = asking(({ sessionId }) => { asked.push(sessionId); return new Promise((res) => { release = res; }); });
+    const first = hub.call(row.id, "ask", {}, { sessionId: "s1" });
+    await waitFor(() => asked.length === 1);
+    // A second session's call is open now too: its question could be either session's.
+    const second = await hub.call(row.id, "ask", {}, { sessionId: "s2" });
+    expect(answerOf(second)).toEqual({ action: "decline" });
+    expect(asked).toEqual(["s1"]);
+    release({ action: "accept", content: { team: "design" } });
+    expect(answerOf(await first)).toEqual({ action: "accept", content: { team: "design" } });
+    // And a call nobody owns cannot be anybody's question either.
+    expect(answerOf(await hub.call(row.id, "ask", {}))).toEqual({ action: "decline" });
+  });
+
+  it("says it cannot elicit when there is nowhere to send a question", async () => {
+    const row = newRow();
+    await expect(asking().call(row.id, "ask", {}, { sessionId: "s1" })).rejects.toThrow(/does not support form elicitation/);
+  });
+
+  it("stops the call's clock while the user is answering — a person thinking is not a server timing out", async () => {
+    // THE MUTANT: leave the clocks running. The call is cut off at its allowance while the card is up.
+    const row = newRow();
+    const hub = asking(() => new Promise((res) => setTimeout(() => res({ action: "accept", content: { team: "eng" } }), 250)), { callTimeoutMs: 100 });
+    expect(answerOf(await hub.call(row.id, "ask", {}, { sessionId: "s1" }))).toMatchObject({ action: "accept" });
+  });
 });

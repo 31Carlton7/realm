@@ -539,7 +539,7 @@ export class McpGateway {
       // and this is the seam that knows a result is on its way to an agent's context rather than,
       // say, to a live-check. Realm's own in-process providers above are deliberately not put
       // through it — they already choose and clip their own output shape.
-      const result = compressToolResult(await this.d.hub.call(serverId, tool, args));
+      const result = compressToolResult(await this.d.hub.call(serverId, tool, args, { sessionId }));
       // `isError: true` is a normal, successfully round-tripped MCP result — the call reached the
       // server and the SERVER reported a problem. It still counts as `ok: false` in Activity: from the
       // user's perspective a failed tool call is a failed tool call, whether the failure came back as a
