@@ -2392,20 +2392,6 @@ button.panel-title:hover { background: var(--rl-hover); }
    invisible (W2's no-overlay invariant). Its height comes out of the view's, which the pane's
    ResizeObserver already syncs. */
 .browser-notice { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: var(--hairline-w) solid var(--rl-hairline); background: var(--rl-hover); }
-/* The pick receipt. A toast rather than the full-width banner this was: it reports something the
-   user has already watched happen, and a receipt that has to be dismissed is a chore.
-   In the CHROME rather than floating over the pane, and that is not a compromise — a native
-   WebContentsView composites over anything inside its rectangle, so a toast over the view is a
-   toast nobody sees. */
-.browser-toast {
-  flex: none; align-self: center; display: flex; align-items: center; gap: 8px;
-  margin: 6px 0 2px; padding: 6px 12px;
-  border-radius: 999px; background: var(--rl-raised); color: var(--rl-text-bright);
-  box-shadow: var(--shadow-raised);
-  animation: rl-toast-in var(--dur-enter) var(--ease-out-strong);
-}
-@keyframes rl-toast-in { from { opacity: 0; translate: 0 -6px; } to { opacity: 1; translate: 0 0; } }
-.browser-toast-text { font-size: 12px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browser-notice-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rl-text-dim); }
 .browser-notice-text strong { font-weight: var(--fw-title); color: var(--rl-text-bright); }
 /* Plan 26 W7b's find strip: the download bar's row, holding a field. A strip ABOVE the view like every
