@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within, cleanup } from "@testing-library/react";
-import { allItems, type Item, type Layout, type Session } from "@realm/contracts";
+import { allItems, findLeafOfItem, type Item, type Layout, type Session } from "@realm/contracts";
 import { spaceColor } from "@realm/ui";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, iconAsset, item, profile, session, space, type FakeData } from "../../state/store.test-fakes";
-import { paneMapOf } from "./ItemList";
+import { layoutOnScreen, paneMapOf } from "./ItemList";
 import { ALL_ITEMS_SETTLE_MS } from "./use-sidebar-model";
 import { exited } from "../popover-exit.test-fakes";
 
@@ -307,6 +307,35 @@ describe("a session's row", () => {
     expect(onCells(glyph(/^Beta/))).toEqual([1]);
   });
 
+  it("pictures the window as it is drawn: none for a session filling it, its side pane put away or not there", async () => {
+    /* The owner, 10-05: a session filling the window — its side pane put away by the toggle at the top
+       right, nothing else split — wore a half-lit glyph, for the side pane the window was not drawing.
+       THE MUTANTS: the glyph read off the stored tree (half-lit while the side pane is away), or no
+       glyph for a side pane that IS on screen (the real split). */
+    const { store } = await mount(home({ items: {
+      s1: [item("i-term", "s1", { kind: "terminal", title: "Terminal" }), sessionItem("a", "s1", "Alpha"), sessionItem("x", "s1", "Beta")],
+      s2: [sessionItem("b", "s2", "Wants a yes")],
+    }, sessions: [session("a", "s1", { title: "Alpha" }), session("x", "s1", { title: "Beta" }), session("b", "s2", { title: "Wants a yes" })] }));
+    const glyph = (name: RegExp) => within(section("Versed")).getByRole("button", { name }).querySelector(".item-glyph");
+    await act(async () => { await store.getState().openItem("i-a"); });
+    expect(glyph(/^Alpha/), "one pane filling the window").toBeNull();
+    await act(async () => { await store.getState().openInSidePane("a", "i-term"); });
+    expect(onCells(glyph(/^Alpha/)!), "beside its side pane: the left of two").toEqual([0]);
+    expect(glyph(/^Alpha/)!.querySelectorAll("rect")).toHaveLength(2);
+    await act(async () => { await store.getState().toggleSidePanes(); });
+    expect(store.getState().sidePanesHidden).toBe(true);
+    expect(glyph(/^Alpha/), "its side pane put away").toBeNull();
+    // A real split stays one, the side pane's room given back to the session it served.
+    await act(async () => { await store.getState().openItemBeside("i-x"); });
+    expect(onCells(glyph(/^Alpha/)!)).toEqual([0]);
+    expect(onCells(glyph(/^Beta/)!)).toEqual([1]);
+    expect(glyph(/^Alpha/)!.querySelectorAll("rect")).toHaveLength(2);
+    // Filling the window by pane focus (⌘⇧F) is one pane on screen too, and the other is not there.
+    await act(async () => { await store.getState().focusPaneFull(findLeafOfItem(store.getState().layout!, "i-a")!.id); });
+    expect(glyph(/^Alpha/)).toBeNull();
+    expect(glyph(/^Beta/)).toBeNull();
+  });
+
   it("opens a session BESIDE the one in focus on ⌘-click — from any space", async () => {
     // THE MUTANT: ignore the modifier. ⌘-click would then replace the session on screen, and the
     // window's one split would have no way in from the list.
@@ -532,5 +561,42 @@ describe("paneMapOf — the arrangement itself, not a category of arrangement", 
   it("says nothing when there is nothing true to say", () => {
     expect(paneMapOf(leaf("L1", "i1"), "i1")).toBeNull();       // one pane is not an arrangement
     expect(paneMapOf(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "gone")).toBeNull();
+  });
+});
+
+describe("layoutOnScreen — the tree as the window draws it", () => {
+  const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
+  const side = (id: string, owner: string, tabs: string[]): Layout => ({ type: "leaf", id, itemId: tabs[0]!, tabs, owner });
+  const split = (id: string, dir: "row" | "col", children: Layout[], sizes?: number[]): Layout =>
+    ({ type: "split", id, dir, sizes: sizes ?? children.map(() => 100 / children.length), children });
+  const ids = (l: Layout | null): unknown => (!l ? null : l.type === "leaf" ? l.id : { [l.dir]: l.children.map(ids), sizes: l.sizes });
+
+  it("is the stored tree while the side panes are out and nothing fills the window", () => {
+    const l = split("C", "row", [leaf("A", "a"), side("S", "a", ["t"])], [60, 40]);
+    expect(layoutOnScreen(l)).toBe(l);
+    expect(layoutOnScreen(l, { sidePanesHidden: false, zoomedLeafId: null })).toBe(l);
+  });
+
+  it("gives a put-away side pane's room to the pane it served, in every column", () => {
+    // One session with its side pane: the session alone, which is no arrangement at all.
+    expect(ids(layoutOnScreen(split("C", "row", [leaf("A", "a"), side("S", "a", ["t"])], [60, 40]), { sidePanesHidden: true }))).toBe("A");
+    expect(paneMapOf(layoutOnScreen(split("C", "row", [leaf("A", "a"), side("S", "a", ["t"])]), { sidePanesHidden: true })!, "a")).toBeNull();
+    // Two columns, each with its own: the two sessions at the columns' own shares.
+    const two = split("V", "row", [split("C1", "row", [leaf("A", "a"), side("S1", "a", ["t"])]), split("C2", "row", [leaf("B", "b"), side("S2", "b", ["u"])])], [30, 70]);
+    expect(ids(layoutOnScreen(two, { sidePanesHidden: true }))).toEqual({ row: ["A", "B"], sizes: [30, 70] });
+    // Stacked, the same.
+    const stacked = split("V", "col", [split("C1", "row", [leaf("A", "a"), side("S1", "a", ["t"])]), leaf("B", "b")]);
+    expect(ids(layoutOnScreen(stacked, { sidePanesHidden: true }))).toEqual({ col: ["A", "B"], sizes: [50, 50] });
+    // A split that keeps more than one pane keeps their shares, without the one put away.
+    expect(ids(layoutOnScreen(split("R", "row", [leaf("A", "a"), side("S", "a", ["t"]), leaf("B", "b")], [20, 50, 30]), { sidePanesHidden: true })))
+      .toEqual({ row: ["A", "B"], sizes: [20, 30] });
+  });
+
+  it("is the one pane that fills the window under pane focus — side pane or not, put away or not", () => {
+    const l = split("V", "row", [split("C1", "row", [leaf("A", "a"), side("S1", "a", ["t"])]), leaf("B", "b")]);
+    expect(ids(layoutOnScreen(l, { zoomedLeafId: "B" }))).toBe("B");
+    expect(ids(layoutOnScreen(l, { zoomedLeafId: "S1", sidePanesHidden: true }))).toBe("S1");
+    // A zoom the tree no longer holds is no zoom.
+    expect(layoutOnScreen(l, { zoomedLeafId: "gone" })).toBe(l);
   });
 });
