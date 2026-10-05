@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, act, within } from "@testing-librar
 import { AppShell } from "../../App";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi } from "../../state/store.test-fakes";
+import type { DestinationPageKind } from "@realm/contracts";
 
 /** The shell, not the Sidebar alone: the whole point of this control is that it survives its own
  *  container closing, which only the app shell can show. */
@@ -143,5 +144,57 @@ describe("a page with no use for the spaces", () => {
     act(() => store.getState().closePageOverlay());
     act(() => store.getState().openDestinationPage("connections-page"));
     await waitFor(() => expect(shown()).toBe(false));
+  });
+});
+
+describe("what moves the column", () => {
+  const cut = () => document.querySelector(".app")!.hasAttribute("data-sidebar-cut");
+  const shown = () => !document.querySelector(".app")!.hasAttribute("data-sidebar-collapsed");
+
+  it("lands it with the page that changed it, and moves it only for the person's own toggle", async () => {
+    /* The owner, 10-05, with a video: Home → Scheduled drew the page at once beside spaces still
+       folding shut, then a stub of them, then the page jumped left; Scheduled → Library drew the page
+       with no column and then unfolded the page's sections beside it. A change navigation makes lands
+       in the page's own frame (`data-sidebar-cut`, which takes the column's motion off); only the
+       toggle — its button, ⌘B — is drawn moving. THE MUTANTS: navigation that moves the column (the
+       bug), or a toggle that has lost its motion. */
+    const { store } = await mountShell();
+    expect(cut(), "the window opens as it was left, not moving").toBe(true);
+    fireEvent.click(reachable());
+    await waitFor(() => expect(shown()).toBe(false));
+    expect(cut(), "the head row's Hide").toBe(false);
+    fireEvent.click(reachable());
+    await waitFor(() => expect(shown()).toBe(true));
+    expect(cut(), "the lead's Show").toBe(false);
+
+    // Home → Scheduled → Library → Connections → the session, then back the other way.
+    const open = (kind: DestinationPageKind) => () => store.getState().openDestinationPage(kind);
+    const close = () => store.getState().closePageOverlay();
+    const route: [string, () => void, boolean][] = [
+      ["Home", open("agents-page"), true], ["Scheduled", open("schedules-page"), false], ["Library", open("library-page"), true],
+      ["Connections", open("connections-page"), false], ["the session", close, true],
+      ["Connections again", open("connections-page"), false], ["Library again", open("library-page"), true],
+      ["Scheduled again", open("schedules-page"), false], ["Home again", open("agents-page"), true],
+    ];
+    let changes = 0;
+    for (const [name, go, sidebar] of route) {
+      const before = shown();
+      act(() => go());
+      expect(shown(), name).toBe(sidebar);
+      if (sidebar === before) continue;
+      // In the same act: the cut is committed with the change it governs, never a render behind it.
+      expect(cut(), name).toBe(true);
+      changes++;
+    }
+    expect(changes).toBe(route.length - 1);
+
+    // ⌘B on a page that has no sidebar moves it — it is the person asking — and leaving that page cuts.
+    act(() => store.getState().openDestinationPage("connections-page"));
+    await act(async () => { await store.getState().toggleSidebar(); });
+    expect(shown()).toBe(true);
+    expect(cut(), "⌘B on Connections").toBe(false);
+    act(() => store.getState().openDestinationPage("notifications-page"));
+    expect(shown()).toBe(false);
+    expect(cut(), "Notifications after it").toBe(true);
   });
 });

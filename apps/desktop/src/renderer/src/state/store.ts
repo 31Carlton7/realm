@@ -1013,6 +1013,10 @@ export type AppState = {
    *  anyway — that overlay itself, so the ask ends with the page and never touches their own
    *  `sidebarCollapsed`. Read through `sidebarHidden` (selectors.ts), never on its own. */
   sidebarOnPage: AppState["pageOverlay"];
+  /** How many times the person has toggled the sidebar — its button, ⌘B — this window. The toggle is
+   *  the one change to the column that is drawn moving; the shell reads this across a change in
+   *  `sidebarHidden` to tell it from navigation, which takes effect at once (App.tsx, `useSidebarCut`). */
+  sidebarToggles: number;
   /** The column's width in pixels, inside SIDEBAR_WIDTH's range. Top-level because the shell paints
    *  it and the handle inside the sidebar writes it. */
   sidebarWidth: number;
@@ -3982,7 +3986,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidePanesHidden: false, toasts: [], toastReserve: null,
+      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       appPick: null,
@@ -4510,9 +4514,10 @@ await get().refreshCustomThemes().catch(() => {});
         // is a person asking to see their spaces beside the page, not changing what every other
         // screen does — and leaving the page leaves their own setting exactly as it was.
         const page = get().pageOverlay;
-        if (page && pageHidesSidebar(page.kind)) { set({ sidebarOnPage: get().sidebarOnPage === page ? null : page }); return; }
+        const sidebarToggles = get().sidebarToggles + 1;
+        if (page && pageHidesSidebar(page.kind)) { set({ sidebarOnPage: get().sidebarOnPage === page ? null : page, sidebarToggles }); return; }
         const next = !get().sidebarCollapsed;
-        set({ sidebarCollapsed: next });
+        set({ sidebarCollapsed: next, sidebarToggles });
         await api.setSetting(SETTING_SIDEBAR_COLLAPSED, next);
       },
       async setFilesView(view) {
