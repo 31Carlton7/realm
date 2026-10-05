@@ -16,9 +16,10 @@
  *      open by then — by going to the tab that has it.
  *   6. Peek, from its row on the Notifications page, at a session in another space that is waiting on
  *      a card: a tab of the lead's side pane, eye and italic, its card answered in place, no prompter
- *      — never in the window's saved view. Peek from a sidebar row's menu, then Open session: the session takes the lead's place in the main view, from this space
- *      or another, with nothing switched. (What waits on you is the sidebar's Needs you list now —
- *      sidebar-rail-live measures it.)
+ *      — never in the window's saved view. Peek from a sidebar row's menu, then Open session: the
+ *      session takes the lead's place in the main view, from this space or another, with nothing
+ *      switched. (What waits on you is the sidebar's Needs you list now — sidebar-rail-live measures
+ *      it.)
  *
  * Ports: LIVE_SERVER_PORT (8964), LIVE_CDP_PORT (9364), LIVE_MAIN_INSPECT_PORT (9464), LIVE_SITE_PORT
  * (8974). Touches only a scratch dir; kills only what is listening on its own ports. Browses nothing

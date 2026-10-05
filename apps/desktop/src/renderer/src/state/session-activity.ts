@@ -8,10 +8,10 @@ export type SessionActivity = { text: string; icon: IconName; ts: number };
 /**
  * What one session event says the agent is DOING, or null when it says nothing about that.
  *
- * A sub-agent's card needs a line per agent without opening a transcript. Every `session.event` is already
- * broadcast to every window — the store drops the ones whose session nobody has opened — so the
- * line costs one fold over a stream that is arriving anyway: no fetch, no subscription, and nothing
- * held per session but the newest answer.
+ * A sub-agent's card needs a line per agent without opening a transcript. Every `session.event` is
+ * already broadcast to every window — the store drops the ones whose session nobody has opened — so
+ * the line costs one fold over a stream that is arriving anyway: no fetch, no subscription, and
+ * nothing held per session but the newest answer.
  *
  * Null rather than a placeholder is the whole discipline here. A `usage` reading, a rate-limit
  * window and a settle carry no account of the work, so they leave the last real line standing;
