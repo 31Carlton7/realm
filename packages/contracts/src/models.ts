@@ -53,6 +53,33 @@ export function readFastSupport(raw: unknown): Record<string, boolean> {
 }
 
 /**
+ * Whether Realm can ASK this agent for fast mode at all. A fact about Realm's own adapters, not about
+ * any model: Claude takes it as a flag setting at start and mid-session, Codex as the `priority` service
+ * tier on each `turn/start`, and no other adapter has a channel to say it on. WHICH models can run it is
+ * only ever the harness's answer — its `init`, the probe's catalog, `MODEL_FAST_SUPPORT_KEY` — never a
+ * line in this file.
+ */
+export const AGENT_FAST_MODE = {
+  claude: true, codex: true,
+  "acp:cursor": false, "acp:gemini": false, "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
+  "acp:qwen": false, "acp:grok": false, "acp:fx": false, "acp:deepseek": false, "acp:openhands": false, "acp:hermes": false,
+  fake: false,
+} as const satisfies Record<AgentKind, boolean>;
+
+/**
+ * Whether a session's effort level reaches the agent. Only Claude's adapter passes it on (the SDK's
+ * `effort` option). Codex takes reasoning effort per turn and `codex-adapter.ts` drops it at thread
+ * start; no ACP agent has a field for it — Cursor writes it into the model id (`effort=high`). An effort
+ * control offered anywhere else is a setting wired to nothing.
+ */
+export const AGENT_TAKES_EFFORT = {
+  claude: true, codex: false,
+  "acp:cursor": false, "acp:gemini": false, "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
+  "acp:qwen": false, "acp:grok": false, "acp:fx": false, "acp:deepseek": false, "acp:openhands": false, "acp:hermes": false,
+  fake: false,
+} as const satisfies Record<AgentKind, boolean>;
+
+/**
  * Fold a model's displayed name to a comparison key.
  *
  * Four normalisations, each earning its place against a real disagreement seen in the wild:

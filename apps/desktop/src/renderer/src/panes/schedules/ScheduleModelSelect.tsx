@@ -1,19 +1,17 @@
 import { useEffect, useMemo } from "react";
 import { AGENT_META, AGENT_MODELS, AgentKindSchema, type AgentKind } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { groupRows, modelRows } from "../session/model-rows";
+import { groupRows, modelLabel, modelRows } from "../session/model-catalog";
 
 type Option = { value: string; label: string };
 
 const valueOf = (kind: AgentKind, model: string | null) => `${kind}|${model ?? ""}`;
 
 /**
- * A scheduled task's MAIN model, as one menu: the models the prompter's picker offers (`modelRows`,
- * grouped by the harness that would run them), so a task is offered exactly what a session is.
- *
- * Kept to this file on purpose. A shared model catalog is being built beside the Scheduled page, and
- * this is the one thing it replaces: the modal hands it a kind and a model and is told when they
- * change, and knows nothing else about where the list comes from.
+ * A scheduled task's MAIN model, as one menu: the rows the prompter's picker offers, from the shared
+ * catalog (`model-catalog.ts`) and grouped the same way, so a task is offered exactly what a session
+ * is. The modal hands it a kind and a model and is told when they change, and knows nothing else
+ * about where the list comes from.
  *
  * A model that no harness lists any more (renamed, retired, or a probe that has not answered yet)
  * stays selected under its own id rather than being swapped for a neighbour the person never chose.
@@ -29,9 +27,13 @@ export function ScheduleModelSelect({ kind, model, onChange }: {
 
   const { groups, selected } = useMemo(() => {
     const rows = modelRows({ kind, model, agentProbe, canSwitchAgent: true, favorites });
-    const groups = groupRows(rows, { query: "" }).map((g) => ({
+    const groups = groupRows(rows, { query: "", kind }).map((g) => ({
       label: g.label,
-      options: g.rows.map((r): Option => ({ value: valueOf(r.kind, r.modelId), label: r.note ? `${r.label} (${r.note})` : r.label })),
+      options: g.rows.map((r): Option => {
+        // "Other agents" names each row by its harness, as the picker does.
+        const name = g.byHarness ? r.agentLabel : modelLabel(r);
+        return { value: valueOf(r.kind, r.modelId), label: r.note ? `${name} (${r.note})` : name };
+      }),
     }));
     // The scripted agent, where this Realm runs one. It is never offered for a fresh session, and a
     // check that drives the app with it has to be able to pick it here too.

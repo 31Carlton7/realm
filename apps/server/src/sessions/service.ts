@@ -1186,18 +1186,22 @@ export class SessionService {
   }
 
   /**
-   * Remember what the harness just said about fast mode, for the model this session ASKED for, so
-   * the next session on it can offer the switch before its first message (`MODEL_FAST_SUPPORT_KEY`).
+   * Remember what the harness just said about fast mode, so the next session on any model it answered
+   * for can offer the switch before its first message (`MODEL_FAST_SUPPORT_KEY`).
    *
-   * Keyed by the row's model — the request — and not by the id the harness resolved it to: a
-   * prompter that has not started a session knows only what it is going to ask for. Written only
-   * when the answer changed, so a session's every restated handshake costs a read and no write.
+   * Two sources, the broad one first: the harness's answer for every model it listed
+   * (`fastModeModels`, keyed by the id a session would pin), then this session's own answer, filed under
+   * the model the session ASKED for — not the id the harness resolved it to, because a prompter that
+   * has not started a session knows only what it is going to ask for. Written only when an answer
+   * changed, so a session's every restated handshake costs a read and no write.
    */
-  private noteFastSupport(s: Session, can: boolean): void {
-    const key = fastSupportKey(s.agentKind, s.model);
+  private noteFastSupport(s: Session, init: SessionEventPayload<"init">): void {
+    const answers: Record<string, boolean> = {};
+    for (const [model, can] of Object.entries(init.fastModeModels ?? {})) answers[fastSupportKey(s.agentKind, model || null)] = can;
+    if (init.supportsFastMode !== undefined) answers[fastSupportKey(s.agentKind, s.model)] = init.supportsFastMode;
     const held = readFastSupport(this.d.settings.get(MODEL_FAST_SUPPORT_KEY));
-    if (held[key] === can) return;
-    this.d.settings.set(MODEL_FAST_SUPPORT_KEY, { ...held, [key]: can });
+    if (Object.entries(answers).every(([key, can]) => held[key] === can)) return;
+    this.d.settings.set(MODEL_FAST_SUPPORT_KEY, { ...held, ...answers });
   }
 
   /**
@@ -1242,7 +1246,7 @@ export class SessionService {
     if (ev.type === "init") {
       this.noteContextReset(before, ev.payload);
       this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
-      if (ev.payload.supportsFastMode !== undefined) this.noteFastSupport(before, ev.payload.supportsFastMode);
+      if (ev.payload.supportsFastMode !== undefined || ev.payload.fastModeModels) this.noteFastSupport(before, ev.payload);
     }
     // A refused truncating resume is claimed here FIRST, and deliberately kept away from failover: the
     // refusal is deterministic, so every retry mechanism in the building would re-send a request that

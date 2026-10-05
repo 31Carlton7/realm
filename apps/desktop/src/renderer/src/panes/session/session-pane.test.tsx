@@ -210,17 +210,16 @@ describe("SessionPane", () => {
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Accept edits" }));
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
     openPicker();
-    fireEvent.click(screen.getByRole("option", { name: /Fake agent/ }));
+    fireEvent.click(screen.getByRole("option", { name: "Fake" }));
     await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("fake"));
     expect(store.getState().sessions.se1?.effort).toBeNull(); // the picker set model, not effort
   });
 
   it("Send is disabled with an empty draft while idle; the picker's Effort section sets the effort option", async () => {
-    // Prompter rework re-pin: the standalone effort chip is retired — effort is edited inside the
-    // model picker (its permanent Effort section) and worn by the chip as a gray suffix. What
-    // carried over from the chip's tests: the edit applies via setSessionOptions with the `effort`
-    // key and touches nothing else, and a null effort shows nothing (no placeholder, no suffix).
-    const { store } = await mount("idle", reduceAll([]));
+    // Effort is edited inside the model picker and worn by the chip as a grey suffix: the edit
+    // applies via setSessionOptions with the `effort` key and touches nothing else, and a null effort
+    // shows nothing. A Claude session, because Claude's is the adapter that hands the level on.
+    const { store } = await mountFresh();
     const send = screen.getByRole("button", { name: "Send" });
     expect(send).toBeDisabled();
     expect(send).toHaveAttribute("data-state", "send");
@@ -233,8 +232,10 @@ describe("SessionPane", () => {
     await waitFor(() => expect(store.getState().sessions.se1?.effort).toBe("high"));
     expect(store.getState().sessions.se1?.model).toBeNull(); // the effort edit set effort, not model
     expect(store.getState().sessions.se1?.permissionMode).toBe("default"); // …and not permission either
-    await exited();
-    expect(screen.queryByRole("dialog", { name: "Model picker" })).toBeNull(); // picking closes the picker
+    // A setting on the surface you are looking at: the segment answers, and the picker stays open
+    // for the model that may be next. Only picking a model closes it.
+    await waitFor(() => expect(within(group).getByRole("button", { name: "High" })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
     expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("High"); // the suffix wears it
   });
 
@@ -246,7 +247,7 @@ describe("SessionPane", () => {
     // glyph is the generic Hugeicons bot, never a brand mark.
     expect(chip.querySelector("[data-brand]")).toBeNull();
     openPicker();
-    fireEvent.click(screen.getByRole("option", { name: /Fake agent/ }));
+    fireEvent.click(screen.getByRole("option", { name: "Fake" }));
     await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("fake"));
     expect(chip).toHaveTextContent("Fake"); // AGENT_MODELS label for the picked id
   });
@@ -258,7 +259,8 @@ describe("SessionPane", () => {
     expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("GPT-5.6");
     openPicker();
     const row = screen.getByRole("option", { name: /GPT-5\.6/ });
-    expect(row).toHaveTextContent("Codex");
+    // The session's own agent leads under its own name, even with only its default to offer.
+    expect(row.closest("[role=group]")).toHaveAttribute("aria-label", "Codex");
     expect(row).toHaveAttribute("aria-selected", "true");
   });
 
@@ -436,10 +438,12 @@ describe("SessionPane", () => {
     // AcpAdapter never transmits Realm's mode ids, so the picker would silently do nothing for an ACP agent.
     await mountKind("acp:cursor");
     expect(screen.queryByRole("button", { name: "Permission mode" })).toBeNull();
-    // The rest of the bar is untouched: the model chip still opens the picker, whose permanent
-    // Effort section exists for every kind (effort's home since the standalone chip retired).
+    // The model chip still opens the picker — with no Effort section, because Cursor never receives
+    // Realm's level (it writes effort into its own model ids), and a control wired to nothing is
+    // the thing the per-kind tables exist to prevent.
     openPicker();
-    expect(screen.getByRole("group", { name: "Effort" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Effort" })).toBeNull();
   });
 });
 
@@ -805,6 +809,15 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
     const mark = screen.getByRole("button", { name: "Model" }).querySelector("[data-brand]")!;
     expect(mark).toHaveAttribute("data-brand", "openai");
     expect(mark.querySelector("path")).toHaveAttribute("fill", "currentColor");
+  });
+
+  it("wears no effort on the chip of a harness that never receives it", async () => {
+    // A Codex session can hold a level set under Claude before the switch; Codex drops it at thread
+    // start, so a suffix there would claim a setting nothing is applying.
+    await mountFresh({ agentKind: "codex", effort: "high" });
+    const chip = screen.getByRole("button", { name: "Model" });
+    expect(chip.querySelector(".chip-effort")).toBeNull();
+    expect(chip.getAttribute("title")).not.toContain("effort");
   });
 
   it("the gray suffix shows the SESSION's effort, capitalised (`xhigh` → XHigh), and hides when unset", async () => {
@@ -1241,7 +1254,8 @@ describe("prompter model picker", () => {
 
   it("picking a model inside the current agent leaves the agent alone", async () => {
     const { api, store } = await mountFresh({ model: "claude-opus-5" });
-    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Claude Opus 5");
+    // The vendor's word is the mark's job on the chip; the tooltip says the whole name.
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Opus 5");
     openPicker();
     fireEvent.click(screen.getByRole("option", { name: /Claude Haiku 4\.5/ }));
     await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-haiku-4-5"));
@@ -1259,43 +1273,33 @@ describe("prompter model picker", () => {
     expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("GPT-5.6");
   });
 
-  it("lists every agent's models, current agent first, each carrying its provider's brand mark", async () => {
+  it("lists the current agent's models first, then each agent with a list, then every other agent by name", async () => {
     await mountKindFresh("codex");
     openPicker();
-    expect(rowNames()).toEqual(["GPT-5.6", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5.5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
-      // Then the rest of SELECTABLE_AGENT_KINDS, in its order. The Plan 18 agents each contribute
-      // one "Default" row: their real catalogs are enumerated live by the probe, and naming a guess
-      // here would put a model the session is not on into the picker. DeepSeek is the exception —
-      // its ACP server is booted with one model and enumerates nothing, so its two are curated.
-      "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
+    expect(rowNames()).toEqual(["GPT-5.6", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5", "Haiku 4.5",
+      // DeepSeek's ACP server is booted with one model and enumerates nothing, so its two are curated
+      // and keep their group. Every agent with nothing but its own default is one row, by name.
       "DeepSeek V4 Pro", "DeepSeek V4 Flash",
-      // OpenHands contributes one "Default" for a stronger version of the same reason: its model is
-      // never on the ACP wire at all. Hermes is last, and back to the ordinary reason — its catalog
-      // is the user's own authenticated providers, which no table here could name in advance.
-      "Default", "Default"]);
+      "Cursor", "Gemini", "OpenCode", "GitHub Copilot", "goose", "Qwen Code", "Grok", "fx", "OpenHands", "Hermes"]);
     const marks = screen.getAllByRole("option").map((n) => n.querySelector("[data-brand]")?.getAttribute("data-brand"));
     // Hermes' row is the one with no `data-brand`: Nous Research publishes no vector mark, so it
     // wears Realm's own caduceus from the Hugeicons set instead of a vendored brand path.
-    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "claude", "cursor", "gemini",
-      "opencode", "githubCopilot", "goose", "qwen", "grok", "fx", "deepseek", "deepseek", "openhands", undefined]);
+    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "claude", "deepseek", "deepseek",
+      "cursor", "gemini", "opencode", "githubCopilot", "goose", "qwen", "grok", "fx", "openhands", undefined]);
     expect(document.querySelector("[data-brand='qwen']")).toHaveAttribute("viewBox", "0 0 141.38 140");
     expect(document.querySelector("[data-brand='githubCopilot']")?.querySelectorAll("path")).toHaveLength(3);
   });
 
-  it("eight rows labelled Default are still told apart — the row carries its agent, not just its model", async () => {
-    // The named mutant: DEFAULT_MODEL_LABEL giving every ACP agent whose model Realm cannot name the
-    // same string is only safe because the row's accessible name includes the agent. Drop
-    // `mp-row-provider` and the picker becomes eight identical options.
+  it("tells the agents Realm cannot ask for a model apart by name, not eight rows reading Default", async () => {
+    // The named mutant: labelling an Other agents row by its model. DEFAULT_MODEL_LABEL gives eight
+    // ACP agents the same "Default", and the picker becomes eight identical options.
     await mountKindFresh("codex");
     openPicker();
-    const defaults = screen.getAllByRole("option").filter((n) => n.querySelector(".mp-row-name")!.textContent === "Default");
-    expect(defaults).toHaveLength(8);
-    const names = defaults.map((n) => n.textContent);
-    expect(new Set(names).size).toBe(8);
-    expect(names.join("|")).toContain("OpenCode");
-    expect(names.join("|")).toContain("Qwen Code");
-    expect(names.join("|")).toContain("OpenHands");
-    expect(names.join("|")).toContain("Hermes");
+    const others = within(screen.getByRole("group", { name: "Other agents" })).getAllByRole("option");
+    expect(others.map((n) => n.querySelector(".mp-row-name")!.textContent)).not.toContain("Default");
+    const names = others.map((n) => n.getAttribute("aria-label"));
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toEqual(expect.arrayContaining(["OpenCode", "Qwen Code", "OpenHands", "Hermes", "Cursor, Composer"]));
   });
 
   it("never hides a session's own kind, even one that is not offered fresh", async () => {
@@ -1303,10 +1307,10 @@ describe("prompter model picker", () => {
     // see itself would show a list with nothing selected.
     await mountFresh({ agentKind: "fake" });
     openPicker();
-    expect(rowNames()).toEqual(["Fake", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5.5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
-      "GPT-5.6", "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
-      "DeepSeek V4 Pro", "DeepSeek V4 Flash", "Default", "Default"]);
-    expect(screen.getByRole("option", { name: /Fake agent/ })).toHaveAttribute("aria-selected", "true");
+    expect(rowNames()).toEqual(["Fake", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5", "Haiku 4.5",
+      "DeepSeek V4 Pro", "DeepSeek V4 Flash",
+      "Codex", "Cursor", "Gemini", "OpenCode", "GitHub Copilot", "goose", "Qwen Code", "Grok", "fx", "OpenHands", "Hermes"]);
+    expect(screen.getByRole("option", { name: "Fake" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("marks an unavailable CLI but keeps it pickable — the install card is where picking it leads", async () => {
@@ -1317,26 +1321,25 @@ describe("prompter model picker", () => {
     const row = screen.getByRole("option", { name: /GPT-5\.6/ });
     expect(row).toHaveTextContent("not installed");
     expect(row).not.toHaveAttribute("aria-disabled");
+    fireEvent.mouseEnter(row);
+    expect(document.querySelector(".mp-about-note")).toHaveTextContent(/Codex isn’t installed/);
     fireEvent.click(row);
     // Picking it switches the agent; SessionPane then swaps the prompter for the install card.
     await waitFor(() => expect(screen.getByText(AGENT_CLI_COMMANDS.codex.install!)).toBeInTheDocument());
   });
 
   describe("once the session has run", () => {
-    it("shows cross-agent rows as unavailable, with the reason, and refuses to pick them", async () => {
+    it("lists only what the session can still run, says why, and offers no way round it", async () => {
       const { api, store } = await mountFresh({}, 1);
       openPicker();
-      const codex = screen.getByRole("option", { name: /GPT-5\.6/ });
-      expect(codex).toHaveAttribute("aria-disabled", "true");
-      // The reason lives in the detail pane, where there is room for the whole sentence — the row
-      // itself only has to say that something is wrong.
-      fireEvent.mouseEnter(codex);
-      expect(screen.getByRole("dialog", { name: "Model picker" })).toHaveTextContent(/already run/);
-      fireEvent.click(codex);
-      // Nothing transmitted, nothing changed, and the picker is still open to explain itself.
+      expect(screen.queryByRole("option", { name: /GPT-5\.6/ })).toBeNull();
+      expect(within(screen.getByRole("listbox", { name: "Models" })).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["Claude"]);
+      expect(document.querySelector(".mp-locked")).toHaveTextContent(/already run on Claude/);
+      // A search that only other agents could answer says so, rather than "no match".
+      fireEvent.change(screen.getByRole("combobox", { name: "Search models" }), { target: { value: "gpt" } });
+      expect(document.querySelector(".mp-empty")).toHaveTextContent(/already run/);
       expect(api.calls.filter((c) => c.startsWith("setSessionAgent"))).toHaveLength(0);
       expect(store.getState().sessions.se1?.agentKind).toBe("claude");
-      expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
     });
 
     it("keeps models within the current agent selectable", async () => {
@@ -1351,9 +1354,10 @@ describe("prompter model picker", () => {
     it("locks on a live event arriving into an open prompter, and on a row that already carries events", async () => {
       const { store } = await mountFresh({}, 0);
       openPicker();
-      expect(screen.getByRole("option", { name: /GPT-5\.6/ })).not.toHaveAttribute("aria-disabled");
+      expect(screen.getByRole("option", { name: /GPT-5\.6/ })).toBeInTheDocument();
       act(() => store.getState().applySessionEvent({ seq: 7, sessionId: "se1", ephemeral: false, event: sessionEvent("user_message", { text: "hi", attachments: [] }) }));
-      await waitFor(() => expect(screen.getByRole("option", { name: /GPT-5\.6/ })).toHaveAttribute("aria-disabled", "true"));
+      await waitFor(() => expect(screen.queryByRole("option", { name: /GPT-5\.6/ })).toBeNull());
+      expect(document.querySelector(".mp-locked")).not.toBeNull();
 
       // lastEventSeq comes back with sessions.list; the transcript is fetched afterwards. Trusting
       // only the transcript would flash a live agent switch on every revisit of a long session.
@@ -1363,7 +1367,7 @@ describe("prompter model picker", () => {
       render(<StoreContext.Provider value={st}><SessionPane item={item("i8", "s1", { kind: "session", refId: "se2", title: "Claude session" })} visible /></StoreContext.Provider>);
       const chips = await screen.findAllByRole("button", { name: "Model" });
       fireEvent.click(chips[1]!);
-      await waitFor(() => expect(screen.getAllByRole("option", { name: /GPT-5\.6/ })[0]).toHaveAttribute("aria-disabled", "true"));
+      await waitFor(() => expect(screen.getAllByRole("dialog", { name: "Model picker" }).at(-1)).toHaveTextContent(/already run on Claude/));
     });
   });
 
@@ -1373,7 +1377,7 @@ describe("prompter model picker", () => {
       openPicker();
       const search = screen.getByRole("combobox", { name: "Search models" });
       fireEvent.change(search, { target: { value: "opus" } }); // model name only
-      expect(rowNames()).toEqual(["Claude Opus 5.5", "Claude Opus 5"]);
+      expect(rowNames()).toEqual(["Opus 5.5", "Opus 5"]);
       fireEvent.change(search, { target: { value: "cursor" } }); // agent name only
       expect(rowNames()).toEqual(["Composer"]);
       // Model *ids* are deliberately not searched: `claude-haiku-4-5` would make this match.
@@ -1384,23 +1388,23 @@ describe("prompter model picker", () => {
 
     it("groups by harness when idle and drops the headings while searching", async () => {
       // The list teaches which CLI runs what — but a filtered list is already an answer, and a
-      // heading per result would push the third match below the fold to repeat the row's own line.
+      // heading per result would push the third match below the fold to repeat the row's own mark.
       await mountFresh();
       openPicker();
       const headings = () => [...document.querySelectorAll(".mp-group-label")].map((n) => n.textContent);
-      expect(headings()).toContain("Claude");
-      expect(headings()).toContain("Codex");
+      expect(headings()).toEqual(["Claude", "DeepSeek", "Other agents"]);
       fireEvent.change(screen.getByRole("combobox", { name: "Search models" }), { target: { value: "opus" } });
-      expect(headings()).toEqual(["Run it through"]); // the detail pane's own label, not a list heading
+      expect(headings()).toEqual([]);
     });
 
     it("Enter picks the highlighted row after arrowing down", async () => {
+      // The highlight opens on the current model (Fable 5.1, the default), so one step down is Fable 5.
       const { store } = await mountFresh();
       openPicker();
       const search = screen.getByRole("combobox", { name: "Search models" });
       fireEvent.keyDown(search, { key: "ArrowDown" });
       fireEvent.keyDown(search, { key: "Enter" });
-      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-fable-5")); // row 2 of Claude's list
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-fable-5"));
     });
   });
 
@@ -1427,15 +1431,19 @@ describe("prompter model picker", () => {
       fireEvent.click(screen.getAllByRole("option", { name: /Auto/ })[0]!);
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("default[]"));
     });
-
   });
 
   describe("favourites", () => {
     const OPUS = canonicalModelKey("Claude Opus 5");
     const HAIKU = canonicalModelKey("Claude Haiku 4.5");
     const searchBox = () => screen.getByRole("combobox", { name: "Search models" });
-    const starOn = (label: string | RegExp) =>
-      within(screen.getByRole("option", { name: label })).getByRole("button", { name: /Favourite|Unfavourite/ });
+    /** A row's star, which is drawn on the row under the pointer (and on a starred one) — so the
+     *  pointer goes there first, as a person's would. */
+    const starOn = (label: string | RegExp) => {
+      const row = screen.getByRole("option", { name: label });
+      fireEvent.mouseEnter(row);
+      return within(row).getByRole("button", { name: /Favourite|Unfavourite/ });
+    };
     /** Preloads starred keys the way a previous session would have left them in `settings`. */
     const withFavorites = async (keys: string[]) => {
       const r = await mountFresh();
@@ -1484,7 +1492,7 @@ describe("prompter model picker", () => {
     it("floats favourites to the top and numbers them down the page", async () => {
       await withFavorites([HAIKU, OPUS]); // starred in this order; the badges must not follow it
       openPicker();
-      expect(rowNames().slice(0, 2)).toEqual(["Claude Opus 5", "Claude Haiku 4.5"]); // list order, not starring order
+      expect(rowNames().slice(0, 2)).toEqual(["Opus 5", "Haiku 4.5"]); // list order, not starring order
       const badges = screen.getAllByRole("option").map((n) => n.querySelector(".mp-kbd")?.textContent ?? null);
       expect(badges.slice(0, 2)).toEqual(["⌘1", "⌘2"]);
       expect(badges.slice(2).every((b) => b === null)).toBe(true); // only favourites are numbered
@@ -1496,7 +1504,7 @@ describe("prompter model picker", () => {
       const { store } = await withFavorites([OPUS, HAIKU]);
       openPicker();
       fireEvent.change(searchBox(), { target: { value: "haiku" } });
-      expect(rowNames()).toEqual(["Claude Haiku 4.5"]);
+      expect(rowNames()).toEqual(["Haiku 4.5"]);
       expect(screen.getByRole("option", { name: /Haiku/ }).querySelector(".mp-kbd")).toHaveTextContent("⌘1");
       fireEvent.keyDown(searchBox(), { key: "1", metaKey: true });
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-haiku-4-5"));
@@ -1534,7 +1542,7 @@ describe("prompter model picker", () => {
       openPicker();
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
-      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, now one row further down
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, three rows under the current Fable 5.1
       fireEvent.keyDown(searchBox(), { key: "Enter", altKey: true });
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([canonicalModelKey("Claude Opus 5")]));
       expect(store.getState().sessions.se1?.model).toBeNull(); // ⌥↩ stars; it does not pick
@@ -1542,31 +1550,30 @@ describe("prompter model picker", () => {
 
     it("keeps the highlight on the row ⌥↩ just starred, after it sorts to the top", async () => {
       // Starring re-sorts the list under the highlight. Anchored to an index, the highlight would
-      // stay in slot 2 while the starred row moved to slot 0 — so the very next Enter would pick
+      // stay in slot 3 while the starred row moved to slot 0 — so the very next Enter would pick
       // whichever model slid into that slot, not the one the user was looking at.
       const { store } = await mountFresh();
       openPicker();
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
-      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, row 4 since 5.5 joined
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5
       fireEvent.keyDown(searchBox(), { key: "Enter", altKey: true });
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([OPUS]));
-      expect(rowNames()[0]).toBe("Claude Opus 5"); // it moved
+      expect(rowNames()[0]).toBe("Opus 5"); // it moved
       const active = document.querySelector(".mp-row[data-active] .mp-row-name")?.textContent;
-      expect(active).toBe("Claude Opus 5"); // and the highlight moved with it
+      expect(active).toBe("Opus 5"); // and the highlight moved with it
       fireEvent.keyDown(searchBox(), { key: "Enter" });
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5"));
     });
-
   });
 
-  describe("the route pills (the harness chip's replacement)", () => {
+  describe("a model's other harness, on its own row", () => {
     /** Cursor proxying a model the Claude CLI also runs — the overlap a route switch has to carry. */
     const proxyProbe: AgentProbe[] = [
       { kind: "acp:cursor", available: true, version: "2026.09", loggedIn: null, reason: null,
         models: [{ id: "claude-fable-5.1", label: "Claude Fable 5.1" }, { id: "gpt-5.5", label: "GPT-5.5" }] },
     ];
-    const detail = () => screen.getByRole("dialog", { name: "Model picker" });
+    const picker = () => screen.getByRole("dialog", { name: "Model picker" });
 
     it("the prompter has ONE chip, and it names the harness as well as the model", async () => {
       // The harness menu is gone: a harness is only ever chosen FOR a model, so it moved inside the
@@ -1574,56 +1581,38 @@ describe("prompter model picker", () => {
       await mountFresh({ model: "claude-opus-5" });
       expect(screen.queryByRole("button", { name: "Harness" })).toBeNull();
       const chip = screen.getByRole("button", { name: "Model" });
-      expect(chip).toHaveTextContent("Claude Opus 5");
+      expect(chip).toHaveTextContent("Opus 5");
       expect(chip.getAttribute("title")).toBe("Claude Opus 5 through Claude");
       expect(chip.querySelector("[data-brand]")).toHaveAttribute("data-brand", "claude"); // the HARNESS's mark
     });
 
-    it("offers one pill per harness that can run the highlighted model, resolved one pressed", async () => {
+    it("lists the model ONCE, and offers its harnesses on its row, the session's own lit", async () => {
+      /* The old list drew Fable under Claude and again under Cursor, with a detail pane of route pills
+         beside it — the same model read as two, and the harness was chosen in a second place. */
       const { store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
-      fireEvent.mouseEnter(screen.getAllByRole("option", { name: /Claude Fable 5\.1/ })[0]!); // the session's own placement leads
-      const pills = within(detail()).getAllByRole("button", { name: /^Run Claude Fable 5\.1 through/ });
-      expect(pills.map((p) => p.textContent)).toEqual(["Claude", "Cursor"]);
-      expect(pills[0]).toHaveAttribute("aria-pressed", "true"); // the session's own harness wins the tie
+      const fable = screen.getAllByRole("option", { name: /Claude Fable 5\.1/ });
+      expect(fable).toHaveLength(1);
+      fireEvent.mouseEnter(fable[0]!);
+      const ways = within(fable[0]!).getAllByRole("button", { name: /^Run Claude Fable 5\.1 through/ });
+      expect(ways.map((b) => b.getAttribute("aria-label"))).toEqual(["Run Claude Fable 5.1 through Claude", "Run Claude Fable 5.1 through Cursor"]);
+      expect(ways[0]).toHaveAttribute("aria-pressed", "true"); // the session's own harness wins the tie
     });
 
-    it("switching the route and using the model re-maps the id for the harness that will run it", async () => {
+    it("one click on the other harness re-maps the id for the harness that will run it", async () => {
       // The point of keeping the axes distinct: changing WHAT RUNS must not silently change WHAT IT
       // RUNS. Cursor names this model by a different id, so the switch re-maps rather than re-sends.
       const { api, store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
-      fireEvent.mouseEnter(screen.getAllByRole("option", { name: /Claude Fable 5\.1/ })[0]!); // the session's own placement leads
-      fireEvent.click(within(detail()).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" }));
-      fireEvent.click(within(screen.getByRole("dialog", { name: "Model picker" })).getByRole("button", { name: /model$/ }));
+      const fable = screen.getByRole("option", { name: /Claude Fable 5\.1/ });
+      fireEvent.mouseEnter(fable);
+      fireEvent.click(within(fable).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" }));
       await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("acp:cursor"));
       expect(store.getState().sessions.se1?.model).toBe("claude-fable-5.1"); // Cursor's id, not Claude's
       expect(api.calls.filter((c) => c.startsWith("setSessionAgent") || c.startsWith("setSessionOptions")))
         .toEqual(["setSessionAgent:se1=acp:cursor", "setSessionOptions:se1"]); // setAgent clears model, so order matters
-    });
-
-    it("lists a model under EVERY harness that offers it, and the copy routes through that harness", async () => {
-      // The bug this closes: once Cursor's catalog arrived, the Claude models it could also run
-      // resolved to the session's harness alone and disappeared from the other group — in a Cursor
-      // session the Claude list emptied, and the only way to Fable-through-Claude was to pick it
-      // under Cursor and change the route in the detail pane. Now the list says what each harness
-      // can run, and the route pane is where that choice is refined rather than where it is made.
-      const { store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
-      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
-      openPicker();
-      const copies = screen.getAllByRole("option", { name: /Claude Fable 5\.1/ });
-      expect(copies).toHaveLength(2);
-      expect(copies[0]).toHaveTextContent("Claude");
-      expect(copies[1]).toHaveTextContent("Cursor");
-      // The tick is drawn once — the session runs Fable on its own harness, and the copy is a route.
-      expect(copies.filter((c) => c.getAttribute("aria-selected") === "true")).toHaveLength(1);
-      fireEvent.mouseEnter(copies[1]!);
-      expect(within(detail()).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" })).toHaveAttribute("aria-pressed", "true");
-      fireEvent.click(copies[1]!);
-      await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("acp:cursor"));
-      expect(store.getState().sessions.se1?.model).toBe("claude-fable-5.1");
     });
 
     it("←/→ walk the routes without leaving the search field", async () => {
@@ -1633,27 +1622,30 @@ describe("prompter model picker", () => {
       const search = screen.getByRole("combobox", { name: "Search models" });
       fireEvent.change(search, { target: { value: "fable 5.1" } });
       fireEvent.keyDown(search, { key: "ArrowRight" });
-      expect(within(detail()).getByRole("button", { name: /through Cursor/ })).toHaveAttribute("aria-pressed", "true");
+      expect(within(picker()).getByRole("button", { name: /through Cursor/ })).toHaveAttribute("aria-pressed", "true");
       fireEvent.keyDown(search, { key: "Enter" });
       await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("acp:cursor"));
       expect(store.getState().sessions.se1?.model).toBe("claude-fable-5.1");
     });
 
-    it("a route the user chose applies to that model only, not to the next one they look at", async () => {
+    it("a route the user chose applies to that model only, not to the next one they pick", async () => {
       // A route is part of the choice being made, not a mode the picker is in — otherwise glancing
       // at one model would re-route the next.
-      const { store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
+      const { api, store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
-      fireEvent.mouseEnter(screen.getAllByRole("option", { name: /Claude Fable 5\.1/ })[0]!); // the session's own placement leads
-      fireEvent.click(within(detail()).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" }));
+      const search = screen.getByRole("combobox", { name: "Search models" });
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      fireEvent.keyDown(search, { key: "ArrowRight" }); // Fable now lit through Cursor
       fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Sonnet 5/ }));
-      expect(within(detail()).getByRole("button", { name: /Claude Sonnet 5 through Claude/ })).toHaveAttribute("aria-pressed", "true");
+      fireEvent.keyDown(search, { key: "Enter" });
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-sonnet-5"));
+      expect(api.calls.filter((c) => c.startsWith("setSessionAgent"))).toHaveLength(0);
     });
 
-    it("says what the harness is for, and how it bills, next to the price it would charge", async () => {
-      // The line that stops a per-token number from lying: Claude Code runs on a subscription, so
-      // "$50 / Mtok" is context rather than a bill, and the picker has to say which.
+    it("describes the highlighted model in a line: what it is for, its context and its API price", async () => {
+      // The specs are secondary — a line under the list, not a column — and the price is the
+      // catalog's API list price: who actually bills for the harness is on the line's hover.
       const { store } = await mountFresh();
       await act(async () => {
         store.setState({ modelInfo: { [canonicalModelKey("Claude Fable 5.1")]: {
@@ -1661,24 +1653,23 @@ describe("prompter model picker", () => {
           priceIn: 10, priceOut: 50, context: 1_000_000, efforts: ["max", "low"], blurb: "Vendor prose." } } });
       });
       openPicker();
-      fireEvent.mouseEnter(screen.getAllByRole("option", { name: /Claude Fable 5\.1/ })[0]!); // the session's own placement leads
-      expect(detail()).toHaveTextContent("$10 / Mtok");
-      expect(detail()).toHaveTextContent("$50 / Mtok");
-      expect(detail()).toHaveTextContent("1M");
-      expect(detail()).toHaveTextContent(AGENT_NOTES.claude.billing);
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      const specs = picker().querySelector(".mp-about-specs")!;
+      expect(specs).toHaveTextContent("1M context · $10 in · $50 out per Mtok");
+      expect(specs.getAttribute("title")).toBe(AGENT_NOTES.claude.billing.replace(/`/g, ""));
       // Realm's own sentence beats the catalog's marketing first line.
-      expect(detail()).toHaveTextContent(MODEL_NOTES.get(canonicalModelKey("Claude Fable 5.1"))!);
-      expect(detail()).not.toHaveTextContent("Vendor prose.");
+      expect(picker()).toHaveTextContent(MODEL_NOTES.get(canonicalModelKey("Claude Fable 5.1"))!);
+      expect(picker()).not.toHaveTextContent("Vendor prose.");
     });
 
     it("renders a model the catalog has never heard of without inventing a price", async () => {
       // Composer and every "Default" row have no catalog entry at all. A picker that hid them, or
-      // guessed, would be worse than one that shows the sentence and stops.
+      // guessed, would be worse than one that says who bills and stops.
       await mountFresh();
       openPicker();
       fireEvent.mouseEnter(screen.getByRole("option", { name: /Composer/ }));
-      expect(detail()).not.toHaveTextContent("/ Mtok");
-      expect(detail()).toHaveTextContent(AGENT_NOTES["acp:cursor"].good);
+      expect(picker()).not.toHaveTextContent("per Mtok");
+      expect(picker().querySelector(".mp-about-specs")).toHaveTextContent(AGENT_NOTES["acp:cursor"].billing);
     });
 
     it("warns about a harness that cannot do what its neighbours can", async () => {
@@ -1687,20 +1678,19 @@ describe("prompter model picker", () => {
       await mountFresh();
       openPicker();
       fireEvent.mouseEnter(screen.getByRole("option", { name: /DeepSeek V4 Pro/ }));
-      expect(detail()).toHaveTextContent(AGENT_NOTES["acp:deepseek"].limits!);
-      expect(detail()).toHaveTextContent(AGENT_NOTES["acp:deepseek"].billing);
+      expect(picker()).toHaveTextContent(AGENT_NOTES["acp:deepseek"].limits!);
+      expect(picker()).toHaveTextContent(AGENT_NOTES["acp:deepseek"].billing);
     });
 
-    it("cannot re-route a session that has already run, and says why", async () => {
-      // sessions.setAgent refuses after the first event. The pills stay visible and disabled: a model
-      // whose routes vanished would read as a bug rather than as a rule.
-      await mountFresh({ lastEventSeq: 3 }, 3);
+    it("offers no other harness once the session has run, and says why", async () => {
+      // sessions.setAgent refuses after the first event, so a second way to run a model would be a
+      // click whose only outcome is a refusal.
+      const { store } = await mountFresh({ model: "claude-fable-5-1", lastEventSeq: 3 }, 3, proxyProbe);
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
-      fireEvent.mouseEnter(screen.getByRole("option", { name: /GPT-5\.6/ }));
-      const pill = within(detail()).getByRole("button", { name: /through Codex/ });
-      expect(pill).toBeDisabled();
-      expect(detail()).toHaveTextContent(/already run/);
-      expect(within(detail()).getByRole("button", { name: /model$/ })).toBeDisabled();
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      expect(picker().querySelector(".mp-ways")).toBeNull();
+      expect(picker()).toHaveTextContent(/already run on Claude/);
     });
   });
 });

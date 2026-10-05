@@ -1022,8 +1022,13 @@ describe("CodexAdapter model catalog", () => {
     const r = await adapter.probe();
     expect(r.kind).toBe("codex");
     expect(r.available).toBe(true);
-    // The hidden preview model is exactly what `hidden` means — it must not reach the picker.
-    expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }, { id: "gpt-5.6-terra", label: "GPT-5.6-Terra" }]);
+    // The hidden preview model is exactly what `hidden` means — it must not reach the picker. Each
+    // row carries what the catalog said about Fast, and the default carries its mark, so a session
+    // that has not started can offer the switch on the CLI's own word — Terra's `false` included.
+    expect(r.models).toEqual([
+      { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fastMode: true, isDefault: true },
+      { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", fastMode: false },
+    ]);
     // A probe must not leave an app-server child behind: the shared-connection refcount never saw it.
     expect(adapter.processCount).toBe(0);
     expect(adapter.sessionCount).toBe(0);
@@ -1032,7 +1037,7 @@ describe("CodexAdapter model catalog", () => {
   it("follows nextCursor across pages", async () => {
     process.env.FAKE_CODEX_MODEL_PAGES = "1";
     const r = await newAdapter().probe();
-    expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }, { id: "gpt-5.4-mini", label: "GPT-5.4-Mini" }]);
+    expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fastMode: false }, { id: "gpt-5.4-mini", label: "GPT-5.4-Mini", fastMode: false }]);
   });
 
   it("degrades -32601 to models:null (a build from before model/list) without failing the probe, sticky", async () => {

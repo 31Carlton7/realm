@@ -43,9 +43,9 @@ export type StartOptions = {
   model?: string | null;
   effort?: string | null;
   permissionMode?: string;
-  /** The session has ASKED for fast mode. Only `claude` acts on it; every other adapter ignores it,
-   *  and none of them is obliged to report back — the honest answer for an engine with no such
-   *  concept is silence, which the prompter reads as "no switch to offer". */
+  /** The session has ASKED for fast mode. `claude` and `codex` act on it (`AGENT_FAST_MODE`); every
+   *  other adapter ignores it, and none of them is obliged to report back — the honest answer for an
+   *  engine with no such concept is silence, which the prompter reads as "no switch to offer". */
   fastMode?: boolean;
   systemContext?: string;
   /** Since Plan 9 W3, `apps/server` always sends exactly ONE entry: the gateway's own `http` endpoint —

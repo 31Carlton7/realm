@@ -10,9 +10,9 @@ import { agentAvailability, availabilityNote } from "../../state/agent-availabil
 import { MentionPicker, filterMentionSkills, mentionQueryAt } from "./MentionPicker";
 import { SlashPicker } from "./SlashPicker";
 import { filterSlashCommands, slashCallIn, slashQueryAt, type SlashCommand } from "./slash-commands";
-import { modelIdOn, modelRows } from "./model-rows";
+import { effortLevels, fastModeAvailability, formatEffort, modelRows, type FastMode } from "./model-catalog";
 import { SkillPicker } from "./SkillPicker";
-import { ModelPicker, formatEffort, type FastMode, type OverflowGroup } from "./ModelPicker";
+import { ModelPicker, type OverflowGroup } from "./ModelPicker";
 import { heroGreeting } from "./greeting";
 import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
@@ -34,6 +34,7 @@ const EMPTY_USAGE: Usage = { costUsd: 0, inputTokens: 0, outputTokens: 0, numTur
 const NO_COMMANDS: SlashCommand[] = [];
 /** Stable empty default, for the same reason. */
 const NO_GREETINGS: readonly string[] = [];
+const NO_FAST_SUPPORT: Record<string, boolean> = {};
 
 /** Branch + diff chips (W3): still the one way IN to the diff pane. The cwd and environment chips
  *  that used to lead this group are retired outright (prompter rework): the folder and the checkout
@@ -423,7 +424,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, supportsFastMode, links, onLinkPaste, quote = null, compact = false }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, links, onLinkPaste, quote = null, compact = false }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -561,11 +562,12 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   /** Hero-greeting lines from an unlocked friend pack. Drawn only with the eggs on, like everything
    *  else a pack brings — the switch is the consent boundary and a pack is not a way around it. */
   packGreetings?: readonly string[];
-  /** Whether the harness has said THIS session's model can run fast mode — its own `init`, or before
-   *  it has one, what the last session on the same model heard (`MODEL_FAST_SUPPORT_KEY`). Undefined
-   *  is "not stated", and the picker offers no switch — never a disabled one, because there is
-   *  nothing the user could do about a capability nobody has claimed. */
-  supportsFastMode?: boolean;
+  /** This session's own handshake, where it has one — its model and what the harness said about
+   *  that model's fast mode. */
+  sessionInit?: { model: string; supportsFastMode?: boolean } | null;
+  /** What harnesses have said about fast mode, per agent and model (`MODEL_FAST_SUPPORT_KEY`) — how
+   *  a session that has not started can offer the switch on the harness's word. */
+  fastSupport?: Record<string, boolean>;
   /** The draft's link chips (store `draftLinks`): what a `@[label]` token in the text stands for,
    *  so the mirror can wear the app's mark on it. */
   links?: readonly LinkChip[];
@@ -1048,18 +1050,6 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     if (submitKey === "enter" && e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
-  // Effort's one home is the model picker (prompter rework): the standalone chip is retired, the
-  // chip's gray suffix names the level, and this list is the picker's permanent Effort section.
-  // Deliberately narrow (no `MenuItem[]`): OverflowGroup's item shape, which has no separator arm.
-  const effortItems = EFFORT_LEVELS.map((l) => ({ label: formatEffort(l), checked: session.effort === l, effort: l, onSelect: () => onOptions({ effort: l }) }));
-  /* The switch and the truth, kept apart. `on` is what the session asked for and lives in its row;
-     `state`/`reason` are what the last finished turn reported and live on the usage sample — see the
-     `usage` event's own note for why those can differ, routinely. Built only when the harness has
-     said the model can run it at all. */
-  const fast: FastMode | undefined = supportsFastMode
-    ? { on: session.fastMode, state: usage.fastMode ?? null, reason: usage.fastModeReason ?? null,
-        requested: usage.fastModeRequested ?? null, onChange: (on) => onOptions({ fastMode: on }) }
-    : undefined;
   // Only the modes this agent can actually be put INTO. Build is always offered — it is the absence
   // of the other two, not a capability — and a menu row for a mode nothing would enforce is the lie
   // the per-kind tables exist to prevent.
@@ -1074,9 +1064,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     ? [canPlan ? modeMeaning("plan", kind, acpPlan) : null, canAsk ? modeMeaning("ask", kind, acpAsk) : null].filter(Boolean).join(". ")
     : modeMeaning(mode, kind, mode === "ask" ? acpAsk : acpPlan));
 
-  // Built HERE rather than inside ModelPicker so the harness chip and the model list are the same
-  // rows: the chip resolves a switch through `modelIdOn`, and two independent `modelRows` calls
-  // could disagree about which harness a model resolved to.
+  // Built HERE rather than inside ModelPicker so the chip, the list, the effort levels and the
+  // fast-mode answer all read the same rows: two independent `modelRows` calls could disagree about
+  // which harness a model resolved to.
   const rows = useMemo(
     () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, favorites: modelFavorites }),
     [kind, session.model, agentProbe, canSwitchAgent, modelFavorites]);
@@ -1089,6 +1079,23 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     const selected = rows.find((r) => r.selected);
     return (selected && modelInfo[selected.key]?.context) ?? null;
   }, [rows, modelInfo]);
+
+  // Effort's one home is the model picker, and only where the harness receives it: the levels the
+  // model takes, plus the session's own level if it has wandered off that list (set under another
+  // model), so the segment that is in force is never the one missing. Deliberately narrow (no
+  // `MenuItem[]`): OverflowGroup's item shape, which has no separator arm.
+  const levels = effortLevels(kind, modelInfo[rows.find((r) => r.selected)?.key ?? ""]);
+  const effortItems = (levels.length > 0 && session.effort && !(levels as string[]).includes(session.effort)
+    ? EFFORT_LEVELS.filter((l) => (levels as string[]).includes(l) || l === session.effort) : levels)
+    .map((l) => ({ label: formatEffort(l), checked: session.effort === l, effort: l, onSelect: () => onOptions({ effort: l }) }));
+  /* The switch and the truth, kept apart. `on` is what the session asked for and lives in its row;
+     `state`/`reason` are what the last finished turn reported and live on the usage sample — see the
+     `usage` event's own note for why those can differ, routinely. `availability` is what can be
+     said before either: absent only where Realm has no way to ask this harness at all. */
+  const fastAvailability = fastModeAvailability({ kind, model: session.model, init: sessionInit, agentProbe, remembered: fastSupport, rows });
+  const fast: FastMode | undefined = fastAvailability.state === "none" ? undefined
+    : { on: session.fastMode, state: usage.fastMode ?? null, reason: usage.fastModeReason ?? null,
+        requested: usage.fastModeRequested ?? null, onChange: (on) => onOptions({ fastMode: on }), availability: fastAvailability };
 
   /* One builder, two targets. In Build the picker writes the LIVE permission; in Plan or Ask it
      writes the park — the value returning to Build will restore — because that is the only real,
@@ -1326,11 +1333,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             )}
           </div>
           <div className="composer-actions">
-            {/* ONE chip, not two. The harness menu that used to sit here is gone: a harness is only
-                ever chosen FOR a model, so that choice moved inside the picker as the highlighted
-                model's "Run it through" pills, where the consequence of each route is on screen
-                beside it. The chip still wears the harness's mark, so nothing it said is lost. */}
-            <ModelPicker kind={kind} model={session.model} effort={session.effort} rows={rows} info={modelInfo}
+            {/* ONE chip, not two. A harness is only ever chosen FOR a model, so that choice lives on
+                the model's own row in the picker, where there is one. The chip still wears the
+                harness's mark, so nothing a harness chip said is lost. */}
+            <ModelPicker kind={kind} model={session.model} effort={levels.length > 0 ? session.effort : null} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
               onPick={onPickModel} effortItems={effortItems} overflow={overflow} fast={fast} eggs={eggs} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,

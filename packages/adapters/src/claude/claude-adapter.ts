@@ -16,6 +16,30 @@ type DeclaredSettings = { [K in keyof Settings as string extends K ? never : num
 const modelBase = (id: string | undefined): string | undefined => id?.replace(/\[[^\]]*\]$/, "");
 
 /**
+ * The CLI's fast-mode answer for every model in its `supportedModels()` list, keyed the way a
+ * prompter that has started nothing will ask: by the id a session would pin, or "" for the CLI's own
+ * `default` row — what a session with no model runs.
+ *
+ * The same precedence `reportFastModeSupport` uses for one model, applied to all of them: an entry
+ * naming the id itself outranks a context-window variant of it (`opus[1m]` → `claude-opus-5-5[1m]`),
+ * and a variant only speaks for an id nothing else has named. Rows that state nothing are skipped —
+ * silence is not a `no`.
+ */
+export function fastModeByModel(rows: readonly { value: string; resolvedModel?: string; supportsFastMode?: boolean }[]): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  for (const r of rows) {
+    if (typeof r.supportsFastMode !== "boolean") continue;
+    const isDefault = r.value === "default";
+    if (isDefault) out[""] = r.supportsFastMode;
+    const base = modelBase(isDefault ? r.resolvedModel : r.resolvedModel ?? r.value);
+    if (!base) continue;
+    if (!isDefault && (r.value === base || r.resolvedModel === base)) out[base] = r.supportsFastMode;
+    else if (!(base in out)) out[base] = r.supportsFastMode;
+  }
+  return out;
+}
+
+/**
  * The truncating half of a resume: put the model back where a checkpoint found it.
  *
  * `resumeAt` is a chain-entry uuid of the session named by `resume`, and `resumeDropsTurn` is the
@@ -362,8 +386,11 @@ export class ClaudeAdapter implements AgentAdapter {
         const base = modelBase(init.model);
         const hit = rows.find((r) => r.value === init.model || r.resolvedModel === init.model)
           ?? rows.find((r) => modelBase(r.value) === base || modelBase(r.resolvedModel) === base);
-        if (hit?.supportsFastMode === undefined) return;
-        events.push(sessionEvent("init", { ...init, supportsFastMode: hit.supportsFastMode }));
+        const all = fastModeByModel(rows);
+        if (hit?.supportsFastMode === undefined && Object.keys(all).length === 0) return;
+        events.push(sessionEvent("init", { ...init,
+          ...(hit?.supportsFastMode === undefined ? {} : { supportsFastMode: hit.supportsFastMode }),
+          ...(Object.keys(all).length > 0 ? { fastModeModels: all } : {}) }));
       } catch { /* the CLI declined; the capability stays unstated */ }
     };
 

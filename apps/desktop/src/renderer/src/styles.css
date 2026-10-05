@@ -34,7 +34,7 @@
 .diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .file-preview-path, .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
-.mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .mention-row-id,
+.mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .mention-row-id, .mp-about code,
 .msg-error pre, .office-drawn-size, .office-kept, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
@@ -1231,159 +1231,90 @@ kbd { font: 11px var(--font-mono); }
 .skill-file-name[aria-expanded="true"] .skill-file-caret { transform: rotate(90deg); }
 .skill-file-body { min-width: 0; }
 
-/* ── Model picker (prompter): search, grouped model list, and a detail pane ── */
-/* Wide enough for two columns because the popover now answers three questions, not one: which model,
-   what it is for and what it costs, and which harness runs it. 620px is the width at which the list
-   keeps a full model name on one line AND the detail pane fits a price pair side by side. */
-.model-picker { z-index: 100; width: min(620px, calc(100vw - 24px)); display: flex; flex-direction: column; overflow: hidden;
+/* ── Model picker (prompter): search, one list, the highlighted model's line, and how it runs ── */
+/* One column, Codex-compact. Wide enough that a model's name, a second harness's mark beside it and
+   the five effort levels each fit on one line, and no wider: the old 620px two-column surface went
+   with the detail pane it held. */
+.model-picker { z-index: 100; width: min(372px, calc(100vw - 24px)); display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
-.mp-search { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: var(--hairline-w) solid var(--rl-hairline); color: var(--rl-text-faint); }
+.mp-search { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: var(--hairline-w) solid var(--rl-hairline); color: var(--rl-text-faint); }
 .mp-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--rl-text-bright); }
 .mp-search input::placeholder { color: var(--rl-text-faint); }
-/* Provider filter (Plan: under the search). One horizontal row of the MAKERS behind the rows — see
-   `modelVendor` for why a provider here is the vendor and not the harness. It sits on the frame tint
-   rather than behind a second hairline: the search field above it already draws the one seam this
-   header needs, and two rules 30px apart would say the same thing twice.
-   Scrolls sideways when there are more vendors than fit, with its bar hidden the way the app's other
-   horizontal strips hide theirs — a scrollbar under a 26px row would be the tallest thing in it. */
-/* On the picker's OWN surface, not a darker band. The tint made the strip read as a separate
-   toolbar bolted to the top of the popover rather than as one of its rows — and the search field
-   directly above it sits on the surface, so the two adjacent pieces of chrome disagreed. The
-   hairline under the search is what separates them; a second cue was one too many. */
-/* The scroller's offset parent, so the two side bands hang off the strip rather than travelling
-   with it — the same arrangement `.mp-list-wrap` makes for the list below. */
-.mp-jumps-wrap { position: relative; flex: none; --fade-w: 24px; }
-.mp-jumps { display: flex; align-items: center; gap: 4px; padding: 7px 12px;
-  overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
-/* Nothing here is ever "on". A jump button is a door, not a state — it leaves the list exactly as it
-   found it — so it carries hover and focus and no lit treatment at all. The strip that filtered used
-   to wear the effort segment's raised fill to say "in force"; keeping that would promise a mode the
-   button no longer has. */
-.mp-jump { flex: none; display: inline-flex; align-items: center; padding: 3px 9px; border: 0; border-radius: var(--r-chip); corner-shape: squircle;
-  background: transparent; font: inherit; font-size: 12px; font-weight: var(--fw-medium); color: var(--rl-text-dim); white-space: nowrap; cursor: default; }
-.mp-jump:hover { color: var(--rl-text-bright); background: var(--hover); }
-/* The harness's mark leads its name, at the inline rung — the same mark the rows under that heading
-   wear at 16, so a jump and the block it lands on are recognisably the same thing. */
-.mp-jump-mark { flex: none; margin-right: 5px; }
-/* The two columns share ONE height, set here rather than on either child: the detail pane grows with
-   whatever the highlighted model has to say, and a list that capped itself independently would leave
-   the divider hanging in mid-air below it. `stretch` then makes the shorter column fill. */
-/* The band's depth and ground live on the ROW, not on either column: the list and the detail sit
-   side by side under one border, and two different dissolve depths on one surface read as two
-   materials. Declared once here, inherited by both wraps below. */
-.mp-body { display: flex; min-height: 0; max-height: min(52vh, 420px); align-items: stretch;
-  --fade-h: 28px; --fade-top-h: 28px; }
-/* The list keeps its own scroll and a fixed share of the width, so highlighting a row can never
-   reflow the column the eye is reading down. */
-/* The list and its dissolve. The band is short (28px) and the list pads by the same, so the row
-   under one is still fully clickable — a fade that eats its own last row is a fade you have to
-   scroll past. */
-.mp-list-wrap { position: relative; width: 306px; flex: none; display: flex; min-height: 0;
-  border-right: var(--hairline-w) solid var(--rl-hairline); }
-.mp-list { flex: 1; min-width: 0; overflow-y: auto; padding: 6px 6px 28px; scroll-padding: 28px 0; }
-.mp-group + .mp-group { margin-top: 6px; }
+/* The list scrolls on its own and dissolves at both ends; it pads its foot by the band's depth, so
+   the last row under the band is still a row you can click. */
+.mp-list-wrap { position: relative; display: flex; min-height: 0; --fade-h: 20px; --fade-top-h: 16px; }
+.mp-list { flex: 1; min-width: 0; max-height: min(40vh, 320px); overflow-y: auto; padding: 2px 6px 20px; scroll-padding: 16px 0 20px; }
+.mp-group + .mp-group { margin-top: 2px; }
 /* Section headings for the harness groups: the quietest thing on the surface, because they label
    rows rather than competing with them. */
-.mp-group-label { padding: 5px 8px 3px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
-.mp-row { display: flex; align-items: center; gap: 9px; padding: 6px 8px; --btn-h: 32px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; cursor: default;
+.mp-group-label { padding: 8px 8px 4px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
+/* One line per model. The name is the row's one unbounded item and takes the slack; everything at
+   the end is fixed and drawn only when it has something to say. */
+.mp-row { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 6px 0 8px; --btn-h: 32px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; cursor: default;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-row[data-active] { background: var(--hover); }
-/* Unavailable, not hidden: dimmed and non-interactive, but still readable and still explaining
-   itself in the detail pane beside it. */
-.mp-row[data-blocked] { opacity: .45; cursor: default; }
-.mp-row[data-blocked][data-active] { background: none; }
 .mp-row-mark { flex: none; }
-.mp-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.mp-row-name { display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mp-row-sub { font-size: 11px; color: var(--rl-text-dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.mp-note { color: var(--rl-warning); }
+.mp-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--fw-medium); }
+/* The model in use reads at the label weight beside its tick — the current choice, found without
+   reading the tick column. */
+.mp-row[aria-selected="true"] .mp-row-name { font-weight: var(--fw-label); }
+.mp-row-hint { flex: none; font-size: 12px; color: var(--rl-text-faint); white-space: nowrap; }
+.mp-row-hint[data-tone="warning"] { color: var(--rl-warning); }
+.mp-row-end { margin-left: auto; flex: none; display: flex; align-items: center; gap: 4px; }
 .mp-check { flex: none; color: var(--rl-accent); }
-/* One price per row — the OUTPUT rate, which is what an agent's bill is made of. Tabular so the
-   column reads as a column, and faint so it never outranks the model's name. */
-.mp-row-price { flex: none; font-size: 11px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-/* The ⌘-digit badge: quiet until the row is under the cursor, because it labels a shortcut for the
-   row you are already looking at rather than competing with the model's name. */
+/* The other harnesses a model can run through, as a two- or three-segment control on the row under
+   the pointer: the lit mark is the route a click or Enter takes, and pressing another runs it there. */
+.mp-ways { display: flex; gap: 2px; padding: 2px; border-radius: var(--r-chip); corner-shape: squircle; background: var(--hover-2); }
+.mp-way { display: grid; place-items: center; width: 24px; height: 20px; padding: 0; border: 0; border-radius: calc(var(--r-chip) - 2px); corner-shape: squircle;
+  background: none; cursor: default; transition: background-color var(--dur-hover) ease; }
+.mp-way:hover { background: var(--hover); }
+.mp-way[aria-pressed="true"] { background: var(--surface); box-shadow: var(--rl-edge); }
+/* The ⌘-digit badge on a favourite. */
 .mp-kbd { flex: none; padding: 1px 5px; border-radius: var(--r-chip); background: var(--hover-2); color: var(--rl-text-faint);
   font-size: 11px; font-family: inherit; letter-spacing: .02em; }
-/* The star holds its column on every row — hollow when unstarred, so the list keeps one alignment
-   instead of shifting text as rows are favourited. It only brightens on hover or when it is on. */
-.mp-star { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--r-chip);
-  color: var(--rl-text-faint); opacity: .5; transition: opacity var(--dur-hover) ease, color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
-.mp-row:hover .mp-star, .mp-row[data-active] .mp-star { opacity: 1; }
+.mp-star { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--r-chip);
+  background: none; color: var(--rl-text-faint); cursor: default; transition: color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
 .mp-star:hover { background: var(--hover-2); color: var(--rl-text-bright); }
-.mp-star[aria-pressed="true"] { opacity: 1; color: var(--rl-accent); }
-/* Hugeicons ships stroke-only glyphs, so "starred" is the same star with its path filled — a CSS
-   rule beats the pack's own fill="none" presentation attribute, and no second icon set is needed. */
+.mp-star[aria-pressed="true"] { color: var(--rl-accent); }
+/* Hugeicons ships stroke-only glyphs, so "starred" is the same star with its path filled. */
 .mp-star[aria-pressed="true"] svg * { fill: currentColor; }
-.mp-empty { padding: 14px 10px; text-align: center; font-size: 12px; color: var(--rl-text-dim); }
+.mp-empty { padding: 14px 10px; text-align: center; font-size: 12px; line-height: 1.45; color: var(--rl-text-dim); text-wrap: pretty; }
+.mp-locked { margin: 8px 8px 0; font-size: 12px; line-height: 1.45; color: var(--rl-text-dim); text-wrap: pretty; }
 
-/* The detail pane: what the highlighted model is for, what it costs, and how it would run. */
-/* The vertical padding is the SCROLLER's, not the column's (see `.mp-detail-body`) — only the side
-   inset and the strip under the footer belong to the box itself. */
-.mp-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 0 14px 13px; overflow: hidden; }
-/* Only the prose and the stats scroll. The footer holds its place, so the button this pane exists to
-   lead to is never the part that falls off the bottom edge. */
-/* The scroller's own box, so the dissolve belongs to the BLURB rather than to the column: `.mp-detail`
-   also holds the Effort strip and Use model, and those must not go soft. */
-.mp-detail-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
-/* The pane's top and bottom air lives HERE rather than on `.mp-detail`, and the footer sits flush
-   against the scroller rather than 10px below it. Text rests in exactly the same place it did, but
-   the scrolling box now runs edge to edge — from the search field's hairline down to the footer's —
-   so the bands at its ends have text under them to dissolve. Held off the box, they spent their
-   last third blurring the padding instead: the blurb stopped in mid-air a clear strip above the
-   hairline, which reads as a clipped column rather than as a column with more text in it. */
-.mp-detail-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
-  padding: 13px 0 10px; }
-.mp-detail-head { display: flex; align-items: center; gap: 8px; }
-.mp-detail-head h3 { margin: 0; font-size: 15px; font-weight: var(--fw-title); letter-spacing: -.01em;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mp-detail-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-dim); }
-.mp-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 14px; }
-.mp-stat { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.mp-stat-k { font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
-.mp-stat-v { font-size: 13px; color: var(--rl-text-bright); font-variant-numeric: tabular-nums; }
-.mp-routes { display: flex; flex-direction: column; gap: 6px; }
-.mp-route-pills { display: flex; flex-wrap: wrap; gap: 6px; }
-/* Route pills read as a choice among equals — outlined, with the chosen one carrying the accent. Not
-   a segmented control: the set is 1…3 wide and grows with the harnesses that can run this model. */
-.mp-route { display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px;
-  border: var(--hairline-w) solid var(--rl-line); background: none; color: var(--rl-text-dim); font: inherit; font-size: 12px;
-  cursor: default; transition: border-color var(--dur-hover) ease, background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
-.mp-route:hover:not(:disabled) { color: var(--rl-text-bright); background: var(--hover); }
-.mp-route[aria-pressed="true"] { color: var(--rl-text-bright); border-color: color-mix(in oklab, var(--rl-accent) 60%, transparent);
-  background: color-mix(in oklab, var(--rl-accent) 14%, transparent); }
-.mp-route:disabled { cursor: default; opacity: .5; }
-.mp-harness-note { margin: 2px 0 0; font-size: 12px; line-height: 1.45; color: var(--rl-text-dim); }
-.mp-harness-billing { margin: 0; font-size: 11px; line-height: 1.45; color: var(--rl-text-faint); }
-/* A structural limit of the harness — what it cannot do at all, in the warning tone the attachment
-   notes already use, so "answers arrive whole" reads the same way "will be ignored" does. */
-.mp-harness-limits { display: flex; align-items: flex-start; gap: 5px; margin: 0; font-size: 11px; line-height: 1.45; color: var(--rl-warning); }
-.mp-harness-limits svg { flex: none; margin-top: 2px; }
-.mp-detail-foot { flex: none; padding-top: 10px; border-top: var(--hairline-w) solid var(--rl-hairline);
-  display: flex; flex-direction: column; gap: 7px; }
-/* The label sits ABOVE its control, not beside it. Alongside, the label ate a 71px gutter out of a
-   ~250px pane and the segments spent what was left on five columns — "Ask each time" and "Accept
-   edits" both broke onto two lines, which reads as a layout bug rather than as a choice. Stacked,
-   every segment gets the pane's full width and `.mp-seg-opt` can refuse to wrap outright. */
-.mp-seg-group { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
-.mp-seg-label { font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
-/* Speed carries a note under its switch; stacked, it needs no gutter to line up with. */
-.mp-fast-note { margin: 2px 0 0; font-size: 11px; line-height: 1.4; color: var(--rl-text-faint); }
-.mp-fast-note[data-tone="warning"] { color: var(--rl-warning); }
-/* One row, always: the old effort strip wrapped its five levels onto a second line at this width,
-   which read as a layout bug. Equal columns keep them on one. */
+/* The highlighted model's line: two lines of note and one of specs, at a FIXED height. The popover
+   grows upward from the chip, so a strip that took one more line for one model than the next would
+   move every row above it — and the row under the pointer with them. */
+.mp-about { flex: none; box-sizing: border-box; height: calc(17px * 3 + 16px); padding: 6px 14px 10px; display: flex; flex-direction: column; }
+.mp-about-note { margin: 0; font-size: 12px; line-height: 17px; color: var(--rl-text-dim);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.mp-about-name { margin-right: 6px; color: var(--rl-text-bright); font-weight: var(--fw-label); }
+.mp-about-note[data-tone="warning"] { color: var(--rl-warning); }
+.mp-about-note svg { display: inline-block; vertical-align: -1px; margin-right: 5px; }
+.mp-about code { font-family: var(--font-mono); font-size: 11px; }
+.mp-about-specs { margin: auto 0 0; font-size: 12px; line-height: 17px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* How the answer is produced: effort, fast mode, and whatever the control row could not fit. */
+.mp-foot { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; border-top: var(--hairline-w) solid var(--rl-hairline); }
+/* A label column, then the control: one width for every group, so the segments start on one edge. */
+.mp-seg-group { display: flex; align-items: center; gap: 10px; }
+.mp-seg-label { flex: none; width: 72px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+/* One row, always, in equal columns: the widest label sets the width and nothing wraps. */
 .mp-seg { flex: 1; min-width: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px;
   padding: 2px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--hover); }
-/* One line per option, always. The grid gives every option the same column, so the widest label sets
-   the width and a wrap here would be silent — the segment would just get taller and nothing would
-   say why. */
-.mp-seg-opt { padding: 3px 4px; border-radius: calc(var(--r-ctl) - 2px); corner-shape: squircle; border: 0; background: none; font: inherit;
+.mp-seg-opt { padding: 3px 2px; border-radius: calc(var(--r-ctl) - 2px); corner-shape: squircle; border: 0; background: none; font: inherit;
   font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; cursor: default; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-seg-opt:hover { color: var(--rl-text-bright); }
 .mp-seg-opt[aria-pressed="true"] { background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--rl-edge); }
-.mp-use { align-self: flex-end; margin-top: 3px; padding: 6px 13px; border: 0; --btn-h: 30px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
-  --fill: var(--rl-accent); background: var(--fill); color: var(--rl-accent-contrast); font: inherit; font-size: 12px; font-weight: var(--fw-label); cursor: default; }
-.mp-use:disabled { opacity: .45; cursor: default; }
+/* Fast mode: its name on the label column's edge, the bolt the chip wears beside it, the switch at
+   the end — and the one line under it that says how much is known. */
+.mp-fast { display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; column-gap: 5px; min-height: 22px; }
+.mp-fast-label { font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.mp-fast-mark { color: var(--rl-text-faint); }
+.mp-fast > .switch, .mp-fast-off { grid-column: 4; }
+.mp-fast-off { font-size: 12px; color: var(--rl-text-faint); white-space: nowrap; }
+.mp-fast-note { grid-column: 1 / -1; margin: 3px 0 0; font-size: 12px; line-height: 1.4; color: var(--rl-text-faint); text-wrap: pretty; }
+.mp-fast-note[data-tone="warning"] { color: var(--rl-warning); }
 
 /* ── Easter eggs: the heavy efforts ──
    Every rule here hangs off [data-eggs] or [data-sweep], so the switch in Settings ▸ General takes the
@@ -3034,6 +2965,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 @property --dissolve-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --dissolve-start { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --dissolve-end { syntax: "<length>"; inherits: false; initial-value: 0px; }
+/* The side band's depth, typed with its default: no surface sets its own now, and an unset depth
+   read with no definition anywhere is the silent failure the bridge test exists to catch. Inherited,
+   so a strip's wrapper can still set a shallower one for the scroller inside it. */
+@property --fade-w { syntax: "<length>"; inherits: true; initial-value: 28px; }
 
 [data-dissolve] {
   mask-image: linear-gradient(to bottom, transparent 0, #000 var(--dissolve-top),
@@ -4184,6 +4119,8 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    chip-label (which truncates), never inside it, and never shrunk: the level should survive a
    squeezed row even when the model name ellipsizes. */
 .model-chip .chip-effort { flex: none; color: var(--rl-text-faint); }
+/* The bolt for fast mode asked for, in the same grey as the effort: both are "how", not "who". */
+.model-chip .chip-fast { flex: none; color: var(--rl-text-faint); }
 .composer-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 24px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 12px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
 /* One-time bypass confirm (U-M7): warning-toned status pill (§3 formula), clickable, gone in 5s. */
 /* The confirm STEP for the chip above, so it wears the chip's tone: "Allow everything?" leading to a
@@ -4590,7 +4527,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    declaration is already correct and lands for free when Chromium 139 reaches Electron. */
 :root[data-squircle] .btn,
 :root[data-squircle] .ghost-chip,
-:root[data-squircle] .mp-use,
 :root[data-squircle] .palette-opt {
   border-radius: 0;
   background: paint(rl-squircle);
@@ -4635,7 +4571,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    IN, from a wide clear band down to its width, on the same timing as every other ring. A filled
    control takes the ring in its label's colour, because an accent ring inside an accent fill is no
    ring at all. */
-:root[data-squircle] :is(.btn, .ghost-chip, .mp-use, .palette-opt):focus-visible {
+:root[data-squircle] :is(.btn, .ghost-chip, .palette-opt):focus-visible {
   outline: none; --sq-ring: var(--rl-accent); --sq-ring-w: 2px;
   animation: rl-focus-ring-painted var(--dur-slow) var(--spring-smooth); }
 :root[data-squircle] .btn.primary:focus-visible { --sq-ring: color-mix(in srgb, var(--rl-accent-contrast) 75%, transparent); }
@@ -5019,7 +4955,7 @@ select { appearance: none; padding-right: 22px;
 :root:not([data-overlay-scrollbars]) :hover { scrollbar-color: var(--mark-strong) transparent; }
 :where(:root:not([data-overlay-scrollbars])) :where(
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
-  .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
+  .menu, .mention-picker, .skill-picker-list, .mp-list, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
@@ -5097,8 +5033,8 @@ select { appearance: none; padding-right: 22px;
 /* ── Scrollbars: on scroll, in the prompter ────────────────────────────────
    Everywhere above keeps the persistent hairline: a transcript, a diff, a settings page is long
    enough that "there is more this way" is worth saying continuously. The prompter's own popovers —
-   the mention and slash lists, the skill picker, the model picker's list, its jump strip, its detail
-   pane — are dropdowns glanced at mid-sentence, not columns read top to bottom, and a line down their
+   the mention and slash lists, the skill picker, the model picker's list — are dropdowns glanced at
+   mid-sentence, not columns read top to bottom, and a line down their
    edge at rest was chrome with nothing to answer. `use-auto-hide-scrollbar.ts` marks `data-scrolling`
    on the scroller for a moment after each scroll event; these rules are what that attribute means.
 
@@ -5106,22 +5042,19 @@ select { appearance: none; padding-right: 22px;
    screens up), so hiding the thumb has to out-rank hover too, not just the resting case. */
 :root:not([data-overlay-scrollbars]) .mention-picker, :root:not([data-overlay-scrollbars]) .skill-picker-list { scrollbar-color: transparent transparent; }
 :root:not([data-overlay-scrollbars]) .mention-picker[data-scrolling], :root:not([data-overlay-scrollbars]) .skill-picker-list[data-scrolling] { scrollbar-color: var(--mark) transparent; }
-/* `.mp-list`, `.mp-detail-body` and `.mp-jumps` ride the masked scrollbar's fade at their own two
-   ends ([data-dissolve]/[data-dissolve-x], above) — that stays; only the thumb's resting paint
-   changes. The reclaim is already true by inheritance from the bare attribute rule above, and is
+/* `.mp-list` rides the masked scrollbar's fade at its own two ends ([data-dissolve], above) — that
+   stays; only the thumb's resting paint changes. The reclaim is already true by inheritance from the bare attribute rule above, and is
    restated here anyway: the rule below this comment is itself a `::-webkit-scrollbar` owner, and it
    should not ask a reader to go find where its own standard properties were handed back. */
-:root:not([data-overlay-scrollbars]) .mp-list[data-dissolve], :root:not([data-overlay-scrollbars]) .mp-detail-body[data-dissolve], :root:not([data-overlay-scrollbars]) .mp-jumps[data-dissolve-x],
-:root:not([data-overlay-scrollbars]) .mp-list[data-dissolve][data-scrolling], :root:not([data-overlay-scrollbars]) .mp-detail-body[data-dissolve][data-scrolling], :root:not([data-overlay-scrollbars]) .mp-jumps[data-dissolve-x][data-scrolling] {
+:root:not([data-overlay-scrollbars]) .mp-list[data-dissolve],
+:root:not([data-overlay-scrollbars]) .mp-list[data-dissolve][data-scrolling] {
   scrollbar-color: auto; scrollbar-width: auto; }
 /* One extra class outweighs the bare attribute selector for the idle case (transparent, which has to
    beat `[data-dissolve]:hover` too — hence AFTER it in the file, not just heavier); adding
    `[data-scrolling]` outweighs everything above unconditionally the moment it is true. Neither
    variant touches `border`/`background-clip`, so both keep the inset the base rule already drew. */
-:root:not([data-overlay-scrollbars]) .mp-list[data-dissolve]::-webkit-scrollbar-thumb, :root:not([data-overlay-scrollbars]) .mp-detail-body[data-dissolve]::-webkit-scrollbar-thumb,
-:root:not([data-overlay-scrollbars]) .mp-jumps[data-dissolve-x]::-webkit-scrollbar-thumb { background: transparent; }
-:root:not([data-overlay-scrollbars]) .mp-list[data-dissolve][data-scrolling]::-webkit-scrollbar-thumb, :root:not([data-overlay-scrollbars]) .mp-detail-body[data-dissolve][data-scrolling]::-webkit-scrollbar-thumb,
-:root:not([data-overlay-scrollbars]) .mp-jumps[data-dissolve-x][data-scrolling]::-webkit-scrollbar-thumb { background: var(--mark); }
+:root:not([data-overlay-scrollbars]) .mp-list[data-dissolve]::-webkit-scrollbar-thumb { background: transparent; }
+:root:not([data-overlay-scrollbars]) .mp-list[data-dissolve][data-scrolling]::-webkit-scrollbar-thumb { background: var(--mark); }
 /* The composer's own textarea is not in this list, and cannot be: `scrollbar-width: none` there is
    permanent, not a resting state, because a classic scrollbar reserves gutter width the moment
    content overflows regardless of thumb colour — which would misalign the highlight mirror's wrapped
@@ -5315,7 +5248,7 @@ select { appearance: none; padding-right: 22px;
    are hundreds of elements per window against the handful of singleton surfaces it draws now. The
    radii above are what make the difference visible in the meantime. */
 .btn, .icon-btn, .ghost-chip, .composer-chip, .msg-action, .tool-copy,
-.item-row, .seg-opt, .mp-seg-opt, .mp-jump, .mp-use,
+.item-row, .seg-opt, .mp-seg-opt,
 .permission-option, .question-option, .question-skip, .palette-opt, .menu [role^="menuitem"],
 /* `.switch` is deliberately NOT here. A squircle is a corner treatment, and a pill has no corners —
    applying one to `border-radius: 999px` clamps the superellipse to half the box and turns the

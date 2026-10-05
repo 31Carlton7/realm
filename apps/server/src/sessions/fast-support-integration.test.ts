@@ -25,6 +25,8 @@ type Any = any;
 /** Answers every handshake with `answer` — `undefined` is a harness that says nothing. */
 class AnsweringAdapter implements AgentAdapter {
   answer: boolean | undefined = true;
+  /** The harness's answer for its whole list (`fastModeModels`); `undefined` lists nothing. */
+  models: Record<string, boolean> | undefined = undefined;
   readonly starts: StartOptions[] = [];
   constructor(readonly kind: AgentKind) {}
   async probe() { return { kind: this.kind, available: true, version: "0", loggedIn: true, reason: null }; }
@@ -32,7 +34,8 @@ class AnsweringAdapter implements AgentAdapter {
     this.starts.push(opts);
     const events = new AsyncQueue<SessionEvent>();
     events.push(sessionEvent("init", { providerSessionId: `prov_${this.starts.length}`, model: "resolved-by-the-harness", tools: [], cwd: opts.cwd,
-      ...(this.answer === undefined ? {} : { supportsFastMode: this.answer }) }));
+      ...(this.answer === undefined ? {} : { supportsFastMode: this.answer }),
+      ...(this.models === undefined ? {} : { fastModeModels: this.models }) }));
     events.push(sessionEvent("status", { status: "idle" }));
     return {
       events,
@@ -105,6 +108,31 @@ describe("fast-mode support, remembered past the session that heard it", () => {
     await run("claude-opus-5-5");
     await waitFor(async () => (await remembered())?.["claude:claude-opus-5-5"] === false);
     expect(await remembered()).toEqual({ "claude:claude-opus-5-5": false, "claude:claude-sonnet-5": true });
+    c.close();
+  });
+
+  it("files the harness's answer for every model it listed, so a model no session has run is known too", async () => {
+    // THE owner's case: a new session on a model nothing had run yet had no answer to read, so its
+    // prompter offered no switch until after the first message — too late for that message.
+    const { c, claude, remembered, run } = await boot();
+    claude.models = { "": false, "claude-fable-5-1": false, "claude-opus-5-5": true };
+    await run("claude-sonnet-5");
+    await waitFor(async () => Object.keys((await remembered()) ?? {}).length === 4);
+    // The listed ids under their own keys ("" is the harness default), and the session's own answer
+    // under the model it ASKED for — that one written last, as the more specific of the two.
+    expect(await remembered()).toEqual({
+      "claude:": false, "claude:claude-fable-5-1": false, "claude:claude-opus-5-5": true, "claude:claude-sonnet-5": true,
+    });
+    c.close();
+  });
+
+  it("lets the session's own answer stand over the list's for the model it asked for", async () => {
+    const { c, claude, remembered, run } = await boot();
+    claude.answer = false;
+    claude.models = { "claude-opus-5-5": true };
+    await run("claude-opus-5-5");
+    await waitFor(async () => (await remembered())?.["claude:claude-opus-5-5"] !== undefined);
+    expect(await remembered()).toEqual({ "claude:claude-opus-5-5": false });
     c.close();
   });
 

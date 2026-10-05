@@ -10,7 +10,7 @@ const HOLD_MS = 900;
  * quiet at rest and take the app's usual thumb only while it is actually moving.
  *
  * Scoped to the prompter's own popovers (styles.css, "on scroll, in the prompter") — the mention and
- * slash lists, the skill picker, the model picker's list and jump strip. Every other scroller in the
+ * slash lists, the skill picker, the model picker's list. Every other scroller in the
  * app keeps the persistent hairline this replaces: a transcript, a diff, a settings page is long
  * enough that "there is more this way" is worth saying continuously, and widening this past the
  * prompter would be answering a question nobody asked there.

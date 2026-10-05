@@ -41,8 +41,17 @@ export function parseSpaceIcon(icon: string): SpaceIconRef {
   return { kind: "hugeicon", name: kind === "hugeicon" ? rest : icon };
 }
 
-/** One pickable model: the id the wire transmits and the name the row shows. */
-export type AgentModel = { id: string; label: string };
+/** One pickable model: the id the wire transmits and the name the row shows. The two flags are only
+ *  ever set from a live catalog that states them (Codex's `model/list`); a curated list says nothing,
+ *  and absent is "not stated", never "no". */
+export type AgentModel = {
+  id: string;
+  label: string;
+  /** Whether the catalog offers fast mode on this model — Codex lists its `priority` tier per model. */
+  fastMode?: boolean;
+  /** The model an un-pinned session runs, where the catalog marks one. */
+  isDefault?: boolean;
+};
 
 /**
  * STATIC fallback model lists — what the picker shows for a kind when no probe has answered yet
