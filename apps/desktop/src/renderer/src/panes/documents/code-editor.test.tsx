@@ -14,6 +14,7 @@ vi.mock("./code-modes", () => ({
 }));
 
 import { CodeEditor } from "./CodeEditor";
+import { recallScroll, rememberScroll } from "../scroll-memory";
 
 /** The live view behind the rendered DOM. Edits are dispatched through it rather than typed, because
  *  jsdom lays nothing out and a `contenteditable` there does not accept synthetic text input. */
@@ -147,6 +148,20 @@ describe("CodeEditor", () => {
     const { container } = render(
       <CodeEditor path="src/a.ts" text={"one\n"} onChange={() => {}} reveal={{ line: 400 }} />);
     expect(viewOf(container).state.selection.main.anchor).toBeLessThanOrEqual(4);
+  });
+
+  it("forgets the reader's old place in a file opened at a line, so a settling restore cannot carry them off it", () => {
+    // THE MUTANT: attach the scroll memory without forgetting the mark. Its restore re-applies the
+    // old offset while the content settles, and scrolls the reader away from the line they were sent to.
+    rememberScroll("doc:d1:code:src/a.ts", { top: 900, atEnd: false });
+    render(<CodeEditor path="src/a.ts" text={"one\ntwo\nthree\n"} onChange={() => {}} reveal={{ line: 3 }} scrollKey="doc:d1:code:src/a.ts" />);
+    expect(recallScroll("doc:d1:code:src/a.ts")).toBeNull();
+  });
+
+  it("keeps the reader's place in a file opened with no line asked for", () => {
+    rememberScroll("doc:d1:code:src/b.ts", { top: 900, atEnd: false });
+    render(<CodeEditor path="src/b.ts" text={"one\n"} onChange={() => {}} scrollKey="doc:d1:code:src/b.ts" />);
+    expect(recallScroll("doc:d1:code:src/b.ts")).toMatchObject({ top: 900 });
   });
 
   it("names the file on the editing surface, where a reader will hear it", async () => {

@@ -41,6 +41,7 @@ import { useZoom } from "./theme/zoom";
 import { installRubberBand } from "./rubber-band";
 import { installPressTracking } from "./press-tracking";
 import { installTooltips } from "./tooltips";
+import { installCaret } from "./caret";
 import "./panes";
 
 /**
@@ -235,6 +236,19 @@ function PressTrackingBridge() {
 function TooltipBridge() {
   const store = useAppStore();
   useEffect(() => installTooltips(document, { avoid: () => store.getState().browserRects }), [store]);
+  return null;
+}
+
+/** The app's caret over every field (caret.ts), in the shape and motion Settings ▸ Appearance ▸ Cursor
+ *  chose. Subscribed rather than rendered: the layer is the DOM's, and a new preference reaches it
+ *  without re-rendering anything. */
+function CaretBridge() {
+  const store = useAppStore();
+  useEffect(() => {
+    const layer = installCaret(document, store.getState().caret);
+    const off = store.subscribe((s, prev) => { if (s.caret !== prev.caret) layer.configure(s.caret); });
+    return () => { off(); layer.uninstall(); };
+  }, [store]);
   return null;
 }
 
@@ -514,6 +528,8 @@ export function App() {
       if (sheet?.kind === "checkpoints" && sheet.environmentId === environmentId) {
         st.run(() => st.refreshCheckpoints(environmentId, sheet.sessionId));
       }
+      // …and the whole checkout's list a transcript's edit cards decide Undo by, if one is held.
+      if (st.envCheckpoints[environmentId]) st.run(() => st.refreshEnvCheckpoints(environmentId));
     });
     // A skill was toggled (or the library edited). Only spaces already holding a library refresh —
     // the mention picker fetches on session open, so a space nobody is prompting in stays unfetched.
@@ -662,6 +678,7 @@ export function App() {
       <RubberBandBridge />
       <PressTrackingBridge />
       <TooltipBridge />
+      <CaretBridge />
       {/* Shared by the sidebar and the page over the panes, whose own rail can take the sidebar's
           column (components/page-nav.tsx). */}
       <PageNavProvider>

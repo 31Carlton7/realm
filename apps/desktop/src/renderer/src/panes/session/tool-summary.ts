@@ -1,5 +1,5 @@
 import type { IconName } from "@realm/ui";
-import { fileDiffsFor } from "./rich/diff";
+import { fileDiffsFor, isUnifiedDiff, parseUnifiedDiff } from "./rich/diff";
 
 /**
  * The simulator's input tools, whose line is the agent's `intent` — what the step is for, which says
@@ -60,6 +60,41 @@ export function editStat(name: string, input: Record<string, unknown>): EditStat
   if (!files) return null;
   let add = 0, del = 0;
   for (const f of files) for (const h of f.hunks) for (const l of h.lines) { if (l.kind === "add") add++; else if (l.kind === "del") del++; }
+  return add === 0 && del === 0 ? null : { add, del };
+}
+
+/** ACP's kinds that name a file the call changes. */
+const ACP_FILE_KINDS = new Set(["edit", "delete", "move"]);
+
+/** A call as the row knows it — enough to say which file it edited. */
+type EditCall = { name: string; input: Record<string, unknown>; toolKind?: string; paths?: readonly string[] };
+
+/**
+ * The file an editing call changed, for its row — Claude's `file_path`, Codex's first patched file,
+ * an ACP edit's first location — with how many more the same call touched (one patch can carry
+ * several). Null for a call that edits no file, which keeps the row it always had.
+ */
+export function editTarget(b: EditCall): { path: string; more: number } | null {
+  const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : null);
+  switch (b.name) {
+    case "Edit": case "MultiEdit": case "Write": { const p = str(b.input["file_path"]); return p ? { path: p, more: 0 } : null; }
+    case "NotebookEdit": { const p = str(b.input["notebook_path"]); return p ? { path: p, more: 0 } : null; }
+    case "apply_patch": {
+      const changes = b.input["changes"];
+      const paths = Array.isArray(changes) ? changes.map((c) => str((c as Record<string, unknown> | null)?.["path"])).filter((p): p is string => p !== null) : [];
+      return paths.length ? { path: paths[0]!, more: paths.length - 1 } : null;
+    }
+  }
+  if (b.toolKind && ACP_FILE_KINDS.has(b.toolKind) && b.paths?.length) return { path: b.paths[0]!, more: b.paths.length - 1 };
+  return null;
+}
+
+/** An ACP edit's counts, read off the unified diff its result carries (map-acp.ts). Null where the
+ *  result is no diff — a call that has not finished, or one whose agent sent no diff content. */
+export function resultEditStat(b: EditCall & { result: { content: string; isError: boolean } | null }): EditStat | null {
+  if (!b.toolKind || !ACP_FILE_KINDS.has(b.toolKind) || !b.result || b.result.isError || !isUnifiedDiff(b.result.content)) return null;
+  let add = 0, del = 0;
+  for (const f of parseUnifiedDiff(b.result.content)) { add += f.add; del += f.del; }
   return add === 0 && del === 0 ? null : { add, del };
 }
 

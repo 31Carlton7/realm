@@ -2,8 +2,8 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
-import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
-import { CODEX_SANDBOX_REFUSAL, CodexAdapter, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
+import { HIDDEN_ANSWER, type SessionEvent, type SessionEventOf, type SessionEventType } from "@realm/contracts";
+import { CODEX_SANDBOX_REFUSAL, CodexAdapter, GATEWAY_TOOL_TIMEOUT_SEC, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
 import type { AgentHandle, StartOptions } from "../types";
 
 /**
@@ -498,8 +498,92 @@ describe("CodexAdapter", () => {
     // The fixture only finishes the turn once its odd request is answered.
     await waitFor(() => expect(texts(evs)).toEqual(["refused: -32601"]));
     expect(types(evs)).not.toContain("permission_request");
-    expect(logs.some((l) => l.includes("item/tool/requestUserInput"))).toBe(true);
+    expect(logs.some((l) => l.includes("item/tool/call"))).toBe(true);
     await handle.dispose();
+  });
+
+  it("asks Codex's own question on the card, and replies in the shape Codex reads", async () => {
+    // THE MUTANT: answer requestUserInput -32601 as it was. The question then never reaches anyone,
+    // and Codex carries on as if the user had nothing to say.
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ASKUSER", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    const req = of(evs, "permission_request")[0]!.payload;
+    expect(statuses(evs).at(-1)).toBe("waiting_permission");
+    expect(req.ask).toMatchObject({ asker: { kind: "agent", name: "Codex" }, mode: "question", questions: [
+      { id: "base", kind: "choice", allowOther: true, options: [{ value: "main", label: "main", description: "What ships next" }, { value: "release/v2", label: "release/v2", description: "The release line" }] },
+      { id: "token", kind: "text", secret: true },
+    ] });
+    handle.respondPermission(req.requestId, "allow", { base: "release/v2", token: "tok_live_123", ghost: "x" });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    // Codex is handed the real value it asked for — and only what the card asked.
+    expect(JSON.parse(texts(evs)[0]!.slice("answered ".length))).toEqual({ answers: { base: { answers: ["release/v2"] }, token: { answers: ["tok_live_123"] } } });
+    // The persisted record keeps a mark in the secret's place.
+    expect(of(evs, "permission_response")[0]!.payload).toEqual({ requestId: req.requestId, decision: "allow", answers: { base: "release/v2", token: HIDDEN_ANSWER } });
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await handle.dispose();
+  });
+
+  it("skips a question by replying with no answers, and says so in the transcript", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ASKUSER", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "deny");
+    await waitFor(() => expect(texts(evs)).toEqual(["answered {\"answers\":{}}"]));
+    expect(of(evs, "permission_response")[0]!.payload.decision).toBe("deny");
+    await handle.dispose();
+  });
+
+  it("withdraws a question Codex resolved on its own, without answering it", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ASKAUTO", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toEqual(["carried on"]));
+    const [req] = of(evs, "permission_request");
+    expect(of(evs, "permission_response").map((e) => e.payload)).toEqual([{ requestId: req!.payload.requestId, decision: "deny" }]);
+    await handle.dispose();
+  });
+
+  it("passes on a server's form as the card, naming the server and the agent it came through", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    const req = of(evs, "permission_request")[0]!.payload;
+    expect(req.ask).toMatchObject({ asker: { kind: "server", name: "notion", via: "Codex" }, mode: "form", message: "Where should the page go?",
+      questions: [{ id: "parent", kind: "choice", required: true }, { id: "public", kind: "confirm" }] });
+    handle.respondPermission(req.requestId, "allow", { parent: "p_notes", public: "yes" });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect(JSON.parse(texts(evs)[0]!.slice("elicited ".length))).toEqual({ action: "accept", content: { parent: "p_notes", public: true }, _meta: null });
+    await handle.dispose();
+  });
+
+  it("declines a form that asks for a key without ever putting it to the user", async () => {
+    // THE MUTANT: draw it anyway. The key would be typed into an unmasked field and logged.
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ELICITSECRET", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect(JSON.parse(texts(evs)[0]!.slice("elicited ".length))).toMatchObject({ action: "decline" });
+    expect(of(evs, "permission_request")[0]!.payload.ask?.refused).toMatch(/password or a key/);
+    expect(statuses(evs)).not.toContain("waiting_permission");
+    await handle.dispose();
+  });
+
+  it("answers a page to open with consent alone, and cancels — not declines — when the turn is stopped", async () => {
+    const opened = await booted();
+    await opened.handle.send({ text: "ELICITURL", attachments: [] });
+    await waitFor(() => expect(of(opened.evs, "permission_request")).toHaveLength(1));
+    expect(of(opened.evs, "permission_request")[0]!.payload.ask?.questions[0]).toMatchObject({ kind: "link", url: "https://www.notion.so/install-integration?id=fake" });
+    opened.handle.respondPermission(of(opened.evs, "permission_request")[0]!.payload.requestId, "allow", { url: "opened" });
+    await waitFor(() => expect(texts(opened.evs)).toHaveLength(1));
+    expect(JSON.parse(texts(opened.evs)[0]!.slice("elicited ".length))).toEqual({ action: "accept", content: null, _meta: null });
+    await opened.handle.dispose();
+
+    const stopped = await booted();
+    await stopped.handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(of(stopped.evs, "permission_request")).toHaveLength(1));
+    await stopped.handle.interrupt();
+    await waitFor(() => expect(texts(stopped.evs).join("")).toContain("elicited"));
+    expect(texts(stopped.evs).join("")).toContain('"action":"cancel"');
+    await stopped.handle.dispose();
   });
 
   it("steers into a live turn rather than starting a second one", async () => {
@@ -951,7 +1035,14 @@ describe("codexMcpConfig", () => {
   const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
 
   it("writes an http server as url/http_headers — Codex's own key, not `headers` — which is the only shape that ever reaches here (the gateway's own entry)", () => {
-    expect(codexMcpConfig([http])).toEqual({ mcp_servers: { vercel: { url: "https://mcp.vercel.com", http_headers: { Authorization: "Bearer t" } } } });
+    expect(codexMcpConfig([http])).toEqual({ mcp_servers: { vercel: { url: "https://mcp.vercel.com", http_headers: { Authorization: "Bearer t" }, tool_timeout_sec: GATEWAY_TOOL_TIMEOUT_SEC } } });
+  });
+
+  it("lets one of Realm's tools run past Codex's own one-minute limit — a question waits on a person", () => {
+    // THE MUTANT: drop the key. Codex then cuts a `ui_ask` off at sixty seconds while its card is
+    // still up, and the answer the user gives afterwards goes nowhere.
+    expect(GATEWAY_TOOL_TIMEOUT_SEC).toBeGreaterThan(15 * 60);
+    expect((codexMcpConfig([http])!.mcp_servers as Record<string, Record<string, unknown>>).vercel!.tool_timeout_sec).toBe(GATEWAY_TOOL_TIMEOUT_SEC);
   });
 
   it("omits empty args and env rather than sending empty collections", () => {

@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { spawn as nodeSpawn } from "node:child_process";
 import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, mergeWindows, newId, planWindowLabel, sessionEvent, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaude } from "./probe";
@@ -146,26 +146,8 @@ export function claudeSdkPermissionMode(mode: string | null | undefined): string
   return mode === ASK_PERMISSION_MODE || !mode ? "default" : mode;
 }
 
-/** What a masked answer is logged as. */
-export const HIDDEN_ANSWER = "••••••";
-
-/**
- * The answers as Realm's own log may keep them: a question asked with `secret: true` was typed into
- * a masked field, and its answer goes to the agent — who asked for it — but never into
- * `permission_response`, which is persisted and broadcast to every window. Keyed as the SDK keys
- * them, by question text.
- */
-export function loggableAnswers(input: unknown, answers: Record<string, string>): Record<string, string> {
-  const questions = (input as { questions?: unknown } | null)?.questions;
-  if (!Array.isArray(questions)) return answers;
-  const secret = new Set<string>();
-  for (const q of questions) {
-    const { question, secret: masked } = (q ?? {}) as { question?: unknown; secret?: unknown };
-    if (masked === true && typeof question === "string") secret.add(question);
-  }
-  if (secret.size === 0) return answers;
-  return Object.fromEntries(Object.entries(answers).map(([q, a]) => [q, secret.has(q) ? HIDDEN_ANSWER : a]));
-}
+/** Who asks when Claude's own `AskUserQuestion` reaches the card. */
+const CLAUDE_ASKER = { kind: "agent", name: "Claude", agent: "claude" } as const;
 
 const STDERR_TAIL_LINES = 50;
 const DISPOSE_TIMEOUT_MS = 3000;
@@ -215,7 +197,7 @@ export class ClaudeAdapter implements AgentAdapter {
   start(opts: StartOptions & ClaudeResumeFork): ClaudeHandle {
     const events = new AsyncQueue<SessionEvent>();
     const input = new AsyncQueue<SDKUserMessage>();
-    const pending = new Map<string, { resolve: (r: PermissionResult) => void; suggestions: PermissionUpdate[]; input: Record<string, unknown> }>();
+    const pending = new Map<string, { resolve: (r: PermissionResult) => void; suggestions: PermissionUpdate[]; input: Record<string, unknown>; ask: AskCard | null }>();
     const abort = new AbortController();
     const mapper = createSdkMapper({ resumed: Boolean(opts.resume) });
     const stderrTail: string[] = [];
@@ -246,13 +228,16 @@ export class ClaudeAdapter implements AgentAdapter {
 
     // `answers` (AskUserQuestion) rides back as `updatedInput`: the SDK reads the user's choices off the
     // tool's own arguments, so answering a question IS allowing the call with the answers filled in.
-    const resolvePermission = (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => {
+    // They are held to the card first, and the log keeps a mark where a masked one was: the answer goes
+    // to Claude, who asked for it, but `permission_response` is persisted and broadcast to every window.
+    const resolvePermission = (requestId: string, d: PermissionDecision, answers?: AskAnswers) => {
       const p = pending.get(requestId); if (!p) return;
       pending.delete(requestId);
-      events.push(sessionEvent("permission_response", { requestId, decision: d, ...(answers ? { answers: loggableAnswers(p.input, answers) } : {}) }));
+      const given = p.ask && answers ? normalizeAnswers(p.ask, answers) : undefined;
+      events.push(sessionEvent("permission_response", { requestId, decision: d, ...(p.ask && given ? { answers: loggableAnswers(p.ask, given) } : {}) }));
       if (d === "deny") p.resolve({ behavior: "deny", message: "User denied" });
       else if (d === "allow_always") p.resolve({ behavior: "allow", updatedPermissions: p.suggestions });
-      else p.resolve({ behavior: "allow", ...(answers ? { updatedInput: { ...p.input, answers } } : {}) });
+      else p.resolve({ behavior: "allow", ...(given ? { updatedInput: { ...p.input, answers: claudeAnswers(given) } } : {}) });
     };
     const denyAllPending = () => { for (const id of [...pending.keys()]) resolvePermission(id, "deny"); };
 
@@ -267,10 +252,13 @@ export class ClaudeAdapter implements AgentAdapter {
       }
       const requestId = newId();
       const suggestions = o.suggestions ?? [];
+      // A question travels on this channel too, and is marked as one HERE — from the SDK's own tool
+      // name, never from anything in its arguments — so the card that draws it is the question card.
+      const ask = toolName === "AskUserQuestion" ? askCardFromAskUserQuestion(toolInput, CLAUDE_ASKER) : null;
       if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
-      events.push(sessionEvent("permission_request", { requestId, toolName, input: toolInput, title: o.title ?? `Allow ${toolName}?`, suggestions: suggestions as unknown[] }));
+      events.push(sessionEvent("permission_request", { requestId, toolName, input: toolInput, title: o.title ?? `Allow ${toolName}?`, suggestions: suggestions as unknown[], ...(ask ? { ask } : {}) }));
       const result = await new Promise<PermissionResult>((resolve) => {
-        pending.set(requestId, { resolve, suggestions, input: toolInput as Record<string, unknown> });
+        pending.set(requestId, { resolve, suggestions, input: toolInput as Record<string, unknown>, ask });
         o.signal.addEventListener("abort", () => {
           if (!pending.delete(requestId)) return;
           events.push(sessionEvent("permission_response", { requestId, decision: "deny" }));

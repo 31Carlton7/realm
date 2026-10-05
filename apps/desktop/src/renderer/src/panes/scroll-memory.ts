@@ -64,6 +64,12 @@ export function recallScroll(key: string): ScrollMark | null {
   return marks.get(key) ?? null;
 }
 
+/** Drop one mark. A reader sent to a particular line of a file is not owed their old place in it, and
+ *  a restore still settling would scroll them away from the line they were sent to. */
+export function forgetScroll(key: string): void {
+  marks.delete(key);
+}
+
 /** Test seam only: the marks are process-wide, so a suite that did not clear them would let one
  *  test's scroll position decide another test's first paint. */
 export function forgetAllScroll(): void {

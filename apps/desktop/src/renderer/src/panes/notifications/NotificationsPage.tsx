@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "@realm/ui";
 import type { Notification, NotificationCategory } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { PermissionCard } from "../session/PermissionCard";
+import { PendingRequest } from "../session/PendingRequest";
 import { PeekButton, usePeekable } from "../../components/PeekButton";
 import { Sheet } from "../../components/Sheet";
 import { SpaceIcon } from "../../components/SpaceIcon";
@@ -34,7 +34,7 @@ const timeOf = (ts: number) => new Date(ts).toLocaleTimeString(undefined, { hour
 /**
  * The Notifications page (Plan 12 W5): the durable, USER-level feed of things that waited on you —
  * a `notifications-page` destination on W4's sentinel convention. Newest first, grouped by day;
- * unread rows carry the dot; a PENDING permission row is actionable through the SAME PermissionCard
+ * unread rows carry the dot; a PENDING permission row is actionable through the SAME PendingRequest
  * the session pane renders (reused, never forked — see PendingPermissionInline).
  *
  * **One centred column, and a modal for the row you pick.** It was a master–detail split at full
@@ -275,11 +275,13 @@ function QuickReply({ sessionId, onSent }: { sessionId: string; onSent: () => vo
 }
 
 /**
- * The card for a still-pending permission row — the EXISTING PermissionCard, fed from the same
- * transcript pipeline the session pane reads, so the two surfaces can never disagree about what is
- * pending: an answer from ANYWHERE removes the `pendingPermissions` entry (and flips the session out
- * of `waiting_permission`), and this renders nothing. The decision goes to the ROW's own session and
- * requestId — the transcript entry is looked up BY the row's refId, never "whatever is pending".
+ * The card for a still-pending permission row — the transcript's own (`PendingRequest`), fed from the
+ * same transcript pipeline the session pane reads, so the two surfaces can never disagree about what
+ * is pending: an answer from ANYWHERE removes the `pendingPermissions` entry (and flips the session out
+ * of `waiting_permission`), and this renders nothing. A question is drawn as the question it is — the
+ * plain Allow / Deny card answered one with no answers at all. The decision goes to the ROW's own
+ * session and requestId — the transcript entry is looked up BY the row's refId, never "whatever is
+ * pending".
  */
 function PendingPermissionInline({ n }: { n: Notification }) {
   const sessionId = n.sessionId;
@@ -296,7 +298,7 @@ function PendingPermissionInline({ n }: { n: Notification }) {
   if (!pending) return null;
   return (
     <div className="notif-inline-card">
-      <PermissionCard permission={pending} onDecide={(d) => run(() => respondPermission(sessionId, pending.requestId, d))} />
+      <PendingRequest permission={pending} onDecide={(d, answers) => run(() => respondPermission(sessionId, pending.requestId, d, answers))} />
     </div>
   );
 }

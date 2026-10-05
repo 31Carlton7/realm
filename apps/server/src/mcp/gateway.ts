@@ -143,6 +143,13 @@ export class McpGateway {
      *     half of that tool's depth-1 recursion guard.
      */
     sessionToolset?: (sessionId: string) => SessionToolset;
+    /**
+     * The calling session's masked answers, scrubbed from a call's record before Activity keeps it
+     * (`SessionService.scrubSecrets`). A `ui_ask` hands a secret straight back to the agent as its
+     * result, and an agent goes on to pass it to the next tool — both are calls this log would
+     * otherwise write down verbatim. Unwired, records are kept as they are.
+     */
+    redact?: (sessionId: string, text: string) => string;
   }) {}
 
   /** The restriction for one session, `null` meaning unrestricted. One read path shared by
@@ -570,7 +577,7 @@ export class McpGateway {
       // and this is the seam that knows a result is on its way to an agent's context rather than,
       // say, to a live-check. Realm's own in-process providers above are deliberately not put
       // through it — they already choose and clip their own output shape.
-      const result = compressToolResult(await this.d.hub.call(serverId, tool, args));
+      const result = compressToolResult(await this.d.hub.call(serverId, tool, args, { sessionId }));
       // `isError: true` is a normal, successfully round-tripped MCP result — the call reached the
       // server and the SERVER reported a problem. It still counts as `ok: false` in Activity: from the
       // user's perspective a failed tool call is a failed tool call, whether the failure came back as a
@@ -601,7 +608,8 @@ export class McpGateway {
   }
 
   private record(sessionId: string, serverId: string | null, serverName: string, tool: string, argsJson: string, ok: boolean, durationMs: number, resultSummary: string): void {
-    const row = this.d.calls.append({ sessionId, serverId, serverName, tool, argsJson, resultSummary, ok, durationMs });
+    const scrub = (text: string) => this.d.redact?.(sessionId, text) ?? text;
+    const row = this.d.calls.append({ sessionId, serverId, serverName, tool, argsJson: scrub(argsJson), resultSummary: scrub(resultSummary), ok, durationMs });
     this.d.rpc.broadcast("mcp.call", row);
   }
 

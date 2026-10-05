@@ -38,6 +38,7 @@ import { FailoverPolicySchema } from "./failover";
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
+import { AskAnswersSchema } from "./ui-ask";
 import { TerminalProgramSchema } from "./terminal-programs";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
@@ -495,10 +496,22 @@ export const Methods = {
    * overwritten is captured as a `pre-restore` checkpoint FIRST, and its id comes back as
    * `undoCheckpointId` — so a restore of the wrong thing is itself undoable.
    *
-   * Refused while a session is still running in that environment (CHECKPOINT_ENVIRONMENT_BUSY):
-   * rewriting a working tree under a live agent's feet corrupts whatever it is halfway through.
+   * Refused while a session is mid-turn in that environment (CHECKPOINT_ENVIRONMENT_BUSY): rewriting
+   * a working tree under a running tool call corrupts whatever it is halfway through. An agent idle
+   * between turns writes nothing and is left alone — except the one whose conversation the restore
+   * rewinds, which is stopped first, because the rewind is honoured when its agent next starts.
    */
   "checkpoints.restore": { params: z.object({ id: IdSchema, acknowledge: RestoreAckSchema }), result: RestoreResultSchema },
+  /**
+   * One file's patch across one turn, for the transcript's Review: this checkpoint's tree against the
+   * `afterTree` the turn's `turn_changes` event recorded. Paths relative to the checkout root, the
+   * rename's source in `oldPath`. Refused with TREE_GONE once either tree has left the repository —
+   * a pruned checkpoint, or an after-tree a `git gc` collected — rather than diffing something else.
+   */
+  "checkpoints.turnDiff": {
+    params: z.object({ id: IdSchema, afterTree: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/), path: z.string(), oldPath: z.string().nullable().default(null) }),
+    result: FileDiffSchema,
+  },
 
   /**
    * Deep search across ONE profile's world (Plan 16 W1): session transcripts (user + assistant text)
@@ -1774,10 +1787,11 @@ export const Methods = {
    *  going nowhere else — there is no endpoint behind this and no aggregate anywhere. `rating: null`
    *  retracts an earlier one. */
   "sessions.recordFeedback": { params: z.object({ id: IdSchema, messageId: z.string().min(1), rating: z.enum(["up", "down"]).nullable() }), result: z.object({ ok: z.literal(true) }) },
-  /** `answers` rides along only for question-shaped tools (AskUserQuestion): question text -> chosen
-   *  label, multi-select comma-joined. Deliberately a record of strings rather than a free-form input
-   *  override — the UI answers a question, it never gets to rewrite the tool's arguments. */
-  "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: z.record(z.string()).optional() }), result: z.object({ ok: z.literal(true) }) },
+  /** `answers` rides along only for a question: question id -> what was chosen or typed, several as a
+   *  list. Deliberately a record of strings rather than a free-form input override — the UI answers a
+   *  question, it never gets to rewrite the tool's arguments — and each answer is held to the card it
+   *  was asked with before it goes anywhere (`normalizeAnswers`). */
+  "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: AskAnswersSchema.optional() }), result: z.object({ ok: z.literal(true) }) },
   /** `fastMode` is a REQUEST — see `Session.fastMode`. The server records it and hands it to the
    *  adapter; whether the harness honours it comes back on the `usage` event. */
   "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional(), fastMode: z.boolean().optional() }), result: SessionSchema },

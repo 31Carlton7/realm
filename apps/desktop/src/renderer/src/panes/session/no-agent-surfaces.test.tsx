@@ -50,6 +50,19 @@ const SURFACES = [
     file: "apps/desktop/src/renderer/src/panes/session/PlanCard.tsx",
     on: 'className="plan-decision"',
   },
+  /* A question's model field opens a chooser PORTALLED out of the card, so the card's own attribute
+     does not reach it: picking a model there is answering for the user, and the chooser carries the
+     claim itself whenever a question opens it (`noAgent`). */
+  {
+    what: "the model chooser a question opens",
+    file: "apps/desktop/src/renderer/src/panes/agents-tab/ModelChooser.tsx",
+    on: 'className="menu subagents-chooser"',
+  },
+  {
+    what: "a question, after the fact",
+    file: "apps/desktop/src/renderer/src/panes/session/QuestionCard.tsx",
+    on: 'className="question-answered"',
+  },
   /* The three that start paid work in the user's name: an agent pressing them could hand work to
      other models nobody asked for. Opening the Agents tab with a plan is the first step of that, so
      its two doors are guarded as well as the send that completes it. */

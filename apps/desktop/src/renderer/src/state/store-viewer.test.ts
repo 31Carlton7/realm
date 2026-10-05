@@ -176,22 +176,26 @@ describe("the exchange's own part of the transcript", () => {
     sessionEvent("assistant_text", { messageId: "m1", text: "Saved the warmer one as `hero-warm.png`." }),
   ]);
 
+  /** Where the second question sits — read off the blocks, so the reducer is free to put a line of
+   *  its own between a question and its answer. */
+  const second = t.blocks.findIndex((b, i) => i > 0 && b.kind === "user");
+
   it("starts at the first question at or after its mark, never in the turn that was running", () => {
     expect(exchangeStart(t.blocks, 0)).toBe(0);
     // A send queued behind a turn: the mark is before the turn's own output, the exchange after it.
-    expect(exchangeStart(t.blocks, 1)).toBe(2);
+    expect(exchangeStart(t.blocks, 1)).toBe(second);
     expect(exchangeStart(t.blocks, t.blocks.length)).toBe(-1);
     // A transcript still loading when the question went: no count to trust, and the clock says
     // which question came after it. THE MUTANT: drop the time — the first question ever asked in the
     // session would open this viewer's exchange.
-    const asked = t.blocks[2]!.ts;
+    const asked = t.blocks[second]!.ts;
     const earlier = t.blocks.map((b, i) => (i === 0 ? { ...b, ts: asked - 5000 } : b));
-    expect(exchangeStart(earlier, 0, asked)).toBe(2);
+    expect(exchangeStart(earlier, 0, asked)).toBe(second);
   });
 
   it("finds what a write made and what the answer named, and not what a failed write would have", () => {
     // THE MUTANT: read the tool result's error flag away — a refused Write made nothing.
-    const found = exchangeResults(t.blocks.slice(2), "/work/logo");
+    const found = exchangeResults(t.blocks.slice(second), "/work/logo");
     expect(found).toContain("/work/logo/out/hero-v2.svg");
     expect(found).toContain("/work/logo/hero-warm.png");
     expect(found).not.toContain("/tmp/failed.png");
