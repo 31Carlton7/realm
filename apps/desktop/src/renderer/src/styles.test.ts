@@ -1744,9 +1744,12 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
   it("the prompter's strips are edged alike — every tab above the card wears the ring the under-strip does", () => {
     /* They are one object seen twice: same fill, same corner, same inset, mirrored. Only the lower
        one was edged, which read as a prompter with a bottom and no top — and edging the over-strip
-       alone left the same hole whenever the goal, plan or agents strip was the one on top. The
-       exception is a MIDDLE tab: a ring there would trace a hairline across the band where two
-       strips meet, so a strip arriving under another gives up both its ring and its top corners. */
+       alone left the same hole whenever the goal, plan or agents strip was the one on top. A MIDDLE
+       tab gives up its top corners and the top of its ring — a ring across it would trace a hairline
+       through the band where two strips meet — but never its sides. It once gave up the whole ring,
+       and the git footer under the plan strip read as an open-sided box down both edges, right where
+       the card tucks over it: its fill is the pane's own ground, so the ring is the only edge it has.
+       THE mutant: `--sq-ring-w: 0` back on a stacked tab. */
     const ring = "--sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w)";
     for (const sel of [".composer-goal", ".composer-todos", ".composer-overstrip", ".composer-understrip"])
       expect(bodiesFor(`:root[data-squircle] ${sel}`).join(" "), sel).toContain(ring);
@@ -1754,7 +1757,8 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     const STACKED = [".composer-goal + .composer-todos", ".composer-goal + .composer-overstrip", ".composer-todos + .composer-overstrip"];
     for (const sel of STACKED) {
       const body = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
-      expect(body, sel).toContain("--sq-ring-w: 0");
+      expect(body, sel).toContain("--sq-ring-open: top");
+      expect(body, sel).not.toMatch(/--sq-ring-w:\s*0/);
       expect(body, sel).toContain("--sq-radius-top: 0px");
       // …and the same corner under the fallback, where the radius is the browser's rather than the
       // worklet's: a pair squared in one path and rounded in the other is one seam in two shapes.
@@ -2753,7 +2757,7 @@ describe("squircle surfaces", () => {
       // shadow beyond the face is ever seen.
       expect(face, sel).toContain("inset: 0");
       // The face is driven by the card's own state rules, so it takes every input the painter reads.
-      for (const input of ["--sq-fill", "--sq-ring", "--sq-ring-w", "--sq-radius-top", "--sq-radius-bottom", "--sq-n"]) {
+      for (const input of ["--sq-fill", "--sq-ring", "--sq-ring-w", "--sq-ring-open", "--sq-radius-top", "--sq-radius-bottom", "--sq-n"]) {
         expect(face, `${sel} ${input}`).toContain(`${input}: inherit`);
       }
       const context = [...bodiesFor(sel), card].join(" ");
@@ -3984,13 +3988,22 @@ describe("the machine pane's screen", () => {
    strip left on the neutral `--card-ring` draws a different-coloured line up each side of the same
    band — which shows as a notch at either edge, where the card's own top corners sit inside the strip.
    THE MUTANT: colour the card alone, which is what it did. */
-it("carries the prompter's mode ring up through every strip stacked above it", () => {
+it("carries the prompter's mode ring up through every strip stacked above it, and down through the one below", () => {
   for (const [mode, token] of [["plan", "--rl-warning"], ["ask", "--rl-success"]] as const) {
-    for (const strip of [".composer-goal", ".composer-todos", ".composer-overstrip"]) {
-      const painted = bodiesFor(`:root[data-squircle] ${strip}:has(~ .composer[data-mode="${mode}"])`).join(" ");
+    const strips: [string, string][] = [
+      ...[".composer-goal", ".composer-todos", ".composer-overstrip"].map((strip): [string, string] => [strip, `${strip}:has(~ .composer[data-mode="${mode}"])`]),
+      // The under-strip is the card's LATER sibling, so it reads the mode with no `:has`.
+      [".composer-understrip", `.composer[data-mode="${mode}"] ~ .composer-understrip`],
+    ];
+    for (const [strip, sel] of strips) {
+      const painted = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
       expect(painted, `${strip} under ${mode}`).toContain(token);
+      /* …and under the gate the edge is the painter's ALONE. The fallback's box-shadow is drawn on the
+         border box, which the painter squares to radius 0, so left on it drew a second ring: square
+         past the painted corners, and across the band where two strips meet. THE mutant: drop this. */
+      expect(painted, `${strip} under ${mode} keeps the fallback's box-shadow`).toContain("box-shadow: none");
       // The painter is gated, so the fallback edge has to say the same thing.
-      const fallback = bodiesFor(`${strip}:has(~ .composer[data-mode="${mode}"])`).join(" ");
+      const fallback = bodiesFor(sel).join(" ");
       expect(fallback, `${strip} fallback under ${mode}`).toContain(token);
       expect(fallback, `${strip} fallback hairline`).toContain("var(--hairline-w)");
     }

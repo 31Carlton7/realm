@@ -5475,7 +5475,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .install-card::after,
 :root[data-squircle] .commit-card::after {
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  --sq-fill: inherit; --sq-ring: inherit; --sq-ring-w: inherit;
+  --sq-fill: inherit; --sq-ring: inherit; --sq-ring-w: inherit; --sq-ring-open: inherit;
   --sq-radius-top: inherit; --sq-radius-bottom: inherit; --sq-n: inherit;
   background: paint(rl-squircle);
 }
@@ -5610,13 +5610,24 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .composer-todos:has(~ .composer[data-mode="plan"]),
 :root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="plan"]) {
   --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent);
+  box-shadow: none;
 }
 :root[data-squircle] .composer-goal:has(~ .composer[data-mode="ask"]),
 :root[data-squircle] .composer-todos:has(~ .composer[data-mode="ask"]),
 :root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="ask"]) {
   --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent);
+  box-shadow: none;
 }
-/* The painter is gated; without it the same edge is a box-shadow, and it has to say the same thing. */
+/* The under-strip is the same object seen below the card, so the mode reaches it too: left on the
+   neutral ring, its sides ran grey into a card ringed in the mode's colour, the notch the band above
+   was given the mode to remove. It is a LATER sibling of the card, so it needs no `:has`. */
+:root[data-squircle] .composer[data-mode="plan"] ~ .composer-understrip { --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent); box-shadow: none; }
+:root[data-squircle] .composer[data-mode="ask"] ~ .composer-understrip { --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent); box-shadow: none; }
+/* The painter is gated; without it the same edge is a box-shadow, and it has to say the same thing.
+   ONLY without it — the `box-shadow: none` above is what keeps it so. A box-shadow under the gate is
+   drawn on the border box, which the painter has squared to radius 0, and it drew a second ring round
+   every strip: square, out past the painted corners, and straight across the band where two strips
+   meet — the seam the stacked strips' open-topped ring exists to avoid. */
 .composer-goal:has(~ .composer[data-mode="plan"]),
 .composer-todos:has(~ .composer[data-mode="plan"]),
 .composer-overstrip:has(~ .composer[data-mode="plan"]) {
@@ -5627,15 +5638,21 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-overstrip:has(~ .composer[data-mode="ask"]) {
   box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-success) 34%, transparent);
 }
-/* …but only the tab that IS the band's top keeps the ring and the corners. Every strip arriving
-   under another gives up both: a ring on a middle tab would trace a hairline straight across the
-   band where the two meet — a second seam inside one object, which is what design.md's hairline
-   rule exists to catch. Each join is drawn from the strip that arrives UNDERNEATH, never by a rule
+.composer[data-mode="plan"] ~ .composer-understrip { box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-warning) 34%, transparent); }
+.composer[data-mode="ask"] ~ .composer-understrip { box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-success) 34%, transparent); }
+/* …but only the tab that IS the band's top keeps the corners and the top edge. Every strip arriving
+   under another gives up its top corners, and its ring leaves the top OPEN (`--sq-ring-open`): a ring
+   across a middle tab would trace a hairline straight across the band where the two meet — a second
+   seam inside one object, which is what design.md's hairline rule exists to catch — and no ring at
+   all left the band's sides bare all the way down the lower tab. That was the git footer under the
+   plan strip: its fill is the pane's own ground, so with the ring gone the band read as an open-sided
+   box exactly where the card tucks over it. The sides now run unbroken from the top tab into the
+   card's own edge. Each join is drawn from the strip that arrives UNDERNEATH, never by a rule
    reaching up into the one above (the fallback's `border-radius: 0` sits beside the layout rule —
    under the gate the corner is the painter's, so the squaring has to be as well). */
 :root[data-squircle] .composer-goal + .composer-todos,
 :root[data-squircle] .composer-goal + .composer-overstrip,
-:root[data-squircle] .composer-todos + .composer-overstrip { --sq-radius-top: 0px; --sq-ring-w: 0; }
+:root[data-squircle] .composer-todos + .composer-overstrip { --sq-radius-top: 0px; --sq-ring-open: top; }
 /* The under-strip's top edge is hidden beneath the card, so only its bottom corners are drawn. */
 :root[data-squircle] .composer-understrip {
   --sq-fill: var(--rl-frame); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
