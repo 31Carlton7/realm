@@ -149,8 +149,8 @@ An agent driving a browser pane can sign you in to a site without ever seeing th
 ## Updates
 
 - Signed packaged builds check the public GitHub release feed on launch, download a newer version
-  in the background, and ask before restarting to install it. Settings → App → Updates also supports
-  manual checks and installing a downloaded update.
+  in the background, and ask before restarting to install it. Settings → General → Updates also
+  supports manual checks and installing a downloaded update.
 - Public releases must carry the dmg, zip, and `latest-mac.yml` artifacts produced by `pnpm release`.
   The updater never embeds a GitHub token.
 - The hard gate in `apps/desktop/src/main/updater.ts` still disables updates in development and in

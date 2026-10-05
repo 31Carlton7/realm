@@ -477,14 +477,14 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     expect(api.calls).toContain("setSetting:ui.submitKey=cmdEnter");
   });
 
-  it("notification switches read W5's key: default-on, a stored disable shows OFF, and the copy says disabling stops new rows only", async () => {
+  it("notification switches read W5's key: default-on, a stored disable shows OFF, and the copy says switching one off only stops what comes next", async () => {
     await openPage("Notifications", { settings: { [NOTIFICATIONS_DISABLED_KEY]: ["mcp_health"] } });
     expect(await screen.findByRole("switch", { name: "Connection trouble" })).not.toBeChecked();
     expect(screen.getByRole("switch", { name: "Permission requests" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Sessions finishing" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Engine regressions" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Worktree hazards" })).toBeChecked();
-    expect(screen.getByText(/stops new rows from being written/)).toBeInTheDocument();
+    expect(screen.getByText(/stops Realm telling you about it from now on/)).toBeInTheDocument();
   });
 
   it("a handle typed into the relay fields is written through, so the server texts it on the next notification", async () => {
