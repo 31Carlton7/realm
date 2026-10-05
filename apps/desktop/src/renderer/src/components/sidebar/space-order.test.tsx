@@ -157,7 +157,7 @@ describe("the profile's spaces, and only its", () => {
     const { store } = await mount(twoProfiles());
     await act(async () => { await store.getState().selectSpace("s2"); });
     await act(async () => { await store.getState().selectSpace("s3"); });
-    fireEvent.click(within(document.querySelector<HTMLElement>(".sb-header")!).getByRole("button", { name: "Profile: School" }));
+    fireEvent.click(within(document.querySelector<HTMLElement>(".sb-title")!).getByRole("button", { name: "Profile: School" }));
     fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: /Work/ }));
     // Where it left off (s2), not the profile's first space — the named mutant is falling back to spaces[0].
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));

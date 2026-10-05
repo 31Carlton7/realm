@@ -20,15 +20,22 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const header = (container: HTMLElement) => container.querySelector<HTMLElement>(".sb-header")!;
 
 describe("the sidebar's head row", () => {
-  it("is the profile and the window's back and forward, then search and a new session — and nothing else", async () => {
-    // THE MUTANT: leave the window's back and forward in the rail, under the traffic lights, while
-    // there is a head row beside them to carry them — the second pair Codex's layout does without.
+  it("is the sidebar's toggle, search and a new session — and nothing else", async () => {
+    /* The row's start is the window's now: the traffic lights cross into it over the narrower rail,
+       and back and forward sit just past them in both states (WindowLead). THE MUTANTS: back and
+       forward drawn here again (a second pair beside the window's), or the toggle left out of the row
+       it was asked into (the owner, 10-04: "with the search button and create new session button"). */
     const { container } = await mount();
     const row = within(header(container));
     expect(row.getAllByRole("button").map((b) => b.getAttribute("aria-label")))
-      .toEqual(["Profile: Work", "Go back", "Go forward", "Search", "New session"]);
-    // First in the column: it is the row in the traffic lights' band.
-    expect(container.querySelector(".sidebar")!.firstElementChild).toBe(header(container));
+      .toEqual(["Hide sidebar (⌘B)", "Search", "New session"]);
+    // First in the column's slide: it is the row in the traffic lights' band.
+    expect(container.querySelector(".sidebar-slide")!.firstElementChild).toBe(header(container));
+    // The profile heads the column under it, outside the scroller, on its own row.
+    const title = container.querySelector<HTMLElement>(".sb-title")!;
+    expect(within(title).getByRole("button", { name: "Profile: Work" })).toBeInTheDocument();
+    expect(title.closest(".space-body")).toBeNull();
+    expect(title.nextElementSibling).toHaveClass("space-body");
     // No space title, flat space list or space menu any more: the spaces are the list's sections.
     expect(screen.queryByRole("button", { name: "Switch space" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Space menu" })).toBeNull();
@@ -82,7 +89,7 @@ describe("the profile switcher", () => {
     spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Lectures")],
     sessions: [session("q", "s3", { status: "waiting_permission" }), session("w", "s1", { status: "waiting_permission" })],
   });
-  const switcher = () => within(document.querySelector<HTMLElement>(".sb-header")!).getByRole("button", { name: /^Profile:/ });
+  const switcher = () => within(document.querySelector<HTMLElement>(".sb-title")!).getByRole("button", { name: /^Profile:/ });
   const open = async () => {
     fireEvent.click(switcher());
     return within(await screen.findByRole("menu", { name: "Profiles" }));
@@ -93,7 +100,7 @@ describe("the profile switcher", () => {
     const button = switcher();
     expect(button).toHaveAccessibleName("Profile: Work");
     expect(button).toHaveTextContent("Work");
-    expect(container.querySelector<HTMLElement>(".sb-header .sb-profile-mark")!.style.color).toBe("rgb(255, 0, 0)");
+    expect(container.querySelector<HTMLElement>(".sb-title .sb-profile-mark")!.style.color).toBe("rgb(255, 0, 0)");
   });
 
   it("lists every profile, checks the one on screen, and says what waits in the others", async () => {

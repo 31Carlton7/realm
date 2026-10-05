@@ -4,8 +4,6 @@ import type { DestinationPageKind } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { Avatar } from "../Avatar";
 import { Menu } from "../Menu";
-import { SidebarToggle } from "./SidebarToggle";
-import { WindowNav } from "./WindowNav";
 import { waitingCount } from "./model";
 import { useChord } from "./use-sidebar-model";
 
@@ -13,23 +11,20 @@ import { useChord } from "./use-sidebar-model";
  * The rail: the app's destinations as a column of icons at the window's left edge (Plan 27).
  *
  * The sidebar beside it gets you to your work; the rail gets you to the app's pages — Home (the
- * Agents page), Library, Connections, Scheduled tasks and the notifications — and at its foot to the
- * person (their page, Settings) and an update that is ready. It is never collapsed: ⌘B folds the
- * sidebar away and leaves this, so Home's count and the way back are always on screen.
+ * Agents page), Library, Connections, Scheduled tasks and the notifications — and at its foot to a
+ * newer Realm and to the person (their page, Settings). It is never collapsed: ⌘B folds the sidebar
+ * away and leaves this, so Home's count is always on screen.
  *
- * The traffic lights sit in its top band, and — while the sidebar is folded away, so the head row that
- * carries them is gone — the window's own back and forward under them. Nothing
- * here opens a surface over the panes except the OS menu at its foot, which may (design.md: menus
- * are the system's).
+ * As narrow as its icons and an even margin round them, Codex's: the traffic lights are wider than it
+ * and run on across the top row, which is the window's (WindowLead) rather than this column's. Nothing
+ * here opens a surface over the panes except the OS menu at its foot, which may (design.md: menus are
+ * the system's).
  */
 export function Rail() {
-  // The window's back and forward are the sidebar's head row's while there is a sidebar (WindowNav).
-  const collapsed = useApp((s) => s.sidebarCollapsed);
   const waiting = useApp((s) => waitingCount({ sessionStatus: s.sessionStatus, quickChatId: s.quickChat?.sessionId ?? null }));
   const unread = useApp((s) => s.notificationsUnread);
   return (
     <nav className="app-rail" aria-label="Destinations">
-      {collapsed && <WindowNav />}
       <div className="rail-group">
         {/* Home's count is the one number that says something waits on you when the sidebar is away. */}
         <RailPage kind="agents-page" label="Home" icon="home" count={waiting} countLabel={`${waiting} waiting on you`}
@@ -40,9 +35,8 @@ export function Rail() {
         <RailPage kind="notifications-page" label="Notifications" count={unread} countLabel={`${unread} unread`} />
       </div>
       <div className="rail-foot">
-        <SidebarToggle />
-        <RailYou />
         <RailUpdate />
+        <RailYou />
       </div>
     </nav>
   );

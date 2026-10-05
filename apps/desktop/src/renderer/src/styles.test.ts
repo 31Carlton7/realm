@@ -352,8 +352,9 @@ describe("§6 motion table", () => {
       expect(RULES.filter((r) => r.selectors.some((x) => x.split(/[\s:>[]/).includes(sel))), sel).toEqual([]);
     }
     // The head row is the 40px band the traffic lights centre in, beside the rail's.
-    expect(bodiesFor(".sb-header").join(" ")).toContain("height: 40px");
-    // The profile's name is the unbounded part of that row, so it is what gives way.
+    expect(bodiesFor(".sb-header").join(" ")).toContain("height: var(--frame-top)");
+    expect(bodiesFor(":root").join(" ")).toContain("--frame-top: 40px");
+    // The profile's name is the unbounded part of its row, so it is what gives way.
     expect(bodiesFor(".sb-profile").join(" ")).toContain("min-width: 0");
     expect(bodiesFor(".sb-profile-name").join(" ")).toContain("text-overflow: ellipsis");
     expect(bodiesFor(".sb-header-actions").join(" ")).toContain("flex: none");
@@ -1101,24 +1102,33 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".sidebar[data-collapsed] *").join(" ")).toContain("-webkit-app-region: initial");
   });
 
-  it("collapsing keeps the rail: the lights sit in it, and nothing in the main column makes room for them", () => {
-    /* Plan 27: the rail is the window's left edge in both states, so collapsing takes the sidebar out
-       of the row and nothing else. The lights (main places them at x:12, y:14; they run to ~66px)
-       sit in the rail's top band, which is why it is as wide as it is and why its icons start below
-       40px. THE mutants: a rail narrower than the lights (they land on the sidebar's or a pane's
-       chrome), or a rail with no top band (the first destination sits under the lights). */
+  it("the rail is as narrow as its icons, an even margin round each, and the lights run on across the top row", () => {
+    /* The owner, 10-04: the rail was wider than it should be, with more room either side of its icons
+       than between them. It is Codex's now: 36px buttons with the same 8px beside them as between and
+       above them, which makes it narrower than the traffic lights (main places them at x:12, y:14; they
+       run to ~66px). So the lights cross into the top row, which is the WINDOW's — back and forward sit
+       just past them (`.window-lead`), and whatever the row holds under them makes room (the next test).
+       THE mutants: the old 76px rail, uneven margins, or a lead that starts under the lights. */
     const rail = bodiesFor(".app-rail").join(" ");
     expect(rail).toContain("width: var(--rail-w)");
-    expect(rail).toContain("padding: 40px 0 10px");
-    const railW = Number(/--rail-w: (\d+)px/.exec(RULES.filter((r) => r.selectors.includes(":root")).map((r) => r.body).join(" "))?.[1]);
-    expect(railW).toBeGreaterThanOrEqual(76); // 12 + the three lights' ~54px + a gutter that clears them
+    const root = RULES.filter((r) => r.selectors.includes(":root")).map((r) => r.body).join(" ");
+    const px = (name: string) => Number(new RegExp(`${name}: (\\d+)px`).exec(root)?.[1]);
+    const railW = px("--rail-w");
+    expect(bodiesFor(".rail-btn").join(" ")).toContain("width: 36px; height: 36px");
+    const gap = Number(/gap: (\d+)px/.exec(bodiesFor(".rail-group").join(" "))?.[1]);
+    expect((railW - 36) / 2, "the margin beside an icon is the gap between two").toBe(gap);
+    // The first destination sits the same step below the head row.
+    expect(rail).toContain(`padding: calc(var(--frame-top) + ${gap}px) 0 ${gap}px`);
+    expect(railW).toBeLessThan(px("--lights-end"));
+    expect(root).toContain("--lead-x: calc(var(--lights-end) + 10px)");
+    expect(bodiesFor(".window-lead").join(" ")).toContain("left: var(--lead-x)");
     // The window is still draggable by its own left edge, and the rail's buttons still clickable.
     expect(rail).toContain("-webkit-app-region: drag");
     expect(bodiesFor(".app-rail button").join(" ")).toContain("-webkit-app-region: no-drag");
     // The rail wears the window's rounded corners now; the sidebar beside it is square.
     expect(rail).toContain("border-radius: var(--r-float) 0 0 var(--r-float)");
     expect(bodiesFor(".sidebar").join(" ")).not.toContain("border-radius");
-    // The sidebar slides out UNDER the rail, so the rail is the one that stacks.
+    // The rail stacks over the sidebar's column.
     expect(rail).toContain("position: relative");
     expect(rail).toMatch(/z-index: \d/);
     /* …and the shell still does not change axis: collapsed is the same row with the column taken out.
@@ -1127,23 +1137,94 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       .every((r) => !r.body.includes("flex-direction"))).toBe(true);
   });
 
-  it("an app-level page never covers the rail, which holds the way in, out and back", () => {
-    /* THE BUG this used to pin: open Agents, collapse the sidebar, and the toggle that brings it back
-       was painted over by the page. The toggle is in the rail now, and the page starts right of the
-       rail in both states, so nothing has to out-stack anything — and the rail's buttons that open
-       and close the page stay under the pointer. */
-    expect(bodiesFor(".page-overlay").join(" ")).toContain("inset: 0 0 0 calc(var(--rail-w) + var(--sidebar-w, 0px))");
-    expect(bodiesFor(".page-overlay[data-sidebar-collapsed]").join(" ")).toContain("inset: 0 0 0 var(--rail-w)");
+  it("the sidebar opens and closes as ONE box: its width, its slide and its head row's clip read one number", () => {
+    /* THE BUG (reported 10-04, with a video): the column slid out UNDER the rail on a negative margin,
+       so its rows and its head showed through the rail's translucent ground, passing beneath the
+       destinations and the traffic lights; and its head faded on its own clock over the page's bar.
+       Now the column is a box that clips what it holds, its width a fraction of the sidebar's, and the
+       one wrapper inside it slides with that edge — the fraction registered, so it interpolates, and
+       one transition on it moves all three together. THE mutants: the clip dropped (the slide is drawn
+       over the rail), the old margin back, or a second clock on any part. */
+    expect(css).toMatch(/@property --sidebar-open \{ syntax: "<number>"; inherits: true; initial-value: 1; \}/);
+    const column = bodiesFor(".sidebar").join(" ");
+    expect(column).toContain("width: calc(var(--sidebar-w) * var(--sidebar-open))");
+    expect(column).toContain("overflow: hidden");
+    expect(column).toContain("transition: --sidebar-open var(--dur-move) var(--ease-in-out-strong)");
+    expect(column).not.toContain("margin-inline-start");
+    expect(column).not.toMatch(/(^|;)\s*opacity/);
+    expect(bodiesFor(".sidebar[data-collapsed]").join(" ")).toContain("--sidebar-open: 0");
+    const slide = bodiesFor(".sidebar-slide").join(" ");
+    expect(slide).toContain("width: var(--sidebar-w)");
+    expect(slide).toContain("translate: calc(var(--sidebar-w) * (var(--sidebar-open) - 1)) 0");
+    // Nothing inside keeps a clock of its own.
+    for (const sel of [".sidebar-slide", ".sb-header", ".sb-list"]) {
+      expect(RULES.filter((r) => r.selectors.includes(sel)).map((r) => r.body).join(" "), sel).not.toContain("transition");
+    }
+    // The frame changes hands once the column has gone, never at the click (App.tsx, useSidebarFolded).
+    const handedAtClick = RULES.flatMap(partsOf).filter((sel) => sel.includes("[data-sidebar-collapsed]")
+      && /(\.main|\.page-overlay)(::|\s|$)/.test(sel) && !sel.endsWith("-bar"));
+    expect(handedAtClick).toEqual([]);
+  });
+
+  it("the panes stand a hair above the sidebar: a light shade on its side of the seam, below the head row", () => {
+    /* The owner, 10-04: a very, very light shadow where the panes meet the sidebar, so the panes read
+       as a surface a step above it, as Codex's content card does. Drawn on the sidebar's own ground —
+       under its rows, the surface the panes rise from — at the column's right edge and below the
+       40px head row, which is chrome on both sides and casts nothing. Its own alpha per face: the
+       same black reads far heavier on the light ground. THE mutants: the shade over the head row, or
+       one value for both faces. */
+    const column = bodiesFor(".sidebar").join(" ");
+    expect(column).toContain("linear-gradient(to left, var(--seam-shade), transparent) right top var(--frame-top) / var(--seam-w) 100% no-repeat");
+    const alpha = (block: string) => Number(/--seam-shade: oklch\(0 0 0 \/ ([\d.]+)\)/.exec(block)?.[1]);
+    const dark = alpha(bodiesFor(":root").join(" "));
+    const light = alpha(bodiesFor(':root[data-mode="light"]').join(" "));
+    expect(dark).toBeGreaterThan(0);
+    expect(light).toBeGreaterThan(0);
+    expect(light).toBeLessThan(dark);
+    // Very light means very light: no step of it past a fifth of black.
+    expect(dark).toBeLessThanOrEqual(0.2);
+  });
+
+  it("an app-level page is laid out in the panes' column: it moves with them and never covers the rail", () => {
+    /* THE BUG this pins (reported 10-04, with a video): the page was a window-fixed layer inset by
+       numbers of its own, so at a sidebar toggle it jumped to its final edge on the first frame while
+       the panes it covers were still moving — they flashed through beside it — and its bar's title
+       jumped with it. Inside `.main` (App.tsx), at `inset: 0`, it is the panes' box on every frame.
+       THE mutant: `position: fixed` and an inset again. */
+    const page = bodiesFor(".page-overlay").join(" ");
+    expect(page).toContain("position: absolute");
+    expect(page).toContain("inset: 0;");
+    expect(page).not.toContain("position: fixed");
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".page-overlay[data-sidebar")))).toEqual([]);
     const rung = (sel: string) => Number(/z-index:\s*(\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
     // The rail is chrome, not a floating surface: every scrim still covers it.
     for (const modal of [".sheet-backdrop", ".palette-backdrop"]) {
       expect(rung(modal), `${modal} no longer covers the rail`).toBeGreaterThan(rung(".app-rail"));
     }
+    // The window's lead (back, forward, the toggle) stays above a page and under every scrim.
+    expect(rung(".window-lead")).toBeGreaterThan(rung(".page-overlay"));
+    expect(rung(".window-lead")).toBeLessThan(rung(".sheet-backdrop"));
   });
 
-  it("no strip in the main column reserves the lights — the rail holds them in both states", () => {
-    // The corner overlay and the indent every top strip took while collapsed are gone with it: a
-    // second way of making room for the lights would be a second thing to keep in step.
+  it("whatever the top row holds under the window's lead makes room for it, on the column's own timing", () => {
+    /* The lights, back and forward are the window's (WindowLead), so each thing that can sit under
+       them clears them: the sidebar's head row clips what it draws past the lead (and the clip rides
+       the slide, so it stays put on the window while the row moves), and — while the sidebar is away —
+       the first pane's bar or a page's bar starts its content past the lead and the toggle. Their
+       padding moves on the column's own duration and curve, so a title travels with the edge instead
+       of jumping to its final place at the click. THE mutants: no room made (a title under the lead),
+       or room made on a different timeline (the title arrives before or after the edge). */
+    expect(bodiesFor(".sb-header").join(" ")).toContain("clip-path: inset(0 0 0 calc(var(--lead-nav-end) - var(--rail-w) + var(--sidebar-w) * (1 - var(--sidebar-open))))");
+    for (const bar of [".app[data-sidebar-collapsed] .panel[data-first-leaf] > .panel-bar", ".app[data-sidebar-collapsed] .page-overlay-bar"]) {
+      expect(bodiesFor(bar).join(" "), bar).toContain("padding-left: calc(var(--lead-end) - var(--rail-w))");
+    }
+    const column = bodiesFor(".sidebar").join(" ");
+    const timing = /transition: --sidebar-open (var\(--dur-move\) var\(--ease-in-out-strong\))/.exec(column)?.[1];
+    expect(timing).toBeTruthy();
+    for (const bar of [".panel[data-first-leaf] > .panel-bar", ".page-overlay-bar"]) {
+      expect(bodiesFor(bar).join(" "), bar).toContain(`transition: padding-left ${timing}`);
+    }
+    // The old corner overlay is still gone: one way of making room, not two.
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".sb-corner")))).toEqual([]);
     expect(css).not.toContain("--corner-w");
     // Every strip at the top of the window is still 40px: main places the lights once at y:14 and
@@ -1166,11 +1247,14 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // edge from it, round the corner, and the border goes rather than doubling the rim.
     // First run has neither the rail nor the sidebar beside it (`.app[data-first-run]`), so there is
     // nothing for the line to stand between and it goes with them.
-    expect(edge).toEqual([".app > .main", ".app[data-sidebar-collapsed] > .main", ".app[data-first-run] > .main"]);
+    // FOLDED, not collapsed: the line rides the column's edge all the way in, and goes only once the
+    // column has gone (App.tsx, useSidebarFolded) — at the click it left the sidebar unbounded for
+    // the length of the motion.
+    expect(edge).toEqual([".app > .main", ".app[data-sidebar-folded] > .main", ".app[data-first-run] > .main"]);
     expect(bodiesFor(".app[data-first-run] > .main").join(" ")).toContain("border-left: 0");
     expect(bodiesFor(".app > .main").join(" ")).toContain("var(--rl-line)");
-    expect(bodiesFor(".app[data-sidebar-collapsed] > .main").join(" ")).toContain("border-left: 0");
-    expect(bodiesFor(".app[data-sidebar-collapsed] .main::before").join(" ")).toMatch(/border-left: var\(--hairline-w\) solid var\(--rl-line-strong\)/);
+    expect(bodiesFor(".app[data-sidebar-folded] > .main").join(" ")).toContain("border-left: 0");
+    expect(bodiesFor(".app[data-sidebar-folded] .main::before").join(" ")).toMatch(/border-left: var\(--hairline-w\) solid var\(--rl-line-strong\)/);
     // And no inset shadow creeps back onto .main to say the same thing twice, invisibly.
     expect(bodiesFor(".main").join(" ")).not.toContain("box-shadow: inset");
   });
@@ -1179,7 +1263,8 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // The intent this pins moved: the sidebar used to be --page at a literal 82%, and is now the
     // composed --sidebar-ground, because the number is the user's. What has NOT moved is which
     // surface is translucent — exactly one, so text on a pane never renders over the desktop.
-    expect(bodiesFor(".sidebar").join(" ")).toContain("background: var(--sidebar-ground)");
+    // Its own ground under the head band's chrome and the panes' shade at the seam (both below).
+    expect(bodiesFor(".sidebar").join(" ")).toMatch(/background:[^;]*var\(--sidebar-ground\);/);
     // The rail is the window's chrome: the sidebar's ground, a step off it (the window's frame).
     expect(bodiesFor(".app-rail").join(" ")).toContain("background: linear-gradient(var(--chrome-tint), var(--chrome-tint)), var(--sidebar-ground)");
     // The old per-mode rgba override is gone — --page flips with data-mode on its own.
@@ -1190,7 +1275,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // Chrome only: the rail, the sidebar, the head row across the window (the panes' top band, the
     // page's bar) and the frame's corner where the sheet meets the rail. Never a pane's BODY — the
     // panes' ground below the head row is --pane-ground, painted once by `.main`.
-    expect(translucent.sort()).toEqual([".app-rail", ".app[data-sidebar-collapsed] .main::after", ".app[data-sidebar-collapsed] > .main",
+    expect(translucent.sort()).toEqual([".app-rail", ".app[data-sidebar-folded] .main::after", ".app[data-sidebar-folded] > .main",
       ".main", ".sidebar"].sort());
     expect(bodiesFor(".main").join(" ")).toMatch(/var\(--pane-ground\)\) 0 var\(--frame-top\)/);
   });

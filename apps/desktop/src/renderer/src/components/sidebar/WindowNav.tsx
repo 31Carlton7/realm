@@ -7,8 +7,8 @@ import { useChord } from "./use-sidebar-model";
  * has been, the same steps the Go menu takes. Greyed at either end rather than hidden, so the pair
  * never moves.
  *
- * ONE pair, in the window's head row: in the sidebar's, beside the profile, while there is a sidebar;
- * in the rail under the traffic lights while it is folded away. Each pane's bar carried a second pair
+ * ONE pair, in the window's head row beside the traffic lights (WindowLead), in the same place
+ * whether or not there is a sidebar — Codex's top-left. Each pane's bar carried a second pair
  * for its own trail, and two sets of arrows a few inches apart, walking different histories, was a
  * choice nobody could see the difference between. The pane's trail is still walked from the keyboard
  * (⌘[ and ⌘]).

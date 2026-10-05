@@ -39,6 +39,8 @@ import {
   // Settings' pages, each beside its glyph in the column (settings-index.ts), and the Library's toolbar.
   CpuIcon, DashboardSpeed02Icon, Cursor01Icon, CommandIcon, InboxDownloadIcon, FilterHorizontalIcon, LeftToRightListBulletIcon,
   SquareLockPasswordIcon,
+  // The window's two panel toggles: the sidebar on the left, the side pane on the right.
+  LayoutLeftIcon, LayoutRightIcon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -141,6 +143,10 @@ export const icons = {
   /* The Library's toolbar: the narrowing a filter menu does, and the view as rows beside `grid`'s
      view as tiles — the pair every file browser draws. */
   filter: FilterHorizontalIcon, list: LeftToRightListBulletIcon,
+  /* The window's panel toggles, as Codex and every Mac editor draw them: a window with the panel
+     ruled off at its side. `sidebar` is the older glyph with list rows drawn in the panel — at 14px
+     beside the traffic lights the rows were a smudge, and the bare rule is the cleaner mark. */
+  panelLeft: LayoutLeftIcon, panelRight: LayoutRightIcon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */
