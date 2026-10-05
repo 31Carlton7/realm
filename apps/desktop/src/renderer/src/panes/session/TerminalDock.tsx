@@ -9,8 +9,9 @@ import { DOCK_H_TERMINAL, dockPinMinPaneHeight, useDockDismiss, useDockPinned, u
 /**
  * The session's terminal docked along the pane's BOTTOM edge, where Settings ▸ General ▸ Terminals
  * puts it on request: the layout people bring from an editor, and the one a tall, narrow pane can
- * afford. Its default place is a tab of the session's side pane, which the pane bar's button opens
- * itself; this dock is drawn only for the Bottom choice.
+ * afford. Its default place is a tab of the session's side pane, which ⌘J and the side pane's "+"
+ * open; this dock is drawn only for the Bottom choice, and only then does the session's bar carry a
+ * toggle for it.
  *
  * A card by the dock's rules: it pins when the pane can spare the HEIGHT, and the pane then gives up
  * its foot, which lifts the prompter above the shell rather than under it; in a short pane it floats

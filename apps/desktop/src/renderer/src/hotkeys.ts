@@ -77,11 +77,12 @@ const BINDINGS: Binding[] = [
     match: (e) => e.key in ARROWS && mod(e, { meta: true, alt: true }),
     run: (s, e) => s.focusNeighbor(ARROWS[e.key]!),
   },
-  // ⌘W → close the focused pane (layout-only). Never the window; empty leaf = no-op.
+  // ⌘W → close what the focused pane holds, layout-only (`closeInPane`): a tab, a pane of a split,
+  // never a session alone. Never the window.
   {
     match: (e) => e.key.toLowerCase() === "w" && mod(e, { meta: true }),
     alwaysPrevent: true,
-    run: (s) => { const it = focusedItem(s); if (it) s.run(() => s.closeFromLayout(it.id)); },
+    run: (s) => s.run(() => s.closeInPane()),
   },
   // ⌘⇧F → focus the focused pane full-screen, or unfocus if it already is. The pane stays in the
   // view either way — this only changes how much of the window it gets (see contracts/view.ts).

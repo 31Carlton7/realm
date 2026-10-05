@@ -369,7 +369,7 @@ async function main() {
   // Something to summarise: a url in the answer is an output (session-summary.ts), and a long reply
   // gives the transcript something to scroll.
   await api.call("sessions.send", { id: sessionId, text: `shipped to https://app.test/live\n\n${Array.from({ length: 40 }, (_, i) => `Line ${i + 1} of a long note the fake agent reads back.`).join("\n")}`, attachments: [] });
-  await until(() => evalIn(c, `!!document.querySelector('.panel-actions [aria-label^="Summary of"]')`), 30_000, "summary button");
+  await until(async () => (await api.call("sessions.events", { id: sessionId, afterSeq: 0, limit: 500 })).some((e) => e.event.type === "usage"), 30_000, "a settled turn to summarise");
   seedFiles(space, sessionId);
 
   // A scheduled task on the scripted agent, run once, so the Scheduled page has a run to read.
@@ -388,7 +388,7 @@ async function main() {
     await sleep(500);
     await shot(c, `${face}-session`);
     if (face === "dark") await audit(c, "session");
-    await evalIn(c, `document.querySelector('.panel-actions [aria-label^="Summary of"]').click(); true`);
+    await evalIn(c, `document.querySelector('.panel-actions [aria-label^="Summary and files for"]').click(); true`);
     await until(() => evalIn(c, `!!document.querySelector('.session-summary')`), 10_000, "summary panel");
     /* Its FIRST frame, held there: a window that cannot run the entrance (occluded, throttled) shows
        the panel where the animation starts it, which is where new-surfaces-live caught it 4px out. */
@@ -403,7 +403,7 @@ async function main() {
     check(`${face}: the session summary lands wholly inside the window`, summary.overRight <= 0 && summary.overBottom <= 0 && summary.overLeft <= 0 && summary.overTop <= 0, summary);
     await shot(c, `${face}-summary`, { x: Math.max(0, summary.box.x - 40), y: Math.max(0, summary.box.y - 40), width: Math.min(WINDOW.width - Math.max(0, summary.box.x - 40), summary.box.w + 80), height: Math.min(WINDOW.height - Math.max(0, summary.box.y - 40), summary.box.h + 80) });
     if (face === "dark") await audit(c, "summary popover", `document.querySelector('.session-summary')`);
-    await evalIn(c, `document.querySelector('.panel-actions [aria-label^="Summary of"]').click(); true`);
+    await evalIn(c, `document.querySelector('.panel-actions [aria-label^="Summary and files for"]').click(); true`);
     await sleep(300);
 
     // The command palette's list — long enough to scroll with every command in it.

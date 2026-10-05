@@ -393,6 +393,7 @@ export function Main() {
   const focusLeaf = useApp((s) => s.focusLeaf);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const closeEmptyPane = useApp((s) => s.closeEmptyPane);
+  const closeInPane = useApp((s) => s.closeInPane);
   const splitFocused = useApp((s) => s.splitFocused);
   const openItemAt = useApp((s) => s.openItemAt);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
@@ -421,6 +422,7 @@ export function Main() {
         onFocus={focusLeaf}
         onClose={(id) => run(() => closeFromLayout(id))}
         onCloseEmpty={(leafId) => run(() => closeEmptyPane(leafId))}
+        onUnsplit={(leafId) => run(() => closeInPane(leafId))}
         // The split button targets its own leaf: focus it synchronously, then split reads the fresh focus.
         onSplit={(leafId, dir) => { focusLeaf(leafId); run(() => splitFocused(dir)); }}
         onResize={resizeSplit}

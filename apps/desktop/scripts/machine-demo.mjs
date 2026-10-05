@@ -18,6 +18,7 @@ import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.DEMO_CDP_PORT ?? 9391), SERVER_PORT = Number(process.env.DEMO_SERVER_PORT ?? 8951);
@@ -164,11 +165,8 @@ async function main() {
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 30000, "composer");
   await sleep(600);
 
-  step("the session bar's machine button");
-  await evalIn(c, `(() => {
-    const b = [...document.querySelectorAll('.panel-actions .icon-btn')].find((x) => /Connect a machine/.test(x.getAttribute('aria-label') ?? ''));
-    if (!b) throw new Error('no machine button — have: ' + [...document.querySelectorAll('.panel-actions .icon-btn')].map((x) => x.getAttribute('aria-label')).join(' | '));
-    b.click(); return true; })()`);
+  step("the side pane's Machine");
+  await openSideTool(c, null, "Machine");
   await until(() => evalIn(c, `!!document.querySelector('.machine-connect')`), 20000, "connect flow");
   await sleep(500);
   await shot(c, "connect-flow");

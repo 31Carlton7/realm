@@ -94,6 +94,8 @@ describe("the capabilities preamble reaches an ordinary session", () => {
     expect(ctx).toContain("agent_run");
     expect(ctx).toContain("browser_open");
     expect(ctx).toContain("docs_search");
+    // …and what Realm draws in its replies, which no switch turns off.
+    expect(ctx).toContain("```realm-chart");
     // The Mac-app provider is opt-in and this space never opted in, so it must stay unmentioned.
     expect(ctx).not.toContain("computer_act");
     c.close();

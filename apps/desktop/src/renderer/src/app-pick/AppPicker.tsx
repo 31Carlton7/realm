@@ -1,4 +1,4 @@
-import { appElementName, type AppPickedElement, type BrowserPickedElement } from "@realm/contracts";
+import { appElementName, type AppPickedElement, type PickedElement } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
@@ -33,8 +33,9 @@ function labelFor(el: Element): { name: string; component: string | null } {
 }
 
 /** The theme's page colour as bytes, for main to lay the capture's translucency over. A colour the
- *  stylesheet writes in OKLCH has no sRGB until something paints it, so a one-pixel canvas does. */
-function groundRgb(): [number, number, number] | null {
+ *  stylesheet writes in OKLCH has no sRGB until something paints it, so a one-pixel canvas does.
+ *  The simulator pane's picks are laid over it too. */
+export function groundRgb(): [number, number, number] | null {
   const page = getComputedStyle(document.documentElement).getPropertyValue("--page").trim();
   const ctx = page ? document.createElement("canvas").getContext("2d", { willReadFrequently: true }) : null;
   if (!ctx) return null;
@@ -49,13 +50,14 @@ const pictureName = (name: string): string =>
   `realm-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "element"}.png`;
 
 /** Two frames: the picker's chrome has been taken off the screen by the time the window is captured. */
-const painted = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+export const painted = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 
 const titleOf = (s: AppState, sessionId: string): string =>
   s.items.find((i) => i.kind === "session" && i.refId === sessionId)?.title ?? s.sessions[sessionId]?.title ?? "the prompter";
 
-/** The chip, and the picture beside it, in the session's draft — and a word about where it went. */
-function deliver(store: StoreApi<AppState>, sessionId: string, element: AppPickedElement | BrowserPickedElement, file: PickedAttachment | null): void {
+/** The chip, and the picture beside it, in the session's draft — and a word about where it went. One
+ *  delivery for every picker, so a pick off a device lands the way a part of Realm does. */
+export function deliver(store: StoreApi<AppState>, sessionId: string, element: PickedElement, file: PickedAttachment | null): void {
   const s = store.getState();
   const title = titleOf(s, sessionId);
   const label = s.addElementChip(sessionId, element);

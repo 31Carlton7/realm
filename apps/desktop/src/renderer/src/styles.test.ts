@@ -1195,6 +1195,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // fallback — the span's own colour, and xterm's own half — so a host that never receives them
       // draws faint text exactly as xterm would.
       "--term-fg", "--term-dim", ...Array.from({ length: 16 }, (_, i) => `--term-ansi-${i}`),
+      // A drawn diagram's own width (panes/session/rich/UiBlock.tsx): Mermaid's viewBox, set inline
+      // because the drawing's size is the diagram's and not the stylesheet's; the rule that shrinks it
+      // to four fifths and then scrolls is arithmetic on that one number.
+      "--diagram-w",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
@@ -1369,6 +1373,40 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // never moves them, which centres them in a 40px band — the rail's, beside the sidebar's header
     // and the first pane's bar.
     expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
+  });
+
+  it("the Scheduled and Code review columns are the sidebar's in its slot — its ground, edge, width and dissolve", () => {
+    /* The owner, 10-05: the Scheduled page's column "looks darker, there is no corner rounding … It is
+       supposed to be the replacement sidebar, not like its own custom thing. Same for the code review
+       part." In the slot (page-nav.tsx) each column gives up the frame's ground, its hairline edge and
+       its fixed width — the sidebar's ground, corner and seam are under it then, and its width the
+       sidebar's, resizer and all — and the slot neither insets it again nor scrolls it, since the
+       column brings its own head and scroller. That scroller dissolves on the spaces list's depths.
+       THE MUTANTS: the column's own ground or edge kept in the slot (the darker second sidebar), its
+       fixed width kept (a column narrower or wider than the sidebar), or the slot's inset doubling the
+       column's own. */
+    const slot = bodiesFor(".sb-page-nav:has(> :is(.sched-col, .cr-col))").join(" ");
+    expect(slot).toContain("padding: 0");
+    expect(slot).toContain("overflow: hidden");
+    const col = bodiesFor(".sb-page-nav > :is(.sched-col, .cr-col)").join(" ");
+    for (const want of ["flex: 1", "width: auto", "background: none", "border-right: 0"]) expect(col, want).toContain(want);
+    // Standing in the page, with the sidebar folded away, each keeps the ground and edge it had.
+    for (const sel of [".sched-col", ".cr-col"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("background: var(--rl-frame)");
+      expect(bodiesFor(sel).join(" "), sel).toContain("border-right: var(--hairline-w) solid var(--rl-line)");
+    }
+    const depth = (body: string, v: string) => new RegExp(`${v}: (\\d+px)`).exec(body)?.[1];
+    const list = bodiesFor(".sb-page").join(" ");
+    const bodies = bodiesFor(".sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-body, .cr-col-body)").join(" ");
+    expect(depth(bodies, "--fade-h")).toBe(depth(list, "--fade-h"));
+    expect(depth(bodies, "--fade-top-h")).toBe(depth(list, "--fade-top-h"));
+    // …and its bar the column's own narrow one, the spaces list's — not the 10px channel every other
+    // dissolving scroller takes, which in the live check stood out down Code review's long list.
+    const GUARD = ":root:not([data-overlay-scrollbars])";
+    for (const body of [".sb-page-nav > .sched-col > .sched-col-body", ".sb-page-nav > .cr-col > .cr-col-body"]) {
+      expect(bodiesFor(`${GUARD} ${body}::-webkit-scrollbar`).join(" "), body).toBe(bodiesFor(`${GUARD} .space-body::-webkit-scrollbar`).join(" "));
+      expect(bodiesFor(`${GUARD} ${body}::-webkit-scrollbar-thumb`).join(" "), body).toBe(bodiesFor(`${GUARD} .space-body::-webkit-scrollbar-thumb`).join(" "));
+    }
   });
 
   it("the window never scrolls: the shell is clipped at its own edges, without becoming a scroller", () => {
@@ -1728,6 +1766,15 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
 
   });
 
+  it("a device pick's picture is of the device: Realm's boxes and the silenced tooltip leave it at once", () => {
+    /* The picture is the window's own capture, two frames after the press. THE MUTANT is the tooltip
+       left to its own exit — a fade that outlasts those frames, so the picture carried the box's
+       "Green curry — Button" across the row it was a picture of. */
+    const hidden = bodiesFor(":root[data-pick-capture] :is(.sim-ax, .tooltip)").join(" ");
+    expect(hidden).toContain("visibility: hidden");
+    expect(hidden).toContain("transition: none");
+  });
+
   it("the device's controls over it and under it are one pill", () => {
     /* The toolbar over the device, and under it the Record control, the recording it becomes and a
        phone's offer to go live: one height, fill, corner and lift, so above and below read as one
@@ -1735,7 +1782,8 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
        the `.btn` the Record control was, whose painter trades the lift for a ring. */
     const pill = RULES.find((r) => partsOf(r).includes(".sim-toolbar") && partsOf(r).includes(".sim-record-start"));
     expect(pill && partsOf(pill).sort()).toEqual([".sim-live", ".sim-record-start", ".sim-recording", ".sim-toolbar"]);
-    for (const decl of ["height: 32px", "border-radius: 999px", "background: var(--rl-raised)", "box-shadow: var(--shadow-card)"]) {
+    // Its lift is the object surface every file and Library item wears too (asserted with them below).
+    for (const decl of ["height: 32px", "border-radius: 999px", "background: var(--rl-raised)", "box-shadow: var(--rl-object-shadow)"]) {
       expect(pill!.body).toContain(decl);
     }
     // What sits inside a pill is a pill, under the painter too — or Stop is a squircle in a capsule.
@@ -1924,7 +1972,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(RULES.some((r) => r.selectors.includes(".btn-quiet:disabled"))).toBe(false);
   });
 
-  it("an attachment is a SQUARE on the field fill behind a hairline ring — no name, no label column", () => {
+  it("an attachment is a SQUARE on the field fill under the object's border and shadow — no name, no label column", () => {
     const tile = bodiesFor(".attach-tile").join(" ");
     // Square, and the same square in both directions: a chip that grows with its filename is the
     // thing this replaced. Both sides now come off ONE property, which is also what the corner
@@ -1935,7 +1983,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".msg-user-files .attach-tile").join(" ")).toContain("--attach-tile: 56px");
     const art = bodiesFor(".attach-art").join(" ");
     expect(art).toContain("background: var(--field)");
-    expect(art).toContain("box-shadow: var(--shadow-hairline)");
+    expect(art).toContain("box-shadow: var(--rl-object-shadow)");
     /* The corner is a proportion of the tile, not a flat length, and it is the squircle ratio rather
        than the control one — `--sq-ratio-ctl` would spend the whole 44px box and render the circular
        fallback as a disc (see the token's own note). `corner-shape` makes it a true superellipse on
@@ -2919,6 +2967,35 @@ describe("light mode", () => {
     expect(lightBlocks).not.toContain("--fill-bevel");
     for (const sel of [".btn.primary", ".composer-send", ".btn.destructive"])
       expect(bodiesFor(sel).join(" "), sel).toContain("box-shadow: var(--fill-bevel)");
+  });
+
+  it("every file and Library item stands on the device toolbar's own border and shadow — one token, never a copy", () => {
+    /* The owner, 10-05: "Files and library items should have a very slight shadow under them instead of
+       being just a flat square. And also it should have a light border. Look at the simulator and the
+       bar that has the live indicator… That should be the shadow and border used for any library item."
+       So the toolbar and the items all wear ONE token. THE MUTANTS: an item put back on a flat inset rim
+       (or on no edge), an item given the toolbar's stack copied rather than named, the toolbar moved to
+       another stack on its own, and a picture tile's ring traced back inside the border round it. */
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-shadow: var(--shadow-card)");
+    expect(RULES.filter((r) => /(^|[;\s])--rl-object-shadow\s*:/.test(r.body)), "defined once, so there is one place to change it").toHaveLength(1);
+    for (const sel of [".sim-toolbar", ".library-tile", ".library-row-mark", ".saved-turn-open", ".docs-home-glyph[data-type]", ".attach-art"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("box-shadow: var(--rl-object-shadow)");
+      expect(body, `${sel} keeps a rim of its own as well`).not.toMatch(/border: var\(--hairline-w\) solid|inset 0 0 0 var\(--hairline-w\)/);
+    }
+    // One ring round a picture: the tile's, outside it. A second traced inside sat half a pixel off it.
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".library-tile[data-thumb]::after")))).toEqual([]);
+    expect(bodiesFor(".library-tile").join(" ")).toContain("overflow: hidden");
+    // A file the agent will drop keeps its warning ring, and rests on the same lift as every other.
+    expect(bodiesFor('.attach-tile[data-disposition="ignored"] .attach-art').join(" ")).toContain("box-shadow: 0 0 0 var(--hairline-w) var(--orange), var(--shadow-card-lift)");
+    /* Painted, the attachment's well takes the same surface in its two halves: the border from the
+       painter, the shadow as a filter on the control round the well — not on the well, whose own
+       clip-path would cut it off. THE mutants: the painter's ring left on --line, or no lift. */
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-ring: var(--card-ring)");
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-lift-filter: var(--shadow-card-lift-filter)");
+    expect(bodiesFor(":root[data-squircle] .attach-art").join(" ")).toContain("--sq-ring: var(--rl-object-ring)");
+    expect(bodiesFor(":root[data-squircle] .attach-open").join(" ")).toContain("filter: var(--rl-object-lift-filter)");
+    expect(bodiesFor(":root[data-squircle] .attach-art").join(" ")).not.toContain("filter:");
   });
 
   it("a file card set into the dock's raised surface takes the raised frame step, and light's is no weaker than dark's", () => {

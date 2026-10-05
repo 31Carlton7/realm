@@ -42,7 +42,7 @@ describe("the menu bar", () => {
 
   it("runs a row's command in the renderer when clicked", () => {
     const { template, send } = build();
-    (find(template, "Close Pane")!.click as () => void)();
+    (find(template, "Close Tab or Split")!.click as () => void)();
     expect(send).toHaveBeenCalledWith("pane.close");
   });
 
@@ -54,10 +54,10 @@ describe("the menu bar", () => {
     expect(roles(build({ developer: true }).template)).toEqual(expect.arrayContaining(["reload", "toggleDevTools"]));
   });
 
-  it("never binds ⌘W to the window — a pane closes, the window keeps its red button", () => {
+  it("never binds ⌘W to the window — a tab or a split closes, the window keeps its red button", () => {
     const items = all(build().template);
     expect(items.map((i) => i.role)).not.toContain("close");
-    expect(items.filter((i) => i.accelerator === "Command+W").map((i) => i.label)).toEqual(["Close Pane"]);
+    expect(items.filter((i) => i.accelerator === "Command+W").map((i) => i.label)).toEqual(["Close Tab or Split"]);
   });
 
   it("gives Help its search field and the window list its place", () => {

@@ -4,6 +4,7 @@ import { AGENT_META, AGENT_MODELS, DEFAULT_MODEL_LABEL, type AgentKind, type Ite
 import { FALLBACK_AGENT, useApp, useProfileSpaces, type AgentProbe } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { Menu, type MenuItem } from "../../components/Menu";
+import { PageRail } from "../../components/page-nav";
 import { useDissolve } from "../../components/ScrollFades";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { SessionPane } from "../session/SessionPane";
@@ -27,10 +28,13 @@ const NO_RUNS: Run[] = [];
 
 /**
  * Scheduled tasks, in Codex's layout: the page's own column — Scheduled, New task, the Upcoming
- * tasks with their runs, and Suggested — and beside it whatever is selected. A run is its session,
- * drawn by the real session pane (the transcript and the prompter, to read the run and carry it on)
- * with the task's card at its top right; a task with no runs yet is its card and a way to run it now;
- * nothing selected is the place to start one.
+ * tasks with their runs, and Suggested — and beside it whatever is selected. The column is the
+ * sidebar's while the page is up (`PageRail`): the same ground, corner, edge and width as every other
+ * page's sections, under the column's Back; with the sidebar folded away it stands in the page.
+ *
+ * A run is its session, drawn by the real session pane (the transcript and the prompter, to read the
+ * run and carry it on) with the task's card at its top right; a task with no runs yet is its card and
+ * a way to run it now; nothing selected is the place to start one.
  *
  * Every task in the window's profile is listed, whichever space it runs in — the modal's Space field
  * moves one between them, and a list that showed only the vantage space would lose a task the moment
@@ -110,49 +114,51 @@ export function SchedulesPage({ item, visible, focused = false }: PaneProps) {
 
   return (
     <div className="page schedules-page">
-      <nav className="sched-col" aria-label="Scheduled tasks">
-        <div className="sched-col-head">
-          <h1 className="sched-col-title">Scheduled</h1>
-          <button type="button" className="icon-btn" aria-label="Search" title="Search tasks" aria-pressed={searching}
-            onClick={() => { setSearching((x) => !x); setQuery(""); }}>
-            <Icon name="search" size={14} />
-          </button>
-        </div>
-        {searching && (
-          <div className="sched-col-search">
-            <input className="search-field" type="search" aria-label="Search tasks" placeholder="Search tasks" autoFocus value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setSearching(false); setQuery(""); } }} />
+      <PageRail label="Scheduled tasks">
+        <nav className="sched-col" aria-label="Scheduled tasks">
+          <div className="sched-col-head">
+            <h1 className="sched-col-title">Scheduled</h1>
+            <button type="button" className="icon-btn" aria-label="Search" title="Search tasks" aria-pressed={searching}
+              onClick={() => { setSearching((x) => !x); setQuery(""); }}>
+              <Icon name="search" size={14} />
+            </button>
           </div>
-        )}
-        <div ref={columnBody} className="sched-col-body">
-          <button type="button" className="sched-new" onClick={openNew}><Icon name="add" size={16} /> New task</button>
-          {all.length > 0 && <div className="group-label">Upcoming</div>}
-          {all.length > 0 && listed.length === 0 && <p className="sched-col-note">No task matches that.</p>}
-          <ul className="sched-tasks">
-            {listed.map((s) => (
-              <TaskRow key={s.id} schedule={s} runs={runsOf(s.id)} more={history[s.id]?.nextCursor != null}
-                limit={shown[s.id] ?? RUNS_SHOWN} expanded={expanded.has(s.id)}
-                selectedRun={sel?.scheduleId === s.id ? shownRun?.id ?? null : undefined}
-                unread={(r) => runUnread(r.sessionId ? sessions[r.sessionId] : undefined)}
-                onSelect={() => (sel?.scheduleId === s.id && sel.runId === null && expanded.has(s.id) ? toggle(s.id) : select(s.id, null))}
-                onToggle={() => toggle(s.id)}
-                onRun={(r) => select(s.id, r.id)} onOlder={() => showOlder(s)} />
-            ))}
-          </ul>
-          {suggested.length > 0 && <div className="group-label">Suggested</div>}
-          <ul className="sched-suggested">
-            {suggested.map((t) => (
-              <li key={t.title}>
-                <button type="button" className="sched-suggestion" onClick={() => setModal({ draft: draftOfSuggestion(t, vantage, defaultKind) })}>
-                  <span className="sched-suggestion-name">{t.title}</span>
-                  <span className="sched-suggestion-blurb">{t.blurb}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </nav>
+          {searching && (
+            <div className="sched-col-search">
+              <input className="search-field" type="search" aria-label="Search tasks" placeholder="Search tasks" autoFocus value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setSearching(false); setQuery(""); } }} />
+            </div>
+          )}
+          <div ref={columnBody} className="sched-col-body">
+            <button type="button" className="sched-new" onClick={openNew}><Icon name="add" size={16} /> New task</button>
+            {all.length > 0 && <div className="group-label">Upcoming</div>}
+            {all.length > 0 && listed.length === 0 && <p className="sched-col-note">No task matches that.</p>}
+            <ul className="sched-tasks">
+              {listed.map((s) => (
+                <TaskRow key={s.id} schedule={s} runs={runsOf(s.id)} more={history[s.id]?.nextCursor != null}
+                  limit={shown[s.id] ?? RUNS_SHOWN} expanded={expanded.has(s.id)}
+                  selectedRun={sel?.scheduleId === s.id ? shownRun?.id ?? null : undefined}
+                  unread={(r) => runUnread(r.sessionId ? sessions[r.sessionId] : undefined)}
+                  onSelect={() => (sel?.scheduleId === s.id && sel.runId === null && expanded.has(s.id) ? toggle(s.id) : select(s.id, null))}
+                  onToggle={() => toggle(s.id)}
+                  onRun={(r) => select(s.id, r.id)} onOlder={() => showOlder(s)} />
+              ))}
+            </ul>
+            {suggested.length > 0 && <div className="group-label">Suggested</div>}
+            <ul className="sched-suggested">
+              {suggested.map((t) => (
+                <li key={t.title}>
+                  <button type="button" className="sched-suggestion" onClick={() => setModal({ draft: draftOfSuggestion(t, vantage, defaultKind) })}>
+                    <span className="sched-suggestion-name">{t.title}</span>
+                    <span className="sched-suggestion-blurb">{t.blurb}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </nav>
+      </PageRail>
 
       <div className="sched-main">
         {!schedule ? <ScheduleEmpty onNew={openNew} />

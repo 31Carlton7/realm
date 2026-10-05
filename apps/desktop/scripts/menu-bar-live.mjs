@@ -174,7 +174,7 @@ async function main() {
   const settings = items.find((i) => i.label === "Settings…");
   check("Settings… sits under the app's name with ⌘, beside it", settings?.accelerator === "Command+,", settings);
   check("File ▸ New Session shows the person's ⌘N", items.find((i) => i.label === "New Session")?.accelerator === "Command+N");
-  check("⌘W closes a pane and nothing in the menu closes the window", items.filter((i) => i.accelerator === "Command+W").map((i) => i.label).join() === "Close Pane"
+  check("⌘W closes a tab or a split and nothing in the menu closes the window", items.filter((i) => i.accelerator === "Command+W").map((i) => i.label).join() === "Close Tab or Split"
     && !items.some((i) => i.role === "close"), items.filter((i) => i.accelerator === "Command+W"));
   const view = menu.find((m) => m.label === "View");
   check("Reload is not a top-level View item for anyone", !view.submenu.some((i) => i.role === "reload"), view.submenu.map((i) => i.label ?? i.role));

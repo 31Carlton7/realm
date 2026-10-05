@@ -208,6 +208,39 @@ describe("CommandPalette", () => {
     await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBeNull(); });
   });
 
+  it("names ⌘W for where the keyboard is — a tab, a split — and offers nothing to close on a session alone", async () => {
+    // THE MUTANT: the old "Close pane" on every focused item. On a lone session it would close the
+    // session's pane, the close the session no longer has.
+    const items = [item("ia", "s1", { kind: "session", refId: "sa", title: "Alpha" }), item("ib", "s1", { kind: "session", refId: "sb", title: "Bravo" }),
+      item("it", "s1", { kind: "terminal", refId: "t", title: "Shell" })];
+    const { store } = await mount({ items: { s1: items }, sessions: [session("sa", "s1"), session("sb", "s1")] });
+    const closeRow = () => screen.queryAllByRole("option").map((o) => o.textContent ?? "").find((t) => /^(Close|Remove from split)/.test(t)) ?? null;
+    act(() => store.setState({ layout: { type: "leaf", id: "LA", itemId: "ia" }, focusedLeafId: "LA" }));
+    expect(closeRow()).toBeNull();
+    act(() => store.setState({ layout: { type: "split", id: "r", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "LA", itemId: "ia" }, { type: "leaf", id: "LS", itemId: "it", tabs: ["it"], owner: "ia" }] }, focusedLeafId: "LS" }));
+    expect(closeRow()).toMatch(/^Close tab/);
+    act(() => store.setState({ layout: { type: "split", id: "r", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "LA", itemId: "ia" }, { type: "leaf", id: "LB", itemId: "ib" }] }, focusedLeafId: "LB" }));
+    expect(closeRow()).toMatch(/^Remove from split/);
+    fireEvent.click(screen.getByRole("option", { name: /Remove from split/ }));
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBe("ia"); });
+  });
+
+  it("lists the tools that left the session's bar, opening beside the session the keyboard is in", async () => {
+    // THE MUTANT: no palette entry for them. A simulator or the session's agents would then be one
+    // route deep — a menu in the side pane — where every other tool has a key or a row here too.
+    const it9 = item("i9", "s1", { kind: "session", refId: "se1", title: "Lead" });
+    const { store, api } = await mount({ items: { s1: [it9] }, sessions: [session("se1", "s1")] });
+    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "i9" }, focusedLeafId: "L1" }));
+    for (const name of ["New tab", "Show terminal", "Sub-agents", "Open a simulator"]) expect(screen.getByRole("option", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Show terminal/ })).toHaveTextContent("⌘J");
+    fireEvent.click(screen.getByRole("option", { name: /^Open a simulator/ }));
+    await waitFor(() => expect(api.calls).toContain("createSimulator:s1"));
+    await waitFor(() => expect(store.getState().layout!.type).toBe("split"));
+    expect(findLeafOfItem(store.getState().layout!, "i9")).not.toBeNull();
+  });
+
   it("Interrupt running session appears only while the focused pane's session is running", async () => {
     const it9 = item("i9", "s1", { kind: "session", refId: "se1" });
     const { store, api } = await mount({ items: { s1: [it9] }, sessions: [session("se1", "s1")] });

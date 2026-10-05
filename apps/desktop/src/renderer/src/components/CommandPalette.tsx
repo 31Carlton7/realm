@@ -1,9 +1,10 @@
 import { Icon, THEMES, themeModes } from "@realm/ui";
-import { AGENT_META, SELECTABLE_AGENT_KINDS, VIEW_MAX_PANES, chordsForCommand, displayKeyChord, emptyLayout, itemIdOfLeaf, primaryLeaves, allItems as openItemIds, type DestinationPageKind, type Item, type SearchResults, type SearchSnippet } from "@realm/contracts";
+import { AGENT_META, SELECTABLE_AGENT_KINDS, VIEW_MAX_PANES, chordsForCommand, displayKeyChord, emptyLayout, itemIdOfLeaf, primaryLeaves, allItems as openItemIds, type DestinationPageKind, type Item, type KeyContext, type SearchResults, type SearchSnippet } from "@realm/contracts";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 import { centerOverComplement } from "../state/no-overlay";
 import { spaceIsPlainFolder, useApp, useBrowserRects, type AppState, type PaletteMode } from "../state/store";
+import { closeIntent, type CloseIntent } from "../state/close-intent";
 import { useResolvedMode, type ThemePref } from "../theme/useTheme";
 import { ItemGlyph } from "./sidebar/ItemList";
 import { ItemIcon } from "./PageIcon";
@@ -87,6 +88,12 @@ export function relTime(ts: number, now = Date.now()): string {
 
 const MODES: ThemePref[] = ["system", "light", "dark"];
 
+/** What the palette calls ⌘W where the keyboard is (`closeIntent`). A session alone has no entry:
+ *  there is nothing to close, and a row whose whole effect is moving the caret is not a command. */
+const CLOSE_LABEL: Record<CloseIntent["kind"], string | null> = {
+  tab: "Close tab", unsplit: "Remove from split", empty: "Close the empty pane", pane: "Close pane", prompter: null,
+};
+
 /** The palette's CSS width (styles.css `.palette`); the no-overlay path needs the number. */
 const PALETTE_WIDTH = 560;
 
@@ -139,6 +146,13 @@ function PaletteBody({ closing }: { closing: boolean }) {
   const newTerminal = useApp((s) => s.newTerminal);
   const newBrowser = useApp((s) => s.newBrowser);
   const newMachine = useApp((s) => s.newMachine);
+  const newSimulator = useApp((s) => s.newSimulator);
+  const newTab = useApp((s) => s.newTab);
+  const showSessionTerminal = useApp((s) => s.showSessionTerminal);
+  const openAgentsTab = useApp((s) => s.openAgentsTab);
+  /* The session a side pane serves where the keyboard is — the one its tools open beside, as the
+     side pane's "+" and ⌘P find it. */
+  const besideSession = useApp((s) => { const owner = s.peekOwner(); const it = owner ? s.items.find((i) => i.id === owner) : undefined; return it?.kind === "session" ? it.refId : null; });
   const openDocuments = useApp((s) => s.openDocuments);
   const keybindings = useApp((s) => s.keybindings);
   /* A shortcut hint has to come from the same list the handler reads. Printing `⌘T` from a string
@@ -150,6 +164,11 @@ function PaletteBody({ closing }: { closing: boolean }) {
     const chord = chordsForCommand(keybindings, command)[0];
     return chord ? <kbd>{displayKeyChord(chord)}</kbd> : undefined;
   }, [keybindings]);
+  /* A chord whose rule asks for a context the empty one does not have — ⌘J needs a session in focus. */
+  const kbdIn = useCallback((command: string, context: KeyContext) => {
+    const chord = chordsForCommand(keybindings, command, context)[0];
+    return chord ? <kbd>{displayKeyChord(chord)}</kbd> : undefined;
+  }, [keybindings]);
   const paletteMode = useApp((s) => s.paletteMode);
   const searchProjectText = useApp((s) => s.searchProjectText);
   const openDocumentPath = useApp((s) => s.openDocumentPath);
@@ -159,7 +178,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
   const dispatchDraft = useApp((s) => s.dispatchDraft);
   const drafts = useApp((s) => s.drafts);
   const splitFocused = useApp((s) => s.splitFocused);
-  const closeFromLayout = useApp((s) => s.closeFromLayout);
+  const closeInPane = useApp((s) => s.closeInPane);
   const requestRename = useApp((s) => s.requestRename);
   const interruptSession = useApp((s) => s.interruptSession);
   const jumpToPermission = useApp((s) => s.jumpToPermission);
@@ -255,6 +274,8 @@ function PaletteBody({ closing }: { closing: boolean }) {
     const focusedItem = focusedItemId ? byId.get(focusedItemId) ?? null : null;
     const focusedSession = focusedItem?.kind === "session" ? focusedItem.refId : null;
     const focusedRunning = !!focusedSession && (sessionStatus[focusedSession] ?? sessions[focusedSession]?.status) === "running";
+    const intent = closeIntent(l, focusedLeafId, (id) => byId.get(id));
+    const closeLabel = intent ? CLOSE_LABEL[intent.kind] : null;
     const byRecency = (a: Item, b: Item) => b.updatedAt - a.updatedAt;
 
     const itemEntry = (it: Item, section: string, hint: ReactNode): Entry => ({
@@ -302,6 +323,15 @@ function PaletteBody({ closing }: { closing: boolean }) {
       // "Documents", not "New documents": one workspace per environment (the server dedupes), so this
       // is an open-or-focus, and calling it "New" would promise a second pane it will never create.
       act("open-documents", "Documents", "documents", () => run(() => openDocuments())),
+      /* The side pane's own: a new tab there, and the session's tools that have no other entry here —
+         each the row the side pane's "+" carries, so nothing that left the session's bar is only in a
+         menu. */
+      act("new-tab", "New tab", "add", () => run(() => newTab()), kbd("pane.newTab")),
+      act("new-simulator", "Open a simulator", "simulator", () => run(() => newSimulator(null, besideSession ? { sessionId: besideSession } : false))),
+      ...(besideSession ? [
+        act("show-terminal", "Show terminal", "terminal", () => run(() => showSessionTerminal(besideSession)), kbdIn("terminal.toggle", { sessionFocus: true })),
+        act("sub-agents", "Sub-agents", "agents", () => run(() => openAgentsTab(besideSession))),
+      ] : []),
       // Plan 22 — the lecture loop. Sheets, not one-shots: each needs one input (a topic, a pick, a
       // selection) the palette cannot take inline.
       ...(activeSpaceId ? [
@@ -348,8 +378,8 @@ function PaletteBody({ closing }: { closing: boolean }) {
         act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), kbd("pane.splitRight")),
         act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), kbd("pane.splitDown")),
       ] : []),
+      ...(closeLabel ? [act("close-pane", closeLabel, "close", () => run(() => closeInPane()), kbd("pane.close"))] : []),
       ...(focusedItem ? [
-        act("close-pane", "Close pane", "close", () => run(() => closeFromLayout(focusedItem.id)), kbd("pane.close")),
         // The pane keeps its place in the view either way — this only changes how much room it gets.
         zoomedLeaf
           ? act("unfocus-pane", "Unfocus pane", "unfocusPane", () => run(() => toggleFocusPane()), kbd("pane.toggleFocus"))
@@ -375,8 +405,8 @@ function PaletteBody({ closing }: { closing: boolean }) {
     }));
 
     return [...open, ...activeRest, ...others, ...actions, ...themes, ...palettes];
-  }, [kbd, spaces, activeSpaceId, plainFolder, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeNames, mode, drafts, dispatchDraft,
-      selectSpace, revealItem, newTerminal, newBrowser, newMachine, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
+  }, [kbd, kbdIn, spaces, activeSpaceId, plainFolder, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeNames, mode, drafts, dispatchDraft,
+      selectSpace, revealItem, newTerminal, newBrowser, newMachine, newSimulator, newTab, showSessionTerminal, openAgentsTab, besideSession, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeInPane, requestRename,
       interruptSession, jumpToPermission, setThemePref, setThemeName, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, setSpacesOpen, run,
       profiles, activeProfileId, openProfileWindow, openNewProfileSheet,
       zoomedLeaf, toggleFocusPane]);

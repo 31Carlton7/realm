@@ -9,12 +9,14 @@ import { SessionPane, SessionPanelActions } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
 
 /**
- * The session's terminal from the pane bar's button.
+ * The session's terminal, as `showSessionTerminal` puts it on screen — the action ⌘J, View ▸ Show
+ * Terminal and the side pane's "+" all run.
  *
  * In its default place it is a tab of the session's side pane — the pane the browsers, documents and
- * devices its agents open go to — and the button is a plain action that goes there, as the bar's
- * other side-pane buttons do. Settings can dock it to the pane's foot instead, and there it is still
- * the card it was: a toggle, pinned or floating by the pane's height, and closing it keeps the shell.
+ * devices its agents open go to — and the session's bar has no control for it: the side pane is where
+ * a tool is launched. Settings can dock it to the pane's foot instead, and there it is still the card
+ * it was: the session's own panel, toggled from its bar, pinned or floating by the pane's height, and
+ * closing it keeps the shell.
  */
 const ITEMS = { s1: [item("i9", "s1", { kind: "session", title: "Shell", refId: "se1" })] };
 const SESSIONS = [session("se1", "s1", { title: "Shell" })];
@@ -55,11 +57,16 @@ const dock = () => screen.queryByRole("dialog", { name: /Terminal for/ });
 beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }); });
 afterEach(() => { cleanup(); setTerminalHubForTests(null); vi.unstubAllGlobals(); });
 
-describe("the terminal button, in the terminal's default place", () => {
-  it("opens the terminal as a tab of the session's side pane, not as a panel over the transcript", async () => {
-    // THE MUTANT: the button toggling the dock as it used to — a card hanging over the transcript.
+describe("the terminal, in its default place", () => {
+  it("has no control on the session's bar — it is launched from the side pane", async () => {
+    await mount();
+    expect(screen.queryByRole("button", { name: /terminal (for|beside) Shell/i })).toBeNull();
+  });
+
+  it("opens as a tab of the session's side pane, not as a panel over the transcript", async () => {
+    // THE MUTANT: toggling the dock as it used to — a card hanging over the transcript.
     const { store, api } = await mount();
-    fireEvent.click(button());
+    act(() => { void store.getState().showSessionTerminal("se1"); });
     await waitFor(() => expect(findSidePane(store.getState().layout!, "i9")?.tabs).toHaveLength(1));
     const tab = findSidePane(store.getState().layout!, "i9")!;
     expect(store.getState().items.find((i) => i.id === tab.itemId)?.kind).toBe("terminal");
@@ -69,21 +76,12 @@ describe("the terminal button, in the terminal's default place", () => {
     expect(store.getState().sessionDock.se1).toBeUndefined();
   });
 
-  it("is a plain action like the side-pane buttons beside it — no pressed state, no dialog", async () => {
-    // A toggle's state would be a claim the button cannot keep: a second press goes to the tab rather
-    // than putting it away, which is what Documents and Browser do with theirs.
-    await mount();
-    expect(button()).toHaveAccessibleName("Open the terminal beside Shell");
-    expect(button()).not.toHaveAttribute("aria-pressed");
-    expect(button()).not.toHaveAttribute("aria-haspopup");
-  });
-
-  it("goes back to the same tab on a second press", async () => {
+  it("goes back to the same tab when asked again", async () => {
     const { store, api } = await mount();
-    fireEvent.click(button());
+    act(() => { void store.getState().showSessionTerminal("se1"); });
     await waitFor(() => expect(findSidePane(store.getState().layout!, "i9")).not.toBeNull());
     store.getState().focusLeaf(findLeafOfItem(store.getState().layout!, "i9")!.id);
-    fireEvent.click(button());
+    act(() => { void store.getState().showSessionTerminal("se1"); });
     await waitFor(() => expect(store.getState().focusedLeafId).toBe(findSidePane(store.getState().layout!, "i9")!.id));
     expect(api.calls.filter((c) => c.startsWith("createTerminal"))).toHaveLength(1);
     expect(findSidePane(store.getState().layout!, "i9")!.tabs).toHaveLength(1);

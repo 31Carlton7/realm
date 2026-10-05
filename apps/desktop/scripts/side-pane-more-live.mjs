@@ -6,7 +6,7 @@
  * and checks, in the real window:
  *
  *   1. The side pane's "+" opens a menu that sits clear of the browser view under it — the view's
- *      bounds asked of main, over its inspector, never of the page.
+ *      bounds asked of main, over its inspector, never of the page — and lists the session's tools.
  *   2. New tab adds a blank browser tab after the one showing, on screen, with the address field
  *      focused and the page behind it off screen.
  *   3. New tab in full view does the same and fills the host with the side pane.
@@ -294,7 +294,9 @@ async function main() {
   await sleep(250); // the 140ms entrance, so the capture shows the menu at rest
   const view = (await views())["/job-1"];
   note("the + menu, its anchor, and the view under the strip", { menu: menu.rect, anchor: menu.anchor, view });
-  check("the + offers New tab and New tab in full view, with their chords", menu.items.join("|") === "New tab⌘⇧B|New tab in full view⌘⌥B", menu.items);
+  check("the + offers New tab and New tab in full view, with their chords", menu.items.slice(0, 2).join("|") === "New tab⌘⇧B|New tab in full view⌘⌥B", menu.items);
+  check("…and under them every tool of the session it serves — what the session's bar no longer carries",
+    ["Terminal⌘J", "Agents", "Simulator", "Machine"].every((t) => menu.items.includes(t)), menu.items);
   const natural = { x: menu.anchor.x, y: menu.anchor.y + menu.anchor.height + 4, width: menu.rect.width, height: menu.rect.height };
   check("a menu hung straight off the + would have covered the view — the case this guards", intersects(natural, view), { natural, view });
   check("the + menu sits clear of the browser view (main's bounds, not the page's)", view.shown && !intersects(menu.rect, view), { menu: menu.rect, view });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
-import { DEFAULT_KEYBINDINGS, findSidePane, type Keybinding } from "@realm/contracts";
+import { DEFAULT_KEYBINDINGS, allItems, findSidePane, type Keybinding } from "@realm/contracts";
 import { useKeybindings } from "./use-keybindings";
 import { createAppStore } from "../state/store";
 import { fakeApi, item, session, space } from "../state/store.test-fakes";
@@ -103,8 +103,8 @@ describe("useKeybindings", () => {
     input.remove();
   });
 
-  it("opens the focused session's terminal on ⌘J as a tab of its side pane — what the pane bar's button does", async () => {
-    // THE MUTANT: the key still toggling the old dock while the button opens a tab — two ways in, and
+  it("opens the focused session's terminal on ⌘J as a tab of its side pane — what the side pane's Terminal does", async () => {
+    // THE MUTANT: the key still toggling the old dock while the "+" row opens a tab — two ways in, and
     // two different terminals behind them.
     const { api, store } = await mount(undefined, focusedSession);
     await act(async () => { await store.getState().openItem("i1"); });
@@ -136,6 +136,24 @@ describe("useKeybindings", () => {
     expect(key({ key: "w", metaKey: true })).toBe(false);
     await tick();
     expect(store.getState().sheet).toEqual({ kind: "new-space" });
+  });
+
+  it("⌘W closes the tab the keyboard is in, and nothing at all on a session alone", async () => {
+    // THE MUTANT: the old runner, `closeFromLayout` on whatever has focus. The lone session would leave
+    // the view and a fresh one would be made to take its place — a close the session no longer has.
+    const { api, store } = await mount(undefined, focusedSession);
+    await act(async () => { await store.getState().openItem("i1"); });
+    key({ key: "w", metaKey: true });
+    await tick();
+    expect(allItems(store.getState().layout!)).toEqual(["i1"]);
+    expect(store.getState().keyboardFor?.sessionId).toBe("sess1");
+    expect(made(api, "createSession")).toBe(false);
+    // ⌘J puts the session's terminal in its side pane with the keyboard; ⌘W puts that tab away.
+    key({ key: "j", metaKey: true });
+    await waitFor(() => expect(findSidePane(store.getState().layout!, "i1")?.tabs).toHaveLength(1));
+    key({ key: "w", metaKey: true });
+    await waitFor(() => expect(findSidePane(store.getState().layout!, "i1")).toBeNull());
+    expect(allItems(store.getState().layout!)).toEqual(["i1"]);
   });
 
   it("ignores an event something closer to the target already consumed", async () => {

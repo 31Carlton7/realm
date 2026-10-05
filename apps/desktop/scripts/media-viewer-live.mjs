@@ -28,6 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
@@ -401,7 +402,7 @@ async function main() {
   check("the exchange is in the session's own transcript too", await evalIn(c, `[...document.querySelectorAll('.app .msg-user')].some((m) => m.textContent.includes('Make the sky warmer'))`));
 
   // ── 5. The prompter's chip, the documents pane, the Library ─────────────────────────────────────
-  await evalIn(c, click(`button[aria-label=${JSON.stringify(`Open documents for ${TITLE}`)}]`));
+  await openSideTool(c, TITLE, "Documents");
   await until(() => evalIn(c, `!!document.querySelector('.docs-home section[aria-label="This session"] .docs-home-row')`), 15_000, "the documents home");
   await sleep(600);
   await evalIn(c, `(() => { const b = document.querySelector('.docs-home button[aria-label="Add hero.png to the next message"]'); if (!b) return false; b.click(); return true; })()`);

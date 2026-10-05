@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9351), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8917);
@@ -207,11 +208,15 @@ async function main() {
   await api.ready;
   const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session to drive");
   await api.call("sessions.setAgent", { id: sessions[0].id, agentKind: "fake" });
-  const empty = await evalIn(c, `!!document.querySelector('.panel-actions [aria-label^="Summary of"]')`);
-  check("a session with nothing to summarise draws no button at all", !empty, undefined);
+  /* One button for the summary and the files: with nothing to summarise it opens on the files, and
+     the summary is offered once the session has something in it. */
+  await evalIn(c, `(() => { document.querySelector('.panel-actions [aria-label^="Summary and files for"]').click(); return true; })()`);
+  const filesFirst = await until(() => evalIn(c, `!!document.querySelector('.session-files') && !document.querySelector('.session-summary')`), 10000, "files first").catch(() => false);
+  check("a session with nothing to summarise opens its dock on the files, never an empty summary", filesFirst, undefined);
+  await evalIn(c, `(() => { document.querySelector('.panel-actions [aria-label^="Summary and files for"]').click(); return true; })()`);
   await api.call("sessions.send", { id: sessions[0].id, text: "shipped to https://app.test/live", attachments: [], mentions: [] });
-  await until(() => evalIn(c, `!!document.querySelector('.panel-actions [aria-label^="Summary of"]')`), 25000, "summary button");
-  await evalIn(c, `(() => { document.querySelector('.panel-actions [aria-label^="Summary of"]').click(); return true; })()`);
+  await until(async () => (await api.call("sessions.events", { id: sessions[0].id, afterSeq: 0, limit: 200 })).some((e) => e.event.type === "usage"), 25000, "a settled turn");
+  await evalIn(c, `(() => { document.querySelector('.panel-actions [aria-label^="Summary and files for"]').click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.session-summary')`), 10000, "summary panel");
   await sleep(300);
 
@@ -313,12 +318,12 @@ async function main() {
   const rtf = String.raw`{\rtf1\ansi\deff0 {\fonttbl{\f0 Helvetica;}}\fs40 Realm preview test\par\fs24 A second line of body text.\par}`;
   const spaces = await api.call("spaces.list", {});
   fs.writeFileSync(path.join(spaces[0].folderPath, "memo.rtf"), rtf);
-  // Driven entirely through the UI from here: the session's Documents button, then the pane's own
-  // file picker. That path is the one the change is about — a `.rtf` used to be listed and REFUSED
-  // there, and the only way to look at it was to leave for the Finder.
+  // Driven entirely through the UI from here: the session's Documents, from its side pane, then the
+  // pane's own file picker. That path is the one the change is about — a `.rtf` used to be listed and
+  // REFUSED there, and the only way to look at it was to leave for the Finder.
   await evalIn(c, `(() => { [...document.querySelectorAll('.space-body .item-row')][0].click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('[aria-label^="Open documents for"]')`), 20000, "the documents button");
-  await evalIn(c, `(() => { document.querySelector('[aria-label^="Open documents for"]').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.panel-crumb')`), 20000, "the session's pane");
+  await openSideTool(c, null, "Documents");
   await until(() => evalIn(c, `!!document.querySelector('.documents-pane')`), 20000, "documents pane");
   await sleep(400);
   // "Open a file…" is a Menu item behind the pane's own new-document button, so the menu opens first.

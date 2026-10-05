@@ -53,18 +53,21 @@ export const PAGE_LABEL: Partial<Record<Item["kind"], string>> = {
 /**
  * What a page asks of the shell around it, beyond its name.
  *
- * `sidebar: "none"` is a page with no use for the spaces beside it. Connections is about the whole
- * profile, not a space, and the Scheduled and Code Review pages draw their own columns — tasks, pull
- * requests — beside which the spaces would be two columns of navigation, one of them about somewhere
- * else. While such a
- * page is up the spaces sidebar is away and the page takes the width right of the rail; leaving it
- * brings the sidebar back as it was, because the person's own collapse setting is never touched.
+ * `sidebar: "none"` is a page with no use for the spaces beside it: Connections, which is about the
+ * whole profile, not a space. While it is up the spaces sidebar is away and the page takes the width
+ * right of the rail; leaving it brings the sidebar back as it was, because the person's own collapse
+ * setting is never touched.
+ *
+ * A page with a column of its own — the Library's sections, Settings', the Scheduled page's tasks, Code
+ * review's pull requests — is not one of these: its column takes the sidebar's place (`PageRail`,
+ * components/page-nav.tsx), so it is the same sidebar listing something else. Scheduled and Code review
+ * drew theirs inside the page, on a ground, edge and width of their own, and read as a second, darker
+ * sidebar that did not round its corner (the owner, 10-05: "It is supposed to be the replacement
+ * sidebar, not like its own custom thing").
  */
 export type PageShell = { sidebar?: "none" };
 export const PAGE_SHELL: Partial<Record<Item["kind"], PageShell>> = {
   "connections-page": { sidebar: "none" },
-  "code-review-page": { sidebar: "none" },
-  "schedules-page": { sidebar: "none" },
 };
 
 export const pageHidesSidebar = (kind: Item["kind"]): boolean => PAGE_SHELL[kind]?.sidebar === "none";

@@ -28,15 +28,45 @@ async function mount(events: Event[]) {
   return { api, store, ...view };
 }
 
-const openPanel = () => fireEvent.click(screen.getByRole("button", { name: "Summary of A session" }));
+const openPanel = () => fireEvent.click(screen.getByRole("button", { name: "Summary and files for A session" }));
 const sectionNames = () => [...document.querySelectorAll(".summary-head")].map((h) => h.firstElementChild?.nextElementSibling?.textContent);
 const rowNames = () => [...document.querySelectorAll(".summary-row-name")].map((n) => n.textContent);
 
 describe("the session summary button", () => {
-  it("is not drawn at all for a session that has produced, received and proposed nothing", async () => {
-    // A permanently-empty panel behind a permanent button is the dead chrome the pane bar bans.
+  it("opens on the files while the session has produced, received and proposed nothing — never an empty summary", async () => {
+    // A permanently-empty panel behind a permanent button is the dead chrome the pane bar bans. The
+    // files are always something, so the one button stays, and the summary waits until it has a row.
+    // THE MUTANT: open on the summary regardless — a panel of empty headings.
     await mount([(sessionEvent("user_message", { text: "hello", attachments: [] }))]);
-    expect(screen.queryByRole("button", { name: /Summary/ })).toBeNull();
+    openPanel();
+    expect(await screen.findByRole("dialog", { name: "Files for A session" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Session summary" })).toBeNull();
+    // …and the head is the files' name, not a switch with one way to go.
+    expect(document.querySelector(".dock-views")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Files" })).toBeInTheDocument();
+  });
+
+  it("switches between the summary and the files from either head, in the one dock", async () => {
+    // THE MUTANT: a head that only names its panel. With one button in the bar for both, the files
+    // would be out of reach whenever a summary exists.
+    const { store } = await mount([
+      (sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/made.ts" }, parentToolUseId: null })),
+      (sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
+    ]);
+    openPanel();
+    const summary = await screen.findByRole("dialog", { name: "Session summary" });
+    expect(within(summary).getByRole("radio", { name: "Summary" })).toBeChecked();
+    fireEvent.click(within(summary).getByRole("radio", { name: "Files" }));
+    const files = await screen.findByRole("dialog", { name: "Files for A session" });
+    expect(store.getState().sessionDock.se1).toEqual({ kind: "files" });
+    expect(within(files).getByRole("radio", { name: "Files" })).toBeChecked();
+    fireEvent.click(within(files).getByRole("radio", { name: "Summary" }));
+    expect(await screen.findByRole("dialog", { name: "Session summary" })).toBeInTheDocument();
+    // The bar's one button stays lit across the switch, and puts either away.
+    const button = screen.getByRole("button", { name: "Summary and files for A session" });
+    expect(button).toHaveAttribute("data-on");
+    fireEvent.click(button);
+    await waitFor(() => expect(store.getState().sessionDock.se1).toBeUndefined());
   });
 
   it("lists outputs, uploads and plans under their own headings, and omits a section with nothing in it", async () => {
@@ -244,7 +274,7 @@ describe("pinned beside the transcript, or floating over it", () => {
     expect(screen.getByRole("dialog", { name: "Session summary" })).toBeInTheDocument();
     // THE mutant: close on any mousedown. The toggle would then close and reopen on one click, or
     // close before its own onClick ran — a button that cannot turn the thing it opened back off.
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Summary of A session" }));
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Summary and files for A session" }));
     expect(screen.getByRole("dialog", { name: "Session summary" })).toBeInTheDocument();
     restore();
   });
