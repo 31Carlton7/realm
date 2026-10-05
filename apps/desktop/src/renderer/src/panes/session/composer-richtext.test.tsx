@@ -229,6 +229,36 @@ describe("chip interaction in the prompter", () => {
     expect(sel()).toEqual([5, 24]);
   });
 
+  /* The "square highlight" the owner circled: a clicked chip was the textarea's own selection
+     rectangle laid over a run with no shape of its own. A selection that is exactly a chip is the
+     chip's to draw now, and the textarea is told so it can step aside for that range. */
+  it("a selection that is exactly one chip lights that chip, and tells the textarea to step aside", async () => {
+    await mount();
+    typeAt('make @[button "Sign in"] blue');
+    const chip = () => mirror().querySelector<HTMLElement>(".ch-element")!;
+    expect(chip()).not.toHaveAttribute("data-selected");
+    clickAt(12);
+    expect(chip()).toHaveAttribute("data-selected");
+    expect(box()).toHaveAttribute("data-chip-selected");
+    // THE mutant this kills is a selected state keyed on overlap: a range that merely CONTAINS the
+    // chip is ordinary text selection, and the textarea's own highlight has to stay on for it.
+    box().setSelectionRange(0, 29);
+    fireEvent.select(box());
+    expect(chip()).not.toHaveAttribute("data-selected");
+    expect(box()).not.toHaveAttribute("data-chip-selected");
+    // …and an ordinary caret is no selection at all.
+    clickAt(2);
+    expect(chip()).not.toHaveAttribute("data-selected");
+  });
+
+  it("clicking inside the command opening the draft selects it whole — it is a chip like the others", async () => {
+    await mount();
+    typeAt("/goal ship the release notes");
+    clickAt(3);
+    expect(sel()).toEqual([0, 5]);
+    expect(mirror().querySelector(".ch-slash")).toHaveAttribute("data-selected");
+  });
+
   it("clicking inside a mention selects it too — a click is aimed, unlike a caret arriving by arrow", async () => {
     await mount();
     typeAt("see @mac now");
@@ -366,6 +396,57 @@ describe("the chip under the pointer", () => {
     expect(hot()).toEqual(["@[a]"]);
     fireEvent.mouseLeave(box());
     expect(hot()).toEqual([]);
+  });
+
+  const remove = () => screen.queryByRole("button", { name: /^Remove / });
+  const sel = () => [box().selectionStart, box().selectionEnd];
+
+  it("turns the hovered chip's mark into its ×, which takes the chip and the space it brought", async () => {
+    const { store } = await mount();
+    store.getState().addElementChip("se1", {
+      ref: 42, url: "https://example.com/login", title: "Sign in", rect: { x: 0, y: 0, w: 1, h: 1 },
+      selector: "#submit", tag: "button", role: "button", name: "Sign in",
+      text: "Sign in", html: '<button id="submit">Sign in</button>',
+    });
+    typeAt(`make ${store.getState().drafts.se1}blue`);
+    expect(store.getState().draftElements.se1).toHaveLength(1);
+    layOut([40, 160]);
+    expect(remove()).toBeNull();
+    at(100);
+    // Named for what it removes, and out of the tab order: it exists only under a pointer.
+    const x = remove()!;
+    expect(x).toHaveAccessibleName('Remove button "Sign in"');
+    expect(x).toHaveAttribute("tabindex", "-1");
+    fireEvent.click(x);
+    expect(store.getState().drafts.se1).toBe("make blue");
+    // The sidecar goes with its token, so a removed pick is never sent as context.
+    expect(store.getState().draftElements.se1).toEqual([]);
+    await waitFor(() => expect(document.activeElement).toBe(box()));
+    expect(sel()).toEqual([5, 5]);
+  });
+
+  it("keeps the chip lit while the pointer crosses from the text onto its ×, and lets go off both", async () => {
+    await mount();
+    typeAt("ask @mac now");
+    layOut([30, 70]);
+    at(50);
+    const x = remove()!;
+    // The × sits over the textarea, so reaching it is a mouseleave on the box — not a leave of the chip.
+    fireEvent.mouseLeave(box(), { relatedTarget: x });
+    expect(hot()).toEqual(["@mac"]);
+    expect(remove()).not.toBeNull();
+    fireEvent.mouseLeave(x, { relatedTarget: document.body });
+    expect(hot()).toEqual([]);
+    expect(remove()).toBeNull();
+  });
+
+  it("gives the command opening the draft no ×: its `/` is typed text, not a mark to swap", async () => {
+    await mount();
+    typeAt("/goal ship it");
+    layOut([16, 52]);
+    at(30);
+    expect(hot()).toEqual(["/goal"]);
+    expect(remove()).toBeNull();
   });
 
   /* Typing shifts every chip after the caret, and the pointer has not moved. Two chips five

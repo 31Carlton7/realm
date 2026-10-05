@@ -123,6 +123,57 @@ describe("the prompter's @-mention picker (Plan 8 W4)", () => {
   });
 });
 
+/**
+ * The popover's rows run out into its edges rather than being cut by them — the app's scroll
+ * dissolve, on a scroller INSIDE the surface. A mask applies to everything an element paints, so on
+ * the surface itself it would fade the card's own fill and corner out along with the rows.
+ */
+describe("the @ and / popovers dissolve their rows, never their surface", () => {
+  const LONG = Array.from({ length: 12 }, (_, i) => skillRow(`skill-${String(i).padStart(2, "0")}`));
+  /** jsdom lays nothing out, so the scroller's metrics are stated — 12 rows in a box of 4. */
+  const overflowing = (el: HTMLElement) => act(() => {
+    Object.defineProperty(el, "scrollHeight", { configurable: true, value: 400 });
+    Object.defineProperty(el, "clientHeight", { configurable: true, value: 120 });
+    el.dispatchEvent(new Event("scroll"));
+  });
+
+  it("marks the rows' own scroller with the dissolve — THE mutant is the mask on the card", async () => {
+    await mount("claude", LONG);
+    type("@");
+    const surface = picker()!;
+    const list = surface.querySelector<HTMLElement>(".mention-list")!;
+    expect(list).not.toBeNull();
+    expect(surface.hasAttribute("data-dissolve")).toBe(false);
+    expect(list.hasAttribute("data-dissolve")).toBe(true);
+    overflowing(list);
+    expect(list.dataset.dissolve).toBe("end"); // more rows below, nothing above yet
+    // The options are still the listbox's own, to assistive tech: the scroller is presentational.
+    expect(list).toHaveAttribute("role", "presentation");
+    expect(surface.querySelectorAll("[role=option]")).toHaveLength(12);
+  });
+
+  it("the keyboard brings the highlight into view; the pointer never scrolls the list under itself", async () => {
+    // jsdom has no scrolling, so `scrollIntoView` is not on Element at all; the stub is the record.
+    const scrolled: string[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.id); };
+    try {
+      await mount("claude", LONG);
+      type("@");
+      fireEvent.keyDown(box(), { key: "ArrowDown" });
+      expect(scrolled.at(-1)).toBe("mention-skill-01");
+      // Hovering a row in the band highlights it where it stands — scrolling it clear would move the
+      // row out from under the pointer, and the next pixel of movement would light a different one.
+      const before = scrolled.length;
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /skill-07/ }));
+      expect(picker()!.querySelector("[data-active] .mention-row-id")!.textContent).toBe("@skill-07");
+      expect(scrolled.length).toBe(before);
+      // …and the next arrow press is the keyboard again, so it does scroll.
+      fireEvent.keyDown(box(), { key: "ArrowDown" });
+      expect(scrolled.at(-1)).toBe("mention-skill-08");
+    } finally { delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView; }
+  });
+});
+
 describe("mentionQueryAt", () => {
   it("finds the token governing the caret, token-initial only", () => {
     expect(mentionQueryAt("@ma", 3)).toEqual({ start: 0, end: 3, query: "ma" });

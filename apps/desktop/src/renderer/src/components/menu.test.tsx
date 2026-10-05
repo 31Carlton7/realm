@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { Menu, type MenuItem } from "./Menu";
 import { StoreContext, createAppStore } from "../state/store";
@@ -277,6 +277,22 @@ describe("Menu keyboard (U-M10/A-H3)", () => {
     expect(screen.getByRole("menuitem", { name: "Third" })).toHaveFocus();
   });
 
+  /* A browser gives no focus to an element that is `visibility: hidden`, which is what the menu is
+     until it has been placed — and jsdom focuses anything, so this test has to say so itself. THE
+     mutant is a focus at mount, before placement: in the app it silently left focus on the trigger,
+     and the arrow keys went nowhere. */
+  it("moves focus in once it has been placed, which is the first moment it can take focus", () => {
+    const realFocus = HTMLElement.prototype.focus;
+    const focus = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement, opts?: FocusOptions) {
+      for (let el: HTMLElement | null = this; el; el = el.parentElement) if (el.style.visibility === "hidden") return;
+      realFocus.call(this, opts);
+    });
+    try {
+      mount([plain("First"), plain("Second")]);
+      expect(screen.getByRole("menuitem", { name: "First" })).toHaveFocus();
+    } finally { focus.mockRestore(); }
+  });
+
   it("Home/End jump to the first/last enabled item", () => {
     mount([plain("A"), plain("B"), plain("C")]);
     fireEvent.keyDown(screen.getByRole("menu"), { key: "End" });
@@ -341,6 +357,48 @@ describe("Menu keyboard (U-M10/A-H3)", () => {
  * the flip/clamp decision is retaken rather than frozen. Driven through Menu because that is the
  * hook's other consumer: if the primitive regresses, both surfaces do.
  */
+describe("a menu with sections", () => {
+  const items: MenuItem[] = [
+    { kind: "header", label: "Add" },
+    { label: "Files…", detail: "Attach to this message", kbd: "⌘U", onSelect: () => {} },
+    { label: "Folder…", onSelect: () => {} },
+    { kind: "header", label: "Mode" },
+    { label: "Build", checked: true, onSelect: () => {} },
+    { label: "Plan", checked: false, onSelect: () => {} },
+  ];
+
+  it("names a group for each head, from the rows after it to the next head", () => {
+    mount(items);
+    const groups = screen.getAllByRole("group");
+    expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["Add", "Mode"]);
+    expect(within(groups[0]!).getAllByRole("menuitem").map((b) => b.querySelector(".menu-label")!.textContent)).toEqual(["Files…", "Folder…"]);
+    expect(within(groups[1]!).getAllByRole("menuitemcheckbox")).toHaveLength(2);
+  });
+
+  it("is not a stop for the arrows — they walk the rows as one list, across the heads", () => {
+    mount(items);
+    expect(document.activeElement).toHaveTextContent("Files…");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(document.activeElement).toHaveAccessibleName("Build");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+    expect(document.activeElement).toHaveAccessibleName("Folder…");
+  });
+
+  it("gives a row's detail to its description, not its name", () => {
+    mount(items);
+    const files = screen.getByRole("menuitem", { name: /^Files…/ });
+    expect(files).toHaveAccessibleDescription("Attach to this message");
+    expect(files).not.toHaveAccessibleName(/Attach/);
+  });
+
+  it("lets the pointer move the one highlight the keys move", () => {
+    mount(items);
+    fireEvent.pointerMove(screen.getByRole("menuitemcheckbox", { name: "Plan" }));
+    expect(document.activeElement).toHaveAccessibleName("Plan");
+  });
+});
+
 describe("anchored surfaces re-place when their own height changes", () => {
   const rect = (top: number, height: number, left = 100, width = 50) =>
     ({ top, bottom: top + height, left, right: left + width, width, height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;

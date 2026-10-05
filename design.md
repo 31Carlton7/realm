@@ -393,6 +393,9 @@ Using the same families across the app and site is a brand decision.
 - Marketing body: at least 16 px with a 1.5–1.6 line-height.
 - Marketing display type may scale fluidly, but keep one display statement per page.
 - Use the named weight ladder. Routine labels are 450–500; titles are 560; strong emphasis is 600.
+- The prompter's own text sits a rung up from body, at medium: what is being typed is the thing the
+  card exists for. It is set on the editor box, never on one of its two layers, so the painted
+  mirror and the caret's textarea cannot disagree about a glyph.
 - Headings balance; descriptions wrap prettily; reading copy stays near 60–75 characters.
 - Use tabular numerals for cost, usage, time, progress, and aligned comparisons.
 - Use mono only for code, commands, paths, identifiers, branches, models, timestamps, and machine
@@ -415,6 +418,11 @@ acronym that is uppercase anyway (a file extension on a tile).
   after the pointer arrives and at once on the next control — the system's took a second and a half,
   which is a sweep across a toolbar that tells you nothing. Write the title as a plain sentence and end
   it with the chord in brackets — "Search (⌘K)" — and the chord reads as a key.
+- A control that names a setting can be the value's mark and its name, with no chevron and no fill
+  at rest — the prompter's permission control, as Codex draws its own. Each rung of a ladder takes
+  its own mark from one family (a shield that asks, one that has said yes, one that warns), the
+  menu's rows wear the same marks, and only the rung that removes a gate keeps a tone: on its ink,
+  never as a resting fill, because a wash under a warning is a second warning about one setting.
 - A toggle names its state or carries `aria-pressed`, never both — "Unfocus Two, pressed" is a
   sentence at war with itself. Which one it takes is a fact about the accessible NAME, so it may not
   become a difference in the fill: "this control is on" gets ONE appearance across a bar, or the
@@ -466,6 +474,13 @@ acronym that is uppercase anyway (a file extension on a tile).
   only surface that can open over a browser pane's native view — and draws its own only where there
   is no bridge (tests, and live scripts that set `REALM_HTML_MENUS`). A two-step confirm reopens the
   menu with its rebuilt rows, because an OS menu cannot change under the pointer.
+- The exception is a menu whose rows have to explain themselves — section heads, and a line after
+  each name saying what the row does — which an OS menu row cannot carry: the prompter's "+". It is
+  drawn in the app (`inApp`), and it owes everything the OS menu gave: the arrows across its
+  sections as one list, Return, Escape, focus home to its control, the pointer moving the one
+  highlight the keys move, and placement clear of a browser pane's native view (the popover hook
+  slides it along its anchor's edge). A description belongs to the row's description, never its
+  name, so a row is still found by what it is called.
 - A right-click in text gets what a Cocoa text view gives it: spelling guesses, Look Up, the link or
   image under the pointer, then the edit commands — and nothing at all where there is nothing to
   offer. Electron gives a page none of this on its own.
@@ -531,11 +546,16 @@ acronym that is uppercase anyway (a file extension on a tile).
   name (a thread's timestamp, an issue key, a page title). Only where Realm can name the link — a
   wrong name on a chip is worse than the URL, which at least says what it is. The agent is sent
   the link itself, as a markdown link, because its connection to that app is what opens it. The
-  chip is the SAME chip as a mention or a picked element: an icon and a name in the accent, inline
-  with the prose — no fill, no box. The pill read as a control dropped into a sentence. The icon
-  is what says which kind of thing it is (a skill's spark, a picked element's target, an app's
-  mark), drawn over the token's opening sigil so the painted run keeps every character's width.
-  Links in prose are colour and weight, no underline; hover restores it.
+  chip is the SAME chip as a mention, a picked element or the command opening a draft: a pill on
+  the chip rung, a quiet tint of its kind's tone, its mark and its name — the accent for what
+  reaches the agent, the success hue for a command that runs here, the warning tone for a skill that
+  will go as plain text. Bare accent text with no shape of its own was what a click turned into the
+  textarea's square selection; a chip with a shape is selected, hovered and removed as one thing —
+  a selection that is exactly a chip is the chip's to draw, and under the pointer its mark becomes
+  its ×. The icon says which kind of thing it is (a skill's spark, a picked element's target, an
+  app's mark), drawn over the token's opening sigil, and the pill is a shadow outside the glyphs, so
+  the painted run keeps every character's width. The sent message wears the same pill. Links in
+  prose are colour and weight, no underline; hover restores it.
 - A vendor that issues no client on the fly gets the user's own app, asked for BEFORE the sign-in
   and with the one fact nobody guesses right (the redirect URL) printed in the steps. A Connect that
   fails afterwards with "no client registered" is a door that opens onto a wall. Where the vendor

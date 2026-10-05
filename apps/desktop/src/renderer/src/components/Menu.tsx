@@ -1,6 +1,7 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { useDissolve } from "./ScrollFades";
 import { useAnchoredPopover } from "./use-anchored-popover";
 import { acceleratorFor, menuLabelText, rasteriseIcon } from "./native-menu";
 
@@ -12,9 +13,18 @@ export type MenuItem =
       icon?: ReactNode;
       /** Right-aligned shortcut hint, e.g. "⌘W". Purely visual — the binding lives in hotkeys.ts. */
       kbd?: string;
+      /** A quiet line after the label saying what the row does — "Attach files to this message". The
+       *  in-app menu draws it as the row's description; an OS menu row has no second voice, so there it
+       *  rides the row's tooltip instead. */
+      detail?: string;
       /** Selecting keeps the menu open (two-step confirms rebuild their items in place). */
       keepOpen?: boolean }
-  | { kind: "separator" };
+  | { kind: "separator" }
+  /** A section's name, over the rows that follow it up to the next one — "Add", "Mode". */
+  | { kind: "header"; label: string };
+
+type MenuRow = Extract<MenuItem, { onSelect: () => void }>;
+const isRow = (it: MenuItem | undefined): it is MenuRow => it !== undefined && it.kind !== "separator" && it.kind !== "header";
 
 /** Small popup menu, rendered in a portal with fixed positioning so no ancestor overflow can clip
  *  it. Anchor it to a control via `anchorRef` (opens below, flips above near the bottom edge — or
@@ -30,12 +40,25 @@ type MenuProps = {
   at?: { x: number; y: number }; anchorRef?: RefObject<HTMLElement | null>;
   returnFocusRef?: RefObject<HTMLElement | null>;
   align?: "left" | "right"; placement?: "down" | "up"; label?: string;
+  /**
+   * Draw this menu in the app even where an OS menu is on offer.
+   *
+   * For a menu whose rows explain themselves — a section head, and a line after each label saying
+   * what it does — which is the one thing an OS menu cannot carry: its rows have no second voice. The
+   * prompter's "+" is that menu. What the OS menu would have given is kept: the arrows, Home/End,
+   * Return, Escape and focus going home, and placement clear of a browser pane's native view (the
+   * popover hook's), since a page composites over anything the window draws.
+   */
+  inApp?: boolean;
+  /** A class for the drawn surface, for the one menu that needs a width of its own. */
+  className?: string;
 };
 
 /** In the app, an OS menu; where there is no bridge to one (jsdom, a browser, a live script that set
- *  REALM_HTML_MENUS), the menu draws itself. Decided once per menu, by what the window offers. */
+ *  REALM_HTML_MENUS), the menu draws itself. Decided once per menu, by what the window offers — or by
+ *  the caller, with `inApp`. */
 export function Menu(props: MenuProps) {
-  return window.realm?.popupMenu && !window.realm.htmlMenus ? <NativeMenu {...props} /> : <HtmlMenu {...props} />;
+  return window.realm?.popupMenu && !window.realm.htmlMenus && !props.inApp ? <NativeMenu {...props} /> : <HtmlMenu {...props} />;
 }
 
 /**
@@ -69,6 +92,8 @@ function NativeMenu({ items, onClose, at, anchorRef, returnFocusRef }: MenuProps
       const rows = Array.from(rowsRef.current?.children ?? []);
       const spec = await Promise.all(current.map(async (it, i): Promise<NativeMenuItem> => {
         if (it.kind === "separator") return { separator: true };
+        // A section head is a line of information: drawn, never chosen (main/native-menu.ts).
+        if (it.kind === "header") return { label: it.label, enabled: false };
         const row = rows[i];
         const svg = row?.querySelector<SVGSVGElement>("[data-icon] svg");
         const icon = svg ? await rasteriseIcon(svg).catch(() => undefined) : undefined;
@@ -79,7 +104,7 @@ function NativeMenu({ items, onClose, at, anchorRef, returnFocusRef }: MenuProps
           label: row?.querySelector("[data-label]") ? menuLabelText(row.querySelector("[data-label]")!) : "",
           enabled: !it.disabled,
           ...(it.checked !== undefined ? { checked: it.checked } : {}),
-          ...(it.title ? { toolTip: it.title } : {}),
+          ...(it.title || it.detail ? { toolTip: it.title ?? it.detail } : {}),
           ...(accelerator ? { accelerator } : {}),
           ...(icon ? { icon } : {}),
         };
@@ -92,7 +117,7 @@ function NativeMenu({ items, onClose, at, anchorRef, returnFocusRef }: MenuProps
       showing = false;
       if (!live) return;
       const it = picked === null ? undefined : current[Number(picked)];
-      if (it && it.kind !== "separator") {
+      if (isRow(it)) {
         it.onSelect();
         if (it.keepOpen) { setRound((r) => r + 1); return; }
       }
@@ -111,7 +136,7 @@ function NativeMenu({ items, onClose, at, anchorRef, returnFocusRef }: MenuProps
   // could not hold them; a portal still carries the app's context to the labels.
   return createPortal(
     <div ref={rowsRef} hidden aria-hidden="true" data-native-menu="">
-      {items.map((it, i) => it.kind === "separator"
+      {items.map((it, i) => !isRow(it)
         ? <div key={i} />
         : <div key={i}><span data-icon="">{it.icon}</span><span data-label="">{it.label}</span></div>)}
     </div>,
@@ -119,16 +144,26 @@ function NativeMenu({ items, onClose, at, anchorRef, returnFocusRef }: MenuProps
   );
 }
 
-function HtmlMenu({ items, onClose, at, anchorRef, returnFocusRef, align = "left", placement = "down", label }: MenuProps) {
+function HtmlMenu({ items, onClose, at, anchorRef, returnFocusRef, align = "left", placement = "down", label, className }: MenuProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const id = useId();
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, at, align, placement, onClose, returnFocusRef, exit: true });
+  /* The rows scroll inside the surface, and run out into its edges rather than being cut by them.
+     A menu taller than the window above the prompter is the "+" menu with a space's connectors in it. */
+  useDissolve(list);
 
-  // Focus-in on open. The hook already captured the restore target at mount, so the roving focus
-  // this moves into the menu never becomes the thing focus returns to.
+  // Focus-in on open — once the menu has been PLACED. Until then it is `visibility: hidden`, and a
+  // hidden element takes no focus: a focus at mount silently stayed on the trigger, so the arrows
+  // went nowhere (jsdom, which focuses anything, never noticed). The hook already captured the
+  // restore target at mount, so the roving focus this moves in never becomes what focus returns to.
+  const focusedIn = useRef(false);
   useLayoutEffect(() => {
+    if (!pos || focusedIn.current) return;
+    focusedIn.current = true;
     focusItem(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on the first placement
+  }, [pos]);
 
   const buttons = () =>
     Array.from(ref.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
@@ -155,23 +190,46 @@ function HtmlMenu({ items, onClose, at, anchorRef, returnFocusRef, align = "left
   // as though the menu had already gone. The stylesheet takes its pointer events away as well, for
   // the browsers that paint the fade before they honour the attribute.
   /** Whether ANY item carries a glyph. One reserved slot for the whole menu, or none — see `icon`. */
-  const anyIcon = items.some((it) => it.kind !== "separator" && it.icon !== undefined);
+  const anyIcon = items.some((it) => isRow(it) && it.icon !== undefined);
+  const row = (it: MenuItem, i: number) => !isRow(it)
+    ? <div key={i} className="menu-sep" role="separator" />
+    : (
+      /* The pointer moves the one highlight the keyboard moves, as an OS menu's does: two lit rows —
+         one under the pointer, one where the arrows left off — would be two answers to "which one". */
+      <button key={i} role={it.checked !== undefined ? "menuitemcheckbox" : "menuitem"}
+        disabled={it.disabled} title={it.title} aria-checked={it.checked !== undefined ? it.checked : undefined}
+        aria-describedby={it.detail ? `${id}-d${i}` : undefined}
+        className={(it.checked ? "checked" : "") + (it.danger ? " danger" : "")}
+        onPointerMove={(e) => { if (document.activeElement !== e.currentTarget) e.currentTarget.focus({ preventScroll: true }); }}
+        onClick={() => { it.onSelect(); if (!it.keepOpen) close(); }}>
+        {anyIcon && <span className="menu-icon" aria-hidden="true">{it.icon}</span>}
+        <span className="menu-label">{it.label}</span>
+        {/* The description, not part of the name: a row is still found by what it is called. */}
+        {it.detail && <span id={`${id}-d${i}`} className="menu-detail" aria-hidden="true">{it.detail}</span>}
+        {it.kbd && <kbd className="menu-kbd">{it.kbd}</kbd>}
+        {it.checked && <Icon name="check" size={14} className="menu-check" />}
+      </button>
+    );
+  /* A head opens a section, and its rows are a group named for it. Rows before the first head (every
+     menu that has none) are drawn as they always were. */
+  const sections: { head: string | null; rows: [MenuItem, number][] }[] = [{ head: null, rows: [] }];
+  items.forEach((it, i) => {
+    if (it.kind === "header") sections.push({ head: it.label, rows: [] });
+    else sections[sections.length - 1]!.rows.push([it, i]);
+  });
   return createPortal(
-    <div ref={ref} role="menu" aria-label={label} className="menu" style={style} onKeyDown={onKeyDown}
+    <div ref={ref} role="menu" aria-label={label} className={`menu${className ? ` ${className}` : ""}`} style={style} onKeyDown={onKeyDown}
       data-closing={closing || undefined} inert={closing}>
-      {items.map((it, i) => it.kind === "separator"
-        ? <div key={i} className="menu-sep" role="separator" />
-        : (
-          <button key={i} role={it.checked !== undefined ? "menuitemcheckbox" : "menuitem"}
-            disabled={it.disabled} title={it.title} aria-checked={it.checked !== undefined ? it.checked : undefined}
-            className={(it.checked ? "checked" : "") + (it.danger ? " danger" : "")}
-            onClick={() => { it.onSelect(); if (!it.keepOpen) close(); }}>
-            {anyIcon && <span className="menu-icon" aria-hidden="true">{it.icon}</span>}
-            <span className="menu-label">{it.label}</span>
-            {it.kbd && <kbd className="menu-kbd">{it.kbd}</kbd>}
-            {it.checked && <Icon name="check" size={14} className="menu-check" />}
-          </button>
-        ))}
+      <div ref={list} className="menu-list" role="presentation">
+        {sections.map((sec, si) => sec.head === null
+          ? sec.rows.map(([it, i]) => row(it, i))
+          : (
+            <div key={`s${si}`} role="group" aria-label={sec.head} className="menu-section">
+              <div className="menu-head" aria-hidden="true">{sec.head}</div>
+              {sec.rows.map(([it, i]) => row(it, i))}
+            </div>
+          ))}
+      </div>
     </div>,
     document.body,
   );

@@ -39,8 +39,28 @@ import {
   // Settings' pages, each beside its glyph in the column (settings-index.ts), and the Library's toolbar.
   CpuIcon, DashboardSpeed02Icon, Cursor01Icon, CommandIcon, InboxDownloadIcon, FilterHorizontalIcon, LeftToRightListBulletIcon,
   SquareLockPasswordIcon,
+  // The permission ladder's marks (Composer's permission control).
+  SecurityCheckIcon,
 } from "@hugeicons-pro/core-stroke-rounded";
+import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
+
+/* Two shields the pack does not draw — one asking, one warning — made of its own parts: Shield01's
+   outline (the one SecurityCheck draws its tick inside), with HelpCircle's question mark and
+   AlertCircle's exclamation scaled into the interior the tick occupies. Same stroke, same caps, same
+   grid, so the three permission marks read as one family rather than two packs and a drawing. */
+const interior = (d: string, key: string) =>
+  ["path", { d, stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "1.5", key }] as const;
+const ShieldQuestionIcon: IconSvgElement = [
+  Shield01Icon[0]!,
+  interior("M10 9C10 7.89543 10.8954 7 12 7C13.1046 7 14 7.89543 14 9C14 9.6855 13.6551 10.2905 13.1294 10.6509C12.5826 11.0255 12 11.5373 12 12.2", "1"),
+  interior("M12 15H12.0072", "2"),
+];
+const ShieldAlertIcon: IconSvgElement = [
+  Shield01Icon[0]!,
+  interior("M12 7.5V11.5", "1"),
+  interior("M12 14.4883V14.4983", "2"),
+];
 
 export const icons = {
   add: Add01Icon, close: Cancel01Icon, folder: Folder01Icon, briefcase: Briefcase01Icon, cap: MortarboardIcon,
@@ -141,6 +161,10 @@ export const icons = {
   /* The Library's toolbar: the narrowing a filter menu does, and the view as rows beside `grid`'s
      view as tiles — the pair every file browser draws. */
   filter: FilterHorizontalIcon, list: LeftToRightListBulletIcon,
+  /* How freely a session's agent may act, as the prompter's permission control draws it: a shield
+     that asks (Ask each time), one that has already said yes (Accept edits), and one that warns
+     (Full access) — the rung that takes the gate away is the one whose mark says so. */
+  shieldQuestion: ShieldQuestionIcon, shieldCheck: SecurityCheckIcon, shieldAlert: ShieldAlertIcon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

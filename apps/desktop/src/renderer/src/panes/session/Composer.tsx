@@ -14,7 +14,7 @@ import { effortLevels, fastModeAvailability, formatEffort, modelRows, type FastM
 import { SkillPicker } from "./SkillPicker";
 import { ModelPicker, type OverflowGroup } from "./ModelPicker";
 import { heroGreeting } from "./greeting";
-import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
+import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, removeChip, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
 import { whenLabel } from "../schedules/SchedulesPage";
 import { TodoStrip } from "./TodoStrip";
@@ -61,16 +61,22 @@ function GitChip({ gitInfo, onOpenDiff }: { gitInfo: GitInfo | null; onOpenDiff:
 /** Borderless ghost chip that opens an upward Menu (§4 control row). With nothing to pick it is not a
  *  control at all but a label — an agent whose CLI owns model choice still deserves its model named,
  *  and a disabled button would leave the tab order and be announced as unavailable. */
-function ChipMenu({ ariaLabel, title, label, icon, tint, items, warning }: { ariaLabel: string; title?: string; label: ReactNode; icon?: string;
+function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, warning, caret = true }: { ariaLabel: string; title?: string; label: ReactNode; icon?: string;
+  /** The glyph's rung: 12 beside the under-strip's 11px labels, 14 on the control row, where it sits
+   *  beside the model chip's own 14px mark. */
+  iconSize?: number;
   /** A colour for the glyph alone — the space chip wears its space's (Plan 27). */
-  tint?: string; items: MenuItem[]; warning?: boolean }) {
+  tint?: string; items: MenuItem[]; warning?: boolean;
+  /** The chevron. Off for a control whose mark already says what it opens onto — see the permission
+   *  control, which is a glyph and a word the way Codex's is. */
+  caret?: boolean }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   // A sibling of chip-label, never inside it: chip-label truncates with an ellipsis, which needs a
   // plain inline box — an icon nested in there gets no gap and sits off the text's centre line.
   const glyph = icon ? (tint
-    ? <span className="chip-brand chip-tint" style={{ color: tint }}><Icon name={icon} size={12} /></span>
-    : <Icon name={icon} size={12} className="chip-brand" />) : null;
+    ? <span className="chip-brand chip-tint" style={{ color: tint }}><Icon name={icon} size={iconSize} /></span>
+    : <Icon name={icon} size={iconSize} className="chip-brand" />) : null;
   if (items.length === 0) {
     return <span className="ghost-chip" data-static title={title ?? ariaLabel} data-warning={warning || undefined}>{glyph}<span className="chip-label">{label}</span></span>;
   }
@@ -82,7 +88,7 @@ function ChipMenu({ ariaLabel, title, label, icon, tint, items, warning }: { ari
         data-warning={warning || undefined} onClick={() => setOpen((v) => !v)}>
         {glyph}
         <span className="chip-label">{label}</span>
-        <Icon name="chevronDown" size={12} className="chip-caret" />
+        {caret && <Icon name="chevronDown" size={12} className="chip-caret" />}
       </button>
       {open && <Menu items={items} onClose={() => setOpen(false)} anchorRef={btn} placement="up" label={ariaLabel} />}
     </>
@@ -224,10 +230,27 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
 }
 
 const permissionLabel = (id: string) => PERMISSION_MODES.find((m) => m.id === id)?.label ?? id;
+/** Each rung's mark, worn by the control and by the rung's own row in its menu, so the row you pick is
+ *  the glyph the control then shows. A stored id this table does not know is drawn as `default`'s
+ *  asking shield — the label beside it still prints whatever the id was. */
+const PERMISSION_ICON: Record<(typeof PERMISSION_MODES)[number]["id"], IconName> = {
+  default: "shieldQuestion", acceptEdits: "shieldCheck", bypassPermissions: "shieldAlert",
+};
+const permissionIcon = (id: string): IconName => PERMISSION_ICON[id as keyof typeof PERMISSION_ICON] ?? "shieldQuestion";
 const MODE_LABEL: Record<SessionMode, string> = { build: "Build", plan: "Plan", ask: "Ask" };
 /** `search` for Ask, not the session bubble: the mode is reading and searching, and the bubble is
  *  already what a session row is. */
 const MODE_ICON: Record<SessionMode, IconName> = { build: "tool", plan: "plan", ask: "search" };
+/** A mode's glyph in the "+" menu, in the tone the card wears for it — Plan's and Ask's tints are the
+ *  mode's ambient signal, and the row naming the mode is the one place it should match them. */
+const ModeMark = ({ mode }: { mode: SessionMode }) => <span className="mode-mark" data-mode={mode}><Icon name={MODE_ICON[mode]} size={16} /></span>;
+/** Each mode's line in the "+" menu: what it lets the agent do, in the fewest words that still
+ *  separate the three. The row's title carries the per-agent detail (`modeMeaning`). */
+const MODE_DETAIL: Record<SessionMode, string> = {
+  build: "Edit files and run commands",
+  plan: "Propose an approach, change nothing",
+  ask: "Answer questions, change nothing",
+};
 
 /** An environment's display name (under-strip selector, Plan 12 W1): the space's own name for the
  *  primary (the folder IS the space), the branch for a worktree, the folder's basename otherwise. */
@@ -253,32 +276,33 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
 }
 
 /**
- * The "+" menu (Plan 12 W1): the plus stops being a bare file-picker trigger and becomes the row's
- * add-anything menu — files (⌘U, bound in hotkeys.ts; the label here is purely visual), a folder,
- * skills, and the space's connectors.
+ * The "+" menu: everything that can be added to this message or set on this session, in one list
+ * drawn as Codex draws its own — sections under a quiet head, and each row a glyph, a name and a line
+ * saying what it does.
  *
- * Skills opens the `SkillPicker` (W-discovery) rather than priming the `@`-mention popover as it first
- * did. Priming could only ever offer skills that were ALREADY on, which on a machine with a hundred
- * installed made the one menu item named "Skills" the one place that could not show them.
+ * In-app rather than the OS's (`Menu`'s `inApp`): an OS menu row has no second voice, and the rows
+ * here are the ones that need one — "Folder…" means linking a folder to the space, not attaching it,
+ * and Plan and Ask are only worth choosing between when the row says what each withholds. What the
+ * OS menu gave is kept by the drawn one: arrows, Home/End, Return, Escape, focus going back to the
+ * "+", and placement clear of a browser pane's native view, which composites over anything drawn.
  *
- * The Connectors "submenu" is the same Menu swapped in place (`keepOpen` + a keyed remount so the
- * upward placement re-measures for the new height) — the two-step idiom the menu machinery already
- * carries, not a hover-submenu invented for one item. No Plugins item: Realm has no plugin system,
- * and the plan refuses menu parity over honesty.
+ * Three sections. **Add** is what goes with the message or into the space: files (⌘U, bound in
+ * hotkeys.ts — the hint here is visual), a folder, skills, and a goal, which arms the box with
+ * `/goal` rather than opening anything. Skills opens the `SkillPicker`, which lists every skill on
+ * the machine; priming the `@` popover could only ever offer the ones already on.
  *
- * **Mode** rides the same idiom. It used to be a chip in the control row, paired with the permission
- * chip inside a `.chip-group` that drew the two as one segmented control. Two things were wrong with
- * that: the row is where the things you change PER MESSAGE live, and the mode is a property of the
- * session that most turns never touch; and grouping it with permissions implied the two were one
- * decision, when Plan and Ask actually REPLACE the permission axis rather than sit beside it. The
- * row keeps the permission chip alone, which is also what un-groups its corners.
+ * **Mode** is the session's Build / Plan / Ask, as rows to pick rather than a submenu to step into:
+ * the OS menu needed the step because it could not change under the pointer, and this one can. The
+ * rows are only the modes this agent can be put INTO (the Composer filters them), each titled with
+ * what that mode means for this agent; a session whose agent offers none still shows its one mode,
+ * because a session always has one and this is where Build — which the card does not tint — is read.
  *
- * The row carries the current mode as its value, because removing the chip removed the only place
- * the mode was written down. The card's own tint still says it for Plan and Ask; Build is untinted,
- * and this is where Build is legible.
+ * **Connectors** lists the space's enabled servers with the hub's last known health — a row read,
+ * never a probe — each leading to the space's Connections page, where acting on one lives. No
+ * Plugins section: Realm has no plugin system, and parity with Codex's menu is not a reason to
+ * invent one.
  */
-function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, connectors, onOpened, onManageConnections,
-  mode, modeItems, modeTitle, modePending, canChooseMode, btnRef }: {
+function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, connectors, onOpened, onManageConnections, modeRows, btnRef }: {
   onAttachPick: () => void; onAddFolder: () => void;
   /** Open the skill picker. Offered only when `canSkills` — an item that would silently do nothing
    *  (a Cursor session, a machine with no skills anywhere) is never grown. */
@@ -291,19 +315,9 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, conn
   /** Fired on open — the store re-reads its cache (a row read, never a probe). */
   onOpened: () => void;
   onManageConnections: () => void;
-  /** The session's mode, and the rows that change it — built by the Composer (`modeItems`) so the
-   *  per-agent filtering that decides whether Plan or Ask is even offered stays in one place. */
-  mode: SessionMode;
-  modeItems: MenuItem[];
-  modeTitle: string;
-  /** The agent is live but has not named its modes yet (ACP kinds answer at handshake). Distinguished
-   *  from "offers none" because they read the same on a disabled row and mean opposite things: one is
-   *  a wait, the other is an answer. */
-  modePending: boolean;
-  /** Whether this agent offers any mode to choose. False collapses the row to a static value: a
-   *  session whose agent has named no modes still has one, and hiding it would leave the mode with
-   *  nowhere at all to be read. */
-  canChooseMode: boolean;
+  /** The Mode section's rows, built by the Composer, which owns the per-agent filtering that decides
+   *  whether Plan or Ask is offered at all — and the single static row for an agent that offers none. */
+  modeRows: MenuItem[];
   /** The plus button itself, so the Composer can anchor the skill picker on it. Shared rather than
    *  wrapped: the control row's left group is asserted by DOM order, and a wrapper element would be a
    *  new child of it. */
@@ -312,80 +326,42 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, conn
   const ownBtn = useRef<HTMLButtonElement>(null);
   const btn = btnRef ?? ownBtn;
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<"root" | "connectors" | "mode">("root");
   const enabled = (connectors ?? []).filter((s) => s.enabled);
-  const modeRow = (
-    <span className="plus-submenu-label">
-      Mode
-      <span className="plus-submenu-value" data-mode={mode}>
-        <Icon name={MODE_ICON[mode]} size={12} />{MODE_LABEL[mode]}
-      </span>
-      {canChooseMode && <Icon name="chevronRight" size={12} className="plus-submenu-caret" />}
-    </span>
-  );
-  const modeRowTitle = canChooseMode ? modeTitle : modePending ? "Waiting for the agent's modes" : modeTitle;
-  const rootItems: MenuItem[] = [
-    { label: "Add files…", kbd: "⌘U", onSelect: onAttachPick },
-    { label: "Add folder…", onSelect: onAddFolder },
-    ...(canSkills ? [{ label: "Skills", onSelect: onSkills } as MenuItem] : []),
-    { kind: "separator" },
-    /* A goal sits with Mode rather than with the files above it: both are properties of the SESSION
-       rather than of this message. It arms the box instead of opening anything — the objective is
-       the argument, and there is nothing to pick from — which is the same gesture `/goal` already
-       is, reached by someone who does not know the command exists. */
-    ...(onGoal ? [{ label: "Set a goal…", onSelect: onGoal } as MenuItem] : []),
-    // Static when the agent offers nothing to switch to — the value is still worth reading, and a
-    // row that opened onto a list of one would be a control whose only outcome is the state it is in.
-    canChooseMode
-      ? { label: modeRow, title: modeRowTitle, keepOpen: true, onSelect: () => setView("mode") }
-      : { label: modeRow, title: modeRowTitle, disabled: true, onSelect: () => {} },
-    { label: <span className="plus-submenu-label">Connectors<Icon name="chevronRight" size={12} className="plus-submenu-caret" /></span>, keepOpen: true, onSelect: () => setView("connectors") },
-  ];
-  const modeViewItems: MenuItem[] = [
-    { label: <span className="plus-submenu-label"><Icon name="chevronLeft" size={12} className="plus-submenu-caret" />Mode</span>, keepOpen: true, onSelect: () => setView("root") },
-    { kind: "separator" },
-    ...modeItems,
-  ];
-  const connectorItems: MenuItem[] = [
-    { label: <span className="plus-submenu-label"><Icon name="chevronLeft" size={12} className="plus-submenu-caret" />Connectors</span>, keepOpen: true, onSelect: () => setView("root") },
-    { kind: "separator" },
-    ...(connectors === null
-      ? [{ label: "Loading…", disabled: true, onSelect: () => {} } as MenuItem]
-      : enabled.length === 0
-        ? [{ label: "No connectors enabled in this space", disabled: true, onSelect: () => {} } as MenuItem]
-        : enabled.map((s): MenuItem => {
-            const st = connectorState(s);
-            return {
-              label: (
-                <span className="connector-row">
-                  <span className="connector-dot" data-tone={st.tone} />
-                  <span className="chip-label">{s.name}</span>
-                  {st.note && <span className="connector-note">{st.note}</span>}
-                </span>
-              ),
-              // Informational: the row states health; acting on a server lives in settings.
-              disabled: true, title: `${s.name} — ${st.note ?? "connected"}`, onSelect: () => {},
-            };
-          })),
-    { kind: "separator" },
-    { label: "Manage connections…", onSelect: onManageConnections },
+  const items: MenuItem[] = [
+    { kind: "header", label: "Add" },
+    { label: "Files…", icon: <Icon name="attach" size={16} />, detail: "Attach to this message", kbd: "⌘U", onSelect: onAttachPick },
+    { label: "Folder…", icon: <Icon name="folder" size={16} />, detail: "Link a folder to this space", onSelect: onAddFolder },
+    ...(canSkills ? [{ label: "Skills", icon: <Icon name="sparkles" size={16} />, detail: "Turn one on, or mention it", onSelect: onSkills } as MenuItem] : []),
+    /* A goal arms the box instead of opening anything — the objective is the argument, and there is
+       nothing to pick from — which is the same gesture `/goal` already is, reached by someone who
+       does not know the command exists. */
+    ...(onGoal ? [{ label: "Goal…", icon: <Icon name="target" size={16} />, detail: "Keep working toward an objective", onSelect: onGoal } as MenuItem] : []),
+    { kind: "header", label: "Mode" },
+    ...modeRows,
+    { kind: "header", label: "Connectors" },
+    ...enabled.map((s): MenuItem => {
+      const st = connectorState(s);
+      return {
+        label: <span className="connector-row">{s.name}</span>,
+        icon: <span className="connector-dot" data-tone={st.tone} />,
+        detail: st.note ?? "connected",
+        title: `${s.name} — ${st.note ?? "connected"}. Opens this space's connections.`,
+        onSelect: onManageConnections,
+      };
+    }),
+    { label: "Manage connections…", icon: <Icon name="plug" size={16} />, onSelect: onManageConnections,
+      detail: connectors === null ? "Loading…" : enabled.length === 0 ? "None enabled in this space" : undefined },
   ];
   return (
     <>
       {/* Toggle, mirroring ChipMenu: the Menu ignores pointerdown on its own anchor, so closing by a
           second click is this handler's job. Enter/Space come for free on a real button. */}
       <button ref={btn} type="button" className="icon-btn composer-attach" aria-label="Add"
-        title="Add files, folders, skills and connectors" aria-haspopup="menu" aria-expanded={open}
-        onClick={() => { if (!open) { setView("root"); onOpened(); } setOpen(!open); }}>
+        title="Add files, a folder, skills or a goal, and set the mode" aria-haspopup="menu" aria-expanded={open}
+        onClick={() => { if (!open) onOpened(); setOpen(!open); }}>
         <Icon name="add" size={16} />
       </button>
-      {/* key={view}: the in-place swap changes the menu's height, and the upward placement was
-          measured at mount — remounting re-measures instead of overlapping the anchor. */}
-      {open && <Menu key={view}
-        items={view === "root" ? rootItems : view === "mode" ? modeViewItems : connectorItems}
-        onClose={() => setOpen(false)}
-        anchorRef={btn} placement="up"
-        label={view === "root" ? "Add" : view === "mode" ? "Mode" : "Connectors"} />}
+      {open && <Menu items={items} onClose={() => setOpen(false)} anchorRef={btn} placement="up" label="Add" inApp className="plus-menu" />}
     </>
   );
 }
@@ -692,25 +668,48 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const chips = useMemo(() => chipSpans(segments), [segments]);
   /** Where each painted run begins, so a chip span can carry its own draft offset as an attribute. */
   const segStarts = useMemo(() => { const out: number[] = []; let at = 0; for (const s of segments) { out.push(at); at += s.text.length; } return out; }, [segments]);
-  /** The chip under the pointer, by start offset. */
-  const [hotChip, setHotChip] = useState<number | null>(null);
+  /**
+   * The chip under the pointer, by start offset — and, for a chip that wears a mark, where its × goes.
+   *
+   * The × is the chip's own mark turned into a button: it takes the mark's place rather than a slot
+   * of its own, because a run may not grow a pixel (draft-format.ts) and the mark is the one place in
+   * the token that is not text. Positioned in the editor's own box, over the textarea, since the
+   * mirror under it takes no pointer events.
+   */
+  const [hotChip, setHotChip] = useState<{ start: number; kind: string; name: string; remove: { left: number; top: number } | null } | null>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   /* Hover is the one chip gesture with no selection behind it to read, so it is the one place the
      composer needs real geometry — and it takes it from the mirror's own runs rather than from a
      caret-from-point API, which would have to guess which layer the point belongs to. Nothing else
-     changes: the runs are measured, never hit-tested, so the mirror keeps taking no pointer events. */
+     changes: the runs are measured, never hit-tested, so the mirror keeps taking no pointer events.
+     The pill reaches a couple of pixels past its glyphs (`--chip-spread`), so the hit does too. */
   const onHoverChip = (e: ReactMouseEvent<HTMLTextAreaElement>) => {
     const m = hl.current;
-    let hit: number | null = null;
+    let hit: HTMLElement | null = null;
     if (m && chips.length > 0) {
       for (const el of m.querySelectorAll<HTMLElement>("[data-chip]")) {
         // A run that wraps has one box per line; the pointer is in the chip if it is in any of them.
         for (const r of el.getClientRects()) {
-          if (e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom) { hit = Number(el.dataset.chip); break; }
+          if (e.clientX >= r.left - 2 && e.clientX < r.right + 2 && e.clientY >= r.top && e.clientY < r.bottom) { hit = el; break; }
         }
-        if (hit !== null) break;
+        if (hit) break;
       }
     }
-    if (hit !== hotChip) setHotChip(hit);
+    const start = hit ? Number(hit.dataset.chip) : null;
+    if (start === (hotChip?.start ?? null)) return;
+    if (!hit || start === null) { setHotChip(null); return; }
+    const mark = hit.querySelector(".chip-mark")?.getBoundingClientRect();
+    const box = editorRef.current?.getBoundingClientRect();
+    setHotChip({
+      start, kind: hit.className.replace(/^ch-/, ""), name: hit.dataset.name ?? hit.textContent ?? "",
+      // 16px button, centred on the 12px mark it replaces.
+      remove: mark && box ? { left: mark.left - box.left - 2, top: mark.top - box.top - 2 } : null,
+    });
+  };
+  /** Leaving the textarea for the × it is showing is not leaving the chip. */
+  const leaveChip = (e: ReactMouseEvent) => {
+    if (e.relatedTarget instanceof Element && e.relatedTarget.closest(".chip-remove, .composer-input")) return;
+    setHotChip(null);
   };
 
   /**
@@ -769,6 +768,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // stored — the draft is the only source of truth, so a pane remount that restores the draft
   // restores the mention with it.
   const [caret, setCaret] = useState(0);
+  /** The other end of the selection, tracked beside the caret for one question: is the selection
+   *  exactly one chip? Then the chip draws its own selected state and the textarea's square
+   *  selection steps aside — the "square highlight" a clicked chip used to wear. */
+  const [selEnd, setSelEnd] = useState(0);
+  const selectedChip = selEnd > caret ? chips.find((c) => c.start === caret && c.end === selEnd) ?? null : null;
   const [mentionActive, setMentionActive] = useState(0);
   // The "+ → Skills" picker. Anchored on the plus itself, so it opens over the button the user pressed.
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
@@ -796,6 +800,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     const el = ta.current;
     if (el) { el.focus(); el.setSelectionRange(sel.start, sel.end); }
     setCaret(sel.start);
+    setSelEnd(sel.end);
   }, [draft]);
   /* A passage quoted out of the transcript.
      The counter is what makes one arrival one insertion, and `applied` is what keeps it that way:
@@ -973,6 +978,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     if (!chip) return;
     el.setSelectionRange(chip.start, chip.end);
     setCaret(chip.start);
+    setSelEnd(chip.end);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -993,7 +999,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
       && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
       const to = stepOverChip(chips, e.currentTarget.selectionStart ?? 0, e.key === "ArrowRight" ? 1 : -1);
-      if (to !== null) { e.preventDefault(); e.currentTarget.setSelectionRange(to, to); setCaret(to); return; }
+      if (to !== null) { e.preventDefault(); e.currentTarget.setSelectionRange(to, to); setCaret(to); setSelEnd(to); return; }
     }
     // ⌘⇧8 bulleted / ⌘⇧7 numbered — the shortcuts these have everywhere else. Keyed off `code`, not
     // `key`: with Shift down the digit row reports "*" and "&", and those differ by layout.
@@ -1052,17 +1058,19 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
 
   // Only the modes this agent can actually be put INTO. Build is always offered — it is the absence
   // of the other two, not a capability — and a menu row for a mode nothing would enforce is the lie
-  // the per-kind tables exist to prevent.
-  const modeItems: MenuItem[] = SESSION_MODES
-    .filter((m) => (m.id === "plan" ? canPlan : m.id === "ask" ? canAsk : true))
-    .map((m) => ({ label: m.label, checked: m.id === mode, onSelect: () => onMode(m.id) }));
-
-  // While IN a read-only mode the title says what that mode is doing; from Build it says what each
-  // offered mode WOULD do, because Build is where the choice is made and the per-agent guarantee is
-  // exactly what the user needs before making it.
-  const modeTitle = `Mode: ${MODE_LABEL[mode]}. ` + (mode === "build"
-    ? [canPlan ? modeMeaning("plan", kind, acpPlan) : null, canAsk ? modeMeaning("ask", kind, acpAsk) : null].filter(Boolean).join(". ")
-    : modeMeaning(mode, kind, mode === "ask" ? acpAsk : acpPlan));
+  // the per-kind tables exist to prevent. Each read-only row is titled with what that mode means for
+  // THIS agent, which is exactly what the user needs before choosing it.
+  const modeTitleFor = (m: SessionMode) => m === "build" ? MODE_DETAIL.build : modeMeaning(m, kind, m === "ask" ? acpAsk : acpPlan);
+  const offeredModes = SESSION_MODES.filter((m) => (m.id === "plan" ? canPlan : m.id === "ask" ? canAsk : true));
+  /* A session whose agent has named no modes still has one, so the section keeps a row for it — a
+     static value, not a list of one to pick. While an ACP agent has not answered yet it says it is
+     waiting, which is a different fact from "offers none": one is a wait, the other an answer. */
+  const modeRows: MenuItem[] = canPlan || canAsk
+    ? offeredModes.map((m) => ({ label: m.label, icon: <ModeMark mode={m.id} />, detail: MODE_DETAIL[m.id],
+        title: modeTitleFor(m.id), checked: m.id === mode, onSelect: () => onMode(m.id) }))
+    : [{ label: MODE_LABEL[mode], icon: <ModeMark mode={mode} />, checked: true, disabled: true, onSelect: () => {},
+        detail: acpModesPending ? "Waiting for the agent's modes" : "The one mode this agent offers",
+        title: acpModesPending ? "Waiting for the agent's modes" : modeTitleFor(mode) }];
 
   // Built HERE rather than inside ModelPicker so the chip, the list, the effort levels and the
   // fast-mode answer all read the same rows: two independent `modelRows` calls could disagree about
@@ -1104,7 +1112,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
      a gate you can walk around by being in the right mode is not a gate. */
   const buildPermissionItems = (current: string, apply: (id: string) => void) =>
     PERMISSION_MODES.map((m) => ({
-      label: m.label, checked: current === m.id,
+      label: m.label, checked: current === m.id, icon: <Icon name={permissionIcon(m.id)} size={14} />,
       onSelect: () => {
         if (m.id === "bypassPermissions" && current !== "bypassPermissions") { setConfirmBypass(true); return; }
         setConfirmBypass(false);
@@ -1223,7 +1231,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
         )}
         {/* The mirror and the textarea are one control in two layers, so they share a positioned box.
             aria-hidden on the mirror: it is a duplicate of text the textarea already exposes. */}
-        <div className="composer-editor">
+        <div ref={editorRef} className="composer-editor">
           <div ref={hl} className="composer-highlight" aria-hidden="true">
             {segments.map((s, i) => {
               if (!s.kind) return s.text;
@@ -1232,16 +1240,28 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                  `@`, a picked element's `@[`, a link's `@[` with the app's own mark — and the
                  delimiters go transparent. The token keeps every character, so the mirror stays the
                  width of the textarea's text under it (the rule draft-format.ts states), and the
-                 eye sees an icon, a name and nothing else: no fill, no box. */
-              const icon = link ? LINK_SERVICE_META[link.service].icon : s.kind === "element" ? "target" : s.kind === "mention" ? "sparkles" : null;
-              const open = s.kind === "mention" ? 1 : 2; // `@` or `@[`
+                 eye sees a pill holding an icon and a name. The sigils are what give the pill its
+                 inside room: a run may not carry padding, but `@[` and `]` are glyph widths of their
+                 own, and the mark hangs in the first of them. A command keeps its `/` — that IS the
+                 mark of a command, and it is part of what was typed. */
+              const icon = link ? LINK_SERVICE_META[link.service].icon : s.kind === "element" ? "target"
+                : s.kind === "mention" || s.kind === "mention-stale" ? "sparkles" : null;
+              const bracketed = s.kind === "element"; // `@[…]`, where a mention is a bare `@`
+              const open = bracketed ? 2 : 1;
+              const at = segStarts[i]!;
+              const chip = isChipKind(s.kind);
               return (
                 <span key={i} className={`ch-${s.kind}`} data-service={link?.service}
-                  data-chip={isChipKind(s.kind) ? segStarts[i] : undefined}
-                  data-hot={(isChipKind(s.kind) && segStarts[i] === hotChip) || undefined}
+                  data-chip={chip ? at : undefined}
+                  data-name={chip && icon ? (bracketed ? s.text.slice(open, -1) : s.text.slice(open)) : undefined}
+                  data-hot={(chip && at === hotChip?.start) || undefined}
+                  data-selected={(chip && at === selectedChip?.start) || undefined}
                   title={link ? `${LINK_SERVICE_META[link.service].label} · ${link.url}` : undefined}>
                   {icon
-                    ? <><span className="chip-sigil">{s.text.slice(0, open)}<Icon name={icon} size={s.kind === "mention" ? 12 : 14} className="chip-mark" /></span>{s.kind === "mention" ? s.text.slice(open) : s.text.slice(open, -1)}{s.kind !== "mention" && <span className="chip-sigil">]</span>}</>
+                    /* The sigil and the name's first glyph are held on one line (`.chip-lead`): the
+                       mark is an out-of-flow box, and the line breaker may break after one where the
+                       textarea, reading one word, never would. */
+                    ? <><span className="chip-lead"><span className="chip-sigil">{s.text.slice(0, open)}<Icon name={icon} size={12} className="chip-mark" /></span>{s.text.slice(open, open + 1)}</span>{bracketed ? s.text.slice(open + 1, -1) : s.text.slice(open + 1)}{bracketed && <span className="chip-sigil">]</span>}</>
                     : s.text}
                 </span>
               );
@@ -1262,14 +1282,27 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             </div>
           )}
           <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : "Ask anything"} rows={1}
-            value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMentionActive(0); setSlashActive(0); setHotChip(null); }}
-            onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
-            onClick={onClickChip} onMouseMove={onHoverChip} onMouseLeave={() => setHotChip(null)}
-            onKeyDown={onKeyDown} onPaste={onPaste} onScroll={syncScroll}
+            value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setSelEnd(e.target.selectionEnd ?? e.target.value.length); setMentionActive(0); setSlashActive(0); setHotChip(null); }}
+            onSelect={(e) => { setCaret(e.currentTarget.selectionStart ?? 0); setSelEnd(e.currentTarget.selectionEnd ?? 0); }}
+            onClick={onClickChip} onMouseMove={onHoverChip} onMouseLeave={leaveChip}
+            onKeyDown={onKeyDown} onPaste={onPaste} onScroll={() => { syncScroll(); setHotChip(null); }}
+            data-chip-selected={selectedChip ? "" : undefined}
             aria-describedby={hint ? hintId : undefined}
             aria-controls={slashOpen ? "slash-list" : mentionOpen ? "mention-list" : undefined}
             aria-activedescendant={slashOpen ? `slash-${slashMatches[slashCur]!.id}`
               : mentionOpen ? `mention-${mentionMatches[mentionCur]!.id}` : undefined} />
+          {/* The hovered chip's × — its mark, turned into a button for as long as the pointer is on
+              the chip. Out of the tab order: it exists only under a pointer, and the keyboard already
+              has the chip whole (a click or an arrow selects it, ⌫ takes an element chip in one). */}
+          {hotChip?.remove && (
+            <button type="button" className="chip-remove" data-kind={hotChip.kind} tabIndex={-1} aria-label={`Remove ${hotChip.name}`} title="Remove"
+              style={{ left: hotChip.remove.left, top: hotChip.remove.top }}
+              onMouseDown={(e) => e.preventDefault() /* the textarea keeps its focus and its caret */}
+              onMouseLeave={leaveChip}
+              onClick={() => { const edit = removeChip(chips, draft, hotChip.start); setHotChip(null); if (edit) applyEdit(edit); }}>
+              <Icon name="close" size={12} />
+            </button>
+          )}
         </div>
         {slashOpen && (
           <SlashPicker commands={slashMatches} activeIndex={slashCur} anchorRef={ta}
@@ -1298,8 +1331,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               onGoal={slashCommands.some((c) => c.id === "goal") ? armGoal : null}
               connectors={connectors} onOpened={() => onConnectorsOpened?.()}
               onManageConnections={() => onManageConnections?.()}
-              mode={mode} modeItems={modeItems} modeTitle={modeTitle} modePending={acpModesPending}
-              canChooseMode={canPlan || canAsk} btnRef={plusRef} />
+              modeRows={modeRows} btnRef={plusRef} />
             {/* Left group order (prompter rework): "+" · permission · mode · branch. The permission
                 and mode chips sit against the attach button; the git chip trails them. */}
             {/* In Plan and in Ask the permission mode is not in effect — Claude's `plan` replaces it
@@ -1313,12 +1345,16 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 reason this pair was drawn as a segmented control — a group of one is nine seam rules
                 that can never fire, and it left the permission chip wearing a squared corner and a
                 hairline ring that no other chip in the row has. */}
+            {/* A glyph and a word, as Codex draws it: no fill and no chevron at rest, a hover fill like
+                every chip on this row. Full access keeps its tone on the two of them and nowhere else
+                — the red wash it used to sit on read as a second warning about one setting. */}
             {canSetPermissionMode && !compact && (
               inReadOnly
-                ? <ChipMenu ariaLabel="Permission mode" warning={parked === "bypassPermissions"}
+                ? <ChipMenu ariaLabel="Permission mode" warning={parked === "bypassPermissions"} icon={permissionIcon(parked)} iconSize={14} caret={false}
                     title={`${MODE_LABEL[mode]} is read-only — this is what returning to Build will restore`}
                     label={permissionLabel(parked)} items={parkedItems} />
                 : !collapsed && <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
+                    icon={permissionIcon(session.permissionMode)} iconSize={14} caret={false}
                     label={permissionLabel(session.permissionMode)} items={permissionItems} />
             )}
             {confirmBypass && (
