@@ -125,8 +125,19 @@ describe("CodeEditor", () => {
 
   it("puts the cursor on the line a search sent it to", () => {
     const { container } = render(
-      <CodeEditor path="src/a.ts" text={"one\ntwo\nthree\n"} onChange={() => {}} revealLine={3} />);
+      <CodeEditor path="src/a.ts" text={"one\ntwo\nthree\n"} onChange={() => {}} reveal={{ line: 3 }} />);
     const view = viewOf(container);
+    expect(view.state.doc.lineAt(view.state.selection.main.anchor).number).toBe(3);
+  });
+
+  it("goes back to a line asked for again, after the reader has moved off it", () => {
+    // THE MUTANT: key the reveal on the line NUMBER, and a second click on the same `a.ts:3` link,
+    // after scrolling away, does nothing at all.
+    const text = "one\ntwo\nthree\n";
+    const { container, rerender } = render(<CodeEditor path="src/a.ts" text={text} onChange={() => {}} reveal={{ line: 3 }} />);
+    const view = viewOf(container);
+    view.dispatch({ selection: { anchor: 0 } });
+    rerender(<CodeEditor path="src/a.ts" text={text} onChange={() => {}} reveal={{ line: 3 }} />);
     expect(view.state.doc.lineAt(view.state.selection.main.anchor).number).toBe(3);
   });
 
@@ -134,7 +145,7 @@ describe("CodeEditor", () => {
     // The file can be edited between the search and the open. The top of the right file beats an
     // exception about the wrong line.
     const { container } = render(
-      <CodeEditor path="src/a.ts" text={"one\n"} onChange={() => {}} revealLine={400} />);
+      <CodeEditor path="src/a.ts" text={"one\n"} onChange={() => {}} reveal={{ line: 400 }} />);
     expect(viewOf(container).state.selection.main.anchor).toBeLessThanOrEqual(4);
   });
 
