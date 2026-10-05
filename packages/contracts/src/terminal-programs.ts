@@ -101,7 +101,7 @@ const PROGRAMS: readonly ProgramDef[] = [
   /* A shell on another machine: the app's glyph for "a screen somewhere else". */
   tool("ssh", "machine", ["ssh", "mosh", "mosh-client", "autossh", "et", "telnet"]),
   tool("git", "branch", ["git", "gh", "lazygit", "tig", "gitui", "jj"]),
-  tool("container", "cube", ["docker", "podman", "nerdctl", "kubectl", "k9s", "colima", "orb", "orbctl", "minikube"]),
+  tool("container", "serverStack", ["docker", "podman", "nerdctl", "kubectl", "k9s", "colima", "orb", "orbctl", "minikube"]),
   tool("database", "database", ["psql", "pgcli", "sqlite3", "sqlite", "mysql", "mycli", "mariadb", "redis-cli", "mongosh", "duckdb", "litecli", "usql", "clickhouse"]),
   tool("monitor", "activity", ["top", "htop", "btop", "btm", "glances", "atop", "nvtop", "iotop"]),
   tool("build", "tool", ["make", "gmake", "cmake", "ninja", "just", "bazel", "task"]),

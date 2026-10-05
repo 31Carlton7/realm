@@ -92,7 +92,7 @@ describe("identifyProgram", () => {
   it("gives the common tools a glyph from the app's own set", () => {
     const cases: [string, string, string][] = [
       ["ssh", "ssh me@box", "machine"], ["git", "git log --oneline", "branch"], ["gh", "gh pr view 97", "branch"],
-      ["docker", "docker compose up", "cube"], ["psql", "psql -d app", "database"], ["sqlite3", "sqlite3 realm.db", "database"],
+      ["docker", "docker compose up", "serverStack"], ["psql", "psql -d app", "database"], ["sqlite3", "sqlite3 realm.db", "database"],
       ["htop", "htop", "activity"], ["make", "make build", "tool"], ["cargo", "cargo run", "package"], ["go", "go run .", "code"],
       ["ruby", "ruby app.rb", "gem"], ["deno", "deno task dev", "typescript"], ["less", "less README.md", "artifact"],
       ["sleep", "sleep 30", "clock"], ["tmux", "tmux attach", "layout"],

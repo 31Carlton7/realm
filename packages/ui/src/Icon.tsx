@@ -39,6 +39,8 @@ import {
   // Settings' pages, each beside its glyph in the column (settings-index.ts), and the Library's toolbar.
   CpuIcon, DashboardSpeed02Icon, Cursor01Icon, CommandIcon, InboxDownloadIcon, FilterHorizontalIcon, LeftToRightListBulletIcon,
   SquareLockPasswordIcon,
+  // What a terminal is running, beside its tab's title (terminal-programs.ts in contracts).
+  JavaScriptIcon, Typescript01Icon, PythonIcon, GemIcon, JavaIcon, PhpIcon, PackageIcon, ServerStack01Icon, DatabaseIcon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -141,6 +143,12 @@ export const icons = {
   /* The Library's toolbar: the narrowing a filter menu does, and the view as rows beside `grid`'s
      view as tiles — the pair every file browser draws. */
   filter: FilterHorizontalIcon, list: LeftToRightListBulletIcon,
+  /* What a terminal's foreground program is, when it is a tool rather than an agent (an agent wears
+     its vendor's mark). The language for a runtime — node is the JS square, deno the TS one, Ruby a
+     gem — and the job for the rest: a package manager is a parcel, which is also what a dev server
+     started through one wears, and a container runtime is the server stack it stands for. */
+  javascript: JavaScriptIcon, typescript: Typescript01Icon, python: PythonIcon, gem: GemIcon, java: JavaIcon, php: PhpIcon,
+  package: PackageIcon, serverStack: ServerStack01Icon, database: DatabaseIcon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */
