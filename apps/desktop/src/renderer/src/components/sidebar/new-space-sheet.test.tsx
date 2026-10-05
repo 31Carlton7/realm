@@ -300,7 +300,7 @@ describe("NewSpaceSheet", () => {
 
   /* Held at each step in turn, because each step's own check is what stops the run there — a test
      that only ever holds the first one cannot tell whether the later checks exist. */
-  it.each(["createSpace", "setMemory", "createProject"] as const)(
+  it.each(["createSpace", "setMemory", "createProject", "createSession"] as const)(
     "Escape while %s is in flight leaves at once and stops the run there: what was made stays, nothing after it starts, the window does not move",
     async (step) => {
       const { store, api } = await mount();
@@ -328,7 +328,8 @@ describe("NewSpaceSheet", () => {
         createProject: () => (api.data.projects[made.id] ?? []).length > 0,
         createSession: () => api.calls.some((c) => c.startsWith("createSession:")),
       };
-      const later = { createSpace: ["setMemory", "createProject", "createSession"], setMemory: ["createProject", "createSession"], createProject: ["createSession"] }[step];
+      const later = { createSpace: ["setMemory", "createProject", "createSession"], setMemory: ["createProject", "createSession"],
+        createProject: ["createSession"], createSession: [] }[step];
       for (const k of later as (keyof typeof happened)[]) expect(happened[k](), k).toBe(false);
       // …and the step that was in flight did land: it was already sent.
       if (step !== "createSpace") expect(happened[step](), step).toBe(true);
