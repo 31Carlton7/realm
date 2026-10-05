@@ -271,7 +271,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
                             <button key={h} type="button" className="mp-way" tabIndex={-1} aria-pressed={h === routeOf(r)}
                               aria-label={`Run ${r.label} through ${AGENT_META[h].label}`} title={`Through ${AGENT_META[h].label}${r.notes[h] ? ` — ${r.notes[h]}` : ""}`}
                               onClick={(e) => { e.stopPropagation(); pick(r, h); }}>
-                              <Icon name={AGENT_META[h].icon} size={13} colored />
+                              <Icon name={AGENT_META[h].icon} size={12} colored />
                             </button>
                           ))}
                         </span>
