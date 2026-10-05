@@ -49,6 +49,8 @@ import {
   JavaScriptIcon, Typescript01Icon, PythonIcon, GemIcon, JavaIcon, PhpIcon, PackageIcon, ServerStack01Icon, DatabaseIcon,
   // A device's own toolbar (SimulatorBar.tsx): turning it, selecting its elements, its volume down.
   ScreenRotationIcon, CursorRectangleSelection01Icon, VolumeLowIcon,
+  // The media viewer's zoom out, beside `add` for zoom in (components/viewer/ViewerStage.tsx).
+  MinusSignIcon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
@@ -191,6 +193,9 @@ export const icons = {
      dashed box. Volume down is the speaker with one wave: the struck-through one it borrowed from
      playback says mute, which is a different button. */
   rotate: ScreenRotationIcon, select: CursorRectangleSelection01Icon, volumeLow: VolumeLowIcon,
+  /* A picture's zoom out, the plain bar beside the plain plus — the pair every image viewer's −/+
+     is, which a magnifier holding either sign only restates at a size where the sign is a speck. */
+  minus: MinusSignIcon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

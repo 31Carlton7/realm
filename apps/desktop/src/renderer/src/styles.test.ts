@@ -780,7 +780,7 @@ describe("Ara refresh §3/§4 geometry", () => {
     const rung = (sel: string) => Number(/z-index:\s*(\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
     const page = rung(".page-overlay");
     expect(page).toBeGreaterThan(rung(".session-usage-panel")); // …and over the tallest thing in a pane
-    for (const above of [".sheet-backdrop", ".palette-backdrop", ".spaces-backdrop", ".media-lightbox", ".quick-chat", ".menu"]) {
+    for (const above of [".sheet-backdrop", ".palette-backdrop", ".spaces-backdrop", ".media-viewer", ".quick-chat", ".menu"]) {
       expect(rung(above), `${above} must float over a page`).toBeGreaterThan(page);
     }
   });
@@ -1546,6 +1546,18 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
       .map((sel) => Number(/z-index: (\d+)/.exec(bodiesFor(sel).join(" "))?.[1]));
     expect(win).toBeGreaterThan(60);
     for (const z of popovers) expect(z).toBeGreaterThan(win);
+  });
+
+  it("the media viewer covers the quick chat, and stays under the popovers its prompter raises", () => {
+    /* Its prompter has a model picker, and the viewer is opened from INSIDE the quick chat as often
+       as from a pane — so it must clear the chat window and nothing that floats from its own controls.
+       Not a filter either: Chromium paints a video layer through one, and a blur over the window's
+       material smudges (design.md). The workspace's own frames go while it is up instead. */
+    const z = (sel: string) => Number(/z-index: (\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
+    expect(z(".media-viewer")).toBeGreaterThan(z(".quick-chat"));
+    for (const over of [".menu", ".model-picker", ".mention-picker", ".toasts", ".tooltip"]) expect(z(over), over).toBeGreaterThan(z(".media-viewer"));
+    expect(bodiesFor(".media-viewer").join(" ")).not.toMatch(/backdrop-filter/);
+    expect(css).toContain("body[data-media-viewer] .app .media-el { visibility: hidden; }");
   });
 
   it("everything decorative stops when nobody is looking at the window", () => {
@@ -2627,9 +2639,6 @@ describe("light mode", () => {
     [".media-play", "on a video frame"], [".media-play:hover", "on a video frame"],
     [".media-controls", "on a video frame"], [".media-btn:hover", "on a video frame"],
     [".media-scrub", "on a video frame"], [".media-scrub::-webkit-slider-thumb", "on a video frame"],
-    [".media-lightbox-bar", "on a video frame"],
-    [".media-lightbox-bar .media-name", "on a video frame"], [".media-lightbox-bar .media-detail", "on a video frame"],
-    [".media-lightbox-bar .media-action", "on a video frame"], [".media-lightbox-bar .media-action:hover", "on a video frame"],
     [".attach-tile[data-image] .attach-ext", "on the attached picture"],
     // The Library tile's caption, which comes up over the file's own picture.
     [".library-tile-caption", "on the file's own picture"],
@@ -2660,6 +2669,8 @@ describe("light mode", () => {
     [".ql-page", "paired with a light override"],
     // The picture on the page about you: a photo on the page's ground, paired the same way.
     ["img.avatar", "paired with a light override"],
+    // The picture in the media viewer, on the viewer's own ground — paired the same way.
+    [".media-viewer-img", "paired with a light override"],
   ]);
 
   it("no rule paints a raw black or white that the mode cannot reach", () => {
@@ -2674,7 +2685,7 @@ describe("light mode", () => {
   });
 
   it("every literal that is half a pair really does have its other half", () => {
-    for (const sel of [".md img", ".ql-page", "img.avatar"]) {
+    for (const sel of [".md img", ".ql-page", "img.avatar", ".media-viewer-img"]) {
       expect(bodiesFor(sel).join(" "), sel).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
       expect(bodiesFor(`:root[data-mode="light"] ${sel}`).join(" "), sel).toContain("outline-color: rgba(0, 0, 0, 0.1)");
     }

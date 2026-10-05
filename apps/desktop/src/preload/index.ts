@@ -114,8 +114,9 @@ contextBridge.exposeInMainWorld("realm", {
       entries: { path: string; name: string; isDir: boolean; size: number; mtimeMs: number }[] } | null> =>
       ipcRenderer.invoke("files:browse", root, dir),
     /** A readable picture of the file (a decoded image, or QuickLook's render of a PDF, a sheet, a
-     *  page of source), as a data: URL. Null for a type macOS has no generator for. */
-    preview: (path: string): Promise<string | null> => ipcRenderer.invoke("files:preview", path),
+     *  page of source), as a data: URL. Null for a type macOS has no generator for. `page` is the
+     *  media viewer's window-sized render. */
+    preview: (path: string, size?: "page"): Promise<string | null> => ipcRenderer.invoke("files:preview", path, size),
     /** Select it in the Finder. `~/…` is the home folder and a relative path is relative to `base`,
      *  as an agent writes them; false when nothing is there. */
     reveal: (path: string, base?: string): Promise<boolean> => ipcRenderer.invoke("files:reveal", path, base),

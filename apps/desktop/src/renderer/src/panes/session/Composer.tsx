@@ -217,7 +217,7 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
           <li key={a.path} className="composer-attach-item">
             <AttachmentTile path={a.path} mime={a.mime} name={a.name} disposition={attachmentDisposition(kind, a.mime)}
               detail={`${formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}
-              onRemove={() => onRemove(a.path)} />
+              onRemove={() => onRemove(a.path)} siblings={attachments} />
           </li>
         ))}
       </ul>
@@ -406,7 +406,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, quote = null, compact = false }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -418,6 +418,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    * model, attachments, and send.
    */
   compact?: boolean;
+  /** What the empty box says. The media viewer's prompter names the file it is asking about. */
+  placeholder?: string;
   /**
    * A passage the reader selected in the transcript, waiting to be quoted into the draft.
    *
@@ -1347,7 +1349,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               <span className="visually-hidden">Press Tab to fill in this suggested prompt.</span>
             </div>
           )}
-          <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : "Ask anything"} rows={1}
+          <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : placeholder} rows={1}
             value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setSelEnd(e.target.selectionEnd ?? e.target.value.length); setMentionActive(0); setSlashActive(0); setHotChip(null); }}
             onSelect={(e) => { setCaret(e.currentTarget.selectionStart ?? 0); setSelEnd(e.currentTarget.selectionEnd ?? 0); }}
             onClick={onClickChip} onMouseMove={onHoverChip} onMouseLeave={leaveChip}

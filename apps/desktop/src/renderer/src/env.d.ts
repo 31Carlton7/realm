@@ -115,8 +115,9 @@ interface Window {
       browse?(root: string, dir: string): Promise<{ dir: string; truncated: boolean;
         entries: { path: string; name: string; isDir: boolean; size: number; mtimeMs: number }[] } | null>;
       /** A readable picture of the file (a decoded image, or QuickLook's render of a PDF, a sheet,
-       *  a page of source). Null for a type macOS has no generator for. */
-      preview(path: string): Promise<string | null>;
+       *  a page of source). Null for a type macOS has no generator for. `page` is the media viewer's
+       *  window-sized render; the default is a preview's. */
+      preview(path: string, size?: "page"): Promise<string | null>;
       /** Select it in the Finder. `~/…` is the home folder and a relative path is relative to `base`
        *  — the way an agent writes them. False when nothing is there to select. */
       reveal(path: string, base?: string): Promise<boolean>;

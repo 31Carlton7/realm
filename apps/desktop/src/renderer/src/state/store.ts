@@ -1,6 +1,8 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
 import { destinationTarget, pageHidesSidebar, pageItemId } from "./page-item";
 import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
+import { attachmentDisposition } from "@realm/contracts";
+import { VIEWER_SLOT, ownerOf, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
@@ -887,10 +889,6 @@ export type Sheet =
   | { kind: "new-lecture" }
   | { kind: "wrap-up-lecture" }
   | { kind: "plynn-import" }
-  /** One file out of a session's summary (Outputs / Sources): its path, and the offer to hand it to
-   *  the OS. Carries the path alone rather than the row it was opened from — a row is derived, and a
-   *  copy of one in the sheet slot could go stale against the transcript it came from. */
-  | { kind: "artifact"; path: string }
   /** One plan out of a session's summary, named by the session that proposed it and the plan's own
    *  id. Read live for the same reason: a plan the agent revises while the sheet is open should show
    *  the revision, not the snapshot that was taken when the row was clicked. */
@@ -1517,6 +1515,9 @@ export type AppState = {
    *  that came back after a relaunch would be chrome nobody asked for. */
   simulatorElements: Record<string, boolean>;
   quickChat: { sessionId: string } | null;
+  /** The media viewer, when a file is open in it — see `state/viewer.ts`. Transient: a file is looked
+   *  at, not kept, so it is never written into the saved view and a profile switch takes it away. */
+  viewer: ViewerState | null;
   /**
    * A session looked at without being opened (W11b): a tab of the focused session's side pane, from
    * any space, beside `owner` (the session item it was opened beside). TRANSIENT, which is the whole of
@@ -2320,6 +2321,29 @@ export type AppState = {
   /** Where the window sits, from a drag. Clamped by the window itself, which is the only thing that
    *  knows how big it is. */
   setQuickChatPos(pos: { x: number; y: number }): void;
+  /** Show files in the media viewer, replacing whatever it was showing. Loads the owner session's
+   *  transcript when it is not held yet, so the exchange can be drawn as it arrives. */
+  openViewer(input: OpenViewerInput): void;
+  closeViewer(): void;
+  /** The next or previous sibling. Stops at the ends: the list is the one the eye just walked. */
+  stepViewer(delta: 1 | -1): void;
+  /** Files the viewer's exchange produced: added after the one on show, which `show` moves to — a
+   *  new version of the picture is what the person asked to see. Paths already listed are left. */
+  addViewerFiles(paths: readonly string[], show: boolean): void;
+  /** Show one file in the viewer that is already open — a picture in its own exchange, clicked —
+   *  keeping the exchange and the way back: it is the same look going on, not a new one. */
+  showViewerFile(file: ViewerFile): void;
+  /** The person took the viewed file off the next message (its chip's ×). */
+  detachViewerFile(path: string): void;
+  /** The agent and model the viewer's prompter will make a session with, while it has none. */
+  pickViewerAgent(agentKind: AgentKind, model: string | null): void;
+  /**
+   * Ask about the viewed file: the message goes to the viewer's session — made now, in its space, if
+   * there was none — carrying the file through the same attachment wire the prompter uses, with any
+   * files dropped on the viewer's prompter after it. The first send marks where this viewer's
+   * exchange begins in that session's transcript.
+   */
+  sendFromViewer(text: string): Promise<void>;
   refreshGitInfo(cwd: string): Promise<void>;
   /** Re-read one checkout's changed-file list. Also refreshes `gitInfo` for it, so the prompter's
    *  chips and the diff pane can never disagree about the same tree. */
@@ -3094,12 +3118,30 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const held = id ? get().sessions[id] : undefined;
       return id && held && !next[id] ? { ...next, [id]: held } : next;
     };
-    /** The quick chat's row, and the peek's for the same reason: a peek may be another profile's. */
+    /** A session this window can still reach: one it holds a row for, or one `sessionSpace` — which
+     *  spans every space of the profile — places somewhere. A deleted session is neither. */
+    const reachableSession = (id: string): boolean => get().sessions[id] !== undefined || id in get().sessionSpace;
+    /** The session the viewer's prompter is asking right now, if any. */
+    const viewerOwner = (): string | null => {
+      const v = get().viewer;
+      return v ? ownerOf(v, v.files[v.index], reachableSession) : null;
+    };
+    /** The viewer's exchange is read off its session's own transcript, which a Library file's session
+     *  — open in no pane — does not have loaded. */
+    const holdViewerSession = () => {
+      const id = viewerOwner();
+      if (id && !get().transcripts[id]) get().run(() => get().openSession(id));
+    };
+    /** The quick chat's row, and the peek's for the same reason: a peek may be another profile's. The
+     *  viewer's too — the Library's files come from every space, and its prompter asks the session one
+     *  came from wherever that session lives. */
     const keepHeldSessions = (next: Record<string, Session>): Record<string, Session> => {
-      const kept = keepQuickChatSession(next);
-      const id = get().peek?.item.refId;
-      const held = id ? get().sessions[id] : undefined;
-      return id && held && !kept[id] ? { ...kept, [id]: held } : kept;
+      let kept = keepQuickChatSession(next);
+      for (const id of [get().peek?.item.refId, viewerOwner()]) {
+        const held = id ? get().sessions[id] : undefined;
+        if (id && held && !kept[id]) kept = { ...kept, [id]: held };
+      }
+      return kept;
     };
     const panelOf = (id: string): TerminalPanel => get().terminalPanel[id] ?? { open: false, width: TERMINAL_PANEL_WIDTH };
     const setPanel = (id: string, p: TerminalPanel) => set({ terminalPanel: { ...get().terminalPanel, [id]: p } });
@@ -3770,7 +3812,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const last = lastSpaceId && get().spaces.some((sp) => sp.id === lastSpaceId && sp.profileId === pid) ? lastSpaceId : null;
       set({
         activeProfileId: pid, items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}),
-        view: null, layout: null, focusedLeafId: null, peek: null, sheetSnap: null, offscreenBrowsers: [],
+        view: null, layout: null, focusedLeafId: null, peek: null, viewer: null, sheetSnap: null, offscreenBrowsers: [],
         // Diffs and patches are keyed by checkout path, and every pane that could show one belongs to
         // the profile being left.
         diffs: {}, diffLoading: {}, patches: {},
@@ -3907,7 +3949,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
-      terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null,
+      terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
@@ -6257,6 +6299,93 @@ await get().refreshCustomThemes().catch(() => {});
         await api.deleteSession(qc.sessionId);
       },
       setQuickChatPos(pos) { set({ quickChatPos: pos }); scheduleQuickChatPersist(); },
+      openViewer(input) {
+        const files = input.files.filter((f) => f.path !== "");
+        if (files.length === 0) return;
+        const sessionId = input.sessionId && reachableSession(input.sessionId) ? input.sessionId : null;
+        const focused = typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        set({ viewer: {
+          files: [...files], index: Math.max(0, Math.min(input.index ?? 0, files.length - 1)),
+          sessionId, spaceId: (sessionId && get().sessionSpace[sessionId]) || input.spaceId || null,
+          thread: null, detached: null, pick: null, opener: input.opener ?? focused,
+        } });
+        holdViewerSession();
+      },
+      showViewerFile(file) {
+        const v = get().viewer; if (!v) return;
+        const at = v.files.findIndex((f) => f.path === file.path);
+        if (at === v.index) return;
+        if (at >= 0) set({ viewer: { ...v, index: at, detached: null } });
+        else set({ viewer: { ...v, files: [...v.files.slice(0, v.index + 1), file, ...v.files.slice(v.index + 1)], index: v.index + 1, detached: null } });
+        holdViewerSession();
+      },
+      closeViewer() { if (get().viewer) set({ viewer: null }); },
+      stepViewer(delta) {
+        const v = get().viewer; if (!v) return;
+        const index = Math.max(0, Math.min(v.index + delta, v.files.length - 1));
+        if (index === v.index) return;
+        set({ viewer: { ...v, index, detached: null } });
+        holdViewerSession();
+      },
+      addViewerFiles(paths, show) {
+        const v = get().viewer; if (!v) return;
+        const known = new Set(v.files.map((f) => f.path));
+        const fresh = [...new Set(paths)].filter((p) => !known.has(p)).map((path) => ({ path }));
+        if (fresh.length === 0) return;
+        const files = [...v.files.slice(0, v.index + 1), ...fresh, ...v.files.slice(v.index + 1)];
+        set({ viewer: { ...v, files, ...(show ? { index: v.index + 1, detached: null } : {}) } });
+      },
+      detachViewerFile(path) { const v = get().viewer; if (v) set({ viewer: { ...v, detached: path } }); },
+      pickViewerAgent(agentKind, model) { const v = get().viewer; if (v) set({ viewer: { ...v, pick: { agentKind, model } } }); },
+      async sendFromViewer(text) {
+        const v = get().viewer; if (!v) return;
+        const file = v.files[v.index]; if (!file) return;
+        let sessionId = ownerOf(v, file, reachableSession);
+        if (!sessionId) {
+          /* Nobody to ask — a file whose session is gone, a documents pane of its own. The question
+             starts a session in the file's own space while that still exists, which is where work on
+             the file belongs, and otherwise in the space on screen. Made at the send, not at the open:
+             looking at a file is not asking about it, and a session per look would be litter. */
+          const home = file.from?.spaceId ?? v.spaceId;
+          const sid = home && get().spaces.some((sp) => sp.id === home) ? home : get().activeSpaceId;
+          if (!sid) return;
+          const agentKind = v.pick?.agentKind ?? get().lastAgentKind ?? FALLBACK_AGENT;
+          const { session } = await api.createSession({ spaceId: sid, agentKind, model: v.pick?.model ?? null });
+          rememberAgent(agentKind);
+          mergeSession(session);
+          sessionId = session.id;
+          // The viewer's own from here — of this file and of every other with nobody to ask — and held
+          // at once, so a second send while the first is in flight asks the same session.
+          const now = get().viewer;
+          if (now) set({ viewer: { ...now, sessionId, spaceId: sid } });
+          await loadSpaceItems(sid);
+        }
+        if (!get().transcripts[sessionId]) await get().openSession(sessionId);
+        const kind = get().sessions[sessionId]?.agentKind ?? v.pick?.agentKind ?? FALLBACK_AGENT;
+        const from = get().transcripts[sessionId]?.t.blocks.length ?? 0;
+        const at = Date.now();
+        /* The file goes as an attachment, described by main like any picked file. The one refusal is
+           the prompter's own, narrowed to where it bites: an image the agent inlines has to fit in the
+           request. Anything handed over as a path has no such limit, and a long video asked about is
+           exactly that case. */
+        const viewed: Attachment[] = [];
+        if (v.detached !== file.path) {
+          const [d] = await api.describePaths([file.path]).catch(() => []);
+          if (!d) get().toast({ tone: "warning", text: `No longer on disk: ${basenameOf(file.path)}` });
+          else if (attachmentDisposition(kind, d.mime) === "inline" && d.size > MAX_ATTACHMENT_BYTES) {
+            get().toast({ tone: "warning", text: `Too large to attach — the limit is ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)}: ${d.name} (${formatAttachmentSize(d.size)})` });
+          } else viewed.push({ path: d.path, mime: d.mime });
+        }
+        const extras = (get().pendingAttachments[VIEWER_SLOT] ?? []).filter((a) => !viewed.some((w) => w.path === a.path));
+        await api.sendMessage(sessionId, text, [...viewed, ...extras.map(({ path, mime }) => ({ path, mime }))], [], [], undefined, [], []);
+        // Only after the send lands, as `sendMessage` does: a refused send keeps its files.
+        const cur = get().viewer;
+        if (cur) set({ viewer: { ...cur, detached: null, thread: cur.thread?.sessionId === sessionId ? cur.thread : { sessionId, from, at } } });
+        if (extras.length > 0) {
+          const sent = new Set(extras.map((a) => a.path));
+          set({ pendingAttachments: { ...get().pendingAttachments, [VIEWER_SLOT]: (get().pendingAttachments[VIEWER_SLOT] ?? []).filter((a) => !sent.has(a.path)) } });
+        }
+      },
       toggleSessionDock(sessionId, dock) {
         const cur = get().sessionDock[sessionId];
         // Same thing again closes it — which is what makes the opener a toggle without every opener

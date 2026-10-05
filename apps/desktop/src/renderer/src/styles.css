@@ -33,7 +33,7 @@
 .cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
 .diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
-.file-preview-path, .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
+.files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .mention-row-id, .mp-about code,
 .msg-error pre, .office-drawn-size, .office-kept, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
@@ -1110,55 +1110,11 @@ kbd { font: 11px var(--font-mono); }
 .summary-row-glyph { flex: none; color: var(--rl-text-faint); }
 .summary-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
 .summary-row-meta { flex: none; font-size: 11px; color: var(--rl-text-faint); }
-/* ── The file preview ──────────────────────────────────────────────────────
-   One file, opened from the Library's grid or from a session summary's outputs. The picture on top,
-   then the facts, then where it came from — falling order of how much each says about a file whose
-   name the sheet's own title has already given.
-
-   The picture sits in no well of its own. It is either a `.media-*` frame, which brings its own
-   surface and hairline, or QuickLook's render, which gets the same inset outline every image in the
-   app wears. A frame around either would be a second box around a thing that already has one. */
-/* The preview WELL: the sheet's own width, not a square floated in the middle of it.
-   A QuickLook render of a text file is a tall page. Centred at its natural size it was a small
-   square of unreadable grey in a wide sheet — the picture was there and said nothing. Filling the
-   column and cropping to the TOP shows the first lines at a size they can be read at, which is the
-   only part of a page-of-source anyone looks at in a preview.
-   `--inset` is the surface ladder's well, one step under the sheet's `--surface`: recessed, which is
-   what a thing you look INTO should be, and it is what makes the crop's edge legible without a
-   second border around a picture that already carries its own outline. */
-.file-preview-art { width: 100%; margin: 0 0 12px; border-radius: var(--r-panel); overflow: hidden;
-  background: var(--inset); box-shadow: var(--shadow-hairline); }
-/* Media keeps its own frame, which brings its own sizing — the well only has to not squeeze it. */
-.file-preview-art > * { display: block; margin: 0 auto; }
-/* Until the load handler has measured it, a picture is drawn the safe way: contained, at its own
-   size. A `page` that flashed at icon size is a beat of the old behaviour; an `icon` that flashed
-   full-bleed is a 480px file-type glyph, which is the failure worth avoiding. */
-.file-preview-still { display: block; max-width: 100%; max-height: 200px; margin: 0 auto;
-  object-fit: contain; border-radius: 0; box-shadow: none; }
-/* A render of the file's CONTENT. It fills the column and is cropped to its top, because the first
-   lines are the whole of what a preview of a page is read for. */
-.file-preview-still[data-fit="page"] { width: 100%; max-width: none; max-height: 260px;
-  object-fit: cover; object-position: top center; }
-/* A generic type icon. It is a mark, not a picture — drawn at a mark's size, with air around it. */
-.file-preview-still[data-fit="icon"] { width: auto; max-height: 128px; margin: 24px auto; }
 /* The path is machine state, so it reads in mono and wraps at any character — a long path must not
    push the sheet wider than the column it was centered over. */
-.summary-file-path, .file-preview-path { margin: 0 0 4px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
+.summary-file-path { margin: 0 0 4px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
   color: var(--rl-text-dim); overflow-wrap: anywhere; }
-.file-preview-detail { margin: 0; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-.summary-file-note, .file-preview-note { margin: 8px 0 0; font-size: 12px; color: var(--rl-warning); }
-/* Provenance reads as one line, and the button in it is the quiet kind: it is a fact about the file
-   that happens to be reachable, not a third action competing with the two in the footer. */
-.file-preview-from { display: flex; align-items: center; gap: 6px; margin-top: 10px; min-width: 0;
-  font-size: 12px; color: var(--rl-text-faint); }
-.file-preview-from .btn-quiet { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-preview-from-gone { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The overflow takes the far end of the footer and the primary keeps the near one, so the decision
-   and the drawer of secondary verbs never trade places as the action set changes with the file. */
-/* An icon-only control, so it takes the app's icon-button shape rather than a text button's. At a
-   near-square aspect the painted superellipse (--sq-n-ctl: 3) reads as a rounded SQUARE, which is
-   what the hover fill was drawing here — the flat sides of a wide button are what normally hide it. */
-.file-preview-more { margin-right: auto; }
+.summary-file-note { margin: 8px 0 0; font-size: 12px; color: var(--rl-warning); }
 /* One slot for the whole menu, sized to the glyph so every label starts on the same left edge. */
 .menu-icon { flex: none; display: grid; place-items: center; width: 16px; height: 16px; }
 .menu-icon-img { width: 16px; height: 16px; object-fit: contain; }
@@ -5378,7 +5334,9 @@ select { appearance: none; padding-right: 22px;
   .sim-body,
   /* Scheduled tasks: the page's column and a task's card — and a sheet that scrolls its body between
      a head and a foot that stay put, which the Schedule a task modal does */
-  .sched-col-body, .sched-card, .sheet-body
+  .sched-col-body, .sched-card, .sheet-body,
+  /* the media viewer's zoomed picture, whose bars are where it is in the picture */
+  .media-viewer-canvas[data-pans]
 ) { scrollbar-width: thin; }
 /* The sidebar's list is the one scroller that cannot take the standard properties, and it is worth
    the fork because two separate things go wrong without it.
@@ -7788,36 +7746,110 @@ select { appearance: none; padding-right: 22px;
 .media-action + .media-action { margin-left: 0; }
 .media-action:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 
-/* Full-window viewer. A portal to <body>, so the transcript's own stacking context and its
-   backdrop-filter fade cannot clip it. */
-.media-lightbox {
-  position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; gap: 12px;
-  align-items: center; justify-content: center; padding: 32px;
-  /* Opaque, and deliberately NOT backdrop-filter. A <video> is composited on its own layer, and
-     Chromium paints that layer over a backdrop-filtered overlay even though the overlay is above it
-     in the stacking order and wins hit-testing — so a transcript video showed straight through the
-     dim. Verified by sampling the composited screenshot, not by eye (scripts/media-live.mjs). */
-  background: oklch(0.13 0 0 / 0.97);
+/* ── The media viewer (components/viewer) ──
+   One file over the whole window, the session's prompter docked under it. Its ground is the window's
+   own canvas, nearly opaque, so the file rests on the face the rest of the app wears — a light field
+   in light mode, as Codex's viewer is, rather than the near-black box the lightbox was in both. What
+   is behind it stops reading at this alpha and the rest of the workspace is still faintly there.
+   NOT a backdrop-filter, for two reasons it is worth keeping apart: a blur over the window's material
+   composites toward a smudge (design.md), and Chromium paints a <video> layer straight through a
+   filtered overlay however it is stacked (scripts/media-live.mjs measured it). Over the quick chat
+   (70) and under the toasts and menus, which it raises: its prompter's model list opens over it. */
+.media-viewer {
+  position: fixed; inset: 0; z-index: 75; display: flex; flex-direction: column; outline: none;
+  background: color-mix(in srgb, var(--canvas) 97%, transparent); color: var(--rl-text-bright);
   animation: rl-fade-in var(--dur-swap) var(--ease-out-strong);
 }
-.media-stage { max-width: min(1200px, 100%); max-height: calc(100vh - 120px); display: flex; }
-.media-stage .media-video, .media-stage .media-image { box-shadow: var(--rl-shadow); background: transparent; }
-/* The in-transcript height cap does not apply here — the whole point of the lightbox is the file at
-   the size the window can give it. */
-.media-stage .media-el { max-height: calc(100vh - 120px); max-width: min(1200px, 100%); width: auto; background: transparent; }
-/* A video in the stage still fills what it is given — the cap above is what bounds it. */
-.media-stage .media-video { width: min(1200px, 100%); }
-/* The transcript's own frames are hidden while the lightbox is up, and this is load-bearing rather
-   than tidiness: a <video> is composited on its own layer and Chromium paints that layer OVER the
-   overlay, even opaque, even promoted — translateZ, isolation, will-change and contain were each
-   measured and none of them reorder it. Sampling the composited screenshot showed the video adding
-   ~44 levels of brightness straight through the dim (scripts/media-live.mjs). Hiding the frames is
-   the only thing that actually works, and it costs nothing: they are behind a full-window overlay. */
-body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
-.media-lightbox-bar { display: flex; align-items: center; gap: 10px; max-width: 100%; color: #fff; }
-.media-lightbox-bar .media-name, .media-lightbox-bar .media-detail { color: rgb(255 255 255 / .72); }
-.media-lightbox-bar .media-action { color: rgb(255 255 255 / .72); }
-.media-lightbox-bar .media-action:hover { background: rgb(255 255 255 / .14); color: #fff; }
+/* The window's top row, as every page's bar is: it moves the window, past the traffic lights, and its
+   controls opt out of the drag. */
+.media-viewer-head { flex: none; display: flex; align-items: center; gap: 12px; height: var(--frame-top);
+  padding: 0 12px 0 var(--lead-x); user-select: none; -webkit-user-select: none; -webkit-app-region: drag; }
+.media-viewer-head button { -webkit-app-region: no-drag; }
+/* The name is the one item of unbounded length in the row, so it alone yields; the count and the
+   size beside it are a few characters that always fit. */
+.media-viewer-title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.media-viewer-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.media-viewer-count, .media-viewer-detail { flex: none; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.media-viewer-from { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--rl-text-dim); }
+span.media-viewer-from { align-self: center; }
+.media-viewer-actions { flex: none; display: flex; align-items: center; gap: 2px; }
+.media-viewer-finder { width: 16px; height: 16px; }
+
+.media-viewer-body { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 4px 20px 0; }
+/* The file takes whatever the prompter and its exchange leave, and never less than a picture's worth. */
+.media-viewer-stagewrap { position: relative; flex: 1 1 auto; min-height: 160px; width: 100%; display: flex; }
+.media-viewer-stage { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 10px; }
+.media-viewer-note { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 46ch;
+  text-align: center; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
+.media-viewer-glyph { color: var(--rl-text-faint); }
+
+/* A picture: fitted, never above its own size, and panned once it is bigger than the box. The canvas
+   is the scroller and at least the box's size, so a picture smaller than it sits centred in it. */
+.media-viewer-canvas { flex: 1 1 auto; min-height: 0; width: 100%; overflow: hidden; }
+.media-viewer-canvas[data-pans] { overflow: auto; cursor: grab; }
+.media-viewer-canvas[data-pans]:active { cursor: grabbing; }
+.media-viewer-canvas-inner { display: grid; place-items: center; min-width: 100%; min-height: 100%; }
+/* The edge every picture in the app gets (`.md img`): white at low alpha on dark, black on light —
+   drawn inside it, so a screenshot of a page on a ground of the same tone still has one. */
+.media-viewer-img { display: block; max-width: 100%; max-height: 100%; user-select: none; -webkit-user-select: none;
+  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+:root[data-mode="light"] .media-viewer-img { outline-color: rgba(0, 0, 0, 0.1); }
+/* A page of a document is paper: it takes the raised surface's shadow, which a picture with its own
+   ground would only muddy. */
+.media-viewer-picture[data-page] .media-viewer-img { box-shadow: var(--shadow-raised); }
+/* The zoom, a small pill under the picture — Codex's tool strip, holding the one tool a viewer owes
+   every picture. The readout is the way between fit and actual size. */
+.media-viewer-tools { flex: none; display: flex; align-items: center; gap: 2px; padding: 3px;
+  border-radius: var(--r-pill); background: var(--surface); box-shadow: var(--shadow-overlay); }
+.media-viewer-zoom { min-width: 52px; height: 28px; padding: 0 8px; border: none; border-radius: var(--r-pill); background: none;
+  font-size: 12px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim);
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.media-viewer-zoom:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); transition: none; }
+/* A video or a sound keeps the transcript's own player, given the window's width. */
+.media-viewer-player { display: flex; justify-content: center; width: min(1200px, 100%); max-height: 100%; }
+.media-viewer-player .media-video { width: auto; max-width: 100%; max-height: 100%; background: transparent; box-shadow: var(--shadow-raised); }
+.media-viewer-player .media-el { max-height: calc(100vh - 260px); max-width: 100%; width: auto; background: transparent; }
+.media-viewer-player .media-audio { width: min(560px, 100%); background: var(--surface); }
+
+/* Previous and next, on the stage's two edges, while there is more than one file to walk. */
+.media-viewer-step { position: absolute; top: 50%; translate: 0 -50%; z-index: 1; display: grid; place-items: center;
+  width: 36px; height: 36px; border: none; border-radius: var(--r-pill); background: var(--surface); color: var(--rl-text-dim);
+  box-shadow: var(--shadow-overlay); transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.media-viewer-step[data-dir="prev"] { left: 0; }
+.media-viewer-step[data-dir="next"] { right: 0; }
+.media-viewer-step:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); transition: none; }
+.media-viewer-step:disabled { color: var(--rl-text-faint); box-shadow: var(--shadow-card); }
+
+/* The quick chat about the file: its exchange, where its questions go, and the prompter — on the
+   prompter's own column, so the answer reads where the next question is typed. */
+.media-viewer-chat { flex: none; display: flex; flex-direction: column; min-height: 0; width: min(var(--prompter-w), 100%); }
+.media-viewer-thread { display: flex; min-height: 0; max-height: 34vh; }
+/* The transcript's metrics are a pane's; this is a strip under a picture. The ramps shorten and the
+   padding clears what is left of them, as the quick chat's do. */
+.media-viewer .transcript { padding: 14px 4px 16px; }
+.media-viewer .transcript-wrap { --fade-top-h: 16px; --fade-h: 18px; }
+.media-viewer .transcript-col { max-width: none; }
+/* A picture the answer names is already on the stage, so the exchange shows it small: a mark of the
+   result, which a click puts back on the stage. */
+.media-viewer .transcript .media-el { max-height: 120px; }
+.media-viewer-waiting { margin: 0 4px 8px; font-size: 12px; color: var(--rl-text-faint); }
+.media-viewer-owner { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0 6px 6px; font-size: 12px; color: var(--rl-text-faint); }
+.media-viewer-owner-mark { flex: none; }
+.media-viewer-owner-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; border: none;
+  background: none; font: inherit; color: var(--rl-text-dim); }
+button.media-viewer-owner-name:hover { color: var(--rl-text-bright); text-decoration: underline; }
+.media-viewer .composer-dock { width: 100%; margin: 0 0 max(14px, env(safe-area-inset-bottom)); }
+
+/* The workspace's own frames are hidden while the viewer is up, and this is load-bearing rather than
+   tidiness: a <video> is composited on its own layer and Chromium paints that layer OVER the overlay,
+   even opaque, even promoted — translateZ, isolation, will-change and contain were each measured and
+   none of them reorder it (scripts/media-live.mjs). Hiding the frames is the only thing that works,
+   and it costs nothing: they are behind a full-window overlay. Scoped to the app's own tree, because
+   the viewer's exchange is a transcript too and its frames are the point. */
+body[data-media-viewer] .app .media-el { visibility: hidden; }
 
 /* An embedded ![](…) sits in the prose that referred to it, so it keeps a paragraph's rhythm rather
    than the strip's. The placeholder span is display:block for the same reason — it holds a frame. */

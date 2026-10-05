@@ -1423,9 +1423,13 @@ ipcMain.handle("files:browse", async (_e, root: unknown, dir: unknown): Promise<
   try { return await browseFolder(root, typeof dir === "string" ? dir : ""); } catch { return null; }
 });
 /** Bigger than a tile's, because this one is meant to be read: a PDF's first page, a spreadsheet's
- *  first rows, a page of source. Same two producers as the tile — see `fileThumbnail`. */
+ *  first rows, a page of source. Same two producers as the tile — see `fileThumbnail`. `page` is the
+ *  media viewer's, which shows the page at the size of the window: 512px blown up to that is a page
+ *  nobody can read. */
 const PREVIEW_PX = 512;
-ipcMain.handle("files:preview", (_e, path: unknown): Promise<string | null> => fileThumbnail(realmHome, path, PREVIEW_PX));
+const PAGE_PX = 1600;
+ipcMain.handle("files:preview", (_e, path: unknown, size?: unknown): Promise<string | null> =>
+  fileThumbnail(realmHome, path, size === "page" ? PAGE_PX : PREVIEW_PX));
 /** Looser than the other three on purpose: a DIRECTORY is a real thing to reveal, and the transcript's
  *  path menu offers this for one — as does `~/…`, and a path relative to `base`. See `existingPath`.
  *  Answers whether there was anything to reveal, so a menu that asked can say when there was not. */
