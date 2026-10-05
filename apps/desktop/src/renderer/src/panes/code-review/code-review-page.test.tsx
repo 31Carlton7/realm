@@ -264,8 +264,10 @@ describe("the column, in the sidebar's place", () => {
        that waited for gh before drawing its column showed the spaces until it answered, then swapped.
        THE MUTANTS: the column left in the page, or nothing in the sidebar's place until gh answers. */
     const { store } = await mountInWindow();
-    // Its first frame: the column's picture in the slot, under Back, in the spaces' place.
+    // Its first frame: the column's picture in the slot, under Back, in the spaces' place — and beside
+    // it the page as it will stand once gh answers, nothing chosen yet.
     expect(sidebar().querySelector(".sb-page-nav > .cr-col[aria-hidden]")).not.toBeNull();
+    expect(within(page()).getByRole("heading", { level: 2, name: "Select a pull request" })).toBeInTheDocument();
     expect(within(sidebar()).getByRole("button", { name: "Back" })).toBeInTheDocument();
     expect(sidebar().querySelector(".sb-list")).toHaveAttribute("hidden");
     // gh answers: the column itself in the same place, its lists under the head, the page its own.

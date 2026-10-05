@@ -49,10 +49,18 @@ export function CodeReviewPage({ item }: PaneProps) {
     away.current = !windowActive;
   }, [windowActive, status, check]);
 
-  /* Not asked yet in this window: the column's head and search take the sidebar at once, as they
-     will once gh answers — the lists fill in under them — rather than the spaces standing there until
-     it does and the column replacing them a few frames into the page. */
-  if (!status) return <div className="page code-review-page" aria-busy="true"><PageRail label="Code review"><PrColumnPending /></PageRail></div>;
+  /* Not asked yet in this window: the page as it will be once gh answers — the column's head and
+     search in the sidebar's place, nothing chosen beside it — and the lists fill in under the head,
+     rather than the spaces standing in the column's place until gh answers and the column replacing
+     them a few frames into the page. */
+  if (!status) {
+    return (
+      <div className="page code-review-page" aria-busy="true">
+        <PageRail label="Code review"><PrColumnPending /></PageRail>
+        <div className="cr-main"><NothingChosen /></div>
+      </div>
+    );
+  }
   if (status.state !== "ready" || !profileId) {
     return <div className="page code-review-page"><Setup status={status} vantage={vantage} checking={checking} onCheck={() => void check(true)} /></div>;
   }
@@ -90,16 +98,21 @@ function Ready({ login, profileId, vantage, onLost }: { login: string | null; pr
         {selected ? (
           <PrView key={prKey(selected)} pr={selected} login={login} profileId={profileId} vantage={vantage} places={places}
             pinned={isPinned(selected)} onPin={pin} />
-        ) : (
-          <div className="cr-empty">
-            {/* off-ladder: the empty column's one picture, Codex's mark over the line that says what to
-                do — the subject of an empty composition, as the Scheduled page's clock is. */}
-            <Icon name="pullRequest" size={24} className="cr-empty-mark" />
-            <h2 className="cr-empty-title">Select a pull request</h2>
-            <p className="cr-empty-line">Choose one from the column to read it, review it, and ask about it.</p>
-          </div>
-        )}
+        ) : <NothingChosen />}
       </div>
+    </div>
+  );
+}
+
+/** Beside the column while no request is chosen. */
+function NothingChosen() {
+  return (
+    <div className="cr-empty">
+      {/* off-ladder: the empty column's one picture, Codex's mark over the line that says what to
+          do — the subject of an empty composition, as the Scheduled page's clock is. */}
+      <Icon name="pullRequest" size={24} className="cr-empty-mark" />
+      <h2 className="cr-empty-title">Select a pull request</h2>
+      <p className="cr-empty-line">Choose one from the column to read it, review it, and ask about it.</p>
     </div>
   );
 }
