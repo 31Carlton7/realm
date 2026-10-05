@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PlanAlertSchema, PlanLimitsUnavailableSchema, PlanWindowSchema } from "./plan-limits";
+import { MentionRefSchema } from "./mention-refs";
 
 const P = {
   /** `from` is present ONLY when another session delivered this message (Plan 20's interjection).
@@ -16,6 +17,11 @@ const P = {
      *  objective itself, which the user really did write. The transcript attributes it for `from`'s
      *  reason: a reader must never come away believing they typed it. */
     goal: z.enum(["continuation", "budget"]).optional(),
+    /** What the message's `@[…]` chips named — files, Library items, apps — so the log can draw each
+     *  chip with its own mark a week later. Kept apart from `attachments`, which stay the files the
+     *  user attached: a mentioned file is a chip in the sentence, and a tile above it would be the
+     *  same file shown twice. Optional, so every row written before mentions existed still parses. */
+    refs: z.array(MentionRefSchema).optional(),
   }),
   assistant_text: z.object({ messageId: z.string(), text: z.string() }),
   assistant_delta: z.object({ messageId: z.string(), delta: z.string() }),
