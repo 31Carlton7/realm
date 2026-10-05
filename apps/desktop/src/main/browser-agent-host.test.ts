@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserCredential, type BrowserSnapshotResult } from "@realm/contracts";
+import { MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserCredential, type BrowserLoadError, type BrowserSnapshotResult } from "@realm/contracts";
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
 
@@ -25,6 +25,8 @@ function setup(opts: {
   readFile?: boolean;
   /** The pane's spinner, and the clock a page's network quiet is measured on. */
   loading?: () => boolean;
+  /** The page did not load — main's own record of it, as `BrowserPane.pageState` carries it. */
+  loadError?: BrowserLoadError;
   now?: () => number;
   /** Run while the page is being captured — something the page does mid-snapshot. */
   duringCapture?: () => void;
@@ -61,7 +63,10 @@ function setup(opts: {
     hasView: (id) => liveViews.has(id),
     touch: (id) => { touched.push(id); },
     navigate: (id, url) => (liveViews.has(id) && url.startsWith("https://allowed.") ? url : null),
-    pageState: (id) => (liveViews.has(id) ? { url: "https://example.com/x", title: "Example", ...(opts.loading ? { loading: opts.loading() } : {}) } : null),
+    pageState: (id) => (liveViews.has(id) ? {
+      url: "https://example.com/x", title: "Example", ...(opts.loading ? { loading: opts.loading() } : {}),
+      ...(opts.loadError ? { error: opts.loadError } : {}),
+    } : null),
     ...(opts.now ? { now: opts.now } : {}),
     secrets: opts.credentials === undefined ? undefined : {
       listCredentials: (profileId) => opts.credentials!.filter((c) => (c.profileId ?? "pWork") === profileId)
@@ -108,6 +113,40 @@ function setup(opts: {
   });
   return { host, calls, liveViews, audit, minted, grants, touched, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
 }
+
+/**
+ * A page that did not load. The view holds Chromium's empty error document and the pane draws Realm's
+ * page in its place, outside the view — so an agent reading the page through CDP would find nothing at
+ * all, and "nothing" is the one answer that sends an agent off to click at an empty page.
+ */
+describe("BrowserAgentHost — a page that did not load", () => {
+  const REFUSED: BrowserLoadError = { code: -102, name: "ERR_CONNECTION_REFUSED", url: "http://localhost:3000/" };
+
+  it("answers a snapshot with the failure, and asks the empty error document nothing", async () => {
+    /* THE mutant: skip the check and capture anyway — the agent is handed "0 interactive elements"
+       on a page it will take to be the site's own, and the reason is nowhere in what it reads. */
+    const { host, calls } = setup({ loadError: REFUSED });
+    const snap = await host.handleOp("snapshot", { browserId: "b1" }) as BrowserSnapshotResult;
+    expect(snap).toMatchObject({ url: REFUSED.url, elementCount: 0, text: "", loadError: REFUSED });
+    expect(calls.some((c) => c.method === "DOMSnapshot.captureSnapshot" || c.method === "Accessibility.getFullAXTree")).toBe(false);
+  });
+
+  it("answers a read of the page's text with the failure, and still hands over its console and network", async () => {
+    const { host } = setup({ loadError: REFUSED });
+    expect(await host.handleOp("read", { browserId: "b1", kind: "text" })).toEqual({ text: "", loadError: REFUSED });
+    // The network log is where the failed request itself is written down — worth having, not hiding.
+    expect(await host.handleOp("read", { browserId: "b1", kind: "network" })).not.toHaveProperty("loadError");
+  });
+
+  it("says so in describe and on a screenshot, and says nothing for a page that loaded", async () => {
+    const failed = setup({ loadError: REFUSED });
+    expect(await failed.host.handleOp("describe", { browserId: "b1" })).toMatchObject({ open: true, loadError: REFUSED });
+    expect(await failed.host.handleOp("screenshot", { browserId: "b1" })).toMatchObject({ loadError: REFUSED });
+    const loaded = setup();
+    expect(await loaded.host.handleOp("describe", { browserId: "b1" })).not.toHaveProperty("loadError");
+    expect(await loaded.host.handleOp("snapshot", { browserId: "b1" })).not.toHaveProperty("loadError");
+  });
+});
 
 describe("BrowserAgentHost", () => {
 

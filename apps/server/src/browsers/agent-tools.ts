@@ -3,8 +3,8 @@ import {
   BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserGeneratedCredentialSchema, BrowserReadKindSchema,
   CREDENTIAL_2FA_NOTE, DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, GENERATED_CREDENTIAL_NOTE,
   GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
-  SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize, normalizeOrigin,
-  type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult,
+  SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize, loadErrorLine, normalizeOrigin,
+  type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult,
   type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserFillCredentialResult,
   type BrowserNavigateResult, type BrowserReadResult, type BrowserScreenshotResult,
   type BrowserSnapshotResult, type BrowserUploadResult, type Browser,
@@ -373,7 +373,9 @@ const HANDLERS: Record<string, Handler> = {
     if (rows.length === 0) return ok("No browser panes in this space. Use browser_open(url) to open one.");
     const lines = await Promise.all(rows.map(async (row) => {
       const live = await describeSafe(d, row.id);
-      const state = live === null ? "app not connected" : live.open ? `open, url: ${live.url || "(blank)"}` : "pane not open in the app";
+      const state = live === null ? "app not connected"
+        : live.open ? `open, url: ${live.url || "(blank)"}${live.loadError ? ` — did not load (${live.loadError.name})` : ""}`
+        : "pane not open in the app";
       return `browserId: ${row.id} — ${state}${row.url && (!live?.open) ? ` (last url: ${row.url})` : ""}`;
     }));
     return ok(`Browser panes in this space:\n${lines.join("\n")}`);
@@ -423,6 +425,7 @@ const HANDLERS: Record<string, Handler> = {
     const snap = (await d.bridge.call("snapshot", { browserId: row.value.id })) as BrowserSnapshotResult;
     // What the agent is shown is what its next act chooses from, and the page its last act left.
     if (d.observe) d.reads.remember(ctx.sessionId, row.value.id, (snap.elements ?? []).map((e) => observedOf(walkElementOf(e))));
+    if (snap.loadError) return ok(loadErrorReport(snap.loadError, snap.page?.loading === true));
     const head = `Snapshot of ${snap.url} — ${snap.elementCount} interactive element(s). Lines are "[ref=N] role \\"name\\" …"; changed-since-last-snapshot lines end with [new].`;
     return ok(`${head}\n${fenceUntrusted(`title: ${snap.title}\n${snap.text}`)}`);
   },
@@ -431,6 +434,7 @@ const HANDLERS: Record<string, Handler> = {
     const args = parseArgs(ReadArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const result = (await d.bridge.call("read", { browserId: row.value.id, kind: args.value.kind })) as BrowserReadResult;
+    if (result.loadError) return ok(loadErrorReport(result.loadError, false));
     return ok(`${args.value.kind} of browser ${row.value.id}:\n${fenceUntrusted(result.text || "(empty)")}`);
   },
 
@@ -438,7 +442,10 @@ const HANDLERS: Record<string, Handler> = {
     const args = parseArgs(BrowserIdArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const shot = (await d.bridge.call("screenshot", { browserId: row.value.id })) as BrowserScreenshotResult;
-    return { content: [{ type: "image", data: shot.data, mimeType: shot.mimeType }], isError: false };
+    const image = { type: "image" as const, data: shot.data, mimeType: shot.mimeType };
+    // The picture is of the empty document a failed load leaves, so the words go first.
+    if (shot.loadError) return { content: [{ type: "text", text: loadErrorReport(shot.loadError, false) }, image], isError: false };
+    return { content: [image], isError: false };
   },
 
   browser_act: async (d, ctx, rawArgs) => {
@@ -1281,6 +1288,20 @@ async function refuseSimulatorStream(d: Deps, ctx: ProviderCallContext, url: str
     `refused: ${url} is serve-sim's stream of the simulator ${udid}, and Realm shows simulators in a pane of its own. `
     + `Call simulator_open with udid "${udid}" instead — it opens that device beside this session and adopts this same stream, so nothing needs starting or stopping.`,
   );
+}
+
+/**
+ * A page that did not load, in Realm's own words — outside the untrusted fence, because nothing in it
+ * is the page's: the code is Chromium's and the sentence is the one the pane's error page shows
+ * (`describeLoadError`). The agent is told what is on screen in the page's place, and how to try
+ * again, because there is no element to act on and no text to read.
+ */
+function loadErrorReport(e: BrowserLoadError, loading: boolean): string {
+  const next = loading
+    ? "The pane is loading again — take another browser_snapshot once it has finished."
+    : "browser_navigate to the same address tries again.";
+  return `The page at ${e.url} did not load. ${loadErrorLine(e)}\n`
+    + `The pane shows Realm's error page in its place, so there is nothing on the page to read or act on. ${next}`;
 }
 
 function refuseOAuth(url: string): CallToolResult | null {

@@ -309,7 +309,11 @@ interface BrowserViewState { id: string; url: string; title: string; loading: bo
   /** The device preset the page is shown at (Plan 26 W7e), or null when it fits the pane. */
   device: "phone" | "tablet" | "desktop" | null;
   /** The page's own icon, a `data:` URL main fetched on the pane's session; null until it has one. */
-  favicon: string | null }
+  favicon: string | null;
+  /** The page did not load — main's `PageLoad` — and the pane draws its error page in the view's place. */
+  error: import("@realm/contracts").BrowserLoadError | null;
+  /** The view has a document of its own to show; until then the pane shows its own ground. */
+  ready: boolean }
 
 /**
  * noVNC ships no types (Plan 25 W3). Declared here rather than pulled from DefinitelyTyped, which

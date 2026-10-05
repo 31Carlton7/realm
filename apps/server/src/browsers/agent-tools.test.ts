@@ -286,6 +286,43 @@ describe("results and scoping", () => {
     }
   });
 
+  /* A page that did not load: Electron leaves an empty document where Chrome would draw its error page,
+     so without these an agent was handed "0 interactive elements" on what it takes for the site. */
+  describe("a page that did not load", () => {
+    const REFUSED = { code: -102, name: "ERR_CONNECTION_REFUSED", url: "http://localhost:3000/" };
+    const failed = (more: Record<string, unknown> = {}) => setup({ bridgeResults: {
+      snapshot: { url: REFUSED.url, title: "", text: "", elementCount: 0, elements: [], loadError: REFUSED, page: { loading: false, requests: 0, quietMs: 900 } },
+      read: { text: "", loadError: REFUSED },
+      describe: { open: true, url: REFUSED.url, title: "localhost:3000", element: null, loadError: REFUSED },
+      screenshot: { data: "aW1n", mimeType: "image/jpeg", loadError: REFUSED },
+      ...more,
+    } });
+
+    it("browser_snapshot says what the pane shows, in Realm's words and outside the page's fence", async () => {
+      const { call } = failed();
+      const t = text(await call("browser_snapshot", { browserId: "b1" }));
+      expect(t).toContain("The page at http://localhost:3000/ did not load. This site can't be reached: localhost refused to connect. (ERR_CONNECTION_REFUSED)");
+      expect(t).toContain("browser_navigate to the same address tries again");
+      // Nothing in it came from the page, so nothing of it is fenced as the page's.
+      expect(t).not.toMatch(/<<<untrusted-/);
+    });
+
+    it("…and tells it to look again when the pane is already loading", async () => {
+      const { call } = failed({ snapshot: { url: REFUSED.url, title: "", text: "", elementCount: 0, loadError: REFUSED, page: { loading: true, requests: 1, quietMs: 0 } } });
+      expect(text(await call("browser_snapshot", { browserId: "b1" }))).toContain("take another browser_snapshot once it has finished");
+    });
+
+    it("browser_read, browser_list and browser_screenshot say it too", async () => {
+      const { call } = failed();
+      expect(text(await call("browser_read", { browserId: "b1", kind: "text" }))).toContain("localhost refused to connect.");
+      expect(text(await call("browser_list", {}))).toContain("open, url: http://localhost:3000/ — did not load (ERR_CONNECTION_REFUSED)");
+      const shot = await call("browser_screenshot", { browserId: "b1" });
+      expect(shot.content[0]).toMatchObject({ type: "text" });
+      expect(text(shot)).toContain("did not load");
+      expect(shot.content[1]).toMatchObject({ type: "image" });
+    });
+  });
+
   it("a browserId from another space is refused like one that does not exist", async () => {
     const { call, calls } = setup();
     const r = await call("browser_snapshot", { browserId: "bX" });
