@@ -76,6 +76,10 @@ function ViewerWindow({ viewer }: { viewer: ViewerState }) {
         if (root.querySelector('[aria-haspopup]:not([aria-haspopup="false"])[aria-expanded="true"]')) return;
         e.preventDefault(); e.stopPropagation(); closeViewer(); return;
       }
+      // ⌘W closes the frontmost thing, and over the whole window that is the viewer, not a pane under it.
+      if (e.key.toLowerCase() === "w" && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+        e.preventDefault(); e.stopPropagation(); closeViewer(); return;
+      }
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
       /* The arrows walk the files unless something is reading them: a field with text in it moves its

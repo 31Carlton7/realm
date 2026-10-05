@@ -90,6 +90,16 @@ describe("opening a file", () => {
     await waitFor(() => expect(viewerEl()).toBeNull());
   });
 
+  it("closes on ⌘W, the frontmost thing over the whole window, rather than a pane under it", async () => {
+    bridge([media("/work/hero.png")]);
+    const { api } = await mount([media("/work/hero.png")]);
+    fireEvent.click(await screen.findByRole("button", { name: "Open hero.png larger" }));
+    await screen.findByRole("dialog", { name: "hero.png" });
+    fireEvent.keyDown(prompter(), { key: "w", metaKey: true });
+    await waitFor(() => expect(viewerEl()).toBeNull());
+    expect(api.calls.some((c) => c.startsWith("closeItem") || c.startsWith("deleteItem"))).toBe(false);
+  });
+
   it("puts the keyboard in the prompter, so a question can be typed at once", async () => {
     bridge([media("/work/hero.png")]);
     await mount([media("/work/hero.png")]);

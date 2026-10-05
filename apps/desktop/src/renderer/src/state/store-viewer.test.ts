@@ -4,6 +4,7 @@ import { createAppStore } from "./store";
 import { fakeApi, item, session } from "./store.test-fakes";
 import { VIEWER_SLOT, exchangeResults, exchangeStart, ownerOf } from "./viewer";
 import { reduceAll } from "../panes/session/transcript-model";
+import { keyContext } from "../keys/commands";
 
 /**
  * The media viewer's state: what it shows, whom its prompter asks, and what a question sends. Every
@@ -73,6 +74,15 @@ describe("opening the viewer", () => {
     store.getState().setViewerMarks({ path: "/a.png", natural: { w: 10, h: 10 }, marks: [{ points: [[1, 1]], width: 2 }], drawing: true });
     store.getState().stepViewer(1);
     expect(viewer(store).marking).toBeNull();
+  });
+
+  it("owns the keyboard while it is up, so a chord meant for a pane does not act on one behind it", async () => {
+    // ⌘W, ⌘\, ⌘1…9 are `!overlayOpen` chords. THE MUTANT: leave the viewer out of `overlayOpen`, and
+    // ⌘W closes a pane nobody can see — or ⌘2 switches the space out from under the file.
+    const { store } = await mount();
+    expect(keyContext(store.getState(), null).overlayOpen).toBe(false);
+    store.getState().openViewer({ files: [{ path: "/a.png" }] });
+    expect(keyContext(store.getState(), null).overlayOpen).toBe(true);
   });
 
   it("closes on a profile switch, which takes the workspace it was looking at with it", async () => {
