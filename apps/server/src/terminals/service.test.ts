@@ -160,14 +160,18 @@ describe("terminal port blocks", () => {
     const prof = (await c1.call("profiles.create", { name: "Work" })).result;
     const space = (await c1.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
     const { terminalId } = (await c1.call("terminals.create", { spaceId: space.id })).result;
-    await c1.call("terminals.write", { terminalId, data: "echo BEFORE_DROP\n" });
+    /* The marker is assembled by the command, so it exists only in the OUTPUT. With `echo BEFORE_DROP`
+       the wait was satisfied by the tty echoing the typed line, the cursor was taken before the
+       command had printed, and its output — older than the drop — came back in the catch-up whenever
+       the machine was loaded enough to separate the two. */
+    await c1.call("terminals.write", { terminalId, data: "printf 'BEFORE_%s\\n' DROP\n" });
     await waitFor(() => streamed(c1, terminalId).text.includes("BEFORE_DROP"));
     const cursor = streamed(c1, terminalId).last!;
     c1.close();
 
     // Output arrives with nobody listening — the ordinary case once the server outlives the app.
     const c2 = await client(app.port);
-    await c2.call("terminals.write", { terminalId, data: "echo WHILE_AWAY\n" });
+    await c2.call("terminals.write", { terminalId, data: "printf 'WHILE_%s\\n' AWAY\n" });
     await waitFor(() => streamed(c2, terminalId).text.includes("WHILE_AWAY"));
 
     const caught = (await c2.call("terminals.read", { terminalId, cursor })).result;
