@@ -399,7 +399,11 @@ async function main() {
     await sleep(600);
   };
   await settings("general", "input[name=settings-terminal-colors][value=shell]");
+  // The Terminals group is below the fold of General; a clip outside the viewport captures nothing.
+  await evalIn(c, `(() => { document.querySelector('[data-setting=terminal-colors]').scrollIntoView({ block: "center" }); return true; })()`);
+  await sleep(500);
   const row = await evalIn(c, `(() => { const r = document.querySelector('[data-setting=terminal-colors]'); const b = r.getBoundingClientRect(); return { text: r.textContent, x: b.left - 12, y: b.top - 10, width: b.width + 24, height: b.height + 20 }; })()`);
+  check("Settings offers Realm's colours or the shell's, beside the cursor's shape", row.text.includes("Terminal colours") && row.text.includes("Realm's") && row.text.includes("My shell's"), row.text);
   await shot(c, "setting", row);
   await closeSettings();
   const shell = await evalIn(c, COLORS);
