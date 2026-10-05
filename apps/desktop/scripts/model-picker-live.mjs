@@ -319,7 +319,8 @@ const runCard = (c) => evalIn(c, `(() => {
       text: track.getAttribute('aria-valuetext'), chosen: track.dataset.effort ?? null, focused: document.activeElement === track } : null,
     dots: dots.map((d) => d.cx), dotRows: [...new Set(dots.map((d) => d.cy))].length,
     knob: r(card.querySelector('.mp-track-knob')),
-    note: card.querySelector('.mp-fast-note')?.textContent ?? null,
+    // Held open beside a bolt, so an empty line is no note at all.
+    note: card.querySelector('.mp-fast-note')?.textContent || null,
     overflowing: [...card.querySelectorAll('*')].filter((e) => !e.classList.contains('mp-run-model') && e.scrollWidth > e.clientWidth + 1).map((e) => e.className),
   };
 })()`);
@@ -406,7 +407,7 @@ async function owner() {
       check(`${mode}: it names the level over the model, in the accent, with no reset while nothing has moved`,
         card?.level === "High" && card.model === "Fable 5.1" && card.levelInAccent && card.reset === null && card.track?.chosen === null, card && { level: card.level, model: card.model, reset: card.reset });
       check(`${mode}: the bolt sits beside it, unpressed, with nothing under it until it is pressed`,
-        card?.bolt?.pressed === "false" && card.bolt.disabled === null && card.note === null, card?.bolt);
+        card?.bolt?.pressed === "false" && card.bolt.disabled === null && !card.note, card?.bolt);
       check(`${mode}: the bolt's tooltip says what fast mode buys, and that the first turn checks this model`,
         /^Fast mode: .+\. The first turn checks whether Fable 5\.1 can run it\.$/.test(card?.bolt?.title ?? ""), card?.bolt?.title);
       await shootPicker(c, `after-${mode}-claude-picker`);
@@ -482,7 +483,7 @@ async function owner() {
       await openPicker(c);
       const no = await runCard(c);
       check(`${mode}: on a model Claude said cannot, the bolt is there but cannot be pressed, and its tooltip names the ones that can`,
-        no?.bolt?.disabled === "true" && no.bolt.pressed === "false" && no.bolt.title === "Fast mode isn’t offered on Fable 5.1 — Opus 5.5 and Sonnet 5 offer it." && no.note === null, no?.bolt);
+        no?.bolt?.disabled === "true" && no.bolt.pressed === "false" && no.bolt.title === "Fast mode isn’t offered on Fable 5.1 — Opus 5.5 and Sonnet 5 offer it." && !no.note, no?.bolt);
       if (mode === "dark") {
         await clickAt(c, no.bolt.box.cx, no.bolt.box.cy);
         await sleep(400);
@@ -494,7 +495,7 @@ async function owner() {
     check("Opus 5.5 is a row to pick", await pickRow(c, "Claude Opus 5.5"));
     await openPicker(c);
     const yes = await runCard(c);
-    check("on a model Claude said can, a plain bolt whose tooltip has nothing left to check", yes?.bolt?.disabled === null && /^Fast mode: [^.]+\.$/.test(yes.bolt.title) && yes.note === null, yes?.bolt);
+    check("on a model Claude said can, a plain bolt whose tooltip has nothing left to check", yes?.bolt?.disabled === null && /^Fast mode: [^.]+\.$/.test(yes.bolt.title) && !yes.note, yes?.bolt);
     check("…and the card follows the model", yes?.model === "Opus 5.5" && yes.level === "High", yes && { model: yes.model, level: yes.level });
     const l = await layout(c);
     check("the newly picked model is the ticked one", l.current === "Claude Opus 5.5", { current: l.current });
