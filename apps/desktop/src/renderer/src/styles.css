@@ -504,7 +504,7 @@ kbd { font: 11px var(--font-mono); }
    lights now cross into that row, and it could not hold them, the profile, back and forward, the
    toggle and two actions at the sidebar's own width. The profile's name is the one thing in the row of
    unbounded length, and it has the row to itself. */
-.sb-title { flex: none; display: flex; align-items: center; height: 44px; padding-top: 6px; }
+.sb-title { flex: none; display: flex; align-items: center; padding-top: 6px; }
 .sb-profile { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .sb-profile:hover:not(:disabled) { background: var(--rl-hover); }
@@ -523,16 +523,15 @@ kbd { font: 11px var(--font-mono); }
    something else, under a Back where the profile switcher was. The spaces stay mounted, hidden. */
 .sb-list[hidden] { display: none; }
 .sb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.sb-page-head { flex: none; height: 44px; display: flex; align-items: center; padding: 6px 16px 0; }
+.sb-page-head { flex: none; display: flex; align-items: center; padding: 6px 16px 0; }
 .sb-page-back { flex: none; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .sb-page-back:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* `no-drag` for the whole slot: the column is a window-drag region, and a rail's rows are LABELS,
    which the button-and-input opt-out above does not reach — a click on one would move the window. */
-/* 16px above the first thing in it — the search, or a section — which is where the spaces list starts
-   its first row (`.space-body`: the top band's 12px and 4 to breathe). Flush, the search sat on the
-   frame's rim under Back. */
-.sb-page-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 16px 16px; overflow-y: auto;
+/* The first thing in it — the search, or a section — the step under Back that the spaces list's head
+   takes under the profile (`.space-body`), so the column's first rows sit alike in both. */
+.sb-page-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 4px 16px 16px; overflow-y: auto;
   -webkit-app-region: no-drag; }
 .sb-page-nav .page-rail { width: auto; align-self: stretch; }
 .sb-page-nav .page-rail:has(.page-rail-list), .sb-page-nav .settings-rail-lists { gap: 4px; }
@@ -696,17 +695,14 @@ kbd { font: 11px var(--font-mono); }
    scroller's box, so it holds still while the content scrolls beneath it, and it needs no sibling
    element and no reduced-transparency fallback. */
 .space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px;
-  /* Clearance at BOTH ends: the band plus room to breathe. At exactly the band's height the last row
-     stopped where the mask started dissolving, so a fully scrolled list ended on a half-faded item.
-     The top needs the same, and needs it more — a row half-dissolved under the header is one you can
-     see and cannot confidently click, which is the whole reason this padding is generous. */
-  padding-top: calc(var(--fade-top-h) + 4px);
-  padding-bottom: calc(var(--fade-h) + 24px);
-  /* Masked at both edges, and still a mask rather than a blur: this column is translucent, and a
-     backdrop-filter over it blurs the window's own transparency toward black — a dark smudge with
-     nothing behind it. A mask paints nothing at all. */
-  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent); }
+  /* Close under the profile: the column's own step, not a band's depth. This padding was the top
+     band's 12px and 4 more, because the mask was always drawn and a first row inside it was half
+     faded at rest — so the profile and the list's head stood a band apart (the owner, 10-04: "reduce
+     the spacing"). The dissolve is the app's shared one now (`data-dissolve`, ScrollFades.tsx),
+     drawn only at an end with rows beyond it, so at rest the first row is whole and needs no room.
+     The bottom keeps a full band of clearance until the list's foot is pinned below it. */
+  padding-top: 4px;
+  padding-bottom: calc(var(--fade-h) + 24px); }
 
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--inset); color: var(--ink-2); } /* W3: StatusPill neutral */
 .icon-btn { display: grid; place-items: center; width: 28px; --btn-h: 28px; height: var(--btn-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; color: var(--rl-text-dim); }

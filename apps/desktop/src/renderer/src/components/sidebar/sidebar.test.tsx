@@ -430,12 +430,14 @@ describe("Pinned", () => {
 
 describe("the list's fade", () => {
   it("is nothing but the scroller — no band element sits beside or inside it", async () => {
-    // The dissolve is a mask on .space-body (pinned in styles.test.ts). The named mutant is the old
-    // `.space-fade` sibling coming back: a backdrop-filter band over this translucent column blurs
-    // the window's own transparency into a dark smudge.
+    // The dissolve is the shared mask on .space-body, which marks itself `data-dissolve` (pinned in
+    // styles.test.ts). The named mutant is the old `.space-fade` sibling coming back: a
+    // backdrop-filter band over this translucent column blurs the window's own transparency into a
+    // dark smudge. THE second mutant: the scroller left unmarked, which leaves it no dissolve at all.
     const { container } = await mount();
     const body = container.querySelector(".space-body")!;
     expect(body.parentElement).toHaveClass("sb-list");
+    expect(body).toHaveAttribute("data-dissolve");
     expect(container.querySelector(".space-fade")).toBeNull();
     // Everything that scrolls is inside it: Needs you, Pinned, the lens and the sections alike.
     expect(body.querySelector(".sb-lens")).not.toBeNull();
