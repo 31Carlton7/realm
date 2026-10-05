@@ -360,6 +360,20 @@ describe("the device frame", () => {
     expect(parseFloat(glass.style.top)).toBeGreaterThan(0);
   });
 
+  it("fits the device into what its toolbar and the row under it leave, so the three are one column", async () => {
+    /* THE MUTANT: fit the device to the whole stage, as when its controls were rows at the pane's two
+       ends. The toolbar and the Record row then push the column past the stage, which clips a device
+       measured to fill it. jsdom has no heights, so the two rows' are stated: 40px each, in a stage
+       800 tall — an upright iPhone is fitted by its height, to the 720 the rows leave. */
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("sim-above") || this.classList.contains("sim-under") ? 40 : 0;
+    });
+    const { container } = await mount(RUNNING);
+    const chassis = await chassisOf(container);
+    await waitFor(() => expect(chassis.getAttribute("data-frame")).toBe("art"));
+    expect(parseFloat(chassis.style.height)).toBeCloseTo(720, 0);
+  });
+
   it("gives a device it has no picture of the frame Realm draws, with the corners nested concentrically", async () => {
     /* A watch is the case: no art ships for one, and it still has to arrive wearing something. THE
        MUTANT the radii protect is an outer corner picked by eye rather than as inner + border —
