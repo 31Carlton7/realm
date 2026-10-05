@@ -680,6 +680,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - A note under the composer is for an outcome the user could not otherwise learn, such as a file
   the agent will silently drop. Do not narrate a handoff the agent completes itself; that belongs
   on the chip's tooltip.
+- A control on what an agent did does exactly that, or is not drawn. A turn's edit counts come
+  from git at its settle, not from what its tool calls claimed; Undo appears only when restoring
+  takes back that turn and nothing after it, and says why when it cannot. A file named in prose
+  becomes a link only once the disk says it is in this checkout, and opens beside the session.
 - Never invent human-like agent presence, mood, or certainty.
 
 ## Documents, diffs, terminals, and data
