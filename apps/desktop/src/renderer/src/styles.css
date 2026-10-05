@@ -3753,6 +3753,64 @@ button.edit-file:hover { background: var(--rl-hover); }
 .new-msgs-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
 
+/* ── The scroll track (ScrollTrack.tsx) ───────────────────────────────────
+   A tick down the log's left edge for each prompt, Codex's. It is an overlay in `.transcript-wrap`,
+   outside the scroller and its mask, and it takes no width from the column: where the pane is narrow
+   it lives in the transcript's own 16px of side padding — every resting mark ends inside it — and
+   where the column leaves a wider margin it moves out to sit where Codex's does. Only the band of
+   ticks takes the pointer; the rest of the strip passes it through to the log.
+
+   Quiet at rest, as a mark rather than an edge: the ticks are `--mark-strong`, and only the one being
+   read is longer and in ink. Under the pointer the whole track comes up a step, the tick under it and
+   its neighbours lengthen into a lens, and that arrives at once and leaves on the hover fade. A turn
+   that changed files carries a dot after its tick, in the tick's own ink: a mark, not a colour. */
+.scroll-track { --track-x: clamp(3px, (100cqw - var(--prompter-w)) / 2 - 40px, 14px); --tick: var(--mark-strong);
+  position: absolute; z-index: 3; left: 0; top: var(--fade-top-h); bottom: var(--fade-top-h);
+  width: calc(var(--track-x) + 13px); pointer-events: none; }
+/* A rung heavier on the light face, for the divider's reason: black on near-white loses more of
+   itself than white on near-black. On `--mark-strong` a resting tick measured 1.16:1 on the light
+   ground against 1.57:1 on the dark one (scroll-track-live.mjs); a rung heavier is 1.43:1. */
+:root[data-mode="light"] .scroll-track { --tick: var(--overlay-darken-500); }
+.track-tick { position: absolute; left: 0; width: 100%; pointer-events: auto; }
+.track-line { position: absolute; left: var(--track-x); width: 6px; height: 2px; margin-top: -1px; border-radius: var(--r-sm);
+  background: var(--tick); transition: width var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+.scroll-track[data-dense] .track-line { height: 1px; margin-top: -0.5px; }
+.track-tick[data-edited] .track-line::after { content: ""; position: absolute; left: calc(100% + 1px); top: 0;
+  width: 2px; height: 100%; border-radius: var(--r-sm); background: inherit; }
+.scroll-track:is(:hover, :focus-within) .track-line { background: var(--rl-text-faint); transition-duration: 0s; }
+/* The lens. Ordered so a length only ever grows: the current tick keeps its own over the lens's
+   outermost rung, and gives way to the three inside it. */
+.track-tick[data-near="3"] .track-line { width: 8px; }
+.track-tick[data-current] .track-line { width: 9px; background: var(--rl-text-faint); }
+.scroll-track:is(:hover, :focus-within) .track-tick[data-current] .track-line { background: var(--rl-text-dim); }
+.track-tick[data-near="2"] .track-line { width: 11px; }
+.track-tick[data-near="1"] .track-line { width: 15px; }
+.scroll-track:is(:hover, :focus-within) .track-tick[data-near="0"] .track-line { width: 20px; background: var(--rl-text-bright); }
+/* The ring goes round the line it lights, not round the cell — a cell is as tall as the gap to its
+   neighbours, and a ring that size would outline a stretch of the pane edge rather than a tick. */
+.track-tick:focus-visible { outline: none; }
+.track-tick:focus-visible .track-line { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+/* What a tick says: a raised card like a menu, beside the lens and centred on its tick (placed in
+   JS, which alone knows the card's height). It is the tooltip's timing and the tooltip's motion — a
+   fade with a two-pixel travel out of the track, a shorter fade back — and it never takes the
+   pointer, so leaving the track is all it takes to put it away. */
+.track-card { position: absolute; z-index: 1; left: calc(var(--track-x) + 30px); top: 0; width: min(300px, 100cqw - var(--track-x) - 42px);
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 12px;
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised);
+  pointer-events: none; opacity: 0; visibility: hidden; translate: -2px 0;
+  transition: opacity var(--dur-press) var(--ease-fade), visibility 0s linear var(--dur-press); }
+.track-card[data-open] { opacity: 1; visibility: visible; translate: 0 0;
+  transition: opacity var(--dur-fast) var(--ease-out-strong), translate var(--dur-fast) var(--ease-out-strong); }
+.track-card-head { display: flex; align-items: baseline; gap: 12px; }
+/* The prompt is the user's own words, so it is the card's one line at the title weight, and it gives
+   up its width to the time beside it last. */
+.track-card-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; line-height: 18px; font-weight: var(--fw-title); }
+.track-card-at { flex: none; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.track-card-reply { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+  margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: pre-line; overflow-wrap: anywhere; }
+.track-card-foot { margin: 2px 0 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+
 /* ═══ Vendored design language — beautiful-ui (MIT) ══════════════════════════
    Realm's skin adapts visual language from beautiful-ui (github.com/slev12397/beautiful-ui,
    MIT © its authors). This is the one consolidated notice; theme/tokens.css carries the matching

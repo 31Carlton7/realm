@@ -189,6 +189,10 @@ export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissio
 
 export type UserBlock = Extract<Block, { kind: "user" }>;
 
+/** What a turn goal mode started says in place of a message: nobody typed it, so it is attributed. */
+export const goalTurnLabel = (kind: NonNullable<UserBlock["goal"]>): string =>
+  kind === "budget" ? "Goal budget spent — Realm asked for a handover" : "Realm continued this goal";
+
 /**
  * The message a retry would ask again: the last one the USER wrote.
  *
