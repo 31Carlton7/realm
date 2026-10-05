@@ -1,8 +1,9 @@
 import { Icon, type IconName } from "@realm/ui";
 import { DEFAULT_KEYBINDINGS, chordsForCommand, displayKeyChord } from "@realm/contracts";
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 import { useAppStoreMaybe, type NewTabTool } from "../../state/store";
 import { PageIcon } from "../../components/PageIcon";
+import { useDissolve } from "../../components/ScrollFades";
 
 /** A page this space's profile went to — a row of the history (`browsers.recent`), as this page draws it:
  *  with the icon it last showed, when it showed one. */
@@ -38,6 +39,8 @@ export function NewTabPage({ itemId, recent = [], onVisit }: {
   // Nullable, like the pane around it: its unit tests render it with no store, and there is nothing a
   // tool could open into there.
   const store = useAppStoreMaybe();
+  const scroller = useRef<HTMLDivElement>(null);
+  useDissolve(scroller);
   const keybindings = useSyncExternalStore(
     useCallback((cb: () => void) => store?.subscribe(cb) ?? (() => {}), [store]),
     () => store?.getState().keybindings ?? DEFAULT_KEYBINDINGS,
@@ -52,7 +55,7 @@ export function NewTabPage({ itemId, recent = [], onVisit }: {
     s?.run(() => s.openFromNewTab(itemId, tool));
   };
   return (
-    <div className="new-tab" role="region" aria-label="New tab">
+    <div className="new-tab" ref={scroller} role="region" aria-label="New tab">
       <section className="new-tab-section" aria-label="Tools">
         <h2 className="new-tab-label">Tools</h2>
         <ul className="new-tab-list">

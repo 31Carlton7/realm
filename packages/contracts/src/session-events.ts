@@ -19,6 +19,12 @@ const P = {
      *  objective itself, which the user really did write. The transcript attributes it for `from`'s
      *  reason: a reader must never come away believing they typed it. */
     goal: z.enum(["continuation", "budget"]).optional(),
+    /** A scheduled task's run began with this message, written from the task rather than typed. `note`
+     *  is what Realm appended for the agent — the unattended rules — and stays in `text`, which is what
+     *  the agent was handed; the transcript draws the task's name above the bubble instead and keeps
+     *  the note out of it, so the bubble reads as the instructions the person wrote. Optional, so every
+     *  row ever written still parses. */
+    scheduled: z.object({ task: z.string(), note: z.string() }).optional(),
     /** What the message's `@[…]` chips named — files, Library items, apps — so the log can draw each
      *  chip with its own mark a week later. Kept apart from `attachments`, which stay the files the
      *  user attached: a mentioned file is a chip in the sentence, and a tile above it would be the

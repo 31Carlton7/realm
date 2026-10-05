@@ -1,8 +1,9 @@
 import { LAYA_MODES, type LayaMode, type LayaStatus } from "@realm/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CommandCopy } from "../../components/CommandCopy";
 import { Spinner } from "../../components/Spinner";
 import { useApp } from "../../state/store";
+import { useDissolve } from "../../components/ScrollFades";
 
 /**
  * Laya (local decisions): the local model Realm can ask about every computer step, and the log of
@@ -46,6 +47,13 @@ export function LayaSection() {
       </p>
     </>
   );
+}
+
+/** A process's own output under a failure, capped like every job's and dissolving where it scrolls. */
+function JobOutput({ text }: { text: string }) {
+  const scroller = useRef<HTMLPreElement>(null);
+  useDissolve(scroller);
+  return <pre className="cli-job-output" ref={scroller}>{text}</pre>;
 }
 
 function StateRow({ laya }: { laya: LayaStatus }) {
@@ -106,7 +114,7 @@ function StateRow({ laya }: { laya: LayaStatus }) {
             {r.detail && (
               <details className="laya-output">
                 <summary>Output</summary>
-                <pre className="cli-job-output">{r.detail}</pre>
+                <JobOutput text={r.detail} />
               </details>
             )}
           </>
@@ -217,7 +225,7 @@ function EvaluationRow({ laya }: { laya: LayaStatus }) {
             {t.detail && (
               <details className="laya-output">
                 <summary>Output</summary>
-                <pre className="cli-job-output">{t.detail}</pre>
+                <JobOutput text={t.detail} />
               </details>
             )}
           </>

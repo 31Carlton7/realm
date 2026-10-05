@@ -1,8 +1,9 @@
 import { AGENT_META, SELECTABLE_AGENT_KINDS, type AgentKind, type Checkpoint, type RestorePreview, type RestoreResult } from "@realm/contracts";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useApp } from "../state/store";
 import { Menu } from "./Menu";
 import { Sheet } from "./Sheet";
+import { useDissolve } from "./ScrollFades";
 
 /**
  * The agents a fork may land on: the ancestor's own first, then every other selectable kind.
@@ -133,6 +134,8 @@ export function CheckpointsSheet({ environmentId, sessionId }: { environmentId: 
   /** Which row's fork menu is open, whose agent it forks from, and the button it hangs off. */
   const [forkMenu, setForkMenu] = useState<{ checkpointId: string; ancestor: AgentKind | null; at: HTMLElement } | null>(null);
   const now = Date.now();
+  const scroller = useRef<HTMLUListElement>(null);
+  useDissolve(scroller);
 
   return (
     <Sheet title={preview ? "Restore this checkpoint?" : "Checkpoints"} onClose={closeSheet} width={520}>
@@ -148,7 +151,7 @@ export function CheckpointsSheet({ environmentId, sessionId }: { environmentId: 
                 {sessionId ? " in this session" : ""}.
               </p>
             )}
-            <ul className="cp-list">
+            <ul className="cp-list" ref={scroller}>
               {(list ?? []).map((c) => (
                 <li className="cp-row" key={c.id} data-kind={c.kind}>
                   <span className="cp-kind">{KIND_LABEL[c.kind]}</span>

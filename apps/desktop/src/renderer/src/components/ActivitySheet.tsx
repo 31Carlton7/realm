@@ -1,8 +1,9 @@
 import { Icon } from "@realm/ui";
 import type { McpCall, Session } from "@realm/contracts";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useApp } from "../state/store";
 import { Sheet } from "./Sheet";
+import { useDissolve } from "./ScrollFades";
 import { relTime } from "./CommandPalette";
 
 /**
@@ -58,6 +59,13 @@ export function sessionLabel(sessionId: string, sessions: Record<string, Session
   return sessions[sessionId]?.title ?? `${sessionId.slice(0, TRUNCATED_ID_LEN)}…`;
 }
 
+/** A call's arguments or result, in the transcript's own well, dissolving where it is capped. */
+function Well({ text }: { text: string }) {
+  const well = useRef<HTMLPreElement>(null);
+  useDissolve(well);
+  return <pre className="tool-well" ref={well}>{text}</pre>;
+}
+
 /**
  * Realm's log of every proxied MCP call (Plan 9 W7) — reverse-chronological, filterable by session and
  * server, live-updating from the `mcp.call` broadcast App.tsx subscribes to.
@@ -78,6 +86,8 @@ export function ActivitySheet() {
   const closeSheet = useApp((s) => s.closeSheet);
   const run = useApp((s) => s.run);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const scroller = useRef<HTMLUListElement>(null);
+  useDissolve(scroller);
   const toggle = (id: string) => setExpanded((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -138,7 +148,7 @@ export function ActivitySheet() {
             </p>
           )
           : (
-            <ul className="activity-list">
+            <ul className="activity-list" ref={scroller}>
               {calls.map((c) => (
                 <li key={c.id} className="activity-row">
                   <button type="button" className="tool-row activity-row-main" aria-expanded={expanded.has(c.id)} onClick={() => toggle(c.id)}>
@@ -154,10 +164,10 @@ export function ActivitySheet() {
                   </button>
                   {expanded.has(c.id) && (
                     <div className="activity-detail">
-                      <div className="field"><span>Arguments</span><pre className="tool-well">{prettyArgs(c.argsJson)}</pre></div>
+                      <div className="field"><span>Arguments</span><Well text={prettyArgs(c.argsJson)} /></div>
                       {/* Verbatim, per the binding rule: the gateway already sanitized this — re-parsing
                           or reformatting it here would be pretending Realm knows something it doesn't. */}
-                      <div className="field"><span>Result</span><pre className="tool-well">{c.resultSummary}</pre></div>
+                      <div className="field"><span>Result</span><Well text={c.resultSummary} /></div>
                     </div>
                   )}
                 </li>

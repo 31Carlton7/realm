@@ -100,6 +100,13 @@ const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motio
  * HERE — what the agent was handed is a fact about the run, and a log that hid it would be lying by
  * omission — it is just not the loudest thing in the column.
  */
+/** An error's own words, capped, in a box that dissolves at an end once there is more of them. */
+function ErrorText({ text }: { text: string }) {
+  const box = useRef<HTMLPreElement>(null);
+  useDissolve(box);
+  return <pre ref={box}>{text}</pre>;
+}
+
 function GoalTurn({ kind, text }: { kind: "continuation" | "budget"; text: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -504,12 +511,17 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
               // footnote to the text. It is also the only arrangement that survives the two
               // degenerate cases — an attachment-only message has no bubble to sit inside, and a long
               // message would otherwise push its own files off the bottom of the card.
-              <div key={key} className="msg-user-row" data-prompt={key} data-enter={enter || undefined} data-from={b.from || b.goal ? "" : undefined}>
+              <div key={key} className="msg-user-row" data-prompt={key} data-enter={enter || undefined} data-from={b.from || b.goal ? "" : undefined}
+                data-scheduled={b.scheduled ? "" : undefined}>
                 {/* A question another session asked is NOT the user's words. Rendering it as a plain
                     user bubble would have the user believing they typed it — a lie by omission — so
                     the bubble is attributed and styled apart. The fenced text itself is left exactly
                     as the peer received it: the user should see what the agent was actually handed. */}
                 {b.from && <span className="msg-user-from">Asked by {b.from.title}</span>}
+                {/* A scheduled run's first message IS the person's words — the task's instructions — so
+                    its bubble stays theirs; it is the clock that sent it, and the line above says so.
+                    The note Realm added for the agent is under the pointer, not in the bubble. */}
+                {b.scheduled && <span className="msg-user-from" title={b.scheduled.note}>Scheduled run · {b.scheduled.task}</span>}
                 {b.attachments && <UserAttachments attachments={b.attachments} />}
                 {/* An attachment-only message has no text at all, and an empty bubble would read as a
                     send that lost its words rather than one that carried only files. */}
@@ -543,7 +555,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}>
               <Icon name="alert" size={14} />
               <div className="msg-error-body">
-                <pre>{b.message}</pre>
+                <ErrorText text={b.message} />
                 {b.fix?.command && <CommandCopy command={b.fix.command} />}
               </div>
             </div>;

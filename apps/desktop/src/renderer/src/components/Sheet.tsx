@@ -1,4 +1,5 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { useDissolve } from "./ScrollFades";
 import { createPortal } from "react-dom";
 import { centerOverComplement } from "../state/no-overlay";
 import { useBrowserRects } from "../state/store";
@@ -31,6 +32,10 @@ export function Sheet({ title, onClose, children, footer, width = 420 }: {
   width?: number;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  /* The body scrolls between the head and the foot, and dissolves at an end once there is more of it
+     there. The panel itself cannot take the mask: it would take the panel's shadow with it. */
+  const body = useRef<HTMLDivElement>(null);
+  useDissolve(body);
   const browserRects = useBrowserRects();
   const spot = centerOverComplement({ width: window.innerWidth, height: window.innerHeight }, browserRects, width);
   const style: CSSProperties = spot
@@ -70,7 +75,7 @@ export function Sheet({ title, onClose, children, footer, width = 420 }: {
     <div className="sheet-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={panel} role="dialog" aria-modal="true" aria-label={title} className="sheet" style={style} tabIndex={-1}>
         <div className="sheet-head"><h3>{title}</h3><button className="icon-btn" aria-label="Close" onClick={onClose}>✕</button></div>
-        <div className="sheet-body">{children}</div>
+        <div className="sheet-body" ref={body}>{children}</div>
         {footer && <div className="sheet-foot">{footer}</div>}
       </div>
     </div>,

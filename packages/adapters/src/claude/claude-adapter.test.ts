@@ -16,6 +16,8 @@ type FakeOpts = {
   permissionInput?: unknown;
   /** record what each canUseTool call resolved with — what the agent itself was handed */
   permissionResults?: unknown[];
+  /** a `rate_limit_info` to stream as a `rate_limit_event` just before the turn's result */
+  rateLimit?: Record<string, unknown>;
   /** throw from the generator after this many fixture messages */
   throwAfter?: number;
   /** write these lines to options.stderr before the first message */
@@ -62,6 +64,7 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
           opts.permissionResults?.push(...rs);
           if (r.behavior === "deny") { yield { type: "result", subtype: "success", session_id: "sess_1", uuid: "r", duration_ms: 1, duration_api_ms: 1, is_error: false, num_turns: 1, result: "denied", stop_reason: "end_turn", total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0 }, modelUsage: {}, permission_denials: [] }; break; }
         }
+        if ((m as { type: string }).type === "result" && opts.rateLimit) yield { type: "rate_limit_event", rate_limit_info: opts.rateLimit, uuid: "rl", session_id: "sess_1" };
         if ((m as { type: string }).type === "result" && opts.errorResult) { yield { ...(m as object), subtype: "error_during_execution", is_error: true, errors: ["turn failed"] }; break; }
         yield m;
       }
@@ -234,6 +237,21 @@ describe("ClaudeAdapter", () => {
     await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
     const req = got.find((e) => e.type === "permission_request");
     expect(req?.type === "permission_request" && req.payload.ask).toBeUndefined();
+  });
+  it("puts the stream's limit reading in the panel's units: a fraction as percent, seconds as ms", async () => {
+    // The CLI reads these straight off the API's headers: it draws `Math.floor(utilization * 100)` and
+    // waits until `resetsAt * 1000`. Taken as-is, an 86% week read "at 1%" and reset in January 1970.
+    const resetsAt = 1_791_480_000; // epoch SECONDS: Oct 8 2026, 9:38 AM Pacific
+    const a = new ClaudeAdapter({ query: fakeQuery({ rateLimit: { status: "allowed_warning", rateLimitType: "seven_day", utilization: 0.86, resetsAt } }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("rate_limit"));
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    const ev = got.find((e) => e.type === "rate_limit");
+    expect(ev?.type === "rate_limit" && ev.payload).toMatchObject({ alert: "approaching", alertWindow: "seven_day" });
+    const w = ev?.type === "rate_limit" ? ev.payload.windows.find((x) => x.id === "seven_day") : undefined;
+    expect(w?.utilization).toBeCloseTo(86, 6);
+    expect(w?.resetsAt).toBe(resetsAt * 1000);
+    expect(new Date(w!.resetsAt!).getUTCFullYear()).toBe(2026);
   });
   it("concurrent canUseTool calls: one waiting_permission → running transition for the whole batch", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Read", concurrentPermissions: 2 }) as never });

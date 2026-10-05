@@ -1,5 +1,6 @@
 import { describeLoadError, type BrowserLoadError } from "@realm/contracts";
-import { useId } from "react";
+import { useId, useRef } from "react";
+import { useDissolve } from "../../components/ScrollFades";
 
 /**
  * Realm's hexagon wound in on itself: a spiral of six-sided turns that ends in a flat stroke, the way
@@ -44,8 +45,10 @@ function LockMark({ size = 44 }: { size?: number }) {
 export function BrowserErrorPage({ error, busy, onReload }: { error: BrowserLoadError; busy: boolean; onReload: () => void }) {
   const page = describeLoadError(error);
   const titleId = useId();
+  const scroller = useRef<HTMLDivElement>(null);
+  useDissolve(scroller);
   return (
-    <div className="browser-error" role="region" aria-labelledby={titleId} data-mark={page.mark}>
+    <div className="browser-error" ref={scroller} role="region" aria-labelledby={titleId} data-mark={page.mark}>
       <div className="browser-error-body">
         {page.mark === "lock" ? <LockMark /> : <ReachMark busy={busy} />}
         <h2 id={titleId} className="browser-error-title">{page.title}</h2>

@@ -56,19 +56,19 @@ export function YouPage(_props: PaneProps) {
 
   return (
     <div className="page you-page">
-      <header className="page-head">
-        <Avatar size={56} />
-        <div className="page-title"><h1>{userName.trim() || "You"}</h1></div>
-        <div className="you-actions">
-          <button type="button" className="btn" onClick={() => run(chooseAvatar)}
-            title="Realm keeps its own copy in its home folder and never reads the original again">
-            {avatarPath ? "Change picture…" : "Choose a picture…"}
-          </button>
-          {avatarPath && <button type="button" className="btn btn-quiet" onClick={() => run(removeAvatar)}>Remove picture</button>}
-        </div>
-      </header>
       <div className="page-body">
         <PageScroll>
+          <header className="page-head">
+            <Avatar size={56} />
+            <div className="page-title"><h1>{userName.trim() || "You"}</h1></div>
+            <div className="you-actions">
+              <button type="button" className="btn" onClick={() => run(chooseAvatar)}
+                title="Realm keeps its own copy in its home folder and never reads the original again">
+                {avatarPath ? "Change picture…" : "Choose a picture…"}
+              </button>
+              {avatarPath && <button type="button" className="btn btn-quiet" onClick={() => run(removeAvatar)}>Remove picture</button>}
+            </div>
+          </header>
           <div className="form usage-panel">
             {records === null ? <p className="env-empty">Reading…</p> : <Figures records={records} />}
             <ActivityCalendar />

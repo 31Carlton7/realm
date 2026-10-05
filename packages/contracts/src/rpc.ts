@@ -822,8 +822,13 @@ export const Methods = {
   /** Last committed navigation state, written back by the renderer (debounced). A `title` also renames
    *  the browser's item — the pane header and sidebar track the page, as in any browser's tab strip —
    *  and a `favicon` becomes the item's mark. Any string is accepted and one that is not
-   *  `isFaviconDataUrl` is kept as '', so a bad icon can never cost the url and title beside it. */
-  "browsers.update": { params: z.object({ browserId: IdSchema, url: z.string().optional(), title: z.string().optional(), favicon: z.string().optional() }), result: z.object({ ok: z.literal(true) }) },
+   *  `isFaviconDataUrl` is kept as '', so a bad icon can never cost the url and title beside it.
+   *  `failed` says the address did not load: the row keeps it, because the tab still shows it and
+   *  Reload retries it, but it is no visit — a blank tab's Recently visited listed every address that
+   *  had refused to connect. Optional, and absent means it loaded, which is what every caller before
+   *  it meant. */
+  "browsers.update": { params: z.object({ browserId: IdSchema, url: z.string().optional(), title: z.string().optional(), favicon: z.string().optional(),
+    failed: z.boolean().optional() }), result: z.object({ ok: z.literal(true) }) },
   "browsers.close":  { params: z.object({ browserId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /**
    * Where a download from this space's panes lands (Plan 23): `<project root>/downloads`, or null

@@ -1,9 +1,10 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { callLabel, formatCallDuration, sessionLabel } from "../ActivitySheet";
 import { relTime } from "../CommandPalette";
+import { useDissolve } from "../ScrollFades";
 
 /**
  * The gateway's call log, in the sidebar's own column and in the sidebar's own rows.
@@ -36,6 +37,8 @@ export function ActivityList() {
   const sessionSpace = useApp((s) => s.sessionSpace);
   const refreshMcpCalls = useApp((s) => s.refreshMcpCalls);
   const run = useApp((s) => s.run);
+  const scroller = useRef<HTMLDivElement>(null);
+  useDissolve(scroller);
   /* The feed reads the log itself rather than being handed it. Flipping the lens only clears the
      rows and any filter; one mount is one fetch, wherever the mount came from. */
   useEffect(() => { run(() => refreshMcpCalls()); }, [refreshMcpCalls, run]);
@@ -74,7 +77,7 @@ export function ActivityList() {
 
   if (calls.length === 0) {
     return (
-      <div className="space-body sb-activity sb-activity-blank">
+      <div className="space-body sb-activity sb-activity-blank" ref={scroller}>
         <div className="sb-activity-empty">
           <Icon name="activity" size={20} />
           <p className="sb-activity-empty-line">No calls yet</p>
@@ -89,7 +92,7 @@ export function ActivityList() {
   }
 
   return (
-    <div className="space-body sb-activity">
+    <div className="space-body sb-activity" ref={scroller}>
       {runs.map((r, i) => (
         <div key={`${r.sessionId}-${i}`}>
           <div className="group-label sb-activity-head">

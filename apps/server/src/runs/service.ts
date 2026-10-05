@@ -363,9 +363,11 @@ export class RunService {
       }
       this.broadcast(dispatched);
 
-      const brief = run.scheduleId !== null ? scheduledMessage(run.title, run.goal) : workerMessage(run.goal);
+      const scheduled = run.scheduleId !== null ? { task: run.title, note: scheduledNote(run.title) } : null;
+      const brief = scheduled ? `${run.goal}\n\n${scheduled.note}` : workerMessage(run.goal);
       try {
-        await this.d.sessions.send(sessionId, { text: note ? `${brief}\n\nThe person supervising this run replied:\n\n${note}` : brief, attachments: [] });
+        await this.d.sessions.send(sessionId, { text: note ? `${brief}\n\nThe person supervising this run replied:\n\n${note}` : brief, attachments: [],
+          ...(scheduled ? { scheduled } : {}) });
       } catch (e) {
         if (this.closing) return;
         const why = `the run's session could not be started: ${errorMessage(e)}`;
@@ -565,17 +567,15 @@ function workerMessage(goal: string): string {
 }
 
 /**
- * The message a SCHEDULED run's session receives: the task's instructions first and verbatim, because
- * that is what the person wrote and what the Scheduled page shows as the run's first message, then
- * the unattended rules in a line. The preamble carries those rules as well, but an agent with no
- * context channel (`AGENT_MEMORY_CHANNEL`) reads only this — so they cannot live in the preamble alone.
+ * What a SCHEDULED run's session is handed after the task's instructions: the unattended rules in a
+ * line. The instructions come first and verbatim, because that is what the person wrote and what the
+ * Scheduled page shows as the run's first message. The preamble carries these rules as well, but an
+ * agent with no context channel (`AGENT_MEMORY_CHANNEL`) reads only the message — so they cannot live
+ * in the preamble alone. The note rides on the message as `scheduled` too, which is how the
+ * transcript keeps it out of the bubble and names the task above it instead.
  */
-function scheduledMessage(title: string, goal: string): string {
-  return [
-    goal,
-    "",
-    `(Scheduled task "${title}". Nobody is watching this run: end with a short, self-contained report of what you did — it is kept as the run's result. If you need a person, end with a line starting \`${RUN_BLOCK_SENTINEL}\` and what you need.)`,
-  ].join("\n");
+function scheduledNote(title: string): string {
+  return `(Scheduled task "${title}". Nobody is watching this run: end with a short, self-contained report of what you did — it is kept as the run's result. If you need a person, end with a line starting \`${RUN_BLOCK_SENTINEL}\` and what you need.)`;
 }
 
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
