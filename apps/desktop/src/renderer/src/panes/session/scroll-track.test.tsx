@@ -379,6 +379,17 @@ describe("saving a turn", () => {
     await waitFor(() => expect(card()).not.toHaveAttribute("data-open"), { timeout: 1000 });
   });
 
+  it("puts the card away from its bookmark on Escape, and the keyboard back on the tick, not into a card that is going", async () => {
+    await saving();
+    act(() => ticks()[1]!.focus());
+    // Tab from the tick reaches the bookmark while the card is up (jsdom does not move focus on Tab).
+    act(() => bookmark()!.focus());
+    expect(card()).toHaveAttribute("data-open");
+    fireEvent.keyDown(bookmark()!, { key: "Escape" });
+    expect(card()).not.toHaveAttribute("data-open");
+    expect(document.activeElement).toBe(ticks()[1]);
+  });
+
   it("opens at a prompt it is sent to, at once rather than gliding, and says it got there", async () => {
     const onRevealed = vi.fn();
     const { geo } = await saving([1002], { reveal: { seq: 1002, n: 7 }, onRevealed });
@@ -410,7 +421,7 @@ describe("in a session pane", () => {
 
   it("saves a turn through the store: S on the track, the server's answer, the tick marked in every window", async () => {
     stage({ rows: [0, 900], height: 2000 });
-    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })], savedTurns: { se1: [] } });
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })], savedTurns: { se1: [11] } });
     const store = createAppStore(api);
     await store.getState().boot();
     // A log read from the server: each prompt keeps the seq of its stored event.
@@ -426,14 +437,15 @@ describe("in a session pane", () => {
       <SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Session" })} visible />
     </StoreContext.Provider>);
     await screen.findByRole("toolbar", { name: "Prompts" });
-    await waitFor(() => expect(api.calls).toContain("savedTurns:se1"));
+    // What the server already keeps for the session is read as the pane mounts.
+    await waitFor(() => expect(ticks().map((x) => x.hasAttribute("data-saved"))).toEqual([true, false]));
     act(() => ticks()[1]!.focus());
     fireEvent.keyDown(ticks()[1]!, { key: "s" });
     await waitFor(() => expect(api.calls).toContain("setTurnSaved:se1:13=true"));
-    expect(ticks()[1]).toHaveAttribute("data-saved");
-    expect(store.getState().savedTurns.se1).toEqual([13]);
+    expect(ticks().map((x) => x.hasAttribute("data-saved"))).toEqual([true, true]);
+    expect(store.getState().savedTurns.se1).toEqual([11, 13]);
     // A change made in another window arrives as `session.saved`, and is drawn here as well.
-    act(() => store.getState().applySavedTurns("se1", [11]));
-    expect(ticks().map((x) => x.hasAttribute("data-saved"))).toEqual([true, false]);
+    act(() => store.getState().applySavedTurns("se1", [13]));
+    expect(ticks().map((x) => x.hasAttribute("data-saved"))).toEqual([false, true]);
   });
 });

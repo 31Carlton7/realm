@@ -256,11 +256,12 @@ function Track({ scrollRef, prompts, onJump, now, onSave, reveal = null, onRevea
     if (step !== 0) e.preventDefault();
     if (to === null) {
       // Escape puts the card away and nothing else: the keyboard stays on the track — on the tick, if
-      // it was on the card's bookmark, which is about to go with the card.
+      // it was on the card's bookmark, which is about to go with the card. The tick first: arriving on
+      // a tick shows its card, and the dismissal has to be the last word.
       if (e.key === "Escape" && focus !== null && !dismissed) {
         e.stopPropagation();
-        setDismissed(true);
         if (cardRef.current?.contains(document.activeElement)) ref.current?.querySelectorAll<HTMLElement>(".track-tick")[focus]?.focus();
+        setDismissed(true);
       }
       return;
     }
