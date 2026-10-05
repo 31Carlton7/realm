@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey, type ModelInfo } from "@realm/contracts";
 import {
-  chipLabel, effortLevels, fastModeAvailability, fastModeHint, fastModeShown, filterRows, flatten, groupRows,
+  agentRowHint, chipLabel, effortLevels, fastModeAvailability, fastModeHint, fastModeShown, filterRows, flatten, groupRows,
   modelAbout, modelLabel, modelRows, resolveModelName, type FastMode, type ModelRow,
 } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
@@ -243,6 +243,15 @@ describe("names", () => {
     expect(modelLabel(viaCursor)).toBe("Claude Fable 5.1");
     // A family that IS the vendor's name keeps it — "4.6" alone is not a model.
     expect(modelLabel(row("Grok 4.6"))).toBe("Grok 4.6");
+  });
+
+  it("lets an agent's row say which model its default runs, and nothing when that says nothing", () => {
+    const all = modelRows({ kind: "claude", model: null, canSwitchAgent: true, agentProbe: [] });
+    const of = (kind: string) => agentRowHint(all.find((r) => r.kind === kind)!);
+    expect(of("codex")).toBe("GPT-5.6");
+    expect(of("acp:cursor")).toBe("Composer");
+    expect(of("acp:gemini")).toBeNull(); // "Gemini, Gemini"
+    expect(of("acp:opencode")).toBeNull(); // "OpenCode, Default"
   });
 
   it("names the chip from the session's own row, a pinned id nothing lists, or the harness default", () => {

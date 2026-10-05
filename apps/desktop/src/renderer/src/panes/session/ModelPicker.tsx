@@ -6,8 +6,8 @@ import { ScrollFades } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import {
-  chipLabel, fastModeHint, fastModeShown, fastModeUntried, filterRows, flatten, formatEffort, groupRows,
-  isHarnessDefault, modelAbout, modelIdOn, modelLabel, type FastMode, type ModelRow,
+  agentRowHint, chipLabel, fastModeHint, fastModeShown, fastModeUntried, filterRows, flatten, formatEffort, groupRows,
+  modelAbout, modelIdOn, modelLabel, type FastMode, type ModelRow,
 } from "./model-catalog";
 
 export { formatEffort };
@@ -235,7 +235,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
                 const active = r === activeRow;
                 const ways = waysOf(r);
                 const title = g.byHarness ? AGENT_META[r.kind].label : modelLabel(r);
-                const hint = g.byHarness && !isHarnessDefault(r) ? modelLabel(r) : null;
+                const hint = g.byHarness ? agentRowHint(r) : null;
                 const n = shortcuts.indexOf(r);
                 return (
                   <div key={r.id} id={`mp-${r.id}`} role="option" tabIndex={-1} className="mp-row"

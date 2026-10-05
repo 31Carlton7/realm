@@ -316,6 +316,14 @@ export function modelLabel(row: ModelRow): string {
   return /^[A-Za-z]+(\s|$)/.test(rest) ? rest : row.label;
 }
 
+/** What a row under "Other agents" says after the agent's name: the model its default runs, where
+ *  the harness has a name for it ("Codex, GPT-5.6"), and nothing where that would only be "Default"
+ *  or the agent's own name again. */
+export function agentRowHint(row: ModelRow): string | null {
+  const name = modelLabel(row);
+  return name === "Default" || name === AGENT_META[row.kind].label ? null : name;
+}
+
 /** What the prompter's chip names: the session's own row, a pinned id no list carries (a model retired
  *  since), or the harness's default label — never silently another model's name. */
 export function chipLabel(kind: AgentKind, model: string | null, rows: ModelRow[]): string {
