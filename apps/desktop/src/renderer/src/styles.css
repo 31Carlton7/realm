@@ -593,10 +593,11 @@ kbd { font: 11px var(--font-mono); }
    column's right edge on every frame, so the shade rides the column open and closed; once the column
    has folded away there is nothing to cast it, and the pseudo-element is the panes' corner instead
    (the frame, above). Its own step per face, because the same black reads heavier on the light ground
-   (design.md: do not assume the light face mirrors the dark), set by measurement to about the depth of
-   Codex's own sheet shadow: five or six levels of 255 at the edge, gone in 8px. */
-:root { --seam-shade: oklch(0 0 0 / 0.14); --seam-w: 8px; }
-:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.02); }
+   (design.md: do not assume the light face mirrors the dark), set by measurement: about two and a half
+   levels of 255 at the edge on either face, gone in 8px. That is 60% of the depth this first shipped
+   at — Codex's own sheet shadow — which the owner found a touch heavy for a seam (10-04). */
+:root { --seam-shade: oklch(0 0 0 / 0.084); --seam-w: 8px; }
+:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.012); }
 .app:not([data-sidebar-folded]) > .main::after { content: ""; position: absolute; z-index: 36; pointer-events: none;
   top: var(--frame-top); bottom: 0; left: 0; width: var(--seam-w);
   background: linear-gradient(to right, var(--seam-shade), transparent); }
