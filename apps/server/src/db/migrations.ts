@@ -804,7 +804,34 @@ export const migrations: string[] = [
     created_at INTEGER NOT NULL);
   CREATE INDEX IF NOT EXISTS app_views_session ON app_views(session_id, created_at);
   `,
-  // v40 — saved turns: the prompts a reader saved from a session's scroll track, listed again in the
+  // v40 — files a person added to the Library themselves (the Files toolbar's Add, or a drop).
+  //
+  // A table of their own rather than rows in `artifacts`, for two reasons that are each enough. The
+  // index is DERIVED — every row in it can be rebuilt from `session_events`, and v25 says so — and an
+  // added file has no event behind it: this row is the only record that it was added. And an artifact
+  // is a file a SESSION has, `session_id NOT NULL`, its space and profile one join away; an added file
+  // belongs to a profile and to no session, which is what the Library's "Added" says. The Library reads
+  // the two as one list (`ArtifactsStore.list`), so to the page they are one kind of thing.
+  //
+  // `path` is the COPY under the home (`library/<profile>/`), never the file it was copied from: what
+  // the Library shows is Realm's to keep, whatever happens to the original. `digest` (sha-256 of the
+  // bytes) is how the same file chosen twice is recognised and not copied again. Gone with its
+  // profile; the copies stay on disk, as a deleted space leaves its folder. Nothing to backfill —
+  // nothing could be added before this — and `IF NOT EXISTS`, so the statement is safe to meet twice.
+  `
+  CREATE TABLE IF NOT EXISTS library_files (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    name TEXT NOT NULL,
+    ext TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    digest TEXT NOT NULL,
+    ts INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS library_files_recent ON library_files(profile_id, ts DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS library_files_digest ON library_files(profile_id, digest);
+  `,
+  // v41 — saved turns: the prompts a reader saved from a session's scroll track, listed again in the
   // Library across every session of the profile.
   //
   // A row names the prompt's own `user_message` event by its seq — globally unique, so it is the key —

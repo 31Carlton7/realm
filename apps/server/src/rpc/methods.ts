@@ -62,6 +62,7 @@ import type { AgentRunService } from "../delegation/agent-run";
 import type { SearchService } from "../search/service";
 import type { ArtifactsStore } from "../store/artifacts";
 import type { SavedTurnsStore } from "../store/saved-turns";
+import type { LibraryFilesStore } from "../store/library-files";
 import type { ForkService } from "../sessions/fork";
 import type { FailoverService } from "../sessions/failover";
 import type { ImportService } from "../import/service";
@@ -101,6 +102,8 @@ export type Deps = {
   appViews: AppViewService;
   /** The turns a reader saved from a session's scroll track. */
   savedTurns: SavedTurnsStore;
+  /** The files a person added to the Library themselves, copied in under the profile. */
+  libraryFiles: LibraryFilesStore;
 };
 
 export function registerMethods(d: Deps): void {
@@ -641,6 +644,8 @@ export function registerMethods(d: Deps): void {
   // the whole point of the `artifacts` index existing (see migration v25).
   reg("library.artifacts", (p) => ({ entries: d.artifacts.list(p), total: d.artifacts.count(p.spaceId, p.profileId ?? null, { sessionId: p.sessionId ?? null, perFile: p.perFile }) }));
   reg("library.saved", (p) => d.savedTurns.list(p.profileId, p.limit));
+  // Files a person adds to the Library: copied in under the profile, and listed beside the index.
+  reg("library.add", (p) => d.libraryFiles.add(p));
 
   // Import from the agent CLIs' own stores. `scan` is a pure read — it opens ~/.claude, ~/.codex and
   // ~/.cursor read-only and answers; nothing is created by looking. `apply` is the only writer, and

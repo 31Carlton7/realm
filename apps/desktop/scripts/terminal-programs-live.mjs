@@ -394,7 +394,8 @@ async function main() {
     await sleep(500);
   };
   const closeSettings = async () => {
-    await evalIn(c, `(() => { document.querySelector('.page-overlay button[aria-label^="Close"]').click(); return true; })()`);
+    // Escape puts the page away — its bar draws no close of its own.
+    for (const type of ["keyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     await until(() => evalIn(c, `!document.querySelector('.settings-page-pane')`), 5_000, "back");
     await sleep(600);
   };

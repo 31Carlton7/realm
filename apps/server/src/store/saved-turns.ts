@@ -32,7 +32,7 @@ function replyOf(json: string | null): string | null {
 }
 
 /**
- * The turns a reader saved (migration v40): each row names its prompt's `user_message` event and when
+ * The turns a reader saved (migration v41): each row names its prompt's `user_message` event and when
  * it was saved, and nothing else — every word a list shows is read back off the events themselves.
  */
 export class SavedTurnsStore {

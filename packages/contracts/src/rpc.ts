@@ -7,7 +7,7 @@ import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
 import { SAVED_TURNS_MAX, SavedTurnSchema } from "./saved-turns";
-import { LibraryEntrySchema, LibraryQuerySchema } from "./library";
+import { LibraryAddResultSchema, LibraryAddSchema, LibraryEntrySchema, LibraryQuerySchema } from "./library";
 import { SkillSchema, SkillDetailSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
 import { CommandOriginKindSchema, UserCommandSchema } from "./commands";
 import { ScriptInputSchema, ScriptSchema } from "./scripts";
@@ -519,6 +519,19 @@ export const Methods = {
   "library.saved": {
     params: z.object({ profileId: IdSchema, limit: z.number().int().min(1).max(SAVED_TURNS_MAX).default(SAVED_TURNS_MAX) }),
     result: z.object({ entries: z.array(SavedTurnSchema), total: z.number().int() }),
+  },
+  /**
+   * Add files to the Library: the Files toolbar's Add, or files dropped on the page.
+   *
+   * Each chosen file is COPIED into the profile's own folder in the Realm home and listed as `added`,
+   * belonging to no session. The copy keeps the file's name, made safe, and never replaces anything:
+   * a different file of the same name is kept beside it as `name 2.ext`, and the same file again is
+   * not copied twice. A symbolic link is never followed, among the chosen items or inside a folder.
+   * A folder is only described unless `folders` is set (see `LibraryAddSchema`).
+   */
+  "library.add": {
+    params: LibraryAddSchema,
+    result: LibraryAddResultSchema,
   },
 
   /**

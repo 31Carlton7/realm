@@ -2134,21 +2134,23 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* …except a page that opens or closes the sidebar as it arrives (PageOverlay, `data-cut`): the column
    goes in that frame, and through a page still fading in the panes under it were seen taking its room. */
 .page-overlay[data-cut] { animation: none; }
-/* One bar, carrying what the overlay IS and the way out. The hairline is earned here — the page's
-   own scroller genuinely passes under it. */
-/* No rule under it. The bar holds the page's own name and the control that closes it — chrome FOR
-   the page, not a section beside it — and every page below it already opens with its own heading, so
-   the line was a second edge under a title that had one. The same reading that took the divider off
-   `.md-code-head` and the terminal dock's bar. */
+/* One bar, carrying what the overlay IS. The hairline is earned here — the page's own scroller
+   genuinely passes under it. */
+/* No rule under it. The bar holds the page's own name — chrome FOR the page, not a section beside it —
+   and every page below it already opens with its own heading, so the line was a second edge under a
+   title that had one. The same reading that took the divider off `.md-code-head` and the terminal
+   dock's bar. */
+/* The name alone, with no close at its far end (the owner, 10-05: the sidebar is the way back), so
+   the bar is even at both ends rather than tight round a button that is not there. */
 .page-overlay-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: var(--frame-top);
-  padding: 0 6px 0 14px;
+  padding: 0 14px;
   /* Clear: the head row's chrome under it is `.main`'s, painted the way the rest of the row is — a
      tint laid here again would double it, and an opaque ground would part it from the row. */
   background: none;
   /* The window moves by its top row, and while a page is up this bar IS that row. The pane bars it
      covers are hidden with the panes, so their drag regions go with them, and without its own the
-     whole band above a page held still except over the sidebar's head (reported 10-04). Its close
-     button opts back out, as a pane bar's buttons do. */
+     whole band above a page held still except over the sidebar's head (reported 10-04). Anything
+     clickable put in it opts back out, as a pane bar's buttons do. */
   -webkit-app-region: drag; }
 .page-overlay-bar button { -webkit-app-region: no-drag; }
 /* The frame's rim, carried over the panes it covers: along its top, and — folded, where it meets the
@@ -7258,6 +7260,21 @@ select { appearance: none; padding-right: 22px;
 .library-search { position: relative; display: block; width: 240px; }
 .library-search > svg { position: absolute; left: 11px; top: 50%; translate: 0 -50%; color: var(--rl-text-faint); pointer-events: none; }
 .library-search > .search-field { --search-h: 32px; padding-left: 32px; }
+/* Add, the toolbar's one action, at its end and at the height of the controls beside it. */
+.library-add { --btn-h: 32px; }
+/* A dropped folder's question: a card in the settings grammar, where the drop was, until it is
+   answered — a decision stays (design.md). The sentence is read, so it is the body's second rung in
+   the secondary ink. */
+.library-offer { display: flex; align-items: center; gap: 12px; margin: 0 0 18px; padding: 12px 12px 12px 16px;
+  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); corner-shape: squircle; }
+.library-offer-text { flex: 1; min-width: 0; margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.library-offer-actions { flex: none; display: flex; gap: 8px; }
+/* Files held over the page: a pane's own glow, inset from the page's edge as a session pane's is from
+   its own, naming the gesture in its middle as the media viewer's and the quick chat's do. On the page
+   and not in the column of files, whose content runs to its edges — a ring drawn there went through
+   the title and the first tile. Above the page's scroller, so it holds still while the files move. */
+.library-page-pane { position: relative; }
+.library-page-pane > .library-drop { z-index: 3; display: grid; place-items: center; }
 .library-narrowing { gap: 5px; padding-right: 8px; }
 .library-narrowing > svg { color: var(--rl-text-faint); }
 .library-empty { padding: 8px 0; }

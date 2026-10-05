@@ -30,7 +30,7 @@ const art = (id: string, sessionId: string, path: string, ts: number, extra: Par
 
 /** The pane as a tab of the lead session's side pane — the way its bar's Documents button opens it —
  *  or, with `owned: false`, as a pane of its own. */
-async function mount(o: { artifacts?: LibraryEntry[]; files?: Record<string, string>; checkout?: string[]; owned?: boolean } = {}) {
+async function mount(o: { artifacts?: LibraryEntry[]; addedProfiles?: Record<string, string>; files?: Record<string, string>; checkout?: string[]; owned?: boolean } = {}) {
   const api = fakeApi({
     items: { s1: [item("i-lead", "s1", { kind: "session", refId: "lead", title: "Pricing page" }), docsItem] },
     sessions: [session("lead", "s1", { environmentId: ENV.id, cwd: ROOT, title: "Pricing page" })],
@@ -38,6 +38,7 @@ async function mount(o: { artifacts?: LibraryEntry[]; files?: Record<string, str
     documentWorkspaces: { docs1: { id: "docs1", spaceId: "s1", environmentId: ENV.id, openPaths: [], activePath: null, createdAt: 0, updatedAt: 0 } },
     documentFiles: { docs1: { ...o.files } },
     artifacts: o.artifacts ?? [],
+    addedProfiles: o.addedProfiles ?? {},
     projectFiles: { hits: (o.checkout ?? []).map((path) => ({ path, score: 1, segments: [{ text: path, match: false }] })), source: "git", truncated: false },
   });
   const store = createAppStore(api);
@@ -80,6 +81,20 @@ describe("the documents home", () => {
     const session = screen.getByRole("region", { name: "This session" });
     expect([...session.querySelectorAll(".docs-home-detail")].map((d) => d.textContent)).toEqual(["notes", "Attached"]);
     expect(within(screen.getByRole("region", { name: "Library" })).getByText("Onboarding copy")).toBeTruthy();
+  });
+
+  it("lists a file the person added under the Library, as Added — and one added from the page over it, at once", async () => {
+    /* One index, whichever surface reads it. THE mutant: the home asks again only when its session
+       moves, so a file added from the Library page over this pane is missing until the agent next
+       writes something. */
+    const scan: LibraryEntry = { id: "f1", sessionId: null, spaceId: null, kind: "added", path: "/realm-home/library/p1/scan.pdf", name: "scan.pdf",
+      ext: "pdf", ts: 90, sessionTitle: null, agentKind: null };
+    const { store } = await mount({ artifacts: [scan], addedProfiles: { f1: "p1" } });
+    expect(await namesIn("Library")).toEqual(["scan.pdf"]);
+    expect(within(screen.getByRole("region", { name: "Library" })).getByText("Added")).toBeTruthy();
+    expect(rowFor("scan.pdf").title).toContain("Added by you");
+    await act(async () => { await store.getState().addLibraryFiles("p1", ["/Users/ada/Desktop/brief.md"]); });
+    await waitFor(async () => expect(await namesIn("Library")).toEqual(["brief.md", "scan.pdf"]));
   });
 
   it("says, in a brand-new session, that the agent's files will appear here — and still lists the Library", async () => {

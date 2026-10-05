@@ -251,15 +251,18 @@ function ViewerHead({ viewer, facts, onClose }: { viewer: ViewerState; facts: Fa
 
 /** Where a Library file came from, as the one line the Library knows. A session Realm can still reach
  *  is a way to it; a deleted one is named, not offered — a jump that lands on nothing is a worse way
- *  to learn it is gone than the sentence. */
+ *  to learn it is gone than the sentence. A file the person added has no session to go to, and says
+ *  only that. */
 function Provenance({ from, onLeave }: { from: FileProvenance; onLeave: () => void }) {
   const sessionSpace = useApp((s) => s.sessionSpace);
   const revealSession = useApp((s) => s.revealSession);
   const run = useApp((s) => s.run);
-  const said = `${from.kind === "upload" ? "Uploaded to " : "Made in "}${from.sessionTitle}`;
-  if (!(from.sessionId in sessionSpace)) return <span className="media-viewer-from">{said} — that session is gone.</span>;
+  const sessionId = from.sessionId;
+  if (from.kind === "added" || sessionId === null) return <span className="media-viewer-from">Added by you</span>;
+  const said = `${from.kind === "upload" ? "Attached to " : "Made in "}${from.sessionTitle ?? "a session"}`;
+  if (!(sessionId in sessionSpace)) return <span className="media-viewer-from">{said} — that session is gone.</span>;
   return (
-    <button type="button" className="btn-quiet media-viewer-from" onClick={() => { onLeave(); run(() => revealSession(from.sessionId, from.spaceId)); }}>
+    <button type="button" className="btn-quiet media-viewer-from" onClick={() => { onLeave(); run(() => revealSession(sessionId, from.spaceId)); }}>
       {said}
     </button>
   );

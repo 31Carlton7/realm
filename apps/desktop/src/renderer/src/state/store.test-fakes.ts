@@ -2,7 +2,7 @@
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
-import { artifactTypeOf, basenameOf, expandCommand, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type MentionRef } from "@realm/contracts";
+import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
 
@@ -336,6 +336,14 @@ export type FakeData = {
   /** The Library's file index, as one flat list. The fake pages and filters it here rather than
    *  answering a fixed page, so a test can prove the page's own paging without a server. */
   artifacts?: LibraryEntry[];
+  /** The profile each ADDED file in `artifacts` belongs to, by entry id — an added file has no space
+   *  for the fake to read its profile off, as it has none on the server. */
+  addedProfiles?: Record<string, string>;
+  /** What `library.add` answers. Absent, the fake copies every path in as an added file (folders are
+   *  whatever the test says they are: `addFolders`), and lists it in `artifacts` from then on. */
+  libraryAdd?: ((input: LibraryAddInput) => LibraryAddResult) | null;
+  /** The paths `library.add` should treat as folders, with what each holds. */
+  addFolders?: Record<string, { files: string[]; bytes: number; subfolders: number }>;
   /** `iconAssets.list` by profile id — the space icon picker's "Generated"/"Uploaded" library. */
   iconAssets?: Record<string, IconAsset[]>;
   /** What `pickIconImage()` answers with. Defaults to null (cancelled) — a test opts in by setting
@@ -534,6 +542,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     delegableModels: overrides.delegableModels ?? { models: [], own: { kind: "claude", label: "Fable 5.1" } },
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
     artifacts: overrides.artifacts ?? [],
+    addedProfiles: overrides.addedProfiles ?? {},
+    libraryAdd: overrides.libraryAdd ?? null,
+    addFolders: overrides.addFolders ?? {},
     iconAssets: overrides.iconAssets ?? {},
     pickIconImage: overrides.pickIconImage ?? null,
   };
@@ -731,9 +742,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (q.sessionId != null) calls.push(`libraryArtifactsSession:${q.sessionId}`);
       calls.push(`libraryArtifacts:${q.spaceId ?? "all"}:${q.kind ?? "any"}:${q.type ?? "any"}:${q.query ?? ""}`);
       await wait("libraryArtifacts");
-      // A profile narrows to its spaces, as the server's join does.
-      const ofProfile = (spaceId: string) => q.profileId == null || data.spaces.find((x) => x.id === spaceId)?.profileId === q.profileId;
-      const scoped = data.artifacts.filter((a) => ofProfile(a.spaceId)
+      // A profile narrows to its spaces, as the server's join does — and to its own added files, which
+      // are in no space.
+      const ofProfile = (a: LibraryEntry) => q.profileId == null
+        || (a.spaceId === null ? data.addedProfiles[a.id] === q.profileId : data.spaces.find((x) => x.id === a.spaceId)?.profileId === q.profileId);
+      const scoped = data.artifacts.filter((a) => ofProfile(a)
         && (q.spaceId == null || a.spaceId === q.spaceId) && (q.sessionId == null || a.sessionId === q.sessionId));
       // One row per file, its newest — the server's collapse, done before the keyset as it is there.
       const collapse = (rows: LibraryEntry[]) => !q.perFile ? rows
@@ -749,6 +762,27 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         : matching.filter((a) => a.ts < before.ts || (a.ts === before.ts && a.id < before.id));
       const total = collapse(scoped).length;
       return { entries: after.slice(0, q.limit ?? LIBRARY_PAGE_SIZE), total };
+    },
+    addLibraryFiles: async (input) => {
+      calls.push(`addLibraryFiles:${input.profileId}:${input.folders ? "folders:" : ""}${input.paths.join(",")}`);
+      await wait("addLibraryFiles");
+      if (data.libraryAdd) return data.libraryAdd(input);
+      const result: LibraryAddResult = { added: [], renamed: [], skipped: [], folders: [] };
+      const copy = (path: string) => {
+        const name = basenameOf(path);
+        const entry: LibraryEntry = { id: `added:${++n}`, sessionId: null, spaceId: null, kind: "added", path: `/realm-home/library/${input.profileId}/${name}`,
+          name, ext: extOf(name), ts: Date.now(), sessionTitle: null, agentKind: null };
+        data.artifacts.unshift(entry);
+        data.addedProfiles[entry.id] = input.profileId;
+        result.added.push(entry);
+      };
+      for (const path of input.paths) {
+        const folder = data.addFolders[path];
+        if (!folder) { copy(path); continue; }
+        if (input.folders) for (const f of folder.files) copy(f);
+        else result.folders.push({ path, name: basenameOf(path), files: folder.files.length, bytes: folder.bytes, subfolders: folder.subfolders, more: folder.files.length > LIBRARY_ADD_MAX });
+      }
+      return result;
     },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
     listEnvironments: async (sid) => { calls.push(`listEnvironments:${sid}`); await wait(`listEnvironments:${sid}`); return data.environments[sid] ?? []; },
