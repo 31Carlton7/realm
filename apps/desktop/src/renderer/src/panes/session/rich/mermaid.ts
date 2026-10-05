@@ -108,23 +108,38 @@ function gate(): DOMPurify {
     const name = data.attrName;
     if (name === "href" || name === "xlink:href") { if (!data.attrValue.trim().startsWith("#")) data.keepAttr = false; return; }
     if (name === "style" || /url\s*\(/i.test(data.attrValue)) data.attrValue = scrubCss(data.attrValue);
+    // Mermaid marks a node with a link or a callback `clickable`, and its own sheet gives that class
+    // the hand: a click that does nothing here may not be offered.
+    if (name === "class") data.attrValue = data.attrValue.replace(/\bclickable\b/g, "").replace(/\s+/g, " ").trim();
   });
   return (purifier = p);
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
 /**
  * Mermaid's SVG, as Realm will put it on screen: the SVG profile, minus what links, embeds, fetches
  * or animates. Returns the cleaned `<svg>` element, or null when nothing drawable is left.
+ *
+ * A link becomes a plain group rather than being dropped around its content: Mermaid positions a
+ * linked node by a `transform` on the `<a>` itself, so a node unwrapped down to its children lands
+ * at the drawing's origin. The group keeps every attribute the link had except where it led.
  */
 export function sanitizeDiagram(svg: string): SVGSVGElement | null {
   const frag = gate().sanitize(svg, {
     USE_PROFILES: { svg: true, svgFilters: true },
-    // `a` keeps its content — a linked node is still a node, just not a link. The rest go whole.
-    FORBID_TAGS: ["a", "image", "feImage", "foreignObject", "use", "script", "iframe", "animate", "set", "animateMotion", "animateTransform", "animateColor"],
+    FORBID_TAGS: ["image", "feImage", "foreignObject", "use", "script", "iframe", "animate", "set", "animateMotion", "animateTransform", "animateColor"],
     RETURN_DOM_FRAGMENT: true,
   });
   const root = frag.firstElementChild;
-  return root instanceof SVGSVGElement ? root : null;
+  if (!(root instanceof SVGSVGElement)) return null;
+  for (const a of Array.from(root.getElementsByTagNameNS(SVG_NS, "a"))) {
+    const g = root.ownerDocument.createElementNS(SVG_NS, "g");
+    for (const attr of Array.from(a.attributes)) if (!/^(?:xlink:)?href$|^target$/i.test(attr.name)) g.setAttribute(attr.name, attr.value);
+    g.append(...Array.from(a.childNodes));
+    a.replaceWith(g);
+  }
+  return root;
 }
 
 /** The drawing's own size, read off its viewBox — Mermaid sets a max-width style and a 100% width on

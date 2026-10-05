@@ -28,10 +28,16 @@ describe("sanitizeDiagram — what a diagram may put on screen", () => {
     expect(out).toContain(">Click me</text>");
   });
 
-  it("unwraps an ordinary link to its text — a diagram's links are not Realm's to follow", () => {
-    const out = clean('<a href="https://example.com/x" target="_blank"><g class="node"><text>Docs</text></g></a>');
+  it("turns a link into a plain group — a diagram's links are not Realm's to follow, and its node stays put", () => {
+    // THE MUTANT: drop the link around its content instead, and Mermaid's linked node loses the
+    // position it carries on the `<a>` — it is drawn at the origin, over the top of the diagram.
+    const out = clean('<a href="https://example.com/x" target="_blank" transform="translate(96, 32.5)" class="node-link"><g class="node"><text>Docs</text></g></a>');
     expect(out).not.toMatch(/<a\b|example\.com|target=/);
-    expect(out).toContain(">Docs</text>");
+    expect(out).toContain('<g transform="translate(96, 32.5)" class="node-link"><g class="node"><text>Docs</text></g></g>');
+  });
+
+  it("takes away the hand Mermaid's sheet gives a node it thinks is clickable", () => {
+    expect(clean('<g class="node default clickable" id="n"><text>B</text></g>')).toContain('<g class="node default" id="n">');
   });
 
   it("removes what would fetch: pictures, embedded HTML, external uses and filter images", () => {

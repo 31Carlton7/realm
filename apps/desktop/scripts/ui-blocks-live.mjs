@@ -386,10 +386,11 @@ async function main() {
   await api.call("sessions.send", { id: session.id, text: "Then draw a hostile diagram", attachments: [], mentions: [] });
   const hostile = await until(() => evalIn(c, `(() => { const holders = [...document.querySelectorAll(".session-pane .md-block[data-ui-block=diagram]")];
     if (holders.length < 4) return null; const [h, pic] = holders.slice(-2); const b = h.querySelector(".ui-block"); const reason = (x) => x.querySelector(".md-block-reason")?.textContent || null;
-    if (!b && !reason(h)) return null; if (!pic.querySelector(".ui-block") && !reason(pic)) return null; const svg = b?.querySelector("svg");
+    if (!b && !reason(h)) return null; if (!pic.querySelector(".ui-block") && !reason(pic)) return null; const svg = b?.querySelector(".ui-diagram svg");
     return { drawn: !!b, reason: reason(h), forbidden: svg ? svg.querySelectorAll("a, image, foreignObject, script, use").length : 0,
       external: svg ? /example\.com/.test(svg.outerHTML) : false, labels: svg ? [...svg.querySelectorAll("text")].map((t) => t.textContent.trim()).filter(Boolean) : [],
       clickable: svg ? svg.querySelectorAll(".clickable, [onclick]").length : 0, picture: { drawn: !!pic.querySelector(".ui-block"), reason: reason(pic) } }; })()`), 30_000, "the hostile diagrams");
+  if (process.env.LIVE_DUMP) fs.writeFileSync(path.join(OUTDIR, "hostile.svg"), await evalIn(c, `[...document.querySelectorAll(".session-pane .md-block[data-ui-block=diagram]")].at(-2).querySelector(".ui-diagram svg")?.outerHTML ?? ""`));
   check("a hostile diagram draws, as a drawing only: no link, no picture, no reference to anywhere", hostile.drawn && hostile.forbidden === 0 && !hostile.external
     && ["Open the docs", "Run the setup", "Ship it"].every((l) => hostile.labels.includes(l)), hostile);
   check("a diagram that would load a picture to lay itself out is left as code, saying so",
