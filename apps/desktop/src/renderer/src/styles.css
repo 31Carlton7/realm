@@ -3039,6 +3039,13 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
 .msg-user-row[data-from] { gap: 3px; }
 .msg-user-row[data-from] .msg-user { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 30%, transparent); }
 .msg-user-from { font-size: 11px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding-right: 2px; }
+/* When the message was sent (Transcript.tsx), under the bubble at its edge — shown to the pointer and
+   to the keyboard, never at rest, where a clock time under every message would be the loudest column
+   in a quiet log. It keeps its line while hidden, so nothing moves as it appears; the hover lands at
+   once and only the release fades. */
+.msg-user-at { padding-right: 2px; border-radius: var(--r-chip); font-size: 12px; line-height: 16px;
+  color: var(--rl-text-faint); font-variant-numeric: tabular-nums; opacity: 0; transition: opacity var(--dur-hover) ease; }
+.msg-user-row:hover .msg-user-at, .msg-user-at:focus-visible { opacity: 1; transition-duration: 0s; }
 /* The goal's own turns: the attribution IS the control that opens them. Right-aligned with the rest
    of the user column, and quiet — it is a label first and a disclosure second. */
 .msg-goal-turn { display: inline-flex; align-items: center; gap: 2px; }
@@ -3246,9 +3253,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    than the live label — it is scrollback now, not the thing to watch — and tabular so a column of
    these down a long session does not jitter as the digits change. */
 .msg-run { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-/* Dimmer than the duration beside it. "How long did that take" is the question the line is answering;
-   "when did it end" is the one you only ask on the way back to an old session. */
-.msg-run-at { color: color-mix(in srgb, var(--rl-text-faint) 72%, transparent); }
+/* The same ink as the duration beside it, not a step under it: "when did it end" is half of what the
+   line is for, and the faint tier is the quietest one that still clears AA — a timestamp mixed below
+   it was a timestamp a reader had to squint at. */
+.msg-run-at { color: var(--rl-text-faint); }
 /* The closing line of a settled session. Quieter than the run label above it and italic, because it
    is the one line in the transcript that is Realm talking about the session rather than anything
    that happened in it — a register the reader should be able to tell apart without reading the

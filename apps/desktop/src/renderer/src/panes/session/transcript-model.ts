@@ -83,7 +83,14 @@ export type Block =
       /** The user pressed stop. The line says so instead of reporting the work as finished — and it
        *  is the only thing the transcript keeps about a cancelled turn, because the harness's own
        *  diagnostic for one is a fact about an API call, not about anything the reader did. */
-      stopped?: boolean };
+      stopped?: boolean;
+      /** The turn ended on a failure: the harness settled it with `error`, or the last thing it left
+       *  in the log is the error it died on. The line says "Failed after", because the run label's
+       *  playful past tense reads as a job that finished. Never set alongside `stopped`. */
+      failed?: boolean;
+      /** Measured from the user's message rather than from a `running` status, because the turn never
+       *  reported one (see `unsettledTurn`). The line uses plain words for it, not the run's verb. */
+      derived?: boolean };
 
 export type Rating = "up" | "down";
 export type PendingPermission = { requestId: string; toolName: string; input: Record<string, unknown>; title: string };
@@ -172,6 +179,32 @@ const dropPending = (blocks: Block[]): Block[] => {
 
 const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for (let i = blocks.length - 1; i >= 0; i--) if (pred(blocks[i]!)) return i; return -1; };
 
+/** What the agent said or did, as opposed to the seams and marks Realm draws around it. */
+const AGENT_OUTPUT = new Set<Block["kind"]>(["assistant", "thinking", "tool", "error", "plan"]);
+
+/**
+ * The trailing turn, when it produced something and was never banked as a run.
+ *
+ * The run line is written when a `running` status settles, and a turn that failed before its agent
+ * ever reported running — a CLI that would not start, a send into an adapter that had already exited
+ * — never opened one. It still has two real timestamps, the message that asked and the last thing
+ * that came back, and those are enough to say when it ended and how long it took. Null when the turn
+ * already has its run line, has produced nothing yet, or has no message of the user's to measure from.
+ */
+function unsettledTurn(blocks: readonly Block[]): { startedAt: number; lastTs: number; failed: boolean } | null {
+  let last: Block | null = null;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]!;
+    if (b.kind === "run") return null;
+    if (b.kind === "user") return last ? { startedAt: b.ts, lastTs: last.ts, failed: last.kind === "error" } : null;
+    if (!last && AGENT_OUTPUT.has(b.kind)) last = b;
+  }
+  return null;
+}
+
+const derivedRun = (u: { startedAt: number; failed: boolean }, ts: number): Block =>
+  ({ kind: "run", ms: Math.max(0, ts - u.startedAt), startedAt: u.startedAt, ts, derived: true, ...(u.failed ? { failed: true } : {}) });
+
 /** Pure reducer: normalized session events → what the transcript renders. Deltas accumulate into the open
  *  streaming assistant block; the final `assistant_text` replaces it. */
 /**
@@ -189,7 +222,15 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
        written about the turn that had just ended, and the moment the user sends anything it is a
        suggestion about a turn that is no longer the last one. The prompter shows the deterministic
        ladder in the gap until the next settle produces a new one. */
-    case "user_message": blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ts: e.ts }); return { ...t, blocks, promptHint: null };
+    case "user_message": {
+      // The turn before this one never settled into a run line: it is closed at the last thing it
+      // produced, ahead of the unseen mark if this event carries one — it is the end of a turn the
+      // reader has already seen.
+      const open = t.run ? null : unsettledTurn(t.blocks);
+      if (open) blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
+      blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ts: e.ts });
+      return { ...t, blocks, promptHint: null };
+    }
     case "assistant_delta": {
       if (last?.kind === "assistant" && last.messageId === e.payload.messageId && last.streaming) blocks[blocks.length - 1] = { ...last, text: last.text + e.payload.delta };
       else blocks.push({ kind: "assistant", messageId: e.payload.messageId, text: e.payload.delta, streaming: true, ts: e.ts });
@@ -354,12 +395,22 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
           return { ...t, run: { ...run, waitingSince: e.ts } };
         // idle / error / ended all settle the run. Each also arrives with no run open — an adapter
         // announces `idle` when it boots and `ended` after the `idle` that closed the last turn — and
-        // there the event is nothing: no clock was started, so there is no span to report.
+        // there the event is nothing: no clock was started, so there is no span to report. Unless the
+        // turn produced something without ever starting one (`unsettledTurn`), which still gets its
+        // line, dated at the last thing it produced rather than at whenever the adapter went quiet.
         default: {
-          if (!run) return t;
+          if (!run) {
+            const open = unsettledTurn(t.blocks);
+            if (!open) return t;
+            blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
+            return { ...t, blocks };
+          }
           const waited = run.waitedMs + (run.waitingSince === null ? 0 : e.ts - run.waitingSince);
+          // A stop wins over a failure: the harness's diagnostic for a cancelled turn is about the
+          // API call it cut short, and the reader pressed stop — that is what the line has to say.
+          const failed = e.payload.status === "error" || last?.kind === "error";
           blocks.push({ kind: "run", ms: Math.max(0, e.ts - run.startedAt - waited), startedAt: run.startedAt, ts: e.ts,
-            ...(e.payload.interrupted ? { stopped: true } : {}) });
+            ...(e.payload.interrupted ? { stopped: true } : failed ? { failed: true } : {}) });
           return { ...t, blocks, run: null };
         }
       }

@@ -12,8 +12,9 @@ import { sourcesFor, type Source } from "./message-sources";
 import { PendingRequest } from "./PendingRequest";
 import { PlanCard } from "./PlanCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
-import { finishedAt, finishedOn, formatDuration, groupTranscript, withEnter } from "./tool-group";
-import { blockKey, lastUserMessage, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
+import { formatDuration, groupTranscript, withEnter } from "./tool-group";
+import { blockKey, lastUserMessage, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
+import { stampLabel, stampTitle, useNow } from "./timestamps";
 import { useDissolve } from "../../components/ScrollFades";
 import { runLabelFor, type RunLabel } from "./run-label";
 import { formatTokens } from "./SessionUsage";
@@ -34,6 +35,20 @@ function Thinking({ text, enter }: { text: string; enter?: boolean }) {
       {open && <Markdown text={text} className="thinking-body" />}
     </div>
   );
+}
+
+/**
+ * What a settled turn's line says about it. The run's own verb in the past tense — "Simmered for 4s"
+ * under the "Simmering…" the reader was watching — except where that would misreport the turn: one
+ * the user stopped, one that failed, and one measured from the outside because it never reported
+ * running, which has no verb of its own to settle into.
+ */
+function runSummary(b: Extract<Block, { kind: "run" }>, eggs: boolean, packLabels: readonly RunLabel[]): string {
+  const took = formatDuration(b.ms);
+  if (b.stopped) return `Stopped after ${took}`;
+  if (b.failed) return `Failed after ${took}`;
+  if (b.derived) return `Worked for ${took}`;
+  return `${runLabelFor(b.startedAt, undefined, eggs, packLabels).past} for ${took}`;
 }
 
 /** Stable empty default: a fresh array per render would re-run the label memo every keystroke. */
@@ -348,6 +363,8 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
      the pane bar rules no line — without it a message scrolling up to the bar arrives at a hard cut. */
   useDissolve(ref);
   const wrap = useRef<HTMLDivElement>(null);
+  // The reader's day, for choosing how each timestamp is said — never for what time it says.
+  const now = useNow();
 
   return (
     <div className="transcript-wrap" ref={wrap}>
@@ -384,6 +401,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                 {b.goal
                   ? <GoalTurn kind={b.goal} text={b.text} />
                   : b.text && <UserText text={b.text} mentionIds={mentionIds} />}
+                {/* When it was sent, under the bubble — shown to the pointer, and to the keyboard,
+                    which is why it takes focus: a time only a mouse can reveal is one a keyboard
+                    reader never gets. */}
+                <time className="msg-user-at" dateTime={new Date(b.ts).toISOString()} title={stampTitle(b.ts)}
+                  aria-label={`Sent ${stampTitle(b.ts)}`} tabIndex={0}>{stampLabel(b.ts, now)}</time>
               </div>);
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
               actions={settled && key === lastAssistantKey} onPath={onPath}
@@ -413,11 +435,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             // A turn the user stopped says so, on the same quiet line and in the same place. It does
             // not get the run's playful past tense: "Simmered for 4s" reads as a job that finished.
             case "run": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>
-              <span>{b.stopped ? `Stopped after ${formatDuration(b.ms)}` : `${runLabelFor(b.startedAt, undefined, eggs, packLabels).past} for ${formatDuration(b.ms)}`}</span>
+              <span>{runSummary(b, eggs, packLabels)}</span>
               {/* When it finished. A duration alone reads the same whether the run ended a minute
-                  ago or last Tuesday, and a transcript you come back to is where that matters. The
-                  full date rides the tooltip, because a clock time is ambiguous across midnight. */}
-              <span className="msg-run-at" title={finishedOn(b.ts)}>{finishedAt(b.ts)}</span>
+                  ago or last Tuesday, and a transcript you come back to is where that matters. Dated
+                  from the settle itself, and the full date rides the tooltip. */}
+              <time className="msg-run-at" dateTime={new Date(b.ts).toISOString()} title={stampTitle(b.ts)}>{stampLabel(b.ts, now)}</time>
             </div>;
             // The seam. Everything above it is one agent's voice and everything below is another's,
             // so it is drawn AS a seam — a rule across the column with the sentence set into it —

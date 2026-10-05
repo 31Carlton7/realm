@@ -3,7 +3,8 @@ import { render, screen, fireEvent, cleanup, within, act } from "@testing-librar
 import { ToolCard, ToolGroup, RESULT_CLAMP } from "./ToolCard";
 import { editStat } from "./tool-summary";
 import * as summaryModule from "./tool-summary";
-import { GROUP_MIN, finishedAt, finishedOn, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, withEnter, type ToolBlock, type ToolNode } from "./tool-group";
+import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, withEnter, type ToolBlock, type ToolNode } from "./tool-group";
+import { stampLabel, stampTitle } from "./timestamps";
 import { Transcript } from "./Transcript";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 
@@ -507,25 +508,15 @@ describe("settled tool cards do not re-render behind a streaming answer", () => 
 describe("when a turn finished", () => {
   const ts = new Date(2026, 8, 7, 16, 12).getTime();
 
-  it("is a clock time, because that is the question a duration cannot answer", () => {
-    // "Cooked for 2m" reads the same whether the run ended a minute ago or last Tuesday, and a
-    // transcript you come back to is exactly where that matters.
-    expect(finishedAt(ts)).toMatch(/\b4:12\b/);
-  });
-
-  it("carries the date in full for the tooltip, since a clock time wraps at midnight", () => {
-    const full = finishedOn(ts);
-    expect(full).toMatch(/2026/);
-    expect(full).toMatch(/4:12/);
-  });
-
-  it("rides the settled run line beside the duration", () => {
+  it("rides the settled run line beside the duration, dated from the settle and not from now", () => {
     const blocks: Block[] = [{ kind: "run", ms: 125_000, startedAt: ts - 125_000, ts }];
     const t: TranscriptModel = { blocks, pendingPermissions: [],
       usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null, promptHint: null };
     render(<Transcript transcript={t} sessionStatus="idle" onDecide={() => {}} />);
     const line = document.querySelector(".msg-run")!;
     expect(line.textContent).toContain("2m");
-    expect(within(line as HTMLElement).getByTitle(finishedOn(ts)).textContent).toBe(finishedAt(ts));
+    const at = within(line as HTMLElement).getByTitle(stampTitle(ts));
+    expect(at.textContent).toBe(stampLabel(ts, Date.now()));
+    expect(at.getAttribute("datetime")).toBe(new Date(ts).toISOString());
   });
 });
