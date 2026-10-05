@@ -5,8 +5,8 @@ import { createPortal } from "react-dom";
 import type { StoreApi } from "zustand";
 import { getBrowserBridges } from "../panes/browser/browser-client";
 import { centerOverComplement } from "../state/no-overlay";
-import { useApp, useAppStore, useBrowserRects, type AppState } from "../state/store";
-import { APP_PICKER_ATTR, accessibleName, componentChain, describeAppElement, roleOf, selectorFor, type AppPickDescription } from "./describe";
+import { useApp, useAppStore, useBrowserRects, type AppState, type PickedAttachment } from "../state/store";
+import { accessibleName, componentChain, describeAppElement, roleOf, selectorFor, type AppPickDescription } from "./describe";
 import { armAppPicker, type AppPicker } from "./picker";
 
 /**
@@ -55,7 +55,7 @@ const titleOf = (s: AppState, sessionId: string): string =>
   s.items.find((i) => i.kind === "session" && i.refId === sessionId)?.title ?? s.sessions[sessionId]?.title ?? "the prompter";
 
 /** The chip, and the picture beside it, in the session's draft — and a word about where it went. */
-function deliver(store: StoreApi<AppState>, sessionId: string, element: AppPickedElement | BrowserPickedElement, file: { path: string; mime: string; name: string; size: number } | null): void {
+function deliver(store: StoreApi<AppState>, sessionId: string, element: AppPickedElement | BrowserPickedElement, file: PickedAttachment | null): void {
   const s = store.getState();
   const title = titleOf(s, sessionId);
   const label = s.addElementChip(sessionId, element);
@@ -90,7 +90,7 @@ function runAppPick(store: StoreApi<AppState>, sessionId: string): () => void {
     phase = "taking";
     const described: AppPickDescription = describeAppElement(el);
     picker.hide();
-    let shot: { file: { path: string; mime: string; name: string; size: number } | null; webView: boolean } | null = null;
+    let shot: { file: PickedAttachment | null; webView: boolean } | null = null;
     if (bridge) {
       await painted();
       const name = appElementName(described);
@@ -140,7 +140,7 @@ export function AppPickerBridge() {
   if (!pick) return null;
   const spot = centerOverComplement({ width: window.innerWidth, height: window.innerHeight }, views, HINT_WIDTH);
   return createPortal(
-    <div className="app-picker-hint" {...{ [APP_PICKER_ATTR]: "" }} role="status"
+    <div className="app-picker-hint" data-app-picker="" role="status"
       style={spot ? { left: spot.left + spot.width / 2 } : undefined}>
       <Icon name="select" size={14} />
       <span>Click a part of Realm</span>

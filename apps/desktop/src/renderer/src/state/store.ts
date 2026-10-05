@@ -2159,9 +2159,9 @@ export type AppState = {
    *  runs an installer. */
   prefillTerminal(sessionId: string, command: string): Promise<void>;
   setDraft(sessionId: string, text: string): void;
-  /** Drop an element picked in a browser pane into a session's composer, as a chip. Answers the label
-   *  the chip went in under, so the browser pane can name what it just sent — or null when the draft
-   *  is already carrying `MAX_ELEMENT_CHIPS`. */
+  /** Drop an element picked in a browser pane — or a part of Realm's own window (app-pick/) — into a
+   *  session's composer, as a chip. Answers the label the chip went in under, so the picker can name
+   *  what it just sent — or null when the draft is already carrying `MAX_ELEMENT_CHIPS`. */
   addElementChip(sessionId: string, element: PickedElement): string | null;
   /** Plan 26 W7d: an annotation — several elements pinned on one page and Sent together — as ONE chip,
    *  `@[3 annotations]`, whose sidecar entries share its label and carry their pin numbers. `shot` is
