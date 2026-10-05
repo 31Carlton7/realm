@@ -742,7 +742,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       // put per-tool delegation policy in the gateway, which is exactly where it does not belong.
       const spentChild = agentRuns?.isChild(sessionId) && !agentRuns.canDelegate(sessionId);
       return spentChild || reviews?.isChild(sessionId) ? { exclude: [REALM_AGENT_PROVIDER_NAME] } : null;
-    } });
+    },
+    // Activity keeps no masked answer: what a session was told in secret is scrubbed from its calls.
+    redact: (sessionId, text) => sessionService?.scrubSecrets(sessionId, text) ?? text });
   gateway = mcpGateway;
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
