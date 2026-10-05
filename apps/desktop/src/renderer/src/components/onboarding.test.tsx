@@ -280,6 +280,17 @@ describe("first-run onboarding", () => {
       expect(api.data.projects[store.getState().spaces[0]!.id] ?? []).toEqual([]);
     });
 
+    it("without one, says where the first space will work — under the name it will have, in the profile it goes into", async () => {
+      /* The same field the New space sheet uses, fed first run's own answers. THE mutants: the typed
+         name instead of the name the space will actually get (blank means "Home"), or a profile other
+         than the one `completeOnboarding` makes it in. */
+      const { api } = await mountFresh();
+      expect(await screen.findByText("/home/work/home")).toBeInTheDocument();
+      fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), { target: { value: "Versed" } });
+      expect(await screen.findByText("/home/work/versed")).toBeInTheDocument();
+      expect(api.calls).toContain("spaceFolderFor:p1:Versed");
+    });
+
     it("a typed name beats the folder's", async () => {
       const { store } = await mountFresh();
       fireEvent.click(screen.getByRole("button", { name: "Choose folder…" }));
