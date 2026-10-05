@@ -45,6 +45,8 @@ import {
   HierarchySquare02Icon,
   // The window's two panel toggles: the sidebar on the left, the side pane on the right.
   LayoutLeftIcon, LayoutRightIcon,
+  // A device's own toolbar (SimulatorBar.tsx): turning it, selecting its elements, its volume down.
+  ScreenRotationIcon, CursorRectangleSelection01Icon, VolumeLowIcon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
@@ -176,6 +178,11 @@ export const icons = {
      ruled off at its side. `sidebar` is the older glyph with list rows drawn in the panel — at 14px
      beside the traffic lights the rows were a smudge, and the bare rule is the cleaner mark. */
   panelLeft: LayoutLeftIcon, panelRight: LayoutRightIcon,
+  /* A device's own controls. Rotate is a phone turning between two arrows — the `reload` arrow it wore
+     says "load again". The elements overlay is a selection drawn over the screen, the pointer in a
+     dashed box. Volume down is the speaker with one wave: the struck-through one it borrowed from
+     playback says mute, which is a different button. */
+  rotate: ScreenRotationIcon, select: CursorRectangleSelection01Icon, volumeLow: VolumeLowIcon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

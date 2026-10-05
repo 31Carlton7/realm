@@ -37,9 +37,10 @@ vi.mock("../../rpc/client", () => ({
 }));
 
 import { SimulatorPane } from "./SimulatorPane";
-import { SimulatorPanelActions } from "./SimulatorBar";
+import { PanelBar } from "../../components/PanelBar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
+import { exited } from "../../components/popover-exit.test-fakes";
 
 function off(id: string): SimulatorState {
   return { simulatorId: id, status: "off", udid: null, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null, physical: false };
@@ -54,6 +55,8 @@ const RUNNING: SimulatorState = {
 /** The device's input socket. jsdom has no WebSocket that connects to anything, so this stands in
  *  for one and records the frames the pane sends. */
 const sockets: FakeSocket[] = [];
+/** Whether a new socket opens: off, it stays connecting for as long as the test looks at it. */
+let socketsOpen = true;
 class FakeSocket {
   static OPEN = 1;
   readyState = 1;
@@ -62,7 +65,7 @@ class FakeSocket {
   onopen: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
-  constructor(readonly url: string) { sockets.push(this); queueMicrotask(() => this.onopen?.()); }
+  constructor(readonly url: string) { sockets.push(this); if (socketsOpen) queueMicrotask(() => this.onopen?.()); }
   send(f: Uint8Array) { this.sent.push(f); }
   close() { this.readyState = 3; this.onclose?.(); }
 }
@@ -100,8 +103,20 @@ async function mount(state: SimulatorState = off("sim-1")) {
   return { store, ...r };
 }
 
+/** The device's toolbar, over the device. */
+const toolbar = () => within(screen.getByRole("group", { name: "Device controls" }));
+/** The toolbar's overflow, opened. */
+async function openMore(): Promise<HTMLElement> {
+  fireEvent.click(toolbar().getByRole("button", { name: "More device controls" }));
+  return screen.findByRole("menu", { name: "More device controls" });
+}
+/** Its rows' names in order, a rule between groups written as "—". */
+const rowNames = (menu: HTMLElement) => [...menu.querySelectorAll('[role^="menuitem"], [role="separator"]')]
+  .map((r) => (r.getAttribute("role") === "separator" ? "—" : r.querySelector(".menu-label")?.textContent ?? r.textContent));
+const frameRow = (menu: HTMLElement) => within(menu).getByRole("menuitemcheckbox", { name: "Show device frame" });
+
 beforeEach(() => {
-  calls.length = 0; sockets.length = 0; settings = {}; platform = "ios";
+  calls.length = 0; sockets.length = 0; settings = {}; platform = "ios"; socketsOpen = true;
   devices = [
     { udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false },
     { udid: "UDID-2", platform: "ios", name: "iPad Pro 13-inch", runtime: "iPadOS 27.0", state: "Booted", serial: null, physical: false },
@@ -334,7 +349,7 @@ describe("the device frame", () => {
     expect(art.getAttribute("alt")).toBe("");
     // Which device the art is a picture of is on the tooltip: a label saying "iPhone 15 Pro" over
     // an iPhone 17 would be a claim about the device rather than about the frame.
-    expect(screen.getByRole("radio", { name: "Frame" }).getAttribute("title")).toMatch(/iPhone/);
+    expect(frameRow(await openMore()).getAttribute("title")).toMatch(/iPhone/);
     // The stream sits INSIDE the hole rather than filling the frame.
     const glass = chassis.querySelector(".sim-glass") as HTMLElement;
     expect(parseFloat(glass.style.left)).toBeGreaterThan(0);
@@ -373,10 +388,11 @@ describe("the device frame", () => {
     const chassis = await chassisOf(container);
     await waitFor(() => expect(chassis.getAttribute("data-frame")).toBe("art"));
     const before = container.querySelector("img.sim-picture");
-    fireEvent.click(screen.getByRole("radio", { name: "No frame" }));
+    fireEvent.click(frameRow(await openMore()));
     await waitFor(() => expect(chassis.getAttribute("data-frame")).toBe("none"));
     expect(container.querySelector("img.sim-picture")).toBe(before);
-    fireEvent.click(screen.getByRole("radio", { name: "Frame" }));
+    await exited();
+    fireEvent.click(frameRow(await openMore()));
     await waitFor(() => expect(chassis.getAttribute("data-frame")).toBe("art"));
     expect(container.querySelector("img.sim-picture")).toBe(before);
   });
@@ -401,7 +417,7 @@ describe("the device frame", () => {
   it("the frame choice outlives the pane", async () => {
     const { unmount } = await mount(RUNNING);
     await waitFor(() => expect(document.querySelector(".sim-chassis")?.getAttribute("data-frame")).toBe("art"));
-    fireEvent.click(screen.getByRole("radio", { name: "No frame" }));
+    fireEvent.click(frameRow(await openMore()));
     await waitFor(() => expect(document.querySelector(".sim-chassis")?.getAttribute("data-frame")).toBe("none"));
     const write = calls.find((c) => c.method === "settings.set");
     expect(write!.params.key).toBe("simulator.frame:sim-1");
@@ -409,7 +425,8 @@ describe("the device frame", () => {
 
     unmount();
     await mount(RUNNING);
-    await waitFor(() => expect(screen.getByRole("radio", { name: "No frame" }).getAttribute("aria-checked")).toBe("true"));
+    await waitFor(() => expect(document.querySelector(".sim-chassis")?.getAttribute("data-frame")).toBe("none"));
+    expect(frameRow(await openMore()).getAttribute("aria-checked")).toBe("false");
   });
 
   it("a frame image stored before Realm drew its own falls back to the frame, not to nothing", async () => {
@@ -418,43 +435,18 @@ describe("the device frame", () => {
     settings["simulator.frame:sim-1"] = { kind: "image", path: "/tmp/iphone.png" };
     const { container } = await mount(RUNNING);
     await waitFor(() => expect(container.querySelector(".sim-chassis")?.getAttribute("data-frame")).toBe("art"));
-    expect(screen.getByRole("radio", { name: "Frame" }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.queryByRole("radio", { name: /mockup/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /frame image/i })).toBeNull();
+    const menu = await openMore();
+    expect(frameRow(menu).getAttribute("aria-checked")).toBe("true");
+    expect(rowNames(menu).filter((n) => /mockup|frame image/i.test(n ?? ""))).toEqual([]);
   });
 
-  it("No frame takes the frame away and leaves the picture", async () => {
+  it("taking the frame off leaves the picture", async () => {
     const { container } = await mount(RUNNING);
     const chassis = await chassisOf(container);
-    fireEvent.click(screen.getByRole("radio", { name: "No frame" }));
+    fireEvent.click(frameRow(await openMore()));
     await waitFor(() => expect(chassis.getAttribute("data-frame")).toBe("none"));
     expect(chassis.querySelector("img.sim-art")).toBeNull();
     expect(container.querySelector("img.sim-picture")).not.toBeNull();
-    expect(screen.getByRole("radio", { name: "No frame" }).getAttribute("aria-checked")).toBe("true");
-  });
-
-  it("the device's own buttons are under the device, not in the pane bar", async () => {
-    // The bar had grown to ten icons. A phone's buttons belong with the phone; the bar is for what
-    // the PANE does.
-    const { container } = await mount(RUNNING);
-    const row = await waitFor(() => {
-      const el = container.querySelector(".sim-hardware");
-      if (!el) throw new Error("no hardware row");
-      return el;
-    });
-    for (const name of ["Home button", "Volume up", "Volume down", "Side button (lock)", "Rotate the device"]) {
-      expect(row.querySelector(`[aria-label="${name}"]`), name).not.toBeNull();
-    }
-  });
-
-  it("gives a phone only the buttons Realm presses on one: home and the volume — no side button, no rotation", async () => {
-    const { container } = await mount({ ...RUNNING, udid: "00008150-PHONE", physical: true });
-    const row = await waitFor(() => {
-      const el = container.querySelector(".sim-hardware");
-      if (!el) throw new Error("no hardware row");
-      return el;
-    });
-    expect([...row.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Home button", "Volume up", "Volume down"]);
   });
 });
 
@@ -513,27 +505,90 @@ describe("a phone's picture", () => {
   });
 });
 
-describe("the pane bar on a phone", () => {
-  async function bar(state: SimulatorState) {
-    const store = createAppStore(fakeApi());
-    await store.getState().boot();
-    act(() => store.getState().applySimulatorState(state));
-    return render(<StoreContext.Provider value={store}><SimulatorPanelActions item={paneItem} /></StoreContext.Provider>);
-  }
+describe("the device's toolbar", () => {
+  const PHONE = { ...RUNNING, udid: "00008150-PHONE", physical: true } as SimulatorState;
+  const pressNames = () => toolbar().getAllByRole("button").map((b) => b.getAttribute("aria-label"));
 
-  it("offers none of the simulator's own menu on a phone, and all of it on a simulator", async () => {
-    await bar({ ...RUNNING, physical: true });
-    expect(screen.queryByRole("button", { name: "Device settings" })).toBeNull();
-    // What does work on a phone stays: a screenshot, its elements, its apps, and stopping it.
-    for (const name of ["Take a screenshot", "Show the device's elements", "Apps on this device", "Stop streaming this phone"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
-    cleanup();
-    await bar(RUNNING);
-    expect(screen.getByRole("button", { name: "Device settings" })).toBeInTheDocument();
+  it("stands over the device: its state, four presses and an overflow — the Record row under it", async () => {
+    const { container } = await mount(RUNNING);
+    await waitFor(() => expect(toolbar().getByRole("status")).toHaveTextContent("Live1206×2622"));
+    expect(pressNames()).toEqual(["Home button", "Take a screenshot", "Show the device's elements", "Rotate the device", "More device controls"]);
+    // Over the device and under it, in one column — the order the stage lays out (jsdom has no layout).
+    const column = [...container.querySelector(".sim-stage")!.children].map((e) => e.className);
+    expect(column).toEqual(["sim-above", "sim-screen", "sim-under"]);
+    expect(container.querySelector(".sim-above")).toContainElement(screen.getByRole("group", { name: "Device controls" }));
+    expect(container.querySelector(".sim-under")).toContainElement(screen.getByRole("button", { name: "Record my use of this app…" }));
+  });
+
+  it("keeps the hardware, the apps, the device's settings, the frame and the stream's off switch one click away", async () => {
+    await mount(RUNNING);
+    expect(rowNames(await openMore())).toEqual([
+      "Volume up", "Volume down", "Side button (lock)", "—", "Apps…", "Device settings…", "—", "Show device frame", "—", "Stop streaming",
+    ]);
+  });
+
+  it("presses a button on the device from the overflow, down the device's own socket", async () => {
+    await mount(RUNNING);
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0));
+    fireEvent.click(within(await openMore()).getByRole("menuitem", { name: "Volume up" }));
+    // A press opens its own socket, sends one frame and closes: the toolbar holds none open.
+    await waitFor(() => expect(sockets.length).toBe(2));
+    await waitFor(() => expect(sockets[1]!.sent).toHaveLength(1));
+    expect(sockets[1]!.url).toBe(RUNNING.wsUrl);
+  });
+
+  it("opens the apps and the device's settings in place, each with the way back at its head", async () => {
+    await mount(RUNNING);
+    fireEvent.click(within(await openMore()).getByRole("menuitem", { name: "Apps…" }));
+    const menu = screen.getByRole("menu", { name: "More device controls" });
+    await waitFor(() => expect(rowNames(menu)[0]).toBe("← Apps"));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "← Apps" }));
+    await waitFor(() => expect(rowNames(menu)).toContain("Device settings…"));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Device settings…" }));
+    await waitFor(() => expect(rowNames(menu)[0]).toBe("← Device settings"));
+    expect(rowNames(menu)).toContain("Appearance: Dark");
+    // Both were read as the overflow opened, so neither opens on a list still on its way.
+    expect(calls.filter((c) => c.method === "simulators.apps")).toHaveLength(1);
+    expect(calls.filter((c) => c.method === "simulators.ui")).toHaveLength(1);
+  });
+
+  it("gives a phone what Realm can do to one: no rotation, no side button, none of the simulator's settings", async () => {
+    await mount(PHONE);
+    await waitFor(() => expect(pressNames()).toEqual(["Home button", "Take a screenshot", "Show the device's elements", "More device controls"]));
+    expect(rowNames(await openMore())).toEqual(["Volume up", "Volume down", "—", "Apps…", "—", "Show device frame", "—", "Stop streaming this phone"]);
+  });
+
+  it("hands a narrow pane's presses to the overflow in a stated order, first and by name", async () => {
+    /* THE MUTANT: hide the buttons the toolbar has no room for and say nothing — a press nobody can
+       reach. One number decides both halves: what leaves the toolbar arrives at the head of the
+       overflow, Rotate first and Home last. 130px holds the state's dot and two presses. */
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private cb: ResizeObserverCallback) {}
+      observe() { this.cb([{ contentRect: { width: 130, height: 800 } } as ResizeObserverEntry], this as never); }
+      disconnect() {}
+    });
+    await mount(RUNNING);
+    await waitFor(() => expect(pressNames()).toEqual(["Home button", "Take a screenshot", "More device controls"]));
+    expect(screen.getByRole("group", { name: "Device controls" })).toHaveAttribute("data-status", "dot");
+    // The words a narrow toolbar stops showing are still its state's, for a screen reader.
+    expect(toolbar().getByRole("status")).toHaveTextContent("Live1206×2622");
+    expect(rowNames(await openMore()).slice(0, 3)).toEqual(["Elements", "Rotate", "—"]);
+  });
+
+  it("says it is still connecting until the device's touch and keyboard are up", async () => {
+    // A socket still opening: the picture streams, and a touch would go nowhere yet.
+    socketsOpen = false;
+    await mount(RUNNING);
+    const status = toolbar().getByRole("status");
+    expect(status).toHaveTextContent(/^Connecting/);
+    expect(status).toHaveAttribute("title", "Connecting the keyboard and touch…");
+    act(() => sockets[0]!.onopen?.());
+    expect(status).toHaveTextContent(/^Live/);
   });
 });
 
 describe("recording an app for Laya", () => {
-  /** The whole pane, because the control lives under the device now, beside its hardware buttons. */
+  /** The whole pane, because the control lives under the device, the toolbar's counterpart. */
   async function pane(state: SimulatorState, laya?: LayaStatus) {
     getState = state;
     const api = fakeApi(laya ? { laya } : {});
@@ -634,13 +689,21 @@ describe("recording an app for Laya", () => {
     expect(screen.queryByRole("button", { name: "Record my use of this app…" })).toBeNull();
   });
 
-  it("is not in the pane bar any more, which is for what the pane does", async () => {
+  it("is not in the pane bar, and nor is anything else of the device's", async () => {
+    /* The bar is the pane's, and in a side pane it is the tab strip too: the device's state and its
+       eight buttons there left the tabs no width. THE MUTANT: the simulator's meta or actions back in
+       the pane registry — the live state and the screenshot in the bar again. */
     const store = createAppStore(fakeApi());
     await store.getState().boot();
     act(() => store.getState().applySimulatorState(RUNNING));
-    render(<StoreContext.Provider value={store}><SimulatorPanelActions item={paneItem} /></StoreContext.Provider>);
-    expect(screen.getByRole("button", { name: "Take a screenshot" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /record/i })).toBeNull();
+    const { container } = render(<StoreContext.Provider value={store}>
+      <PanelBar item={paneItem} leafId="leaf-1" onClose={() => {}} />
+    </StoreContext.Provider>);
+    const bar = container.querySelector(".panel-bar")!;
+    expect(bar.querySelector(".panel-meta")!.textContent).toBe("");
+    expect(within(bar as HTMLElement).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Rename Simulator", "Pane menu for Simulator", "Close Simulator",
+    ]);
   });
 });
 

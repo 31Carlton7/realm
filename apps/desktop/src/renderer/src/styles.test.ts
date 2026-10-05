@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BAR_CHROME, actionsThatFit } from "./components/pane-bar-fit";
+import { TOOLBAR_BUTTON, TOOLBAR_CHROME } from "./panes/simulator/toolbar-fit";
 import { REALM_SEED, deriveVars } from "@realm/ui";
 import { AGENT_FRAME, oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
@@ -1632,12 +1633,37 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(paintedFocus).toContain("box-shadow: none");
     expect(paintedFocus).toContain("--sq-ring: var(--rl-accent)");
 
-    /* Frame / No frame. They carry `.btn`, which is painted — so the picked one has to mark itself
-       with `--fill`. THE MUTANT is the obvious `background: var(--rl-accent)`: `background` is spent
-       on `paint()` there, so the segment paints its resting fill in every state and the control ends
-       up with no visible selection at all. */
-    expect(bodiesFor('.sim-frame-opt[aria-checked="true"]').join(" ")).toContain("--fill: var(--rl-accent)");
-    expect(bodiesFor('.sim-frame-opt[aria-checked="true"]').join(" ")).not.toContain("background:");
+  });
+
+  it("the device's controls over it and under it are one pill", () => {
+    /* The toolbar over the device, and under it the Record control, the recording it becomes and a
+       phone's offer to go live: one height, fill, corner and lift, so above and below read as one
+       instrument around the device. THE MUTANT: a row under the device in a material of its own —
+       the `.btn` the Record control was, whose painter trades the lift for a ring. */
+    const pill = RULES.find((r) => partsOf(r).includes(".sim-toolbar") && partsOf(r).includes(".sim-record-start"));
+    expect(pill && partsOf(pill).sort()).toEqual([".sim-live", ".sim-record-start", ".sim-recording", ".sim-toolbar"]);
+    for (const decl of ["height: 32px", "border-radius: 999px", "background: var(--rl-raised)", "box-shadow: var(--shadow-card)"]) {
+      expect(pill!.body).toContain(decl);
+    }
+    // What sits inside a pill is a pill, under the painter too — or Stop is a squircle in a capsule.
+    const inner = bodiesFor(":root[data-squircle] :is(.sim-recording-stop, .sim-live-btn)").join(" ");
+    expect(inner).toContain("--sq-radius-top: calc(var(--btn-h) / 2)");
+    expect(inner).toContain("--sq-radius-bottom: calc(var(--btn-h) / 2)");
+    expect(bodiesFor(".sim-toolbar .icon-btn").join(" ")).toContain("border-radius: 999px");
+  });
+
+  it("the device toolbar's budget is its own rule's arithmetic", () => {
+    /* `toolbar-fit.ts` decides how many presses a narrow pane keeps from these numbers: the pill's
+       padding, its gaps, the 28px buttons and the rule between the state and them (its hairline
+       counted as a whole pixel). Change the toolbar's box and the budget stops describing it —
+       buttons clip, or fold into the overflow with room to spare. */
+    const bar = bodiesFor(".sim-toolbar").join(" ");
+    const pad = Number(/padding: (\d+)px/.exec(bar)?.[1]);
+    const gap = Number(/gap: (\d+)px/.exec(bar)?.[1]);
+    const margin = Number(/margin: 0 (\d+)px/.exec(bodiesFor(".sim-toolbar-rule").join(" "))?.[1]);
+    const button = Number(/width: (\d+)px/.exec(bodiesFor(".icon-btn").join(" "))?.[1]);
+    expect(TOOLBAR_BUTTON).toBe(button + gap);
+    expect(TOOLBAR_CHROME).toBe(2 * pad + 1 + 2 * margin + button + 2 * gap);
   });
 
   it("the prompter's strips are edged alike — every tab above the card wears the ring the under-strip does", () => {
