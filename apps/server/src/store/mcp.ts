@@ -9,8 +9,12 @@ import { NotFoundError, RpcError, now } from "./rows";
  *  ONLY — `McpHub.tools()` returns the real, live `inputSchema` (see its own `McpLiveTool` type) to the
  *  gateway, which forwards it verbatim to an agent's MCP client so it can build valid call arguments.
  *  The hub still never validates a `call()`'s args against any schema, cached or live — see `call()`'s
- *  own doc comment. */
-export type McpToolRow = { name: string; description: string };
+ *  own doc comment.
+ *
+ *  `view` and `appOnly` are what the tool says about a view of its own (MCP Apps): the `ui://` resource
+ *  it draws in, and that only that view may call it. Facts about the tool rather than a schema, kept
+ *  so a server's row can say it has views before anything has connected this launch. */
+export type McpToolRow = { name: string; description: string; view?: string; appOnly?: boolean };
 
 /**
  * A stored MCP server definition — **including its secret values**.
@@ -72,7 +76,8 @@ const parseTools = (s: string): McpToolRow[] => {
   try {
     const v: unknown = JSON.parse(s);
     if (!Array.isArray(v)) return [];
-    return v.filter((x): x is McpToolRow => !!x && typeof x === "object" && typeof (x as McpToolRow).name === "string" && typeof (x as McpToolRow).description === "string");
+    return v.filter((x): x is McpToolRow => !!x && typeof x === "object" && typeof (x as McpToolRow).name === "string" && typeof (x as McpToolRow).description === "string")
+      .map((x) => ({ name: x.name, description: x.description, ...(typeof x.view === "string" ? { view: x.view } : {}), ...(x.appOnly === true ? { appOnly: true } : {}) }));
   } catch { return []; }
 };
 

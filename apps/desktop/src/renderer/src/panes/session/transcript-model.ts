@@ -1,4 +1,4 @@
-import { AskCardSchema, askCardFromAskUserQuestion, type AcpSessionMode, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges } from "@realm/contracts";
+import { AskCardSchema, askCardFromAskUserQuestion, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges } from "@realm/contracts";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
@@ -21,7 +21,9 @@ export type Block =
    *   call, including a blocking sub-agent — whose "still going" is simply `result === null`. */
   /** `toolKind` and `paths` are an ACP call's own account of itself (the `tool_call` event's `kind`
    *  and `paths`) — absent for every other agent, whose tool names say both. */
-  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; toolKind?: string; paths?: string[]; ts: number }
+  /** `view` is the view an MCP server drew for this call (MCP Apps), carried by its result — absent
+   *   on every call that drew none, and on every call from before views existed. */
+  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; toolKind?: string; paths?: string[]; view?: AppViewRef; ts: number }
   /** `fix` is the thing to do about it, carried from the server on the failures where Realm knows
    *   one (today: an auth failure it re-probed). Absent on every other error, which is most of
    *   them — a block that invented a remedy would be worse than the bare message. */
@@ -298,7 +300,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     case "tool_result": {
       const i = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
       const b = i >= 0 ? blocks[i] : undefined;
-      if (b && b.kind === "tool") blocks[i] = { ...b, result: { content: e.payload.content, isError: e.payload.isError } };
+      if (b && b.kind === "tool") blocks[i] = { ...b, result: { content: e.payload.content, isError: e.payload.isError }, ...(e.payload.view ? { view: e.payload.view } : {}) };
       return { ...t, blocks };
     }
     /* A background sub-agent started or stopped. Folded onto the LAUNCHING call's block, which is

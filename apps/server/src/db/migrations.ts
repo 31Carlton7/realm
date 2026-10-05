@@ -777,4 +777,31 @@ export const migrations: string[] = [
   ALTER TABLE schedules ADD COLUMN new_session_per_run INTEGER NOT NULL DEFAULT 1;
   ALTER TABLE schedules ADD COLUMN archive_succeeded INTEGER NOT NULL DEFAULT 0;
   `,
+  // v39 — the views MCP servers draw for tool calls (MCP Apps). One row per call that drew one: the
+  // call's own arguments and the server's whole result, before Realm compressed anything for the
+  // agent, which is what the view is handed again each time it is opened. The tool result in the
+  // transcript names the row (`tool_result.view`); the HTML is not kept, and is read from the server
+  // again when the view opens.
+  //
+  // Gone with its session (the transcript that names it goes too). `server_id` is plain text with no
+  // foreign key, the log posture again: a view of a server that has since been removed says so,
+  // rather than vanishing. Nothing to backfill — no call drew a view before this.
+  //
+  // `IF NOT EXISTS` so the statement is safe to meet twice; the version table is what keeps it from
+  // being asked to.
+  `
+  CREATE TABLE IF NOT EXISTS app_views (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    tool_use_id TEXT NOT NULL,
+    server_id TEXT NOT NULL,
+    server_name TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    tool_json TEXT NOT NULL,
+    resource_uri TEXT NOT NULL,
+    input_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS app_views_session ON app_views(session_id, created_at);
+  `,
 ];

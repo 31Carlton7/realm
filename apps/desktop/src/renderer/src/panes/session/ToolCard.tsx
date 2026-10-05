@@ -11,6 +11,7 @@ import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
 import { ChildSessions, delegatedChildIds } from "./DelegatedRuns";
 import { DelegationLine, DelegationWait, isDelegationLine, isDelegationWait } from "./DelegationLine";
 import { useElapsed } from "./use-elapsed";
+import { AppView } from "../app-view/AppView";
 
 type ToolState = "running" | "ok" | "error" | "none";
 
@@ -193,6 +194,9 @@ function ToolCardBody({ block, sessionStatus, enter = false, nested }: ToolCardP
           happens, and a canvas the reader has to open a card to find would be a spinner with extra
           steps. It leaves of its own accord when the result lands. */}
       {work && <GeneratingCanvas label={work.label} detail={work.detail} aspect={work.aspect} />}
+      {/* The view the server drew for this call, outside the expander: it is what the call was for,
+          and a reader should not have to open a card to find it. */}
+      {block.view && <AppView viewId={block.view.viewId} viewRef={block.view} mode="inline" />}
       {/* The sessions a delegation call started or collected, outside the expander for the ledger's
           reason below: a finished child's pane may already be gone from the layout, and this is the
           way back to it from the report it produced. */}

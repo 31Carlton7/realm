@@ -1215,3 +1215,73 @@ describe("migration v38 — a scheduled task keeps its runs", () => {
     again.close();
   });
 });
+
+/**
+ * The v38 shape of what v39 touches, hand-written for the reason every fixture above is: `sessions`
+ * as it stands at v38 matters only as the table `app_views` hangs off, so it is a stub holding the
+ * id the foreign key needs — with a session in it, as a real home would have.
+ */
+const V38_SESSIONS_SCHEMA = `
+CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+`;
+
+function v38Fixture(path: string): void {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V38_SESSIONS_SCHEMA);
+  for (let v = 1; v <= 38; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  db.prepare("INSERT INTO sessions (id, title) VALUES ('sess1', 'Charts'), ('sess2', 'Other')").run();
+  db.close();
+}
+
+describe("migration v39 — the views MCP servers draw", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v38Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+  const insert = (db: DatabaseSync, id: string, sessionId: string) => db.prepare(`INSERT INTO app_views
+    (id, session_id, tool_use_id, server_id, server_name, tool, tool_json, resource_uri, input_json, result_json, created_at)
+    VALUES (?, ?, 'toolu_1', 'SRV', 'Charts', 'show_chart', '{}', 'ui://charts/bar.html', '{}', '{}', 1)`).run(id, sessionId);
+
+  it("is appended, not folded into v38: a v38 home reaches the end of the chain and gains the table", () => {
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBeGreaterThan(38);
+    const cols = (db.prepare("PRAGMA table_info(app_views)").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toEqual(["id", "session_id", "tool_use_id", "server_id", "server_name", "tool", "tool_json", "resource_uri", "input_json", "result_json", "created_at"]);
+    db.close();
+  });
+
+  it("backfills NOTHING, and leaves the sessions it hangs off exactly as they were", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM app_views").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT id, title FROM sessions ORDER BY id").all()).toEqual([{ id: "sess1", title: "Charts" }, { id: "sess2", title: "Other" }]);
+    db.close();
+  });
+
+  it("goes with its session, and only its own session's views go", () => {
+    const { db } = migrated();
+    insert(db, "v1", "sess1");
+    insert(db, "v2", "sess2");
+    db.prepare("DELETE FROM sessions WHERE id = 'sess1'").run();
+    expect(db.prepare("SELECT id FROM app_views").all()).toEqual([{ id: "v2" }]);
+    expect(() => insert(db, "v3", "no-such-session")).toThrow(/FOREIGN KEY/);
+    db.close();
+  });
+
+  it("is idempotent: reopening twice more neither re-runs the CREATE nor loses a view kept since", () => {
+    const { p, db } = migrated();
+    insert(db, "v1", "sess1");
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(again.prepare("SELECT id FROM app_views").all()).toEqual([{ id: "v1" }]);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    // The statement itself is safe to meet twice as well — `IF NOT EXISTS`, not a version check alone.
+    expect(() => again.exec(migrations[38]!)).not.toThrow();
+    again.close();
+  });
+});

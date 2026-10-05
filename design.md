@@ -752,6 +752,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   each. What a field offers comes from Realm's own sources (the model catalog, the checkout, the
   workspace), never from the asker, and every label is drawn as text. Answered, it stays where it was
   asked as the question and its answer, a masked answer only ever its mark.
+- A view an MCP server ships is the vendor's drawing set in Realm's ground: named for its server,
+  compact under the call that drew it, a tab when opened and never a split, and framed on an origin
+  of its own so nothing of Realm's can be reached from inside it. What it asks to DO — run a tool,
+  put words to the agent, open a page — waits on Realm's card, drawn outside the frame where the view
+  can neither reach nor imitate it, and only a click answers.
 - A closing line names the WORK, not the residue. "This session produced 1 file · 4 attached" is
   true and tells a reader coming back nothing; the ask, the files that changed, whether anything
   ran or failed, and then what came out is the shape of an answer. Derive it from the transcript
