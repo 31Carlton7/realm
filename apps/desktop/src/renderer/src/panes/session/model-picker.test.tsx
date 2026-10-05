@@ -245,12 +245,15 @@ describe("how it runs", () => {
   const effort = (pick: (l: string) => void, checked = "high"): OverflowGroup["items"] =>
     ["low", "medium", "high"].map((l) => ({ label: l, checked: l === checked, effort: l, onSelect: () => pick(l) }));
 
-  it("changes effort in place: the segment answers, and the popover stays to show it", () => {
+  it("changes effort in place: the segment answers, and the popover stays to show it", async () => {
     const chosen: string[] = [];
     mount({ effortItems: effort((l) => chosen.push(l)) });
     fireEvent.click(within(screen.getByRole("group", { name: "Effort" })).getByRole("button", { name: "low" }));
     expect(chosen).toEqual(["low"]);
+    // Past the exit window, not just the click: a closing popover is still in the DOM for its fade.
+    await exited();
     expect(dialog()).toBeInTheDocument();
+    expect(dialog()).not.toHaveAttribute("data-closing");
   });
 
   it("draws no effort control where the harness receives none", () => {
@@ -267,11 +270,13 @@ describe("how it runs", () => {
     expect(dialog()).toBeNull();
   });
 
-  it("puts fast mode on the same surface, as a switch, and keeps it open on a flip", () => {
+  it("puts fast mode on the same surface, as a switch, and keeps it open on a flip", async () => {
     const flips: boolean[] = [];
     mount({ fast: { on: false, state: null, reason: null, requested: null, onChange: (on) => flips.push(on), availability: { state: "unknown" } } });
     fireEvent.click(screen.getByRole("switch", { name: "Fast mode" }));
     expect(flips).toEqual([true]);
+    await exited();
     expect(dialog()).toBeInTheDocument();
+    expect(dialog()).not.toHaveAttribute("data-closing");
   });
 });
