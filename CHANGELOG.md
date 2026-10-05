@@ -90,12 +90,12 @@ a clock time today, Yesterday 7:38 PM, then the date, with the full date and tim
 where it used to show a bare time that read the same a minute or a week later, and a turn that
 failed says Failed after 4s instead of the playful past tense, which read as a job done. A file the
 agent names that is really in its checkout becomes a link, and opens in Documents beside the session
-at the line it named. A turn that changed files ends with an Edited 3 files card: each file and its
-counts, in the order it was edited, measured by git as the turn settled rather than taken from what
-its tool calls claimed; Review, which opens that turn's diff as the side pane's Changes tab; and
-Undo, offered only where a checkpoint takes back exactly that turn and nothing after it — where
-Realm took none, the card says so. A tool call that edits a file now names it the same way for
-Claude, Codex and the ACP agents: the file's mark, its path, its counts.
+at the line it named. A turn that changed files ends with an Edited 3 files card: each file, in the
+order it was edited and a click from opening, with its counts as git measured them when the turn
+settled rather than as its tool calls claimed them; Review, which opens that turn's diff as the side
+pane's Changes tab; and Undo, offered only where a checkpoint takes back exactly that turn and
+nothing after it — where Realm took none, the card says so. A tool call that edits a file now names
+it the same way for Claude, Codex and the ACP agents: the file's mark, its path, its counts.
 
 **A track down every transcript's edge, and turns you can keep.** A session pane has a tick down its
 left edge for each prompt, placed where the prompt sits in the log, the one being read in ink and a
