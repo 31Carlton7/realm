@@ -1,9 +1,10 @@
-import { Icon, type IconName } from "@realm/ui";
-import { DEFAULT_KEYBINDINGS, chordsForCommand, displayKeyChord } from "@realm/contracts";
+import { Icon } from "@realm/ui";
+import { DEFAULT_KEYBINDINGS, chordsForCommand, displayKeyChord, findLeafOfItem } from "@realm/contracts";
 import { useCallback, useRef, useSyncExternalStore } from "react";
-import { useAppStoreMaybe, type NewTabTool } from "../../state/store";
+import { useAppStoreMaybe, type AppState, type NewTabTool } from "../../state/store";
 import { PageIcon } from "../../components/PageIcon";
 import { useDissolve } from "../../components/ScrollFades";
+import { SIDE_TOOLS } from "../../components/side-tools";
 
 /** A page this space's profile went to — a row of the history (`browsers.recent`), as this page draws it:
  *  with the icon it last showed, when it showed one. */
@@ -11,12 +12,13 @@ export type RecentVisit = { url: string; title: string; favicon?: string };
 
 /* Documents is where a file is found as well as made, so it is the one row for both and wears ⌘P —
    a "Files" row beside it opened the same search somewhere else. */
-const TOOLS: { tool: NewTabTool; label: string; icon: IconName; hint: string; command?: string }[] = [
-  { tool: "documents", label: "Documents", icon: "documents", hint: "Find, open or make a file: the session's, the Library's and the checkout's", command: "palette.files" },
-  { tool: "terminal", label: "Terminal", icon: "terminal", hint: "A shell in the session's checkout" },
-  { tool: "simulator", label: "Simulator", icon: "simulator", hint: "A device on this Mac" },
-  { tool: "machine", label: "Machine", icon: "machine", hint: "Connect to another computer" },
-];
+const CHORD: Partial<Record<NewTabTool, string>> = { documents: "palette.files" };
+
+/** Whether this blank tab is in a session's side pane — the only place its sub-agents can open. */
+const servesSession = (s: AppState, itemId: string): boolean => {
+  const owner = s.layout ? findLeafOfItem(s.layout, itemId)?.owner : undefined;
+  return !!owner && s.items.some((i) => i.id === owner && i.kind === "session");
+};
 
 /**
  * What a blank browser tab shows instead of an empty page: the session's tools, under the address
@@ -41,10 +43,10 @@ export function NewTabPage({ itemId, recent = [], onVisit }: {
   const store = useAppStoreMaybe();
   const scroller = useRef<HTMLDivElement>(null);
   useDissolve(scroller);
-  const keybindings = useSyncExternalStore(
-    useCallback((cb: () => void) => store?.subscribe(cb) ?? (() => {}), [store]),
-    () => store?.getState().keybindings ?? DEFAULT_KEYBINDINGS,
-  );
+  const subscribe = useCallback((cb: () => void) => store?.subscribe(cb) ?? (() => {}), [store]);
+  const keybindings = useSyncExternalStore(subscribe, () => store?.getState().keybindings ?? DEFAULT_KEYBINDINGS);
+  const session = useSyncExternalStore(subscribe, () => (store ? servesSession(store.getState(), itemId) : false));
+  const tools = SIDE_TOOLS.filter((t) => t.tool !== "agents" || session);
   /* From the keymap the handler reads, never a literal — the palette's own rule for its hints. */
   const kbd = (command: string | undefined) => {
     const chord = command ? chordsForCommand(keybindings, command)[0] : undefined;
@@ -59,8 +61,8 @@ export function NewTabPage({ itemId, recent = [], onVisit }: {
       <section className="new-tab-section" aria-label="Tools">
         <h2 className="new-tab-label">Tools</h2>
         <ul className="new-tab-list">
-          {TOOLS.map((t) => {
-            const chord = kbd(t.command);
+          {tools.map((t) => {
+            const chord = kbd(CHORD[t.tool]);
             return (
               <li key={t.tool}>
                 <button type="button" className="new-tab-row" title={t.hint} disabled={!store} onClick={() => open(t.tool)}>

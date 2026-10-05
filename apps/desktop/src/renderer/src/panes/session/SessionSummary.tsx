@@ -60,6 +60,30 @@ export function useSummaryLive(item: Item): boolean {
 }
 
 /**
+ * Which of the session's two lists the dock is showing, as the head of either panel: the summary,
+ * folded out of the transcript, or the files, read off the disk. One control in the session's bar
+ * opens the dock, so the panel is where the two are told apart — the way a pull request's Summary and
+ * Changes are one page with a switch rather than two buttons. With nothing to summarise yet the files
+ * are the whole panel, and the head is just their name: a switch with one way to go is no switch.
+ */
+export function DockViews({ sessionId, showing, summary }: { sessionId: string; showing: "summary" | "files"; summary: boolean }) {
+  const toggleSessionDock = useApp((s) => s.toggleSessionDock);
+  if (!summary) return <h3>Files</h3>;
+  return (
+    <fieldset className="seg dock-views">
+      <legend className="visually-hidden">Show</legend>
+      {(["summary", "files"] as const).map((view) => (
+        <label key={view} className="seg-opt" data-selected={showing === view || undefined}>
+          <input type="radio" name={`dock-views-${sessionId}`} checked={showing === view}
+            onChange={() => toggleSessionDock(sessionId, { kind: view })} />
+          {view === "summary" ? "Summary" : "Files"}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+/**
  * Everything the summary action OWNS that is not its button: the docked panel, the lightbox a file
  * opens in, and the anchor both are measured from.
  *
@@ -172,7 +196,7 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, barRef, on
       style={{ position: "fixed", right: rect?.right ?? 0, top: rect?.top ?? 0,
         "--dock-pane-h": `${rect?.height ?? window.innerHeight}px` } as React.CSSProperties}>
       <div className="summary-panel-head">
-        <h3>Summary</h3>
+        <DockViews sessionId={sessionId} showing="summary" summary />
         <button type="button" className="icon-btn" aria-label="Close summary" onClick={onClose}>
           <Icon name="close" size={12} />
         </button>

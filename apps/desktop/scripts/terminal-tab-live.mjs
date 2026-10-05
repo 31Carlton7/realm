@@ -6,15 +6,17 @@
  * onboarding's own session runs this Mac's real engine and is never typed into — and checks, in the
  * real window:
  *
- *   1. The pane bar's terminal button opens the session's terminal as a tab of its side pane, with
- *      the keyboard, started in the session's checkout, and draws no dock over the transcript.
- *   2. A second press, ⌘J and View ▸ Show Terminal (clicked in main's menu) each go back to that one
- *      tab — bringing it in front of another — and never start a second shell.
+ *   1. ⌘J opens the session's terminal as a tab of its side pane, with the keyboard, started in the
+ *      session's checkout, and draws no dock over the transcript — and the session's bar, which
+ *      carries no tools, has no terminal button.
+ *   2. The side pane's "+ › Terminal", ⌘J again and View ▸ Show Terminal (clicked in main's menu) each
+ *      go back to that one tab — bringing it in front of another — and never start a second shell.
  *   3. The terminal paints no ground of its own: an empty stretch of the terminal and an empty
  *      stretch of the transcript sample the same, in the dark face and the light, and with the old
  *      fill put back as the mutant they do not. On the light face its ink is the app's.
  *   4. Settings ▸ General ▸ Session terminal ▸ Bottom keeps the dock along the pane's foot: the
- *      button shows and hides it, no tab is made, and the shell sits on the dock card's own surface.
+ *      session bar's toggle shows and hides it, no tab is made, and the shell sits on the dock card's
+ *      own surface.
  *
  * Ports: LIVE_SERVER_PORT (8968), LIVE_CDP_PORT (9368), LIVE_MAIN_INSPECT_PORT (9468). Touches only a
  * scratch dir; kills only what is listening on its own ports. Nothing is billed: the session is on the
@@ -27,6 +29,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
@@ -253,14 +256,14 @@ async function main() {
   };
   const button = (name) => `[...document.querySelectorAll('.panel-bar button')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify(name)})`;
 
-  // ── 1. The button: a tab of the side pane, not a dock ──────────────────────────────────────
-  const OPEN = `Open the terminal beside ${TITLE}`;
-  const bar = await until(() => evalIn(c, `(() => { const b = ${button(OPEN)}; return b ? { pressed: b.getAttribute('aria-pressed'), popup: b.getAttribute('aria-haspopup') } : null; })()`), 10_000, "the terminal button");
-  check("the pane bar's terminal button is a plain action, like the side-pane buttons beside it", bar.pressed === null && bar.popup === null, bar);
-  await evalIn(c, `(() => { ${button(OPEN)}.click(); return true; })()`);
+  // ── 1. ⌘J: a tab of the side pane, not a dock ──────────────────────────────────────────────
+  const barTerminal = await evalIn(c, `[...document.querySelectorAll('.panel-bar button')].some((b) => /terminal/i.test(b.getAttribute('aria-label') ?? ''))`);
+  check("the session's bar has no terminal button — the side pane is where a tool is opened", barTerminal === false);
+  await intoSession();
+  await press(c, { key: "j", code: "KeyJ", keyCode: 74, meta: true });
   const first = await until(async () => { const s = await sidePane(); return s?.tabs.length === 1 && s.tabs[0].name === folder ? s : null; }, 15_000, "the terminal's tab").catch(() => sidePane());
   const lead = (await panes()).find((p) => p.title === TITLE);
-  check("the button opens the terminal as a tab of the session's side pane, to its right, with the keyboard",
+  check("⌘J opens the terminal as a tab of the session's side pane, to its right, with the keyboard",
     first?.tabs[0]?.name === folder && first.tabs[0].selected && first.focused && lead && first.left > lead.left, { side: first, lead });
   const dockDrawn = await evalIn(c, `!!document.querySelector('.terminal-dock')`);
   check("…and draws no dock over the transcript", dockDrawn === false);
@@ -273,10 +276,10 @@ async function main() {
 
   // ── 2. Every way in goes back to that one tab ─────────────────────────────────────────────
   await intoSession();
-  await evalIn(c, `(() => { ${button(OPEN)}.click(); return true; })()`);
+  await openSideTool(c, TITLE, "Terminal");
   await sleep(800);
   const again = await sidePane();
-  check("a second press goes to the same tab rather than starting another shell",
+  check("the side pane's + › Terminal goes to the same tab rather than starting another shell",
     again?.tabs.length === 1 && again.focused && (await terminalItems()).length === 1, { side: again });
 
   // Another tab in front of it: a blank one from the session, by ⌘⇧B.

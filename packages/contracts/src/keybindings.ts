@@ -437,7 +437,10 @@ const SPACE_SLOTS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "pane.splitRight", label: "Split right", group: "Panes" },
   { id: "pane.splitDown", label: "Split down", group: "Panes" },
-  { id: "pane.close", label: "Close pane", group: "Panes" },
+  /* A tab, or a pane out of a split — never a session alone, which is left from the sidebar (the
+     renderer's `closeIntent`). The label says so, because "Close pane" over a lone session would
+     promise the close the owner asked to be rid of. */
+  { id: "pane.close", label: "Close tab or split", group: "Panes" },
   { id: "pane.toggleFocus", label: "Focus pane full-screen", group: "Panes" },
   { id: "pane.focusLeft", label: "Focus the pane to the left", group: "Panes" },
   { id: "pane.focusRight", label: "Focus the pane to the right", group: "Panes" },
@@ -580,7 +583,7 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
  *
  * ⌘W alone, and for a reason no `when` clause can express: with no application menu of Realm's own,
  * Electron installs its default one, whose File → Close Window carries this accelerator. Realm's menu
- * bar shows ⌘W on Close Pane and hands the keystroke itself to the page (`apps/desktop/src/main/
+ * bar shows ⌘W on Close Tab or Split and hands the keystroke itself to the page (`apps/desktop/src/main/
  * app-menu.ts`), and nothing in it closes the window, so this is belt and braces — but the
  * asymmetry of the two failures decides it. A swallowed keystroke is a dead key, noticed and
  * recovered from in a second; a ⌘W that reaches Electron closes the window out from under a running

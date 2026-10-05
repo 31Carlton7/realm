@@ -78,9 +78,10 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
   return {
     "pane.splitRight": () => { const s = get(); s.run(() => s.splitFocused("row")); },
     "pane.splitDown": () => { const s = get(); s.run(() => s.splitFocused("col")); },
-    // Layout-only, and never the window: the item survives and can be reopened. An empty leaf is a
-    // no-op, which the ⌘W swallow in the hook makes safe rather than surprising.
-    "pane.close": () => { const s = get(); const item = focusedItem(s); if (item) s.run(() => s.closeFromLayout(item.id)); },
+    // Layout-only, and never the window: a tab leaves its strip, a pane its split, and a session
+    // alone closes nothing — the keyboard goes to its prompter (`closeIntent`). Where there is
+    // nothing to close the ⌘W swallow in the hook keeps the key from reaching Electron.
+    "pane.close": () => { const s = get(); s.run(() => s.closeInPane()); },
     "pane.toggleFocus": () => { const s = get(); s.run(() => s.toggleFocusPane()); },
     "pane.focusLeft": focusPane("left"),
     "pane.focusRight": focusPane("right"),

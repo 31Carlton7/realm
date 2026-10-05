@@ -31,6 +31,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 /** A window this script starts opens behind whatever the person at the Mac has in front, and Chromium
@@ -420,8 +421,8 @@ async function main() {
   /* ── 2. Two spaces side by side, each session with its own side pane ─────────────────────────── */
   await paletteRun(c, ALPHA);
   await until(async () => (await evalIn(c, `__live.view()`)).focused === ALPHA, 10_000, "Alpha open");
-  const termBtn = await until(() => evalIn(c, `__live.box(document.querySelector('button[aria-label="Open the terminal beside ${ALPHA}"]'))`), 10_000, "Alpha's terminal button");
-  await clickAt(c, centre(termBtn));
+  // The session's bar carries no tools: a terminal is opened from its side pane (a new tab's page).
+  await openSideTool(c, ALPHA, "Terminal");
   const vA = await until(async () => {
     const v = await evalIn(c, `__live.view()`);
     return v.sides.find((s) => s.owner === ALPHA && s.tabs.length === 1 && s.tabs[0].kind === "terminal") ? v : null;
@@ -436,8 +437,7 @@ async function main() {
   check("opening Thesis's session from Homework takes the pane — no room switch — and Alpha's side pane is remembered",
     sameSet(vB.panes, [BRAVO]) && vB.sides.length === 0 && vB.remembered[ALPHA]?.tabs[0]?.kind === "terminal" && vB.current === "Thesis",
     { panes: vB.panes, sides: sidesBrief(vB), remembered: Object.keys(vB.remembered), current: vB.current });
-  const browserBtn = await until(() => evalIn(c, `__live.box(document.querySelector('button[aria-label="Open a browser beside ${BRAVO}"]'))`), 10_000, "Bravo's browser button");
-  await clickAt(c, centre(browserBtn));
+  await openSideTool(c, BRAVO, "New tab");
   const vB2 = await until(async () => {
     const v = await evalIn(c, `__live.view()`);
     return v.sides.find((s) => s.owner === BRAVO && s.tabs[0]?.kind === "browser") ? v : null;

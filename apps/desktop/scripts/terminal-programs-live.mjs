@@ -28,6 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
@@ -258,9 +259,8 @@ async function main() {
   await until(() => evalIn(c, `document.querySelectorAll('.panehost .panel').length === 1`), 10_000, "the session alone");
 
   // ── The session's own terminal, as the first tab of its side pane ───────────────────────────
-  const OPEN = `Open the terminal beside ${TITLE}`;
-  await until(() => evalIn(c, `!!document.querySelector('.panel-bar button[aria-label=${JSON.stringify(OPEN)}]')`), 10_000, "terminal button");
-  await evalIn(c, `(() => { document.querySelector('.panel-bar button[aria-label=${JSON.stringify(OPEN)}]').click(); return true; })()`);
+  // The session's terminal, from its side pane — the session's bar carries no tools.
+  await openSideTool(c, TITLE, "Terminal");
   await until(() => evalIn(c, `document.querySelectorAll('.pane-tabs [role=tab]').length === 1`), 15_000, "the terminal's tab");
   const own = (await api.call("items.list", { spaceId: space.id })).find((i) => i.kind === "terminal");
 

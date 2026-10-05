@@ -8,6 +8,7 @@ import { FileCard, TYPE_ICON } from "../../components/FileCard";
 import { ScrollFades } from "../../components/ScrollFades";
 import { groupByDay } from "../library/LibraryFiles";
 import { DOCK_PIN_MIN_PANE, useDockDismiss, useDockPinned, usePaneRect } from "./pane-dock";
+import { DockViews, useSummaryLive } from "./SessionSummary";
 
 /**
  * The session's files, read off the disk.
@@ -25,7 +26,8 @@ import { DOCK_PIN_MIN_PANE, useDockDismiss, useDockPinned, usePaneRect } from ".
  *
  * Its chrome is the summary's chrome deliberately: same dock, same pin-or-float rule, same slot in
  * the store. Two panels docked to one edge, each measuring it and claiming it, is two panels drawn
- * over each other.
+ * over each other. And one way in: the session's bar has a single control for both, and the head of
+ * either panel switches to the other (`DockViews`).
  */
 
 /**
@@ -147,13 +149,14 @@ function FilesPanel({ item, anchorRef, barRef, onClose }: {
   const days = useMemo(() => groupByDay((rows ?? []).map((r) => ({ ...r, ts: r.mtimeMs }))), [rows]);
   const grid = useApp((s) => s.filesView === "grid");
   const setFilesView = useApp((s) => s.setFilesView);
+  const summaryLive = useSummaryLive(item);
 
   return createPortal(
     <div ref={ref} className="session-files pane-dock" role="dialog" aria-label={`Files for ${item.title}`} data-pinned={pinned || undefined}
       style={{ position: "fixed", right: rect?.right ?? 0, top: rect?.top ?? 0,
         "--dock-pane-h": `${rect?.height ?? window.innerHeight}px` } as React.CSSProperties}>
       <div className="summary-panel-head">
-        <h3>Files</h3>
+        <DockViews sessionId={id} showing="files" summary={summaryLive} />
         {/* Rows or cards. One toggle rather than a List | Grid pair: the rows are the panel's
             resting state, and a lit button is what says it has been laid out another way — the
             same one fill every on-state in a bar wears. `aria-pressed` carries the state, so the

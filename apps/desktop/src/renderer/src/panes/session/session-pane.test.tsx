@@ -1820,26 +1820,26 @@ describe("the session's terminal (W4)", () => {
 
   const toggle = () => screen.getByRole("button", { name: /(Show|Hide) terminal for Fake agent session/ });
 
-  it("offers a simulator beside the machine, and opening one asks the server for a pane", async () => {
-    /* The cluster's newest member. Deliberately ungated, exactly like the machine and browser
-       buttons beside it: a simulator is a place you go rather than a view of this session's
-       checkout, and hiding the button on a Mac without Xcode would hide the feature from the only
-       people who could act on it — the pane's own body says what is missing instead. */
-    const { api } = await mountPane();
-    const button = screen.getByRole("button", { name: "Open a simulator beside Fake agent session" });
-    expect(screen.getByRole("button", { name: "Connect a machine beside Fake agent session" })).toBeInTheDocument();
-    fireEvent.click(button);
-    await waitFor(() => expect(api.calls).toContain("createSimulator:s1"));
+  /* The bar carries what is about the session — the dock of what it made, and the terminal only where
+     Settings docks it to this pane's foot. Everything it opens BESIDE itself is the side pane's to
+     launch (side-tools.ts; pane-tabs.test.tsx holds the "+"). */
+  const barButtons = () => [...document.querySelectorAll(".panel-actions button")].map((b) => b.getAttribute("aria-label"));
+
+  it("carries none of the tools a session opens beside itself — those are the side pane's", async () => {
+    // THE MUTANT: any of the seven glyphs back in the bar — the row of buttons the owner asked to lose.
+    await mountPane(false, "right");
+    expect(barButtons()).toEqual(["Summary and files for Fake agent session", "Pane menu for Fake agent session"]);
   });
 
-  it("in its default place, mounting spawns nothing and the button starts a shell in the session's checkout as a tab", async () => {
+  it("in its default place, has no terminal control and spawns nothing on mount — ⌘J and the side pane open it", async () => {
     const { api } = await mountPane(false, "right");
-    expect(api.calls.some((c) => c.startsWith("createTerminal"))).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Open the terminal beside Fake agent session" }));
-    await waitFor(() => expect(api.calls).toContain("createTerminal:s1:/tmp"));
-    // A tab, not the dock: no dialog over the transcript, and not the session's hidden shell.
-    expect(screen.queryByRole("dialog", { name: /Terminal for/ })).toBeNull();
-    expect(api.calls.some((c) => c.startsWith("openSessionTerminal"))).toBe(false);
+    expect(api.calls.some((c) => c.startsWith("createTerminal") || c.startsWith("openSessionTerminal"))).toBe(false);
+    expect(screen.queryByRole("button", { name: /terminal for Fake agent session/ })).toBeNull();
+  });
+
+  it("docked to the foot, the toggle is the bar's one other control", async () => {
+    await mountPane();
+    expect(barButtons()).toEqual(["Summary and files for Fake agent session", "Show terminal for Fake agent session", "Pane menu for Fake agent session"]);
   });
 
   it("docked to the bottom, is absent until the header toggle is pressed — mounting a session never spawns a shell", async () => {

@@ -189,15 +189,26 @@ session has working are a count in its bar, and the list behind the count can pr
 Every browser tab stays live behind the one showing, and what is opened for a session that is off
 screen waits in that session's side pane, still live for the agent driving it. The button at the
 window's top right puts the side pane away, every tab still open behind it, and brings it back.
-The + after the tabs (⌘⇧B, or ⌥⌘B for full view) opens a blank tab listing the session's tools —
-Documents, Terminal, Simulator and Machine — and the pages you visited last, and ⌘J puts the
-session's terminal there too. The strip fades where its tabs run past its ends, and every tab's
+The + after the tabs opens a blank tab (⌘⇧B, or ⌥⌘B for full view) whose page lists the session's
+tools — Documents, Terminal, Agents, Simulator and Machine — and the pages you visited last, or opens
+one of those tools straight away, and ⌘J puts the session's terminal there too. The strip fades where its tabs run past its ends, and every tab's
 glyph is one size at any width. A device's controls left the strip, where they took the width the
 tabs needed, for a toolbar centred over the device — Home, Screenshot, the elements overlay and
 Rotate, with the volume and side buttons, its apps, the Simulator's settings, the frame and stopping
 the stream one click away. A terminal an agent opened comes back to the front when it stops at a
 password prompt; in 1.5, a sudo prompt sat for a day and a half in a terminal its owner could not
 find.
+
+**A session's bar is about the session, and a session has no close.** The bar carried seven
+glyphs for the tools a session opens beside itself. It now carries the session's place and name, the
+count of agents it has working, its status, one button for what it made — the summary and the
+files, switched in the panel's own head — and its menu. The tools are where they open: the side
+pane's + and a blank tab's page list them, the button at the window's top right opens a session's
+first side pane onto that page, and the command palette has each one. A session is left from the
+sidebar, the way it was reached, so neither its bar nor its menu has a Close. ⌘W closes what the
+keyboard is in: a tab leaves its side pane; a pane leaves the split it shares, which its menu calls
+Remove from split; an empty pane beside a session goes instead of the session; and a session alone
+closes nothing — the keyboard goes to its prompter. File ▸ Close Tab or Split says the same.
 
 **New space asks what the space is, and lands you in it.** The sheet asked for a name and a profile,
 then opened the new space's settings. It leads with the name now, with the space's icon beside it —

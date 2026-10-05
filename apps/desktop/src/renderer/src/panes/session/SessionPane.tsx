@@ -59,14 +59,6 @@ export function SessionMeta({ item }: { item: Item }) {
   );
 }
 
-/**
- * PanelBar action cluster for a session: summary, then the three panes a session opens beside
- * itself — terminal, documents, browser.
- *
- * The diff button is deliberately gone. It was the one action here duplicated a few pixels away:
- * the prompter's under-strip carries the branch chip, and that chip IS the way into the diff — it
- * also says which branch and how many files changed, which a bare icon in the bar never did.
- */
 /** What each mode's `/`-command says in the picker. The ids ARE the mode ids — `/plan`, `/ask`,
  *  `/build` — because a command is typed from memory and the word it is named after is the word on
  *  the chip. */
@@ -79,16 +71,14 @@ const MODE_COMMAND: Record<SessionMode, { label: string; hint: string; icon: "to
 /**
  * A session's own actions, as data — one list, read by the bar and by the ⋯ menu.
  *
- * Data rather than six components, because the two halves have to agree: the bar draws the first
- * `keep` of them (components/pane-bar-fit.ts) and the menu picks up exactly where it left off. With
- * a component per button the menu would have to be given its own copy of the same six decisions,
- * and the first time somebody added a seventh it would appear in one place and not the other.
+ * Data rather than a component per button, because the two halves have to agree: the bar draws the
+ * first `keep` of them (components/pane-bar-fit.ts) and the menu picks up exactly where it left off.
  *
- * ORDER IS PRIORITY, left to right, and the overflow simply takes from the end. The summary and the
- * terminal are what this session IS — one is the only place its outputs and spend are listed, the
- * other is its own shell — so they hold the bar longest. The three after them open a pane BESIDE the
- * session rather than showing anything about it, and every one of them is reachable from the sidebar
- * and the palette as well, so they are what a narrow pane can most afford to spell out in a menu.
+ * What is here is what is about THIS session, and nothing else: the panels that dock to the session's
+ * own pane. The tools a session opens beside itself — documents, the terminal, its agents, a page, a
+ * device, a machine — are launched from the side pane they open in (`side-tools.ts`), which is where
+ * the seven glyphs this bar used to carry now live. A bar of icons that each open something somewhere
+ * else said nothing about the session it headed, and was the loudest thing at the top of the window.
  */
 type BarAction = {
   id: string;
@@ -116,84 +106,34 @@ function useSessionActions(item: Item): BarAction[] {
   const id = item.refId;
   const dock = useApp((s) => s.sessionDock[id]?.kind);
   const toggleSessionDock = useApp((s) => s.toggleSessionDock);
-  const terminalDock = useApp((s) => s.terminalDock);
+  const closeSessionDock = useApp((s) => s.closeSessionDock);
+  const terminalDocked = useApp((s) => s.terminalDock === "bottom");
   const showSessionTerminal = useApp((s) => s.showSessionTerminal);
-  // Same precondition the documents button always had: gated on the environment being loaded,
-  // because an action that could only no-op is dead chrome (Ara refresh §7).
-  const environmentId = useApp((s) => {
-    const e = s.sessions[id]?.environmentId;
-    return e && s.environments[e] ? e : null;
-  });
   const summaryLive = useSummaryLive(item);
-  const openDocuments = useApp((s) => s.openDocuments);
-  const openAgentsTab = useApp((s) => s.openAgentsTab);
-  const newBrowser = useApp((s) => s.newBrowser);
-  const newMachine = useApp((s) => s.newMachine);
-  const newSimulator = useApp((s) => s.newSimulator);
   const run = useApp((s) => s.run);
   return useMemo(() => {
     const list: BarAction[] = [];
-    if (summaryLive) list.push({
-      id: "summary", label: "Summary", title: "Outputs, sources and plans", icon: "info",
-      aria: `Summary of ${item.title}`, dialog: true, on: dock === "summary",
-      onSelect: () => toggleSessionDock(id, { kind: "summary" }),
-    });
-    /* Second, right behind the summary, and for the summary's own reason: this is the only list in
-       the app that shows a file the session actually produced. The Library and the summary are both
-       folded out of tool calls, so anything a shell line or a script wrote is in neither — which is
-       the case someone is in when they go looking. It holds the bar as long as the summary does. */
+    /* What the session made, from both of the places that know: the summary, folded out of the
+       transcript (outputs, sources, plans, spend), and its files, read off the disk — which is the
+       only list that has a file a shell line or a script wrote. Two answers to one question ("where
+       did that go?") are one control, and the panel says which it is showing (DockViews). Always
+       offered, because the files always have something to show; it opens on the summary once there
+       is one. */
+    const open = dock === "summary" || dock === "files";
     list.push({
-      id: "files", label: "Files", title: "Files in this space and checkout", icon: "folder",
-      aria: `Files for ${item.title}`, dialog: true, on: dock === "files",
-      onSelect: () => toggleSessionDock(id, { kind: "files" }),
+      id: "summary", label: "Summary and files", title: "Summary and files", icon: "info",
+      aria: `Summary and files for ${item.title}`, dialog: true, on: open,
+      onSelect: () => (open ? closeSessionDock(id) : toggleSessionDock(id, { kind: summaryLive ? "summary" : "files" })),
     });
-    /* A tab of the side pane, like the buttons after it — unless Settings has put the terminal in the
-       dock at the pane's foot, the one placement that is still a panel this button shows and hides. */
-    const docked = terminalDock === "bottom";
-    list.push({
+    /* The terminal is a tab of the side pane, launched from there — unless Settings has docked it to
+       this pane's foot, where it is the session's own panel and this bar is what shows and hides it. */
+    if (terminalDocked) list.push({
       id: "terminal", label: "Terminal", title: "Terminal (⌘J)", icon: "terminal",
-      aria: docked ? `${dock === "terminal" ? "Hide" : "Show"} terminal for ${item.title}` : `Open the terminal beside ${item.title}`,
-      ...(docked ? { dialog: true, pressed: dock === "terminal" } : {}),
+      aria: `${dock === "terminal" ? "Hide" : "Show"} terminal for ${item.title}`, dialog: true, pressed: dock === "terminal",
       onSelect: () => run(() => showSessionTerminal(id)),
     });
-    if (environmentId) list.push({
-      id: "documents", label: "Documents", title: "Documents", icon: "documents",
-      aria: `Open documents for ${item.title}`,
-      /* Beside, not instead: a tab of this session's side pane, where what its agents open goes too.
-         Taking the session's own pane to do that left the reader with a back button as the only way
-         home. */
-      onSelect: () => run(() => openDocuments(environmentId, null, { sessionId: id })),
-    });
-    /* This session's sub-agents and the composer that hands them work — a tab of the side pane like
-       the documents before it, because what is in it is this session's and nobody else's. */
-    list.push({
-      id: "agents", label: "Agents", title: "Sub-agents", icon: "agents",
-      aria: `Open the sub-agents of ${item.title}`,
-      onSelect: () => run(() => openAgentsTab(id)),
-    });
-    /* The last three take no precondition and are always offered, on one reasoning: each opens a
-       PLACE YOU GO rather than a view of this session's checkout, so gating any of them on an
-       environment would be gating it on something it has nothing to do with. The simulator in
-       particular is not gated on this Mac having Xcode — the pane's own body answers that in a
-       sentence, where a button that vanished would be a feature nobody could discover they were one
-       install away from. */
-    list.push({
-      id: "browser", label: "Browser", title: "Browser", icon: "browser",
-      aria: `Open a browser beside ${item.title}`,
-      onSelect: () => run(() => newBrowser(null, { sessionId: id })),
-    });
-    list.push({
-      id: "machine", label: "Machine", title: "Machine", icon: "machine",
-      aria: `Connect a machine beside ${item.title}`,
-      onSelect: () => run(() => newMachine(null, { sessionId: id })),
-    });
-    list.push({
-      id: "simulator", label: "Simulator", title: "Simulator", icon: "simulator",
-      aria: `Open a simulator beside ${item.title}`,
-      onSelect: () => run(() => newSimulator(null, { sessionId: id })),
-    });
     return list;
-  }, [id, item.title, dock, terminalDock, environmentId, summaryLive, toggleSessionDock, showSessionTerminal, openDocuments, openAgentsTab, newBrowser, newMachine, newSimulator, run]);
+  }, [id, item.title, dock, terminalDocked, summaryLive, toggleSessionDock, closeSessionDock, showSessionTerminal, run]);
 }
 
 /**
@@ -471,7 +411,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   /** The file path whose menu is open, and the element it was clicked on. */
   const [pathMenu, setPathMenu] = useState<{ path: string; at: HTMLElement } | null>(null);
   /* A file the prose names inside this session's checkout opens straight in the documents pane, at
-     the line it named — beside the session, as the bar's own Documents does, never in its place.
+     the line it named — beside the session, as the side pane's Documents does, never in its place.
      Stable, because every finished message re-checks its links against it. */
   const openDocumentPath = useApp((s) => s.openDocumentPath);
   const ownEnvironmentId = session?.environmentId ?? null;

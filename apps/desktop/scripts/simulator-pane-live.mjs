@@ -21,6 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9356), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8922);
@@ -233,11 +234,12 @@ async function main() {
   await c.send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 1, mobile: false });
   await sleep(500);
 
-  // ── 1. The button is where the machine's is, and it opens a pane ─────────
-  const cluster = await evalIn(c, `[...document.querySelectorAll('.panel-bar button')].map((b) => b.getAttribute('aria-label')).filter(Boolean)`);
-  const simButton = cluster.find((l) => l.startsWith("Open a simulator beside"));
-  check("the session bar offers a simulator beside the machine", !!simButton && cluster.some((l) => l.startsWith("Connect a machine beside")), cluster);
-  await evalIn(c, `(() => { __live.byLabel(${JSON.stringify(simButton)}).click(); return true; })()`);
+  // ── 1. The side pane offers it beside the machine, and it opens a pane ─────
+  // The session's bar carries no tools: its first side pane opens on a new tab whose page lists them.
+  await openSideTool(c, null, "New tab");
+  const tools = await evalIn(c, `[...document.querySelectorAll('.new-tab .new-tab-row-label')].map((l) => l.textContent)`);
+  check("the session's side pane offers a simulator beside the machine", tools.includes("Simulator") && tools.includes("Machine"), tools);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.new-tab .new-tab-row')].find((r) => r.textContent.includes("Simulator")).click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.sim-pane')`), 15000, "simulator pane");
 
   // ── 2. The picker lists this Mac's real devices ──────────────────────────

@@ -36,9 +36,10 @@ export const MENU_LAYOUT = {
     null,
     row("session.attachFiles", "Attach Files…"),
     null,
-    // A pane, never the window: closing a pane leaves the object behind it (design.md), and the
-    // window's own close is its red button.
-    row("pane.close", "Close Pane"),
+    // A tab or a split, never the window and never a session alone: closing leaves the object
+    // behind it (design.md), a session is left from the sidebar, and the window's own close is its
+    // red button.
+    row("pane.close", "Close Tab or Split"),
   ],
   view: [
     row("sidebar.toggle", "Toggle Sidebar"), row("palette.toggle", "Command Palette…"), row("spaces.toggle", "All Spaces"),

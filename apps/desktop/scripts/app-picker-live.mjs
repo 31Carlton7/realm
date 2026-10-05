@@ -28,6 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
@@ -392,7 +393,7 @@ async function main() {
   await sleep(500);
 
   // ── 3. A browser pane: its own bar, the page's view, and the web picker inside it ─────────────
-  await evalIn(c, `(() => { const b = document.querySelector('[aria-label=${JSON.stringify(`Open a browser beside ${TITLE}`)}]'); if (b) b.click(); return !!b; })()`);
+  await openSideTool(c, TITLE, "New tab");
   await until(() => evalIn(c, `!!document.querySelector('.browser-pane input[aria-label=Address]')`), 10_000, "browser pane");
   await evalIn(c, `(() => { const input = document.querySelector('.browser-pane input[aria-label=Address]'); input.focus();
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(`${SITE}/`)});

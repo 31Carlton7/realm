@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { findLeafOfItem, findSidePane, type Layout } from "@realm/contracts";
+import { TERMINALS_DOCK_KEY, findLeafOfItem, findSidePane, type Environment, type Layout } from "@realm/contracts";
 import { PaneHost } from "./PaneHost";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
@@ -24,9 +24,13 @@ const ITEMS = [
   item("i-kid", "s1", { kind: "session", refId: "kid", title: "Agent: apply" }),
 ];
 
+/** The lead's checkout, loaded — what its Documents waits for. */
+const ENV: Environment = { id: "env-lead", spaceId: "s1", path: "/tmp/lead", branch: "main", kind: "primary", portBlockStart: 41000, createdAt: 0, updatedAt: 0 };
+
 /** The lead with a side pane holding a browser and a previewed child, the browser showing. */
-async function mount(items = ITEMS) {
-  const api = fakeApi({ items: { s1: [...items] }, sessions: [session("lead", "s1"), session("kid", "s1")] });
+async function mount(items = ITEMS, settings: Record<string, unknown> = {}) {
+  const api = fakeApi({ items: { s1: [...items] }, sessions: [session("lead", "s1", { environmentId: ENV.id, cwd: ENV.path }), session("kid", "s1")],
+    environments: { s1: [ENV] }, settings });
   const store = createAppStore(api);
   await store.getState().boot();
   await store.getState().openItem("i-lead");
@@ -164,8 +168,49 @@ describe("the strip's +", () => {
     fireEvent.click(screen.getByRole("button", { name: "New tab" }));
     const menu = within(await screen.findByRole("menu", { name: "New tab" }));
     const rows = menu.getAllByRole("menuitem");
-    expect(rows.map((r) => r.querySelector(".menu-label")!.textContent)).toEqual(["New tab", "New tab in full view"]);
-    expect(rows.map((r) => r.querySelector(".menu-kbd")?.textContent)).toEqual(["⌘⌥N", "⌘⌥B"]);
+    expect(rows.slice(0, 2).map((r) => r.querySelector(".menu-label")!.textContent)).toEqual(["New tab", "New tab in full view"]);
+    expect(rows.slice(0, 2).map((r) => r.querySelector(".menu-kbd")?.textContent)).toEqual(["⌘⌥N", "⌘⌥B"]);
+  });
+
+  it("offers every tool of the session it serves, under the new tab — where the session's bar kept them", async () => {
+    // THE MUTANT: drop the tools from the menu. Machine, Simulator and Agents would then have no way in
+    // from the side pane at all, now that the session's bar carries none of them.
+    const { store } = await mount();
+    await waitFor(() => expect(store.getState().environments[ENV.id]).toBeDefined());
+    // ⌘J moved, to check the row prints the chord the keymap gives the SESSION'S terminal.
+    store.setState({ keybindings: [...store.getState().keybindings, { key: "mod+j", command: "" }, { key: "mod+alt+t", command: "terminal.toggle", when: "!overlayOpen && sessionFocus" }] });
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+    const rows = within(await screen.findByRole("menu", { name: "New tab" })).getAllByRole("menuitem");
+    const named = rows.map((r) => [r.querySelector(".menu-label")!.textContent, r.querySelector(".menu-kbd")?.textContent ?? null]);
+    expect(named.slice(2)).toEqual([["Documents", "⌘P"], ["Terminal", "⌘⌥T"], ["Agents", null], ["Simulator", null], ["Machine", null]]);
+  });
+
+  it.each([
+    ["Simulator", "createSimulator:s1", "simulator"],
+    ["Machine", "createMachine:s1", "machine"],
+    ["Agents", "agentsTab:lead", "agents"],
+    ["Terminal", "createTerminal:s1:/tmp/lead", "terminal"],
+    ["Documents", "createDocuments:s1:env-lead", "documents"],
+  ] as const)("opens %s as a tab of THIS strip, with the keyboard", async (row, call, kind) => {
+    // THE MUTANT: open the tool with no session named. It lands wherever the keyboard is — replacing
+    // the pane in focus, or in another session's side pane.
+    const { api, store } = await mount();
+    await waitFor(() => expect(store.getState().environments[ENV.id]).toBeDefined());
+    // The keyboard in the session itself, so an open that named no session would land THERE.
+    store.getState().focusLeaf(findLeafOfItem(store.getState().layout!, "i-lead")!.id);
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "New tab" })).getByRole("menuitem", { name: new RegExp(`^${row}`) }));
+    await waitFor(() => expect(api.calls).toContain(call));
+    await waitFor(() => expect(store.getState().items.find((i) => i.id === side(store).itemId)?.kind).toBe(kind));
+    expect(store.getState().focusedLeafId).toBe(side(store).id);
+  });
+
+  it("leaves the terminal out while Settings docks it to the session's foot — the session's bar has it then", async () => {
+    await mount(ITEMS, { [TERMINALS_DOCK_KEY]: "bottom" });
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+    const menu = within(await screen.findByRole("menu", { name: "New tab" }));
+    expect(menu.queryByRole("menuitem", { name: /^Terminal/ })).toBeNull();
+    expect(menu.getByRole("menuitem", { name: /^Simulator/ })).toBeInTheDocument();
   });
 
   it("adds a blank tab to this strip on New tab", async () => {
@@ -298,8 +343,19 @@ describe("who yields in a side pane's bar", () => {
     await store.getState().openItem("i-kid", side(store).id);
     rerender();
     const bar = document.querySelector<HTMLElement>(`[data-leaf-id="${side(store).id}"] .panel-bar`)!;
-    expect(within(bar).queryByRole("button", { name: "Files for Agent: apply" })).toBeNull();
+    expect(within(bar).queryByRole("button", { name: "Summary and files for Agent: apply" })).toBeNull();
     fireEvent.click(within(bar).getByRole("button", { name: "Pane menu for Agent: apply" }));
-    expect(await screen.findByRole("menuitemcheckbox", { name: /Files/ })).toBeInTheDocument();
+    expect(await screen.findByRole("menuitemcheckbox", { name: /Summary and files/ })).toBeInTheDocument();
+  });
+
+  it("names the tab's close as a tab's, on ⌘W — a session in a strip is a tab, not a pane to unsplit", async () => {
+    const { store, rerender } = await mount();
+    await store.getState().openItem("i-kid", side(store).id);
+    rerender();
+    const bar = document.querySelector<HTMLElement>(`[data-leaf-id="${side(store).id}"] .panel-bar`)!;
+    fireEvent.click(within(bar).getByRole("button", { name: "Pane menu for Agent: apply" }));
+    const row = await screen.findByRole("menuitem", { name: /^Close tab/ });
+    expect(row.querySelector(".menu-kbd")?.textContent).toBe("⌘W");
+    expect(screen.queryByRole("menuitem", { name: /Remove from split/ })).toBeNull();
   });
 });

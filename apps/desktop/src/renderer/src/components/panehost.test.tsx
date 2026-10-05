@@ -192,10 +192,30 @@ describe("PaneHost", () => {
       expect(screen.queryByRole("button", { name: `Close ${title}` })).toBeNull();
     });
 
-    it("a session pane keeps the × — its transcript outlives the pane", () => {
-      renderBar("session", "Chat");
-      expect(screen.getByRole("button", { name: "Close Chat" })).toBeInTheDocument();
+    it("a session pane has no close at all — none in its bar, none in its menu — and keeps Delete in the menu", async () => {
+      // THE MUTANT: the × back on a session's bar, or Close back in its menu — the control the owner
+      // asked to be rid of (10-05). A session is left from the sidebar, the way it was reached.
+      const { unmount } = renderBar("session", "Chat");
+      expect(screen.queryByRole("button", { name: "Close Chat" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Delete Chat" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Pane menu for Chat" }));
+      const rows = screen.getAllByRole("menuitem").map((r) => r.querySelector(".menu-label")?.textContent);
+      expect(rows.filter((r) => /Close|split/i.test(r ?? "") && r !== "Split right" && r !== "Split down")).toEqual([]);
+      expect(rows).toContain("Delete");
+      await exited();
+      unmount();
+    });
+
+    it("a session sharing the window is taken out of the split from its menu, on ⌘W", async () => {
+      const onUnsplit = vi.fn();
+      const { unmount } = renderBar("session", "Chat", { onUnsplit, onSplit: undefined });
+      fireEvent.click(screen.getByRole("button", { name: "Pane menu for Chat" }));
+      const row = screen.getByRole("menuitem", { name: /Remove from split/ });
+      expect(row.querySelector(".menu-kbd")?.textContent).toBe("⌘W");
+      fireEvent.click(row);
+      expect(onUnsplit).toHaveBeenCalledOnce();
+      await exited();
+      unmount();
     });
 
     it("a page deletes on ONE click: there is no row behind it for a confirm to protect", async () => {
@@ -368,6 +388,65 @@ describe("PaneHost", () => {
     );
     const box2 = screen.getByRole("textbox", { name: /message/i });
     expect((box2 as HTMLTextAreaElement).value).toBe(""); // fresh component instance, not the se1 instance carrying its draft over
+  });
+});
+
+/**
+ * Which session bars offer the way out of a split — the pane host's half of `closeIntent`: a session
+ * that shares the window with something, never one alone, beside an empty box, or under pane focus.
+ */
+describe("PaneHost's Remove from split", () => {
+  const SESSIONS = [
+    item("SA", "s1", { kind: "session", refId: "sa", title: "Alpha" }),
+    item("SB", "s1", { kind: "session", refId: "sb", title: "Bravo" }),
+  ];
+  function renderSessions(layout: Layout, over: Partial<PaneHostProps> = {}) {
+    const api = fakeApi({ items: { s1: [...SESSIONS] }, sessions: [session("sa", "s1"), session("sb", "s1")] });
+    const store = createAppStore(api);
+    const onUnsplit = vi.fn();
+    const r = render(
+      <StoreContext.Provider value={store}>
+        <PaneHost layout={layout} items={SESSIONS} focusedLeafId="L1" onFocus={() => {}} onClose={() => {}} onSplit={() => {}}
+          onUnsplit={onUnsplit} {...over} />
+      </StoreContext.Provider>,
+    );
+    return { ...r, onUnsplit };
+  }
+  const menuOf = async (title: string) => {
+    fireEvent.click(screen.getByRole("button", { name: `Pane menu for ${title}` }));
+    return within(await screen.findByRole("menu", { name: `Actions for ${title}` }));
+  };
+  const two = (b: string | null): Layout => ({ type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+    { type: "leaf", id: "L1", itemId: "SA" }, { type: "leaf", id: "L2", itemId: b }] });
+
+  it("takes THIS pane's session out, by its leaf", async () => {
+    const { onUnsplit, unmount } = renderSessions(two("SB"));
+    fireEvent.click((await menuOf("Bravo")).getByRole("menuitem", { name: /Remove from split/ }));
+    expect(onUnsplit).toHaveBeenCalledExactlyOnceWith("L2");
+    await exited();
+    unmount();
+  });
+
+  it("is not offered to a session alone, nor beside an empty pane — whose own trash is the way out", async () => {
+    // THE MUTANT: offer it whenever there are two leaves. Beside an empty box it would take the
+    // session out and leave the box, which the store then fills with a session nobody asked for.
+    const alone = renderSessions({ type: "leaf", id: "L1", itemId: "SA" });
+    expect((await menuOf("Alpha")).queryByRole("menuitem", { name: /Remove from split/ })).toBeNull();
+    await exited();
+    alone.unmount();
+    const beside = renderSessions(two(null));
+    expect((await menuOf("Alpha")).queryByRole("menuitem", { name: /Remove from split/ })).toBeNull();
+    await exited();
+    beside.unmount();
+  });
+
+  it("is not offered under pane focus, where the other pane is out of sight", async () => {
+    const { unmount } = renderSessions(two("SB"), { zoomedLeafId: "L1", onUnzoom: () => {} });
+    const menu = await menuOf("Alpha");
+    expect(menu.queryByRole("menuitem", { name: /Remove from split/ })).toBeNull();
+    expect(menu.getByRole("menuitem", { name: /Unfocus pane/ })).toBeInTheDocument();
+    await exited();
+    unmount();
   });
 });
 

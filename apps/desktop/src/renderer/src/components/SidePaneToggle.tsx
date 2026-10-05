@@ -7,11 +7,13 @@ import { sidePaneLeaves, useApp } from "../state/store";
  * splits".
  *
  * A session's side pane is where everything it opens goes, as tabs: the terminal, documents, a
- * browser, a device. Before this the only way to be rid of that column was to close every tab in it.
- * Put away, every tab stays open and as it was — a browser's page, a terminal's scrollback, an agent
- * still driving — and the session takes the width; brought back, it is where it was. A tool opened
- * from a session's bar brings it back too, since that is a person asking to look (`openInSidePane`).
- * With no side pane at all it opens one, on a new tab, beside the session in focus.
+ * browser, a device — and where those are launched from, its "+" and a new tab's page, now that the
+ * session's own bar carries none of them. Before this the only way to be rid of that column was to
+ * close every tab in it. Put away, every tab stays open and as it was — a browser's page, a terminal's
+ * scrollback, an agent still driving — and the session takes the width; brought back, it is where it
+ * was. A tool opened by its key or from the palette brings it back too, since that is a person asking
+ * to look (`openInSidePane`). With no side pane at all it opens one, on a new tab whose page lists
+ * the session's tools, beside the session in focus.
  *
  * Window chrome, like the lead at the top left: fixed in the top row, after the panes in the document
  * so its button wins the bars' drag regions, and the bar under it makes room (`data-top-right`). Not
@@ -31,7 +33,8 @@ export function SidePaneToggle() {
     <div className="window-trail">
       {/* `data-on` with a name that flips, the way the bar's other toggles that name their next action do. */}
       <button type="button" className="icon-btn" data-on={shown || undefined} aria-label={label}
-        title={shown ? "Hide side pane — its tabs stay open" : "Show side pane"} onClick={() => run(() => toggleSidePanes())}>
+        title={shown ? "Hide side pane — its tabs stay open" : sides ? "Show side pane" : "Show side pane — this session's tools and pages"}
+        onClick={() => run(() => toggleSidePanes())}>
         <Icon name="panelRight" size={14} />
       </button>
     </div>
