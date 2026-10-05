@@ -167,9 +167,7 @@ async function main() {
   await c.ready;
   await c.send("Runtime.enable");
   await c.send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 2, mobile: false });
-  // The window's material is not in the DOM, so a capture composites the translucent grounds over
-  // nothing. A dark desktop-like ground stands in for it, as the material would over a dark wallpaper.
-  await c.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 24, g: 25, b: 28, a: 1 } });
+
   // A window the script opened behind someone's work is not key: Realm greys its accent and goes
   // quiet. Focus is emulated, and the inactive mark held off, so what is captured is the app awake.
   await c.send("Emulation.setFocusEmulationEnabled", { enabled: true });
@@ -306,7 +304,6 @@ async function main() {
   await sleep(400);
   await shot(c, "10-plan-handoff");
   // The light face, by the attribute the theme setting writes on the root — the same tab, re-tokened.
-  await c.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 236, g: 236, b: 238, a: 1 } });
   await evalIn(c, `(() => { document.documentElement.dataset.mode = "light"; return true; })()`);
   await sleep(400);
   await shot(c, "11-light");
@@ -316,14 +313,25 @@ async function main() {
  *  state attributes — so a capture that reads differently from the next can be explained. */
 const grounds = (c) => evalIn(c, `(() => { const cs = getComputedStyle(document.documentElement);
   return { attrs: [...document.documentElement.attributes].map((a) => a.name), groundAlpha: cs.getPropertyValue('--ground-alpha'), paneAlpha: cs.getPropertyValue('--pane-alpha'),
-    sidebar: getComputedStyle(document.querySelector('.sidebar') ?? document.body).backgroundColor, app: [...(document.querySelector('.app')?.attributes ?? [])].map((a) => a.name) }; })()`);
+    sidebar: getComputedStyle(document.querySelector('.sidebar') ?? document.body).backgroundColor, app: [...(document.querySelector('.app')?.attributes ?? [])].map((a) => a.name),
+    // What is on top over the sidebar and the lead's pane, with anything translucent or dimmed on it.
+    over: [[200, 500], [800, 800]].map(([x, y]) => document.elementsFromPoint(x, y).slice(0, 6).map((el) => {
+      const st = getComputedStyle(el);
+      return [el.tagName.toLowerCase() + (el.className && typeof el.className === "string" ? "." + el.className.split(" ").join(".") : ""), st.opacity, st.backgroundColor, st.filter].join(" ");
+    })) }; })()`);
 
+/** The window's material is not in the DOM, so a capture composites the translucent grounds over
+ *  nothing and the PNG comes out see-through — measured: the sidebar at alpha 140. For the capture
+ *  alone the root is painted with a ground that stands in for the material over a plain wallpaper,
+ *  dark or light as the face is, and put back after. */
 async function shot(c, tag) {
+  await evalIn(c, `(() => { const r = document.documentElement; r.style.background = r.dataset.mode === "light" ? "#e9e9ec" : "#17181b"; return true; })()`);
   try {
     const { data } = await c.send("Page.captureScreenshot", { format: "png" });
     fs.writeFileSync(OUT(tag), Buffer.from(data, "base64"));
     console.log(`SCREENSHOT ${tag} ${OUT(tag)}`);
   } catch (e) { note("screenshot failed", String(e)); }
+  await evalIn(c, `(() => { document.documentElement.style.background = ""; return true; })()`);
 }
 
 async function teardown() {
