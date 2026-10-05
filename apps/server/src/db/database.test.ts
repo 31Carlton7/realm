@@ -1285,3 +1285,92 @@ describe("migration v39 — the views MCP servers draw", () => {
     again.close();
   });
 });
+
+/**
+ * The v39 shape of what v40 touches, hand-written for the reason every fixture above is: `profiles` as
+ * it stands at v39 — v1's columns and v37's partition, in that order — because `library_files` hangs
+ * off it, with two profiles in it as a real home has.
+ *
+ * The version it is stamped at is found rather than written down: the migration that makes the table
+ * is looked for by what it says, so a migration another branch lands before it still leaves this a
+ * home stamped one short of it.
+ */
+const V39_PROFILES_SCHEMA = `
+CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
+  sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  browser_partition TEXT NOT NULL DEFAULT '');
+`;
+const LIBRARY_FILES_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS library_files"));
+
+function v39Fixture(path: string): void {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V39_PROFILES_SCHEMA);
+  for (let v = 1; v <= LIBRARY_FILES_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  db.prepare(`INSERT INTO profiles (id, name, icon, color, sort_order, created_at, updated_at, browser_partition)
+    VALUES ('pWork', 'Work', 'briefcase', '#3b82f6', 0, 1, 1, 'persist:browser'), ('pHome', 'Home', 'house', '#22c55e', 1, 2, 2, 'persist:browser-pHome')`).run();
+  db.close();
+}
+
+describe("migration v40 — the files a person adds to the Library", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v39Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+  const insert = (db: DatabaseSync, id: string, profileId: string, ts = 1) => db.prepare(`INSERT INTO library_files
+    (id, profile_id, path, name, ext, size, digest, ts) VALUES (?, ?, '/home/library/report.pdf', 'report.pdf', 'pdf', 9, 'd1', ?)`).run(id, profileId, ts);
+
+  it("is appended, not folded into v39: a v39 home reaches the end of the chain and gains the table", () => {
+    const { db } = migrated();
+    expect(LIBRARY_FILES_AT).toBeGreaterThanOrEqual(39);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    const cols = (db.prepare("PRAGMA table_info(library_files)").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toEqual(["id", "profile_id", "path", "name", "ext", "size", "digest", "ts"]);
+    db.close();
+  });
+
+  it("backfills NOTHING, and leaves the profiles it hangs off exactly as they were", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM library_files").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT id, name, browser_partition FROM profiles ORDER BY sort_order").all())
+      .toEqual([{ id: "pWork", name: "Work", browser_partition: "persist:browser" }, { id: "pHome", name: "Home", browser_partition: "persist:browser-pHome" }]);
+    db.close();
+  });
+
+  it("goes with its profile, only its own profile's files go, and a file names a profile that exists", () => {
+    const { db } = migrated();
+    insert(db, "f1", "pWork");
+    insert(db, "f2", "pHome");
+    db.prepare("DELETE FROM profiles WHERE id = 'pHome'").run();
+    expect(db.prepare("SELECT id FROM library_files").all()).toEqual([{ id: "f1" }]);
+    expect(() => insert(db, "f3", "no-such-profile")).toThrow(/FOREIGN KEY/);
+    db.close();
+  });
+
+  it("answers the Library's two questions off indexes: a profile's newest files, and whether these bytes are in", () => {
+    const { db } = migrated();
+    const plan = (sql: string, ...args: string[]) => (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...args) as { detail: string }[]).map((r) => r.detail).join(" ");
+    const newest = plan("SELECT * FROM library_files WHERE profile_id = ? ORDER BY ts DESC, id DESC LIMIT 60", "pWork");
+    expect(newest).toContain("library_files_recent");
+    expect(newest).not.toContain("TEMP B-TREE");
+    expect(plan("SELECT id FROM library_files WHERE profile_id = ? AND digest = ?", "pWork", "d1")).toMatch(/library_files_(digest|recent)/);
+    db.close();
+  });
+
+  it("is idempotent: reopening twice more neither re-runs the CREATE nor loses a file kept since", () => {
+    const { p, db } = migrated();
+    insert(db, "f1", "pWork");
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(again.prepare("SELECT id FROM library_files").all()).toEqual([{ id: "f1" }]);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    // The statement itself is safe to meet twice as well — `IF NOT EXISTS`, not a version check alone.
+    expect(() => again.exec(migrations[LIBRARY_FILES_AT]!)).not.toThrow();
+    expect(again.prepare("SELECT id FROM library_files").all()).toEqual([{ id: "f1" }]);
+    again.close();
+  });
+});

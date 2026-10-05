@@ -62,6 +62,7 @@ import type { DelegatedChildren } from "../delegation/children";
 import type { AgentRunService } from "../delegation/agent-run";
 import type { SearchService } from "../search/service";
 import type { ArtifactsStore } from "../store/artifacts";
+import type { LibraryFilesStore } from "../store/library-files";
 import type { ForkService } from "../sessions/fork";
 import type { FailoverService } from "../sessions/failover";
 import type { ImportService } from "../import/service";
@@ -99,6 +100,8 @@ export type Deps = {
   agentSignIn: AgentSignInService;
   /** The views MCP servers draw for tool calls (MCP Apps). */
   appViews: AppViewService;
+  /** The files a person added to the Library themselves, copied in under the profile. */
+  libraryFiles: LibraryFilesStore;
 };
 
 export function registerMethods(d: Deps): void {
@@ -652,6 +655,8 @@ export function registerMethods(d: Deps): void {
   // The Library's file browser. One indexed range scan and a count; no transcript is read, which is
   // the whole point of the `artifacts` index existing (see migration v25).
   reg("library.artifacts", (p) => ({ entries: d.artifacts.list(p), total: d.artifacts.count(p.spaceId, p.profileId ?? null, { sessionId: p.sessionId ?? null, perFile: p.perFile }) }));
+  // Files a person adds to the Library: copied in under the profile, and listed beside the index.
+  reg("library.add", (p) => d.libraryFiles.add(p));
 
   // Import from the agent CLIs' own stores. `scan` is a pure read — it opens ~/.claude, ~/.codex and
   // ~/.cursor read-only and answers; nothing is created by looking. `apply` is the only writer, and
