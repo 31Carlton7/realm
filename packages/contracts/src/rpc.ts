@@ -337,7 +337,7 @@ export const AgentProbeRowSchema = z.object({
   version: z.string().nullable(),
   loggedIn: z.boolean().nullable(),
   reason: z.string().nullable(),
-  models: z.array(z.object({ id: z.string(), label: z.string() })).nullable().optional(),
+  models: z.array(z.object({ id: z.string(), label: z.string(), fastMode: z.boolean().optional(), isDefault: z.boolean().optional() })).nullable().optional(),
 });
 
 /**

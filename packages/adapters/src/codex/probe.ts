@@ -59,8 +59,15 @@ export async function probeCodex(
  * models are skipped because that is what the flag means ("hidden from the default picker list");
  * only an explicit `hidden: true` hides — an absent flag is not treated as hiding.
  */
-/** One catalog row, plus the one capability Realm reads off it. */
-export type CodexModel = { id: string; label: string; /** Whether the row lists the `priority` service tier — what Codex calls Fast. */ fast: boolean };
+/** One catalog row, plus the two facts Realm reads off it. */
+export type CodexModel = {
+  id: string; label: string;
+  /** Whether the row lists the `priority` service tier — what Codex calls Fast. */
+  fast: boolean;
+  /** `isDefault: true` — the model a thread started with no `model` runs, which is what lets a session
+   *  that pinned nothing know its fast-mode answer before it starts. */
+  isDefault: boolean;
+};
 
 /** The service tier Codex's own picker labels "Fast" (`{ id: "priority", name: "Fast", description:
  *  "1.5x speed, increased usage" }`, live 0.153.4). It is the value `turn/start` takes as
@@ -77,10 +84,10 @@ export function parseCodexModelPage(page: unknown): { models: CodexModel[]; next
   const rows = Array.isArray(data) ? data : [];
   const models: CodexModel[] = [];
   for (const row of rows) {
-    const m = row as { id?: unknown; displayName?: unknown; hidden?: unknown; serviceTiers?: unknown } | null;
+    const m = row as { id?: unknown; displayName?: unknown; hidden?: unknown; serviceTiers?: unknown; isDefault?: unknown } | null;
     if (!m || typeof m.id !== "string" || m.id.trim() === "" || m.hidden === true) continue;
     const label = typeof m.displayName === "string" && m.displayName.trim() !== "" ? m.displayName.trim() : m.id;
-    models.push({ id: m.id, label, fast: hasFastTier(m.serviceTiers) });
+    models.push({ id: m.id, label, fast: hasFastTier(m.serviceTiers), isDefault: m.isDefault === true });
   }
   const cursor = (page as { nextCursor?: unknown } | null)?.nextCursor;
   return { models, nextCursor: typeof cursor === "string" && cursor !== "" ? cursor : null };

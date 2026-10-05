@@ -4970,7 +4970,7 @@ await get().refreshCustomThemes().catch(() => {});
            it (it writes before it broadcasts). Re-read here, before the returns below, because the
            answer is wanted by sessions that have not STARTED — the next one on this model offers the
            switch before its first message only if this copy has heard. */
-        if (ev.event.type === "init" && ev.event.payload.supportsFastMode !== undefined) {
+        if (ev.event.type === "init" && (ev.event.payload.supportsFastMode !== undefined || ev.event.payload.fastModeModels)) {
           void get().run(() => get().refreshFastSupport());
         }
         /** This event makes no other write: the line, and the log's length, are the whole of it. */
