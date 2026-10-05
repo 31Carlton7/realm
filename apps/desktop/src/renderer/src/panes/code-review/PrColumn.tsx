@@ -165,6 +165,28 @@ export function PrColumn({ login, pins, selected, onSelect, onSignIn, onLost }: 
   );
 }
 
+/**
+ * The column before gh has answered, the first time the page opens in a window: its head and its
+ * search as the column draws them, and nothing listed yet. It stands in the sidebar's place from the
+ * page's first frame, so the lists arrive under a column already there.
+ */
+export function PrColumnPending() {
+  return (
+    // A picture of the column for the moment before gh answers: nothing in it works yet, so nothing
+    // in it is offered — to the pointer, the keyboard or a screen reader.
+    <div className="cr-col" aria-hidden="true" inert>
+      <div className="cr-col-head">
+        <span className="cr-col-title">Code review</span>
+        <span className="icon-btn"><Icon name="more" size={14} /></span>
+      </div>
+      <div className="cr-col-search">
+        <Icon name="search" size={14} className="cr-col-search-mark" />
+        <input className="search-field" type="search" placeholder="Search or paste a PR link" tabIndex={-1} readOnly />
+      </div>
+    </div>
+  );
+}
+
 /** One list: its heading, its rows, and what to say when there are none, or none could be read. */
 function Section({ label, listed, selected, onSelect, onMore, onRetry, empty }: {
   label: string | null; listed: Listed; selected: PrRef | null;

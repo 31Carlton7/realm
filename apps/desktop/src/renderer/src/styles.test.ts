@@ -1371,6 +1371,40 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
   });
 
+  it("the Scheduled and Code review columns are the sidebar's in its slot — its ground, edge, width and dissolve", () => {
+    /* The owner, 10-05: the Scheduled page's column "looks darker, there is no corner rounding … It is
+       supposed to be the replacement sidebar, not like its own custom thing. Same for the code review
+       part." In the slot (page-nav.tsx) each column gives up the frame's ground, its hairline edge and
+       its fixed width — the sidebar's ground, corner and seam are under it then, and its width the
+       sidebar's, resizer and all — and the slot neither insets it again nor scrolls it, since the
+       column brings its own head and scroller. That scroller dissolves on the spaces list's depths.
+       THE MUTANTS: the column's own ground or edge kept in the slot (the darker second sidebar), its
+       fixed width kept (a column narrower or wider than the sidebar), or the slot's inset doubling the
+       column's own. */
+    const slot = bodiesFor(".sb-page-nav:has(> :is(.sched-col, .cr-col))").join(" ");
+    expect(slot).toContain("padding: 0");
+    expect(slot).toContain("overflow: hidden");
+    const col = bodiesFor(".sb-page-nav > :is(.sched-col, .cr-col)").join(" ");
+    for (const want of ["flex: 1", "width: auto", "background: none", "border-right: 0"]) expect(col, want).toContain(want);
+    // Standing in the page, with the sidebar folded away, each keeps the ground and edge it had.
+    for (const sel of [".sched-col", ".cr-col"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("background: var(--rl-frame)");
+      expect(bodiesFor(sel).join(" "), sel).toContain("border-right: var(--hairline-w) solid var(--rl-line)");
+    }
+    const depth = (body: string, v: string) => new RegExp(`${v}: (\\d+px)`).exec(body)?.[1];
+    const list = bodiesFor(".sb-page").join(" ");
+    const bodies = bodiesFor(".sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-body, .cr-col-body)").join(" ");
+    expect(depth(bodies, "--fade-h")).toBe(depth(list, "--fade-h"));
+    expect(depth(bodies, "--fade-top-h")).toBe(depth(list, "--fade-top-h"));
+    // …and its bar the column's own narrow one, the spaces list's — not the 10px channel every other
+    // dissolving scroller takes, which in the live check stood out down Code review's long list.
+    const GUARD = ":root:not([data-overlay-scrollbars])";
+    for (const body of [".sb-page-nav > .sched-col > .sched-col-body", ".sb-page-nav > .cr-col > .cr-col-body"]) {
+      expect(bodiesFor(`${GUARD} ${body}::-webkit-scrollbar`).join(" "), body).toBe(bodiesFor(`${GUARD} .space-body::-webkit-scrollbar`).join(" "));
+      expect(bodiesFor(`${GUARD} ${body}::-webkit-scrollbar-thumb`).join(" "), body).toBe(bodiesFor(`${GUARD} .space-body::-webkit-scrollbar-thumb`).join(" "));
+    }
+  });
+
   it("the window never scrolls: the shell is clipped at its own edges, without becoming a scroller", () => {
     /* Measured live (10-05): a page rising in from 6px under its place overran the window's foot, the
        document became scrollable by those 6px, and a classic scrollbar took 15px off the whole app

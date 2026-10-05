@@ -95,13 +95,12 @@ describe("sidebar collapse toggle", () => {
 describe("a page with no use for the spaces", () => {
   const shown = () => !document.querySelector(".app")!.hasAttribute("data-sidebar-collapsed");
 
-  it("takes the sidebar away while it is up — Connections, Code review, Scheduled — and gives it back as it was", async () => {
-    /* The owner, 10-04: no sidebar on Connections; and the Scheduled and Code review pages draw their
-       own columns, of tasks and of pull requests. The page takes the width right of the rail. THE MUTANTS: a page left out of
-       the declaration, or the page writing the person's own collapse setting (so leaving it would not
-       bring the sidebar back). */
+  it("takes the sidebar away while Connections is up, and gives it back as it was", async () => {
+    /* The owner, 10-04: no sidebar on Connections. The page takes the width right of the rail. THE
+       MUTANTS: the page left out of the declaration, or the page writing the person's own collapse
+       setting (so leaving it would not bring the sidebar back). */
     const { store, api } = await mountShell();
-    for (const kind of ["connections-page", "code-review-page", "schedules-page"] as const) {
+    for (const kind of ["connections-page"] as const) {
       act(() => store.getState().openDestinationPage(kind));
       await waitFor(() => expect(shown(), kind).toBe(false));
       expect(document.getElementById("app-sidebar")).toHaveAttribute("inert");
@@ -113,9 +112,12 @@ describe("a page with no use for the spaces", () => {
     expect(api.calls.some((c) => c.startsWith("setSetting:ui.sidebarCollapsed"))).toBe(false);
   });
 
-  it("leaves the sidebar alone on every other page", async () => {
+  it("leaves the sidebar alone on every other page — the Scheduled and Code review pages' columns take its place", async () => {
+    /* The owner, 10-05: "The sidebar for scheduled tasks needs to be the same as the home sidebar and
+       the library sidebar … Same for the code review part." Their columns are the sidebar's now
+       (page-nav.tsx), so the sidebar stays. THE MUTANT: either page back in PAGE_SHELL. */
     const { store } = await mountShell();
-    for (const kind of ["library-page", "settings-page", "you-page"] as const) {
+    for (const kind of ["library-page", "settings-page", "you-page", "schedules-page", "code-review-page"] as const) {
       act(() => store.getState().openDestinationPage(kind));
       await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe(kind));
       expect(shown(), kind).toBe(true);
@@ -167,15 +169,17 @@ describe("what moves the column", () => {
     await waitFor(() => expect(shown()).toBe(true));
     expect(cut(), "the lead's Show").toBe(false);
 
-    // Home → Scheduled → Library → Connections → the session, then back the other way.
+    // Home → Scheduled → Library → Connections → the session, then back the other way. Scheduled and
+    // Code review keep the column (their own lists are in it); Connections is the page that has none.
     const open = (kind: DestinationPageKind) => () => store.getState().openDestinationPage(kind);
     const close = () => store.getState().closePageOverlay();
     const home = () => { void store.getState().goHome(); };
     const route: [string, () => void, boolean][] = [
-      ["Home", home, true], ["Scheduled", open("schedules-page"), false], ["Library", open("library-page"), true],
+      ["Home", home, true], ["Scheduled", open("schedules-page"), true], ["Library", open("library-page"), true],
       ["Connections", open("connections-page"), false], ["the session", close, true],
-      ["Connections again", open("connections-page"), false], ["Library again", open("library-page"), true],
-      ["Scheduled again", open("schedules-page"), false], ["Home again", home, true],
+      ["Connections again", open("connections-page"), false], ["Code review", open("code-review-page"), true],
+      ["Connections a third time", open("connections-page"), false], ["Library again", open("library-page"), true],
+      ["Scheduled again", open("schedules-page"), true], ["Home again", home, true],
     ];
     let changes = 0;
     for (const [name, go, sidebar] of route) {
@@ -187,15 +191,17 @@ describe("what moves the column", () => {
       expect(cut(), name).toBe(true);
       changes++;
     }
-    expect(changes).toBe(route.length - 1);
+    expect(changes).toBe(6);
 
-    // ⌘B on a page that has no sidebar moves it — it is the person asking — and leaving that page cuts.
+    // ⌘B on a page that has no sidebar moves it — it is the person asking — and the next page that
+    // takes it away again cuts.
     act(() => store.getState().openDestinationPage("connections-page"));
     await act(async () => { await store.getState().toggleSidebar(); });
     expect(shown()).toBe(true);
     expect(cut(), "⌘B on Connections").toBe(false);
-    act(() => store.getState().openDestinationPage("code-review-page"));
+    act(() => store.getState().closePageOverlay());
+    act(() => store.getState().openDestinationPage("connections-page"));
     expect(shown()).toBe(false);
-    expect(cut(), "Code review after it").toBe(true);
+    expect(cut(), "Connections opened again").toBe(true);
   });
 });

@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { parseOnce, sessionEvent, type Run, type Schedule, type StoredSessionEvent } from "@realm/contracts";
 import { createAppStore, StoreContext } from "../../state/store";
 import { fakeApi, item, runRow, session, type FakeData } from "../../state/store.test-fakes";
 import { SchedulesPage } from "./SchedulesPage";
+/* The overlay draws its page through the registry, which the panes fill by side effect. */
+import "../index";
+import { PageNavProvider } from "../../components/page-nav";
+import { PageOverlay } from "../../components/PageOverlay";
+import { Sidebar } from "../../components/sidebar/Sidebar";
 
 afterEach(() => cleanup());
 
@@ -228,5 +233,52 @@ describe("the task's card", () => {
     fireEvent.click(task("Morning triage"));
     const card = await screen.findByRole("complementary", { name: "Morning triage details" });
     expect(within(card).getByText(/^Missed a run yesterday 12:00 PM$/)).toBeInTheDocument();
+  });
+});
+
+describe("the column, in the sidebar's place", () => {
+  /** The page as the window shows it: over the panes, beside the real sidebar, whose column a page's
+   *  sections can take (components/page-nav.tsx). */
+  async function mountInWindow(data: FakeData = {}) {
+    const api = fakeApi(data);
+    const store = createAppStore(api);
+    await store.getState().boot();
+    render(
+      <StoreContext.Provider value={store}>
+        <PageNavProvider>
+          <Sidebar collapsed={store.getState().sidebarCollapsed} />
+          <PageOverlay />
+        </PageNavProvider>
+      </StoreContext.Provider>,
+    );
+    act(() => store.getState().openDestinationPage("schedules-page"));
+    return { api, store };
+  }
+  const sidebar = () => document.getElementById("app-sidebar")!;
+  const page = () => document.querySelector<HTMLElement>(".page-overlay")!;
+
+  it("is the sidebar's column under its Back, the spaces hidden, and none of it in the page", async () => {
+    /* The owner, 10-05: "The sidebar for scheduled tasks needs to be the same as the home sidebar and
+       the library sidebar. It currently looks darker, there is no corner rounding … It is supposed to be
+       the replacement sidebar". THE MUTANTS: the column left in the page (a second, darker sidebar),
+       or drawn in the sidebar beside the spaces rather than in their place. */
+    const { api } = await mountInWindow({ schedules: [schedule()] });
+    const col = within(sidebar()).getByRole("navigation", { name: "Scheduled tasks" });
+    expect(col.closest(".sb-page-nav")).not.toBeNull();
+    expect(within(sidebar()).getByRole("button", { name: "Back" })).toBeInTheDocument();
+    expect(sidebar().querySelector(".sb-list")).toHaveAttribute("hidden");
+    expect(page().querySelector(".sched-col")).toBeNull();
+    // Still the page's own column: its tasks, and New task opening the page's modal.
+    await waitFor(() => expect(api.calls).toContain("listSchedules:s1"));
+    expect(await within(col).findByRole("button", { name: /^Morning triage/ })).toBeInTheDocument();
+    fireEvent.click(within(col).getByRole("button", { name: "New task" }));
+    expect(await screen.findByRole("dialog", { name: "Schedule a task" })).toBeInTheDocument();
+  });
+
+  it("stands in the page while the sidebar is folded away, where it can still be reached", async () => {
+    // THE MUTANT: a column portalled into a sidebar that is off the window and inert.
+    await mountInWindow({ settings: { "ui.sidebarCollapsed": true } });
+    expect(within(page()).getByRole("navigation", { name: "Scheduled tasks" })).toBeInTheDocument();
+    expect(sidebar().querySelector(".sb-page")).toBeNull();
   });
 });
