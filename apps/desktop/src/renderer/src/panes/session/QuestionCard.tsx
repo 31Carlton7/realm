@@ -121,7 +121,9 @@ export function QuestionCard({ questions, onAnswer, onSkip, autoFocus = false, e
   };
 
   return (
-    <div className="question-card" role="group" aria-label={q.header || "Question"} data-enter={enter || undefined} onKeyDown={onKeyDown}>
+    /* data-no-agent, for PermissionCard's reason: an answer here is the user's, and an agent driving
+       this window through `app_act` could otherwise answer a question another session put to them. */
+    <div className="question-card" role="group" aria-label={q.header || "Question"} data-no-agent="question" data-enter={enter || undefined} onKeyDown={onKeyDown}>
       <div className="question-head">
         <h3 className="question-title">{q.question}</h3>
         {questions.length > 1 && (

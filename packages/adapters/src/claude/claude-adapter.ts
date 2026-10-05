@@ -122,6 +122,27 @@ export function claudeSdkPermissionMode(mode: string | null | undefined): string
   return mode === ASK_PERMISSION_MODE || !mode ? "default" : mode;
 }
 
+/** What a masked answer is logged as. */
+export const HIDDEN_ANSWER = "••••••";
+
+/**
+ * The answers as Realm's own log may keep them: a question asked with `secret: true` was typed into
+ * a masked field, and its answer goes to the agent — who asked for it — but never into
+ * `permission_response`, which is persisted and broadcast to every window. Keyed as the SDK keys
+ * them, by question text.
+ */
+export function loggableAnswers(input: unknown, answers: Record<string, string>): Record<string, string> {
+  const questions = (input as { questions?: unknown } | null)?.questions;
+  if (!Array.isArray(questions)) return answers;
+  const secret = new Set<string>();
+  for (const q of questions) {
+    const { question, secret: masked } = (q ?? {}) as { question?: unknown; secret?: unknown };
+    if (masked === true && typeof question === "string") secret.add(question);
+  }
+  if (secret.size === 0) return answers;
+  return Object.fromEntries(Object.entries(answers).map(([q, a]) => [q, secret.has(q) ? HIDDEN_ANSWER : a]));
+}
+
 const STDERR_TAIL_LINES = 50;
 const DISPOSE_TIMEOUT_MS = 3000;
 
@@ -204,7 +225,7 @@ export class ClaudeAdapter implements AgentAdapter {
     const resolvePermission = (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => {
       const p = pending.get(requestId); if (!p) return;
       pending.delete(requestId);
-      events.push(sessionEvent("permission_response", { requestId, decision: d, ...(answers ? { answers } : {}) }));
+      events.push(sessionEvent("permission_response", { requestId, decision: d, ...(answers ? { answers: loggableAnswers(p.input, answers) } : {}) }));
       if (d === "deny") p.resolve({ behavior: "deny", message: "User denied" });
       else if (d === "allow_always") p.resolve({ behavior: "allow", updatedPermissions: p.suggestions });
       else p.resolve({ behavior: "allow", ...(answers ? { updatedInput: { ...p.input, answers } } : {}) });
