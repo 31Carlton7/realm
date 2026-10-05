@@ -367,6 +367,10 @@ function Screen({ state, visible, simulatorId, itemId, platform }: {
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    /* While the elements are showing, a press is the OVERLAY's — a pick, never a touch. It bubbles up
+       from the box it landed on, and taking it here sent the device a tap and captured the pointer,
+       which moved the click off the box: the pick never happened, and the phone was pressed instead. */
+    if (elements) return;
     const p = pointOf(e, false);
     if (!p) return; // the frame and the letterbox are not the device
     dragging.current = true;

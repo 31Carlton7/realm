@@ -785,6 +785,14 @@ describe("picking an element into the prompter", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Show the device's elements" }));
     return screen.findByRole("button", { name: "Reload" });
   };
+  /** A click as a pointer makes one: down and up over the box, then the click. The press bubbles to the
+   *  device's own surface on its way — which is where the owner's clicks went. */
+  const press = (box: HTMLElement) => {
+    const r = box.getBoundingClientRect();
+    pointer(box, "pointerdown", r.left + r.width / 2, r.top + r.height / 2);
+    pointer(box, "pointerup", r.left + r.width / 2, r.top + r.height / 2);
+    fireEvent.click(box);
+  };
 
   it("puts a clicked element into the prompter of the session the device belongs to, as a chip with its picture", async () => {
     // THE BUG: the click TAPPED the device and nothing reached a prompter.
@@ -793,7 +801,9 @@ describe("picking an element into the prompter", () => {
     const reload = await select();
     // What a click will do, and where it goes, said before anyone makes one.
     expect(screen.getByText("Click one to add it to Lead")).toBeInTheDocument();
-    fireEvent.click(reload);
+    // THE BUG, as a pointer meets it: the press reached the device's surface first, which tapped the
+    // phone and captured the pointer, so the box never saw its click.
+    press(reload);
     await waitFor(() => expect(store.getState().drafts.lead).toBe("@[iPhone · Reload button] "));
     const [chip] = store.getState().draftElements.lead!;
     expect(chip).toEqual({ label: "iPhone · Reload button", element: {
@@ -821,7 +831,7 @@ describe("picking an element into the prompter", () => {
   it("picks a disabled element too — why it is disabled is often the question", async () => {
     const { store } = await picker();
     await select();
-    fireEvent.click(screen.getByRole("button", { name: "Back (disabled)" }));
+    press(screen.getByRole("button", { name: "Back (disabled)" }));
     await waitFor(() => expect(store.getState().drafts.lead).toBe("@[iPhone · Back button] "));
   });
 
@@ -846,7 +856,7 @@ describe("picking an element into the prompter", () => {
   it("asks the web picker's question for a device in a pane of its own", async () => {
     // Not a tab of any session's side pane: the session the keyboard was last in takes it.
     const { store } = await picker({ owned: false });
-    fireEvent.click(await select());
+    press(await select());
     await waitFor(() => expect(store.getState().drafts.other).toBe("@[iPhone · Reload button] "));
   });
 });
