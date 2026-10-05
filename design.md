@@ -791,6 +791,14 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   year-wide graph that starts at its oldest column hides it behind a scroll they may not attempt.
 - A sequential scale steps one hue's opacity. Walking a hue across the steps reads as categories,
   which is the opposite of what a single quantity means.
+- An agent's chart, diagram or comparison is the panel its fenced code would have been — the same
+  curve and head, the drawing where the code was — and it draws only once its fence has closed. A
+  body that does not parse stays the code, with its reason in the head: drawing what was nearly
+  meant is a claim nobody made.
+- A drawn block fetches nothing and binds nothing. A diagram's links become plain shapes and a
+  picture it names is refused, since Mermaid loads one while it lays out. It fits a narrow column by
+  recomposing — a card per option, a plot drawn true to the width — and a diagram shrinks to two
+  thirds of its size before it scrolls.
 - A file is one square tile, as Codex's library lays them out. A file whose picture IS the file is
   that picture, edge to edge, its name and session coming up over a scrim under the pointer or the
   focus; any other file is its name at the head, its glyph at the middle and where it came from at
