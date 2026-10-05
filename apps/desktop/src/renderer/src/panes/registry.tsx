@@ -4,7 +4,6 @@ import type { ComponentType, JSX } from "react";
 import { PlaceholderPane } from "./PlaceholderPane";
 import { SessionMeta, SessionPanelActions, useSessionMenuItems } from "./session/SessionPane";
 import { MachineMeta, MachinePanelActions, useMachineMenuItems } from "./machine/MachineBar";
-import { SimulatorMeta, SimulatorPanelActions } from "./simulator/SimulatorBar";
 import { TerminalMeta } from "./TerminalMeta";
 
 /** `focused`: the pane sits in the focused leaf (keyboard target — e.g. permission autofocus). */
@@ -20,8 +19,8 @@ export function PaneFor(props: PaneProps) {
 export const paneMeta: Partial<Record<Item["kind"], (p: { item: Item }) => JSX.Element | null>> = {
   session: SessionMeta, // model label + status dot + cost, moved out of SessionPane's old header
   machine: MachineMeta,  // the state word, and the guest's live resolution in mono (Plan 25 W3)
-  simulator: SimulatorMeta, // the same pair for a device: what the stream is doing, and its resolution
   terminal: TerminalMeta, // "Replayed" or "Not running", and nothing at all while the pane is live
+  // No simulator: its state and its controls are the device's own toolbar, over the device (SimulatorBar.tsx).
 };
 
 /**
@@ -36,7 +35,6 @@ export const paneMeta: Partial<Record<Item["kind"], (p: { item: Item }) => JSX.E
 export const paneActions: Partial<Record<Item["kind"], (p: { item: Item; keep: number }) => JSX.Element | null>> = {
   session: SessionPanelActions, // branch/diff + the session's own terminal drawer (Ara refresh §6)
   machine: MachinePanelActions, // one lit toggle: connected or not (Plan 25 W3)
-  simulator: SimulatorPanelActions, // the device's hardware buttons, and the stream's off switch
 };
 
 /**

@@ -8,12 +8,13 @@ import { useApp } from "../../state/store";
 /**
  * Laya learning the app in front from the person using it (`laya/recorder.ts`), under the device.
  *
- * A row of its own beneath the device's buttons, not a glyph in the pane bar: what it records is the
- * person's own use of the app on the phone in front of them, and a ring among the bar's icons said
- * none of that — one click on it and Realm was recording. The bar is for what the pane does, and it
- * shares its width with the side pane's tabs, which keep it. Here the control can say in words what
- * it does, and a click asks first: the sheet says what is kept, what is not, where it goes and how it
- * ends, and only its Start records anything.
+ * A row of its own under the device, the counterpart of the device's toolbar over it and in the same
+ * pill — not a glyph in the pane bar: what it records is the person's own use of the app on the phone
+ * in front of them, and a ring among the bar's icons said none of that — one click on it and Realm
+ * was recording. The bar is for what the pane does, and it shares its width with the side pane's
+ * tabs, which keep it. Here the control can say in words what it does, and a click asks first: the
+ * sheet says what is kept, what is not, where it goes and how it ends, and only its Start records
+ * anything.
  *
  * While this device records, the row IS the recording: a live mark, what is being kept and how much,
  * and Stop. It stays after the stream has gone — a phone that locked, a stream stopped — because the
@@ -44,7 +45,7 @@ export function LayaRecordRow({ simulatorId }: { simulatorId: string }) {
   }
   return (
     <div className="sim-record">
-      <button type="button" className="btn sim-record-start" disabled={recording !== null}
+      <button type="button" className="sim-record-start" disabled={recording !== null}
         title={recording
           ? `Laya is already recording ${recording.device}. Stop that first.`
           : "Keep each new screen of the app in front while you use it, for Laya to learn from. Shows what is kept before anything starts."}

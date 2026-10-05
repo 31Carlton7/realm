@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { findLeafOfItem, findSidePane, type Layout } from "@realm/contracts";
 import { PaneHost } from "./PaneHost";
 import { StoreContext, createAppStore } from "../state/store";
@@ -16,7 +16,7 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} });
   setBrowserBridgesForTests(fakeBrowserBridges());
 });
-afterEach(() => { cleanup(); setBrowserBridgesForTests(null); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); setBrowserBridgesForTests(null); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const ITEMS = [
   item("i-lead", "s1", { kind: "session", refId: "lead", title: "Lead" }),
@@ -192,6 +192,82 @@ describe("the strip's +", () => {
     fireEvent.click(screen.getByRole("button", { name: "New tab" }));
     fireEvent.click(within(await screen.findByRole("menu", { name: "New tab" })).getAllByRole("menuitem")[1]!);
     await waitFor(() => expect(store.getState().view!.zoomedLeafId).toBe(side(store).id));
+  });
+});
+
+describe("a strip with more tabs than room", () => {
+  /** jsdom lays nothing out, so the strip's metrics are stated: the four numbers the dissolve reads. */
+  const overflowing = (el: HTMLElement, scrollWidth: number, clientWidth: number) => {
+    Object.defineProperty(el, "scrollWidth", { configurable: true, value: scrollWidth });
+    Object.defineProperty(el, "clientWidth", { configurable: true, value: clientWidth });
+  };
+  const ends = (el: HTMLElement) => (el.dataset.dissolveX ?? "").split(" ").filter(Boolean);
+
+  it("dissolves at the end that has more of it, and only there", async () => {
+    // THE MUTANT: the strip as it was, a scroller nobody dissolves — a hard cut through a title.
+    await mount();
+    const tabs = screen.getByRole("tablist", { name: "Tabs" });
+    act(() => { overflowing(tabs, 900, 300); tabs.dispatchEvent(new Event("scroll")); });
+    expect(ends(tabs)).toEqual(["end"]);
+    act(() => { tabs.scrollLeft = 300; tabs.dispatchEvent(new Event("scroll")); });
+    expect(ends(tabs)).toEqual(["start", "end"]);
+    act(() => { tabs.scrollLeft = 600; tabs.dispatchEvent(new Event("scroll")); });
+    expect(ends(tabs)).toEqual(["start"]);
+    // The + is beside the scroller, never in it, so the mask cannot reach it.
+    expect(tabs.contains(screen.getByRole("button", { name: "New tab" }))).toBe(false);
+  });
+
+  it("dissolves nowhere while every tab fits", async () => {
+    await mount();
+    const tabs = screen.getByRole("tablist", { name: "Tabs" });
+    act(() => { overflowing(tabs, 300, 300); tabs.dispatchEvent(new Event("scroll")); });
+    expect(ends(tabs)).toEqual([]);
+  });
+
+  it("brings the tab showing clear of the dissolve when another is chosen", async () => {
+    // THE MUTANT: leave the strip where it was. A tab chosen from the sidebar — or opened by an agent
+    // past the end — would be the selected one, half under the fade or off the edge altogether.
+    const { store, rerender } = await mount();
+    const tabs = screen.getByRole("tablist", { name: "Tabs" });
+    tabs.style.setProperty("--fade-w", "28px");
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      // The strip is 300px across; the tab after the browser sits wholly past its end until scrolled.
+      const at = this === tabs ? { left: 0, width: 300 }
+        : this.classList.contains("pane-tab") && this.textContent?.includes("Agent: apply") ? { left: 420 - tabs.scrollLeft, width: 160 }
+          : { left: 0, width: 0 };
+      return { ...at, x: at.left, y: 0, top: 0, height: 28, right: at.left + at.width, bottom: 28, toJSON: () => ({}) } as DOMRect;
+    });
+    await store.getState().openItem("i-kid", side(store).id);
+    rerender();
+    // Its right edge lands where the dissolve starts, not under it: 420 + 160 - (300 - 28).
+    expect(tabs.scrollLeft).toBe(308);
+  });
+});
+
+describe("every tab's glyph", () => {
+  it("is drawn at one size, whatever kind of thing the tab is", async () => {
+    /* The owner's report: the documents and device tabs wore smaller marks than the session's. Every
+       kind a side pane holds is a tab here, so a size picked per kind — or a glyph drawn by something
+       other than the one size the strip asks for — fails by name. */
+    const kinds = [
+      item("i-term", "s1", { kind: "terminal", refId: "t1", title: "Terminal" }),
+      item("i-docs", "s1", { kind: "documents", refId: "d1", title: "Documents · realm" }),
+      item("i-sim", "s1", { kind: "simulator", refId: "m1", title: "iPhone 17 Pro" }),
+      item("i-mac", "s1", { kind: "machine", refId: "v1", title: "Ubuntu" }),
+      item("i-agents", "s1", { kind: "agents", refId: "lead", title: "Agents" }),
+    ];
+    const { store, rerender } = await mount([...ITEMS, ...kinds]);
+    for (const k of kinds) await store.getState().openInSidePane("lead", k.id);
+    // The browser in front again: only the tab showing mounts its pane, and this test is about the strip.
+    await store.getState().openItem("i-br", side(store).id);
+    rerender();
+    const glyphs = strip().getAllByRole("tab").map((t) => {
+      const g = t.firstElementChild!;
+      return `${t.textContent}: ${g.tagName.toLowerCase()} ${g.getAttribute("width")}×${g.getAttribute("height")}`;
+    });
+    expect(glyphs).toHaveLength(2 + kinds.length);
+    // The glyph is the label's first child, which is what the stylesheet's `> svg` holds to its width.
+    for (const line of glyphs) expect(line, line).toMatch(/: svg 14×14$/);
   });
 });
 

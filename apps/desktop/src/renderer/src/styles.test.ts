@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BAR_CHROME, actionsThatFit } from "./components/pane-bar-fit";
+import { TOOLBAR_BUTTON, TOOLBAR_CHROME } from "./panes/simulator/toolbar-fit";
 import { REALM_SEED, deriveVars } from "@realm/ui";
 import { AGENT_FRAME, oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
@@ -1627,12 +1628,37 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(paintedFocus).toContain("box-shadow: none");
     expect(paintedFocus).toContain("--sq-ring: var(--rl-accent)");
 
-    /* Frame / No frame. They carry `.btn`, which is painted — so the picked one has to mark itself
-       with `--fill`. THE MUTANT is the obvious `background: var(--rl-accent)`: `background` is spent
-       on `paint()` there, so the segment paints its resting fill in every state and the control ends
-       up with no visible selection at all. */
-    expect(bodiesFor('.sim-frame-opt[aria-checked="true"]').join(" ")).toContain("--fill: var(--rl-accent)");
-    expect(bodiesFor('.sim-frame-opt[aria-checked="true"]').join(" ")).not.toContain("background:");
+  });
+
+  it("the device's controls over it and under it are one pill", () => {
+    /* The toolbar over the device, and under it the Record control, the recording it becomes and a
+       phone's offer to go live: one height, fill, corner and lift, so above and below read as one
+       instrument around the device. THE MUTANT: a row under the device in a material of its own —
+       the `.btn` the Record control was, whose painter trades the lift for a ring. */
+    const pill = RULES.find((r) => partsOf(r).includes(".sim-toolbar") && partsOf(r).includes(".sim-record-start"));
+    expect(pill && partsOf(pill).sort()).toEqual([".sim-live", ".sim-record-start", ".sim-recording", ".sim-toolbar"]);
+    for (const decl of ["height: 32px", "border-radius: 999px", "background: var(--rl-raised)", "box-shadow: var(--shadow-card)"]) {
+      expect(pill!.body).toContain(decl);
+    }
+    // What sits inside a pill is a pill, under the painter too — or Stop is a squircle in a capsule.
+    const inner = bodiesFor(":root[data-squircle] :is(.sim-recording-stop, .sim-live-btn)").join(" ");
+    expect(inner).toContain("--sq-radius-top: calc(var(--btn-h) / 2)");
+    expect(inner).toContain("--sq-radius-bottom: calc(var(--btn-h) / 2)");
+    expect(bodiesFor(".sim-toolbar .icon-btn").join(" ")).toContain("border-radius: 999px");
+  });
+
+  it("the device toolbar's budget is its own rule's arithmetic", () => {
+    /* `toolbar-fit.ts` decides how many presses a narrow pane keeps from these numbers: the pill's
+       padding, its gaps, the 28px buttons and the rule between the state and them (its hairline
+       counted as a whole pixel). Change the toolbar's box and the budget stops describing it —
+       buttons clip, or fold into the overflow with room to spare. */
+    const bar = bodiesFor(".sim-toolbar").join(" ");
+    const pad = Number(/padding: (\d+)px/.exec(bar)?.[1]);
+    const gap = Number(/gap: (\d+)px/.exec(bar)?.[1]);
+    const margin = Number(/margin: 0 (\d+)px/.exec(bodiesFor(".sim-toolbar-rule").join(" "))?.[1]);
+    const button = Number(/width: (\d+)px/.exec(bodiesFor(".icon-btn").join(" "))?.[1]);
+    expect(TOOLBAR_BUTTON).toBe(button + gap);
+    expect(TOOLBAR_CHROME).toBe(2 * pad + 1 + 2 * margin + button + 2 * gap);
   });
 
   it("the prompter's strips are edged alike — every tab above the card wears the ring the under-strip does", () => {
@@ -2251,6 +2277,49 @@ describe("scrollbars", () => {
       .flatMap((r) => r.selectors)
       .filter((sel) => !covered.has(leaf(sel)) && !exempt.has(leaf(sel)));
     expect([...new Set(uncovered)].sort()).toEqual([]);
+  });
+});
+
+describe("a side pane's tab strip", () => {
+  it("keeps every tab's glyph whole, whatever the title beside it is doing", () => {
+    /* The documents and device tabs drew smaller marks than a session's: the glyph was a flex item
+       that SHRANK with its title — an SVG's automatic minimum width is zero — so every tab whose
+       title ran to an ellipsis lost width off its mark, measured 5px across for "Documents · realm".
+       THE MUTANT: the glyph left to the flex default. A page's own icon is held the same way. */
+    expect(bodiesFor(".pane-tab-label > svg").join(" ")).toMatch(/flex: none/);
+    expect(bodiesFor(".page-icon").join(" ")).toMatch(/flex: none/);
+  });
+
+  it("stays without a scrollbar where the dissolve hands every other scroller its bar back", () => {
+    /* `[data-dissolve-x]` reclaims the bar on a Mac set to show classic scrollbars, so the strip's
+       own `scrollbar-width: none` loses to it the moment the strip dissolves. THE MUTANT: no
+       override, and a 10px bar appears under a 28px row of tabs on those Macs only. */
+    expect(bodiesFor(":root:not([data-overlay-scrollbars]) [data-dissolve-x]").join(" ")).toContain("scrollbar-width: auto");
+    expect(bodiesFor(":root:not([data-overlay-scrollbars]) .pane-tabs[data-dissolve-x]").join(" ")).toContain("scrollbar-width: none");
+  });
+
+  it("gives a tab's close a hit target that ends at the tab, so a strip that fits has nothing to scroll", () => {
+    /* Every icon button reaches 6px past itself, and the close sits 3px in from its tab's end: the
+       last tab's reached 3px past the strip, which the strip measured as slack and dissolved its far
+       end over. The reach may be no more than the gap between the close and its tab's edges. */
+    const close = bodiesFor(".pane-tab .pane-tab-close").join(" ");
+    const tab = bodiesFor(".pane-tab").join(" ");
+    const room = Math.min(Number(/margin-right: (\d+)px/.exec(close)?.[1]),
+      (Number(/height: (\d+)px/.exec(tab)?.[1]) - Number(/--btn-h: (\d+)px/.exec(close)?.[1])) / 2);
+    const reach = -Number(/inset: (-?\d+)px/.exec(bodiesFor(".pane-tab > .icon-btn::after").join(" "))?.[1]);
+    expect(room).toBe(3);
+    expect(reach).toBeLessThanOrEqual(room);
+  });
+
+  it("draws a focused tab's ring inside the tab, where the strip's clip cannot cut it", () => {
+    /* The strip is exactly one tab tall and clips like any scroller, so the app's ring — 1px outside
+       the label — lost its top and bottom and read as two accent bars. THE MUTANT: the global ring
+       left to the label. The tab draws it instead, inset by its own width. */
+    const ring = bodiesFor(".pane-tab:has(> .pane-tab-label:focus-visible)").join(" ");
+    const width = Number(/outline: (\d+)px solid var\(--rl-accent\)/.exec(ring)?.[1]);
+    expect(width).toBeGreaterThan(0);
+    expect(ring).toContain(`outline-offset: -${width}px`);
+    expect(bodiesFor(".pane-tab-label:focus-visible").join(" ")).toContain("outline: none");
   });
 });
 
