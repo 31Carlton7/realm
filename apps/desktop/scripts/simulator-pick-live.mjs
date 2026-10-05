@@ -110,7 +110,9 @@ async function shoot(c, name, selector, pad = 16) {
     const r = e.getBoundingClientRect(); return { x: Math.max(0, r.x - ${pad}), y: Math.max(0, r.y - ${pad}), width: r.width + ${2 * pad}, height: r.height + ${2 * pad} }; })()`) : null;
   if (selector && !box) { console.log(`  (no ${selector} to shoot for ${name})`); return; }
   await evalIn(c, `(() => { const r = document.documentElement; r.style.background = r.dataset.mode === "light" ? "#e9e9ec" : "#17181b"; return true; })()`);
-  const { data } = await c.send("Page.captureScreenshot", { format: "png", ...(box ? { clip: { ...box, scale: 1 } } : {}) });
+  // Twice the window's own pixels: this window runs at 1×, and the evidence should be readable.
+  const clip = box ?? await evalIn(c, `({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight })`);
+  const { data } = await c.send("Page.captureScreenshot", { format: "png", clip: { ...clip, scale: 2 } });
   await evalIn(c, `(() => { document.documentElement.style.background = ""; return true; })()`);
   const file = path.join(shots, `${name}.png`);
   fs.writeFileSync(file, Buffer.from(data, "base64"));
@@ -235,7 +237,9 @@ async function main() {
   const boxes = await evalIn(c, `document.querySelectorAll('.sim-ax-box').length`);
   check("with Elements on, every element of the device is outlined over its picture", boxes === TREE.elements.length, boxes);
   const hint = await evalIn(c, `document.querySelector('.sim-ax-bar')?.textContent ?? null`);
-  check("…and the overlay says what a click does, and which session it goes to", hint?.includes(`Click one to add it to ${lead.title}`) && hint.includes("Esc"), hint);
+  check("…and the overlay says what a click does, and which session it goes to", hint?.includes(`Click to add to ${lead.title}`) && hint.includes("Esc"), hint);
+  const whole = await evalIn(c, `(() => { const t = document.querySelector('.sim-ax-count'); return t ? t.scrollWidth <= t.clientWidth : null; })()`);
+  check("…with the session's name whole, not cut to an ellipsis", whole === true, whole);
   const curry = '.sim-ax-box[aria-label="Green curry"]';
   const at = await centreOf(c, curry);
   await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y });
