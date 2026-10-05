@@ -350,7 +350,7 @@ async function main() {
   await until(() => evalIn(c, `document.querySelector('.documents-state')?.textContent === 'Saved'`), 5_000, "saved").catch(() => null);
   const onDisk = fs.existsSync(path.join(root, "fetch_prices.py")) ? fs.readFileSync(path.join(root, "fetch_prices.py"), "utf8") : null;
   const tab = await evalIn(c, `[...document.querySelectorAll('.documents-tab[data-active] .documents-tab-label')].map((t) => t.textContent)`);
-  check("Create made the file and opened it in the code editor, which saves it", (onDisk ?? "").includes("def fetch_prices") && tab.includes("fetch_prices"), { tab, onDisk: onDisk?.slice(0, 40) });
+  check("Create made the file and opened it in the code editor, which saves it", (onDisk ?? "").includes("def fetch_prices") && tab.includes("fetch_prices.py"), { tab, onDisk: onDisk?.slice(0, 40) });
   await sleep(400);
   await shot(c, "8-code-created");
 

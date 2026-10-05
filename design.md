@@ -769,6 +769,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   narrowing a person reaches for. The rarer ones — which space, who made it — live behind a filter
   that lights while it narrows and says so as a chip by the tabs, undone from there: a list that is
   shorter than it should be has to say why. The toolbar is the column's head, outside its scroller.
+- A documents pane with nothing open is a home, not a void: what this session made and was given,
+  then the Library's, under one search that also reaches the checkout's own names, and a New that
+  says what every kind it writes is — a code file among them, since nothing else on screen says a
+  `.py` is a document the pane can write. Finding a file is that search; a palette that found one
+  and opened it somewhere else was a second door to the same room.
 - A file the app shows behaves like one in the Finder: Space opens it in Quick Look (Return still
   acts), it drags out to the Finder or into another app, and its menu offers Quick Look and the
   system Share menu. Each is offered only where the desktop bridge has it — a Space that swallows the
