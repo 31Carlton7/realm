@@ -4033,6 +4033,41 @@ it("carries the prompter's mode ring up through every strip stacked above it, an
  * Geometry is deliberately absent: see `AGENT_FRAME`'s own comment for why insetting a pane-scoped
  * frame is parity rather than a departure from it.
  */
+describe("the model picker's light and its fast-mode moment", () => {
+  const LIGHT = [".mp-track-facets", ".mp-track-flow", ".mp-track-core", ".mp-track-shine"];
+
+  it("loops only in the light's own layers, and pauses them with every other ambient loop", () => {
+    // THE MUTANT: a layer of the light left off the quiet list keeps a core busy in a window nobody is
+    // looking at — and under Low power, which is supposed to still it.
+    for (const sel of LIGHT) {
+      expect(bodiesFor(sel).join(" "), sel).toMatch(/animation: rl-[a-z]+ var\(--mp-[a-z]+\) [a-z-]+ infinite/);
+      expect(bodiesFor(`:root[data-quiet] ${sel}`).join(" "), sel).toContain("animation-play-state: paused");
+    }
+  });
+
+  it("answers a chosen heavy level, scaled by --heat, and draws in the live accent alone", () => {
+    expect(bodiesFor('.mp-track[data-effort="xhigh"]').join(" ")).toContain("--heat: .55");
+    expect(bodiesFor('.mp-track[data-effort="max"]').join(" ")).toContain("--heat: 1");
+    // Hue is not free (theme/grain.ts): every colour in the light is the accent moved, never a hue
+    // somebody picked — so it is the theme's own light at every palette.
+    for (const sel of [...LIGHT, ".mp-track-glint"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body.match(/oklch\((?!from var\(--rl-accent\))/g), sel).toBeNull();
+    }
+  });
+
+  it("plays the fast-mode moment once, on the ladder, and never as a loop", () => {
+    // A moment that looped would be the decorative pulsing §6 forbids; one off the ladder would be a
+    // duration of its own (the motion ladder above).
+    for (const sel of [".mp-bolt[data-charge]", ".mp-track-glint", '.model-chip[data-sweep] :is(.chip-label, .chip-effort)']) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toMatch(/animation: rl-[a-z-]+ var\(--(mp-moment|dur-move)\)/);
+      expect(body, sel).not.toContain("infinite");
+    }
+    for (const sel of [".model-chip", ".mp-run"]) expect(bodiesFor(sel).join(" "), sel).toContain("--mp-moment: calc(var(--dur-move) * 1.5)");
+  });
+});
+
 describe("the agent-controlled frame", () => {
   const glow = bodiesFor(".drive-frame-glow").join(" ");
 
