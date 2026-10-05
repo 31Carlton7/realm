@@ -58,6 +58,11 @@ describe("marking paths in rendered prose", () => {
     expect(marked("Use one and/or the other, on 24/7 rotation, in src/index.ts.")).toEqual([]);
   });
 
+  it("never cuts the tail of a relative path out as an absolute one", () => {
+    // `/lib/orgs.ts` is not a file at the filesystem's root here — it is the end of `web/lib/orgs.ts`.
+    expect(marked("The change is in web/lib/orgs.ts, beside /Users/me/web/lib/orgs.ts.")).toEqual(["/Users/me/web/lib/orgs.ts"]);
+  });
+
   it("leaves code blocks and links alone", () => {
     // A block is a thing you copy whole; a link already has a destination.
     expect(marked("```\n/Users/me/a.md\n```")).toEqual([]);

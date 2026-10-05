@@ -179,6 +179,8 @@ export type FakeData = {
   /** `checkpoints.preview` by checkpoint id. Mutate between calls to simulate the checkout moving
    *  under an open confirmation, which is exactly what the acknowledgement exists to catch. */
   checkpointPreview?: Record<string, RestorePreview>;
+  /** `checkpoints.turnDiff` by `${checkpointId}|${path}`. */
+  turnPatches?: Record<string, FileDiff>;
   /** `skills.list` by space id — what the prompter's @-mention picker offers (W4). Toggles via
    *  `setSkillEnabled` are applied per space on top of these rows, mirroring the disabled-set store. */
   skills?: Record<string, Skill[]>;
@@ -426,6 +428,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     runs: Object.fromEntries(Object.entries(overrides.runs ?? {}).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
     runAttempts: overrides.runAttempts ?? {},
     checkpointPreview: overrides.checkpointPreview ?? {},
+    turnPatches: overrides.turnPatches ?? {},
     skills: overrides.skills ?? {},
     skillsRoot: overrides.skillsRoot ?? "/realm-home/skills",
     commands: overrides.commands ?? {},
@@ -1597,6 +1600,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
            are what make the restore actually rewind. A fake hardcoding `false` would make the rewind
            path unreachable from any test. */
         filesRemoved: 0, conversationRewound: p.rewindsConversation };
+    },
+    turnDiff: async (id, afterTree, path) => {
+      calls.push(`turnDiff:${id}|${afterTree}|${path}`);
+      const p = data.turnPatches[`${id}|${path}`];
+      if (!p) throw new Error(`no turn patch for ${id}|${path}`);
+      return p;
     },
     listMcpServers: async (spaceId) => {
       calls.push(`listMcpServers:${spaceId}`);

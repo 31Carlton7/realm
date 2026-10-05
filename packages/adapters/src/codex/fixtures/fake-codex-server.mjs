@@ -24,6 +24,11 @@
  *   REFUSE    fails `turn/start` outright
  *   APPROVE2  runs two commands whose approvals are open at once      (waiting_permission bookkeeping)
  *   ODDBALL   asks a server request no client is expected to support  (-32601 answer path)
+ *   ASKUSER   asks `item/tool/requestUserInput`: a choice with free text, and a secret (echoes the reply)
+ *   ASKAUTO   asks a NON-blocking question, then resolves it itself with `serverRequest/resolved`
+ *   ELICIT    passes on an MCP form elicitation from "notion" (echoes the reply)
+ *   ELICITSECRET passes on a form that asks for an API key — Realm must decline it unasked
+ *   ELICITURL passes on a URL-mode elicitation (echoes the reply)
  *   ECHO      replies with the raw `input` array as the agent message (input-shape assertions)
  *   CRASH     opens a command item, then dies without warning          (unexpected-death path)
  *   BADSTEER  (on turn/steer) fails the steer with something other than "no active turn"
@@ -276,10 +281,54 @@ async function streamTurnParams(threadId, turnId, text, params) {
   endTurn(threadId, turnId);
 }
 
+/**
+ * `item/tool/requestUserInput`, in the shape `codex app-server generate-ts` (0.154.0) names: each
+ * question `{id, header, question, isOther, isSecret, options}`, the reply `{answers: {[id]: {answers}}}`.
+ * The reply is echoed as the agent's message so a test can read exactly what came back.
+ */
+async function streamAskUserTurn(threadId, turnId, text) {
+  await openTurn(threadId, turnId, text);
+  const { reply } = ask("item/tool/requestUserInput", { threadId, turnId, itemId: `q_${nextItemN++}`, isBlocking: true, autoResolutionMs: null, questions: [
+    { id: "base", header: "Base", question: "Which branch should this go on?", isOther: true, isSecret: false,
+      options: [{ label: "main", description: "What ships next" }, { label: "release/v2", description: "The release line" }] },
+    { id: "token", header: "Token", question: "Paste the deploy token.", isOther: false, isSecret: true, options: null },
+  ] });
+  agentMessage(threadId, turnId, `answered ${JSON.stringify((await reply).result ?? null)}`);
+  endTurn(threadId, turnId);
+}
+
+/** A question Codex will not wait on: it resolves the request itself and carries on. */
+async function streamAskAutoTurn(threadId, turnId, text) {
+  await openTurn(threadId, turnId, text);
+  const { id: requestId } = ask("item/tool/requestUserInput", { threadId, turnId, itemId: `q_${nextItemN++}`, isBlocking: false, autoResolutionMs: 20,
+    questions: [{ id: "go", header: "Go", question: "Carry on?", isOther: true, isSecret: false, options: null }] });
+  await tick(40);
+  notify("serverRequest/resolved", { threadId, requestId });
+  agentMessage(threadId, turnId, "carried on");
+  endTurn(threadId, turnId);
+}
+
+/** `mcpServer/elicitation/request`: a server in the user's own Codex config, asking through Codex. */
+async function streamElicitTurn(threadId, turnId, text) {
+  await openTurn(threadId, turnId, text);
+  const base = { threadId, turnId, serverName: "notion", _meta: null };
+  const params = text.includes("ELICITURL")
+    ? { ...base, mode: "url", message: "Connect your Notion workspace", url: "https://www.notion.so/install-integration?id=fake", elicitationId: "el_1" }
+    : text.includes("ELICITSECRET")
+      ? { ...base, mode: "form", message: "Paste your Notion key", requestedSchema: { type: "object", properties: { api_key: { type: "string", title: "API key" } }, required: ["api_key"] } }
+      : { ...base, mode: "form", message: "Where should the page go?", requestedSchema: { type: "object", required: ["parent"], properties: {
+          parent: { type: "string", title: "Parent page", oneOf: [{ const: "p_road", title: "Roadmap" }, { const: "p_notes", title: "Meeting notes" }] },
+          public: { type: "boolean", title: "Share it publicly?" },
+        } } };
+  const { reply } = ask("mcpServer/elicitation/request", params);
+  agentMessage(threadId, turnId, `elicited ${JSON.stringify((await reply).result ?? null)}`);
+  endTurn(threadId, turnId);
+}
+
 /** A server request no client is expected to understand; the turn only ends once it is answered. */
 async function streamOddballTurn(threadId, turnId, text) {
   await openTurn(threadId, turnId, text);
-  const { reply } = ask("item/tool/requestUserInput", { threadId, turnId, itemId: `q_${nextItemN++}`, questions: [], autoResolutionMs: null });
+  const { reply } = ask("item/tool/call", { threadId, turnId, callId: `c_${nextItemN++}`, tool: "lookup", arguments: {} });
   const answer = await reply;
   agentMessage(threadId, turnId, `refused: ${answer.error?.code ?? answer.result?.decision ?? "none"}`);
   endTurn(threadId, turnId);
@@ -370,6 +419,9 @@ function handleRequest(id, method, params) {
       if (text.includes("PATCH")) { void streamPatchTurn(params.threadId, turnId, text); return; }
       if (text.includes("APPROVE")) { void streamApprovalTurn(params.threadId, turnId, text); return; }
       if (text.includes("ODDBALL")) { void streamOddballTurn(params.threadId, turnId, text); return; }
+      if (text.includes("ASKUSER")) { void streamAskUserTurn(params.threadId, turnId, text); return; }
+      if (text.includes("ASKAUTO")) { void streamAskAutoTurn(params.threadId, turnId, text); return; }
+      if (text.includes("ELICIT")) { void streamElicitTurn(params.threadId, turnId, text); return; }
       if (text.includes("TURN_PARAMS")) { void streamTurnParams(params.threadId, turnId, text, params); return; }
       if (text.includes("ECHO")) { void streamEchoTurn(params.threadId, turnId, text, params.input); return; }
       // Attachment-only sends carry no text item at all (Plan 14 W5) — echo those too, so tests can

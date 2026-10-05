@@ -156,12 +156,28 @@ describe("createAcpMapper", () => {
     ] })).toBe("plain\n[image]\n[audio]\n[NOTES.txt]\n[file:///only]\n[resource file:///r]");
   });
 
-  it("renders a diff with and without a prior version", () => {
+  it("renders a diff as a unified diff, with and without a prior version", () => {
     expect(resultFor({ content: [{ type: "diff", path: "/tmp/a.txt", oldText: "a\n", newText: "b\n" }] }))
-      .toBe("--- /tmp/a.txt\n- a\n+ b");
+      .toBe("--- /tmp/a.txt\n+++ /tmp/a.txt\n@@ -1,1 +1,1 @@\n-a\n+b");
     // `oldText: null` means the file is new — there is no previous line to show.
-    expect(resultFor({ content: [{ type: "diff", path: "/tmp/new.txt", oldText: null, newText: "b\n" }] }))
-      .toBe("--- /tmp/new.txt\n+ b");
+    expect(resultFor({ content: [{ type: "diff", path: "/tmp/new.txt", oldText: null, newText: "b\nc\n" }] }))
+      .toBe("--- /dev/null\n+++ /tmp/new.txt\n@@ -0,0 +1,2 @@\n+b\n+c");
+  });
+
+  it("keeps a multi-line edit's shared lines out of its change, so the counts are the change's", () => {
+    // The pseudo-diff this replaced printed every line of both texts behind one marker — a one-line
+    // fix inside forty lines read as forty lines replaced, and nothing could count it at all.
+    const before = "one\ntwo\nthree\nfour\n", after = "one\ntwo\nTHREE\nfour\n";
+    expect(resultFor({ content: [{ type: "diff", path: "/w/x.ts", oldText: before, newText: after }] }))
+      .toBe("--- /w/x.ts\n+++ /w/x.ts\n@@ -3,1 +3,1 @@\n-three\n+THREE");
+  });
+
+  it("carries the call's kind and the files it names, as the agent stated them", () => {
+    const m = createAcpMapper();
+    expect(m.map({ sessionUpdate: "tool_call", toolCallId: "c9", title: "Editing orgs.ts", kind: "edit", locations: [{ path: "/w/web/lib/orgs.ts", line: 83 }] })[0])
+      .toMatchObject({ type: "tool_call", payload: { name: "Editing orgs.ts", kind: "edit", paths: ["/w/web/lib/orgs.ts"] } });
+    // No kind stated is no kind carried — not the "other" the mapper files it under.
+    expect(m.map({ sessionUpdate: "tool_call", toolCallId: "c10", title: "Thinking" })[0]!.payload).not.toHaveProperty("kind");
   });
 
   it("falls back to rawOutput only when the content array yields nothing", () => {

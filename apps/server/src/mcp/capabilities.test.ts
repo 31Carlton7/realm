@@ -8,6 +8,7 @@ import { SCHEDULE_PROVIDER_NAME } from "../schedules/agent-tools";
 import { TERMINAL_PROVIDER_NAME } from "../terminals/agent-tools";
 import { APP_PROVIDER_NAME } from "../app-ui/agent-tools";
 import { SIMULATOR_PROVIDER_NAME } from "../simulators/agent-tools";
+import { UI_PROVIDER_NAME } from "../ui/agent-tools";
 
 /**
  * The preamble that tells an ordinary session what Realm's own tools are for. Two things are worth
@@ -21,7 +22,7 @@ describe("capabilitiesContext", () => {
     // every session is handed a paragraph about a provider that is never keyed by that name — the
     // preamble goes silent about a capability the session has, with nothing else to notice it.
     expect([...CAPABILITY_PROVIDERS].sort()).toEqual(
-      [REALM_AGENT_PROVIDER_NAME, BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME, SCHEDULE_PROVIDER_NAME,
+      [REALM_AGENT_PROVIDER_NAME, UI_PROVIDER_NAME, BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME, SCHEDULE_PROVIDER_NAME,
        TERMINAL_PROVIDER_NAME, SIMULATOR_PROVIDER_NAME, APP_PROVIDER_NAME, COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME].sort());
   });
 

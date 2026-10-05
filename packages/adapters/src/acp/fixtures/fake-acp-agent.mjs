@@ -20,6 +20,8 @@
  *   READFILE p [l][n] calls fs/read_text_file back on us and echoes the content
  *   WRITEFILE p text  calls fs/write_text_file back on us and echoes the outcome
  *   ODDBALL           asks terminal/create, a method we never declared  (-32601 catch-all)
+ *   ELICIT            asks `elicitation/create` with a form — only of a client that declared it can answer
+ *   ELICITURL         the same, for a page to open
  *   ECHO              echoes the raw `prompt` array back as the agent message (prompt-shape assertions)
  *   REVEAL            echoes the journal of everything the client has asked of us
  *   STOP:<reason>     resolves with that stopReason (refusal, max_tokens, …)
@@ -137,6 +139,23 @@ async function writeFileTurn(sessionId, text) {
   message(sessionId, reply.error ? `write failed: ${reply.error.message}` : "write:ok");
 }
 
+/**
+ * `elicitation/create` (ACP 1.7: MCP's elicitation shapes, sent agent → client). A real agent may ask
+ * only a client whose `initialize` advertised the mode, so this one checks what it was told.
+ */
+async function elicitTurn(sessionId, text) {
+  const init = journal.calls.find((c) => c.method === "initialize")?.params ?? {};
+  const caps = init.clientCapabilities?.elicitation ?? {};
+  const url = text.includes("ELICITURL");
+  if (!(url ? caps.url : caps.form)) { message(sessionId, "elicitation not offered"); return; }
+  const params = url
+    ? { sessionId, mode: "url", elicitationId: "el_1", url: "https://accounts.example.com/connect?x=1", message: "Connect your account" }
+    : { sessionId, mode: "form", message: "How should I approach this refactoring?", requestedSchema: { type: "object", required: ["strategy"], properties: {
+        strategy: { type: "string", title: "Strategy", oneOf: [{ const: "conservative", title: "Conservative" }, { const: "balanced", title: "Balanced" }] } } } };
+  const reply = await ask("elicitation/create", params);
+  message(sessionId, `elicited ${JSON.stringify(reply.result ?? reply.error ?? null)}`);
+}
+
 async function oddballTurn(sessionId) {
   // A method the client never declared. The turn only ends once it is answered, so an unanswered probe
   // would stall this forever.
@@ -186,6 +205,7 @@ async function runTurn(id, sessionId, prompt) {
   }
   else if (text.includes("READFILE")) await readFileTurn(sessionId, text);
   else if (text.includes("WRITEFILE")) await writeFileTurn(sessionId, text);
+  else if (text.includes("ELICIT")) await elicitTurn(sessionId, text);
   else if (text.includes("ODDBALL")) await oddballTurn(sessionId);
   else {
     update(sessionId, { sessionUpdate: "agent_thought_chunk", content: textBlock("pondering") });

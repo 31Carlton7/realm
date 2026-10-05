@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { EGG_RUN_LABELS, PLAN_RUN_LABEL, RUN_LABELS, runLabelFor } from "./run-label";
-import { finishedAt } from "./tool-group";
+import { stampLabel } from "./timestamps";
 import { Transcript } from "./Transcript";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 
@@ -200,6 +200,6 @@ describe("what the transcript says about the run", () => {
     // And each line says WHEN it ended: a duration alone reads the same whether the run finished a
     // minute ago or last Tuesday.
     expect([...document.querySelectorAll(".msg-run-at")].map((el) => el.textContent))
-      .toEqual([finishedAt(a + 4_000), finishedAt(b + 9_000)]);
+      .toEqual([stampLabel(a + 4_000, Date.now()), stampLabel(b + 9_000, Date.now())]);
   });
 });

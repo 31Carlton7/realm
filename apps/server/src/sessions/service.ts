@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -25,6 +25,7 @@ import type { MemoryService } from "../memory/service";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
 import type { MemorySources } from "@realm/contracts";
+import { SecretAnswers } from "./secret-answers";
 
 /**
  * One message as the prompter hands it over. `elements` are the browser-pane elements the user picked
@@ -131,7 +132,19 @@ export class SessionService {
    * holds a copy of what it just sent.
    */
   private rewindTurns = new Map<string, SendMessage>();
+  /** Sessions whose turn in flight has called a tool — the only turns whose checkout is worth asking
+   *  git about at the settle (`recordTurnChanges`). A turn of conversation changes no file. */
+  private toolTurns = new Set<string>();
+  /** A settled turn's measurement still in flight, per session. The next message waits for it: an agent
+   *  that started writing before the snapshot was taken would have its first edits counted as the last
+   *  turn's — and a steered message, which takes no checkpoint, starts the moment the settle lands. */
+  private measuring = new Map<string, Promise<void>>();
   private closing = false;
+  /** The questions open right now, by requestId, from whichever feed raised them — what an answer is
+   *  read against to learn which of it is masked. */
+  private asked = new Map<string, { sessionId: string; card: AskCard }>();
+  /** Masked answers, kept out of every event and call record (see `secret-answers.ts`). */
+  private secrets = new SecretAnswers();
   /** Set while the daemon is going quiet for a handoff. See `ensureLive` for the rule that matters. */
   private draining = false;
   constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
@@ -147,7 +160,7 @@ export class SessionService {
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
-    browserPermissions?: { owns(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision): void; release(sessionId: string): void };
+    browserPermissions?: { owns(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string): void; release(sessionId: string): void };
     /** Computer use granted by a mention, per session (`computer/session-grants.ts`): what an
      *  `@Messages` in a delivered message writes, and what a deleted session takes with it. Optional —
      *  a harness without it treats an app mention as text and grants nothing. */
@@ -429,6 +442,7 @@ export class SessionService {
   /** Everything a typed message earns on its way to the adapter. Reached only from `send` and from
    *  the two paths that have already chosen — a caller that came here has passed the queue gate. */
   private async deliver(id: string, msg: SendMessage, opts: { checkpoint?: boolean } = {}): Promise<void> {
+    await this.measuring.get(id);
     // Claim the environment's port block before the adapter can be spawned — `ensureLive` reads it
     // back off the row, so this is the only place the (async) allocation has to happen.
     await this.ensurePorts(id);
@@ -614,6 +628,9 @@ export class SessionService {
     const handle = this.ensureLive(id);
     const interrupted = wasLive && opts.interruptFirst;
     if (interrupted) await this.interruptAndSettle(id, handle);
+    // After the interrupt, not before: the turn it stopped is measured from that settle, and this
+    // message's turn must not write until git has finished looking (`deliver` waits in its own place).
+    await this.measuring.get(id);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
     await handle.send({ text: msg.text, attachments: [] });
     return { interrupted };
@@ -631,16 +648,27 @@ export class SessionService {
     this.d.failover?.cancel(id);
     await this.live.get(id)?.handle.interrupt();
   }
-  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): void {
+  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers): void {
     this.get(id);
+    // A masked answer is remembered BEFORE it goes anywhere, so the first event to quote it back — the
+    // agent's tool result, often the very next thing on the wire — already finds it scrubbed.
+    const asked = this.asked.get(requestId);
+    if (asked && asked.sessionId === id && answers && decision !== "deny") this.secrets.rememberFrom(id, asked.card, answers);
     // Browser-tool permission requests (Plan 11 W3) are raised by the SERVER, not the adapter — the
     // broker owns their requestIds and routes the answer back to the blocked tool call. Deliberately
     // BEFORE the live-handle check: the prompt blocks an MCP call inside the gateway, which stays
-    // answerable even if the adapter process died while the card sat unanswered.
-    if (this.d.browserPermissions?.owns(requestId)) { this.d.browserPermissions.resolve(requestId, decision); return; }
+    // answerable even if the adapter process died while the card sat unanswered. Questions Realm
+    // asks itself (`ui_ask`, an MCP server's elicitation) ride the same route, answers and all.
+    if (this.d.browserPermissions?.owns(requestId)) { this.d.browserPermissions.resolve(requestId, decision, answers, id); return; }
     const l = this.live.get(id);
     if (!l) throw new RpcError("SESSION_NOT_LIVE", "the agent is not running; the request is stale (send a message to resume)");
     l.handle.respondPermission(requestId, decision, answers);
+  }
+
+  /** `text` with every masked answer this session was given replaced by the mark — what the gateway
+   *  runs a call's record through before Activity keeps it. */
+  scrubSecrets(id: string, text: string): string {
+    return this.secrets.scrubText(id, text);
   }
 
   /**
@@ -819,6 +847,9 @@ export class SessionService {
     this.d.browserPermissions?.release(id);
     // …and so does the computer use its mentions granted.
     this.d.computerGrants?.release(id);
+    // Its masked answers have nothing left to be kept out of, and its questions nobody left to answer.
+    this.secrets.forget(id);
+    for (const [requestId, a] of this.asked) if (a.sessionId === id) this.asked.delete(requestId);
     // And its browser-agent state (W5): as a parent, its run is cancelled; as a child, its persisted
     // record and act budget are forgotten — the restriction dies with the session.
     this.d.browserAgents?.release(id);
@@ -830,6 +861,8 @@ export class SessionService {
     // still-draining pump could otherwise read after the session it describes has stopped existing.
     this.forkInFlight.delete(id);
     this.rewindTurns.delete(id);
+    this.toolTurns.delete(id);
+    this.measuring.delete(id);
     // The terminal belongs to the session: deleting the session must not leave its pty running.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
     if (term) this.closeTerminalItem(term.refId);
@@ -1028,6 +1061,25 @@ export class SessionService {
   }
 
   /**
+   * What a settled turn did to its checkout, put on the rail as `turn_changes` for the transcript's
+   * "Edited N files" card.
+   *
+   * After the settle and never ahead of it: git's account costs what a checkpoint does, and the turn
+   * is over for the reader the moment the settle lands. A nicety like every other `void` on this
+   * path — a checkout that has gone, a snapshot that fails, a daemon on its way down — writes nothing,
+   * and the card falls back to what the tool calls themselves said.
+   */
+  private async recordTurnChanges(id: string, checkpointId: string, settledAt: number): Promise<void> {
+    try {
+      const changes = await this.d.checkpoints?.turnChanges(checkpointId);
+      if (!changes || this.closing) return;
+      this.publishServerEvent(id, sessionEvent("turn_changes", { checkpointId, settledAt, ...changes }));
+    } catch (e) {
+      console.error(`[sessions] could not measure the turn for ${id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
    * What durable context this session's agent loads (memory.sources). The Codex report comes from THIS
    * session's own persisted `init` event and nowhere else — the store query is keyed by the session id,
    * which is what keeps one session's `instructionSources` from ever dressing up another's pane.
@@ -1043,11 +1095,13 @@ export class SessionService {
     return this.d.memory.sourcesFor({ kind: s.agentKind, spaceId: s.spaceId, cwd: s.cwd, skillsInjected, reported });
   }
 
-  /** Whether any session in this environment holds a live adapter handle — what stops a restore
-   *  rewriting a working tree under a running tool call. */
+  /** Whether a session in this environment is mid-turn — what stops a restore rewriting a working tree
+   *  under a running tool call. A handle alone is not that: a session keeps its adapter between turns,
+   *  and one idle there is writing nothing. */
   isEnvironmentBusy(environmentId: string): boolean {
     for (const id of this.live.keys()) {
-      if (this.d.sessions.get(id)?.environmentId === environmentId) return true;
+      const s = this.d.sessions.get(id);
+      if (s?.environmentId === environmentId && (s.status === "running" || s.status === "waiting_permission")) return true;
     }
     return false;
   }
@@ -1316,10 +1370,15 @@ export class SessionService {
     this.d.rpc.broadcast("session.event", { ...stored, ephemeral: false });
   }
 
-  private onEvent(id: string, ev: SessionEvent): void {
+  private onEvent(id: string, raw: SessionEvent): void {
     if (this.closing) return; // shutdown: the row keeps its last real status; markStaleOnBoot resets it
     const before = this.d.sessions.get(id);
     if (!before) return; // deleted underneath a still-draining pump
+    // First, before anything reads it: a masked answer quoted back by the agent never reaches the log,
+    // the feed or another window. A no-op for every session that was never asked a secret.
+    const ev = this.secrets.scrub(id, raw);
+    if (ev.type === "permission_request" && ev.payload.ask) this.asked.set(ev.payload.requestId, { sessionId: id, card: ev.payload.ask });
+    else if (ev.type === "permission_response") this.asked.delete(ev.payload.requestId);
     // BEFORE the status update below, so the hook sees the row's PREVIOUS status — a settle is a
     // transition, and only this side of the update still knows both ends of it.
     this.d.notifications?.handleSessionEvent(before, ev);
@@ -1354,6 +1413,7 @@ export class SessionService {
      * edit across twenty files must not open twenty tabs, and a `.ts` does not belong behind a
      * rich-text editor. */
     if (ev.type === "tool_call") this.surfaceWrittenDocument(id, ev.payload.name, ev.payload.input);
+    if (ev.type === "tool_call") this.toolTurns.add(id);
     // Not persisted and not this session's: the reading describes the ACCOUNT behind every session on
     // this agent, so it is folded into per-kind state and never into the transcript.
     if (ev.type === "rate_limit") this.d.planLimits?.apply(before.agentKind, ev.payload);
@@ -1363,6 +1423,11 @@ export class SessionService {
     if (ev.type === "status") {
       this.d.sessions.update({ id, status: ev.payload.status });
       this.d.rpc.broadcast("session.status", { sessionId: id, status: ev.payload.status });
+      // The end of a turn, from any live status — the same moment the transcript banks its run line.
+      // Read here, ahead of `noteTurnCursor` below, which claims the checkpoint for its own purposes.
+      const settled = (before.status === "running" || before.status === "waiting_permission")
+        && ev.payload.status !== "running" && ev.payload.status !== "waiting_permission";
+      const fronting = settled ? this.d.checkpoints?.frontingCheckpoint(id) ?? null : null;
       // A SETTLE, not any status: the transition out of a live state is the moment the transcript
       // stops moving, and it is the only one worth summarizing. Fired after the events of the turn
       // are persisted below on their own passes — the summary reads the log, so it must not run
@@ -1373,6 +1438,7 @@ export class SessionService {
         // (the next turn has not begun). Synchronous and first, ahead of every `void` below — one of
         // those starts the next turn, and a cursor read after that would describe the wrong one.
         this.noteTurnCursor(id, before);
+        this.d.checkpoints?.endTurn(id);
         void this.d.summaries?.onSettled(id);
         /* The turn that was blocking the queue just ended — unless the USER ended it, in which case
          * the queue stays parked. Stop has to mean stop: a queued message that started a fresh turn
@@ -1392,6 +1458,11 @@ export class SessionService {
       }
       if (ev.payload.status === "idle" || ev.payload.status === "ended" || ev.payload.status === "error") {
         for (const settle of this.settleWaiters.get(id) ?? []) settle();
+      }
+      if (settled && this.toolTurns.delete(id) && fronting) {
+        const measured: Promise<void> = this.recordTurnChanges(id, fronting, ev.ts)
+          .finally(() => { if (this.measuring.get(id) === measured) this.measuring.delete(id); });
+        this.measuring.set(id, measured);
       }
     }
     if (PERSISTED_EVENT_TYPES.includes(ev.type)) {

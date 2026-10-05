@@ -41,6 +41,8 @@ const statuses = (evs: SessionEvent[]) => evs.filter((e) => e.type === "status")
 const of = <T extends SessionEventType>(evs: SessionEvent[], t: T) => evs.filter((e) => e.type === t) as SessionEventOf<T>[];
 const texts = (evs: SessionEvent[]) => of(evs, "assistant_text").map((e) => e.payload.text);
 const errors = (evs: SessionEvent[]) => of(evs, "error").map((e) => e.payload.message);
+/** Everything the agent has said so far, streamed or settled. */
+const said = (evs: SessionEvent[]) => [...texts(evs), ...of(evs, "assistant_delta").map((e) => e.payload.delta)].join("");
 
 /** Boots a session and waits for the first terminal event of boot: `init` or `error`. */
 async function booted(o: Partial<StartOptions> = {}, s: Partial<AcpAgentSpec> = {}) {
@@ -89,6 +91,56 @@ describe("plans", () => {
     // The mutant: never clearing the id on flush. The second turn's plan would land on the first
     // turn's card and erase what the agent set out to do the first time.
     expect(new Set(of(evs, "plan").map((e) => e.payload.planId)).size).toBe(2);
+  });
+});
+
+describe("elicitation — the agent asking the user, on Realm's card", () => {
+  it("declares both modes at initialize, so an agent may ask at all", async () => {
+    // THE MUTANT: leave `elicitation` out of clientCapabilities. A real agent must not ask a client that
+    // did not offer, and the fake does as a real one must: it says so instead of asking.
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request").length + said(evs).length).toBeGreaterThan(0));
+    expect(said(evs)).not.toContain("elicitation not offered");
+    expect(of(evs, "permission_request")).toHaveLength(1);
+  });
+
+  it("draws a form as the card, naming the agent, and accepts with the form's own values", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    const req = of(evs, "permission_request")[0]!.payload;
+    expect(statuses(evs).at(-1)).toBe("waiting_permission");
+    expect(req.ask).toMatchObject({ asker: { kind: "agent", name: "Cursor", agent: "acp:cursor" }, mode: "form",
+      questions: [{ id: "strategy", prompt: "How should I approach this refactoring?", kind: "choice", required: true }] });
+    handle.respondPermission(req.requestId, "allow", { strategy: "balanced" });
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    expect(texts(evs).join("")).toContain('elicited {"action":"accept","content":{"strategy":"balanced"}}');
+    expect(of(evs, "permission_response")[0]!.payload).toEqual({ requestId: req.requestId, decision: "allow", answers: { strategy: "balanced" } });
+  });
+
+  it("declines what the user declined, and cancels what a stopped turn left open", async () => {
+    const declined = await booted();
+    await declined.handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(of(declined.evs, "permission_request")).toHaveLength(1));
+    declined.handle.respondPermission(of(declined.evs, "permission_request")[0]!.payload.requestId, "deny");
+    await waitFor(() => expect(texts(declined.evs).join("")).toContain('"action":"decline"'));
+
+    const stopped = await booted();
+    await stopped.handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(of(stopped.evs, "permission_request")).toHaveLength(1));
+    await stopped.handle.interrupt();
+    await waitFor(() => expect(said(stopped.evs)).toContain('"action":"cancel"'));
+  });
+
+  it("accepts a page to open as consent alone", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ELICITURL", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    const req = of(evs, "permission_request")[0]!.payload;
+    expect(req.ask?.questions[0]).toMatchObject({ kind: "link", url: "https://accounts.example.com/connect?x=1" });
+    handle.respondPermission(req.requestId, "allow", { url: "opened" });
+    await waitFor(() => expect(texts(evs).join("")).toContain('elicited {"action":"accept"}'));
   });
 });
 
@@ -552,13 +604,13 @@ describe("AcpAdapter", () => {
     await handle.dispose();
   });
 
-  it("declares the fs capabilities and no terminal in initialize", async () => {
+  it("declares the fs capabilities, both elicitation modes and no terminal in initialize", async () => {
     const { handle, evs } = await booted();
     await turn(handle, evs, "REVEAL");
     const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string; params: Record<string, unknown> }[] };
     expect(journal.calls[0]).toEqual({
       method: "initialize",
-      params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false } },
+      params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false, elicitation: { form: {}, url: {} } } },
     });
     await handle.dispose();
   });

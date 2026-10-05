@@ -528,6 +528,8 @@ export function App() {
       if (sheet?.kind === "checkpoints" && sheet.environmentId === environmentId) {
         st.run(() => st.refreshCheckpoints(environmentId, sheet.sessionId));
       }
+      // …and the whole checkout's list a transcript's edit cards decide Undo by, if one is held.
+      if (st.envCheckpoints[environmentId]) st.run(() => st.refreshEnvCheckpoints(environmentId));
     });
     // A skill was toggled (or the library edited). Only spaces already holding a library refresh —
     // the mention picker fetches on session open, so a space nobody is prompting in stays unfetched.

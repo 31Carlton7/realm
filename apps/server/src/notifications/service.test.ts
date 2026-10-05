@@ -49,6 +49,22 @@ describe("NotificationsService — permissions", () => {
     expect(feed().find((x) => x.refId === "req-2")!.body).toBe("Run rm — Denied");
   });
 
+  it("words a question's row by what happened to it, and makes no row for one Realm declined itself", () => {
+    const s = session();
+    const ask = { asker: { kind: "agent" as const, name: "Codex" }, mode: "question" as const, questions: [{ id: "b", prompt: "Which branch?", kind: "text" as const }] };
+    svc.handleSessionEvent(s, sessionEvent("permission_request", { requestId: "q-1", toolName: "item/tool/requestUserInput", input: {}, title: "Which branch?", suggestions: [], ask }));
+    svc.handleSessionEvent(s, sessionEvent("permission_response", { requestId: "q-1", decision: "allow", answers: { b: "main" } }));
+    expect(feed().find((x) => x.refId === "q-1")!.body).toBe("Which branch? — Answered");
+    svc.handleSessionEvent(s, sessionEvent("permission_request", { requestId: "q-2", toolName: "item/tool/requestUserInput", input: {}, title: "Which branch?", suggestions: [], ask }));
+    svc.handleSessionEvent(s, sessionEvent("permission_response", { requestId: "q-2", decision: "deny" }));
+    expect(feed().find((x) => x.refId === "q-2")!.body).toBe("Which branch? — Skipped");
+    // THE MUTANT: notify for a refused card too. The feed and the phone would report as waiting on
+    // the user a question nobody was ever asked.
+    svc.handleSessionEvent(s, sessionEvent("permission_request", { requestId: "q-3", toolName: "elicitation", input: {}, title: "Paste your key", suggestions: [],
+      ask: { ...ask, mode: "form" as const, refused: "It asked for a password or a key in a form." } }));
+    expect(feed().some((x) => x.refId === "q-3")).toBe(false);
+  });
+
   it("a response with no matching open row is a silent no-op (already resolved, or the category was off)", () => {
     svc.handleSessionEvent(session(), sessionEvent("permission_response", { requestId: "ghost", decision: "deny" }));
     expect(feed()).toHaveLength(0);

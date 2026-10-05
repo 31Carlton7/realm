@@ -22,14 +22,38 @@ function renderToolContent(content: unknown): string {
     const c = obj(raw);
     switch (str(c.type)) {
       case "content": return blockText(c.content);
-      case "diff": {
-        const old = c.oldText === null || c.oldText === undefined ? "" : str(c.oldText);
-        return `--- ${str(c.path)}\n${old ? `- ${old.trimEnd()}\n` : ""}+ ${str(c.newText).trimEnd()}`;
-      }
+      case "diff": return unifiedDiff(str(c.path), c.oldText === null || c.oldText === undefined ? null : str(c.oldText), str(c.newText));
       case "terminal": return `[terminal ${str(c.terminalId)}]`;
       default: return "";
     }
   }).filter(Boolean).join("\n");
+}
+
+const lines = (text: string): string[] => (text === "" ? [] : text.replace(/\n$/, "").split("\n"));
+
+/**
+ * An ACP `diff` content block as a unified diff — the form the transcript draws a change in and
+ * counts it from. ACP sends the two whole texts; the lines they share at either end are context,
+ * and what is between them is the change, as one hunk. For an edit that changed one stretch of a
+ * file that is exactly git's answer; for one that changed two stretches it counts the unchanged
+ * lines between them as replaced, which is the most this has to go on without a diff of its own.
+ * `oldText: null` is a new file.
+ */
+function unifiedDiff(path: string, oldText: string | null, newText: string): string {
+  const a = lines(oldText ?? ""), b = lines(newText);
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) head++;
+  let tail = 0;
+  while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++;
+  const del = a.slice(head, a.length - tail), add = b.slice(head, b.length - tail);
+  return [`--- ${oldText === null ? "/dev/null" : path}`, `+++ ${path}`,
+    `@@ -${del.length ? head + 1 : head},${del.length} +${add.length ? head + 1 : head},${add.length} @@`,
+    ...del.map((l) => `-${l}`), ...add.map((l) => `+${l}`)].join("\n");
+}
+
+/** The files an ACP call names (`locations`), for the transcript's row. */
+function locationsOf(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.map((l) => str(obj(l).path)).filter((p) => p !== "") : [];
 }
 
 /** ACP's `plan` entries — `{content, priority, status}` with status `pending | in_progress |
@@ -110,7 +134,10 @@ export function createAcpMapper() {
         const id = str(u.toolCallId);
         const call: AcpCall = { title: str(u.title) || id, kind: str(u.kind) || "other", input: obj(u.rawInput), done: false };
         calls.set(id, call);
-        out.push(sessionEvent("tool_call", { toolUseId: id, name: call.title, input: call.input, parentToolUseId: null }));
+        // What the agent said, never the "other" this mapper files an unstated kind under.
+        const paths = locationsOf(u.locations);
+        out.push(sessionEvent("tool_call", { toolUseId: id, name: call.title, input: call.input, parentToolUseId: null,
+          ...(str(u.kind) ? { kind: str(u.kind) } : {}), ...(paths.length ? { paths } : {}) }));
         return out;
       }
 
