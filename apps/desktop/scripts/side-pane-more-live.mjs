@@ -14,10 +14,9 @@
  *   5. A blank tab shows the session's tools, and each one picked takes the tab's place: Terminal
  *      and Machine as tabs where it stood, Files through the ⌘P palette, and Documents — already
  *      open by then — by going to the tab that has it.
- *   6. Peek, from the Agents page, at a session in another space that is waiting on a card: a tab of
- *      the lead's side pane, eye and italic, its card answered in place, no prompter — never in the
- *      window's saved view, and Home's count gone once it is answered. Peek from a sidebar row's
- *      menu, then Open session: the session takes the lead's place in the main view, from this space
+ *   6. Peek, from its row on the Notifications page, at a session in another space that is waiting on
+ *      a card: a tab of the lead's side pane, eye and italic, its card answered in place, no prompter
+ *      — never in the window's saved view. Peek from a sidebar row's menu, then Open session: the session takes the lead's place in the main view, from this space
  *      or another, with nothing switched. (What waits on you is the sidebar's Needs you list now —
  *      sidebar-rail-live measures it.)
  *
@@ -275,11 +274,6 @@ async function main() {
     await sleep(100);
   };
 
-  /** Home's count in the rail: what waits on you, from every space. Null while nothing does. */
-  const homeCount = () => evalIn(c, `(() => { const b = [...document.querySelectorAll('.app-rail .rail-btn')].find((x) => (x.getAttribute('aria-label') ?? '').startsWith('Home'));
-    return b?.querySelector('.sb-badge')?.textContent ?? null; })()`);
-  check("no count on Home while nothing waits", (await homeCount()) === null);
-
   // ── The lead's agent opens a browser: a side pane with one tab, its view on screen ────────────
   const opened = await call("realm-browser__browser_open", { url: `${SITE}/job-1` });
   if (opened.isError) throw new Error(`browser_open: ${text(opened)}`);
@@ -443,21 +437,21 @@ async function main() {
   // The current space is the focused session's, which its pane's crumb names.
   const activeSpace = () => evalIn(c, `document.querySelector('.panel[data-focused] .panel-crumb')?.getAttribute('aria-label') ?? null`);
   const focusedTitle = () => evalIn(c, `document.querySelector('.panehost .panel[data-focused] .panel-title')?.textContent ?? null`);
-  const openAgents = async () => {
-    await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Home')).click(); return true; })()`);
-    await until(() => evalIn(c, `!!document.querySelector('button[aria-label="Peek at Peek target"]')`), 10_000, "the Agents page's peek on the target");
+  const openFeed = async () => {
+    await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Notifications')).click(); return true; })()`);
+    await until(() => evalIn(c, `!!document.querySelector('button[aria-label="Peek at Peek target"]')`), 10_000, "the notification row's peek on the target");
   };
 
   await intoLead();
-  await openAgents();
-  await shot(c, "agents-peek");
+  await openFeed();
+  await shot(c, "feed-peek");
   await evalIn(c, `(() => { document.querySelector('button[aria-label="Peek at Peek target"]').click(); return true; })()`);
   const tab = await until(peekTab, 10_000, "the peek's tab").catch(() => null);
-  const page = await evalIn(c, `!!document.querySelector('.agents-page')`);
+  const page = await evalIn(c, `!!document.querySelector('.notifications-page-pane')`);
   // Nothing switched: the lead's own pane is still on screen, its crumb naming Live. (The focus may be
   // in the side pane now, which carries no crumb.)
   const leadCrumb = () => evalIn(c, `[...document.querySelectorAll('.panehost .panel')].find((p) => p.querySelector('.panel-title')?.textContent === ${JSON.stringify(TITLE)})?.querySelector('.panel-crumb')?.getAttribute('aria-label') ?? null`);
-  check("Peek on the Agents page opens another space's session as a tab of the lead's side pane, the page out of the way",
+  check("Peek from a notification row opens another space's session as a tab of the lead's side pane, the page out of the way",
     tab?.label === "Peek: Peek target" && !page && (await leadCrumb()) === "Open Live", { tab, page, lead: await leadCrumb() });
   check("…marked as a peek: an eye and an italic title, and it does not drag", tab?.italic === "italic" && tab?.draggable === "false", tab);
   const peekPane = () => evalIn(c, `(() => { const p = document.querySelector('.session-pane[data-peek]');
@@ -482,8 +476,6 @@ async function main() {
   const answered = await until(async () => { const st = (await api.call("sessions.get", { id: other.id })).status; return st !== "waiting_permission" ? st : null; }, 10_000, "the card answered").catch(() => "waiting_permission");
   const cardGone = await until(async () => { const p = await peekPane(); return p && !p.card ? true : null; }, 5_000, "the card gone").catch(() => false);
   check("Allow in the peek answers the other space's card", answered !== "waiting_permission" && cardGone === true, { status: answered });
-  const countGone = await until(async () => ((await homeCount()) === null ? true : null), 5_000, "the count gone").catch(homeCount);
-  check("…and with nothing else waiting, Home's count goes", countGone === true, countGone);
 
   // A same-space session, from its sidebar row's menu, then Open session: the tab stays, and is saved.
   const { session: second, itemId: secondItem } = await api.call("sessions.create", { spaceId: space.id, agentKind: "acp:gemini", title: "Second session", permissionMode: "default" });
@@ -510,7 +502,7 @@ async function main() {
 
   // Another space's, Open session: that space, with the session in front.
   await intoLead();
-  await openAgents();
+  await openFeed();
   await evalIn(c, `(() => { document.querySelector('button[aria-label="Peek at Peek target"]').click(); return true; })()`);
   await until(peekTab, 10_000, "the third peek's tab");
   await evalIn(c, `(() => { [...document.querySelectorAll('.session-pane[data-peek] .peek-bar button')].find((b) => b.textContent === 'Open session').click(); return true; })()`);

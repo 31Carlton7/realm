@@ -528,10 +528,10 @@ describe("reading a session by opening it", () => {
 });
 
 describe("opened from a list, the session takes the keyboard", () => {
-  /* A session opened from the Active rows, another room's list, the Agents page or a notification
-     lands with the keyboard in it, so the hand that clicked can type. THE MUTANTS: never take it (the
-     caret stays on a sidebar row, or on nothing once that row is gone), or take it over a permission
-     card that has already claimed it for the answer it needs. */
+  /* A session opened from the Active rows, another room's list or a notification lands with the
+     keyboard in it, so the hand that clicked can type. THE MUTANTS: never take it (the caret stays on
+     a sidebar row, or on nothing once that row is gone), or take it over a permission card that has
+     already claimed it for the answer it needs. */
   const mountWith = async (status: "idle" | "waiting_permission", focused = true) => {
     const api = fakeApi({ sessions: [session("se1", "s1", { status })] });
     const store = createAppStore(api); await store.getState().boot();

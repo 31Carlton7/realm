@@ -438,7 +438,7 @@ export function defaultAdapters(): AdapterRegistry {
     // arrives, which makes this the only state a fake session can be parked in and looked at:
     // everything else this agent reaches settles in milliseconds, and a failed spawn ends the
     // session rather than failing it. The surfaces that need a session stopped mid-air — the
-    // permission card, the sidebar's blocked mark, the Agents wall — have nothing else to pose for.
+    // permission card, the sidebar's blocked mark, Needs you — have nothing else to pose for.
     on: "ask me", emit: [{ kind: "tool", name: "Bash", input: { command: "rm -rf build" }, needsPermission: true, result: "removed" }],
   }, {
     // A question on the permission channel, held open the same way. Claude asks through

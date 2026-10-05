@@ -13,9 +13,9 @@ const groupOf = (p: PendingPermission) =>
 
 /**
  * Who owns Escape. In the transcript the card does — Escape is Deny, or Skip on a question, and the
- * footer says so. On a surface whose Escape means "leave" (the Agents page, the need-you list) the
- * card is told it does not, and then it neither answers on Escape nor offers it as a key: a hint
- * saying "esc Deny" above a key that closes the page would be a lie about the one key that matters.
+ * footer says so. On a surface whose Escape means "leave" (the need-you list) the card is told it
+ * does not, and then it neither answers on Escape nor offers it as a key: a hint saying "esc Deny"
+ * above a key that folds the card away would be a lie about the one key that matters.
  */
 describe("a pending request's Escape", () => {
   for (const p of [bash, question, plan]) {

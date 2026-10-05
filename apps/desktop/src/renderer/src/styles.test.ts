@@ -1356,7 +1356,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
   it("the window never scrolls: the shell is clipped at its own edges, without becoming a scroller", () => {
     /* Measured live (10-05): a page rising in from 6px under its place overran the window's foot, the
        document became scrollable by those 6px, and a classic scrollbar took 15px off the whole app
-       until the rise ended — the Agents page's centred column jumped 7.5px. THE MUTANTS: no clip (the
+       until the rise ended — a page's centred column jumped 7.5px. THE MUTANTS: no clip (the
        scrollbar back), or `hidden`, which makes the shell a scroll container for every sticky header
        inside it. */
     const shell = bodiesFor(".app").join(" ");

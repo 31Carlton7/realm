@@ -32,7 +32,7 @@ import {
   CaduceusIcon,
   // A session's file browser, laid out as cards (SessionFiles.tsx).
   GridViewIcon,
-  // A peek: a session looked at, not opened (the side pane's transient tab, the Agents page's rows).
+  // A peek: a session looked at, not opened (the side pane's transient tab, a notification row's eye).
   ViewIcon,
   // The page about you (YouPage.tsx).
   UserCircleIcon,
@@ -155,12 +155,8 @@ export const icons = {
   "settings-page": Settings01Icon,
   "profile-page": UserIcon,
   "schedules-page": Clock01Icon,
-  /* Missing for as long as the Agents page has existed: `Icon` falls back to `icons.folder` for a
-     name it does not hold, silently, so the page wore a folder in the sidebar and in its own pane
-     bar. `icon-kinds.test.ts` is what stops the next one lasting that long. */
-  "agents-page": BotIcon,
-  /* A session's own sub-agents: one box handing work down to two. Not the page's bot — the page is
-     every agent there is, and this is the tree under one session, which is the thing the shape says. */
+  /* A session's own sub-agents: one box handing work down to two — the tree under one session,
+     which is the thing the shape says. */
   agents: HierarchySquare02Icon,
   /* A window with a layout drawn in it: an interface somebody else made. Not `browser`'s globe, which
      is a page anywhere on the web, and not `layout`, which is Realm arranging its own panes. */

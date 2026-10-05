@@ -363,12 +363,6 @@ describe("the current space", () => {
     await store.getState().openDocuments("env-a");
     expect(api.calls).toContain("createDocuments:s1:env-a");
   });
-
-  it("a fan-out runs in the space it names", async () => {
-    const store = await sideBySide(api);
-    await store.getState().fanOutAgents({ brief: "go", count: 2, agentKind: "fake", worktrees: false, spaceId: "s1" });
-    expect(api.data.sessions.slice(-2).map((x) => x.spaceId)).toEqual(["s1", "s1"]);
-  });
 });
 
 describe("work from a space that is not current", () => {

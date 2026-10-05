@@ -57,28 +57,6 @@ export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projec
    *  lens's seam. The only origin a client may claim; the agent origins are server-recorded. */
   userDispatched?: boolean };
 
-/** The most agents one fan-out may start. Not a safety limit — the delegation engine has those for
- *  agents spawning agents, and this is a person pressing a button. It is a legibility limit, the
- *  same argument `MAX_DELEGATION_DEPTH` makes: past a dozen tiles nobody is reading the wall, and
- *  every one of them is a checkout on disk and a provider's rate limit being spent. */
-export const FAN_OUT_MAX = 12;
-
-/** One brief, several agents. `worktrees` off runs them all in the space folder, where they will
- *  edit each other's files — true of any two sessions sharing a checkout, and the reason it defaults
- *  on for a fan-out, where the collision is the expected case rather than the unlucky one. */
-export type FanOutInput = { brief: string; count: number; agentKind: AgentKind; worktrees: boolean;
-  /** The space they run in. Omitted, the current space — the one the session in focus works in. */
-  spaceId?: string | null };
-
-export type AgentsView = "list" | "wall" | "office";
-
-/** A generated world: the room its agents work in, and the palette it is painted with.
- *
- *  `layout` is a `pixel-office` `OfficeLayout` — tiles, furniture, seating — and is held as
- *  `unknown` here for the same reason the store holds no other pane's internals: the office package
- *  owns that shape, validates it at the boundary, and a copy of the type in this file would be a
- *  second definition free to drift. */
-export type OfficeWorld = { id: string; name: string; prompt: string; layout: unknown; createdAt: number };
 /** `mcp.add` params, minus the wire's own defaulting — undefined fields simply aren't sent. */
 export type AddMcpServerInput = {
   spaceId: string | null; name: string; transport: McpTransport;
@@ -266,13 +244,6 @@ export type Api = {
   /** One-shot Claude call; can take a few seconds. Throws `ICON_INVALID`/`ICON_TOO_LARGE` on a
    *  response that failed the server's structural check. */
   generateIconAsset(profileId: string, prompt: string): Promise<IconAsset>;
-  /** `office.generate` — the pixel office's prompter. Returns the model's raw JSON text; the caller
-   *  validates it with `@realm/pixel-office`, which owns the only copy of those rules. */
-  generatePixelWorld(input: { prompt: string; vocabulary: { category: string; ids: string[] }[];
-    current: { name: string; room: string[] } | null; maxCols: number; maxRows: number;
-    seats: number; maxDrawn: number; problems: string[] }): Promise<{ json: string }>;
-  /** `office.drawSprite` — one piece of furniture, drawn. Raw JSON again; `checkSprite` validates. */
-  drawPixelSprite(input: { prompt: string; maxWidth: number; maxHeight: number }): Promise<{ json: string }>;
   /** Native single-image picker for an icon upload; null when cancelled. */
   describePaths(paths: string[]): Promise<PickedAttachment[]>;
   pickIconImage(): Promise<PickedFile | null>;
@@ -696,7 +667,6 @@ export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
   // nothing to go stale against (Plan 14 W2).
   "profile-page": "Profile",
   "schedules-page": "Scheduled tasks",
-  "agents-page": "Agents",
   "you-page": "You",
 };
 
@@ -905,11 +875,7 @@ export type Sheet =
   /** One plan out of a session's summary, named by the session that proposed it and the plan's own
    *  id. Read live for the same reason: a plan the agent revises while the sheet is open should show
    *  the revision, not the snapshot that was taken when the row was clicked. */
-  | { kind: "session-plan"; sessionId: string; planId: string }
-  /** The Agents page's fan-out: one brief, several agents, a worktree each. Carries nothing — the
-   *  space it starts them in is the current one when it is sent (`fanOutAgents` takes a space for a
-   *  caller that names one). */
-  | { kind: "fan-out" };
+  | { kind: "session-plan"; sessionId: string; planId: string };
 
 export type AppState = {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
@@ -1227,17 +1193,10 @@ export type AppState = {
    *  (which fire for every space) — entries survive space switches. */
   sessionStatus: Record<string, SessionStatus>;
   /** The last thing each session was seen DOING, folded out of the `session.event` broadcast — what
-   *  the Agents wall draws under a tile's title. One entry per session, newest answer only, and only
-   *  for sessions that have done something since this window connected: a line nobody has heard yet
-   *  is absent rather than invented (`session-activity.ts`). Never persisted. */
+   *  a sub-agent's card in its lead's Agents tab draws under its task. One entry per session, newest
+   *  answer only, and only for sessions that have done something since this window connected: a line
+   *  nobody has heard yet is absent rather than invented (`session-activity.ts`). Never persisted. */
   sessionActivity: Record<string, SessionActivity>;
-  /** Which reading of the Agents page is on screen: the list that ranks every session by what it
-   *  needs from you, the wall that draws the live ones as tiles with what each is doing, or the
-   *  office that draws them as people in a room.
-   *  Renderer state, like `machineScale` — it is about the page in front of you, not a setting. */
-  agentsView: AgentsView;
-  /** The world the office is drawing, or null for the one it ships with. */
-  officeWorld: OfficeWorld | null;
   /** Messages waiting for a session's current turn to end, oldest first, from `session.queue`. The
    *  key is dropped when a queue empties, so a session with nothing waiting holds nothing here. */
   sessionQueues: Record<string, QueuedPrompt[]>;
@@ -1527,8 +1486,8 @@ export type AppState = {
    * was made in. That is a fact about where its commands land, not about which list it appears in.
    */
   /**
-   * The app-level page showing over the workspace, if any — Agents, Library, Connections,
-   * Notifications, Scheduled tasks, Settings, a space's Overview, or a profile.
+   * The app-level page showing over the workspace, if any — Library, Connections, Notifications,
+   * Scheduled tasks, Settings, a space's Overview, a profile, or You.
    *
    * An OVERLAY, not a layout item, and that is the whole of what these pages are now. They used to be
    * real items with sentinel refIds: opening one split a pane, zoomed it, and left a row in the
@@ -1968,9 +1927,9 @@ export type AppState = {
   refreshSessions(spaceId?: string | null): Promise<void>;
   /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
   refreshAllSessions(): Promise<void>;
-  /** Every session in the profile, as rows — what the Agents page lists. Fetched on demand rather
-   *  than held in state: the store keeps rows for the spaces that are open, and a page that wants
-   *  all of them asks the server, which already has them in one query. */
+  /** Every session in the profile, as rows — what the MCP activity list names its calls from.
+   *  Fetched on demand rather than held in state: the store keeps rows for the spaces that are open,
+   *  and a list that wants all of them asks the server, which already has them in one query. */
   listAllSessions(profileId?: string | null): Promise<Session[]>;
   /** Put a waiting_permission session's pane in front of the user — switching space if needed — which
    *  is what surfaces its card, since Transcript autofocuses the first pending permission of a focused
@@ -2010,10 +1969,6 @@ export type AppState = {
    *  Fails loudly when the space is not a git repository — there is no worktree to fall back to,
    *  and silently landing in the space folder would be the collision the user asked to avoid. */
   newSessionInWorktree(targetLeafId?: string | null, spaceId?: string | null): Promise<void>;
-  /** Set several agents going on one brief at once — the Agents page's fan-out. Returns the sessions
-   *  it actually started, which on a failure part-way through is the ones already working. */
-  fanOutAgents(input: FanOutInput): Promise<Session[]>;
-  setAgentsView(v: AgentsView): void;
   /** Arm (or with null, disarm) inline rename for the pane holding this item. */
   requestRename(itemId: string | null): void;
   sendMessage(id: string, text: string): Promise<void>;
@@ -2285,17 +2240,6 @@ export type AppState = {
   /** Ask Claude for an SVG icon from a description, save it, and prepend it into `iconAssets`. Can
    *  take a few seconds (a real model call) — callers show a spinner, not an optimistic result. */
   generateIcon(profileId: string, prompt: string): Promise<IconAsset>;
-  /** Put a world on screen, or `null` to go back to the one Realm ships. Not persisted: a world is
-   *  the room you are looking at right now, and a generated one you did not ask to keep should not
-   *  outlive the pane. */
-  setOfficeWorld(world: OfficeWorld | null): void;
-  /** Ask the model for a world. Returns its raw JSON; the caller validates it, because the validator
-   *  lives beside the renderer that has to survive the answer. */
-  generatePixelWorld(input: { prompt: string; vocabulary: { category: string; ids: string[] }[];
-    current: { name: string; room: string[] } | null; maxCols: number; maxRows: number;
-    seats: number; maxDrawn: number; problems: string[] }): Promise<{ json: string }>;
-  /** Ask the model to draw one piece of furniture. Raw JSON; the caller validates and registers it. */
-  drawPixelSprite(input: { prompt: string; maxWidth: number; maxHeight: number }): Promise<{ json: string }>;
   /** The icon picker's "Uploaded" tab: native single-image picker, then upload; null if cancelled. */
   uploadIconImage(profileId: string): Promise<IconAsset | null>;
   /** A file DROPPED on the icon picker, rather than chosen through the OS dialog. Resolves the
@@ -2528,6 +2472,9 @@ export type AppState = {
   openDestinationPage(kind: DestinationPageKind): void;
   /** Put the page overlay away. */
   closePageOverlay(): void;
+  /** The rail's Home: back to the work. Whatever page is up is put away, landing on the space and
+   *  session that were in front of it — or, with nothing in front, on a fresh prompter. */
+  goHome(): Promise<void>;
   /** Read both Settings-page preference keys into `settingsPrefs` (Plan 12 W6). Junk in a row —
    *  an unknown category, a mode PERMISSION_MODES doesn't name — is dropped/defaulted here, once,
    *  so the page never renders a state the server would not honor. */
@@ -3020,10 +2967,10 @@ const themeDefOf = (t: StoredTheme): ThemeDef => ({
   light: t.mode === "light" ? t.seed : null,
 });
 
-/** The item kinds that used to be pages in the layout. Pruned on boot — see `prunePageItems`. */
-const PAGE_ITEM_KINDS: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
-  ...(Object.keys(PAGE_REF_IDS) as Item["kind"][]), "space-page",
-]);
+/** The item kinds that used to be pages in the layout, pruned as each space's list arrives
+ *  (`refreshItems`). Read off the kind's name rather than off the pages this build has: a home
+ *  upgraded from that version may hold a row for a page since removed, whose kind no list here names. */
+const isPageItemKind = (kind: string): boolean => kind.endsWith("-page");
 
 const storedPalette = (stored: unknown, legacy: unknown, mode: Mode): ThemeName => {
   const name = isThemeName(stored) ? stored : isThemeName(legacy) ? legacy : "realm";
@@ -3274,7 +3221,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
     /** Persisted events that arrive while openSession is fetching; replayed after the fetch so order is kept. */
     const loading = new Map<string, StoredSessionEvent[]>();
-    /** `also` is folded into the SAME write. A transcript move and the wall's activity line are two
+    /** `also` is folded into the SAME write. A transcript move and a session's activity line are two
      *  facts about one event, and two `set` calls for them is two notifications — a render of every
      *  subscribed pane — per event, per streaming session. */
     const setTranscript = (id: string, entry: TranscriptEntry, also?: Partial<AppState>) =>
@@ -3613,8 +3560,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     /**
      * Take the page off the workspace.
      *
-     * A page — Agents, Library, Connections, Notifications, Scheduled tasks, Settings, a space's
-     * Overview — covers the pane host. So a click on a sidebar row while one is up moved the focus
+     * A page — Library, Connections, Notifications, Scheduled tasks, Settings, a space's Overview —
+     * covers the pane host. So a click on a sidebar row while one is up moved the focus
      * and the layout underneath and changed nothing the user could see: the row read as a click that
      * missed, and the keyboard ended up in a pane behind an opaque cover.
      *
@@ -4000,7 +3947,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", documentsAsk: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
-      spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
+      spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
@@ -4208,7 +4155,7 @@ await get().refreshCustomThemes().catch(() => {});
              one per page it ever opened. They are pruned as each space's list arrives; their refIds
              are sentinels with nothing behind them, so this costs nothing (design.md: "there is
              nothing behind the item to lose"). */
-          const stalePages = get().items.filter((i) => i.spaceId === sid && PAGE_ITEM_KINDS.has(i.kind));
+          const stalePages = get().items.filter((i) => i.spaceId === sid && isPageItemKind(i.kind));
           if (stalePages.length === 0) return;
           for (const it of stalePages) await api.deleteItem(it.id).catch(() => {});
           await loadSpaceItems(sid);
@@ -5351,9 +5298,9 @@ await get().refreshCustomThemes().catch(() => {});
         } finally { loading.delete(id); }
       },
       applySessionEvent(ev) {
-        /* The wall's line, derived before every early return below — it is the one thing here that is
-           wanted for sessions nobody has OPENED, which is most of them and all of the interesting
-           ones. The returns that follow are about a transcript, which an unopened session has none
+        /* The activity line, derived before every early return below — it is the one thing here that
+           is wanted for sessions nobody has OPENED: a lead's sub-agents are all of them, and they are
+           the ones its Agents tab is following. The returns that follow are about a transcript, which an unopened session has none
            of; what the agent is doing is answerable either way.
            Carried as a patch rather than written on the spot so it can ride along with whatever write
            this event was already going to make. A `set` of its own would have been a second store
@@ -5480,60 +5427,6 @@ await get().refreshCustomThemes().catch(() => {});
         if (inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
         await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id, spaceId: sid }, targetLeafId);
       },
-      /**
-       * One brief, `count` agents, each sent the brief and left to work.
-       *
-       * No panes. Eight sessions opened as eight leaves is a layout nobody asked for and would have
-       * to undo before reading anything; the items exist in the space, the wall draws them, and the
-       * user opens the ones that turn out to matter. That is the difference between dispatching work
-       * and dispatching windows, and it is why this does not go through `newSession`.
-       *
-       * Strictly sequential, and that is a git fact rather than a preference: `git worktree add`
-       * takes the repository's index lock, so N of them at once against one repo is a race with a
-       * losing side. The sessions themselves then run concurrently, which is the whole point.
-       *
-       * A failure part-way through does NOT roll back. The agents already started are real, are
-       * working, and may already have written to disk; deleting them to make the batch atomic would
-       * destroy work to tidy up a number. The ones that started are returned and the reason for the
-       * stop surfaces through `run`, so what the user is told is what actually happened.
-       *
-       * Titles are left to the server's own generator rather than numbered here. A fan-out's agents
-       * are told apart by where they RUN — one worktree each, which the tile shows — and a name like
-       * "Agent 3" invented at this moment would outlive its usefulness by sticking to the row.
-       */
-      async fanOutAgents({ brief, count, agentKind, worktrees, spaceId }) {
-        const sid = spaceFor(spaceId); if (!sid) return [];
-        const text = brief.trim(); if (!text) return [];
-        const n = Math.max(1, Math.min(FAN_OUT_MAX, Math.trunc(count)));
-        const started: Session[] = [];
-        // A plain folder has no worktrees to give each agent; they share the folder, which is all such
-        // a space has, rather than the batch failing on its first add.
-        const isolate = worktrees && await checkoutIsRepo(sid);
-        try {
-          for (let i = 0; i < n; i++) {
-            // Named from the brief, like "New worktree…" does, so the branches say what they are for
-            // and the server's slugifier settles the collision between N of the same name.
-            const env = isolate ? await api.createWorktree(sid, worktreeTitleFrom(text)) : null;
-            if (env && inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
-            const { session } = await api.createSession({
-              spaceId: sid, agentKind, ...(env ? { environmentId: env.id } : {}), userDispatched: true,
-            });
-            if (inProfile(sid)) mergeSession(session);
-            await api.sendMessage(session.id, text, [], [], [], undefined, []);
-            started.push(session);
-          }
-        } finally {
-          // In `finally`, because the agents that DID start have item rows the sidebar is missing
-          // until this runs — and a batch that stopped half way is exactly when the user needs to
-          // see the half that is working.
-          if (started.length > 0) {
-            rememberAgent(agentKind);
-            await loadSpaceItems(sid);
-          }
-        }
-        return started;
-      },
-      setAgentsView(v) { set({ agentsView: v }); },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       /**
        * The one path attachments travel. The prompter never passes them in — it cannot forget to, and
@@ -6233,9 +6126,6 @@ await get().refreshCustomThemes().catch(() => {});
       async refreshIconAssets(profileId) {
         await fetchIconAssets(profileId);
       },
-      setOfficeWorld(world) { set({ officeWorld: world }); },
-      generatePixelWorld(input) { return api.generatePixelWorld(input); },
-      drawPixelSprite(input) { return api.drawPixelSprite(input); },
       async generateIcon(profileId, prompt) {
         const asset = await api.generateIconAsset(profileId, prompt);
         markIconAssetMutation(profileId);
@@ -6800,6 +6690,13 @@ await get().refreshCustomThemes().catch(() => {});
       /** Put it away. Nothing is destroyed — a page has no object under it, which is why it can be a
        *  view in the first place. */
       closePageOverlay() { set({ pageOverlay: null }); },
+      async goHome() {
+        /* A page only ever covers the workspace, so putting it away IS the landing: the session that
+           was in front, in its space, with nothing moved. With nothing in front — a view emptied by a
+           delete — it is a fresh prompter, as closing the last pane gives, never the placeholder. */
+        get().closePageOverlay();
+        if (allItems(get().layout ?? emptyLayout()).length === 0) await get().newSessionInstant();
+      },
       pickFiles() { return api.pickFiles(); },
       toggleSimulatorElements(simulatorId) {
         const on = get().simulatorElements[simulatorId] === true;

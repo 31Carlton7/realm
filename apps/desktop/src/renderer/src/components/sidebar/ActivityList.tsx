@@ -43,11 +43,10 @@ export function ActivityList() {
      rows and any filter; one mount is one fetch, wherever the mount came from. */
   useEffect(() => { run(() => refreshMcpCalls()); }, [refreshMcpCalls, run]);
 
-  /* Every session in the home, by id — the Agents page's own read, for the Agents page's own reason.
-     The log spans spaces and `sessions` holds only the active one, so against a real log half the
-     headings came back as `01M267WY…`: a truncated id where a title belongs, for a session that has
-     one and that `revealSession` can reach. Local state, like the Agents page's rows: this is a
-     snapshot for naming, not a second copy of the store's session map. */
+  /* Every session in the home, by id (`listAllSessions`). The log spans spaces and `sessions` holds
+     only the active one, so against a real log half the headings came back as `01M267WY…`: a
+     truncated id where a title belongs, for a session that has one and that `revealSession` can
+     reach. Local state: this is a snapshot for naming, not a second copy of the store's session map. */
   const [known, setKnown] = useState<Record<string, Session>>({});
   useEffect(() => {
     let live = true;

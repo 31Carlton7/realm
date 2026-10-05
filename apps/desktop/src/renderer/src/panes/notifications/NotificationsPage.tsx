@@ -133,7 +133,7 @@ export function NotificationsPage({ item }: PaneProps) {
  * card is the target. That it is a button is also why the pending permission card lives in the
  * MODAL and not inline here — Allow/Deny are buttons, and buttons do not nest.
  *
- * A row about a session carries the Agents page's eye (W11b) where that page would offer it, as the
+ * A row about a session carries the eye (W11b) wherever a peek can land (`usePeekable`), as the
  * row's sibling for the same reason. A look at the session is a look at what the row was about, so a
  * peek that lands reads the row, as opening it would.
  */

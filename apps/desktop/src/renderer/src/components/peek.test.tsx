@@ -7,15 +7,14 @@ import { StoreContext, createAppStore, useApp } from "../state/store";
 import { fakeApi, item, notification, session, space } from "../state/store.test-fakes";
 import { registerPane } from "../panes/registry";
 import { SessionPane } from "../panes/session/SessionPane";
-import { AgentsPage } from "../panes/agents/AgentsPage";
 import { NotificationsPage } from "../panes/notifications/NotificationsPage";
 import { setBrowserBridgesForTests } from "../panes/browser/browser-client";
 import { fakeBrowserBridges } from "../panes/browser/browser-bridges.test-fakes";
 
 /**
  * A peek as the person meets it (W11b): the tab marked as one that will not stay, the transcript and
- * its card with no prompter under them, and the two ways in — a session row's menu and the Agents
- * page's rows.
+ * its card with no prompter under them, and the two ways in — a session row's menu and a
+ * notification row's eye.
  */
 
 registerPane("session", SessionPane);
@@ -136,37 +135,6 @@ describe("the ways in", () => {
     fireEvent.contextMenu(screen.getByRole("button", { name: "Lead" }));
     expect(within(await screen.findByRole("menu")).queryByRole("menuitem", { name: "Peek" })).toBeNull();
   });
-
-  it("offers a peek on the Agents page for another space's session, not for one open here", async () => {
-    const { store } = await setup();
-    render(<StoreContext.Provider value={store}><AgentsPage item={item("p", "s1", { kind: "agents-page" })} visible /></StoreContext.Provider>);
-    const peekOther = await screen.findByRole("button", { name: "Peek at Other" });
-    expect(screen.queryByRole("button", { name: "Peek at Lead" })).toBeNull();
-    fireEvent.click(peekOther);
-    await waitFor(() => expect(store.getState().peek?.item.id).toBe("i-other"));
-    expect(store.getState().activeSpaceId).toBe("s1");
-  });
-
-  it("offers no peek for a session with no row in any space, as a quick chat has none", async () => {
-    // THE MUTANT: offer it for every session of another space. A quick chat has no row to make a tab
-    // of, so its eye would be a button whose only outcome is nothing.
-    const { store } = await setup();
-    render(<StoreContext.Provider value={store}><AgentsPage item={item("p", "s1", { kind: "agents-page" })} visible /></StoreContext.Provider>);
-    await screen.findByRole("button", { name: "Peek at Other" });
-    expect(screen.getByText("Quick question")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Peek at Quick question" })).toBeNull();
-  });
-
-  it("offers no peek anywhere when there is no session on screen to be beside", async () => {
-    // THE MUTANT: offer it regardless — a control whose only outcome is nothing.
-    const { store } = await setup();
-    await store.getState().closeFromLayout("i-lead");
-    await store.getState().newTerminal();
-    expect(store.getState().peekOwner()).toBeNull();
-    render(<StoreContext.Provider value={store}><AgentsPage item={item("p", "s1", { kind: "agents-page" })} visible /></StoreContext.Provider>);
-    await screen.findByText("Other");
-    expect(screen.queryByRole("button", { name: /^Peek at/ })).toBeNull();
-  });
 });
 
 /** The Notifications page over the same two spaces, with the lead focused under it. */
@@ -193,8 +161,8 @@ describe("the way in from a notification row", () => {
     await waitFor(() => expect(api.calls).toContain("markNotificationsRead:n-other"));
   });
 
-  it("offers it on exactly the rows the Agents page would offer it on", async () => {
-    /* THE MUTANT: a guard of the page's own — any row that names a session. The eye would then go on a
+  it("offers it only where a peek can land: not on a session open here, a quick chat, or a row with no session", async () => {
+    /* THE MUTANT: a guard of the feed's own — any row that names a session. The eye would then go on a
        session already open here (a click on the row shows it) and on a quick chat, which has no row
        anywhere to make a tab of. */
     await feed([
