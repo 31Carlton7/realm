@@ -162,7 +162,6 @@ function seedWorkspace(dir) {
     "src/server/auth.ts": "export function signIn() {}\n",
     "src/server/session.ts": "export function openSession() {}\n",
     "src/auth.test.ts": "import { signIn } from './server/auth';\n",
-    "docs/launch-notes.md": "# Launch\n",
     "README.md": "# Atlas\n",
     ".gitignore": "node_modules/\n",
     "node_modules/leftpad/index.js": "module.exports = () => {};\n",
@@ -173,7 +172,14 @@ function seedWorkspace(dir) {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
     fs.writeFileSync(path.join(dir, rel), text);
   }
-  execFileSync("git", ["init", "-q"], { cwd: dir });
+  // Committed, then worked on: one file edited and one new, which is what a bare @ should lead with.
+  const git = (...args) => execFileSync("git", ["-c", "user.name=Live", "-c", "user.email=live@example.com", "-c", "commit.gpgsign=false", ...args], { cwd: dir, stdio: "ignore" });
+  git("init", "-q");
+  git("add", "README.md", ".gitignore", "src");
+  git("commit", "-q", "-m", "seed");
+  fs.writeFileSync(path.join(dir, "src/server/auth.ts"), "export function signIn() { return true; }\n");
+  fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "docs/launch-notes.md"), "# Launch\n");
 }
 
 /** The React tree's store, found through the root's fiber — a test harness's reach, used for ONE
@@ -336,6 +342,7 @@ async function main() {
   check("every app row wears its own icon, cut from its bundle", tour.icons.length === apps.length && tour.icons.every(([w, src]) => w >= 32 && src.startsWith("data:image/png")), tour.icons);
   const files = tour.rows.filter((r) => r[0] === "file").map((r) => r[1]);
   check("the checkout's files are listed, and never .env or what .gitignore keeps out", files.length > 0 && !files.includes(".env") && !files.includes("index.js"), files);
+  check("a bare @ leads with the files the checkout has changed", files.slice(0, 2).sort().join(",") === "auth.ts,launch-notes.md", files);
   const lib = tour.rows.filter((r) => r[0] === "library").map((r) => r[1]);
   check("the Library's files are listed with the session they came from", lib.includes("Q3 report.pdf") && tour.rows.some((r) => r[0] === "library" && r[2] === "Weekly report"), lib);
   for (const mode of ["dark", "light"]) { await setMode(c, mode); await sleep(250); await shot(c, `1-tour-${mode}`, await composerClip(c)); }
