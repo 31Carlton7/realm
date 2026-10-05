@@ -23,6 +23,7 @@ import { startScrollPhaseStream } from "./scroll-phase";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { refuseCapture } from "./capture-guard";
+import { viewNavigationAllowed } from "./app-views";
 import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
 import { nextZoomFactor, searchUrl, type ViewRect } from "./browser-host";
 import { clearBrowsingData, saveBrowserScreenshot } from "./browser-controls";
@@ -433,6 +434,10 @@ async function createWindow(info: { port: number; home: string; token: string },
   win.webContents.on("will-navigate", (e, url) => {
     const inApp = devOrigin ? url === devOrigin || url.startsWith(`${devOrigin}/`) : url.startsWith("file://");
     if (!inApp) e.preventDefault();
+  });
+  // …and keep a view an MCP server drew inside its own frame's origin (app-views.ts).
+  win.webContents.on("will-frame-navigate", (e) => {
+    if (!e.isMainFrame && !viewNavigationAllowed(e.frame?.url ?? "", e.url)) e.preventDefault();
   });
   // The views go in before the page loads: a restored browser pane asks for its view as soon as the
   // renderer boots, and a window with no pane surface yet would have nowhere to put it.

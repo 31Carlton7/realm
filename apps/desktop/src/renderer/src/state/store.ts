@@ -1,6 +1,6 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
 import { destinationTarget, pageHidesSidebar, pageItemId } from "./page-item";
-import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
+import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
@@ -2408,6 +2408,9 @@ export type AppState = {
   /** The session's Agents tab, as a tab of its side pane the way its other tools open — with the
    *  composer started from `plan`, or the row for `childId` brought into view, when asked. */
   openAgentsTab(sessionId: string, ask?: { plan?: string; childId?: string }): Promise<void>;
+  /** A view an MCP server drew for one of the session's tool calls, as a tab of the session's side
+   *  pane — the one it has, or a new one. Never a split: a view is the session's, not the layout's. */
+  openAppView(sessionId: string, view: AppViewRef): Promise<void>;
   /** The tab has taken what it was asked for; a remount must not take it again. */
   clearAgentsAsk(sessionId: string): void;
   /** `delegation.models`, for the composer. Not held in the store: it is read when the tab mounts. */
@@ -6508,6 +6511,18 @@ await get().refreshCustomThemes().catch(() => {});
         const { itemId } = await api.agentsTab(sessionId);
         // Already a tab somewhere: brought to the front where it is. Otherwise the documents button's
         // route — a tab of this session's side pane, with the keyboard, because a person asked.
+        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
+        await adoptItem(sid, itemId, null, { sessionId });
+      },
+      async openAppView(sessionId, view) {
+        const sid = get().sessions[sessionId]?.spaceId ?? get().allSessions[sessionId]?.spaceId;
+        if (!sid) return;
+        // One tab per view, found by its id: a second Open goes to the tab that is already there.
+        let itemId = get().items.find((i) => i.kind === "app-view" && i.refId === view.viewId)?.id;
+        if (!itemId) {
+          const created = await api.createItem(sid, "app-view", `${view.serverName} · ${view.tool}`, view.viewId);
+          itemId = created.id;
+        }
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
       },

@@ -3647,6 +3647,33 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .tool-well, .tool-body pre, .permission-details pre { margin: 0; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); font: 12px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
 .tool-body pre[data-error] { color: var(--rl-danger); }
 
+/* ── A view an MCP server drew (MCP Apps, panes/app-view/AppView.tsx) ──────────
+   The server's drawing, framed. Realm's ground goes round it and the frame is inset in it — the
+   machine screen's rule for content that paints itself — so the curve belongs to the ground and the
+   frame keeps its own square edge, clear of it. The ground is the surface a fenced block stands on and
+   wears the same signature corner, with no ring: where the curve goes the ring comes off. A view that
+   asked for no border (`prefersBorder: false`) stands on the column with no ground at all. */
+.app-view { margin: 4px 0 8px; padding: 0 8px 8px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); }
+.app-view[data-border="none"] { background: none; padding-left: 0; padding-right: 0; }
+.app-view-head { display: flex; align-items: center; gap: 6px; min-height: 36px; padding-left: 6px; color: var(--ink-2); font-size: 12px; }
+.app-view-mark { flex: none; color: var(--ink-3); }
+.app-view-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-label); }
+.app-view-where { color: var(--ink-3); white-space: nowrap; }
+.app-view-actions { margin-left: auto; display: flex; gap: 2px; }
+/* No colour of its own: a view that paints nothing shows the ground it was laid on. */
+.app-view-frame { display: block; width: 100%; border: 0; background: transparent; }
+.app-view-loading { display: grid; place-items: center; color: var(--ink-3); font-size: 12px; }
+.app-view[data-elsewhere] { padding-bottom: 0; }
+.app-view[data-state="unavailable"] { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; }
+.app-view-note { margin: 0; flex: 1; min-width: 0; color: var(--ink-2); font-size: 12px; }
+/* As a tab, the whole pane — detached from its edges at the sidebar's inset, as the machine screen is,
+   so the view reads as something set on the page rather than as the page. */
+.app-view-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.app-view[data-mode="tab"] { flex: 1; display: flex; flex-direction: column; min-height: 0; margin: var(--sidebar-inset); padding: 12px;
+  border-radius: var(--r-squircle-screen); corner-shape: squircle; }
+.app-view[data-mode="tab"] .app-view-frame { flex: 1; min-height: 0; }
+.app-view[data-mode="tab"] .app-view-loading { flex: 1; }
+
 /* ── Inline UI in the transcript (Plan 24 W1) ──────────────────────────────────
    A tool card's body used to be two `<pre>`s: `JSON.stringify(input, null, 2)` and the raw result
    text. Everything below replaces those with the thing the payload actually IS — a diff, a plan, a
@@ -4914,6 +4941,18 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   --sq-radius-top: var(--r-squircle-screen);
   --sq-radius-bottom: var(--r-squircle-screen);
 }
+/* A view an MCP server drew, for the machine screen's reason: a frame paints itself and cannot be
+   painted behind, so the curve goes on the ground it is laid into. */
+:root[data-squircle] .app-view,
+:root[data-squircle] .app-view[data-mode="tab"] {
+  border-radius: 0;
+  background: paint(rl-squircle);
+  --sq-fill: var(--surface);
+  --sq-radius-top: var(--r-squircle-card);
+  --sq-radius-bottom: var(--r-squircle-card);
+}
+:root[data-squircle] .app-view[data-mode="tab"] { --sq-radius-top: var(--r-squircle-screen); --sq-radius-bottom: var(--r-squircle-screen); }
+:root[data-squircle] .app-view[data-border="none"] { --sq-fill: transparent; }
 /* Realm's own frame, for a device it ships no picture of. The one painted surface whose radius is
    not a rung off the ladder:
    it is the screen's own corner plus the border between them, so the pane hands it in as

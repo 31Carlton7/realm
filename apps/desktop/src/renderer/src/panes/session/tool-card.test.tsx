@@ -128,6 +128,14 @@ describe("tool-run grouping (§5: group consecutive tools under a collapsed summ
     const items = groupTranscript([say("a"), say("b")]);
     expect(items.map((i) => i.key)).toEqual(["assistant:0", "assistant:1"]);
   });
+
+  it("never folds a call that drew a view: the view is what the call was for", () => {
+    // THE MUTANT: let it fold, and a settled run shows "Worked for 8s" with the chart behind it.
+    const chart: ToolBlock = { ...tool("t2", "mcp__realm__Charts__show_chart", {}), view: { viewId: "V1", serverId: "S1", serverName: "Charts", tool: "show_chart" } };
+    const items = groupTranscript([tool("t1", "Read", {}), chart, tool("t3", "Read", {}), tool("t4", "Read", {})]);
+    expect(items.map((i) => i.kind)).toEqual(["block", "block", "group"]);
+    expect(items[1]!.kind === "block" && items[1]!.block).toBe(chart);
+  });
 });
 
 /** A tool call a sub-agent made: same shape, plus the Task call it was made under. */
