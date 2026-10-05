@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Layout } from "@realm/contracts";
 import {
-  centerOverComplement, complementOf, intersects, placeAnchored, snapBrowserLeaves,
+  centerOverComplement, complementOf, intersects, placeAnchored, placeToastStack, placeTooltip, snapBrowserLeaves, yieldViewTo,
   type AnchoredInput, type Rect,
 } from "./no-overlay";
 
@@ -222,5 +222,108 @@ describe("snapBrowserLeaves", () => {
   it("non-browser layouts pass through untouched (same reference)", () => {
     const l = row("s", [80, 20], [leaf("a", "t1"), leaf("b", "t2")]);
     expect(snapBrowserLeaves(l, B)).toBe(l);
+  });
+});
+
+/* v2: the toast stack. It stands at the window's foot, and the two things it may not land on are a
+   browser view (it would be invisible) and a prompter (it would cover the send button). */
+describe("placeToastStack — the window's foot, clear of every view and every prompter", () => {
+  const stack = (over: Partial<Parameters<typeof placeToastStack>[0]> = {}) =>
+    placeToastStack({ win: WIN, width: 340, minWidth: 240, height: 200, margin: 16, avoid: [], lift: [], ...over });
+  const box = (p: { left: number; bottom: number; width: number }, h = 200): Rect => r(p.left, WIN.height - p.bottom - h, p.width, h);
+
+  it("with nothing in the way, the bottom-right corner", () => {
+    expect(stack()).toEqual({ left: 1440 - 16 - 340, bottom: 16, width: 340 });
+  });
+
+  it("a browser on the right half: the corner of the pane beside it, never over the view", () => {
+    // THE mutant: ignore `avoid` and the stack lands at 1084 — inside the view, painted over.
+    const view = r(850, 80, 590, 820);
+    const p = stack({ avoid: [view] })!;
+    expect(intersects(box(p), view)).toBe(false);
+    expect(p).toEqual({ left: 850 - 16 - 340, bottom: 16, width: 340 });
+  });
+
+  it("a browser on top and a pane under it: the corner stays, because nothing covers the foot", () => {
+    expect(stack({ avoid: [r(260, 40, 1180, 400)] })).toEqual({ left: 1084, bottom: 16, width: 340 });
+  });
+
+  it("a browser filling the panes: the sidebar's column, as wide as it allows", () => {
+    // 0–356 is the rail and a 280px sidebar; a view is never there.
+    const p = stack({ avoid: [r(356, 40, 1084, 860)] })!;
+    expect(p.left).toBe(16);
+    expect(p.width).toBe(356 - 16 - 16);
+    expect(intersects(box(p), r(356, 40, 1084, 860))).toBe(false);
+  });
+
+  it("a narrow stretch at the corner is taken over a wide one across the window", () => {
+    // A view through the middle leaves 308px at the right edge and 568px on the left. THE mutant:
+    // prefer full width, and the toast jumps to x 244 to gain 32px.
+    expect(stack({ avoid: [r(600, 40, 500, 860)] })).toEqual({ left: 1116, bottom: 16, width: 308 });
+  });
+
+  it("a prompter beside a view lifts the stack within its stretch rather than pushing it across", () => {
+    // Session on the left half with its prompter docked, browser on the right half.
+    const view = r(850, 80, 590, 820), prompter = r(380, 740, 446, 140);
+    const p = stack({ avoid: [view], lift: [prompter] })!;
+    expect(intersects(box(p), view)).toBe(false);
+    expect(intersects(box(p), prompter)).toBe(false);
+    expect(p).toEqual({ left: 850 - 16 - 340, bottom: WIN.height - 740 + 16, width: 340 });
+  });
+
+  it("a prompter under the corner lifts the stack above it — it never covers the send button", () => {
+    // THE mutant: treat the prompter like nothing and the stack sits on the send button at 1084.
+    const prompter = r(560, 740, 720, 140);
+    const p = stack({ lift: [prompter] })!;
+    expect(intersects(box(p), prompter)).toBe(false);
+    expect(p.bottom).toBe(WIN.height - 740 + 16);
+    expect(p.left).toBe(1084);
+  });
+
+  it("…but beside a prompter there is room, it stays down at the corner", () => {
+    const prompter = r(300, 740, 600, 140);
+    expect(stack({ lift: [prompter] })).toEqual({ left: 1084, bottom: 16, width: 340 });
+  });
+
+  it("views end to end along the foot and no column beside them: nowhere, so the caller reserves one", () => {
+    expect(stack({ avoid: [r(76, 40, 1364, 860)] })).toBeNull();
+  });
+});
+
+describe("yieldViewTo — the corner a view gives up while the toasts have nowhere else", () => {
+  it("gives up its bottom down to the reserve's top", () => {
+    expect(yieldViewTo(r(76, 40, 1364, 860), r(1068, 668, 372, 232))).toEqual(r(76, 40, 1364, 628));
+  });
+  it("keeps its bounds when there is no reserve, or the reserve is elsewhere", () => {
+    const view = r(76, 40, 600, 860);
+    expect(yieldViewTo(view, null)).toBe(view);
+    expect(yieldViewTo(view, r(1068, 668, 372, 232))).toBe(view);
+  });
+});
+
+describe("placeTooltip — beside its anchor, or nowhere", () => {
+  const tip = { width: 120, height: 24 };
+  it("centred under its anchor", () => {
+    expect(placeTooltip({ anchor: r(400, 8, 28, 28), size: tip, win: WIN, gap: 6, margin: 6, avoid: [] }))
+      .toEqual({ left: 400 + 14 - 60, top: 42, above: false });
+  });
+  it("over it where the window's foot is in the way", () => {
+    expect(placeTooltip({ anchor: r(400, 860, 28, 28), size: tip, win: WIN, gap: 6, margin: 6, avoid: [] }))
+      .toEqual({ left: 354, top: 860 - 6 - 24, above: true });
+  });
+  it("over it where a browser view is below — a toolbar button sits right on the page", () => {
+    // THE mutant: drop `avoid` and the tip is drawn on the page, where the view paints over it.
+    const view = r(260, 80, 1180, 820);
+    const p = placeTooltip({ anchor: r(400, 46, 28, 28), size: tip, win: WIN, gap: 6, margin: 6, avoid: [view] })!;
+    expect(p.above).toBe(true);
+    expect(intersects(r(p.left, p.top, tip.width, tip.height), view)).toBe(false);
+  });
+  it("held inside the window at its edges", () => {
+    expect(placeTooltip({ anchor: r(1430, 8, 10, 28), size: tip, win: WIN, gap: 6, margin: 6, avoid: [] })!.left).toBe(1440 - 6 - 120);
+    expect(placeTooltip({ anchor: r(0, 8, 10, 28), size: tip, win: WIN, gap: 6, margin: 6, avoid: [] })!.left).toBe(6);
+  });
+  it("null where neither side is clear, so the system's own tooltip can be the one shown", () => {
+    const view = r(0, 0, 1440, 900);
+    expect(placeTooltip({ anchor: r(400, 300, 28, 28), size: tip, win: WIN, gap: 6, margin: 6, avoid: [view] })).toBeNull();
   });
 });

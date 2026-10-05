@@ -180,11 +180,13 @@ export type ToastPlacement = { left: number; bottom: number; width: number };
  * `height` is the stack's height FANNED OUT, because that is what it becomes under the pointer — a spot
  * clear only of the collapsed stack would let the hover push its upper toasts under a view.
  *
- * Every spot at full width is tried before any narrower one, lowest first and right-most first. Null
- * when no spot along the foot is clear at all: views cover it end to end, which with the sidebar
- * open cannot happen (its column is never a view), so it means a browser filling a window whose
- * sidebar is folded away. The caller then asks the view beneath to give up the corner instead
- * (`yieldViewTo`).
+ * The order is the corner's: the right-most stretch the views leave, then the lowest spot in it no
+ * prompter is under, as wide as the stretch allows down to `minWidth`. A view moves the stack
+ * sideways and a prompter moves it up — never the other way round, which would send a toast across
+ * the window to dodge a send button it could simply have stood over. Null when no spot along the foot
+ * is clear at all: views cover it end to end, which with the sidebar open cannot happen (its column is
+ * never a view), so it means a browser filling a window whose sidebar is folded away. The caller then
+ * asks the view beneath to give up the corner instead (`yieldViewTo`).
  */
 export function placeToastStack(i: {
   win: Size; width: number; minWidth: number; height: number; margin: number;
@@ -192,25 +194,25 @@ export function placeToastStack(i: {
 }): ToastPlacement | null {
   const { win, height, margin } = i;
   const live = (r: Rect) => r.width > 0 && r.height > 0;
-  const bottoms = [margin, ...i.lift.filter(live).map((r) => win.height - r.y + margin)]
+  const lifts = i.lift.filter(live);
+  const bottoms = [margin, ...lifts.map((r) => win.height - r.y + margin)]
     .filter((b, k, all) => all.indexOf(b) === k && b + height + margin <= win.height)
     .sort((a, b) => a - b);
-  for (const want of [i.width, i.minWidth]) {
-    for (const bottom of bottoms) {
-      const top = win.height - bottom - height;
-      const blocked = [...i.avoid, ...i.lift]
-        .filter((r) => live(r) && r.y < top + height && top < r.y + r.height)
-        .map((r) => [r.x - margin, r.x + r.width + margin] as const);
-      const free = freeSpans(margin, win.width - margin, blocked);
-      for (let k = free.length - 1; k >= 0; k--) {
-        const [a, b] = free[k]!;
-        if (b - a < want) continue;
-        const width = Math.min(i.width, b - a);
-        return { left: b - width, bottom, width };
-      }
+  let best: (ToastPlacement & { right: number }) | null = null;
+  for (const bottom of bottoms) {
+    const top = win.height - bottom - height;
+    const views = i.avoid
+      .filter((r) => live(r) && r.y < top + height && top < r.y + r.height)
+      .map((r) => [r.x - margin, r.x + r.width + margin] as const);
+    for (const [a, b] of freeSpans(margin, win.width - margin, views)) {
+      if (b - a < i.minWidth) continue;
+      const width = Math.min(i.width, b - a);
+      if (lifts.some((r) => intersects({ x: b - width, y: top, width, height }, r))) continue;
+      // Bottoms run lowest first, so on a tie the lower spot is the one already held.
+      if (!best || b > best.right) best = { left: b - width, bottom, width, right: b };
     }
   }
-  return null;
+  return best && { left: best.left, bottom: best.bottom, width: best.width };
 }
 
 /**
