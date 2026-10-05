@@ -1973,7 +1973,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    with the title — an SVG's automatic minimum width is zero, since the UA clips its overflow — so every
    tab whose title ran to an ellipsis drew a smaller mark, the longer the title the smaller: a
    documents tab's at 5px wide beside a session's 14. A page's own icon is held the same way (`.page-icon`). */
-.pane-tab-label > svg { flex: none; }
+.pane-tab-label > svg, .pane-tab-label > .program-mark { flex: none; }
 /* Not a program's tile, whose glyph is the vendor's white on the vendor's colour (ProgramMark). */
 .panel[data-focused] .pane-tab[data-active] .pane-tab-label svg:not(.program-tile *) { color: var(--rl-accent); }
 .pane-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

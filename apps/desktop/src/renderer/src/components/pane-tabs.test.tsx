@@ -262,12 +262,16 @@ describe("every tab's glyph", () => {
     await store.getState().openItem("i-br", side(store).id);
     rerender();
     const glyphs = strip().getAllByRole("tab").map((t) => {
-      const g = t.firstElementChild!;
-      return `${t.textContent}: ${g.tagName.toLowerCase()} ${g.getAttribute("width")}×${g.getAttribute("height")}`;
+      const g = t.firstElementChild as HTMLElement;
+      // A terminal's glyph is its program's mark (ProgramMark): a square of the one size that holds
+      // the shell's glyph and an agent's tile stacked, sized inline rather than by attribute.
+      const kind = g.classList.contains("program-mark") ? "program-mark" : g.tagName.toLowerCase();
+      const px = (attr: string | null, css: string) => attr ?? (css.endsWith("px") ? css.slice(0, -2) : null);
+      return `${t.textContent}: ${kind} ${px(g.getAttribute("width"), g.style.width)}×${px(g.getAttribute("height"), g.style.height)}`;
     });
     expect(glyphs).toHaveLength(2 + kinds.length);
     // The glyph is the label's first child, which is what the stylesheet's `> svg` holds to its width.
-    for (const line of glyphs) expect(line, line).toMatch(/: svg 14×14$/);
+    for (const line of glyphs) expect(line, line).toMatch(/: (svg|program-mark) 14×14$/);
   });
 });
 
