@@ -24,6 +24,7 @@ export const liveApi = (): Api => ({
   listAllItems: () => rpc().call("items.listAll", {}),
   search: (profileId, query) => rpc().call("search.query", { profileId, query }),
   libraryArtifacts: (q) => rpc().call("library.artifacts", q),
+  addLibraryFiles: (input) => rpc().call("library.add", input),
   listProjects: (spaceId) => rpc().call("projects.list", { spaceId }),
   listEnvironments: (spaceId) => rpc().call("environments.list", { spaceId }),
   createWorktree: (spaceId, title) => rpc().call("environments.createWorktree", { spaceId, title }),

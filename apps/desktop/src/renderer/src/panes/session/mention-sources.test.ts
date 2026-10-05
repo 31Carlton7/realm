@@ -37,6 +37,13 @@ describe("what the @ list can name", () => {
     expect(all.find((o) => o.kind === "file" && o.name === "auth.ts")).toMatchObject({ path: "/repo/src/auth.ts", rel: "src/auth.ts" });
   });
 
+  it("says a file the person added to the Library was added, where the others name a session", () => {
+    // THE mutant: the session title read off an added file, which has none — a row reading "null".
+    const scan: LibraryEntry = { id: "f1", sessionId: null, spaceId: null, kind: "added", path: "/realm-home/library/p1/scan.pdf", name: "scan.pdf", ext: "pdf", ts: 1, sessionTitle: null, agentKind: null };
+    const rows = options({ library: [scan, entry("brief.md", "/out/brief.md", "Pricing page")] }).filter((o) => o.kind === "library");
+    expect(rows.map((o) => [o.name, o.kind === "library" ? o.from : null])).toEqual([["scan.pdf", "Added by you"], ["brief.md", "Pricing page"]]);
+  });
+
   it("turns a pick into the sidecar entry it stands for, and @Mac and skills into none", () => {
     const by = (kind: MentionOption["kind"]) => options().find((o) => o.kind === kind)!;
     expect(refFor(by("file"))).toEqual({ kind: "file", path: "/repo/src/messages/store.ts" });

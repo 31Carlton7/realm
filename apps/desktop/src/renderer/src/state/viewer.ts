@@ -14,13 +14,14 @@ import type { Block } from "../panes/session/transcript-model";
 
 /** Where a file came from, when the surface showing it knows. The Library's index carries all four;
  *  a transcript or a session summary knows the path and nothing else, and draws no provenance rather
- *  than a half-filled one. */
+ *  than a half-filled one. A file the person ADDED to the Library is the one that knows its kind and
+ *  nothing else: no session holds it, so the other three are null and the kind is the whole answer. */
 export type FileProvenance = {
-  sessionId: string;
+  sessionId: string | null;
   /** The space the session was in when the row was indexed. `revealSession` prefers its own live
    *  answer — a session that has since been MOVED would otherwise send the user to the old space. */
-  spaceId: string;
-  sessionTitle: string;
+  spaceId: string | null;
+  sessionTitle: string | null;
   kind: ArtifactKind;
 };
 

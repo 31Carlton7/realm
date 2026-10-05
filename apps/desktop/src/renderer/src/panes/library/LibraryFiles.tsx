@@ -1,10 +1,12 @@
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
-import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, type ArtifactType, type LibraryEntry } from "@realm/contracts";
+import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, type ArtifactType, type LibraryAddResult, type LibraryEntry } from "@realm/contracts";
 import { useApp } from "../../state/store";
+import { folderOffer, folderOfferText, nameList, offerCount } from "../../state/library-add";
 import { FileCard, FileRow } from "../../components/FileCard";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { PageScroll } from "../../components/ScrollFades";
+import { useFileDrop } from "../../components/use-file-drop";
 
 type Scope = "space" | "all";
 
@@ -21,7 +23,9 @@ const TYPE_TABS: { id: ArtifactType | "all"; label: string }[] = [
 ];
 
 const SCOPE_WORDS: Record<Scope, string> = { space: "In this space", all: "In every space" };
-const KIND_WORDS: Record<ArtifactKind | "all", string> = { all: "All files", output: "Made by agents", upload: "Uploaded by you" };
+/* "Attached" and "Added" are both the person's own files and different facts: one was handed to a
+   session with a message, the other was put in the Library itself, and belongs to no session. */
+const KIND_WORDS: Record<ArtifactKind | "all", string> = { all: "All files", output: "Made by agents", upload: "Attached by you", added: "Added by you" };
 
 /** The day a file landed, as a person asks about one. Groups the grid, the way a file browser does. */
 function dayLabel(ts: number, now = Date.now()): string {
@@ -100,6 +104,11 @@ function walkGrid(e: ReactKeyboardEvent<HTMLElement>) {
  *
  * Paging is driven by a sentinel at the end of the list rather than by a scroll handler, so the cost
  * of "am I near the bottom" is the browser's rather than a listener firing on every wheel tick.
+ *
+ * Files come IN here too (the owner, 10-05: "an add button so the user can upload files to realm"):
+ * the toolbar's Add, or files dropped anywhere on the page. Realm keeps a copy of each under the
+ * profile (`library.add`), and they are listed as any other file is, with "Added" where the others
+ * name a session. A dropped folder is a question, not a copy: the page asks before its files come in.
  */
 export function LibraryFiles({ spaceId, head }: { spaceId: string;
   /** The page's head, drawn first in this column and scrolling away with it, the toolbar under it. */
@@ -111,6 +120,12 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
   const view = useApp((s) => s.libraryView);
   const setLibraryView = useApp((s) => s.setLibraryView);
   const openViewer = useApp((s) => s.openViewer);
+  const addLibraryFiles = useApp((s) => s.addLibraryFiles);
+  const pickFiles = useApp((s) => s.pickFiles);
+  const pathForFile = useApp((s) => s.pathForFile);
+  const toast = useApp((s) => s.toast);
+  // Moves with every add from this window, which is what makes the page ask for its first page again.
+  const revision = useApp((s) => s.libraryRevision);
   const run = useApp((s) => s.run);
 
   const [scope, setScope] = useState<Scope>("all");
@@ -122,6 +137,9 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(true);
   const [filtering, setFiltering] = useState(false);
+  /** The folders a drop left alone, while the page asks whether to add their files. */
+  const [offer, setOffer] = useState<LibraryAddResult["folders"] | null>(null);
+  const [adding, setAdding] = useState(false);
   const filterBtn = useRef<HTMLButtonElement>(null);
   /* The card that was clicked, in the media viewer with the page's other files beside it — each with
      the provenance the index joined on (which session, which space, made or uploaded), which is what
@@ -129,7 +147,10 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
      for rows already in hand. */
   const preview = (e: LibraryEntry) => openViewer({
     files: entries.map((x) => ({ path: x.path, name: x.name,
-      from: { sessionId: x.sessionId, spaceId: x.spaceId, sessionTitle: x.sessionTitle, kind: x.kind } })),
+      from: { sessionId: x.sessionId, spaceId: x.spaceId, sessionTitle: x.sessionTitle, kind: x.kind },
+      // A file added to the Library lives in Realm's own folder, inside no checkout the documents pane
+      // can open — so the viewer offers its default app instead, rather than a button that is refused.
+      ...(x.kind === "added" ? { inPane: false } : {}) })),
     index: entries.indexOf(e), spaceId,
   });
   const sentinel = useRef<HTMLDivElement>(null);
@@ -146,7 +167,7 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
     query, limit: LIBRARY_PAGE_SIZE, before,
   }), [scope, spaceId, profileId, kind, type, query]);
 
-  // First page, and every re-query a filter or the search box causes.
+  // First page, and every re-query a filter, the search box or an add causes.
   useEffect(() => {
     const gen = ++generation.current;
     setLoading(true);
@@ -158,7 +179,7 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
       setDone(page.entries.length < LIBRARY_PAGE_SIZE);
       setLoading(false);
     });
-  }, [params, libraryArtifacts, run]);
+  }, [params, revision, libraryArtifacts, run]);
 
   const more = useCallback(() => {
     const last = entries.at(-1);
@@ -182,16 +203,49 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
     return () => io.disconnect();
   }, [more, done]);
 
+  /**
+   * Add these paths to the Library and land on what came in: a narrowing that would hide a new file —
+   * a tab of another kind, a search it does not match, one space or the other kinds — is undone, the
+   * way making a thing lands you in it (design.md).
+   */
+  const add = async (paths: string[], folders = false) => {
+    if (!profileId || paths.length === 0) return;
+    setAdding(true);
+    try {
+      const r = await addLibraryFiles(profileId, paths, { folders });
+      if (!r) return;
+      const hidden = (e: LibraryEntry) => (type !== "all" && artifactTypeOf(e.ext) !== type)
+        || (query.trim() !== "" && !e.name.toLowerCase().includes(query.trim().toLowerCase()));
+      if (r.added.some(hidden)) { setType("all"); setQuery(""); }
+      if (r.added.length > 0) { setScope("all"); if (kind !== "added") setKind("all"); }
+      const asked = folderOffer(r.folders);
+      for (const notice of asked.notices) toast(notice);
+      setOffer(asked.offer);
+    } finally { setAdding(false); }
+  };
+  const addFromPicker = () => run(async () => {
+    const picked = await pickFiles();
+    await add(picked.map((p) => p.path));
+  });
+  /* A drop names files by where they are on disk. One with no place on disk — dragged out of a web
+     page, say — is not a file Realm can copy, and says so rather than vanishing. */
+  const drop = useFileDrop((dropped) => {
+    const paths = dropped.map((f) => pathForFile(f));
+    const nowhere = dropped.filter((_, i) => !paths[i]).map((f) => f.name || "a file");
+    if (nowhere.length > 0) toast({ tone: "warning", text: `Only files on this Mac can be added: ${nameList(nowhere)}.` });
+    run(() => add(paths.filter(Boolean)));
+  });
+
   const groups = groupByDay(entries);
   const narrowed = scope !== "all" || kind !== "all";
   const filterItems: MenuItem[] = [
     ...(["space", "all"] as const).map((s) => ({ label: SCOPE_WORDS[s], checked: scope === s, onSelect: () => setScope(s) })),
     { kind: "separator" as const },
-    ...(["all", "output", "upload"] as const).map((k) => ({ label: KIND_WORDS[k], checked: kind === k, onSelect: () => setKind(k) })),
+    ...(["all", "output", "upload", "added"] as const).map((k) => ({ label: KIND_WORDS[k], checked: kind === k, onSelect: () => setKind(k) })),
   ];
 
   return (
-    <div className="library-files">
+    <div className="library-files" data-dropping={drop.dropping || undefined} {...drop.handlers}>
       <PageScroll wide>
         {head}
         <div className="library-toolbar">
@@ -237,8 +291,28 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
               <input className="search-field" type="search" aria-label="Search files" placeholder="Search files"
                 value={query} onChange={(e) => setQuery(e.target.value)} />
             </label>
+            {/* The toolbar's one action, at its end: what the page holds is the work's, and this is the
+                way in for the person's own. */}
+            <button type="button" className="btn library-add" onClick={addFromPicker} disabled={adding} aria-busy={adding || undefined}
+              title="Add files from this Mac to the Library. Realm keeps its own copy of each.">
+              <Icon name="add" size={14} />Add
+            </button>
           </div>
         </div>
+        {offer && (
+          /* A decision, so it stays until it is answered, where the drop was — never a toast, which
+             would leave before the person had read it. Escape leaves the page, and is no answer. */
+          <div className="library-offer" role="group" aria-label="Add the files in a folder">
+            <p className="library-offer-text">{folderOfferText(offer)}</p>
+            <div className="library-offer-actions">
+              <button type="button" className="btn" onClick={() => setOffer(null)}>Not now</button>
+              <button type="button" className="btn primary" disabled={adding}
+                onClick={() => { const paths = offer.map((f) => f.path); setOffer(null); run(() => add(paths, true)); }}>
+                Add {offerCount(offer) === 1 ? "1 file" : `${offerCount(offer)} files`}
+              </button>
+            </div>
+          </div>
+        )}
         {filtering && <Menu items={filterItems} anchorRef={filterBtn} align="right" label="Filter files" onClose={() => setFiltering(false)} />}
 
         {/* Two different emptinesses, and they need different words. "Nothing here yet" over a home
@@ -246,7 +320,7 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
         {entries.length === 0 && !loading && (
           <p className="env-empty library-empty">
             {total === 0
-              ? "Nothing here yet. Every file a session writes, and every file you attach to a message, shows up here."
+              ? "Nothing here yet. Every file a session writes, every file you attach to a message, and every file you add shows up here."
               : "No file here matches that."}
           </p>
         )}
@@ -282,6 +356,12 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
             and no spinner sitting under it forever. */}
         {!done && <div ref={sentinel} className="library-more">{loading ? "Loading…" : ""}</div>}
       </PageScroll>
+      {/* Over the whole page and not its scroller, so the glow holds still while the files move. */}
+      {drop.dropping && (
+        <div className="session-drop library-drop" aria-hidden="true">
+          <span className="quick-chat-drop-label"><Icon name="add" size={14} />Drop to add to the Library</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -300,7 +380,18 @@ export function LibraryFiles({ spaceId, head }: { spaceId: string;
  * file is, and the viewer is where "what can Realm actually do with this" gets answered honestly.
  */
 function Provenance({ entry }: { entry: LibraryEntry }) {
-  const fromLabel = `${entry.kind === "upload" ? "Uploaded to " : "Made in "}${entry.sessionTitle}`;
+  /* A file the person added has no session to name, and the line says the one thing true of it, in
+     the same quiet place and glyph-first shape: the Add button's mark, and "Added". */
+  if (entry.kind === "added") {
+    return (
+      <span className="library-tile-from" title="Added by you">
+        <Icon name="add" size={12} className="library-tile-kind" aria-hidden="true" />
+        <span className="library-tile-session" aria-hidden="true">Added</span>
+        <span className="visually-hidden">Added by you</span>
+      </span>
+    );
+  }
+  const fromLabel = `${entry.kind === "upload" ? "Attached to " : "Made in "}${entry.sessionTitle ?? "a session"}`;
   return (
     /* The kind is a GLYPH and the session title takes the whole line, which is the yielding order
        the row could not otherwise get right: the title is user data of unbounded length and
