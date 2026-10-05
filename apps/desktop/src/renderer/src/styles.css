@@ -4859,8 +4859,17 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .new-space-memory { min-height: 64px; padding: 7px 9px; font-size: 14px; line-height: 20px; resize: vertical; }
 .new-space-row .profile-add-row input::placeholder, .new-space-memory::placeholder { color: var(--rl-text-faint); }
 .new-space-row .profile-add-row input:focus, .new-space-memory:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
-/* Create, with what it will do beside it — first run's foot, at the sheet's size. */
+/* The identity and the card are one fieldset, so Create can lock them together while it runs. The
+   lock dims them a beat late: a Create that lands at once never flashes the form grey. One opacity
+   for the whole form, rather than each control greying by its own disabled rule. */
+.new-space-fields { display: flex; flex-direction: column; gap: 16px; min-width: 0; margin: 0; padding: 0; border: 0;
+  transition: opacity var(--dur-fast) ease; }
+.new-space-fields:disabled { opacity: .6; transition-delay: var(--dur-fast); }
+.new-space-fields:disabled button:disabled { opacity: 1; }
+/* Create, with what it will do beside it — first run's foot, at the sheet's size — or, when it
+   failed, what went wrong, in the same place. */
 .new-space-foot { display: flex; align-items: center; gap: 8px; }
+.new-space-summary[data-tone="danger"] { color: var(--rl-danger); }
 .new-space-summary { flex: 1; min-width: 0; margin: 0 8px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
 /* Start, with what it will do beside it. */
 .onboarding-foot { display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding-top: 4px; }
@@ -5722,8 +5731,10 @@ select { appearance: none; padding-right: 22px;
 }
 /* The rim runs round the RUN, not round each row: a row under another row hands its top edge to the
    divider, which is inset from both ends as Codex's is, so the card reads as one object ruled
-   inside rather than as a stack of boxes. */
+   inside rather than as a stack of boxes. The row above hands over its bottom edge too: with it,
+   every boundary was drawn twice — the full-width border, and the inset divider right under it. */
 .settings-row + .settings-row { border-top: 0; }
+.settings-row:has(+ .settings-row) { border-bottom: 0; }
 .settings-row:not(.settings-row + .settings-row) { border-start-start-radius: var(--r-panel); border-start-end-radius: var(--r-panel); }
 .settings-row:not(:has(+ .settings-row)) { border-end-start-radius: var(--r-panel); border-end-end-radius: var(--r-panel); }
 /* The divider, inset to the label's own edge. Drawn on the LOWER row, so a run's last row can never

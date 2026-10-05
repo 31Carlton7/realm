@@ -2082,6 +2082,16 @@ describe("dividers", () => {
     expect(offenders.sort()).toEqual([]);
   });
 
+  it("a card of settings rows draws ONE line between two rows — the inset divider — not the row's own border as well", () => {
+    /* Measured in the New space sheet and on Settings: the row above kept its full-width bottom
+       border and the row below drew the inset divider straight under it, so every boundary was two
+       lines, one of them running edge to edge. THE mutant drops the upper row's hand-over. */
+    expect(bodiesFor(".settings-row").join(" ")).toContain("border: var(--hairline-w) solid var(--rl-card-rim)");
+    expect(bodiesFor(".settings-row + .settings-row").join(" ")).toContain("border-top: 0");
+    expect(bodiesFor(".settings-row:has(+ .settings-row)").join(" ")).toContain("border-bottom: 0");
+    expect(bodiesFor(".settings-row + .settings-row::before").join(" ")).toContain("inset: 0 16px auto 16px");
+  });
+
   it("the diff list draws a seam only under an OPEN file", () => {
     // The exception that proves the rule, and the reason the check above says "unconditional": an
     // expanded file's patch panel really would run into the next filename, so a seam there is doing

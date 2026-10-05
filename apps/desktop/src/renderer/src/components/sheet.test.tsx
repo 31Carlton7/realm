@@ -122,3 +122,26 @@ describe("Escape, with a popover open over the sheet", () => {
     expect(closed).toEqual(["sheet"]);
   });
 });
+
+describe("closing a sheet gives the keyboard back", () => {
+  const outside = (tag: "button" | "textarea") => document.body.appendChild(document.createElement(tag));
+
+  it("to the control that opened it, when the sheet still had it", () => {
+    const opener = outside("button"); opener.focus();
+    const { unmount } = render(<Sheet title="New space" onClose={() => {}}><input aria-label="Name" /></Sheet>);
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Name" }));
+    unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
+
+  it("MUTANT: but not away from something outside it that took the keyboard since — the session New space opened", () => {
+    const opener = outside("button"); opener.focus();
+    const composer = outside("textarea");
+    const { unmount } = render(<Sheet title="New space" onClose={() => {}}><input aria-label="Name" /></Sheet>);
+    composer.focus();
+    unmount();
+    expect(document.activeElement).toBe(composer);
+    opener.remove(); composer.remove();
+  });
+});

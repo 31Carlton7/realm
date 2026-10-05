@@ -57,7 +57,14 @@ export function Sheet({ title, onClose, children, footer, width = 420 }: {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
     window.addEventListener("keydown", onKey, true);
-    return () => { window.removeEventListener("keydown", onKey, true); prev?.focus?.(); };
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      /* Focus goes back where it came from — unless something outside the sheet has the keyboard by
+         now (the session New space just opened), which a restore would take it back from. The panel
+         is already out of the DOM here, so focus it held reads as the body. */
+      const now = document.activeElement;
+      if (!now || now === document.body || el.contains(now)) prev?.focus?.();
+    };
   }, [onClose]);
   return createPortal(
     <div className="sheet-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>

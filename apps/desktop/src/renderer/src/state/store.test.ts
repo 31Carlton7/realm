@@ -2010,6 +2010,23 @@ describe("app store", () => {
       expect(store.getState().sheetSnap).toBeNull();
     });
 
+    it("MUTANT: Create closes the New space sheet BEFORE it lands, so the new session is laid into the restored layout, not wiped by it", async () => {
+      /* The sheet now stays up while Create runs. Closing it is what puts the snapped layout back, so
+         closed AFTER the landing it would lay the pre-sheet arrangement over the session just opened.
+         THE mutant moves the close after the landing. */
+      const store = await seed();
+      store.getState().openSheet({ kind: "new-space" });
+      await store.getState().createSpace({ name: "Beside the web", icon: "folder", profileId: "p1" });
+      const s = store.getState();
+      expect(s.sheet).toBeNull();
+      expect(s.sheetSnap).toBeNull();
+      const made = s.spaces.find((x) => x.name === "Beside the web")!;
+      const session = Object.values(s.sessions).find((x) => x.spaceId === made.id)!;
+      expect(s.items.find((i) => i.id === itemIdOfLeaf(s.layout!, s.focusedLeafId!))?.refId).toBe(session.id);
+      // The user's own arrangement, unsnapped, with the session in it.
+      expect((s.layout as Extract<Layout, { type: "split" }>).sizes).toEqual([80, 20]);
+    });
+
     it("items deleted while the sheet was open are pruned from the restored layout", async () => {
       const store = await seed();
       store.getState().openSheet({ kind: "new-space" });

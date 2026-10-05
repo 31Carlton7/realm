@@ -210,6 +210,110 @@ describe("NewSpaceSheet", () => {
     expect(screen.getByText("Opens on a new Codex session.")).toBeInTheDocument();
   });
 
+  /** `createSpace` held in flight until the test lets it go — the window in which the sheet waits. */
+  const holdCreate = (api: ReturnType<typeof fakeApi>) => {
+    const real = api.createSpace;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    api.createSpace = async (input) => { await gate; return real(input); };
+    return () => release();
+  };
+
+  it("stays up while Create runs — the button busy, every field locked, Cancel live — and closes only as the space opens", async () => {
+    /* Nothing typed is lost to a failure only if the sheet is still there when one arrives. THE
+       mutant is the old close-then-create: the sheet gone before anything was made. */
+    const { store, api } = await mount();
+    const release = holdCreate(api);
+    fireEvent.change(nameField(), { target: { value: "Slow" } });
+    fireEvent.submit(nameField().closest("form")!);
+    const busy = screen.getByRole("button", { name: "Creating…" });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    for (const field of [nameField(), tile(), screen.getByRole("combobox", { name: "Profile" }), screen.getByRole("button", { name: "Choose folder…" }),
+      screen.getByRole("radio", { name: "Color #ff6b8b" })]) expect(field).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
+    expect(store.getState().sheet?.kind).toBe("new-space");
+    release();
+    // Closed by the store as it lands — before the session is opened, which then takes the keyboard.
+    await waitFor(() => expect(store.getState().sheet).toBeNull());
+    const made = store.getState().spaces.find((x) => x.name === "Slow")!;
+    const session = Object.values(store.getState().sessions).find((x) => x.spaceId === made.id)!;
+    await waitFor(() => expect(store.getState().keyboardFor?.sessionId).toBe(session.id));
+  });
+
+  it("a failure keeps every field and says what went wrong beside Create; Create again finishes the space it made — one space, not two", async () => {
+    const { store, api } = await mount();
+    const realSession = api.createSession;
+    api.createSession = async () => { throw new Error("claude is not registered"); };
+    fireEvent.change(nameField(), { target: { value: "Fragile" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Color #ff6b8b" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose folder…" }));
+    await waitFor(() => expect(screen.getByText("/tmp/picked-repo")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Write…" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Memory" }), { target: { value: "Use pnpm." } });
+    // A click on a button focuses it in Chromium; jsdom's click does not.
+    create().focus();
+    fireEvent.click(create());
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The space was created, but didn't open: claude is not registered");
+    expect(alert.parentElement).toBe(create().parentElement);
+    expect(store.getState().sheet?.kind).toBe("new-space");
+    expect(nameField()).toHaveValue("Fragile");
+    expect(nameField()).toBeEnabled();
+    expect(screen.getByRole("radio", { name: "Color #ff6b8b" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("/tmp/picked-repo")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Memory" })).toHaveValue("Use pnpm.");
+    // The keyboard comes back to where it was when Create was pressed.
+    await waitFor(() => expect(document.activeElement).toBe(create()));
+
+    // A change made after the failure goes onto the space the failed run made.
+    fireEvent.change(nameField(), { target: { value: "Sturdy" } });
+    api.createSession = realSession;
+    fireEvent.click(create());
+    await waitFor(() => expect(store.getState().keyboardFor).not.toBeNull());
+    expect(store.getState().sheet).toBeNull();
+    const spaces = store.getState().spaces.filter((x) => x.name === "Fragile" || x.name === "Sturdy");
+    expect(spaces.map((x) => x.name)).toEqual(["Sturdy"]);
+    const made = spaces[0]!;
+    expect(made.color).toBe("#ff6b8b");
+    expect(api.data.projects[made.id]).toHaveLength(1);
+    expect(api.calls.filter((c) => c.startsWith("setMemory:"))).toHaveLength(1);
+    const session = Object.values(store.getState().sessions).find((x) => x.spaceId === made.id)!;
+    expect(session.projectId).toBe(api.data.projects[made.id]![0]!.id);
+    expect(store.getState().keyboardFor?.sessionId).toBe(session.id);
+  });
+
+  it("a failure before anything was made says so, and Create again makes the space", async () => {
+    const { store, api } = await mount();
+    const realCreate = api.createSpace;
+    api.createSpace = async () => { throw new Error("The connection to Realm closed."); };
+    fireEvent.change(nameField(), { target: { value: "Offline" } });
+    fireEvent.submit(nameField().closest("form")!);
+    expect(await screen.findByRole("alert")).toHaveTextContent("The space wasn't created: The connection to Realm closed.");
+    await waitFor(() => expect(document.activeElement).toBe(nameField()));
+    api.createSpace = realCreate;
+    fireEvent.submit(nameField().closest("form")!);
+    await waitFor(() => expect(store.getState().sheet).toBeNull());
+    expect(store.getState().spaces.filter((x) => x.name === "Offline")).toHaveLength(1);
+  });
+
+  it("Escape while Create runs leaves at once and stops the run where it stands: what was made stays, nothing else starts, the window does not move", async () => {
+    const { store, api } = await mount();
+    const release = holdCreate(api);
+    const layout = store.getState().layout;
+    fireEvent.change(nameField(), { target: { value: "Abandoned" } });
+    fireEvent.submit(nameField().closest("form")!);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(store.getState().sheet).toBeNull();
+    release();
+    await waitFor(() => expect(store.getState().spaces.some((x) => x.name === "Abandoned")).toBe(true));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(api.calls.some((c) => c.startsWith("createSession:"))).toBe(false);
+    expect(store.getState().layout).toBe(layout);
+    expect(store.getState().keyboardFor).toBeNull();
+  });
+
   it("Escape in the icon picker closes the picker and leaves the sheet up; Escape again closes the sheet", async () => {
     const { store } = await mount();
     fireEvent.click(tile());

@@ -35,6 +35,10 @@ export type CreateSpaceInput = { name: string; icon: string; profileId: string; 
 /** What the New space sheet hands over: the row, and what is made WITH it — the folder its sessions
  *  work in (its first project) and its memory document. */
 export type NewSpaceInput = CreateSpaceInput & { folder?: string | null; memory?: string };
+/** What a New space attempt has made so far, filled in as each step lands. The sheet keeps one across
+ *  a failed Create and hands it back, so pressing Create again finishes the job rather than making a
+ *  second space beside the first. */
+export type NewSpaceProgress = { spaceId?: string; memory?: string; folder?: string; projectId?: string };
 export type NewProfileInput = { name: string; icon?: string; color?: string };
 export type UpdateProfileInput = { id: string; name?: string; icon?: string; color?: string };
 /** What deleting a profile takes with it. */
@@ -1598,8 +1602,10 @@ export type AppState = {
    *  forward and this one stays as it is; otherwise this window switches to it (`selectProfile`). */
   switchProfile(profileId: string): Promise<void>;
   /** The New space sheet's Create: the space, then a session in it with the keyboard — never the
-   *  space's Overview (see `openNewSpace`). */
-  createSpace(input: NewSpaceInput): Promise<void>;
+   *  space's Overview (see `openNewSpace`). The sheet stays up while it runs and is closed HERE, just
+   *  before the landing. `made` carries a failed attempt's work into the next; an aborted `signal` (the
+   *  sheet dismissed mid-run) stops it where it stands. */
+  createSpace(input: NewSpaceInput, attempt?: { made?: NewSpaceProgress; signal?: AbortSignal }): Promise<void>;
   /** Where a space of this name would work if it is given no folder (`spaces.folderFor`). */
   spaceFolderFor(profileId: string, name: string): Promise<string>;
   updateSpace(input: UpdateSpaceInput): Promise<void>;
@@ -3465,20 +3471,47 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * in the empty folder Realm allocates; the memory is written before the session exists, so its
      * first turn reads it. Then the keyboard, the way an open from a list hands it over, so the hand
      * that pressed Create can type.
+     *
+     * The sheet asks with `made` and `signal`. `made` is what a failed attempt already made — that
+     * space, now wearing whatever was changed since, its memory and project — so a retry skips it.
+     * An aborted `signal` (the sheet dismissed while this ran) starts nothing further and moves
+     * nothing: whatever was already made stays made, and the window stays where the person went.
      */
-    const openNewSpace = async (input: CreateSpaceInput & { folder: string | null; memory?: string; agentKind: AgentKind }) => {
+    const openNewSpace = async (input: CreateSpaceInput & { folder: string | null; memory?: string; agentKind: AgentKind },
+      made: NewSpaceProgress = {}, signal?: AbortSignal) => {
+      const stopped = () => signal?.aborted === true;
       const before = profileSpaceIds();
-      const space = await api.createSpace({ name: input.name, icon: input.icon, profileId: input.profileId, color: input.color });
-      set({ spaces: [...get().spaces.filter((x) => x.id !== space.id), space] });
-      if (get().activeProfileId !== input.profileId) await get().selectProfile(input.profileId);
-      else await syncProfileSpaces(before);
-      if (input.memory?.trim()) await get().saveMemoryDoc(space.id, input.memory);
-      const project = input.folder ? await api.createProject(space.id, folderName(input.folder), input.folder) : null;
-      if (project) await get().refreshProjects(space.id);
-      await get().newSession({ agentKind: input.agentKind, projectId: project?.id ?? null, spaceId: space.id });
-      // The space is a moment old, so the one session in it is the one just made.
-      const session = Object.values(get().sessions).find((s) => s.spaceId === space.id);
-      if (session) set({ keyboardFor: { sessionId: session.id, n: (get().keyboardFor?.n ?? 0) + 1 } });
+      const row = { name: input.name, icon: input.icon, profileId: input.profileId, color: input.color };
+      const again = made.spaceId !== undefined && get().spaces.some((x) => x.id === made.spaceId);
+      const space = again ? await api.updateSpace({ id: made.spaceId!, ...row }) : await api.createSpace(row);
+      made.spaceId = space.id;
+      set({ spaces: again ? get().spaces.map((x) => (x.id === space.id ? space : x)) : [...get().spaces.filter((x) => x.id !== space.id), space] });
+      if (get().activeProfileId === input.profileId) await syncProfileSpaces(before);
+      else if (!stopped()) await get().selectProfile(input.profileId);
+      if (stopped()) return;
+      // A full replace, so a retry writes it only when it changed — cleared included.
+      const doc = input.memory?.trim() ? input.memory : "";
+      if (doc !== (made.memory ?? "")) { await get().saveMemoryDoc(space.id, doc); made.memory = doc; }
+      if (stopped()) return;
+      let projectId: string | null = null;
+      if (input.folder && made.projectId && made.folder === input.folder) projectId = made.projectId;
+      else if (input.folder) {
+        const project = await api.createProject(space.id, folderName(input.folder), input.folder);
+        made.projectId = projectId = project.id; made.folder = input.folder;
+        await get().refreshProjects(space.id);
+      }
+      if (stopped()) return;
+      const { session, itemId } = await api.createSession({ spaceId: space.id, agentKind: input.agentKind, projectId });
+      rememberAgent(input.agentKind);
+      if (inProfile(space.id)) mergeSession(session);
+      if (stopped()) return;
+      /* The sheet that asked closes now, BEFORE the session is opened: closing unwinds the snap a
+         wide browser pane was given for it (W2.4), and unwound after the landing it would lay the old
+         arrangement back over the session. `fork` closes its sheet first for the same reason. */
+      if (get().sheet?.kind === "new-space") get().closeSheet();
+      await adoptItem(space.id, itemId, null);
+      await get().openSession(session.id);
+      set({ keyboardFor: { sessionId: session.id, n: (get().keyboardFor?.n ?? 0) + 1 } });
     };
     /**
      * The window's view for the active profile, from what was saved — or, the first time a profile is
@@ -3926,9 +3959,9 @@ await get().refreshCustomThemes().catch(() => {});
         if (await api.focusProfileWindow(profileId)) return;
         await get().selectProfile(profileId);
       },
-      async createSpace({ folder = null, memory, ...input }) {
+      async createSpace({ folder = null, memory, ...input }, attempt) {
         // Another profile's switches the window, as a click on one of its spaces would.
-        await openNewSpace({ ...input, folder, memory, agentKind: get().lastAgentKind ?? FALLBACK_AGENT });
+        await openNewSpace({ ...input, folder, memory, agentKind: get().lastAgentKind ?? FALLBACK_AGENT }, attempt?.made, attempt?.signal);
       },
       spaceFolderFor(profileId, name) { return api.spaceFolderFor(profileId, name); },
       async updateSpace(input) {
