@@ -372,20 +372,38 @@ async function main() {
     await shoot(c, `old-session-${face}`, p);
   };
   await oldShot("dark");
-
-  // ── The card in a pane made narrow by the splits beside it: nothing leaves it, and no name is lost ──
-  const narrow = await evalIn(c, `(async () => { const k = __live.card(); await __live.show(k); const box = __live.box(k);
-    const review = __live.box([...k.querySelectorAll(".btn")].find((b) => b.textContent === "Review"));
-    const names = [...k.querySelectorAll(".edit-file-name")].map((n) => ({ text: n.textContent, cut: n.scrollWidth > n.clientWidth + 1, w: n.clientWidth }));
-    const title = k.querySelector(".edit-summary-title"); return { box, review, names, titleLines: Math.round(title.getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight || "20")) }; })()`);
-  check("in a narrow pane the card keeps Review inside it, its title on one line, and every file's whole name",
-    narrow.review.r <= narrow.box.r && narrow.titleLines <= 1 && narrow.names.every((n) => !n.cut && n.w > 0), narrow);
-  await shoot(c, "turn-card-narrow-dark", pad(narrow.box, 12));
-
-  // ── The same surfaces in the light face ──
+  note("old session layout", await evalIn(c, `({ viewport: [innerWidth, innerHeight], panes: [...document.querySelectorAll(".session-pane")].map((p) =>
+    ({ asked: p.querySelector(".msg-user")?.textContent?.slice(0, 30) ?? null, box: __live.box(p), transcript: __live.box(p.querySelector(".transcript")) })) })`));
+  await shoot(c, "old-session-window-dark");
   await paletteRow(c, "Theme: Light");
   await sleep(700);
   await oldShot("light");
+  await paletteRow(c, "Theme: Dark");
+  await sleep(600);
+
+  // Back to the session that edited: a sidebar row puts its session in the pane it is opened into,
+  // and the session's side pane — Documents, Changes — comes back with it.
+  await evalIn(c, `(() => { const row = [...document.querySelectorAll(".item-row")].find((r) => r.textContent.includes(${JSON.stringify(ASKED.slice(0, 18))})); row?.click(); return !!row; })()`);
+  await until(() => evalIn(c, `!!__live.card()`), 15_000, "the editing session, back");
+
+  // ── The card in a pane made narrow: nothing leaves it, and no name is lost ──
+  // Its side pane's tabs no longer split the window as panes did, so the window itself is narrowed.
+  await c.send("Emulation.setDeviceMetricsOverride", { width: 1000, height: 940, deviceScaleFactor: 2, mobile: false });
+  await sleep(600);
+  const narrow = await evalIn(c, `(async () => { const k = __live.card(); await __live.show(k); const box = __live.box(k);
+    const review = __live.box([...k.querySelectorAll(".btn")].find((b) => b.textContent === "Review"));
+    const names = [...k.querySelectorAll(".edit-file-name")].map((n) => ({ text: n.textContent, cut: n.scrollWidth > n.clientWidth + 1, w: n.clientWidth }));
+    const title = k.querySelector(".edit-summary-title"); return { pane: __live.box(__live.pane(${JSON.stringify(ASKED)})), box, review, names,
+      titleLines: Math.round(title.getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight || "20")) }; })()`);
+  check("in a narrow pane the card keeps Review inside it, its title on one line, and every file's whole name",
+    narrow.review.r <= narrow.box.r && narrow.titleLines <= 1 && narrow.names.every((n) => !n.cut && n.w > 0), narrow);
+  await shoot(c, "turn-card-narrow-dark", pad(narrow.box, 12));
+  await c.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 940, deviceScaleFactor: 2, mobile: false });
+  await sleep(600);
+
+  // ── Review in the light face ──
+  await paletteRow(c, "Theme: Light");
+  await sleep(700);
   await clickAt(c, await evalIn(c, `(async () => { await __live.show(__live.card()); return __live.centre([...__live.card().querySelectorAll(".btn")].find((b) => b.textContent === "Review")); })()`));
   await until(() => evalIn(c, `!!document.querySelector(".diff-pane .diff-line")`), 15_000, "the review, again");
   await sleep(500);
