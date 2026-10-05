@@ -685,6 +685,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 ## Documents, diffs, terminals, and data
 
 - Editors and terminals use the available pane. Avoid centered card-width work areas.
+- A terminal's sixteen colours carry two jobs that pull apart: text a program prints on the pane's
+  ground, and the ground a powerline prompt prints its segments on. Author them for the text — every
+  text colour, bright black included, at AA on the ground, faint text at the app's secondary ink —
+  leave the 240 a program names itself to the program, and let xterm's contrast floor rescue the few
+  pairs that miss: low on the dark face, where those colours were chosen for a dark ground, AA on
+  the light one, where they were not. A tab names what its terminal runs; only an agent wears its
+  vendor's colour there, on its tile, so colour in a strip of tabs means an agent and nothing else.
 - Tabs identify open work; the active document also has a clear title and save state.
 - Rich and source modes preserve the same document identity.
 - Diffs use color plus signs, line structure, and labels. Color alone never carries add/delete state.
