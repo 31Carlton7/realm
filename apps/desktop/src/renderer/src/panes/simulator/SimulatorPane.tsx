@@ -10,6 +10,7 @@ import { SimulatorInput, normalizedPoint } from "./sim-input";
 import { fitFramed, frameMetrics } from "./device-frame";
 import { artFor, fitDeviceArt } from "./device-art";
 import { useFileDrop } from "../../components/use-file-drop";
+import { useFadedScroller } from "../../components/ScrollFades";
 import { sortForDevice } from "./device-files";
 import { SimulatorToolbar } from "./SimulatorBar";
 import { LayaRecordRow } from "./LayaRecord";
@@ -82,6 +83,8 @@ export function SimulatorPane({ item, visible }: PaneProps) {
   }, [refId, applySimulatorState]);
 
   const udid = state.udid ?? row?.udid ?? null;
+  // The device list scrolls on a Mac with a long one, and dissolves at its ends as every list does.
+  const { ref: body, fades } = useFadedScroller();
   if (state.status === "running" && state.streamUrl && state.screen) {
     /* The platform comes off the ROW. The contract is explicit that it is carried rather than
        inferred, and it decides which device the stream is framed as — an emulator wearing an iPhone
@@ -90,7 +93,8 @@ export function SimulatorPane({ item, visible }: PaneProps) {
   }
   return (
     <div className="sim-pane">
-      <div className="sim-body">
+      {fades}
+      <div className="sim-body" ref={body}>
         {state.status === "failed"
           ? <Failed state={state} onRetry={() => void start(null)} onPick={(d, p, real) => void start(d, p, real)} />
           : state.status === "booting" || state.status === "serving"

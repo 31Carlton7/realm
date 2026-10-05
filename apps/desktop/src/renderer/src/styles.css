@@ -1807,7 +1807,9 @@ kbd { font: 11px var(--font-mono); }
   background: var(--rl-danger); }
 .rail-recording-stop { width: 8px; height: 8px; border-radius: 2px; background: #ffffff; }
 
-.sim-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px; }
+/* The device list's ends dissolve over its own padding, so a card scrolled to either end clears the band. */
+.sim-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px;
+  --fade-h: 24px; --fade-top-h: 24px; }
 .sim-rest { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 380px; }
 .sim-title { margin: 0; font-size: 18px; font-weight: var(--fw-title); letter-spacing: -0.01em; color: var(--rl-text-bright); }
 .sim-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-faint); }

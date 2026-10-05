@@ -227,6 +227,20 @@ describe("choosing a device", () => {
     expect((await screen.findByRole("button", { name: /Test’s iPhone/ })).textContent).toContain("iOS 27.2 · Developer Mode off");
   });
 
+  it("dissolves the list's far end while more devices are under it", async () => {
+    // THE MUTANT: a list of devices that stops at a hard edge where it scrolls, the cut the owner
+    // asked every scroller in the app to lose. jsdom lays nothing out, so the scroller's metrics are stated.
+    const { container } = await mount();
+    await screen.findByRole("button", { name: /iPhone 17 Pro/ });
+    const list = container.querySelector<HTMLElement>(".sim-body")!;
+    act(() => {
+      Object.defineProperty(list, "scrollHeight", { configurable: true, value: 1400 });
+      Object.defineProperty(list, "clientHeight", { configurable: true, value: 700 });
+      list.dispatchEvent(new Event("scroll"));
+    });
+    expect(list.dataset.dissolve).toBe("end");
+  });
+
   it("says what is missing when there is nothing to choose from", async () => {
     // design.md: where the precondition is unmet, say so — these are two different absences and a
     // single "no simulators" would send a user with Xcode installed looking in the wrong place.

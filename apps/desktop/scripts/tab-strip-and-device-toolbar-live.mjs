@@ -317,12 +317,13 @@ async function main() {
   await scrollStrip("start");
   await c.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
   await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
-  const ring = await evalIn(c, `(() => { const label = document.querySelector(${JSON.stringify(sel(".pane-tab[data-active] .pane-tab-label"))}); label.focus();
+  await evalIn(c, `document.querySelector(${JSON.stringify(sel(".pane-tab[data-active] .pane-tab-label"))}).focus(), true`);
+  await sleep(500); // the ring's arrival (--dur-slow) closes in from 6px outside before it settles
+  const ring = await evalIn(c, `(() => { const label = document.activeElement;
     const tab = label.closest('.pane-tab'), t = getComputedStyle(tab), l = getComputedStyle(label);
     return { visible: label.matches(':focus-visible'), tab: [t.outlineStyle, t.outlineWidth, t.outlineOffset].join(' '), label: l.outlineStyle,
       inside: tab.getBoundingClientRect().height <= document.querySelector(${JSON.stringify(sel(".pane-tabs"))}).clientHeight }; })()`);
   check("a tab focused from the keyboard wears its ring inside itself, where the strip cannot cut it", ring.visible && ring.tab === "solid 2px -2px" && ring.label === "none" && ring.inside, ring);
-  await sleep(500);
   await shoot(c, "strip-focus-dark", sel(".panel-bar"), 6);
   await evalIn(c, `document.activeElement?.blur(), true`);
 
@@ -448,6 +449,43 @@ async function main() {
   const turned = await device();
   judge("iPhone landscape", turned, { narrow: false });
   await shoot(c, "iphone-landscape-dark", `[data-leaf-id="${sideLeaf.id}"]`, 0);
+
+  // A real iPhone on the cable, whose picture is screenshots until Realm may use the camera: no Rotate,
+  // none of the simulator's settings, and the offer to go live in the pill under the device.
+  await evalIn(c, `${store(`applySimulatorState(${JSON.stringify({ ...running(IPHONE, "Recipes"), physical: true, stills: "camera" })})`)}, true`);
+  await sleep(600);
+  const phone = await device();
+  console.log(`  a phone: ${JSON.stringify({ tools: phone.tools })}`);
+  check("a phone's toolbar has no Rotate", phone.tools.join("|") === "Home button|Take a screenshot|Show the device's elements|More device controls", phone.tools);
+  const offer = await evalIn(c, `(() => { const o = document.querySelector(${JSON.stringify(sel(".sim-under .sim-live"))}); const d = document.querySelector(${JSON.stringify(sel(".sim-chassis"))});
+    if (!o || !d) return null; const a = o.getBoundingClientRect(), b = d.getBoundingClientRect(); return { text: o.textContent, centred: Math.abs((a.left + a.right) / 2 - (b.left + b.right) / 2) <= 1, height: a.height }; })()`);
+  check("its offer to go live is a pill under the device, on the device's centre line", offer && offer.centred && offer.height === 32 && /Show live/.test(offer.text), offer);
+  await shoot(c, "phone-dark", `[data-leaf-id="${sideLeaf.id}"]`, 0);
+  await evalIn(c, `[...document.querySelectorAll(${JSON.stringify(sel(".sim-toolbar button"))})].find((x) => /more/i.test(x.getAttribute('aria-label') ?? ''))?.click(), true`);
+  await until(() => evalIn(c, `!!document.querySelector('.menu')`), 5000, "phone overflow").catch(() => null);
+  await sleep(300);
+  const phoneRows = await evalIn(c, `[...document.querySelectorAll('.menu [role^=menuitem]')].map((r) => r.textContent.trim())`);
+  check("a phone's overflow holds what Realm can do to one", JSON.stringify(phoneRows) === JSON.stringify(["Volume up", "Volume down", "Apps…", "Show device frame", "Stop streaming this phone"]), phoneRows);
+  await shoot(c, "phone-overflow-dark");
+  await c.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await sleep(300);
+  await setTheme(c, "light");
+  await shoot(c, "phone-light", `[data-leaf-id="${sideLeaf.id}"]`, 0);
+  await setTheme(c, "dark");
+
+  // A recording that outlives its stream — a phone that locked — keeps its row, alone at the pane's foot.
+  await evalIn(c, `${store(`applyLaya(${JSON.stringify({ ...status, recording: { ...recording, lastError: "The phone is locked." } })})`)}, true`);
+  await evalIn(c, `${store(`applySimulatorState(${JSON.stringify({ simulatorId: sim.simulatorId, status: "off", udid: null, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null, physical: false })})`)}, true`);
+  await sleep(1500);
+  const alone = await evalIn(c, `(() => { const r = document.querySelector(${JSON.stringify(sel(".sim-pane > .sim-record"))}); const p = document.querySelector(${JSON.stringify(sel(".sim-pane"))});
+    const pill = r?.querySelector('.sim-recording'), list = document.querySelector(${JSON.stringify(sel(".sim-body"))});
+    if (!pill || !p || !list) return null; const a = pill.getBoundingClientRect(), b = p.getBoundingClientRect();
+    return { text: r.textContent, footGap: Math.round(b.bottom - r.getBoundingClientRect().bottom), pillAbove: a.bottom < b.bottom - 8, inside: a.left >= b.left && a.right <= b.right, listEnds: list.dataset.dissolve ?? null }; })()`);
+  check("with the stream gone, the recording's row stays, at the pane's foot", alone && /Stop/.test(alone.text) && alone.inside && alone.pillAbove && alone.footGap <= 1, alone);
+  check("…under a device list that dissolves where it scrolls", alone && /end/.test(alone.listEnds ?? ""), alone?.listEnds);
+  await shoot(c, "recording-without-stream-dark", `[data-leaf-id="${sideLeaf.id}"]`, 0);
+  await evalIn(c, `${store(`applyLaya(${JSON.stringify({ ...status, recording: null })})`)}, true`);
 
   // ── The same pane on an Android emulator ──────────────────────────────────────────────────────
   execFileSync("sqlite3", [path.join(home, "realm.db"), `UPDATE simulators SET platform = 'android', name = 'Realm Pixel' WHERE id = '${sim.simulatorId}'`]);
