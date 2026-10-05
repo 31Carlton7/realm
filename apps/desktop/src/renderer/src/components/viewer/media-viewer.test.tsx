@@ -7,6 +7,7 @@ import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
 import { MediaViewer } from "./MediaViewer";
 import { MediaSessionContext } from "./open";
+import { VIEWER_SLOT } from "../../state/viewer";
 import { fitScale, stepZoom, anchoredScroll } from "./zoom";
 
 /**
@@ -283,6 +284,23 @@ describe("the prompter docked under it", () => {
     act(() => store.getState().applySessionStatus("lead", "running"));
     act(() => store.getState().applySessionStatus("lead", "idle"));
     await waitFor(() => expect(stageImg()?.getAttribute("src")).toMatch(/\?v=2$/));
+  });
+
+  it("takes a file dropped anywhere on it into the next question, beside the one on show", async () => {
+    // A reference picture, the palette to match. THE MUTANT: leave the handlers off the viewer — the
+    // compact prompter takes no drag of its own, so a drop would fall through to the window and vanish.
+    bridge([media("/work/hero.png")]);
+    const { store } = await mount([media("/work/hero.png")]);
+    fireEvent.click(await screen.findByRole("button", { name: "Open hero.png larger" }));
+    const dialog = await screen.findByRole("dialog", { name: "hero.png" });
+    const file = Object.assign(new File([new Uint8Array(4)], "palette.png", { type: "image/png" }), { path: "/ref/palette.png" }) as unknown as File;
+    const drag = { dataTransfer: { files: [file], items: [{ kind: "file" }], types: ["Files"] } };
+    fireEvent.dragEnter(dialog, drag);
+    expect(dialog.querySelector(".media-viewer-drop")).not.toBeNull();
+    fireEvent.drop(dialog, drag);
+    await waitFor(() => expect(store.getState().pendingAttachments[VIEWER_SLOT]?.map((a) => a.path)).toEqual(["/ref/palette.png"]));
+    // The prompter shows both: the file on show, and the one that will go beside it.
+    expect(within(dialog).getAllByRole("button", { name: /^Open (hero|palette)\.png$/ })).toHaveLength(2);
   });
 
   it("says when there is no session to ask, and which space the first question starts one in", async () => {

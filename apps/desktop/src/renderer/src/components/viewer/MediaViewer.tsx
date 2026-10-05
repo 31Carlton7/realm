@@ -3,9 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { basenameOf, formatAttachmentSize, isOpenableArtifact, isOpenablePath } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { ownerOf, type FileProvenance, type ViewerState } from "../../state/viewer";
+import { VIEWER_SLOT, ownerOf, type FileProvenance, type ViewerState } from "../../state/viewer";
 import { Menu, type MenuItem } from "../Menu";
 import { canQuickLook, canShare, quickLook, shareFile } from "../file-actions";
+import { useFileDrop } from "../use-file-drop";
 import { ViewerChat } from "./ViewerChat";
 import { ViewerStage, typingIn } from "./ViewerStage";
 
@@ -88,8 +89,16 @@ function ViewerWindow({ viewer }: { viewer: ViewerState }) {
   const settled = useCallback(() => setBeat((n) => n + 1), []);
   const facts = useFacts(file.path, beat);
 
+  /* A file dropped anywhere on the viewer goes with the next question — a reference picture, the
+     palette to match — the way the quick chat's whole window takes one: the prompter is the bottom
+     strip of a window that is otherwise the file, and aiming at it with a file in hand is a chore. */
+  const attachFiles = useApp((s) => s.attachFiles);
+  const run = useApp((s) => s.run);
+  const fileDrop = useFileDrop((files) => run(() => attachFiles(VIEWER_SLOT, files)));
+
   return createPortal(
-    <div ref={ref} className="media-viewer" role="dialog" aria-modal="true" aria-label={name} tabIndex={-1}>
+    <div ref={ref} className="media-viewer" role="dialog" aria-modal="true" aria-label={name} tabIndex={-1}
+      data-dropping={fileDrop.dropping || undefined} {...fileDrop.handlers}>
       <ViewerHead viewer={viewer} facts={facts} onClose={closeViewer} />
       <div className="media-viewer-body">
         <div className="media-viewer-stagewrap">
@@ -111,6 +120,11 @@ function ViewerWindow({ viewer }: { viewer: ViewerState }) {
         </div>
         <ViewerChat viewer={viewer} file={file} size={facts ? facts.size ?? 0 : null} onSettled={settled} />
       </div>
+      {fileDrop.dropping && (
+        <div className="session-drop media-viewer-drop" aria-hidden="true">
+          <span className="quick-chat-drop-label"><Icon name="attach" size={14} />Drop files to send with your question</span>
+        </div>
+      )}
     </div>,
     document.body,
   );

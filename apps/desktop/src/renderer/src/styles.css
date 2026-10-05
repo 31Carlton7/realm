@@ -7845,6 +7845,9 @@ span.media-viewer-from { align-self: center; }
   background: none; font: inherit; color: var(--rl-text-dim); }
 button.media-viewer-owner-name:hover { color: var(--rl-text-bright); text-decoration: underline; }
 .media-viewer .composer-dock { width: 100%; margin: 0 0 max(14px, env(safe-area-inset-bottom)); }
+/* A file held over the viewer: the pane's own glow round the whole window, naming the gesture in the
+   middle of it, as the quick chat's does — over the file and the prompter alike, since both take it. */
+.media-viewer .media-viewer-drop { inset: 8px; z-index: 3; display: grid; place-items: center; border-radius: var(--r-float); }
 
 /* The workspace's own frames are hidden while the viewer is up, and this is load-bearing rather than
    tidiness: a <video> is composited on its own layer and Chromium paints that layer OVER the overlay,
