@@ -413,7 +413,8 @@ async function main() {
   const address = await rectOf(c, `document.querySelector('.browser-pane input[aria-label=Address]')`);
   const hover4 = await aim(c, address.cx, address.cy);
   note("hover over the address field", hover4);
-  await shot(c, "5-hover-browser-address-dark", around(address, 90));
+  for (const mode of ["dark", "light"]) { await setMode(c, mode); await sleep(250); await shot(c, `5-hover-browser-address-${mode}`, around(address, 90)); }
+  await setMode(c, "dark");
   await press(c, address.cx, address.cy);
   await until(async () => (await draft(c)).chips.length === 4, 10_000, "fourth chip");
   const d4 = await draft(c);
@@ -426,6 +427,20 @@ async function main() {
   const expectedTop = Math.max(0, address.y - 24);
   note("the address field's picture", { px, scale, expectedDipHeight: expectedBottom - expectedTop });
   check("the bar's picture keeps its margin above and stops at the page's edge below", addressShot && Math.abs(px.h / scale - (Math.floor(expectedBottom) - Math.ceil(expectedTop))) <= 1, { px, scale, view: view.bounds, address });
+
+  // A pick that lands over the page's view. No real pointer reaches the DOM under a native view, so
+  // the release is dispatched there by hand — what arrives is the case main exists to refuse: the
+  // chip goes in, says it has no picture, and nothing is attached.
+  await selectChord(c);
+  await until(() => picking(c), 5_000, "picker up over the view");
+  const filesBefore = (await draft(c)).files.length;
+  await evalIn(c, `(() => { const h = document.querySelector('.browser-view-host').getBoundingClientRect();
+    const at = document.elementFromPoint(h.x + h.width / 2, h.y + h.height / 2);
+    at.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, button: 0, clientX: h.x + h.width / 2, clientY: h.y + h.height / 2 })); return true; })()`);
+  await until(async () => (await draft(c)).chips.length === 5, 10_000, "the view's chip");
+  const dv = await draft(c);
+  note("after a pick over the page's view", dv.chips[4]);
+  check("a pick over a page's view goes in without a picture, and its chip says so", / \(no picture\)$/.test(dv.chips[4].label) && dv.chips[4].webView === true && dv.chips[4].shot === null && dv.files.length === filesBefore, dv.chips[4]);
 
   // The page keeps the web picker: armed with the app's, its outline is drawn by the page itself.
   await selectChord(c);
@@ -448,10 +463,10 @@ async function main() {
   } catch (e) { note("view screenshot failed", String(e)); }
   await pc.send("Input.dispatchMouseEvent", { type: "mousePressed", x: btn.cx, y: btn.cy, button: "left", clickCount: 1 });
   await pc.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: btn.cx, y: btn.cy, button: "left", clickCount: 1 });
-  await until(async () => (await draft(c)).chips.length === 5, 15_000, "the page's chip");
+  await until(async () => (await draft(c)).chips.length === 6, 15_000, "the page's chip");
   const d5 = await draft(c);
-  note("after the page pick", d5.chips[4]);
-  check("a click in the page lands the page's element in the same prompter, and the app's picker goes", d5.chips[4].label === 'button "Sign in"' && !(await picking(c)), d5.chips[4]);
+  note("after the page pick", d5.chips[5]);
+  check("a click in the page lands the page's element in the same prompter, and the app's picker goes", d5.chips[5].label === 'button "Sign in"' && !(await picking(c)), d5.chips[5]);
   pc.close();
   for (const mode of ["dark", "light"]) { await setMode(c, mode); await sleep(250); await shot(c, `7-chips-${mode}`, await composerClip(c)); }
   await setMode(c, "dark");
@@ -472,6 +487,7 @@ async function main() {
     echo.includes("Parts of Realm's own window the user picked") && /@\[Realm · Send button\] — the attached [0-9a-f]+-realm-send-button\.png shows it/.test(echo)
       && echo.includes("component: Composer") && echo.includes("selector: button.composer-send") && /box: x=\d/.test(echo));
   check("…and the page's element in its own fenced block, as the web picker always sent it", echo.includes("Elements the user picked in Realm's browser pane") && echo.includes('@[button "Sign in"]'));
+  check("…and told plainly why one of them came without a picture", echo.includes("no picture: it covers a browser pane's page, which a capture of Realm's window cannot see"));
   await evalIn(c, `(() => { const rows = window.__pane().querySelectorAll('.msg-user-row'); rows[rows.length - 1]?.scrollIntoView({ block: "start" }); return true; })()`);
   await sleep(400);
   const bubbleClip = await evalIn(c, `(() => { const rows = window.__pane().querySelectorAll('.msg-user-row'); const r = rows[rows.length - 1].getBoundingClientRect(); const p = window.__pane().getBoundingClientRect();
