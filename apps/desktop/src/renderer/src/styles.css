@@ -5965,17 +5965,37 @@ select { appearance: none; padding-right: 22px;
 :root:not([data-overlay-scrollbars]) [data-dissolve]::-webkit-scrollbar-corner, :root:not([data-overlay-scrollbars]) [data-dissolve-x]::-webkit-scrollbar-corner { background: transparent; }
 
 /* The sidebar's column keeps its own, narrower bar: 11px of standard scrollbar reads as heavy in a
-   280px column. Everything else about it is the rule above. */
-:root:not([data-overlay-scrollbars]) .space-body { scrollbar-color: auto; scrollbar-width: auto; }
-:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar { width: 8px; }
-:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h) var(--fade-h); }
-:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-thumb { background: var(--mark); border-radius: 999px;
+   280px column. Everything else about it is the rule above. Every scroller the column holds wears it —
+   the spaces, the slot a page's sections take, and the Scheduled and Code review columns in that slot,
+   which bring scrollers of their own — so a page's list scrolls the way the spaces do. */
+:root:not([data-overlay-scrollbars]) .space-body,
+:root:not([data-overlay-scrollbars]) .sb-page-nav,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body { scrollbar-color: auto; scrollbar-width: auto; }
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar,
+:root:not([data-overlay-scrollbars]) .sb-page-nav::-webkit-scrollbar,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body::-webkit-scrollbar,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body::-webkit-scrollbar { width: 8px; }
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-track,
+:root:not([data-overlay-scrollbars]) .sb-page-nav::-webkit-scrollbar-track,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body::-webkit-scrollbar-track,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h) var(--fade-h); }
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .sb-page-nav::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body::-webkit-scrollbar-thumb { background: var(--mark); border-radius: 999px;
   /* Inset from the 8px channel so the thumb reads as a 4px line with air either side rather than a
      bar wedged against the column's edge. `background-clip: content-box` is what makes the border
      transparent padding instead of a second colour. */
   border: 2px solid transparent; background-clip: content-box; }
-:root:not([data-overlay-scrollbars]) .space-body:hover::-webkit-scrollbar-thumb { background: var(--mark-strong); background-clip: content-box; }
-:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-corner { background: transparent; }
+:root:not([data-overlay-scrollbars]) .space-body:hover::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .sb-page-nav:hover::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body:hover::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body:hover::-webkit-scrollbar-thumb { background: var(--mark-strong); background-clip: content-box; }
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-corner,
+:root:not([data-overlay-scrollbars]) .sb-page-nav::-webkit-scrollbar-corner,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body::-webkit-scrollbar-corner,
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body::-webkit-scrollbar-corner { background: transparent; }
 
 /* ── Scrollbars: on scroll, in the prompter ────────────────────────────────
    Everywhere above keeps the persistent hairline: a transcript, a diff, a settings page is long

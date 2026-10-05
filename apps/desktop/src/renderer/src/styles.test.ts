@@ -1396,6 +1396,13 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     const bodies = bodiesFor(".sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-body, .cr-col-body)").join(" ");
     expect(depth(bodies, "--fade-h")).toBe(depth(list, "--fade-h"));
     expect(depth(bodies, "--fade-top-h")).toBe(depth(list, "--fade-top-h"));
+    // …and its bar the column's own narrow one, the spaces list's — not the 10px channel every other
+    // dissolving scroller takes, which in the live check stood out down Code review's long list.
+    const GUARD = ":root:not([data-overlay-scrollbars])";
+    for (const body of [".sb-page-nav > .sched-col > .sched-col-body", ".sb-page-nav > .cr-col > .cr-col-body"]) {
+      expect(bodiesFor(`${GUARD} ${body}::-webkit-scrollbar`).join(" "), body).toBe(bodiesFor(`${GUARD} .space-body::-webkit-scrollbar`).join(" "));
+      expect(bodiesFor(`${GUARD} ${body}::-webkit-scrollbar-thumb`).join(" "), body).toBe(bodiesFor(`${GUARD} .space-body::-webkit-scrollbar-thumb`).join(" "));
+    }
   });
 
   it("the window never scrolls: the shell is clipped at its own edges, without becoming a scroller", () => {
