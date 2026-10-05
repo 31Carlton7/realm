@@ -9,7 +9,8 @@
  * ⌥↑ step between saved turns and bring each one's row to the top; a reload keeps them; the Library's
  * Saved section lists every saved turn of both sessions, newest saved first, follows a save made
  * elsewhere while it is up, and a click opens its session AT the prompt, across spaces too; the ribbon
- * there unsaves, and so do S and the card's bookmark — and both faces are captured.
+ * there unsaves, and so do S and the card's bookmark; Tab reaches the bookmark and Escape there
+ * hands the keyboard back to the tick — and both faces are captured.
  *
  * Ports: LIVE_SERVER_PORT (8811), LIVE_CDP_PORT (9251). Writes only under LIVE_SCRATCH (the OS temp dir
  * by default). Nothing is billed: the onboarding session is moved to the fake agent before anything is
@@ -174,7 +175,7 @@ async function clickAt(c, at) {
   await mouse(c, "mouseMoved", at);
   for (const type of ["mousePressed", "mouseReleased"]) await mouse(c, type, at, { button: "left", clickCount: 1 });
 }
-const KEYS = { ArrowDown: 40, ArrowUp: 38, s: 83 };
+const KEYS = { ArrowDown: 40, ArrowUp: 38, s: 83, Tab: 9, Escape: 27 };
 async function press(c, key, modifiers = 0) {
   for (const type of ["keyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, key, code: key === "s" ? "KeyS" : key, windowsVirtualKeyCode: KEYS[key], modifiers, ...(type === "keyDown" && key === "s" ? { text: "s" } : {}) });
 }
@@ -355,6 +356,16 @@ async function main() {
   const back = await evalIn(c, `(() => { const t = __live.track(${pane}); return { focused: t.focused, current: t.current, rowTop: __live.rowTop(${pane}, 20) }; })()`);
   check("⌥↑ steps back to the saved turn before", back.focused === 20 && back.current === 20 && Math.abs(back.rowTop - 44) <= 2, back);
   await shoot(c, "track-saved-keyboard-dark", { x: w.x, y: w.y, w: 420, h: w.h });
+  // From the keys alone: Tab reaches the card's bookmark, and Escape there puts the card away and the
+  // keyboard back on its tick.
+  await press(c, "Tab");
+  await sleep(150);
+  const tabbed = await evalIn(c, `(() => ({ onBookmark: document.activeElement?.classList.contains("track-card-save") ?? false, open: __live.card(${pane}).open }))()`);
+  await press(c, "Escape");
+  await sleep(250);
+  const escaped = await evalIn(c, `(() => ({ focused: __live.track(${pane}).focused, open: __live.card(${pane}).open }))()`);
+  check("Tab from a tick reaches its card's bookmark, and Escape there puts the card away with the keyboard back on the tick",
+    tabbed.onBookmark && tabbed.open && escaped.focused === 20 && !escaped.open, { tabbed, escaped });
   await evalIn(c, `(() => { document.activeElement?.blur(); return true; })()`);
   await away();
   await shoot(c, "track-saved-marks-zoom-dark", { x: w.x, y: w.y + 40, w: 80, h: w.h - 80, scale: 4 });
