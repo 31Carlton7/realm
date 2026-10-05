@@ -13,8 +13,8 @@ export const VIEW_SANDBOX = "allow-scripts allow-same-origin allow-forms";
 
 /** Inline, a view is as tall as it says it is — up to this, so the transcript stays a transcript.
  *  Expanded, up to the second; past that the view scrolls inside its own frame. */
-export const INLINE_COMPACT_MAX = 320;
-export const INLINE_EXPANDED_MAX = 720;
+export const INLINE_COMPACT_MAX = 400;
+export const INLINE_EXPANDED_MAX = 800;
 const INLINE_MIN = 48;
 /** The frame's height before the view has said how tall it is. */
 const INLINE_FIRST = 160;
@@ -104,7 +104,7 @@ export function AppView({ viewId, mode, viewRef }: Props) {
         <div className="app-view-head">
           <Icon name="app-view" size={14} className="app-view-mark" />
           <span className="app-view-name">{serverName}</span>
-          <span className="app-view-where">Open in a tab</span>
+          <span className="app-view-where">Showing in a tab</span>
           <span className="app-view-actions">
             <button type="button" className="icon-btn" aria-label="Go to the tab" title="Go to the tab" onClick={() => tabItemId && void openItem(tabItemId)}>
               <Icon name="panelRight" size={14} />

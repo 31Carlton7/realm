@@ -413,6 +413,18 @@ export function defaultAdapters(): AdapterRegistry {
   }, {
     on: "set the Linear key", emit: [{ kind: "call", tool: "Linear__set_api_key", input: {} }],
   }, {
+    // MCP Apps: the views fixture (`mcp/fixtures/apps-stdio.mjs`) connected as "Charts". A chart the
+    // server draws in a view of its own, a view that tries its own sandbox, and a tool with no view.
+    on: "chart the bundle sizes", emit: [
+      { kind: "text", text: "Here are the bundle sizes for the last six releases." },
+      { kind: "call", tool: "Charts__show_chart", input: { title: "Bundle size by release", unit: "KB", labels: ["1.2", "1.3", "1.4", "1.5", "1.6", "2.0"], values: [412, 438, 451, 497, 523, 488] } },
+      { kind: "text", text: "2.0 is the first release in a year to come in smaller than the one before it." },
+    ],
+  }, {
+    on: "probe the view sandbox", emit: [{ kind: "call", tool: "Charts__probe_sandbox", input: {} }],
+  }, {
+    on: "add the numbers", emit: [{ kind: "call", tool: "Charts__plain_sum", input: { values: [412, 438, 451] } }],
+  }, {
     // The fallback, which is the half of the gate worth being able to see: a question offering
     // neither an option nor free text cannot be answered, so it must arrive as an ordinary
     // permission rather than as a card with no row on it.
