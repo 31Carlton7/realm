@@ -4,10 +4,10 @@
  * Boots the REAL app on a scratch REALM_HOME and measures what jsdom has no opinion about, because
  * every rect there is zero:
  *
- *   1. **Scheduled tasks.** A row is a block of prose next to a cluster of verbs. jsdom cannot tell
- *      whether the goal's text runs under the buttons, and that is exactly the failure a row like
- *      this has — so the assertion is that the two boxes do not overlap, at a wide pane and at a
- *      narrow one.
+ *   1. **Scheduled tasks.** A task's card stands beside what it describes, docked where the view has
+ *      the room and stacked where it does not. jsdom cannot tell whether it covers the content it
+ *      sits beside, which is exactly the failure a docked panel has — so the assertion is that the
+ *      two boxes do not overlap, at a wide window and at a narrow one.
  *   2. **The activity calendar.** 53 columns at a 14px pitch do not fit a settings column, so the
  *      graph scrolls. The thing worth proving is that it scrolls rather than SQUASHING: a cell that
  *      compressed below its nominal size would turn the graph into a texture, and a stylesheet read
@@ -230,46 +230,47 @@ async function main() {
 
   /* ── 2. Scheduled tasks ─────────────────────────────────────────────────── */
   await evalIn(c, `__live.dest("Scheduled tasks")`);
-  await until(() => evalIn(c, `!!document.querySelector('.schedules-page')`), 15000, "schedules page");
+  await until(() => evalIn(c, `!!document.querySelector('.schedules-page .sched-col')`), 15000, "schedules page");
   await sleep(300);
 
   check("the empty state says what the page is for rather than showing a bare list",
-    await evalIn(c, `!!document.querySelector('.schedules-page .env-empty')`), undefined);
+    await evalIn(c, `document.querySelector('.schedules-page .sched-empty-title')?.textContent === 'Schedule a task'`), undefined);
 
-  // Make one, through the real form — the preview line is the thing worth seeing before saving.
+  // Make one, through the real modal — the line under the schedule is the thing worth seeing before saving.
   await evalIn(c, `(() => { document.querySelector('.sched-new').click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.sched-form')`), 10000, "form");
+  await until(() => evalIn(c, `!!document.querySelector('.sched-modal')`), 10000, "modal");
   await evalIn(c, `(() => {
-    __live.type('.sched-form input', 'Morning triage');
-    __live.type('.sched-form textarea', 'Read the new issues, group them by area, and open a draft summary of what changed since yesterday.');
+    __live.type('.sched-modal-name', 'Morning triage');
+    __live.type('.sched-modal-goal', 'Read the new issues, group them by area, and open a draft summary of what changed since yesterday.');
     return true; })()`);
   await sleep(200);
-  const preview = await evalIn(c, `document.querySelector('.sched-preview').textContent.trim()`);
-  check("the form previews the first run before it is saved", /^First run /.test(preview), { preview });
+  const preview = await evalIn(c, `document.querySelector('.sched-modal-when').textContent.trim()`);
+  check("the modal previews the first run before it is saved", /^First run /.test(preview), { preview });
 
-  await evalIn(c, `(() => { [...document.querySelectorAll('.sched-form button')].find((b) => /Create schedule/.test(b.textContent)).click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.sched-row')`), 15000, "row");
+  await evalIn(c, `(() => { [...document.querySelectorAll('.sheet-foot button')].find((b) => b.textContent.trim() === 'Create').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.sched-card')`), 15000, "the task's card");
   await sleep(400);
 
-  const rowAt = async (width) => {
+  /* The task's card is docked beside what it describes when the view has the room, and stands above
+     it when it does not — never over the view's own content, and never outside the page. */
+  const cardAt = async (width) => {
     await c.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 2, mobile: false });
     await sleep(350);
     return evalIn(c, `(() => {
-      const row = document.querySelector('.sched-row');
-      const goal = row.querySelector('.sched-goal'), acts = row.querySelector('.sched-actions');
-      const meta = row.querySelector('.sched-meta');
-      return { pane: __live.box(document.querySelector('.schedules-page')).w,
-               row: __live.box(row), goal: __live.box(goal), acts: __live.box(acts), meta: __live.box(meta),
-               next: (row.querySelector('.sched-next') || {}).textContent, cron: row.querySelector('.sched-cron').textContent };
+      const card = document.querySelector('.sched-card'), view = document.querySelector('.sched-view');
+      const body = document.querySelector('.sched-view-session');
+      return { view: __live.box(view), card: __live.box(card), body: __live.box(body),
+               when: card.querySelector('.sched-card-when').textContent,
+               line: document.querySelector('.sched-task-line').textContent };
     })()`);
   };
-  const wide = await rowAt(1400), narrow = await rowAt(900);
+  const wide = await cardAt(1400), narrow = await cardAt(900);
+  check("schedules (wide): the card is docked beside the task, never over it", wide.card.l >= wide.body.r, { card: wide.card, body: wide.body });
   for (const [tag, r] of [["wide", wide], ["narrow", narrow]]) {
-    check(`schedules (${tag}): the goal never runs under the action cluster`, r.goal.r <= r.acts.l, { pane: r.pane, goalR: r.goal.r, actsL: r.acts.l });
-    check(`schedules (${tag}): every part of the row is inside the row`, r.goal.b <= r.row.b && r.meta.b <= r.row.b, { row: r.row, goal: r.goal, meta: r.meta });
+    check(`schedules (${tag}): the card is inside the view`, r.card.l >= r.view.l && r.card.r <= r.view.r && r.card.b <= r.view.b, { view: r.view, card: r.card });
   }
-  check("the recurrence is read back in words, not left as five numbers", wide.cron === "Every day at 09:00", { cron: wide.cron });
-  check("the row says when it will next run", /^Next /.test(wide.next ?? ""), { next: wide.next });
+  check("the recurrence is read back in words, not left as five numbers", wide.when === "Every day at 9:00 AM", { when: wide.when });
+  check("the column says when it will next run, and how often", / · Daily$/.test(wide.line), { line: wide.line });
   await shot(c, "schedules", { x: 280, y: 0, width: 620, height: 420 });
 
   /* ── 3. The activity calendar ───────────────────────────────────────────── */
