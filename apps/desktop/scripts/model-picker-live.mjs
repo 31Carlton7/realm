@@ -343,13 +343,18 @@ const clickAt = async (c, x, y) => {
 const chipOf = (c) => evalIn(c, `(() => { const b = document.querySelector('.composer button[aria-label="Model"]');
   return { text: b.querySelector('.chip-label')?.textContent ?? '', effort: b.querySelector('.chip-effort')?.textContent ?? null, title: b.title,
     fast: !!b.querySelector('.chip-fast') }; })()`);
-/** Tab from the search field, which the picker opens holding, until the track has the keyboard. */
+/** Tab from the search field, which the picker opens holding, until the track has the keyboard.
+ *  Hands back where each Tab went, so a failure says which stop was in the way. */
 const tabToTrack = async (c) => {
-  for (let i = 0; i < 4; i++) {
-    if (await evalIn(c, `document.activeElement?.getAttribute('role') === 'slider'`)) return true;
+  const where = () => evalIn(c, `(() => { const a = document.activeElement; return a ? (a.getAttribute('aria-label') || a.className || a.tagName) : null; })()`);
+  const path = [await where()];
+  for (let i = 0; i < 5 && !(await evalIn(c, `document.activeElement?.getAttribute('role') === 'slider'`)); i++) {
     await key(c, "Tab");
+    path.push(await where());
   }
-  return evalIn(c, `document.activeElement?.getAttribute('role') === 'slider'`);
+  const ok = await evalIn(c, `document.activeElement?.getAttribute('role') === 'slider'`);
+  if (!ok) console.log("TAB PATH", JSON.stringify(path));
+  return ok;
 };
 /** The card and the tooltip over it, after a real hover on the bolt. */
 const shootBoltTip = async (c, name) => {
