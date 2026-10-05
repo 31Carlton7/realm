@@ -25,7 +25,7 @@ import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9253), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8813);
-const LIVE_DIR = process.env.LIVE_DIR ?? path.join(repoRoot, "../.verify/no-agents-page-live");
+const LIVE_DIR = process.env.LIVE_DIR ?? path.join(repoRoot, "../.verify/home-live");
 const shots = path.join(LIVE_DIR, "shots");
 fs.mkdirSync(LIVE_DIR, { recursive: true });
 const scratch = fs.mkdtempSync(path.join(LIVE_DIR, "run-"));
@@ -299,7 +299,7 @@ async function main() {
     const where = await evalIn(c, `__live.where()`);
     check(`${face}: …the waiting session says so in Needs you, and the bell counts what came in`,
       where.needsYou.some((t) => t.includes("Wants a yes")) && rail[4].badge !== null, { needsYou: where.needsYou, bell: rail[4] });
-    check(`${face}: no Agents page anywhere in the document`, await evalIn(c, `!document.querySelector(".agents-page, .agent-wall, .agent-office")`));
+    check(`${face}: none of the old page's list, wall or office anywhere in the document`, await evalIn(c, `!document.querySelector(".agents-group, .agent-wall, .agent-office")`));
     await shot(c, `${face}-rail`, await evalIn(c, `(() => { const r = document.querySelector(".app-rail").getBoundingClientRect(); const s = document.querySelector("#app-sidebar").getBoundingClientRect();
       return { x: 0, y: 0, width: Math.round(s.right), height: Math.min(innerHeight, 520) }; })()`));
     await shot(c, `${face}-window`);
