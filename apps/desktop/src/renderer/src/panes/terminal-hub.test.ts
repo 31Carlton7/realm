@@ -465,7 +465,19 @@ describe("the code face reaches a terminal that is already open", () => {
     // one surface that ignores the code font.
     expect(terminalFont()).toContain("JetBrains Mono");
     document.documentElement.style.setProperty("--font-mono", "ui-monospace, Menlo, monospace");
-    expect(terminalFont()).toBe("ui-monospace, Menlo, monospace");
+    expect(terminalFont().startsWith("ui-monospace, Menlo, monospace,")).toBe(true);
+    document.documentElement.style.removeProperty("--font-mono");
+  });
+
+  it("keeps the prompt-icon faces behind the code face, whichever face that is", () => {
+    // A p10k prompt in a nerdfont mode draws its branch and folder in private-use codepoints, which
+    // no code face carries: without these the icons are empty boxes. THE mutant: put them first, and
+    // they become the face every letter is measured and drawn in.
+    for (const face of ['"JetBrains Mono", monospace', "ui-monospace, Menlo, monospace"]) {
+      document.documentElement.style.setProperty("--font-mono", face);
+      expect(terminalFont().startsWith(face)).toBe(true);
+      expect(terminalFont()).toMatch(/"MesloLGS NF"$/);
+    }
     document.documentElement.style.removeProperty("--font-mono");
   });
 
@@ -515,7 +527,7 @@ describe("the code face reaches a terminal that is already open", () => {
 
     document.documentElement.style.setProperty("--font-mono", "ui-monospace, Menlo, monospace");
     hub.refreshFont();
-    expect(terms.map((t) => t.options!.fontFamily)).toEqual(["ui-monospace, Menlo, monospace", "ui-monospace, Menlo, monospace"]);
+    expect(terms.map((t) => t.options!.fontFamily?.split(",").slice(0, 3).join(","))).toEqual(["ui-monospace, Menlo, monospace", "ui-monospace, Menlo, monospace"]);
     // The cell size is measured off the face, so an opened terminal has to re-measure or the grid is
     // the wrong shape and the pty was resized to a lie. A detached one has nothing to measure yet.
     expect(fits).toEqual([0]);

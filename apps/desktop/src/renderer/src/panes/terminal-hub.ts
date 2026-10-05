@@ -95,11 +95,21 @@ export function terminalColors(doc: Document = document, scheme: TerminalColorSc
   };
 }
 
+/**
+ * The faces that carry the icons a powerlevel10k prompt draws in its nerdfont modes — the branch, the
+ * folder, the clock — which sit in private-use codepoints no code face has. Tried only for a glyph
+ * every face before them lacks, so they never touch the grid's metrics or a letter the code face
+ * draws itself. MesloLGS NF is the face p10k's own wizard installs; the Symbols faces are Nerd Fonts'
+ * icon-only ones. Without them the prompt a person brings from their own terminal draws its icons as
+ * empty boxes, measured on this Mac.
+ */
+const ICON_FALLBACK = '"Symbols Nerd Font Mono", "Symbols Nerd Font", "MesloLGS NF"';
+
 /** The code face, from the same `--font-mono` the rest of the app's code surfaces read — so the
  *  Settings preference reaches a terminal instead of leaving it on a hardcoded stack that happens to
- *  match the default. */
+ *  match the default — with the prompt icons' faces behind it. */
 export function terminalFont(doc: Document = document): string {
-  return rootVar("--font-mono", '"JetBrains Mono", ui-monospace, Menlo, monospace', doc);
+  return `${rootVar("--font-mono", '"JetBrains Mono", ui-monospace, Menlo, monospace', doc)}, ${ICON_FALLBACK}`;
 }
 
 /** The terminal's text size: 13px at the default, times the code scale every other code surface is
