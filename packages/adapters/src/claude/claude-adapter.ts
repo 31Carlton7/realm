@@ -27,14 +27,13 @@ const modelBase = (id: string | undefined): string | undefined => id?.replace(/\
  */
 export function fastModeByModel(rows: readonly { value: string; resolvedModel?: string; supportsFastMode?: boolean }[]): Record<string, boolean> {
   const out: Record<string, boolean> = {};
-  const exact = new Set<string>();
   for (const r of rows) {
     if (typeof r.supportsFastMode !== "boolean") continue;
     const isDefault = r.value === "default";
-    if (isDefault && !("" in out)) out[""] = r.supportsFastMode;
+    if (isDefault) out[""] = r.supportsFastMode;
     const base = modelBase(isDefault ? r.resolvedModel : r.resolvedModel ?? r.value);
-    if (!base || exact.has(base)) continue;
-    if (!isDefault && (r.value === base || r.resolvedModel === base)) { out[base] = r.supportsFastMode; exact.add(base); }
+    if (!base) continue;
+    if (!isDefault && (r.value === base || r.resolvedModel === base)) out[base] = r.supportsFastMode;
     else if (!(base in out)) out[base] = r.supportsFastMode;
   }
   return out;
