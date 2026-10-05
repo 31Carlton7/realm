@@ -15,6 +15,9 @@ import { NotFoundError } from "../store/rows";
  * to die whenever its pane closes. A restart restores only what this service persisted.
  */
 export class BrowserService {
+  /** The address each pane last failed to load, until it loads or the pane moves on. */
+  private failedAt = new Map<string, string>();
+
   constructor(private d: { db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore; browsers: BrowsersStore; history: BrowserHistoryStore; now?: () => number }) {}
 
   open(p: { spaceId: string; url: string }): { browserId: string; itemId: string; url: string } {
@@ -48,13 +51,13 @@ export class BrowserService {
    *  The icon is the page's, so it never outlives the page: a new url with no favicon beside it clears
    *  the old one rather than lending it to a page that never showed it. And one that is not a favicon
    *  as Realm keeps them (`isFaviconDataUrl`) is kept as none. */
-  update(browserId: string, patch: { url?: string; title?: string; favicon?: string }): void {
+  update(browserId: string, patch: { url?: string; title?: string; favicon?: string; failed?: boolean }): void {
     const before = this.d.browsers.get(browserId);
     const favicon = patch.favicon !== undefined ? (isFaviconDataUrl(patch.favicon) ? patch.favicon : "")
       : patch.url !== undefined && patch.url !== before?.url ? "" : undefined;
     const row = this.d.browsers.update(browserId, { url: patch.url, title: patch.title, favicon });
     if (!row) throw new NotFoundError("browser", browserId);
-    this.recordHistory(before, row);
+    this.recordHistory(before, row, patch.failed === true);
     const item = this.d.items.findByRefId(browserId);
     if (!item) return;
     let changed = false;
@@ -101,12 +104,19 @@ export class BrowserService {
    * persists after every navigation settles (debounced, so a redirect chain lands once, on where it
    * ended). The same url with a new title is the page renaming itself after load, or a single-page app
    * retitling a view: the row is renamed and no visit is counted, or every SPA would rank first.
+   *
+   * An address that did not load is no visit, and its error page's title — the bare host — renames no
+   * row a real visit wrote. The pane remembers it, so the Reload that brings the page in counts as the
+   * visit its own url change never will: it is the same address the row already holds.
    */
-  private recordHistory(before: Browser | null, after: Browser): void {
+  private recordHistory(before: Browser | null, after: Browser, failed: boolean): void {
+    if (failed) { this.failedAt.set(after.id, after.url); return; }
+    const retried = this.failedAt.get(after.id) === after.url;
+    this.failedAt.delete(after.id);
     if (!isHistoryUrl(after.url)) return;
     const profileId = this.d.spaces.get(after.spaceId)?.profileId;
     if (!profileId) return;
-    if (before?.url === after.url) this.d.history.retitle(profileId, after.url, after.title);
+    if (before?.url === after.url && !retried) this.d.history.retitle(profileId, after.url, after.title);
     else this.d.history.recordVisit(profileId, after.url, after.title, this.d.now?.() ?? Date.now());
     // The row's icon is this page's by now — `update` cleared the last page's off it.
     this.d.history.setFavicon(profileId, after.url, after.favicon);
@@ -117,6 +127,7 @@ export class BrowserService {
     const row = this.d.browsers.get(browserId);
     const item = this.d.items.findByRefId(browserId);
     if (!row && !item) throw new NotFoundError("browser", browserId);
+    this.failedAt.delete(browserId);
     this.d.browsers.delete(browserId);
     if (item) {
       this.d.items.delete(item.id);
