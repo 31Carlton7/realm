@@ -44,6 +44,7 @@ import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
+import { createUiAgentProvider, listBranches } from "./ui/agent-tools";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
 import { DecisionLog } from "./laya/log";
@@ -359,6 +360,32 @@ export function defaultAdapters(): AdapterRegistry {
       { question: "Which region should it deploy to?", header: "Region", multiSelect: false, allowOther: false,
         options: [{ label: "us-east-1" }, { label: "eu-west-1" }] },
       { question: "Paste the deploy token.", header: "Token", multiSelect: false, secret: true, options: [] },
+    ] } }],
+  }, {
+    // `realm-ui`'s card, called for real through this session's gateway the way an agent calls it. The
+    // fields only Realm can fill have nothing else to pose for: pictures resolved in the workspace (the
+    // live check writes `mockups/*.png` into the space's folder), a model per plan step from the
+    // catalog, and a file, a branch, a time and a masked token in one card.
+    on: "ask with pictures", emit: [{ kind: "call", tool: "realm-ui__ui_ask", input: { questions: [
+      { id: "look", prompt: "Which look should the settings page take?", header: "Design", kind: "choice", options: [
+        { label: "Calm", description: "Hairlines and quiet ink", image: "mockups/calm.png" },
+        { label: "Bold", description: "Big type, strong contrast", image: "mockups/bold.png" },
+        { label: "Dense", description: "Everything on one screen", image: "mockups/dense.png" }] },
+      { id: "extras", prompt: "What should ship with it?", header: "Scope", kind: "multi", options: [
+        { label: "Keyboard shortcuts" }, { label: "A preview of the dark face" }, { label: "Export settings" }] },
+    ] } }],
+  }, {
+    on: "ask who builds", emit: [
+      { kind: "text", text: "The plan has three steps. Pick who builds each one, and I'll start the sub-agents on those models." },
+      { kind: "call", tool: "realm-ui__ui_ask", input: { questions: [{ id: "builders", prompt: "Who builds each step?", header: "Plan", kind: "model",
+        rows: ["Write the migration that stores the theme", "Add the toggle to Settings ▸ App", "Write the tests for both"] }] } },
+    ],
+  }, {
+    on: "ask about the release", emit: [{ kind: "call", tool: "realm-ui__ui_ask", input: { message: "A few things before I cut the release.", questions: [
+      { id: "changelog", prompt: "Which file holds the changelog?", kind: "file" },
+      { id: "base", prompt: "Which branch should the release go on?", kind: "branch" },
+      { id: "when", prompt: "When should it go out?", kind: "time" },
+      { id: "token", prompt: "Paste the deploy token.", header: "Token", kind: "text", secret: true },
     ] } }],
   }, {
     // The fallback, which is the half of the gate worth being able to see: a question offering
@@ -936,6 +963,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     timeouts: opts.ask?.timeouts,
   });
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
+  /* `realm-ui`: questions asked on Realm's own card, with fields only Realm can fill. On by default and
+     in every mode — it can only ask, and an answer is the user's click. The model field offers what a
+     sub-agent can be put on, from the same catalog `delegation.models` answers with. */
+  const agentRunsForUi = agentRuns;
+  mcpGateway.registerProvider(createUiAgentProvider({
+    mcp, broker: browserBroker, session: (id) => sessions.get(id), models: (id) => agentRunsForUi.catalogFor(id), branches: listBranches,
+  }));
   // The one provider a space has to switch ON: it reaches every app on the Mac.
   mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist, observe: layaShadow.observe, assist: layaAssist }));
   /* The `realm-terminal` provider: a pty an agent can type into and read back. On by default, and
