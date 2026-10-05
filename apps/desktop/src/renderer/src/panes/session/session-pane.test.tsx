@@ -2731,7 +2731,7 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
   it("an empty space says so, and Manage connections… opens the space settings' Connections tab", async () => {
     const { store } = await mountConn([]);
     const menu = await openConnectors();
-    await waitFor(() => expect(within(menu).queryByText("No connectors enabled in this space")).not.toBeNull());
+    await waitFor(() => expect(within(menu).getByRole("menuitem", { name: "Manage connections…" })).toHaveAccessibleDescription("None enabled in this space"));
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Manage connections…" }));
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("space-page"));
     expect(store.getState().spacePageTab.s1).toBe("connections");

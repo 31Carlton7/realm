@@ -349,7 +349,7 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, conn
       };
     }),
     { label: "Manage connections…", icon: <Icon name="plug" size={16} />, onSelect: onManageConnections,
-      detail: connectors === null ? "Loading…" : enabled.length === 0 ? "No connectors enabled in this space" : undefined },
+      detail: connectors === null ? "Loading…" : enabled.length === 0 ? "None enabled in this space" : undefined },
   ];
   return (
     <>

@@ -153,12 +153,17 @@ function HtmlMenu({ items, onClose, at, anchorRef, returnFocusRef, align = "left
      A menu taller than the window above the prompter is the "+" menu with a space's connectors in it. */
   useDissolve(list);
 
-  // Focus-in on open. The hook already captured the restore target at mount, so the roving focus
-  // this moves into the menu never becomes the thing focus returns to.
+  // Focus-in on open — once the menu has been PLACED. Until then it is `visibility: hidden`, and a
+  // hidden element takes no focus: a focus at mount silently stayed on the trigger, so the arrows
+  // went nowhere (jsdom, which focuses anything, never noticed). The hook already captured the
+  // restore target at mount, so the roving focus this moves in never becomes what focus returns to.
+  const focusedIn = useRef(false);
   useLayoutEffect(() => {
+    if (!pos || focusedIn.current) return;
+    focusedIn.current = true;
     focusItem(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on the first placement
+  }, [pos]);
 
   const buttons = () =>
     Array.from(ref.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);

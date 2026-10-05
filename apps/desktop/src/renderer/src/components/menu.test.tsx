@@ -277,6 +277,22 @@ describe("Menu keyboard (U-M10/A-H3)", () => {
     expect(screen.getByRole("menuitem", { name: "Third" })).toHaveFocus();
   });
 
+  /* A browser gives no focus to an element that is `visibility: hidden`, which is what the menu is
+     until it has been placed — and jsdom focuses anything, so this test has to say so itself. THE
+     mutant is a focus at mount, before placement: in the app it silently left focus on the trigger,
+     and the arrow keys went nowhere. */
+  it("moves focus in once it has been placed, which is the first moment it can take focus", () => {
+    const realFocus = HTMLElement.prototype.focus;
+    const focus = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement, opts?: FocusOptions) {
+      for (let el: HTMLElement | null = this; el; el = el.parentElement) if (el.style.visibility === "hidden") return;
+      realFocus.call(this, opts);
+    });
+    try {
+      mount([plain("First"), plain("Second")]);
+      expect(screen.getByRole("menuitem", { name: "First" })).toHaveFocus();
+    } finally { focus.mockRestore(); }
+  });
+
   it("Home/End jump to the first/last enabled item", () => {
     mount([plain("A"), plain("B"), plain("C")]);
     fireEvent.keyDown(screen.getByRole("menu"), { key: "End" });

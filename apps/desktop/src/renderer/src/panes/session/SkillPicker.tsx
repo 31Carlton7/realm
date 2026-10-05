@@ -106,7 +106,13 @@ export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, o
 
   // Unlike the @-mention popover, focus DOES move here: the user opened a menu, not a word, so there
   // is no caret to protect and a search box that needs a second click to type in is a broken search box.
-  useEffect(() => { input.current?.focus(); }, []);
+  // Once PLACED, not at mount: until then the picker is `visibility: hidden`, which takes no focus.
+  const focusedIn = useRef(false);
+  useEffect(() => {
+    if (!pos || focusedIn.current) return;
+    focusedIn.current = true;
+    input.current?.focus();
+  }, [pos]);
   useEffect(() => { setActive(0); }, [query]);
 
   const pick = (s: Skill) => {
