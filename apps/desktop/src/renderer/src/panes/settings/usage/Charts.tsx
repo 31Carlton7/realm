@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import {
-  bucketLabel, columnGeometry, nearestSlot, niceScale, plotHeight, plotWidth,
-  slotCenter, sparklinePoints, stackSegments, tickIndices, type ChartBox,
+  bucketLabel, columnGeometry, labelTickPx, lineRuns, nearestSlot, niceRange, niceScale, plotHeight, plotWidth,
+  slotCenter, sparklinePoints, spreadLabels, stackSegments, tickIndices, type ChartBox,
 } from "./chart-model";
 import type { UsageBucketKind } from "@realm/contracts";
 
@@ -24,7 +24,13 @@ import type { UsageBucketKind } from "@realm/contracts";
  *  guarantees the clamp is never actually reached. */
 export const seriesColor = (i: number): string => `var(--series-${Math.min(8, Math.max(1, i + 1))})`;
 
-export type StackSeries = { key: string; label: string; colorIndex: number; values: number[] };
+/** A value may be null — nobody reported it — and is then drawn as nothing, never as a zero. */
+export type StackSeries = { key: string; label: string; colorIndex: number; values: readonly (number | null)[] };
+
+/** What the x axis reads: Usage's bucket starts, named by `bucketLabel`, or labels a writer chose (a
+ *  chart block's), whose width nothing bounds — so they are spaced by their own length. */
+type XAxis = { buckets: number[]; bucketKind: UsageBucketKind } | { labels: readonly string[] };
+const xLabels = (x: XAxis): readonly string[] => ("labels" in x ? x.labels : x.buckets.map((b) => bucketLabel(b, x.bucketKind)));
 
 type TooltipRow = { label: string; value: string; colorIndex: number };
 type Tip = { x: number; y: number; title: string; rows: TooltipRow[]; total?: string } | null;
@@ -83,35 +89,48 @@ function useMeasuredWidth(fallback: number): [number, React.RefObject<HTMLDivEle
 }
 
 /**
- * Stacked columns over time — the page's main chart.
+ * Stacked columns over time — the page's main chart, and a chart block's `columns`.
  *
  * Stacked rather than grouped because the reader's first question is "how much, in total, and when",
  * with "by which engine" second; grouped bars answer the second at the cost of the first. One axis
  * only: a second scale for tokens beside dollars would invent a correlation that is not in the data,
  * so the metric toggle swaps what the single axis MEANS instead of adding another.
+ *
+ * `totals` writes each column's total over it — a direct label, the value without the trip to the
+ * tooltip — but only where every one of them fits its slot: half a row of labels reads as the other
+ * half being missing.
  */
-export function StackedColumns({ buckets, bucketKind, series, format, label }: {
-  buckets: number[];
-  bucketKind: UsageBucketKind;
+export function StackedColumns({ series, format, tickFormat = format, label, description, totals = false, ...axis }: XAxis & {
   series: StackSeries[];
   format: (n: number) => string;
+  /** The axis's own figures, where a short form reads better than the exact one the tooltip gives. */
+  tickFormat?: (n: number) => string;
   label: string;
+  /** The chart in a sentence, for a reader who cannot see it (`describeChart`). */
+  description?: string;
+  totals?: boolean;
 }) {
   const [tip, setTip] = useState<Tip>(null);
   const [active, setActive] = useState<number>(-1);
   const svgRef = useRef<SVGSVGElement>(null);
   const titleId = useId();
+  const descId = useId();
   const [width, wrapRef] = useMeasuredWidth(BOX.width);
-  const box: ChartBox = { ...BOX, width };
+  const xs = xLabels(axis);
+  const n = xs.length;
 
+  const sums = xs.map((_, i) => series.reduce((a, s) => a + (s.values[i] ?? 0), 0));
+  const { max, ticks } = niceScale(Math.max(0, ...sums));
+  const { slot, bar } = columnGeometry(plotWidth({ ...BOX, width }), n);
+  const totalText = sums.map((t) => tickFormat(t));
+  // About 6px a character at the value rung, measured against Inter's figures.
+  const showTotals = totals && n > 0 && totalText.every((t) => t.length * 6 + 6 <= slot);
+  const box: ChartBox = { ...BOX, width, padTop: showTotals ? 26 : BOX.padTop };
   const w = plotWidth(box), h = plotHeight(box);
-  const totals = buckets.map((_, i) => series.reduce((a, s) => a + (s.values[i] ?? 0), 0));
-  const { max, ticks } = niceScale(Math.max(0, ...totals));
-  const { slot, bar } = columnGeometry(w, buckets.length);
-  const labelled = tickIndices(buckets.length, slot);
+  const labelled = tickIndices(n, slot, "labels" in axis ? labelTickPx(xs) : undefined);
 
   const showAt = (i: number) => {
-    if (i < 0 || i >= buckets.length) return;
+    if (i < 0 || i >= n) return;
     setActive(i);
     const rows = series
       .map((s) => ({ label: s.label, value: format(s.values[i] ?? 0), colorIndex: s.colorIndex, raw: s.values[i] ?? 0 }))
@@ -121,48 +140,49 @@ export function StackedColumns({ buckets, bucketKind, series, format, label }: {
       .sort((a, b) => b.raw - a.raw);
     setTip({
       x: slotCenter(i, slot, box.padLeft), y: box.padTop + h / 2,
-      title: bucketLabel(buckets[i]!, bucketKind),
+      title: xs[i]!,
       rows: rows.map(({ label: l, value, colorIndex }) => ({ label: l, value, colorIndex })),
-      total: format(totals[i] ?? 0),
+      total: format(sums[i] ?? 0),
     });
   };
   const clear = () => { setActive(-1); setTip(null); };
 
   // The wrapper still mounts on the empty path, so the observer is attached before there is
   // anything to draw and the first real render already knows its width.
-  if (buckets.length === 0) return <div className="chart-wrap" ref={wrapRef}><p className="chart-empty">Nothing ran in this range.</p></div>;
+  if (n === 0) return <div className="chart-wrap" ref={wrapRef}><p className="chart-empty">Nothing ran in this range.</p></div>;
 
   return (
     <div className="chart-wrap" ref={wrapRef}>
       <svg
         ref={svgRef} className="chart" viewBox={`0 0 ${box.width} ${box.height}`}
-        role="img" aria-labelledby={titleId}
+        role="img" aria-labelledby={titleId} aria-describedby={description ? descId : undefined}
         // The crosshair finds the X: the whole plot is live, so the pointer only has to be nearest a
         // column, never on it. Aiming at a 24px bar is a game; aiming at a date is a glance.
         onPointerMove={(e) => {
           const r = svgRef.current?.getBoundingClientRect();
           if (!r || r.width === 0) return;
-          showAt(nearestSlot(((e.clientX - r.left) / r.width) * box.width, box.padLeft, slot, buckets.length));
+          showAt(nearestSlot(((e.clientX - r.left) / r.width) * box.width, box.padLeft, slot, n));
         }}
         onPointerLeave={clear}
       >
         <title id={titleId}>{label}</title>
+        {description && <desc id={descId}>{description}</desc>}
         {ticks.map((t) => {
           const y = box.padTop + h - (t / max) * h;
           return (
             <g key={t}>
               <line className="chart-grid-line" x1={box.padLeft} x2={box.padLeft + w} y1={y} y2={y} />
-              <text className="chart-tick" x={box.padLeft - 8} y={y} textAnchor="end" dominantBaseline="middle">{format(t)}</text>
+              <text className="chart-tick" x={box.padLeft - 8} y={y} textAnchor="end" dominantBaseline="middle">{tickFormat(t)}</text>
             </g>
           );
         })}
         <line className="chart-axis-line" x1={box.padLeft} x2={box.padLeft + w} y1={box.padTop + h} y2={box.padTop + h} />
 
-        {buckets.map((b, i) => {
+        {xs.map((_, i) => {
           const segs = stackSegments(series.map((s) => s.values[i] ?? 0), max, h);
           const cx = slotCenter(i, slot, box.padLeft);
           return (
-            <g key={b} data-active={i === active || undefined}>
+            <g key={i} data-active={i === active || undefined}>
               {i === active && <rect className="chart-crosshair" x={cx - slot / 2} y={box.padTop} width={slot} height={h} />}
               {segs.map((seg, si) => seg.height <= 0 ? null : (
                 <rect
@@ -174,33 +194,150 @@ export function StackedColumns({ buckets, bucketKind, series, format, label }: {
                   rx={si === segs.length - 1 || segs.slice(si + 1).every((s) => s.height <= 0) ? Math.min(4, bar / 2) : 0}
                 />
               ))}
+              {showTotals && (sums[i] ?? 0) > 0 && (
+                <text className="chart-value" x={cx} y={box.padTop + h - ((sums[i] ?? 0) / max) * h - 6} textAnchor="middle">{totalText[i]}</text>
+              )}
             </g>
           );
         })}
 
         {labelled.map((i) => (
           <text key={i} className="chart-tick" x={slotCenter(i, slot, box.padLeft)} y={box.height - 8} textAnchor="middle">
-            {bucketLabel(buckets[i]!, bucketKind)}
+            {xs[i]}
           </text>
         ))}
       </svg>
 
-      {/* Keyboard parity: one focusable control walks the same columns the pointer snaps to, and
-          shows the same readout. A chart reachable only by pointer is a chart half the readers
-          cannot use. */}
-      <div
-        className="chart-kbd" tabIndex={0} role="slider" aria-label={`${label} — step through buckets`}
-        aria-valuemin={0} aria-valuemax={Math.max(0, buckets.length - 1)} aria-valuenow={Math.max(0, active)}
-        aria-valuetext={active >= 0 ? `${bucketLabel(buckets[active]!, bucketKind)}: ${format(totals[active] ?? 0)}` : "no bucket selected"}
-        onFocus={() => showAt(active >= 0 ? active : buckets.length - 1)}
-        onBlur={clear}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowRight") { e.preventDefault(); showAt(Math.min(buckets.length - 1, active + 1)); }
-          if (e.key === "ArrowLeft") { e.preventDefault(); showAt(Math.max(0, active - 1)); }
-          if (e.key === "Home") { e.preventDefault(); showAt(0); }
-          if (e.key === "End") { e.preventDefault(); showAt(buckets.length - 1); }
+      <StepKeys label={`${label} — step through ${"labels" in axis ? "the columns" : "buckets"}`} n={n} active={active}
+        valueText={(i) => `${xs[i]}: ${format(sums[i] ?? 0)}`} onShow={showAt} onClear={clear} />
+      {tip && <Tooltip tip={tip} width={box.width} />}
+    </div>
+  );
+}
+
+/**
+ * Keyboard parity: one focusable control walks the same points the pointer snaps to, and shows the
+ * same readout. A chart reachable only by pointer is a chart half the readers cannot use.
+ */
+function StepKeys({ label, n, active, valueText, onShow, onClear }: {
+  label: string; n: number; active: number; valueText: (i: number) => string; onShow: (i: number) => void; onClear: () => void;
+}) {
+  return (
+    <div
+      className="chart-kbd" tabIndex={0} role="slider" aria-label={label}
+      aria-valuemin={0} aria-valuemax={Math.max(0, n - 1)} aria-valuenow={Math.max(0, active)}
+      aria-valuetext={active >= 0 ? valueText(active) : "no bucket selected"}
+      onFocus={() => onShow(active >= 0 ? active : n - 1)}
+      onBlur={onClear}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowRight") { e.preventDefault(); onShow(Math.min(n - 1, active + 1)); }
+        if (e.key === "ArrowLeft") { e.preventDefault(); onShow(Math.max(0, active - 1)); }
+        if (e.key === "Home") { e.preventDefault(); onShow(0); }
+        if (e.key === "End") { e.preventDefault(); onShow(n - 1); }
+      }}
+    />
+  );
+}
+
+/**
+ * Lines over ordered labels — a chart block's `lines`, for comparing series whose parts are not one
+ * whole (which is what stacking would claim).
+ *
+ * A line reads its slope rather than its length, so the axis need not stand on zero; a range that
+ * already comes near it is drawn from it anyway, where a reader looks for the floor. Several lines
+ * are named at their present end, beside the last value each reported, when the plot has the room —
+ * the legend's job without the trip to it — and by the legend under the chart when it does not.
+ */
+export function LineChart({ labels, series, format, tickFormat = format, label, description }: {
+  labels: readonly string[];
+  series: StackSeries[];
+  format: (n: number) => string;
+  tickFormat?: (n: number) => string;
+  label: string;
+  description?: string;
+}) {
+  const [tip, setTip] = useState<Tip>(null);
+  const [active, setActive] = useState<number>(-1);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const titleId = useId();
+  const descId = useId();
+  const [width, wrapRef] = useMeasuredWidth(BOX.width);
+  const n = labels.length;
+
+  const all = series.flatMap((s) => s.values.filter((v): v is number => v !== null));
+  const lo = Math.min(...all), hi = Math.max(...all);
+  const { min, max, ticks } = niceRange(lo >= 0 && lo <= hi / 2 ? 0 : lo, hi);
+  const endPad = Math.min(140, Math.max(0, ...series.map((s) => s.label.length)) * 6 + 18);
+  const direct = series.length > 1 && width - BOX.padLeft - endPad >= 240;
+  const box: ChartBox = { ...BOX, width, padRight: direct ? endPad : BOX.padRight };
+  const w = plotWidth(box), h = plotHeight(box);
+  const { slot } = columnGeometry(w, n);
+  const yOf = (v: number) => box.padTop + h - (max > min ? ((v - min) / (max - min)) * h : h / 2);
+  const last = (s: StackSeries) => { for (let i = n - 1; i >= 0; i--) if (s.values[i] != null) return i; return -1; };
+  const ends = direct
+    ? spreadLabels(series.filter((s) => last(s) >= 0).map((s) => ({ key: s.key, y: yOf(s.values[last(s)]!) })), 14, box.padTop, box.padTop + h)
+    : null;
+  const labelled = tickIndices(n, slot, labelTickPx(labels));
+
+  const showAt = (i: number) => {
+    if (i < 0 || i >= n) return;
+    setActive(i);
+    const rows = series.flatMap((s) => {
+      const v = s.values[i];
+      return v === null || v === undefined ? [] : [{ label: s.label, value: format(v), colorIndex: s.colorIndex, raw: v }];
+    }).sort((a, b) => b.raw - a.raw);
+    setTip({ x: slotCenter(i, slot, box.padLeft), y: box.padTop + h / 2, title: labels[i]!,
+      rows: rows.map(({ label: l, value, colorIndex }) => ({ label: l, value, colorIndex })) });
+  };
+  const clear = () => { setActive(-1); setTip(null); };
+
+  return (
+    <div className="chart-wrap" ref={wrapRef}>
+      <svg
+        ref={svgRef} className="chart" viewBox={`0 0 ${box.width} ${box.height}`}
+        role="img" aria-labelledby={titleId} aria-describedby={description ? descId : undefined}
+        onPointerMove={(e) => {
+          const r = svgRef.current?.getBoundingClientRect();
+          if (!r || r.width === 0) return;
+          showAt(nearestSlot(((e.clientX - r.left) / r.width) * box.width, box.padLeft, slot, n));
         }}
-      />
+        onPointerLeave={clear}
+      >
+        <title id={titleId}>{label}</title>
+        {description && <desc id={descId}>{description}</desc>}
+        {ticks.map((t) => (
+          <g key={t}>
+            <line className={t === 0 ? "chart-axis-line" : "chart-grid-line"} x1={box.padLeft} x2={box.padLeft + w} y1={yOf(t)} y2={yOf(t)} />
+            <text className="chart-tick" x={box.padLeft - 8} y={yOf(t)} textAnchor="end" dominantBaseline="middle">{tickFormat(t)}</text>
+          </g>
+        ))}
+        {active >= 0 && <rect className="chart-crosshair" x={slotCenter(active, slot, box.padLeft) - slot / 2} y={box.padTop} width={slot} height={h} />}
+        {series.map((s) => (
+          <g key={s.key}>
+            {lineRuns(s.values, slot, box.padLeft, box.padTop, h, min, max).map((pts) => pts.includes(" ")
+              ? <polyline key={pts} className="chart-line" points={pts} stroke={seriesColor(s.colorIndex)} />
+              // A run of one reported value between two gaps: a polyline of one point draws nothing.
+              : <circle key={pts} className="chart-point" cx={pts.split(",")[0]} cy={pts.split(",")[1]} r={2.5} fill={seriesColor(s.colorIndex)} />)}
+            {active >= 0 && s.values[active] != null && (
+              <circle className="chart-point" cx={slotCenter(active, slot, box.padLeft)} cy={yOf(s.values[active]!)} r={3.5} fill={seriesColor(s.colorIndex)} />
+            )}
+          </g>
+        ))}
+        {ends && series.map((s) => ends.has(s.key) && (
+          <g key={s.key} className="chart-end">
+            {/* The series' colour on a short stroke, the name in the ink: three of the light slots
+                are under 3:1 on white, and a name drawn in one of them would be unreadable text. */}
+            <line x1={box.padLeft + w + 6} x2={box.padLeft + w + 14} y1={ends.get(s.key)} y2={ends.get(s.key)} stroke={seriesColor(s.colorIndex)} />
+            <text className="chart-end-label" x={box.padLeft + w + 18} y={ends.get(s.key)} dominantBaseline="middle">{s.label}</text>
+          </g>
+        ))}
+        {labelled.map((i) => (
+          <text key={i} className="chart-tick" x={slotCenter(i, slot, box.padLeft)} y={box.height - 8} textAnchor="middle">{labels[i]}</text>
+        ))}
+      </svg>
+      <StepKeys label={`${label} — step through the points`} n={n} active={active}
+        valueText={(i) => `${labels[i]}: ${series.flatMap((s) => (s.values[i] == null ? [] : [`${s.label} ${format(s.values[i]!)}`])).join(", ") || "no value"}`}
+        onShow={showAt} onClear={clear} />
       {tip && <Tooltip tip={tip} width={box.width} />}
     </div>
   );
@@ -215,11 +352,12 @@ export function StackedColumns({ buckets, bucketKind, series, format, label }: {
  * shows, and would break the categorical checks by construction.
  */
 export function BreakdownBars({ rows, format, label }: {
-  rows: { key: string; label: string; colorIndex: number; value: number; caption: string }[];
+  /** A null value is one nobody reported: its row stays, with an empty track and no number. */
+  rows: { key: string; label: string; colorIndex: number; value: number | null; caption: string }[];
   format: (n: number) => string;
   label: string;
 }) {
-  const max = Math.max(0, ...rows.map((r) => r.value));
+  const max = Math.max(0, ...rows.map((r) => r.value ?? 0));
   if (rows.length === 0) return <p className="chart-empty">Nothing to break down in this range.</p>;
   return (
     <ul className="bd-bars" aria-label={label}>
@@ -227,12 +365,12 @@ export function BreakdownBars({ rows, format, label }: {
         <li className="bd-bar-row" key={r.key}>
           <span className="bd-bar-label" title={r.label}>{r.label}</span>
           <span className="bd-bar-track">
-            <span className="bd-bar-fill" style={{ width: `${max > 0 ? (r.value / max) * 100 : 0}%`, background: seriesColor(r.colorIndex) }} />
+            <span className="bd-bar-fill" style={{ width: `${max > 0 ? ((r.value ?? 0) / max) * 100 : 0}%`, background: seriesColor(r.colorIndex) }} />
           </span>
           {/* The value rides OUTSIDE the bar, always. Inside, it would need measuring against every
               bar's rendered width and would be clipped on the short ones — and a cropped number is
               worse than one that simply sits beside its bar. */}
-          <span className="bd-bar-value">{format(r.value)}</span>
+          <span className="bd-bar-value">{r.value === null ? "—" : format(r.value)}</span>
           <span className="bd-bar-caption">{r.caption}</span>
         </li>
       ))}

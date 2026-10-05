@@ -12,6 +12,7 @@ import { useMediaByCandidate } from "./media/use-media";
 import { markPaths } from "./file-paths";
 import { markFileRefs, useFileLinks, type FileLinkContext } from "./file-links";
 import { NO_ARRIVALS, arrivalLength, markArrivals, noteArrival, type Arrivals } from "./arrival-fade";
+import { blockFenceAttrs, parkUiBlock, useUiBlockPortals } from "./rich/ui-block-md";
 
 marked.setOptions({ gfm: true, breaks: false });
 /* Fenced code is tokenised here rather than left as plain text (Plan 24 W1). It happens BEFORE
@@ -21,13 +22,15 @@ marked.setOptions({ gfm: true, breaks: false });
  * `decorate` below can still label the block's header. */
 marked.use({
   renderer: {
-    code({ text, lang }) {
+    code({ text, lang, raw }) {
       const name = (lang ?? "").trim().split(/\s+/)[0] ?? "";
-      const grammar = grammarFor(name);
+      // A chart's or a comparison's body is JSON, and reads as JSON for as long as it is code.
+      const grammar = grammarFor(/^realm-(?:chart|compare)$/i.test(name) ? "json" : name);
       const cls = ["hljs", name && `language-${name.toLowerCase().replace(/[^\w+-]/g, "")}`].filter(Boolean).join(" ");
       // The trailing newline is marked\'s own: a fence\'s last line ends in one, and dropping it
-      // changes what the copy button puts on the clipboard.
-      return `<pre><code class="${cls}">${highlightToHtml(text, grammar)}\n</code></pre>\n`;
+      // changes what the copy button puts on the clipboard. A block fence that has CLOSED is marked
+      // to be drawn (rich/ui-block-md.tsx); one still streaming in stays code.
+      return `<pre${blockFenceAttrs(name, raw)}><code class="${cls}">${highlightToHtml(text, grammar)}\n</code></pre>\n`;
     },
   },
 });
@@ -162,6 +165,7 @@ function decorate(html: string, cite: readonly string[]): string {
     head.append(label, copy);
     pre.replaceWith(wrap);
     wrap.append(head, pre);
+    parkUiBlock(wrap);
   }
   return doc.body.innerHTML;
 }
@@ -208,6 +212,7 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, ar
   const html = useMemo(() => (onPath ? renderMarkdownWithPaths(text, cite) : renderMarkdown(text, cite)), [text, cite, onPath]);
   const body = useRef<HTMLDivElement>(null);
   const media = useMediaPortals(body, html);
+  const blocks = useUiBlockPortals(body, html);
   // After `useMediaPortals`, whose layout effect writes the markup this one marks: a component's
   // layout effects run in the order its hooks were called.
   useArrivalFade(body, html, arrive);
@@ -260,6 +265,7 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, ar
         onPath(el.getAttribute("data-path") ?? "", el);
       }} />
       {media}
+      {blocks}
     </div>
   );
 }

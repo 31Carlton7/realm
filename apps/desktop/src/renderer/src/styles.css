@@ -3527,6 +3527,69 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .md-code-lang { font: 11px var(--font-mono); color: var(--ink-3); }
 /* 18px in, matching the head, because a 36px corner eats the first character of a line set at 12. */
 .md-code pre { margin: 0; padding: 4px 18px 14px; border-radius: 0; background: none; font-size: 13px; line-height: calc(1.65 + var(--lh-shift)); color: var(--syn-fg); }
+/* ── Blocks an agent writes and Realm draws (rich/UiBlock.tsx) ───────────────────────────
+   A closed ```mermaid / ```realm-chart / ```realm-compare fence is parked in `.md-block` as its code;
+   the drawn block lands beside it and the code steps out of the way, so a body that does not draw
+   is simply the code it always was, and "Show source" is the same code coming back under the
+   drawing. The reason a body stayed code sits in the code's head beside its language. */
+.md-block { display: flex; flex-direction: column; }
+.md-block > .md-code { order: 1; }
+.md-block:has(> .ui-block:not([data-source])) > .md-code { display: none; }
+.md-block-reason { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
+.md-block-reason:empty { display: none; }
+/* The fenced-code panel — curve, fill, head — with a drawing where the code was. */
+.ui-block { margin: 6px 0 8px; padding-bottom: 14px; min-width: 0; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface); }
+.ui-block[data-source] { margin-bottom: 4px; }
+.ui-block-head { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px 0 18px; }
+.ui-block-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--fw-title); color: var(--ink); }
+/* A diagram with no title of its own is named by its kind, which is a label, not a heading. */
+.ui-block-title[data-quiet] { font-size: 12px; font-weight: var(--fw-label); color: var(--ink-2); }
+.ui-block-sub { flex: none; font-size: 12px; color: var(--ink-2); }
+.ui-block-acts { display: flex; align-items: center; gap: 4px; flex: none; margin-left: auto; }
+.ui-block-acts .tool-copy { margin-left: 0; }
+.ui-block-act[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
+.ui-block-copied { color: var(--rl-success); }
+.ui-chart { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 2px 18px 0; }
+.ui-chart .bd-bars { padding-top: 4px; }
+/* A column's total over it, and a line's name at its end: the value or the name where the eye is. */
+.chart-value { fill: var(--ink-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-end line { stroke-width: 2; stroke-linecap: round; }
+.chart-end-label { fill: var(--ink-2); font-size: 11px; }
+.ui-sparks { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 4px 18px 0; list-style: none; }
+.ui-spark { display: grid; grid-template-columns: minmax(80px, 1fr) minmax(96px, 2fr) auto; align-items: center; gap: 12px; font-size: 13px; }
+.ui-spark .sparkline { margin-top: 0; }
+.ui-spark-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.ui-spark-value { color: var(--ink); font-variant-numeric: tabular-nums; }
+/* The values and the comparison scroll inside the block, never widening the column they sit in. The
+   `.ui-block` prefix outranks `.md`'s table rules, whose sticky head and panel fill belong to a
+   table that is the whole message rather than one drawn inside a panel. */
+.ui-block-scroll { max-height: 360px; margin: 0 18px; overflow: auto; }
+.ui-block .ui-values, .ui-block .ui-compare { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.ui-block .ui-values :is(th, td), .ui-block .ui-compare :is(th, td) { position: static; padding: 6px 10px; border: 0;
+  border-bottom: var(--hairline-w) solid var(--line); background: none; text-align: left; vertical-align: top; }
+.ui-block :is(.ui-values, .ui-compare) tbody tr:last-child :is(th, td) { border-bottom: 0; }
+.ui-block :is(.ui-values, .ui-compare) tbody tr:hover { background: none; }
+.ui-block .ui-values thead th { font-size: 12px; font-weight: var(--fw-label); color: var(--ink-2); text-align: right; white-space: nowrap; }
+.ui-block .ui-values tbody th { font-weight: var(--fw-label); color: var(--ink); }
+.ui-block .ui-values td { color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ui-block .ui-values .usage-swatch { margin-right: 6px; }
+.ui-none { color: var(--ink-3); }
+.ui-block .ui-compare thead th { font-weight: var(--fw-title); color: var(--ink); vertical-align: bottom; }
+.ui-block .ui-compare tbody th { font-weight: var(--fw-label); color: var(--ink-2); white-space: nowrap; }
+.ui-block .ui-compare td { color: var(--ink); min-width: 120px; }
+/* The pick stands on one raised band down its column, rounded at its two ends — a surface step,
+   never the accent, which is for what can be clicked. Its name says so in words above it. */
+.ui-block .ui-compare [data-pick] { background: var(--hover); }
+.ui-block .ui-compare [data-end="top"] { border-radius: var(--r-panel) var(--r-panel) 0 0; }
+.ui-block .ui-compare [data-end="bottom"] { border-radius: 0 0 var(--r-panel) var(--r-panel); }
+.ui-compare-pick { display: block; margin-bottom: 2px; font-size: 11px; font-weight: var(--fw-label); color: var(--accent-ink); }
+/* A drawing at its own width, shrunk to fit down to four fifths of it — its 14px labels then still
+   clear the 11px floor — and scrolled sideways past that rather than shrunk any further. */
+.ui-diagram { overflow-x: auto; overflow-y: hidden; padding: 4px 18px 0; }
+.ui-diagram svg { display: block; width: 100%; max-width: var(--diagram-w); min-width: calc(var(--diagram-w) * 0.8); height: auto; margin: 0 auto; }
+/* Mermaid lays text out to measure it, so it draws in the document — off to one side, unseen. */
+.ui-diagram-scratch { position: fixed; top: 0; left: -10000px; width: 1200px; pointer-events: none; }
 /* A link is colour and weight, no underline: the accent already says "this goes somewhere", and an
    underline under every link in a paragraph of prose is a paragraph of rules. Hover restores it. */
 .md a { color: var(--rl-accent); font-weight: var(--fw-label); text-decoration: none; }
@@ -5085,6 +5148,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .search-field,
 :root[data-squircle] .palette,
 :root[data-squircle] .md-code,
+:root[data-squircle] .ui-block,
 :root[data-squircle] .edit-summary,
 :root[data-squircle] .subagents-compose,
 :root[data-squircle] .diff-review,
@@ -5353,6 +5417,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
    with no background of its own, so there is nothing at the corners for the square clip to reveal. */
 :root[data-squircle] .md-code { --sq-fill: var(--surface); box-shadow: none; }
+/* A drawn block is the same panel the code it replaced was, painted the same way. */
+:root[data-squircle] .ui-block { --sq-fill: var(--surface); box-shadow: none; }
 /* A turn's edit card is content in the log for the same reason, and on the card rung (see the card). */
 :root[data-squircle] .edit-summary { --sq-fill: var(--surface); box-shadow: none;
   --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
@@ -5689,7 +5755,7 @@ select { appearance: none; padding-right: 22px;
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
-  .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display,
+  .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display, .ui-block-scroll, .ui-diagram,
   /* the diff pane */
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
   /* page panes */
