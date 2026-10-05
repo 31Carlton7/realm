@@ -69,6 +69,9 @@ export type OpenViewerInput = {
 };
 
 export type ViewerState = {
+  /** Which look this is: a new one each time the viewer is opened, so nothing of the last look's — its
+   *  exchange, the files its answers already put on the stage — carries into the next. */
+  look: number;
   files: ViewerFile[];
   index: number;
   /** The owner of every file without provenance of its own — and, once the viewer has made one, of

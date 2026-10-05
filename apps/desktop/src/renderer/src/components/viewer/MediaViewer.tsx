@@ -31,7 +31,7 @@ type Facts = { size: number | null; mtimeMs: number | null } | null;
 export function MediaViewer() {
   const viewer = useApp((s) => s.viewer);
   if (!viewer) return null;
-  return <ViewerWindow viewer={viewer} />;
+  return <ViewerWindow key={viewer.look} viewer={viewer} />;
 }
 
 function ViewerWindow({ viewer }: { viewer: ViewerState }) {
@@ -57,6 +57,13 @@ function ViewerWindow({ viewer }: { viewer: ViewerState }) {
       if (back?.isConnected) back.focus();
     };
   }, []);
+
+  /* A surface opened over the window while the viewer is up — ⌘K, a sheet, a page, the quick chat —
+     is the newer thing asked for, and it would open UNDER the viewer, unseen and holding the keyboard.
+     The viewer is a look, not a place, so it gives way. */
+  const others = useApp((s) => [s.paletteOpen, s.spacesOpen, s.sheet?.kind ?? "", s.pageOverlay?.kind ?? "", s.quickChat?.sessionId ?? ""].join("|"));
+  const opened = useRef(others);
+  useEffect(() => { if (others !== opened.current) closeViewer(); }, [others, closeViewer]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

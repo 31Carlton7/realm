@@ -3153,6 +3153,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const held = id ? get().sessions[id] : undefined;
       return id && held && !next[id] ? { ...next, [id]: held } : next;
     };
+    /** How many looks the viewer has had, so a new one is never mistaken for the last. */
+    let looks = 0;
     /** A session this window can still reach: one it holds a row for, or one `sessionSpace` — which
      *  spans every space of the profile — places somewhere. A deleted session is neither. */
     const reachableSession = (id: string): boolean => get().sessions[id] !== undefined || id in get().sessionSpace;
@@ -6344,6 +6346,7 @@ await get().refreshCustomThemes().catch(() => {});
         const sessionId = input.sessionId && reachableSession(input.sessionId) ? input.sessionId : null;
         const focused = typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null;
         set({ viewer: {
+          look: ++looks,
           files: [...files], index: Math.max(0, Math.min(input.index ?? 0, files.length - 1)),
           sessionId, spaceId: (sessionId && get().sessionSpace[sessionId]) || input.spaceId || null,
           thread: null, detached: null, pick: null, marking: null, opener: input.opener ?? focused,

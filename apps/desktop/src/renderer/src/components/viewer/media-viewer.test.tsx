@@ -112,6 +112,28 @@ describe("opening a file", () => {
     expect(viewerEl()).not.toBeNull();
   });
 
+  it("gives way to a surface opened over the window while it is up, which would otherwise open under it", async () => {
+    // ⌘K over the viewer would put the palette — and the keyboard — behind a full-window overlay.
+    // THE MUTANT: leave the viewer up; the palette opens where nobody can see it.
+    bridge([media("/work/hero.png")]);
+    const { store } = await mount([media("/work/hero.png")]);
+    fireEvent.click(await screen.findByRole("button", { name: "Open hero.png larger" }));
+    await screen.findByRole("dialog", { name: "hero.png" });
+    act(() => store.setState({ paletteOpen: true }));
+    await waitFor(() => expect(store.getState().viewer).toBeNull());
+  });
+
+  it("opens over a page that is already up, and stays", async () => {
+    // The Library is a page; a tile on it opens the viewer over it, and that page is not a newer one.
+    bridge([media("/work/hero.png")]);
+    const { store } = await mount([media("/work/hero.png")]);
+    act(() => store.setState({ pageOverlay: { kind: "library-page", refId: "library", spaceId: "s1" } }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open hero.png larger" }));
+    await screen.findByRole("dialog", { name: "hero.png" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(store.getState().viewer).not.toBeNull();
+  });
+
   it("hides the workspace's own video frames while it is up — a video layer paints over any overlay", async () => {
     bridge([media("/work/hero.png")]);
     await mount([media("/work/hero.png")]);
