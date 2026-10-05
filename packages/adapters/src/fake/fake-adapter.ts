@@ -1,3 +1,5 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { newId, sessionEvent, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import type { AgentAdapter, AgentHandle, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
@@ -7,7 +9,10 @@ export type FakeStep =
    *  arrive. Without it the whole message lands in one burst, which is all a test needs and too
    *  fast for anything that animates arrival (the prose's fade) to be seen doing it. */
   | { kind: "text"; text: string; paceMs?: number }
-  | { kind: "tool"; name: string; input: Record<string, unknown>; needsPermission?: boolean; result: string }
+  /** `apply` makes a `Write` or an `Edit` really happen, in the session's working directory: what lets
+   *  a scripted turn leave a checkout that checkpoints, diffs and the turn's edit summary can measure.
+   *  A failed edit (the text to replace is not there) settles the call as an error, as a real one would. */
+  | { kind: "tool"; name: string; input: Record<string, unknown>; needsPermission?: boolean; result: string; apply?: boolean }
   /** A plan, in either shape the `plan` event carries. Re-using a `planId` revises that plan in
    *  place, which is what the real agents do and the one plan behaviour a script must be able to
    *  reproduce. */
@@ -96,7 +101,8 @@ export class FakeAdapter implements AgentAdapter {
             q.push(sessionEvent("status", { status: "running" }));
             if (decision === "deny") { q.push(sessionEvent("assistant_text", { messageId: newId(), text: "Okay, I won't run that." })); continue; }
           }
-          q.push(sessionEvent("tool_result", { toolUseId, content: st.result, isError: false }));
+          const failed = st.apply ? applyEdit(opts.cwd, st.name, st.input) : null;
+          q.push(sessionEvent("tool_result", { toolUseId, content: failed ?? st.result, isError: failed !== null }));
         }
       }
       q.push(sessionEvent("usage", { costUsd: 0.001, inputTokens: 10, outputTokens: 10, numTurns: 1 }));
@@ -127,5 +133,30 @@ export class FakeAdapter implements AgentAdapter {
         q.close();
       },
     };
+  }
+}
+
+/** Make a scripted `Write` or `Edit` real, under `cwd` and nowhere else. The error message, or null. */
+function applyEdit(cwd: string, name: string, input: Record<string, unknown>): string | null {
+  const named = typeof input["file_path"] === "string" ? input["file_path"] : "";
+  const path = isAbsolute(named) ? named : join(cwd, named);
+  const rel = relative(cwd, path);
+  if (!named || rel.startsWith("..") || isAbsolute(rel)) return `${named || "(no path)"} is outside the working directory`;
+  try {
+    if (name === "Write" && typeof input["content"] === "string") {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, input["content"]);
+      return null;
+    }
+    const before = input["old_string"], after = input["new_string"];
+    if (name === "Edit" && typeof before === "string" && typeof after === "string") {
+      const text = readFileSync(path, "utf8");
+      if (!text.includes(before)) return `String to replace not found in ${named}`;
+      writeFileSync(path, text.replace(before, after));
+      return null;
+    }
+    return `${name} cannot be applied`;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
   }
 }

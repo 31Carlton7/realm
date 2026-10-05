@@ -622,6 +622,7 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("checkpoints.changed", { environmentId: result.environmentId });
     return result;
   });
+  reg("checkpoints.turnDiff", (p) => d.checkpoints.turnFileDiff(p));
 
   // Deep search (Plan 16 W1). Profile-scoped server-side — the service's joins are the enforcement,
   // and the service itself checks the profile exists (a typo'd id should say so, not answer empty).

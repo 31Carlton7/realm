@@ -1,4 +1,4 @@
-import type { AcpSessionMode, SessionEvent, SessionEventPayload } from "@realm/contracts";
+import type { AcpSessionMode, SessionEvent, SessionEventPayload, TurnChanges } from "@realm/contracts";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
@@ -139,6 +139,11 @@ export type Transcript = {
    *  the ordinary case — no generator, no Claude CLI, a decline, or a turn the user has already
    *  answered — and it is exactly when the prompter falls back to the deterministic ladder. */
   promptHint: { text: string; throughSeq: number } | null;
+  /** What each turn did to its checkout, as git measured it at the settle (`turn_changes`), keyed by
+   *  the `ts` of the run line it belongs to. Keyed rather than placed, because the measurement lands
+   *  after the settle — sometimes after the next message has already gone — and must still sit with
+   *  its own turn. Optional: absent on every transcript nothing has been measured in. */
+  changes?: Record<number, TurnChanges>;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
@@ -329,6 +334,9 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     case "prompt_hint":
       return t.promptHint && t.promptHint.throughSeq > e.payload.throughSeq ? t
         : { ...t, promptHint: { text: e.payload.text, throughSeq: e.payload.throughSeq } };
+    // Beside the blocks, not among them: it belongs to a run line that is already on screen.
+    case "turn_changes":
+      return { ...t, changes: { ...t.changes, [e.payload.settledAt]: e.payload } };
     case "feedback": {
       const { [e.payload.messageId]: _prev, ...rest } = t.feedback;
       return { ...t, feedback: e.payload.rating ? { ...rest, [e.payload.messageId]: e.payload.rating } : rest };

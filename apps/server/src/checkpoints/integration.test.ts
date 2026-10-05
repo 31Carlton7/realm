@@ -44,8 +44,18 @@ function initRepo(dir: string): void {
 }
 
 /** The fake agent answers "go" with one line of text and nothing else — it never touches the disk, so
- *  the test writes the files an agent would, and the checkpoint is the thing under test. */
-const script = [{ on: "go", emit: [{ kind: "text" as const, text: "ok" }] }];
+ *  the test writes the files an agent would, and the checkpoint is the thing under test. "hold" parks
+ *  the turn on a permission, which is the one way a fake session can be held mid-turn; "edit" makes
+ *  two real edits, for the turn's own measurement. */
+const script = [
+  { on: "go", emit: [{ kind: "text" as const, text: "ok" }] },
+  { on: "hold", emit: [{ kind: "tool" as const, name: "Bash", input: { command: "make" }, needsPermission: true, result: "made" }] },
+  { on: "edit", emit: [
+    { kind: "tool" as const, name: "Edit", apply: true, input: { file_path: "a.txt", old_string: "one", new_string: "two" }, result: "ok" },
+    { kind: "tool" as const, name: "Write", apply: true, input: { file_path: "notes/new.md", content: "# New\n\nhello\n" }, result: "created" },
+    { kind: "text" as const, text: "Edited." },
+  ] },
+];
 
 async function boot() {
   const home = tempDir("realm-cpint-");
@@ -58,6 +68,12 @@ async function boot() {
   return { home, c, sp };
 }
 const envOf = async (c: Any, spaceId: string) => (await c.call("environments.list", { spaceId })).result[0];
+/** Poll until `get` answers something, and hand that back — `waitFor` only says that it happened. */
+async function until<T>(get: () => Promise<T | null | undefined>): Promise<T> {
+  let found: T | null | undefined;
+  await waitFor(async () => (found = await get()) != null);
+  return found as T;
+}
 
 describe("checkpoints over rpc", () => {
   it("takes a checkpoint of the state BEFORE the turn, labelled from the message", async () => {
@@ -83,26 +99,29 @@ describe("checkpoints over rpc", () => {
     c.close();
   });
 
-  it("refuses to restore while the session's agent is still live, and allows it once it is gone", async () => {
+  it("refuses to restore while a turn is mid-flight, and restores under an agent that is only idle", async () => {
     const { c, sp } = await boot();
     const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
-    await c.call("sessions.send", { id: session.id, text: "go" });
+    await c.call("sessions.send", { id: session.id, text: "hold" });
     const env = await envOf(c, sp.id);
     const cp = (await c.call("checkpoints.list", { environmentId: env.id, sessionId: null })).result[0];
+    const request = await until(async () => (await c.call("sessions.events", { id: session.id })).result
+      .find((e: Any) => e.event.type === "permission_request"));
 
     writeFileSync(join(sp.folderPath, "agent.txt"), "written by the agent\n");
     const preview = (await c.call("checkpoints.preview", { id: cp.id })).result;
     expect(preview).toMatchObject({ filesChanged: 1, commitsRolledBack: 0, headMovable: true, intact: true, rewindsConversation: false });
 
+    // Parked on a permission is still mid-turn: the call it is asking about could write next.
     const blocked = await c.call("checkpoints.restore", { id: cp.id, acknowledge: { filesChanged: 1, commitsRolledBack: 0 } });
     expect(blocked.ok).toBe(false);
     expect(blocked.error.code).toBe("CHECKPOINT_ENVIRONMENT_BUSY");
     expect(existsSync(join(sp.folderPath, "agent.txt"))).toBe(true);
 
-    // Deleting the session disposes the live handle; the environment is then idle.
-    await c.call("sessions.delete", { id: session.id });
-    await waitFor(async () => (await c.call("sessions.list", { spaceId: sp.id })).result.length === 0);
-
+    // Answered, the turn settles — and the agent stays warm for the next message, writing nothing.
+    // That is the moment Undo is for, so it is no longer a refusal.
+    await c.call("sessions.respondPermission", { id: session.id, requestId: request.event.payload.requestId, decision: "allow" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
     const done = await c.call("checkpoints.restore", { id: cp.id, acknowledge: { filesChanged: 1, commitsRolledBack: 0 } });
     expect(done.ok).toBe(true);
     expect(done.result).toMatchObject({ environmentId: env.id, path: sp.folderPath, filesChanged: 1, filesRemoved: 1, conversationRewound: false });
@@ -114,6 +133,67 @@ describe("checkpoints over rpc", () => {
     const undone = await c.call("checkpoints.restore", { id: done.result.undoCheckpointId, acknowledge: { filesChanged: undoPreview.filesChanged, commitsRolledBack: undoPreview.commitsRolledBack } });
     expect(undone.ok).toBe(true);
     expect(readFileSync(join(sp.folderPath, "agent.txt"), "utf8")).toBe("written by the agent\n");
+    c.close();
+  });
+
+  it("measures what a turn changed when it settles, and serves that turn's patch for review", async () => {
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "edit" });
+    const changes = await until(async () => (await c.call("sessions.events", { id: session.id })).result
+      .find((e: Any) => e.event.type === "turn_changes"));
+    const env = await envOf(c, sp.id);
+    const cp = (await c.call("checkpoints.list", { environmentId: env.id, sessionId: session.id })).result[0];
+    // The settle that closed the run — the last idle before the measurement, not the one the adapter
+    // announces when it boots.
+    const settle = (await c.call("sessions.events", { id: session.id })).result
+      .filter((e: Any) => e.event.type === "status" && e.event.payload.status === "idle" && e.seq < changes.seq).at(-1);
+    expect(changes.event.payload).toMatchObject({
+      checkpointId: cp.id, settledAt: settle.event.ts, root: git(sp.folderPath, "rev-parse", "--show-toplevel").trim(), totalFiles: 2,
+    });
+    expect([...changes.event.payload.files].sort((a: Any, b: Any) => a.path.localeCompare(b.path))).toEqual([
+      { path: "a.txt", oldPath: null, status: "modified", additions: 1, deletions: 1 },
+      { path: "notes/new.md", oldPath: null, status: "added", additions: 3, deletions: 0 },
+    ]);
+    // After the turn, in the order it was measured: the settle first, then git's account of it.
+    expect(changes.seq).toBeGreaterThan(settle.seq);
+
+    const patch = (await c.call("checkpoints.turnDiff", { id: cp.id, afterTree: changes.event.payload.afterTree, path: "a.txt" })).result;
+    expect(patch.hunks[0].lines.map((l: Any) => `${l.kind}:${l.text}`)).toEqual(["del:one", "add:two"]);
+    c.close();
+  });
+
+  it("does not measure a message steered into a turn against the checkpoint of the turn it cut off", async () => {
+    // A steered message takes no checkpoint of its own (the agent may be mid-write), so its turn has
+    // no "before" — and must not borrow the one in front of the turn it interrupted, which would
+    // count that turn's work twice and call it this one's.
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "hold" });
+    await until(async () => (await c.call("sessions.events", { id: session.id })).result.find((e: Any) => e.event.type === "permission_request"));
+    writeFileSync(join(sp.folderPath, "b.txt"), "the first turn's work\n");
+    await c.call("sessions.send", { id: session.id, text: "edit", delivery: "steer" });
+    await until(async () => (await c.call("sessions.events", { id: session.id })).result.find((e: Any) => e.event.type === "assistant_text"));
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    // Long enough for a second measurement to have landed, if one were coming.
+    await new Promise((r) => setTimeout(r, 1_500));
+    const measured = (await c.call("sessions.events", { id: session.id })).result.filter((e: Any) => e.event.type === "turn_changes");
+    expect(measured).toHaveLength(1);
+    expect(measured[0].event.payload.files.map((f: Any) => f.path)).toEqual(["b.txt"]);
+    c.close();
+  });
+
+  it("asks git nothing about a turn that ran no tools", async () => {
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await c.call("sessions.send", { id: session.id, text: "edit" });
+    const events = await until(async () => {
+      const all = (await c.call("sessions.events", { id: session.id })).result;
+      return all.some((e: Any) => e.event.type === "turn_changes") ? all : null;
+    });
+    // One measurement, for the turn that edited — the first turn only talked.
+    expect(events.filter((e: Any) => e.event.type === "turn_changes")).toHaveLength(1);
     c.close();
   });
 

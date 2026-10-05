@@ -492,6 +492,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // The conversation half of a restore. The same late-bound closure as above, and the same knot:
     // SessionService owns the transcript, the live handles and the arm the next start reads.
     rewindSession: (input) => sessionService?.rewindConversation(input) ?? false,
+    // …and the stop a rewind needs first: the fork is honoured when the agent next starts.
+    releaseSession: async (id) => { await sessionService?.stopAgent(id); },
     notifications,
   });
   const envService = new EnvironmentService({ environments, spaces, worktrees, ports, checkpoints, notifications });
