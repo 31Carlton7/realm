@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { RefObject } from "react";
+import { useDissolve } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 
@@ -94,6 +95,10 @@ export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, o
   const [active, setActive] = useState(0);
   const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
   useAutoHideScrollbar(list);
+  /* The list runs out into the search field above it and the footer below it, rather than stopping
+     at either edge: a row sliced in half by "Manage skills & folders…" read as the list being
+     broken. Only the list is the scroller, so the field and the footer never go soft themselves. */
+  useDissolve(list);
 
   const shown = useMemo(() => filterSkills(skills, query), [skills, query]);
   const groups = useMemo(() => groupSkills(shown), [shown]);
@@ -110,9 +115,16 @@ export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, o
     onClose();
   };
 
+  /* Arrowing past the fold brings the highlight along, and lands it clear of the dissolve — the
+     list's `scroll-padding` is the band's depth. Done here rather than in an effect on `active`, so
+     a row the pointer merely passes over never scrolls the list out from under it. */
+  const step = (to: number) => {
+    setActive(to);
+    list.current?.querySelectorAll<HTMLElement>('[role="option"]')[to]?.scrollIntoView?.({ block: "nearest" });
+  };
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowDown") { e.preventDefault(); setActive((i) => Math.min(i + 1, shown.length - 1)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActive((i) => Math.max(i - 1, 0)); }
+    if (e.key === "ArrowDown") { e.preventDefault(); step(Math.min(active + 1, shown.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); step(Math.max(active - 1, 0)); }
     else if (e.key === "Enter") { e.preventDefault(); const s = shown[active]; if (s) pick(s); }
     else if (e.key === "Escape") { e.preventDefault(); onClose(); }
   };

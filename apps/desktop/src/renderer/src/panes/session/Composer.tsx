@@ -60,16 +60,22 @@ function GitChip({ gitInfo, onOpenDiff }: { gitInfo: GitInfo | null; onOpenDiff:
 /** Borderless ghost chip that opens an upward Menu (§4 control row). With nothing to pick it is not a
  *  control at all but a label — an agent whose CLI owns model choice still deserves its model named,
  *  and a disabled button would leave the tab order and be announced as unavailable. */
-function ChipMenu({ ariaLabel, title, label, icon, tint, items, warning }: { ariaLabel: string; title?: string; label: ReactNode; icon?: string;
+function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, warning, caret = true }: { ariaLabel: string; title?: string; label: ReactNode; icon?: string;
+  /** The glyph's rung: 12 beside the under-strip's 11px labels, 14 on the control row, where it sits
+   *  beside the model chip's own 14px mark. */
+  iconSize?: number;
   /** A colour for the glyph alone — the space chip wears its space's (Plan 27). */
-  tint?: string; items: MenuItem[]; warning?: boolean }) {
+  tint?: string; items: MenuItem[]; warning?: boolean;
+  /** The chevron. Off for a control whose mark already says what it opens onto — see the permission
+   *  control, which is a glyph and a word the way Codex's is. */
+  caret?: boolean }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   // A sibling of chip-label, never inside it: chip-label truncates with an ellipsis, which needs a
   // plain inline box — an icon nested in there gets no gap and sits off the text's centre line.
   const glyph = icon ? (tint
-    ? <span className="chip-brand chip-tint" style={{ color: tint }}><Icon name={icon} size={12} /></span>
-    : <Icon name={icon} size={12} className="chip-brand" />) : null;
+    ? <span className="chip-brand chip-tint" style={{ color: tint }}><Icon name={icon} size={iconSize} /></span>
+    : <Icon name={icon} size={iconSize} className="chip-brand" />) : null;
   if (items.length === 0) {
     return <span className="ghost-chip" data-static title={title ?? ariaLabel} data-warning={warning || undefined}>{glyph}<span className="chip-label">{label}</span></span>;
   }
@@ -81,7 +87,7 @@ function ChipMenu({ ariaLabel, title, label, icon, tint, items, warning }: { ari
         data-warning={warning || undefined} onClick={() => setOpen((v) => !v)}>
         {glyph}
         <span className="chip-label">{label}</span>
-        <Icon name="chevronDown" size={12} className="chip-caret" />
+        {caret && <Icon name="chevronDown" size={12} className="chip-caret" />}
       </button>
       {open && <Menu items={items} onClose={() => setOpen(false)} anchorRef={btn} placement="up" label={ariaLabel} />}
     </>
@@ -223,6 +229,13 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
 }
 
 const permissionLabel = (id: string) => PERMISSION_MODES.find((m) => m.id === id)?.label ?? id;
+/** Each rung's mark, worn by the control and by the rung's own row in its menu, so the row you pick is
+ *  the glyph the control then shows. A stored id this table does not know is drawn as `default`'s
+ *  asking shield — the label beside it still prints whatever the id was. */
+const PERMISSION_ICON: Record<(typeof PERMISSION_MODES)[number]["id"], IconName> = {
+  default: "shieldQuestion", acceptEdits: "shieldCheck", bypassPermissions: "shieldAlert",
+};
+const permissionIcon = (id: string): IconName => PERMISSION_ICON[id as keyof typeof PERMISSION_ICON] ?? "shieldQuestion";
 const MODE_LABEL: Record<SessionMode, string> = { build: "Build", plan: "Plan", ask: "Ask" };
 /** `search` for Ask, not the session bubble: the mode is reading and searching, and the bubble is
  *  already what a session row is. */
@@ -1091,7 +1104,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
      a gate you can walk around by being in the right mode is not a gate. */
   const buildPermissionItems = (current: string, apply: (id: string) => void) =>
     PERMISSION_MODES.map((m) => ({
-      label: m.label, checked: current === m.id,
+      label: m.label, checked: current === m.id, icon: <Icon name={permissionIcon(m.id)} size={14} />,
       onSelect: () => {
         if (m.id === "bypassPermissions" && current !== "bypassPermissions") { setConfirmBypass(true); return; }
         setConfirmBypass(false);
@@ -1300,12 +1313,16 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 reason this pair was drawn as a segmented control — a group of one is nine seam rules
                 that can never fire, and it left the permission chip wearing a squared corner and a
                 hairline ring that no other chip in the row has. */}
+            {/* A glyph and a word, as Codex draws it: no fill and no chevron at rest, a hover fill like
+                every chip on this row. Full access keeps its tone on the two of them and nowhere else
+                — the red wash it used to sit on read as a second warning about one setting. */}
             {canSetPermissionMode && !compact && (
               inReadOnly
-                ? <ChipMenu ariaLabel="Permission mode" warning={parked === "bypassPermissions"}
+                ? <ChipMenu ariaLabel="Permission mode" warning={parked === "bypassPermissions"} icon={permissionIcon(parked)} iconSize={14} caret={false}
                     title={`${MODE_LABEL[mode]} is read-only — this is what returning to Build will restore`}
                     label={permissionLabel(parked)} items={parkedItems} />
                 : !collapsed && <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
+                    icon={permissionIcon(session.permissionMode)} iconSize={14} caret={false}
                     label={permissionLabel(session.permissionMode)} items={permissionItems} />
             )}
             {confirmBypass && (

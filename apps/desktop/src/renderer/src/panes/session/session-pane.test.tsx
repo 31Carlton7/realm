@@ -193,6 +193,35 @@ describe("SessionPane", () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it("the permission control is a glyph and a word — each rung its own shield, worn by its menu row too, and no chevron", async () => {
+    const { store } = await mount("idle", reduceAll([]));
+    const chip = screen.getByRole("button", { name: "Permission mode" });
+    const glyph = () => chip.querySelector("svg")?.innerHTML;
+    // Codex's grammar: the mark and the label, nothing after them (the fill is styles.test.ts's half).
+    expect(chip.querySelector(".chip-caret")).toBeNull();
+    expect(chip.querySelectorAll("svg")).toHaveLength(1);
+    fireEvent.click(chip);
+    const rows = within(screen.getByRole("menu", { name: "Permission mode" })).getAllByRole("menuitemcheckbox");
+    expect(rows.map((r) => r.textContent)).toEqual(["Ask each time", "Accept edits", "Full access"]);
+    const marks = rows.map((r) => r.querySelector(".menu-icon svg")?.innerHTML);
+    // THE mutant: one shared shield for every rung. Three rungs read as three marks or not at all.
+    expect(marks.every(Boolean)).toBe(true);
+    expect(new Set(marks).size).toBe(3);
+    // The control wears the checked row's mark — what you pick is what it then shows.
+    expect(glyph()).toBe(marks[0]);
+    fireEvent.click(rows[1]!);
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
+    expect(glyph()).toBe(marks[1]);
+    // Full access, reached through its confirm, wears the warning shield and the warning tone.
+    await exited();
+    fireEvent.click(chip);
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Full access" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
+    expect(glyph()).toBe(marks[2]);
+    expect(chip).toHaveAttribute("data-warning");
+  });
+
   it("send morphs to Stop while running (both icons stay in the DOM) and interrupts; chip menus call setSessionOptions; opens the session on mount", async () => {
     const { api, store } = await mount("running", reduceAll([sessionEvent("assistant_delta", { messageId: "m1", delta: "str" })]));
     expect(api.calls).toContain("sessionEvents:se1:4");
@@ -2540,6 +2569,36 @@ describe("the '+' menu (Plan 12 W1)", () => {
     const picker = await screen.findByRole("dialog", { name: "Skills" });
     fireEvent.change(within(picker).getByRole("combobox", { name: "Search skills" }), { target: { value: "apple" } });
     expect(within(picker).getAllByRole("option").map((o) => o.textContent)).toEqual([expect.stringContaining("agents.apple-design")]);
+  });
+
+  it("the picker's list dissolves into the search field and the footer instead of being cut by them", async () => {
+    /* 15-skills-popover-cutoff.png: the last row sliced in half by "Manage skills & folders…". The
+       dissolve is a mask on the LIST, so the field above and the footer below never go soft. THE
+       mutant: drop the hook, and the list is a plain box with a hard edge at both ends again. */
+    await mountPlus({ skills: { s1: Array.from({ length: 14 }, (_, i) => skillRow(`skill-${String(i).padStart(2, "0")}`)) } });
+    const scrolled: string[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.textContent ?? ""); };
+    try {
+      openPlus();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Skills" }));
+      const picker = await screen.findByRole("dialog", { name: "Skills" });
+      const list = picker.querySelector<HTMLElement>(".skill-picker-list")!;
+      act(() => {
+        Object.defineProperty(list, "scrollHeight", { configurable: true, value: 700 });
+        Object.defineProperty(list, "clientHeight", { configurable: true, value: 300 });
+        list.dispatchEvent(new Event("scroll"));
+      });
+      expect(list.dataset.dissolve).toBe("end");
+      expect(picker.hasAttribute("data-dissolve")).toBe(false);
+      expect(picker.querySelector(".skill-picker-search")!.hasAttribute("data-dissolve")).toBe(false);
+      // Arrowing past the fold brings the highlight along — clear of the band, by the list's own
+      // scroll-padding — where a pointer passing over a row leaves the list where it is.
+      fireEvent.keyDown(within(picker).getByRole("combobox", { name: "Search skills" }), { key: "ArrowDown" });
+      expect(scrolled.at(-1)).toContain("skill-01");
+      const before = scrolled.length;
+      fireEvent.mouseEnter(within(picker).getByRole("option", { name: /skill-09/ }));
+      expect(scrolled.length).toBe(before);
+    } finally { delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView; }
   });
 
   it("picking a skill that is OFF turns it on for the space, then mentions it — a mention of a disabled skill resolves to nothing", async () => {

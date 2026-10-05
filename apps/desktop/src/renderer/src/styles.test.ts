@@ -691,6 +691,39 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(input).toContain("padding: 14px 16px 10px");
   });
 
+  it("the prompter's text is set at the medium rung, on the box both layers inherit from", () => {
+    /* Asked for by name: medium, not regular, inside the prompter. It goes on `.composer-editor` and
+       on neither layer under it, because the mirror's glyphs have to sit exactly under the textarea's
+       caret — THE mutant is the weight on the mirror alone (or the textarea alone), which paints
+       every run a few pixels off the caret by the end of a line. Through the ladder, never a literal,
+       so the font-weight preference still reaches it. */
+    expect(bodiesFor(".composer-editor").join(" ")).toContain("font-weight: var(--fw-medium)");
+    for (const layer of [".composer-highlight", ".composer-input", ".composer-hint"]) {
+      const body = bodiesFor(layer).join(" ");
+      expect(body, layer).toContain("font: inherit");
+      expect(body, layer).not.toContain("font-weight");
+    }
+  });
+
+  it("the prompter's popover lists dissolve at their ends, inside a surface that does not", () => {
+    /* 15-skills-popover-cutoff.png: the skill list's last row was cut by its footer. Each list is the
+       SCROLLER, so the mask fades rows into the field and the footer while the card keeps its fill
+       and corner; its scroll-padding is the band's own depth, so a row brought into view by the
+       keyboard lands clear of the band rather than half inside it. */
+    for (const list of [".skill-picker-list", ".mention-list"]) {
+      const body = bodiesFor(list).join(" ");
+      expect(body, list).toMatch(/overflow-y: auto/);
+      const depth = /--fade-h: (\d+)px/.exec(body)?.[1];
+      expect(depth, list).toBeDefined();
+      expect(body, list).toContain(`--fade-top-h: ${depth}px`);
+      expect(body, list).toContain(`scroll-padding-block: ${depth}px`);
+    }
+    // THE mutant: the scroller back on the surface — the mask would take the card's own edge with it.
+    const surface = bodiesFor(".mention-picker").join(" ");
+    expect(surface).toContain("overflow: hidden");
+    expect(surface).not.toMatch(/overflow-y: auto/);
+  });
+
   it("an app-level page is the BOTTOM of the overlay stack, not the top", () => {
     /* THE BUG this pins, which was four bugs wearing one number: the page overlay sat at z-index 200,
        above every floating surface in the app. Quick chat opened behind Settings, ⌘K opened behind
@@ -1722,10 +1755,24 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     const pill = bodiesFor(".bypass-confirm").join(" ");
     expect(pill).toContain("color: var(--rl-danger)");
     expect(pill).toContain("background: var(--red-tint)");
-    expect(bodiesFor('.ghost-chip[data-warning]').join(" ")).toContain("var(--red-tint)");
-    for (const body of [pill, bodiesFor('.ghost-chip[data-warning]').join(" ")]) {
+    // The chip's half of the pair is its HOVER now — see the test below for why it rests unfilled.
+    const lifted = bodiesFor(".ghost-chip[data-warning]:hover:not([data-static])").join(" ");
+    expect(lifted).toContain("--fill: var(--red-tint)");
+    for (const body of [pill, bodiesFor('.ghost-chip[data-warning]').join(" "), lifted]) {
       expect(body).not.toMatch(/(?:color|background|--fill):\s*color-mix/);
     }
+  });
+
+  it("the permission control rests as a glyph and a word — Full access keeps its tone on the ink alone", () => {
+    /* Codex's control, which the owner holds up as the bar: no fill and no highlight, an icon and a
+       label. The red wash Full access used to rest on was a second warning laid under the first, and
+       the only resting fill on a row of unfilled chips. THE mutant: put `--fill: var(--red-tint)` back
+       on the resting rule. */
+    const rest = bodiesFor(".ghost-chip[data-warning]").join(" ");
+    expect(rest).toContain("color: var(--rl-danger)");
+    expect(rest).not.toMatch(/--fill|background/);
+    // …and the hover keeps the tone, so pointing at the chip never reads as the warning going away.
+    expect(bodiesFor(".ghost-chip[data-warning]:hover:not([data-static])").join(" ")).toContain("color: var(--rl-danger)");
   });
 
   it("sidebar actives are a fill alone — SidebarNav has no accent tick and no weight bump", () => {
