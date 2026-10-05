@@ -1151,19 +1151,6 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".page-overlay-bar button").join(" ")).toContain("-webkit-app-region: no-drag");
   });
 
-  it("every control in the sidebar's drag region opts out of it — labels included, so Recent clicks", () => {
-    /* The column is a window-drag region, and macOS takes a press anywhere in one for the start of a
-       window drag: the page never hears the click. The lens's segments are LABELS round hidden radios,
-       and with only buttons and inputs opted out, "Recent" answered only on the 13px radio parked at
-       the start of its word (reported 10-04: "hard to click"). CDP's clicks go straight into the page
-       and never meet the OS's regions, so no live check can see this — it is held here. THE mutants:
-       `label` dropped from the opt-out, or the lens's track left in the column's region. */
-    const optOut = RULES.filter((r) => r.body.includes("-webkit-app-region: no-drag")).flatMap(partsOf);
-    for (const control of [".sidebar button", ".sidebar input", ".sidebar label", ".sb-lens"]) {
-      expect(optOut, `${control} is not opted out of the sidebar's drag region`).toContain(control);
-    }
-  });
-
   it("a folded sidebar takes no part in the window's drag regions, so the rail's buttons stay clickable", () => {
     /* Electron lays drag regions down in DOCUMENT order, not stacking order. The folded column slides
        under the rail, and the rail comes first in the DOM, so a drag region left on the column covers
@@ -1271,8 +1258,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(dark).toBeGreaterThan(0);
     expect(light).toBeGreaterThan(0);
     expect(light).toBeLessThan(dark);
-    // Very light means very light: no step of it past a fifth of black.
-    expect(dark).toBeLessThanOrEqual(0.2);
+    // Very light means very light: the owner asked for it lighter again (10-04), to about 60% of the
+    // first cut's measured depth (0.14 dark, 0.02 light). THE mutant: the first cut's depth back.
+    expect(dark).toBeLessThanOrEqual(0.085);
+    expect(light).toBeLessThanOrEqual(0.012);
   });
 
   it("an app-level page is laid out in the panes' column: it moves with them and never covers the rail", () => {
@@ -1728,31 +1717,21 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".diff-list").join(" ")).not.toContain("--fade-h:");
   });
 
-  it("the sidebar list clears its own fade the same way, and dissolves by masking itself", () => {
-    // Same invariant as the changes list: a full band of padding, and ONE declaration of the number,
-    // so the ramp and the clearance that keeps the last session out of it cannot drift apart.
+  it("the sidebar list dissolves with the app's shared mask, only where rows run past an end, and starts close under the profile", () => {
+    /* It wore a mask of its own that was always drawn, so its first row sat a whole band (12px, and 4
+       more) under the profile to stay out of a fade with nothing under it — the gap the owner asked to
+       close (10-04). It takes the shared dissolve now (`data-dissolve`, set by Sidebar.tsx through
+       `useDissolve`): a mask that appears at an end only while rows run past it. THE mutants: the
+       static ramp back on the scroller, or the band's depth back in its top padding. */
     const body = bodiesFor(".space-body").join(" ");
-    // The clearance is the band PLUS room to breathe under it — the fade is still the one declared
-    // number, and the extra is written in terms of it rather than as a second magic figure.
-    expect(body).toContain("padding-bottom: calc(var(--fade-h) + 24px)");
-    // …and the same at the top, which needs it more: a row half-dissolved under the header is one
-    // you can see and cannot confidently click.
-    expect(body).toContain("padding-top: calc(var(--fade-top-h) + 4px)");
-
+    expect(body).not.toContain("mask-image");
+    expect(body).toContain("padding-top: 4px");
+    // The depths the shared mask reads are still declared once, on the list, for the scroller to inherit.
     expect(bodiesFor(".sb-list").join(" ")).toContain("--fade-h: 44px");
+    expect(bodiesFor(".sb-list").join(" ")).toContain("--fade-top-h: 12px");
     expect(body).not.toContain("--fade-h:");
-    // The ramp is the scroller's own mask, reading the same --fade-h, and it runs to TRANSPARENT: the
-    // rows' alpha goes to zero and whatever ground was behind them shows — the vibrancy material, or
-    // the opaque page under reduced transparency. Nothing is painted over the rows. The two named
-    // mutants are the old band: a backdrop blur over this translucent column blurs the window's own
-    // transparency and composites toward black (a dark smudge above the strip, verified on screen);
-    // a colour wash to any fixed tone stripes the material. So no `.space-fade` rule may exist, and
-    // no rule on the scroller may blur or wash.
-    // One gradient, two stops in and two out — the top edge dissolves the same way the bottom does,
-    // and both read their own declared height rather than a literal.
-    const RAMP = "linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent)";
-    expect(body).toContain(`mask-image: ${RAMP}`);
-    expect(body).toContain(`-webkit-mask-image: ${RAMP}`);
+    // Still a mask and nothing painted over the rows: a blur over this translucent column composites
+    // toward black, and a wash to a fixed tone stripes the material.
     expect(body).not.toContain("backdrop-filter");
     expect(body).not.toContain("background:");
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".space-fade")))).toEqual([]);
@@ -2235,7 +2214,7 @@ describe("scrollbars", () => {
   });
 
   it("the sidebar's thumb is held clear of the mask, by the mask's own two depths", () => {
-    /* `.space-body` is masked at both ends, and a mask applies to the element's whole rendering —
+    /* `.space-body` dissolves at both ends, and a mask applies to the element's whole rendering —
        scrollbar included — so the thumb dissolved at exactly the two places a scrollbar is most
        used. The track's margin is what holds it clear, and it is written as the same two custom
        properties the mask reads rather than as numbers: tune one end of the fade and the thumb
@@ -2244,9 +2223,9 @@ describe("scrollbars", () => {
        composited-pixel question, and jsdom has no scrollbars at all. */
     const track = bodiesFor(`${GUARD} .space-body::-webkit-scrollbar-track`).join(" ");
     expect(track).toContain("margin-block: var(--fade-top-h) var(--fade-h)");
-    const masked = bodiesFor(".space-body").join(" ");
-    expect(masked).toContain("var(--fade-top-h)");
-    expect(masked).toContain("var(--fade-h)");
+    // The mask is the shared dissolve, reading the same two depths at its two ends.
+    expect(bodiesFor('[data-dissolve~="start"]').join(" ")).toContain("var(--fade-top-h");
+    expect(bodiesFor('[data-dissolve~="end"]').join(" ")).toContain("var(--fade-h");
   });
 
   it("every scroller in the stylesheet has had a deliberate decision made about its bar", () => {
@@ -2925,14 +2904,19 @@ describe("row and control layout", () => {
     expect(bodiesFor('.item-disclose[aria-expanded="true"] svg').join(" ")).toContain("rotate(90deg)");
   });
 
-  it("the sidebar's lens takes the column's own fills, not the shared control's opaque track", () => {
-    /* Spaces | Recent sits on the column's translucent ground, where `.seg`'s opaque `--rl-frame` track
-       read as a hole in the sidebar and the loudest thing in it. Share the component, let the ground
-       choose the step (design.md): the track is a hover's step, the chosen reading a selected row's. */
-    expect(bodiesFor(".sb-lens.seg").join(" ")).toContain("background: var(--rl-hover)");
-    const chosen = bodiesFor(".sb-lens .seg-opt[data-selected]").join(" ");
-    expect(chosen).toContain("background: var(--rl-active)");
-    expect(chosen).toContain("box-shadow: none");
+  it("the sidebar's list is headed by a caption and a switch, not a segmented control across the column", () => {
+    /* The owner, 10-04: "The tabs between spaces and recent should be removed. It should just have a
+       smaller subsection title that says spaces, then all the way to the right a button with an
+       activity icon". The caption is in the column's section-label voice — the size, weight and ink
+       "Pinned" wears. THE mutants: the old `.seg` track back, or a caption louder than the labels
+       around it. */
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".sb-lens") && /seg/.test(sel)))).toEqual([]);
+    const title = bodiesFor(".sb-lens-title").join(" ");
+    const label = bodiesFor(".group-label").join(" ");
+    for (const part of ["font-size: 13px", "font-weight: var(--fw-medium)", "color: var(--rl-text-faint)"]) {
+      expect(label, part).toContain(part);
+      expect(title, part).toContain(part);
+    }
   });
 
   it("a cross-space row's space name keeps its width, and the title is what gives way", () => {

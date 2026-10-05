@@ -7,7 +7,7 @@ import {
   allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, openItem as layoutOpen, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   groupsFromLayout, SpaceGroupsSchema,
-  columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type StoredView, type WindowView,
+  columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, primaryLeaves, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type StoredView, type WindowView,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
@@ -2293,9 +2293,10 @@ export type AppState = {
   setCommitMessage(cwd: string, text: string): void;
   /** Commit, push and open a PR as one action; stores the outcome for the pane to explain. */
   ship(input: ShipInput): Promise<void>;
-  /** Open (or focus) the diff pane for an environment, in the environment's own space. The pane's
-   *  item has the ENVIRONMENT's id as its refId, so it survives the session that opened it and cannot
-   *  show another checkout's tree. */
+  /** Open (or go to) the diff for an environment, in the environment's own space — as a tab of the
+   *  side pane beside the session working in that checkout (else beside the pane in focus), never as
+   *  a pane of its own. The one way Changes opens, whoever asks. The item has the ENVIRONMENT's id as
+   *  its refId, so it survives the session that opened it and cannot show another checkout's tree. */
   openDiff(environmentId: string, targetLeafId?: string | null): Promise<void>;
   /** Open (or focus) the document workspace for an environment — the `openDiff` gesture, for files.
    *  `environmentId` omitted uses the primary checkout of `spaceId`, else of the current space.
@@ -3468,6 +3469,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * not a reason to close what someone is reading.
      */
     const revealPanes = () => { if (get().pageOverlay) set({ pageOverlay: null }); };
+    /** `itemId` as a tab of the side pane of the main pane holding `owner` (an item id): the strip it
+     *  has, or a new one to its right. `openInSidePane`'s body once it has found its session; also what
+     *  the diff uses when the pane in focus is not a session (`openDiff`). */
+    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean } = {}): Promise<boolean> => {
+      const view = viewNow();
+      const layout = layoutOpenInSidePane(view.layout, owner, itemId);
+      if (!layout) return false;
+      const leaf = findLeafOfItem(layout, itemId)!;
+      if (opts.focus) {
+        revealPanes();
+        revealSidePanes();
+        set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
+      } else {
+        set(writeView({ ...view, layout }));
+      }
+      await persist();
+      return true;
+    };
     /** Bring the side panes back if they were put away: a person just asked to look at something in
      *  one (a tool from a session's bar, a tab, a row whose item is a tab), and a keyboard parked in
      *  a pane nobody can see is a click that missed. */
@@ -4496,19 +4515,7 @@ await get().refreshCustomThemes().catch(() => {});
         const owner = await sideOwnerOf(sessionId);
         if (!owner) return false;
         // Read after the walk: it may have fetched, and the view is whatever it is now.
-        const view = viewNow();
-        const layout = layoutOpenInSidePane(view.layout, owner, itemId);
-        if (!layout) return false;
-        const leaf = findLeafOfItem(layout, itemId)!;
-        if (opts.focus) {
-          revealPanes();
-          revealSidePanes();
-          set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
-        } else {
-          set(writeView({ ...view, layout }));
-        }
-        await persist();
-        return true;
+        return openInSidePaneOf(owner, itemId, opts);
       },
       async toggleSidePanes() {
         const layout = get().layout ?? emptyLayout();
@@ -6217,20 +6224,37 @@ await get().refreshCustomThemes().catch(() => {});
         if (!env) return;
         // The checkout's own space: a diff of another space's worktree is that space's item.
         const sid = env.spaceId;
-        // One diff pane per environment: a second "show changes" on the same checkout goes to the
-        // pane that already exists rather than accumulating identical panes.
-        const existing = get().items.find((i) => i.kind === "diff" && i.refId === environmentId);
-        // Same eviction bug openItemBeside exists to fix, just triggered by the user instead of an
-        // agent: replacing the focused leaf in place stranded the session with no way back. Open it
-        // beside instead — unless the caller named an explicit target leaf.
-        if (existing) {
-          if (targetLeafId === null) { await get().openItemBeside(existing.id); return; }
-          await get().openItem(existing.id, targetLeafId);
-          return;
+        // One diff per environment: a second "show changes" on the same checkout goes to the one that
+        // already exists rather than accumulating identical tabs.
+        let itemId = get().items.find((i) => i.kind === "diff" && i.refId === environmentId)?.id;
+        if (!itemId) {
+          const title = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? "Changes";
+          const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
+          await loadSpaceItems(sid);
+          if (!inProfile(sid)) return;
+          itemId = created.id;
         }
-        const title = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? "Changes";
-        const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
-        await adoptItem(sid, created.id, targetLeafId, true);
+        if (targetLeafId !== null) { await get().openItem(itemId, targetLeafId); return; }
+        const layout = get().layout ?? emptyLayout();
+        // On screen already — a tab, or a pane someone made of it: go there.
+        if (findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
+        /* A TAB of a side pane, never a column of its own (the owner, 10-04: "the diff changes should
+           also be a tab instead of its own pane"). Beside a session and its browser it was a third
+           column a third of the window wide. Every way in — the session's bar, the branch chip, the
+           summary, a space's page, a transcript's Review — comes through here, so every one of them
+           lands the same way: in the side pane of the session working in this checkout when one is on
+           screen, else of the pane in focus. With nothing on screen to be beside, the empty pane
+           takes it. */
+        const mains = primaryLeaves(layout).map((leaf) => leaf.itemId).filter((id): id is string => id !== null);
+        const items = get().items;
+        const working = mains.find((id) => {
+          const item = items.find((i) => i.id === id);
+          return item?.kind === "session" && get().sessions[item.refId]?.environmentId === environmentId;
+        });
+        const focused = get().focusedLeafId ? columnOf(layout, get().focusedLeafId)?.itemId ?? null : null;
+        const owner = working ?? focused ?? mains[0] ?? null;
+        if (owner && await openInSidePaneOf(owner, itemId, { focus: true })) return;
+        await get().openItem(itemId);
       },
       async openDocuments(environmentId = null, targetLeafId = null, beside = false, spaceId = null) {
         // The checkout's space when one is named; else the session's it is opened beside; else the

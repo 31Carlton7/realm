@@ -463,7 +463,7 @@ acronym that is uppercase anyway (a file extension on a tile).
   leaves what you are looking at. The hand on every button is the loudest single sign that a window
   is a web page.
 - A window-drag region takes every press that is not opted out of it, and a LABEL is a control: the
-  sidebar's Spaces | Recent segments, labels round hidden radios, answered only on the radio's 13px.
+  sidebar's old Spaces | Recent segments, labels round hidden radios, answered only on the radio's 13px.
 - Chrome is not text. Buttons, rows, tabs, bars and menus do not select on a drag or a double-click,
   and their glyphs do not lift off as drag ghosts. Content and fields keep selection.
 - A window that is not key greys its accent — selection, default button, checked boxes, lit

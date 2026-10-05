@@ -360,12 +360,7 @@ kbd { font: 11px var(--font-mono); }
 .sidebar[data-collapsed] { --sidebar-open: 0; }
 .sidebar-slide { flex: none; width: var(--sidebar-w); min-height: 0; display: flex; flex-direction: column;
   translate: calc(var(--sidebar-w) * (var(--sidebar-open) - 1)) 0; }
-/* A LABEL is a control too. The lens's two segments are labels round hidden radios, and with only
-   buttons and inputs opted out, the column's drag region covered every pixel of them but the 13px
-   radio parked at the start of each word: a click on "Recent" anywhere else started a window drag
-   and never reached the page (reported 10-04 as "hard to click"). The whole track opts out, so the
-   gap between the segments is not a dead strip either. */
-.sidebar button, .sidebar input, .sidebar label, .sb-lens, .sb-resize { -webkit-app-region: no-drag; }
+.sidebar button, .sidebar input, .sb-resize { -webkit-app-region: no-drag; }
 /* Folded away, the column is a box with no width, but what it holds is still laid out — slid off to
    the left, across the rail — and Electron lays the window's drag regions down in document order, not
    stacking order or clipping. The rail comes first, so a drag region left on the folded column lands
@@ -509,7 +504,7 @@ kbd { font: 11px var(--font-mono); }
    lights now cross into that row, and it could not hold them, the profile, back and forward, the
    toggle and two actions at the sidebar's own width. The profile's name is the one thing in the row of
    unbounded length, and it has the row to itself. */
-.sb-title { flex: none; display: flex; align-items: center; height: 44px; padding-top: 6px; }
+.sb-title { flex: none; display: flex; align-items: center; padding-top: 6px; }
 .sb-profile { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .sb-profile:hover:not(:disabled) { background: var(--rl-hover); }
@@ -528,16 +523,15 @@ kbd { font: 11px var(--font-mono); }
    something else, under a Back where the profile switcher was. The spaces stay mounted, hidden. */
 .sb-list[hidden] { display: none; }
 .sb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.sb-page-head { flex: none; height: 44px; display: flex; align-items: center; padding: 6px 16px 0; }
+.sb-page-head { flex: none; display: flex; align-items: center; padding: 6px 16px 0; }
 .sb-page-back { flex: none; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .sb-page-back:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* `no-drag` for the whole slot: the column is a window-drag region, and a rail's rows are LABELS,
    which the button-and-input opt-out above does not reach — a click on one would move the window. */
-/* 16px above the first thing in it — the search, or a section — which is where the spaces list starts
-   its first row (`.space-body`: the top band's 12px and 4 to breathe). Flush, the search sat on the
-   frame's rim under Back. */
-.sb-page-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 16px 16px; overflow-y: auto;
+/* The first thing in it — the search, or a section — the step under Back that the spaces list's head
+   takes under the profile (`.space-body`), so the column's first rows sit alike in both. */
+.sb-page-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 4px 16px 16px; overflow-y: auto;
   -webkit-app-region: no-drag; }
 .sb-page-nav .page-rail { width: auto; align-self: stretch; }
 .sb-page-nav .page-rail:has(.page-rail-list), .sb-page-nav .settings-rail-lists { gap: 4px; }
@@ -549,15 +543,13 @@ kbd { font: 11px var(--font-mono); }
 /* Settings keeps its search where it is while the pages scroll under it, as it does in the page. */
 .sb-page-nav:has(.settings-rail) { overflow: hidden; }
 .sb-page-nav .page-rail.settings-rail { flex: 1; min-height: 0; max-height: none; gap: 8px; }
-/* The lens: the shared segmented control, across the column, its two readings sharing the width. It
-   sits on the column's translucent ground, not on a pane, where the control's opaque track read as a
-   hole in the sidebar and the loudest thing in it. So it takes the column's own fills — the track a
-   hover's step, the chosen reading the step a selected row takes (design.md: share the component,
-   let the ground choose the step). */
-.sb-lens { display: flex; }
-.sb-lens.seg { background: var(--rl-hover); border-color: transparent; }
-.sb-lens .seg-opt { flex: 1; text-align: center; }
-.sb-lens .seg-opt[data-selected] { background: var(--rl-active); box-shadow: none; }
+/* The list's head (SidebarLens): what the list is showing, in the column's section-label voice — the
+   sentence-case caption "Pinned" and the day headings wear — and at its far end the switch to the other
+   reading, a plain icon button lit while the activity is up. A caption row rather than a control row:
+   the switch is the one thing in it that answers the pointer. */
+.sb-lens { display: flex; align-items: center; min-height: 28px; padding-left: 8px; margin-top: 8px; }
+.sb-lens:first-child { margin-top: 0; }
+.sb-lens-title { flex: 1; min-width: 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
 /* What needs you: rows in the column's own anatomy, and under a waiting row the session's own request
    card, at the column's full width — a card squeezed under an indent wraps every option. */
 .sb-needs, .sb-pinned { display: flex; flex-direction: column; }
@@ -593,10 +585,12 @@ kbd { font: 11px var(--font-mono); }
    column's right edge on every frame, so the shade rides the column open and closed; once the column
    has folded away there is nothing to cast it, and the pseudo-element is the panes' corner instead
    (the frame, above). Its own step per face, because the same black reads heavier on the light ground
-   (design.md: do not assume the light face mirrors the dark), set by measurement to about the depth of
-   Codex's own sheet shadow: five or six levels of 255 at the edge, gone in 8px. */
-:root { --seam-shade: oklch(0 0 0 / 0.14); --seam-w: 8px; }
-:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.02); }
+   (design.md: do not assume the light face mirrors the dark), set by measurement: 60% of the depth this
+   first shipped at — Codex's own sheet shadow — which the owner found a touch heavy for a seam (10-04).
+   Measured as the shade summed across its 8px, because at depths this small the gradient lands in
+   whole 8-bit steps, and 60% of the first ALPHA measured 75–82% of its depth. */
+:root { --seam-shade: oklch(0 0 0 / 0.062); --seam-w: 8px; }
+:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.0095); }
 .app:not([data-sidebar-folded]) > .main::after { content: ""; position: absolute; z-index: 36; pointer-events: none;
   top: var(--frame-top); bottom: 0; left: 0; width: var(--seam-w);
   background: linear-gradient(to right, var(--seam-shade), transparent); }
@@ -684,12 +678,7 @@ kbd { font: 11px var(--font-mono); }
   /* A shallower top band than the bottom's: it only has to soften a row sliding under the head row,
      not clear a row's height — at 32px rows, 12 does that. */
   --fade-top-h: 12px; }
-/* A full band of bottom padding, not a fraction of one, for the reason the diff list needs the same:
-   these are 32px rows of dense text, so a row that ends inside the ramp is a session you scrolled
-   down to read and then cannot. Scrolled to the end, the last row sits entirely clear of the band and
-   the ramp has only empty gutter under it. The scroller and the ramp read the one --fade-h so they
-   cannot drift apart.
-   The ramp is a MASK on the scroller itself: over its last --fade-h the rows' own alpha runs to zero,
+/* The ramp is a MASK on the scroller itself: over its last --fade-h the rows' own alpha runs to zero,
    and nothing is painted over them. That is what makes the dissolve seamless on this column, which is
    not an opaque panel but --page at --ground-alpha over the macOS vibrancy material: a row that fades
    out reveals exactly the ground that was always behind it, whatever that ground is — the material,
@@ -702,17 +691,15 @@ kbd { font: 11px var(--font-mono); }
    scroller's box, so it holds still while the content scrolls beneath it, and it needs no sibling
    element and no reduced-transparency fallback. */
 .space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px;
-  /* Clearance at BOTH ends: the band plus room to breathe. At exactly the band's height the last row
-     stopped where the mask started dissolving, so a fully scrolled list ended on a half-faded item.
-     The top needs the same, and needs it more — a row half-dissolved under the header is one you can
-     see and cannot confidently click, which is the whole reason this padding is generous. */
-  padding-top: calc(var(--fade-top-h) + 4px);
-  padding-bottom: calc(var(--fade-h) + 24px);
-  /* Masked at both edges, and still a mask rather than a blur: this column is translucent, and a
-     backdrop-filter over it blurs the window's own transparency toward black — a dark smudge with
-     nothing behind it. A mask paints nothing at all. */
-  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent); }
+  /* Close under the profile: the column's own step, not a band's depth. This padding was the top
+     band's 12px and 4 more, because the mask was always drawn and a first row inside it was half
+     faded at rest — so the profile and the list's head stood a band apart (the owner, 10-04: "reduce
+     the spacing"). The dissolve is the app's shared one now (`data-dissolve`, ScrollFades.tsx),
+     drawn only at an end with rows beyond it, so at rest the first row is whole and needs no room.
+     Nor does the bottom need a band of clearance any more: scrolled to the end there is no band, and
+     the last row stops a step above New space, pinned at the foot (`.sb-foot`). */
+  padding-top: 4px;
+  padding-bottom: 8px; }
 
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--inset); color: var(--ink-2); } /* W3: StatusPill neutral */
 .icon-btn { display: grid; place-items: center; width: 28px; --btn-h: 28px; height: var(--btn-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; color: var(--rl-text-dim); }
@@ -888,10 +875,11 @@ kbd { font: 11px var(--font-mono); }
 /* "Show more" is a line of text on the titles' column, not a row: it cannot be mistaken for a session. */
 .sb-more { margin: 0 0 4px 46px; }
 .sb-start { color: var(--rl-text-faint); }
-.sb-new-space { flex: none; width: 100%; min-height: 32px; margin-top: 6px; color: var(--rl-text-dim); }
+/* New space at the column's foot, outside the scroller, so no length of list can carry it off (the owner,
+   10-04). The list dissolves into it while there are rows below; its own step under the last row. */
+.sb-foot { flex: none; padding: 2px 0 10px; }
+.sb-new-space { flex: none; width: 100%; min-height: 32px; color: var(--rl-text-dim); }
 .sb-new-space:hover { color: var(--rl-text-bright); }
-.sb-lens { margin: 10px 0 6px; }
-.sb-lens:first-child { margin-top: 2px; }
 .sb-recent .sb-day:first-child > .group-label { padding-top: 4px; }
 /* Nothing yet is its own composition, centred in the room the list would have used. */
 .sb-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 32px 12px; text-align: center;
