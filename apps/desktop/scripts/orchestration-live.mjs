@@ -211,6 +211,7 @@ async function main() {
   check("the tab is a tab of a side pane beside the session", firstTabs.length === 2 && firstTabs.some((p) => p.tabs.some((t) => t.name === "Agents" && t.selected)), firstTabs);
   await until(() => evalIn(c, `document.querySelectorAll('.subagents-pick').length >= 2`), 10_000, "model chips");
   await sleep(400);
+  note("grounds before the first turn", await grounds(c));
   await shot(c, "1-tab-empty");
 
   // ── 2. Build with: two models, split, sent ─────────────────────────────────────────────────
@@ -266,6 +267,7 @@ async function main() {
   note("cards, done", done);
   check("both children finish, and each shows its report", done.every((x) => x.status?.startsWith("Done") && (x.report ?? "").length > 20), done);
   await sleep(600);
+  note("grounds once settled", await grounds(c));
   await shot(c, "6-done");
 
   // ── 4. The lead's transcript: one quiet line per sub-agent ───────────────────────────────────
@@ -309,6 +311,12 @@ async function main() {
   await sleep(400);
   await shot(c, "11-light");
 }
+
+/** What the window's grounds are made of right now — the alphas the theme writes, and the root's
+ *  state attributes — so a capture that reads differently from the next can be explained. */
+const grounds = (c) => evalIn(c, `(() => { const cs = getComputedStyle(document.documentElement);
+  return { attrs: [...document.documentElement.attributes].map((a) => a.name), groundAlpha: cs.getPropertyValue('--ground-alpha'), paneAlpha: cs.getPropertyValue('--pane-alpha'),
+    sidebar: getComputedStyle(document.querySelector('.sidebar') ?? document.body).backgroundColor, app: [...(document.querySelector('.app')?.attributes ?? [])].map((a) => a.name) }; })()`);
 
 async function shot(c, tag) {
   try {

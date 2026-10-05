@@ -68,7 +68,7 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
             : <Icon name="errorCircle" size={14} />}
         </span>
         <span className="tool-name">{gone ? "Subagent" : STATE_VERB[state]}</span>
-        <span className="tool-summary" title={goal}>{task}</span>
+        <span className="delegation-line-task" title={goal}>{task}</span>
         {model && (
           <span className="delegation-line-model">
             {kind && <Icon name={AGENT_META[kind].icon} size={12} colored />}

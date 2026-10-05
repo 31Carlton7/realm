@@ -3235,7 +3235,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 
 /* A sub-agent in its lead's transcript: one ledger line, the tool row's shape, with the model it runs
    on and its clock pushed to the end — "Subagent finished · Write the migration". */
-.delegation-line .tool-summary { flex: 1 1 auto; }
+/* The task is prose the lead wrote, not an identifier, so it is set as prose — the tool row's mono
+   chip is for the command or path a call acts on. */
+.delegation-line-task { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink-2); }
+.delegation-line-task::before { content: "· "; color: var(--ink-3); }
 .delegation-line-model { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-3); }
 .delegation-line-time { flex: none; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .delegation-line[data-state="done"] .tool-status { color: var(--ink-3); }
