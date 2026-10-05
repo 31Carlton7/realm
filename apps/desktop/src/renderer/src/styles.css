@@ -5549,13 +5549,24 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .composer-todos:has(~ .composer[data-mode="plan"]),
 :root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="plan"]) {
   --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent);
+  box-shadow: none;
 }
 :root[data-squircle] .composer-goal:has(~ .composer[data-mode="ask"]),
 :root[data-squircle] .composer-todos:has(~ .composer[data-mode="ask"]),
 :root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="ask"]) {
   --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent);
+  box-shadow: none;
 }
-/* The painter is gated; without it the same edge is a box-shadow, and it has to say the same thing. */
+/* The under-strip is the same object seen below the card, so the mode reaches it too: left on the
+   neutral ring, its sides ran grey into a card ringed in the mode's colour, the notch the band above
+   was given the mode to remove. It is a LATER sibling of the card, so it needs no `:has`. */
+:root[data-squircle] .composer[data-mode="plan"] ~ .composer-understrip { --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent); box-shadow: none; }
+:root[data-squircle] .composer[data-mode="ask"] ~ .composer-understrip { --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent); box-shadow: none; }
+/* The painter is gated; without it the same edge is a box-shadow, and it has to say the same thing.
+   ONLY without it — the `box-shadow: none` above is what keeps it so. A box-shadow under the gate is
+   drawn on the border box, which the painter has squared to radius 0, and it drew a second ring round
+   every strip: square, out past the painted corners, and straight across the band where two strips
+   meet — the seam the stacked strips' open-topped ring exists to avoid. */
 .composer-goal:has(~ .composer[data-mode="plan"]),
 .composer-todos:has(~ .composer[data-mode="plan"]),
 .composer-overstrip:has(~ .composer[data-mode="plan"]) {
@@ -5566,6 +5577,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-overstrip:has(~ .composer[data-mode="ask"]) {
   box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-success) 34%, transparent);
 }
+.composer[data-mode="plan"] ~ .composer-understrip { box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-warning) 34%, transparent); }
+.composer[data-mode="ask"] ~ .composer-understrip { box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-success) 34%, transparent); }
 /* …but only the tab that IS the band's top keeps the corners and the top edge. Every strip arriving
    under another gives up its top corners, and its ring leaves the top OPEN (`--sq-ring-open`): a ring
    across a middle tab would trace a hairline straight across the band where the two meet — a second
