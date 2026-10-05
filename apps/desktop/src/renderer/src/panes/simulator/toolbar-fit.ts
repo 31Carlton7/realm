@@ -27,7 +27,7 @@ export const TOOLBAR_BUTTON = 30;
  *  device's touch is up, and it is the wider one by a whole button. */
 export const STATUS_W = {
   Live: { full: 118, word: 53, dot: 24 },
-  Connecting: { full: 156, word: 91, dot: 24 },
+  Connecting: { full: 160, word: 95, dot: 24 },
 } as const satisfies Record<string, Record<StatusFit, number>>;
 
 /** The fit, as a pure function of the width — exported so a test can walk the ladder without a

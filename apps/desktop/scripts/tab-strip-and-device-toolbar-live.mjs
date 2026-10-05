@@ -381,7 +381,7 @@ async function main() {
   const budget = Object.fromEntries([...fs.readFileSync(path.join(repoRoot, "apps/desktop/src/renderer/src/panes/simulator/toolbar-fit.ts"), "utf8")
     .matchAll(/(Live|Connecting): \{ full: (\d+), word: (\d+), dot: (\d+) \}/g)].map((m) => [m[1], { full: +m[2], word: +m[3], dot: +m[4] }]));
   const statusWidths = () => evalIn(c, `(() => { const t = document.querySelector(${JSON.stringify(sel(".sim-toolbar"))}); const st = t.querySelector('.sim-toolbar-status');
-    const was = t.dataset.status; const out = { word: st.querySelector('.sim-toolbar-word').textContent };
+    const was = t.dataset.status; const out = { text: st.querySelector('.sim-toolbar-word').textContent };
     for (const level of ["full", "word", "dot"]) { t.dataset.status = level; out[level] = Math.round(st.getBoundingClientRect().width * 10) / 10; }
     t.dataset.status = was; return out; })()`);
   const drawn = [await statusWidths()];
@@ -393,9 +393,9 @@ async function main() {
   await evalIn(c, `${store(`applySimulatorState(${JSON.stringify(running(IPHONE, "Recipes"))})`)}, true`);
   await sleep(500);
   for (const d of drawn) {
-    const b = budget[d.word];
+    const b = budget[d.text];
     const ok = b && ["full", "word", "dot"].every((k) => d[k] <= b[k] && b[k] - d[k] <= 4);
-    check(`the toolbar budgets "${d.word}" at what this build draws`, ok, { drawn: d, budget: b });
+    check(`the toolbar budgets "${d.text}" at what this build draws`, ok, { drawn: d, budget: b });
   }
 
   // The overflow, open.
