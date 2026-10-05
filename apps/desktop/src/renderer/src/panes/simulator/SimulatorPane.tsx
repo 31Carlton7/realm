@@ -12,6 +12,7 @@ import { artFor, fitDeviceArt } from "./device-art";
 import { useFileDrop } from "../../components/use-file-drop";
 import { sortForDevice } from "./device-files";
 import { SimulatorHardware } from "./SimulatorBar";
+import { LayaRecordRow } from "./LayaRecord";
 
 /**
  * An Apple Simulator, shown and driven in a pane.
@@ -57,6 +58,7 @@ export function SimulatorPane({ item, visible }: PaneProps) {
   const refId = item.refId;
   const state = useApp((s) => s.simulatorState[refId]) ?? OFF(refId);
   const applySimulatorState = useApp((s) => s.applySimulatorState);
+  const recordingHere = useApp((s) => s.laya?.recording?.simulatorId === refId);
   const [row, setRow] = useState<Simulator | null>(null);
 
   // Seed from the server once: the store only learns about a simulator when its state CHANGES, and
@@ -95,6 +97,9 @@ export function SimulatorPane({ item, visible }: PaneProps) {
             ? <Starting state={state} name={row?.name ?? null} />
             : <DevicePicker chosen={udid} onPick={(d, p, real) => void start(d, p, real)} />}
       </div>
+      {/* A recording outlives the stream it reads — a phone that locked, a stream stopped — and the
+          control that ends it stays where it was started until it is ended. */}
+      {recordingHere && <LayaRecordRow simulatorId={refId} />}
     </div>
   );
 }
@@ -415,6 +420,7 @@ function Screen({ state, visible, simulatorId, platform }: {
       {drop.dropping && <div className="session-drop" aria-hidden="true" />}
       {/* The device's own buttons, under the device. The pane bar is for what the PANE does. */}
       <SimulatorHardware item={{ refId: simulatorId } as never} />
+      <LayaRecordRow simulatorId={simulatorId} />
       {state.physical && (state.stills === "camera" || state.stills === "camera-denied") && <LiveOffer stills={state.stills} />}
       <FrameBar choice={frame} shownAs={art?.name ?? null} />
     </div>

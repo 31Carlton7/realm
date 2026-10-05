@@ -1,17 +1,18 @@
 /**
  * Live check for recording an app for Laya (run with: pnpm build && node apps/desktop/scripts/laya-record-live.mjs)
  *
- *   the pane bar's Record for Laya ── laya.record ──▶ LayaRecorder ── SimulatorService.ax ──▶ serve-sim
+ *   Record my use of this app ── its sheet's Start ── laya.record ──▶ LayaRecorder ── SimulatorService.ax ──▶ serve-sim
  *      ──▶ a real simulator, driven by a stub agent's simulator tools while the recorder only reads
  *
  * What only a real Mac can say:
- *   1. The toggle is in a real device pane's bar, records the app in front — Settings — and lights up
- *      as the one control that stops it.
+ *   1. The control is under a real device, opens a sheet that records nothing until its Start, then
+ *      records the app in front — Settings — and becomes the row that stops it, with the rail's Stop.
  *   2. Each new screen of Settings a walk reaches is kept, read from the real device's tree.
  *   3. The home screen and another app (Calendar) are read and kept nothing of.
  *   4. Stop ends it; Settings ▸ Laya counts what it kept; what is on disk holds no value but a
  *      switch's, no long text, and no screen of any other app.
- *   5. On the home screen, Record refuses — there is no app in front to learn — and records nothing.
+ *   5. On the home screen, Start refuses in the sheet — there is no app in front to learn — and
+ *      records nothing.
  *
  * It boots a SHUT-DOWN iPhone (never one somebody has up), and at the end stops the stream Realm started
  * for it and shuts it down again. No billed call: the session is the fake agent's, titled at creation.
@@ -237,35 +238,41 @@ async function main() {
     return false;
   }
   const errorBar = () => evalIn(c, `document.querySelector('.error-bar span')?.textContent ?? null`);
-  const clearError = () => evalIn(c, `(() => { document.querySelector('.error-bar button')?.click(); return true; })()`);
 
   const status = () => api.call("laya.status", {});
-  const toggle = (label) => `document.querySelector('.icon-btn[aria-label=${JSON.stringify(label)}]')`;
-  const RECORD = "Record this app for Laya";
+  const RECORD = `document.querySelector('.sim-record-start')`;
+  const START = `[...document.querySelectorAll('.sheet button')].find((b) => b.textContent.trim() === "Start recording")`;
+  const sheetOpen = () => evalIn(c, `!!document.querySelector('.sheet[aria-label="Record your use of this app"]')`);
+  const stopIn = (where, label) => `document.querySelector(${JSON.stringify(`${where}[aria-label="${label}"]`)})`;
 
   // ── 5 first: on the home screen, Record refuses and records nothing ──────────────────────
   await call("simulator_press", { simulatorId, intent: "go to the home screen", key: "home" });
   check("the home screen is in front, readable, with no alert over it", await inFront("(no name)"));
-  const recordButton = await until(() => evalIn(c, `(() => { const b = ${toggle(RECORD)}; return b ? { disabled: b.disabled, title: b.title } : null; })()`), 20_000, "the Record toggle in the pane bar").catch(() => null);
-  check("the device pane's bar carries Record for Laya, enabled, saying Realm taps nothing", !!recordButton && !recordButton.disabled && /Realm taps nothing/.test(recordButton.title), recordButton);
-  await evalIn(c, `(() => { ${toggle(RECORD)}.click(); return true; })()`);
-  const refusal = await until(errorBar, 10_000, "the refusal").catch(() => null);
-  check("on the home screen, Record refuses in words — there is no app in front to learn", /Open the app you want Laya to learn on .* first — the home screen, or a system alert over it, is in front\./.test(refusal ?? ""), refusal);
-  check("…and nothing is recording", (await status()).recording === null);
-  await clearError();
+  const recordButton = await until(() => evalIn(c, `(() => { const b = ${RECORD}; return b ? { disabled: b.disabled, text: b.textContent.trim() } : null; })()`), 20_000, "Record under the device").catch(() => null);
+  check("under the device, Record says what it records, and is enabled", recordButton?.text === "Record my use of this app…" && !recordButton.disabled, recordButton);
+  await evalIn(c, `(() => { ${RECORD}.click(); return true; })()`);
+  check("it opens the sheet", await until(sheetOpen, 5_000, "the sheet").catch(() => false));
+  check("…and opening it records nothing", (await status()).recording === null);
+  await evalIn(c, `(() => { ${START}.click(); return true; })()`);
+  const refusal = await until(() => evalIn(c, `document.querySelector('.laya-record-refused')?.textContent ?? null`), 10_000, "the refusal").catch(() => null);
+  check("on the home screen, Start refuses in the sheet, in words — there is no app in front to learn", /Open the app you want Laya to learn on .* first — the home screen, or a system alert over it, is in front\./.test(refusal ?? ""), refusal);
+  check("…the sheet stays open, the error bar says nothing, and nothing is recording", await sheetOpen() && (await errorBar()) === null && (await status()).recording === null);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.sheet button')].find((b) => b.textContent.trim() === "Cancel").click(); return true; })()`);
 
   // ── 1. Settings in front: Record records it, and the toggle becomes its Stop ─────────────
   const launched = await call("simulator_launch", { simulatorId, bundleId: "com.apple.Preferences" });
   check("Settings is launched in front", !launched.isError && await inFront("Settings"), text(launched).split("\n")[0]);
-  await evalIn(c, `(() => { ${toggle(RECORD)}.click(); return true; })()`);
+  await evalIn(c, `(() => { ${RECORD}.click(); return true; })()`);
+  await until(sheetOpen, 5_000, "the sheet again");
+  await evalIn(c, `(() => { ${START}.click(); return true; })()`);
   const started = await until(async () => (await status()).recording, 15_000, "the recording").catch(() => null);
   if (!started) note("no recording; the error bar says", await errorBar());
   check("Record records the app in front, Settings, on this device", started?.apps?.length === 1 && started.apps[0] === "Settings" && (!deviceName || started.device === deviceName), started);
   const STOP = "Stop recording Settings for Laya";
-  const lit = await until(() => evalIn(c, `(() => { const b = ${toggle(STOP)}; return b ? { on: b.hasAttribute("data-on"), title: b.title } : null; })()`), 10_000, "the lit Stop").catch(() => null);
-  check("the same control is now lit as its Stop, and says what it keeps", !!lit?.on && /Recording Settings for Laya: \d+ screens? kept\. Realm reads each new screen and taps nothing\./.test(lit.title), lit);
-  // The bar the toggle sits in: its nearest ancestor that is wider than a row of icons.
-  note("pane bar while recording", await shoot(c, `(() => { let el = document.querySelector('.icon-btn[data-on][aria-label^="Stop recording"]'); while (el && el.getBoundingClientRect().width < 300) el = el.parentElement; return el; })()`, "bar").catch((e) => String(e)));
+  const recordingRow = await until(() => evalIn(c, `(() => { const r = document.querySelector('.sim-recording'); return r && ${stopIn(".sim-recording-stop", STOP)} ? r.innerText : null; })()`), 10_000, "the recording row").catch(() => null);
+  check("the row under the device is now the recording: what it keeps, how many, and Stop", /Recording Settings for Laya/.test(recordingRow ?? "") && /\d+ screens? kept/.test(recordingRow ?? ""), recordingRow);
+  check("…and the rail carries its Stop too", await evalIn(c, `!!${stopIn(".rail-recording", STOP)}`));
+  note("the device while recording", await shoot(c, `document.querySelector('.sim-pane')`, "pane").catch((e) => String(e)));
 
   // ── 2. Each new screen a walk reaches is kept ─────────────────────────────────────────────
   const first = await until(async () => { const r = (await status()).recording; return r && r.screens >= 1 ? r : null; }, 15_000, "the first screen").catch(() => null);
@@ -293,11 +300,11 @@ async function main() {
   check("the home screen and Calendar are kept nothing of", after.screens === before && JSON.stringify(after.seen) === '["Settings"]', { before, after: after.screens, seen: after.seen });
 
   // ── 4. Stop, and what it kept ─────────────────────────────────────────────────────────────
-  await evalIn(c, `(() => { ${toggle(STOP)}.click(); return true; })()`);
+  await evalIn(c, `(() => { ${stopIn(".sim-recording-stop", STOP)}.click(); return true; })()`);
   const stopped = await until(async () => { const s = await status(); return s.recording === null ? s : null; }, 10_000, "the stop").catch(() => null);
-  check("the lit toggle stops it, and Settings ▸ Laya's counts say what it kept", !!stopped && stopped.recorded?.recordings === 1 && stopped.recorded.screens === after.screens && JSON.stringify(stopped.recorded.apps) === '["Settings"]', stopped?.recorded);
-  const back = await until(() => evalIn(c, `!!${toggle(RECORD)}`), 10_000, "Record again").catch(() => false);
-  check("…and the toggle reads Record again", back);
+  check("the row's Stop stops it, and Settings ▸ Laya's counts say what it kept", !!stopped && stopped.recorded?.recordings === 1 && stopped.recorded.screens === after.screens && JSON.stringify(stopped.recorded.apps) === '["Settings"]', stopped?.recorded);
+  const back = await until(() => evalIn(c, `!!${RECORD} && !document.querySelector('.rail-recording')`), 10_000, "Record again").catch(() => false);
+  check("…the row reads Record again, and the rail's Stop is gone", back);
 
   const dir = path.join(home, "laya", "recordings");
   const recs = fs.existsSync(dir) ? fs.readdirSync(dir) : [];

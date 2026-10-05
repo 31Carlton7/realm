@@ -2384,6 +2384,8 @@ describe("light mode", () => {
     // White on a red fill, the same as white on the accent fill (--rl-accent-contrast), which is
     // deliberately one value for both modes.
     [".btn.destructive", "ink on a filled control"],
+    // The stop square on the rail's recording light: white on the same red fill, for the same reason.
+    [".rail-recording-stop", "ink on a filled control"],
     // The base half of a pair: the rule immediately below it flips the outline for light mode.
     [".md img", "paired with a light override"],
     // The base half of a pair, like `.md img` above it: a Quick Look render is a picture on the
@@ -3459,6 +3461,19 @@ describe("the machine pane's screen", () => {
     expect(suspended).toContain("background: transparent");
     expect(suspended).toMatch(/box-shadow:\s*inset/);
     expect(bodiesFor('.status-dot[data-status="machine-off"]').join(" ")).toContain("background: var(--rl-text-faint)");
+  });
+
+  it("puts a recording for Laya in the in-flight ping family, in red, and in both lists", () => {
+    // Red is what a recording light is everywhere; the ring has to survive reduced motion and leave
+    // when the window goes quiet, which only a name in every list gets it.
+    expect(bodiesFor('.status-dot[data-status="recording"]').join(" ")).toContain("background: var(--rl-danger)");
+    expect(bodiesFor('.status-dot[data-status="recording"]::after').join(" ")).toContain("--ring: var(--rl-danger)");
+    const ping = RULES.filter((r) => /animation:\s*rl-ping/.test(r.body)).flatMap(partsOf);
+    expect(ping).toContain('.status-dot[data-status="recording"]::after');
+    const reduced = RULES.filter((r) => /animation:\s*none/.test(r.body)).flatMap(partsOf);
+    expect(reduced).toContain('.status-dot[data-status="recording"]::after');
+    const quiet = RULES.filter((r) => /display:\s*none/.test(r.body)).flatMap(partsOf);
+    expect(quiet).toContain(':root[data-quiet] .status-dot[data-status="recording"]::after');
   });
 
   it("puts `booting` in the in-flight ping family rather than giving it a second animation", () => {

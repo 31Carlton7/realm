@@ -4,6 +4,7 @@ import type { DestinationPageKind } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { Avatar } from "../Avatar";
 import { Menu } from "../Menu";
+import { RailRecording } from "./RailRecording";
 import { SidebarToggle } from "./SidebarToggle";
 import { WindowNav } from "./WindowNav";
 import { waitingCount } from "./model";
@@ -14,8 +15,9 @@ import { useChord } from "./use-sidebar-model";
  *
  * The sidebar beside it gets you to your work; the rail gets you to the app's pages — Home (the
  * Agents page), Library, Connections, Scheduled tasks and the notifications — and at its foot to the
- * person (their page, Settings) and an update that is ready. It is never collapsed: ⌘B folds the
- * sidebar away and leaves this, so Home's count and the way back are always on screen.
+ * person (their page, Settings), an update that is ready, and the Stop of a recording for Laya. It
+ * is never collapsed: ⌘B folds the sidebar away and leaves this, so Home's count and the way back
+ * are always on screen.
  *
  * The traffic lights sit in its top band, and — while the sidebar is folded away, so the head row that
  * carries them is gone — the window's own back and forward under them. Nothing
@@ -43,6 +45,7 @@ export function Rail() {
         <SidebarToggle />
         <RailYou />
         <RailUpdate />
+        <RailRecording />
       </div>
     </nav>
   );
