@@ -135,10 +135,11 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
 
   /* The file goes with the message, as the prompter's first chip, unless it was taken off — or is not
      there to send. The chip's × takes it off this message; the next file viewed brings it back. */
-  const viewed: PickedAttachment | null = viewer.detached === file.path || size === null ? null
-    : { path: file.path, mime: file.mime ?? mimeForPath(file.path), name: file.name ?? basenameOf(file.path), size };
-  const attachments = useMemo(() => (viewed ? [viewed, ...extras.filter((a) => a.path !== viewed.path)] : extras),
-    [viewed?.path, viewed?.mime, viewed?.size, extras]); // eslint-disable-line react-hooks/exhaustive-deps -- `viewed` is rebuilt each render from these
+  const attachments = useMemo((): PickedAttachment[] => {
+    if (viewer.detached === file.path || size === null) return extras;
+    const viewed = { path: file.path, mime: file.mime ?? mimeForPath(file.path), name: file.name ?? basenameOf(file.path), size };
+    return [viewed, ...extras.filter((a) => a.path !== viewed.path)];
+  }, [viewer.detached, file.path, file.mime, file.name, size, extras]);
 
   const name = file.name ?? basenameOf(file.path);
   const openOwner = () => {
@@ -166,7 +167,6 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
             file came from — a way into it, too — or, with none, the session a send will start. */}
         <div className="media-viewer-owner">
           <Icon name={AGENT_META[kind].icon} size={12} colored className="media-viewer-owner-mark" />
-
           {owner ? (
             <button type="button" className="media-viewer-owner-name" onClick={openOwner}
               title={`Open ${owner.title} — your questions and the answers stay in its transcript`}>

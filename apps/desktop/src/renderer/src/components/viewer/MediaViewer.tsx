@@ -65,6 +65,12 @@ function ViewerWindow({ viewer }: { viewer: ViewerState }) {
   const opened = useRef(others);
   useEffect(() => { if (others !== opened.current) closeViewer(); }, [others, closeViewer]);
 
+  /* The pen, read by the key handler below as it is at the keystroke: Escape out of drawing is a step
+     out of the tool, the way every markup tool takes it, not out of the viewer with the marks in it. */
+  const setViewerMarks = useApp((s) => s.setViewerMarks);
+  const marking = useRef(viewer.marking);
+  marking.current = viewer.marking;
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const root = ref.current; if (!root) return;
@@ -74,7 +80,11 @@ function ViewerWindow({ viewer }: { viewer: ViewerState }) {
            answers in mount order). Capture, so it is caught before a request card in the exchange
            could take it as Deny — here Escape is the way out and never an answer. */
         if (root.querySelector('[aria-haspopup]:not([aria-haspopup="false"])[aria-expanded="true"]')) return;
-        e.preventDefault(); e.stopPropagation(); closeViewer(); return;
+        e.preventDefault(); e.stopPropagation();
+        const m = marking.current;
+        if (m?.drawing) setViewerMarks(m.marks.length > 0 ? { ...m, drawing: false } : null);
+        else closeViewer();
+        return;
       }
       // ⌘W closes the frontmost thing, and over the whole window that is the viewer, not a pane under it.
       if (e.key.toLowerCase() === "w" && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
@@ -93,7 +103,7 @@ function ViewerWindow({ viewer }: { viewer: ViewerState }) {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [closeViewer, stepViewer]);
+  }, [closeViewer, stepViewer, setViewerMarks]);
 
   /* What is on disk, asked again whenever a turn of the exchange ends: an agent rewriting the file in
      place moves its modification time, and that is the version the stage reads. */

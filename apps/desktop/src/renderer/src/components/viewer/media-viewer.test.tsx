@@ -428,6 +428,20 @@ describe("marking up a picture", () => {
     expect(marksDrawn()).toBe(1);
   });
 
+  it("takes Escape out of the pen first, keeping the marks, and out of the viewer only after", async () => {
+    // THE MUTANT: close on the first Escape — a key pressed to stop drawing throws the drawing away.
+    await openMarkable();
+    const zoom = within(screen.getByRole("group", { name: "Zoom" }));
+    fireEvent.click(zoom.getByRole("button", { name: "Mark up" }));
+    draw([10, 10], [60, 40]);
+    fireEvent.keyDown(prompter(), { key: "Escape" });
+    expect(viewerEl()).not.toBeNull();
+    expect(zoom.getByRole("button", { name: "Mark up" })).toHaveAttribute("aria-pressed", "false");
+    expect(marksDrawn()).toBe(1);
+    fireEvent.keyDown(prompter(), { key: "Escape" });
+    await waitFor(() => expect(viewerEl()).toBeNull());
+  });
+
   it("does not close on a stray click beside a picture that has marks on it", async () => {
     await openMarkable();
     fireEvent.click(within(screen.getByRole("group", { name: "Zoom" })).getByRole("button", { name: "Mark up" }));
