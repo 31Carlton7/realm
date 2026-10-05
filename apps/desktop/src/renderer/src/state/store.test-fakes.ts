@@ -4,6 +4,7 @@ import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment,
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { SavedTurn } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -127,6 +128,10 @@ export type FakeData = {
   detachedSince?: number | null;
   /** Goal mode: the objective each session is pursuing, by session id. */
   goals?: Record<string, Goal>;
+  /** Saved turns, by session id, as their prompts' seqs — and the Library's rows for them, which the
+   *  fake lists only while their seq is still saved, so an unsave anywhere takes the row out. */
+  savedTurns?: Record<string, number[]>;
+  savedEntries?: SavedTurn[];
   /** Friend packs the fake server holds, the words that open them, and which are already open. */
   eggPacks?: UnlockedEggPack[];
   eggWords?: Record<string, string>;
@@ -408,6 +413,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     settings: overrides.settings ?? {},
     computerAllowedApps: overrides.computerAllowedApps ?? {},
     goals: overrides.goals ?? {},
+    savedTurns: overrides.savedTurns ?? {},
+    savedEntries: overrides.savedEntries ?? [],
     eggPacks: overrides.eggPacks ?? [],
     eggWords: overrides.eggWords ?? {},
     eggsUnlocked: overrides.eggsUnlocked ?? [],
@@ -1155,6 +1162,18 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     sessionQueue: async () => queuedPrompts,
     planLimits: async () => { calls.push("planLimits"); return planLimitRows; },
     recordFeedback: async (id, messageId, rating) => { calls.push(`recordFeedback:${id}:${messageId}=${rating ?? "none"}`); },
+    savedTurns: async (id) => { calls.push(`savedTurns:${id}`); return data.savedTurns[id] ?? []; },
+    setTurnSaved: async (id, seq, saved) => {
+      calls.push(`setTurnSaved:${id}:${seq}=${saved}`);
+      const was = data.savedTurns[id] ?? [];
+      data.savedTurns[id] = saved ? [...new Set([...was, seq])].sort((a, b) => a - b) : was.filter((x) => x !== seq);
+      return data.savedTurns[id]!;
+    },
+    librarySaved: async (profileId) => {
+      calls.push(`librarySaved:${profileId}`);
+      const entries = data.savedEntries.filter((e) => data.savedTurns[e.sessionId]?.includes(e.seq));
+      return { entries, total: entries.length };
+    },
     respondPermission: async (id, requestId, decision) => { calls.push(`respondPermission:${id}:${requestId}:${decision}`); },
     setSessionOptions: async (id, o) => {
       calls.push(`setSessionOptions:${id}`);

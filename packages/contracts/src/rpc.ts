@@ -6,6 +6,7 @@ import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
 import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
+import { SAVED_TURNS_MAX, SavedTurnSchema } from "./saved-turns";
 import { LibraryAddResultSchema, LibraryAddSchema, LibraryEntrySchema, LibraryQuerySchema } from "./library";
 import { SkillSchema, SkillDetailSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
 import { CommandOriginKindSchema, UserCommandSchema } from "./commands";
@@ -512,6 +513,12 @@ export const Methods = {
   "library.artifacts": {
     params: LibraryQuerySchema,
     result: z.object({ entries: z.array(LibraryEntrySchema), total: z.number() }),
+  },
+  /** Every turn saved in a profile's sessions, the newest saved first: the Library's Saved section.
+   *  `total` is how many there are, so a list cut at `limit` can say that it was. */
+  "library.saved": {
+    params: z.object({ profileId: IdSchema, limit: z.number().int().min(1).max(SAVED_TURNS_MAX).default(SAVED_TURNS_MAX) }),
+    result: z.object({ entries: z.array(SavedTurnSchema), total: z.number().int() }),
   },
   /**
    * Add files to the Library: the Files toolbar's Add, or files dropped on the page.
@@ -1805,6 +1812,13 @@ export const Methods = {
    *  going nowhere else — there is no endpoint behind this and no aggregate anywhere. `rating: null`
    *  retracts an earlier one. */
   "sessions.recordFeedback": { params: z.object({ id: IdSchema, messageId: z.string().min(1), rating: z.enum(["up", "down"]).nullable() }), result: z.object({ ok: z.literal(true) }) },
+  /** The turns the reader saved in one session (saved-turns.ts), as the seqs of their prompts' events,
+   *  in the log's order. Live changes arrive on `session.saved`; this is the read a pane mounts with. */
+  "sessions.saved": { params: z.object({ id: IdSchema }), result: z.object({ seqs: z.array(z.number().int()) }) },
+  /** Save one turn, or unsave it. `seq` names the prompt's own `user_message` event and nothing else:
+   *  any other event, or one of another session's, is refused rather than saved as a stray number.
+   *  Saving what is saved, or unsaving what is not, changes nothing. Answers with the session's set. */
+  "sessions.setSaved": { params: z.object({ id: IdSchema, seq: z.number().int(), saved: z.boolean() }), result: z.object({ seqs: z.array(z.number().int()) }) },
   /** `answers` rides along only for a question: question id -> what was chosen or typed, several as a
    *  list. Deliberately a record of strings rather than a free-form input override — the UI answers a
    *  question, it never gets to rewrite the tool's arguments — and each answer is held to the card it
@@ -1964,6 +1978,9 @@ export const Events = {
    *  Carries the whole list rather than a delta: it is a handful of short strings, and a prompter that
    *  applied deltas would have to reason about one arriving before its initial `sessions.queued` read. */
   "session.queue":    z.object({ sessionId: IdSchema, queued: z.array(QueuedPromptSchema) }),
+  /** A session's saved turns changed — one saved or unsaved, here or in another window. Carries the
+   *  whole set, as `session.queue` carries the whole queue: it is a few numbers. */
+  "session.saved":    z.object({ sessionId: IdSchema, seqs: z.array(z.number().int()) }),
   /** A provider restated the account's plan quota. Carries every kind's row rather than the one that
    *  changed: it is a short list, and the panel and the session chip both read the whole thing. */
   "limits.changed":   z.object({ limits: z.array(PlanLimitsSchema) }),

@@ -831,4 +831,20 @@ export const migrations: string[] = [
   CREATE INDEX IF NOT EXISTS library_files_recent ON library_files(profile_id, ts DESC, id DESC);
   CREATE INDEX IF NOT EXISTS library_files_digest ON library_files(profile_id, digest);
   `,
+  // v41 — saved turns: the prompts a reader saved from a session's scroll track, listed again in the
+  // Library across every session of the profile.
+  //
+  // A row names the prompt's own `user_message` event by its seq — globally unique, so it is the key —
+  // and keeps nothing else of it: the words are read back off the event whenever the list is drawn.
+  // The event's cascade is the cleanup a quote could not have: a rewind that cuts the event out of the
+  // log, or the session's deletion, takes the saved turn with it. `session_id` is the event's own,
+  // carried for the per-session read a pane mounts with. Nothing to backfill — nothing was ever saved.
+  `
+  CREATE TABLE IF NOT EXISTS saved_turns (
+    event_seq INTEGER PRIMARY KEY REFERENCES session_events(seq) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    saved_at INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS saved_turns_session ON saved_turns(session_id, event_seq);
+  CREATE INDEX IF NOT EXISTS saved_turns_recent ON saved_turns(saved_at DESC, event_seq DESC);
+  `,
 ];

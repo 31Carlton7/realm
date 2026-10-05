@@ -61,6 +61,7 @@ import type { DelegatedChildren } from "../delegation/children";
 import type { AgentRunService } from "../delegation/agent-run";
 import type { SearchService } from "../search/service";
 import type { ArtifactsStore } from "../store/artifacts";
+import type { SavedTurnsStore } from "../store/saved-turns";
 import type { LibraryFilesStore } from "../store/library-files";
 import type { ForkService } from "../sessions/fork";
 import type { FailoverService } from "../sessions/failover";
@@ -99,6 +100,8 @@ export type Deps = {
   agentSignIn: AgentSignInService;
   /** The views MCP servers draw for tool calls (MCP Apps). */
   appViews: AppViewService;
+  /** The turns a reader saved from a session's scroll track. */
+  savedTurns: SavedTurnsStore;
   /** The files a person added to the Library themselves, copied in under the profile. */
   libraryFiles: LibraryFilesStore;
 };
@@ -640,6 +643,7 @@ export function registerMethods(d: Deps): void {
   // The Library's file browser. One indexed range scan and a count; no transcript is read, which is
   // the whole point of the `artifacts` index existing (see migration v25).
   reg("library.artifacts", (p) => ({ entries: d.artifacts.list(p), total: d.artifacts.count(p.spaceId, p.profileId ?? null, { sessionId: p.sessionId ?? null, perFile: p.perFile }) }));
+  reg("library.saved", (p) => d.savedTurns.list(p.profileId, p.limit));
   // Files a person adds to the Library: copied in under the profile, and listed beside the index.
   reg("library.add", (p) => d.libraryFiles.add(p));
 
@@ -963,6 +967,13 @@ export function registerMethods(d: Deps): void {
   reg("sessions.queued", async (p) => ({ queued: d.sessions.queuedPrompts(p.id) }));
   reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });
   reg("sessions.recordFeedback", (p) => { d.sessions.recordFeedback(p.id, p.messageId, p.rating); return { ok: true as const }; });
+  reg("sessions.saved", (p) => ({ seqs: d.savedTurns.forSession(p.id) }));
+  reg("sessions.setSaved", (p) => {
+    const seqs = d.savedTurns.set(p.id, p.seq, p.saved);
+    // Every window: the session's pane may be open in any of them, and the Library's list in another.
+    rpc.broadcast("session.saved", { sessionId: p.id, seqs });
+    return { seqs };
+  });
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers); return { ok: true as const }; });
   reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode, fastMode: p.fastMode }));
   reg("sessions.setAgent", (p) => d.sessions.setAgent(p.id, p.agentKind));

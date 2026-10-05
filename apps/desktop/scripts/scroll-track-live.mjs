@@ -354,7 +354,8 @@ async function main() {
   await sleep(120);
   const editedCard = await evalIn(c, `__live.card(${pane})`);
   check("along the track the card follows at once, and an edited turn's card says how many files it changed",
-    editedCard.open && editedCard.title === longTurnsSeeded[22].asked && editedCard.foot === `Edited ${longTurnsSeeded[22].files.length} file${longTurnsSeeded[22].files.length === 1 ? "" : "s"}`, editedCard);
+    editedCard.open && editedCard.title === longTurnsSeeded[22].asked
+      && editedCard.foot === `${editedCard.time} · Edited ${longTurnsSeeded[22].files.length} file${longTurnsSeeded[22].files.length === 1 ? "" : "s"}`, editedCard);
   const ed = await evalIn(c, `__live.track(${pane})`);
   await shoot(c, "track-edit-marks-zoom-dark", { x: ed.wrap.x, y: ed.ticks[18].y - 14, w: 140, h: ed.ticks[26].y - ed.ticks[18].y + 28, scale: 4 });
   // Off the track, it goes.

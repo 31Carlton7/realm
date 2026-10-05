@@ -12,7 +12,10 @@ export type Block =
       refs?: MentionRef[];
       /** A scheduled task's run began here (the event's `scheduled`). `text` is the task's instructions
        *  alone: the note Realm appended for the agent is taken out of it, and kept here. */
-      scheduled?: { task: string; note: string }; ts: number }
+      scheduled?: { task: string; note: string };
+      /** The `user_message` event this is, by its seq, when the log was read from the server: what a
+       *  saved turn names (saved-turns.ts in contracts). Absent on a transcript built from bare events. */
+      seq?: number; ts: number }
   | { kind: "assistant"; messageId: string; text: string; streaming: boolean; ts: number }
   | { kind: "thinking"; messageId: string; text: string; ts: number }
   /** `parentToolUseId` is the Task/Agent call this one was made UNDER — Claude's
@@ -267,8 +270,11 @@ const derivedRun = (u: { startedAt: number; failed: boolean }, ts: number): Bloc
  * An argument rather than a synthetic event because it is not one: nothing happened at that point in
  * the session, and putting it on the wire would mean persisting one reader's place in a log that is
  * shared by every window.
+ *
+ * `seq` is the stored event's own, where the caller has it: a message keeps it, as the one name a saved
+ * turn can be kept by.
  */
-export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = false): Transcript {
+export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = false, seq?: number): Transcript {
   const blocks = t.blocks.slice(); const last = blocks.at(-1);
   if (markUnseen && !blocks.some((b) => b.kind === "unseen-mark")) blocks.push({ kind: "unseen-mark", ts: e.ts });
   switch (e.type) {
@@ -283,7 +289,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       const open = t.run ? null : unsettledTurn(t.blocks);
       if (open) blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
       const scheduled = e.payload.scheduled;
-      blocks.push({ kind: "user", text: scheduled ? withoutNote(e.payload.text, scheduled.note) : e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ...(scheduled ? { scheduled } : {}), ts: e.ts });
+      blocks.push({ kind: "user", text: scheduled ? withoutNote(e.payload.text, scheduled.note) : e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ...(scheduled ? { scheduled } : {}), ...(seq !== undefined ? { seq } : {}), ts: e.ts });
       return { ...t, blocks, promptHint: null };
     }
     case "assistant_delta": {

@@ -822,7 +822,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   — at least a pitch below the last, so a log of short turns is simply evenly spaced and only a long
   turn opens a gap. The prompt being read is the one tick in ink; a turn that changed files carries a
   dot, said in words on the tick's card, never a colour. A click goes there and leaves the keyboard in
-  the prompter, as a scrollbar's track does.
+  the prompter, as a scrollbar's track does. A turn the reader saves — the bookmark at the card's
+  corner, or S — takes the accent, the reader's own mark as a selection is, and its ribbon fills; ⌥↑
+  and ⌥↓ step between saved turns. What is kept is the prompt's event, never a quote of it, and the
+  Library lists every saved turn of the profile, because the Library holds what a person kept and the
+  activity view is a log of what went by.
 - Never invent human-like agent presence, mood, or certainty.
 
 ## Documents, diffs, terminals, and data

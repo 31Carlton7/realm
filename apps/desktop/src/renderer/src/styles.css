@@ -3817,7 +3817,9 @@ button.edit-file:hover { background: var(--rl-hover); }
    Quiet at rest, as a mark rather than an edge: the ticks are `--mark-strong`, and only the one being
    read is longer and in ink. Under the pointer the whole track comes up a step, the tick under it and
    its neighbours lengthen into a lens, and that arrives at once and leaves on the hover fade. A turn
-   that changed files carries a dot after its tick, in the tick's own ink: a mark, not a colour. */
+   that changed files carries a dot after its tick, in the tick's own ink: a mark, not a colour. A
+   turn the reader SAVED is the one colour the track holds: the accent, the reader's own mark, as a
+   selection is — a step under it at rest, so it reads beside the lit tick rather than over it. */
 .scroll-track { --track-x: clamp(3px, (100cqw - var(--prompter-w)) / 2 - 40px, 14px); --tick: var(--mark-strong);
   position: absolute; z-index: 3; left: 0; top: var(--fade-top-h); bottom: var(--fade-top-h);
   width: calc(var(--track-x) + 13px); pointer-events: none; }
@@ -3840,30 +3842,40 @@ button.edit-file:hover { background: var(--rl-hover); }
 .track-tick[data-near="2"] .track-line { width: 11px; }
 .track-tick[data-near="1"] .track-line { width: 15px; }
 .scroll-track:is(:hover, :focus-within) .track-tick[data-near="0"] .track-line { width: 20px; background: var(--rl-text-bright); }
+.track-tick[data-saved] .track-line { background: color-mix(in srgb, var(--accent-ink) 70%, transparent); }
+.track-tick[data-saved][data-current] .track-line,
+.scroll-track:is(:hover, :focus-within) .track-tick[data-saved] .track-line { background: var(--accent-ink); }
 /* The ring goes round the line it lights, not round the cell — a cell is as tall as the gap to its
    neighbours, and a ring that size would outline a stretch of the pane edge rather than a tick. */
 .track-tick:focus-visible { outline: none; }
 .track-tick:focus-visible .track-line { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
 /* What a tick says: a raised card like a menu, beside the lens and centred on its tick (placed in
    JS, which alone knows the card's height). It is the tooltip's timing and the tooltip's motion — a
-   fade with a two-pixel travel out of the track, a shorter fade back — and it never takes the
-   pointer, so leaving the track is all it takes to put it away. */
+   fade with a two-pixel travel out of the track, a shorter fade back. It takes the pointer only while
+   it is up, for its bookmark, and a pointer that crosses to it from the track keeps it up. */
 .track-card { position: absolute; z-index: 1; left: calc(var(--track-x) + 30px); top: 0; width: min(300px, 100cqw - var(--track-x) - 42px);
   display: flex; flex-direction: column; gap: 4px; padding: 10px 12px;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised);
   pointer-events: none; opacity: 0; visibility: hidden; translate: -2px 0;
   transition: opacity var(--dur-press) var(--ease-fade), visibility 0s linear var(--dur-press); }
-.track-card[data-open] { opacity: 1; visibility: visible; translate: 0 0;
+.track-card[data-open] { opacity: 1; visibility: visible; translate: 0 0; pointer-events: auto;
   transition: opacity var(--dur-fast) var(--ease-out-strong), translate var(--dur-fast) var(--ease-out-strong); }
 .track-card-head { display: flex; align-items: baseline; gap: 12px; }
 /* The prompt is the user's own words, so it is the card's one line at the title weight, and it gives
-   up its width to the time beside it last. */
+   up its width to the bookmark beside it last. */
 .track-card-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 13px; line-height: 18px; font-weight: var(--fw-title); }
-.track-card-at { flex: none; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* Codex's bookmark: a glyph in the head's corner, quiet until it is pointed at or the turn is saved,
+   when the ribbon fills in the accent. Its box overhangs the head row rather than growing it. */
+.track-card-save { flex: none; display: grid; place-items: center; width: 26px; height: 26px; margin: -4px -7px -4px 0;
+  border-radius: var(--r-chip); color: var(--rl-text-faint); transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.track-card-save:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.track-card-save[aria-pressed="true"] { color: var(--accent-ink); }
+.track-card-save[aria-pressed="true"] svg * { fill: currentColor; }
 .track-card-reply { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
   margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: pre-line; overflow-wrap: anywhere; }
-.track-card-foot { margin: 2px 0 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.track-card-reply[hidden] { display: none; }
+.track-card-foot { margin: 2px 0 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 
 /* ═══ Vendored design language — beautiful-ui (MIT) ══════════════════════════
    Realm's skin adapts visual language from beautiful-ui (github.com/slev12397/beautiful-ui,
@@ -7266,6 +7278,27 @@ select { appearance: none; padding-right: 22px;
 .library-narrowing { gap: 5px; padding-right: 8px; }
 .library-narrowing > svg { color: var(--rl-text-faint); }
 .library-empty { padding: 8px 0; }
+/* The Library's Saved section (LibrarySaved.tsx). Each turn says three things — what was asked, how it
+   was answered, whose session — so it is a card with air round it rather than a row under a rule, on
+   the settings card's fill and rim. The card is the control that goes there; the ribbon in its corner
+   unsaves, filled in the accent as the track card's is. */
+.saved-turns { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.saved-turn { position: relative; display: flex; }
+.saved-turn-open { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 12px 48px 12px 16px; text-align: left;
+  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel);
+  transition: background-color var(--dur-hover) ease; }
+.saved-turn-open:hover { background: var(--rl-card-hover); }
+.saved-turn-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.saved-turn-reply { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: pre-line; overflow-wrap: anywhere; }
+.saved-turn-where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; line-height: 16px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.saved-turn-save { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 28px; height: 28px;
+  border-radius: var(--r-chip); color: var(--accent-ink); transition: background-color var(--dur-hover) ease; }
+.saved-turn-save:hover { background: var(--rl-hover); }
+.saved-turn-save[aria-pressed="true"] svg * { fill: currentColor; }
+.saved-turns-cut { padding: 0 0 8px; }
 .library-day { display: flex; flex-direction: column; gap: 12px; margin-bottom: 28px; }
 .library-day-label { margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--rl-text-dim); }
 .library-grid {
