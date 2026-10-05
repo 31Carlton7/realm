@@ -381,3 +381,48 @@ describe("the prompt hint", () => {
   });
 
 });
+
+describe("a question put to the user", () => {
+  const codex = { kind: "agent" as const, name: "Codex", agent: "codex" as const };
+  const ask = { asker: codex, mode: "question" as const, questions: [{ id: "base", prompt: "Which branch?", kind: "choice" as const, options: [{ value: "main", label: "main" }] }] };
+  const request = (over: Record<string, unknown> = {}, ts = 20) =>
+    sessionEvent("permission_request", { requestId: "q1", toolName: "item/tool/requestUserInput", input: {}, title: "Which branch?", suggestions: [], ask, ...over }, ts);
+  const answer = (answers?: Record<string, string>) => sessionEvent("permission_response", { requestId: "q1", decision: answers ? "allow" : "deny", ...(answers ? { answers } : {}) }, 30);
+
+  it("keeps its place in the log and takes its answer when the answer arrives", () => {
+    // THE MUTANT: leave `permission_response` as it was, clearing the pending card and nothing else.
+    // The answer is persisted and never drawn — the gap this block exists to close.
+    let t = reduceAll([sessionEvent("assistant_text", { messageId: "m1", text: "Let me ask." }, 10), request()]);
+    expect(t.blocks.at(-1)).toMatchObject({ kind: "question", requestId: "q1", card: { asker: codex } });
+    expect(t.blocks.at(-1)).not.toHaveProperty("decision");
+    t = reduceTranscript(t, answer({ base: "main" }));
+    expect(t.blocks.at(-1)).toMatchObject({ kind: "question", decision: "allow", answers: { base: "main" } });
+    expect(t.pendingPermissions).toEqual([]);
+    expect(blockKey(t.blocks.at(-1)!, 0)).toBe("question:q1");
+  });
+
+  it("takes the place of the call that asked it, whichever of the two arrives first", () => {
+    const input = { questions: [{ id: "base", prompt: "Which branch?", kind: "choice", options: [{ label: "main" }] }] };
+    const call = sessionEvent("tool_call", { toolUseId: "t1", name: "mcp__realm__realm-ui__ui_ask", input, parentToolUseId: null }, 15);
+    const asked = request({ toolName: "ui_ask", input });
+    for (const events of [[call, asked], [asked, call]]) {
+      const t = reduceAll([...events, answer({ base: "main" }), sessionEvent("tool_result", { toolUseId: "t1", content: "The user answered", isError: false })]);
+      expect(t.blocks.map((b) => b.kind)).toEqual(["question"]);
+      expect(t.blocks[0]).toMatchObject({ toolUseId: "t1", answers: { base: "main" } });
+    }
+  });
+
+  it("leaves a different call's row alone, and makes no question of a permission", () => {
+    const t = reduceAll([
+      sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "ls" }, parentToolUseId: null }),
+      sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "ls" }, title: "Run ls?", suggestions: [] }),
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["tool"]);
+  });
+
+  it("records a skip, and a request Realm declined itself, as answered without answers", () => {
+    expect(reduceAll([request(), answer()]).blocks.at(-1)).toMatchObject({ kind: "question", decision: "deny" });
+    const refused = reduceAll([request({ ask: { ...ask, mode: "form", refused: "It asked for a password." } }), answer()]);
+    expect(refused.blocks.at(-1)).toMatchObject({ kind: "question", card: { refused: "It asked for a password." }, decision: "deny" });
+  });
+});

@@ -1,10 +1,10 @@
-import { AGENT_META, AskCardSchema, askCardFromAskUserQuestion, type AgentKind, type AskAnswers, type AskCard, type AskOption, type AskQuestion, type Asker, type DelegableModel, type ProjectFileHit } from "@realm/contracts";
+import { AGENT_META, HIDDEN_ANSWER, type AgentKind, type AskAnswers, type AskCard, type AskOption, type AskQuestion, type Asker, type DelegableModel, type ProjectFileHit } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useThumbnail } from "../../components/use-thumbnail";
 import { useAppStoreMaybe } from "../../state/store";
 import { ModelChooser, OWN } from "../agents-tab/ModelChooser";
-import type { PendingPermission } from "./transcript-model";
+import { questionOf, type PendingPermission } from "./transcript-model";
 
 /** Who is asking, as the card says it: "Codex asks", "Linear's MCP server asks". The name is the
  *  one the user knows — an agent's own, a server's as they named it in Connections. */
@@ -19,24 +19,17 @@ export function askerIcon(a: Asker): string {
   return a.kind === "server" ? "plug" : a.agent ? AGENT_META[a.agent].icon : "bot";
 }
 
-/** A request persisted before questions carried their card: Claude's `AskUserQuestion` was the only
- *  question then, so that is who asked. */
-const LEGACY_ASKER: Asker = { kind: "agent", name: "Claude", agent: "claude" };
-
 /**
  * The question a pending request is, or null when it is not one.
  *
  * Routed on the CARD — Realm's own record, written by an adapter or the server, never by an agent's
- * arguments — and validated here, so a malformed one falls back to the ordinary permission card
- * rather than drawing a card with no row to answer on. A card Realm already declined is not a
+ * arguments — and validated (`questionOf`), so a malformed one falls back to the ordinary permission
+ * card rather than drawing a card with no row to answer on. A card Realm already declined is not a
  * question anyone is waiting on.
  */
 export function askCardFor(p: Pick<PendingPermission, "toolName" | "input" | "ask">): AskCard | null {
-  if (p.ask !== undefined) {
-    const card = AskCardSchema.safeParse(p.ask);
-    return card.success && card.data.refused === undefined ? card.data : null;
-  }
-  return p.toolName === "AskUserQuestion" ? askCardFromAskUserQuestion(p.input, LEGACY_ASKER) : null;
+  const card = questionOf(p);
+  return card && card.refused === undefined ? card : null;
 }
 
 /**
@@ -569,3 +562,91 @@ function LinkBody(p: BodyProps) {
     </div>
   );
 }
+
+/**
+ * A question, after the fact: who asked, each question, and what was answered — read off the
+ * persisted `permission_response`, so it is the same tomorrow as the moment it was sent. A masked
+ * answer is only ever the mark the log kept. A request the user skipped says so, and one Realm
+ * declined itself says why, because nothing about it was the user's to decide.
+ *
+ * At rest: no lift, no controls. It is a record in the scrollback, not something to act on, and the
+ * shape is the question card's own so a reader knows what kind of thing it was.
+ */
+export function AnsweredQuestion({ card, decision, answers, enter = false }: {
+  card: AskCard; decision: "allow" | "allow_always" | "deny"; answers?: AskAnswers; enter?: boolean;
+}) {
+  const skipped = decision === "deny" || !answers || Object.keys(answers).length === 0;
+  const outcome = card.refused ? "Declined by Realm" : skipped ? (card.mode === "question" ? "Skipped" : "Declined") : null;
+  return (
+    <div className="question-answered" role="group" aria-label={askerLine(card.asker, true)} data-enter={enter || undefined}>
+      <div className="question-answered-head">
+        <Icon name={askerIcon(card.asker)} size={14} colored />
+        <span className="question-from-name">{askerLine(card.asker, true)}</span>
+        {outcome && <span className="question-answered-outcome">{outcome}</span>}
+      </div>
+      {card.refused
+        ? <p className="question-answered-why">{card.message ? `${card.message} — ` : ""}{card.refused}</p>
+        : (
+          <dl className="question-answered-list">
+            {card.questions.map((q) => (
+              <div key={q.id} className="question-answered-row">
+                <dt>{q.prompt}</dt>
+                <dd>{answers?.[q.id] === undefined ? <span className="question-answered-none">Not answered</span> : <AnswerValue q={q} value={answers[q.id]!} />}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+    </div>
+  );
+}
+
+const labelOf = (q: AskQuestion, v: string): string =>
+  (q.kind === "confirm" ? CONFIRM : q.options ?? []).find((o) => o.value === v)?.label ?? v;
+
+/** One answer as a reader takes it in: an option by its label, a model by its chip, a day as a day. */
+function AnswerValue({ q, value }: { q: AskQuestion; value: string | string[] }) {
+  const values = Array.isArray(value) ? value : [value];
+  if (q.secret || values[0] === HIDDEN_ANSWER) return <span className="question-answered-secret" aria-label="Hidden">{HIDDEN_ANSWER}</span>;
+  switch (q.kind) {
+    case "model": {
+      const chip = (v: string) => {
+        const m = q.options?.find((o) => o.value === v);
+        return <span className="question-answered-model"><Icon name={m?.agent ? AGENT_META[m.agent].icon : "cpu"} size={12} colored />{m?.label ?? v}</span>;
+      };
+      if (!q.rows) return chip(values[0]!);
+      return (
+        <ol className="question-answered-steps">
+          {q.rows.map((r, i) => <li key={r.id}><span>{r.label}</span>{values[i] !== undefined && chip(values[i]!)}</li>)}
+        </ol>
+      );
+    }
+    case "file": return <span className="question-answered-path">{values.join(", ")}</span>;
+    case "time": return <span>{values[0] ? whenOf(values[0], q.format === "date") : ""}</span>;
+    case "link": return <span>Opened {hostOf(q.url)}</span>;
+    case "choice": case "multi": case "branch": case "confirm": {
+      const picture = q.options?.find((o) => o.value === values[0])?.image;
+      return (
+        <span className="question-answered-choice">
+          {picture && values.length === 1 && <OptionPicture path={picture} />}
+          {values.map((v) => labelOf(q, v)).join(", ")}
+        </span>
+      );
+    }
+    case "text": return <span className="question-answered-text">{values[0]}</span>;
+  }
+}
+
+/** A day, or a day and a time, in the reader's own calendar. Parsed as LOCAL time: a date-only
+ *  answer read as UTC would land on the day before for everyone west of Greenwich. */
+function whenOf(v: string, dateOnly: boolean): string {
+  const [d, t = "00:00"] = v.split("T");
+  const [y, m, day] = (d ?? "").split("-").map(Number);
+  const [h, min] = t.split(":").map(Number);
+  const at = new Date(y ?? 0, (m ?? 1) - 1, day ?? 1, h ?? 0, min ?? 0);
+  if (Number.isNaN(at.getTime())) return v;
+  return dateOnly
+    ? at.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+    : at.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+const hostOf = (url: string | undefined): string => { try { return new URL(url ?? "").host; } catch { return "the page"; } };

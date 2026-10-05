@@ -1,4 +1,4 @@
-import type { AcpSessionMode, AskCard, SessionEvent, SessionEventPayload } from "@realm/contracts";
+import { AskCardSchema, askCardFromAskUserQuestion, type AcpSessionMode, type AskAnswers, type AskCard, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
@@ -74,6 +74,17 @@ export type Block =
    *  first appeared: the card keeps its place in the scrollback, and claiming the revision's time
    *  would put it out of order with the messages around it. */
   | { kind: "plan"; planId: string; text?: string; steps?: PlanStep[]; ts: number }
+  /**
+   * A question put to the user — by any agent or server, on the card Realm wrote for it — and, once
+   * it has one, its answer: the persisted `permission_response.answers`, masked ones already a mark.
+   *
+   * It takes the place of the call that asked it (Claude's `AskUserQuestion`, `realm-ui`'s `ui_ask`)
+   * rather than sitting beside it: a generic tool row above "Codex asked: Which branch? — main" says
+   * the same thing twice, the second time as JSON. `toolUseId` is that call's, kept so its result can
+   * find nothing to land on. Drawn only once answered; while it waits, the live card is the question.
+   */
+  | { kind: "question"; requestId: string; card: AskCard; input: Record<string, unknown>; toolUseId?: string;
+      decision?: "allow" | "allow_always" | "deny"; answers?: AskAnswers; ts: number }
   /** A finished run, banked where it finished. `ms` is how long the agent actually worked — the time
    *  the run sat parked on a permission prompt is subtracted, because a run the user left waiting on
    *  an Allow button for twenty minutes did not work for twenty minutes. `startedAt` rides along as
@@ -139,7 +150,22 @@ export type Transcript = {
  *  state; everything else keys on position, which is stable because blocks are only ever appended or
  *  replaced in place (a streaming assistant block becomes its final self at the same index). */
 export const blockKey = (b: Block, i: number): string =>
-  b.kind === "tool" ? `tool:${b.toolUseId}` : b.kind === "plan" ? `plan:${b.planId}` : `${b.kind}:${i}`;
+  b.kind === "tool" ? `tool:${b.toolUseId}` : b.kind === "plan" ? `plan:${b.planId}` : b.kind === "question" ? `question:${b.requestId}` : `${b.kind}:${i}`;
+
+/** The question a request carries, Realm's own card first — a declined one included, since the
+ *  transcript still says what was declined. Claude's `AskUserQuestion` from before the card rode the
+ *  event is read off its input. Never anything an agent's arguments could make look like one. */
+export function questionOf(p: { toolName: string; input: Record<string, unknown>; ask?: unknown }): AskCard | null {
+  if (p.ask !== undefined) { const card = AskCardSchema.safeParse(p.ask); return card.success ? card.data : null; }
+  return p.toolName === "AskUserQuestion" ? askCardFromAskUserQuestion(p.input, { kind: "agent", name: "Claude", agent: "claude" }) : null;
+}
+
+/** A call that asks the user: Claude's own tool, or realm-ui's under whichever prefix the harness gives it. */
+const ASKING_TOOL = /^AskUserQuestion$|realm-ui__ui_ask$/;
+/** Inputs as the same call's two halves report them — key order is the only thing allowed to differ. */
+const sameInput = (a: unknown, b: unknown): boolean => stable(a) === stable(b);
+const stable = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) =>
+  x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) : x);
 
 export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null, promptHint: null });
 
@@ -203,7 +229,17 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       return { ...t, blocks };
     }
     case "thinking": blocks.push({ kind: "thinking", messageId: e.payload.messageId, text: e.payload.text, ts: e.ts }); return { ...t, blocks };
-    case "tool_call": blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}), result: null, ts: e.ts }); return { ...t, blocks };
+    case "tool_call": {
+      // The asking call can land AFTER its question (a gateway tool is raised by the server while the
+      // agent's own stream is still catching up). Then the question already holds its place.
+      if (ASKING_TOOL.test(e.payload.name)) {
+        const q = findLast(blocks, (b) => b.kind === "question" && b.toolUseId === undefined && sameInput(b.input, e.payload.input));
+        const b = q >= 0 ? blocks[q] : undefined;
+        if (b && b.kind === "question") { blocks[q] = { ...b, toolUseId: e.payload.toolUseId }; return { ...t, blocks }; }
+      }
+      blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}), result: null, ts: e.ts });
+      return { ...t, blocks };
+    }
     case "tool_result": {
       const i = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
       const b = i >= 0 ? blocks[i] : undefined;
@@ -230,11 +266,22 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     }
     case "permission_request": {
       const p: PendingPermission = { requestId: e.payload.requestId, toolName: e.payload.toolName, input: e.payload.input, title: e.payload.title, ...(e.payload.ask ? { ask: e.payload.ask } : {}) };
-      return { ...t, pendingPermissions: [...t.pendingPermissions.filter((x) => x.requestId !== p.requestId), p] };
+      const card = questionOf(e.payload);
+      if (card && !blocks.some((b) => b.kind === "question" && b.requestId === p.requestId)) {
+        const question: Block = { kind: "question", requestId: p.requestId, card, input: e.payload.input, ts: e.ts };
+        const i = findLast(blocks, (b) => b.kind === "tool" && b.result === null && ASKING_TOOL.test(b.name) && sameInput(b.input, e.payload.input));
+        const asked = i >= 0 ? blocks[i] : undefined;
+        if (asked && asked.kind === "tool") blocks[i] = { ...question, toolUseId: asked.toolUseId, ts: asked.ts };
+        else blocks.push(question);
+      }
+      return { ...t, blocks, pendingPermissions: [...t.pendingPermissions.filter((x) => x.requestId !== p.requestId), p] };
     }
     case "permission_response": {
-      if (!t.pendingPermissions.some((p) => p.requestId === e.payload.requestId)) return t;
-      return { ...t, pendingPermissions: t.pendingPermissions.filter((p) => p.requestId !== e.payload.requestId) };
+      const q = findLast(blocks, (b) => b.kind === "question" && b.requestId === e.payload.requestId);
+      const asked = q >= 0 ? blocks[q] : undefined;
+      if (asked && asked.kind === "question") blocks[q] = { ...asked, decision: e.payload.decision, ...(e.payload.answers ? { answers: e.payload.answers } : {}) };
+      if (!t.pendingPermissions.some((p) => p.requestId === e.payload.requestId)) return asked ? { ...t, blocks } : t;
+      return { ...t, blocks, pendingPermissions: t.pendingPermissions.filter((p) => p.requestId !== e.payload.requestId) };
     }
     // A failure and the recovery from it are ONE thing, and only one of them should be on screen.
     //

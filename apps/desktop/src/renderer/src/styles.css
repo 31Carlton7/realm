@@ -3949,9 +3949,35 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    quiet — the host is what says whose page this is. */
 .question-link { margin: 0; padding: 8px 10px; border-radius: var(--r-ctl); background: var(--field); font: 12px/18px var(--font-mono); color: var(--ink-3); overflow-wrap: anywhere; }
 .question-link-host { color: var(--rl-text-bright); font-weight: var(--fw-title); }
+/* A question after the fact: the card's own shell, at rest — no lift, nothing to press — with each
+   question over what was answered. The answer is the thing a reader comes back for, so it takes the
+   primary ink and the question the secondary; an outcome with no answer under it says so in words. */
+.question-answered { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r-panel); background: var(--surface); }
+.question-answered-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.question-answered-head > svg { flex: none; }
+.question-answered-outcome { flex: none; margin-left: auto; color: var(--ink-3); }
+.question-answered-why { margin: 0; font-size: 13px; line-height: 18px; color: var(--ink-2); text-wrap: pretty; }
+.question-answered-list { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.question-answered-row { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.question-answered-row dt { font-size: 13px; line-height: 18px; color: var(--ink-2); text-wrap: pretty; }
+.question-answered-row dd { margin: 0; min-width: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-medium); color: var(--ink); overflow-wrap: anywhere; }
+.question-answered-none { font-weight: var(--fw-body); color: var(--ink-3); }
+.question-answered-text { white-space: pre-wrap; }
+.question-answered-secret { letter-spacing: 1px; color: var(--ink-2); }
+.question-answered-path { font: 12px/18px var(--font-mono); color: var(--ink); }
+.question-answered-choice { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; }
+.question-answered-choice .question-tile-pic { flex: none; width: 44px; aspect-ratio: 4 / 3; border-radius: var(--r-sm); }
+.question-answered-model { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; }
+.question-answered-model > svg { flex: none; }
+.question-answered-steps { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 0; padding: 0; list-style: none; counter-reset: step; }
+.question-answered-steps li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; counter-increment: step; }
+.question-answered-steps li > span:first-child { min-width: 0; font-weight: var(--fw-body); color: var(--ink-2); }
+.question-answered-steps li > span:first-child::before { content: counter(step) ". "; color: var(--ink-3); }
+.question-answered-steps .question-answered-model { flex: none; max-width: 55%; }
+
 /* The card's mono runs give up the app's tracking, for the reason the list at the top of this file
    gives: Chromium drops a monospace face's ligatures on any tracked run. */
-.question-file-path, .question-file-pick, .question-link {
+.question-file-path, .question-file-pick, .question-link, .question-answered-path {
   letter-spacing: normal;
 }
 

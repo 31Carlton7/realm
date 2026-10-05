@@ -11,6 +11,7 @@ import { MessageSources } from "./MessageSources";
 import { sourcesFor, type Source } from "./message-sources";
 import { PendingRequest } from "./PendingRequest";
 import { PlanCard } from "./PlanCard";
+import { AnsweredQuestion } from "./QuestionCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
 import { LeadSessionContext } from "./DelegationLine";
 import { finishedAt, finishedOn, formatDuration, groupTranscript, withEnter } from "./tool-group";
@@ -406,6 +407,9 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter}
               onExpand={onExpandPlan && (() => onExpandPlan(b.planId))} onImplementWith={onImplementWith} />;
+            // Drawn once it is answered. While it waits, the live card at the foot of the column IS the
+            // question, and a second copy of it here would be two places to answer one thing.
+            case "question": return b.decision ? <AnsweredQuestion key={key} card={b.card} decision={b.decision} answers={b.answers} enter={enter} /> : null;
             // A failure Realm knows the answer to says the answer here, under the message, because
             // this is where the reader is already looking. The command is offered to copy and
             // nothing more: the transcript is content, and the controls that act on this session —

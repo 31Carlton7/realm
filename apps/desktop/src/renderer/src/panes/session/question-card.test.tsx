@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { AskCardSchema, type AskCard, type AskQuestion } from "@realm/contracts";
+import { AskCardSchema, HIDDEN_ANSWER, sessionEvent, type AskCard, type AskQuestion } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi } from "../../state/store.test-fakes";
-import { QuestionCard, askCardFor, askerLine } from "./QuestionCard";
+import { AnsweredQuestion, QuestionCard, askCardFor, askerLine } from "./QuestionCard";
+import { Transcript } from "./Transcript";
+import { reduceAll } from "./transcript-model";
 
 afterEach(() => cleanup());
 
@@ -295,5 +297,55 @@ describe("a page to open", () => {
     expect(open).toHaveBeenCalledWith("http://xn--lnear-6ta.app/connect?id=1", "_blank");
     expect(onAnswer).toHaveBeenCalledWith({ url: "opened" });
     open.mockRestore();
+  });
+});
+
+describe("the answered card — what was answered, after the fact", () => {
+  const card = cardOf([
+    db(),
+    { id: "who", prompt: "Who builds each step?", kind: "model", rows: [{ id: "1", label: "Write the migration" }, { id: "2", label: "Wire the toggle" }],
+      options: [{ value: "claude-opus-5-5", label: "Claude Opus 5.5", agent: "claude", own: true }, { value: "gpt-6-luna", label: "GPT-6 Luna", agent: "codex" }] },
+    { id: "key", prompt: "Paste the deploy token", kind: "text", secret: true },
+    { id: "due", prompt: "When?", kind: "time", format: "date" },
+  ]);
+
+  it("names who asked and draws each answer as a reader takes it in", () => {
+    const { container } = render(<AnsweredQuestion card={card} decision="allow"
+      answers={{ db: "sqlite", who: ["gpt-6-luna", "claude-opus-5-5"], key: HIDDEN_ANSWER }} />);
+    const el = container.querySelector<HTMLElement>(".question-answered")!;
+    expect(el.querySelector(".question-answered-head")).toHaveTextContent("Codex asked");
+    const rows = [...el.querySelectorAll(".question-answered-row")].map((r) => r.textContent);
+    expect(rows[0]).toBe("Which database?SQLite");
+    expect(rows[1]).toContain("Write the migrationGPT-6 Luna");
+    expect(rows[1]).toContain("Wire the toggleClaude Opus 5.5");
+    expect(rows[2]).toBe(`Paste the deploy token${HIDDEN_ANSWER}`);
+    expect(rows[3]).toBe("When?Not answered");
+    // A record, not a control: nothing in it can be pressed.
+    expect(el.querySelector("button")).toBeNull();
+  });
+
+  it("says a skip was a skip, a form's was a decline, and why Realm declined one itself", () => {
+    const skipped = render(<AnsweredQuestion card={card} decision="deny" />);
+    expect(skipped.container).toHaveTextContent("Skipped");
+    cleanup();
+    const refused = cardOf([db()], { mode: "form", asker: { kind: "server", name: "Linear" }, refused: "It asked for a password or a key in a form." });
+    const r = render(<AnsweredQuestion card={refused} decision="deny" />);
+    expect(r.container).toHaveTextContent("Linear's MCP server asked");
+    expect(r.container).toHaveTextContent("Declined by Realm");
+    expect(r.container).toHaveTextContent("It asked for a password or a key in a form.");
+  });
+
+  it("is drawn in the transcript once answered, and not while the live card is the question", () => {
+    const model = (answered: boolean) => reduceAll([
+      sessionEvent("permission_request", { requestId: "q1", toolName: "ui_ask", input: {}, title: "Which database?", suggestions: [], ask: cardOf([db()]) }),
+      ...(answered ? [sessionEvent("permission_response", { requestId: "q1", decision: "allow" as const, answers: { db: "pg" } })] : []),
+    ]);
+    const waiting = render(<Transcript transcript={model(false)} sessionStatus="waiting_permission" onDecide={() => {}} />);
+    expect(waiting.container.querySelectorAll(".question-card")).toHaveLength(1);
+    expect(waiting.container.querySelector(".question-answered")).toBeNull();
+    cleanup();
+    const answered = render(<Transcript transcript={model(true)} sessionStatus="idle" onDecide={() => {}} />);
+    expect(answered.container.querySelector(".question-card")).toBeNull();
+    expect(answered.container.querySelector(".question-answered")).toHaveTextContent("Postgres");
   });
 });
