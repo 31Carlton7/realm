@@ -29,7 +29,7 @@ export default function ChangelogPage() {
             Changelog
           </h1>
           <p className="mt-4 max-w-[38rem] text-[16px] leading-[1.6] text-ink-2">
-            Everything that has shipped in Realm, newest first — from the first commits in August to
+            Everything that has shipped in Realm, newest first, from the first commits in August to
             whatever landed this week.
           </p>
         </div>

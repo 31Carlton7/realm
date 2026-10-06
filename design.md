@@ -59,7 +59,7 @@ Inspect the existing implementation before designing.
 - Product component skin and layout: `apps/desktop/src/renderer/src/styles.css`
 - Shared theme derivation: `packages/ui/src/theme.ts` and `packages/ui/src/themes.ts`
 - Marketing tokens and prose styles: `site/app/globals.css`
-- App icon and landing shader: `resources/icon-src/` and `site/lib/realm-liquid-glass.ts`
+- App icon: `resources/icon-src/`
 - The mark is a cube lying on its side with a lit doorway in its dark wall (`resources/icon-src/mark.mjs`):
   a space, and the way into it. It is drawn in the family of Cursor's cube — crisp facets on one
   lattice, monochrome, one bold negative-space facet — and kept apart from it on purpose: Cursor's
@@ -74,6 +74,8 @@ Inspect the existing implementation before designing.
   A picture with no source can only be regenerated, never adjusted, which is why the colourings are
   data. A running Mac app can change only its own Dock tile — the Finder keeps the bundle's icon — and
   Settings says so rather than implying more.
+- The landing page's field: `site/lib/dimension/` — one WebGPU pass behind the whole page — with
+  the mark's six faces as geometry in `site/lib/mark.ts`
 
 When the landing mark is presented as glass, derive its surface field from the approved vector rather
 than inventing geometry around it. Refraction and edge highlights must respond to that field, and
@@ -140,13 +142,29 @@ refuses, and between an abstract mark and the product, the product is the one th
 presence here comes from the visible workspace, not from mood. A mark contained to lockup size is
 also not a place to run a shader: it draws a smudge, and the static vector reads.
 
-Below that first viewport the page is a SEQUENCE, not a grid: one claim per section, one large
-product view each, sides alternating, ending in the questions a reader actually arrives with and one
-concrete next action. Alternate with `flex-row-reverse` rather than by reordering the markup, so
-source order stays claim-then-evidence and the stacked layout reads the right way round. A claim
-whose capture does not exist takes the full measure and reads as prose — a picture of a different
-feature under a sentence is worse than no picture, which is why the copy and the capture manifest
-are separate lists that the page intersects rather than one list that assumes.
+It came back below the first viewport, at the scale of a section and with a job: it is what a realm
+is made of. The mark is a cube drawn on an equilateral lattice — edges 20 units long, slanted ones at
+60° and 120°, its near corner, the centre, a node — and it has six faces: the top, the two walls, and
+the doorway's floor, jamb and lit back. The section assembles it face by face on that lattice beside
+the six things a realm holds, one sentence per face, the walls first and the agent last, as the lit
+doorway. The
+geometry is the approved vector's, not invented around it; when it is lit, it is lit as glass by the
+rule under Source of truth. Then the view pulls back and the realm is one cell in a hive of them,
+because hexagons tile — the page's way of saying "one for every project" with the mark's own shape.
+
+The page is a journey through dimensions, one field behind all of it, and each section's dimension
+has its own geometry rather than its own colour: the hero is a perspective corridor of frames
+receding behind the product, the mark's section is its isometric lattice, and the closing call to
+action is a portal again, so the page ends where it opened. Different dimensions are different
+SPACES — a palette change per section would be the card stack this section refuses, wearing colour.
+
+After the pinned track the page is a SEQUENCE, not a grid: one claim per section, one large product
+view each, sides alternating, ending in the questions a reader actually arrives with and one concrete
+next action. Alternate with `flex-row-reverse` rather than by reordering the markup, so source order
+stays claim-then-evidence and the stacked layout reads the right way round. A claim whose capture
+does not exist takes the full measure and reads as prose — a picture of a different feature under a
+sentence is worse than no picture, which is why the copy and the capture manifest are separate lists
+that the page intersects rather than one list that assumes.
 
 A caption describes what is IN the frame, not what the feature can do. The two drift apart without
 anyone lying: the product gains a screen, the capture is retaken, and the sentence above it still
@@ -760,6 +778,17 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   force; a switch that just took), the light runs only while the picker is open on it, the moment
   plays only on the way ON, and both still under Reduce motion and Low power. The easter eggs run the
   same light hot rather than laying a second treatment over it.
+- The landing page is the one surface where motion carries the argument rather than confirming
+  state, and the rules above give way there only inside these fences. Motion is scroll-linked or
+  answers the pointer, so position is always the reader's: nothing scrolls the page for them, and a
+  pinned track carries a Skip past itself. Text never depends on an effect to be read. Hairlines may
+  cross behind words at an intensity the words survive; anything with area — a face, a tile, a glow —
+  may not, and is kept out by bounding it to the area it belongs to rather than fading it toward the
+  text, because a fade is something a large enough shape can always reach across. Light belongs to
+  the element it surrounds: the field draws in the DOM's own coordinates and reads every anchored
+  element's rect each frame, so a rim can never drift off its image. And every effect argues a claim
+  the copy also makes — the six faces are the six things a realm holds, the hive is spaces side by
+  side. An effect with no claim under it is decoration and does not ship.
 - A frame loop is outside every mechanism this app governs motion with, and has to re-implement all
   of them. Both of the controls above are CSS: reduced motion is an app-wide `* { animation: none }`,
   and the `data-quiet` pause the power audit measured is `animation-play-state`. A canvas driven by
@@ -1024,6 +1053,10 @@ The site should feel authored by the same team as the app without pretending to 
 - Use real product captures as evidence. Stage them in an isolated Realm home, remove personal data,
   keep the viewport fixed, and make capture reproducible.
 - A screenshot must demonstrate the adjacent claim. Do not use one as wallpaper.
+- Captures are RGBA — the window they photograph is translucent material — and were composited
+  against `--color-page` when they were framed. Every capture frame carries that colour behind it, so
+  nothing that moves shows through a sidebar, and anywhere without that ground (a README on GitHub's
+  white theme) gets a flattened copy rather than the transparent original.
 - Prefer one large legible product view and a few purposeful crops over a mosaic of tiny screens.
 - Describe outcomes first, mechanisms second. Preserve qualifiers such as macOS-only, local, or in
   active development.

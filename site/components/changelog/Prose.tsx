@@ -2,6 +2,7 @@ import Image from "next/image"
 import type { ReactNode } from "react"
 
 import type { Block } from "@/lib/changelog"
+import { CAPTURE_DENSITY } from "@/lib/frames"
 
 /** The two inline spans an entry may use. Anything else is a block. */
 const SPAN = /(`[^`]+`|\*\*[^*]+\*\*)/g
@@ -41,16 +42,19 @@ function block(item: Block, key: number): ReactNode {
     case "note":
       return <blockquote key={key}>{inline(item.text)}</blockquote>
     case "figure":
-      // Laid out at its natural size, which is half its pixels — every capture is drawn at 2× — and
-      // never wider than the reading column, so a narrow crop is not blown up to fill it.
+      // Laid out at its natural size and never wider than the reading column, so a narrow crop is
+      // not blown up to fill it. Natural is a third of its pixels, because the crops are cut from the
+      // window drawn at three times its density (lib/frames.ts), which keeps them sharp on a 3× phone;
+      // a whole window is wider than the column whichever density it is. Each is served as written,
+      // lossless, because Next's optimiser would re-encode it lossy.
       return (
         <figure key={key}>
           <Image
             src={item.image}
             alt={item.alt}
-            width={item.image.width / 2}
-            height={item.image.height / 2}
-            sizes={`(max-width: 46rem) 100vw, ${Math.min(item.image.width / 2, 656)}px`}
+            width={Math.round(item.image.width / CAPTURE_DENSITY)}
+            height={Math.round(item.image.height / CAPTURE_DENSITY)}
+            unoptimized
           />
           <figcaption>{inline(item.caption)}</figcaption>
         </figure>
