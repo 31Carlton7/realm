@@ -147,7 +147,6 @@ function ReviewPanel({ review, draft, setDraft, onShow }: {
     <section className="cr-review" aria-label="Review" data-state={review.state}>
       <div className="cr-review-head">
         <Icon name={AGENT_META[review.agentKind].icon} size={14} colored />
-        {/* Named as the chip names it, the level it was started at a shade quieter after the model. */}
         <span className="cr-review-title">{running ? <><ReviewerName {...by} /> is reviewing…</> : <>Review by <ReviewerName {...by} /></>}</span>
         {!running && review.finishedAt && <span className="cr-quiet">{ago(review.finishedAt)}</span>}
         <span className="cr-bar-spacer" />

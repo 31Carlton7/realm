@@ -344,9 +344,11 @@ command typed in for you to run. Its column takes a search or a pasted pull requ
 Authored by me, Needs my review and Needs my team's review, with any you pin at the top. A request
 opens on Summary — its description, whether it can merge, who has reviewed, its checks — and
 Changes, side by side or in one column, beside a file tree. Review with — one button, the model's
-mark and name, and a chevron to the reviewer's instructions and its model, every model under its
-mark — runs a reviewer over the diff on the model you choose, held to read-only, under instructions
-the profile keeps, and leaves its findings on the page; none of them, nor any line comment of yours,
+mark and name, with its level and a bolt for fast mode once you set them, and a chevron to the
+reviewer's instructions and its model, chosen in the prompter's own picker and its card — runs a
+reviewer over the diff at the model, level and speed you choose, held to read-only, under
+instructions the profile keeps along with its reviewer, and leaves its findings on the page, each
+review naming the level it ran at; none of them, nor any line comment of yours,
 reaches GitHub until you press Submit review and choose Comment, Approve or Request changes, with a
 comment, which posts it as you. Ask about this pull request, at its foot, puts a question to the
 request's own session in a space you choose, one whose checkout is the request's repository first,
