@@ -281,21 +281,24 @@ describe("the column, in the sidebar's place", () => {
   const page = () => document.querySelector<HTMLElement>(".page-overlay")!;
   const column = () => within(sidebar()).getByRole("navigation", { name: "Pull requests" });
 
-  it("is the sidebar's column under its Back from the page's first frame — before gh has answered — and none of it in the page", async () => {
+  it("is the sidebar's column from the page's first frame — before gh has answered — with no Back, and none of it in the page", async () => {
     /* The owner, 10-05, of the Scheduled page's column: "It is supposed to be the replacement sidebar,
        not like its own custom thing. Same for the code review part." And from the first frame: a page
        that waited for gh before drawing its column showed the spaces until it answered, then swapped.
-       THE MUTANTS: the column left in the page, or nothing in the sidebar's place until gh answers. */
+       Of the Back over it, later that day: "unnecessary" — the rail's lit button puts the page away.
+       THE MUTANTS: the column left in the page, nothing in the sidebar's place until gh answers, or a
+       Back over it again. */
     const { store } = await mountInWindow();
-    // Its first frame: the column's picture in the slot, under Back, in the spaces' place — and beside
-    // it the page as it will stand once gh answers, nothing chosen yet.
+    // Its first frame: the column's picture in the slot, in the spaces' place — and beside it the page
+    // as it will stand once gh answers, nothing chosen yet.
     expect(sidebar().querySelector(".sb-page-nav > .cr-col[aria-hidden]")).not.toBeNull();
     expect(within(page()).getByRole("heading", { level: 2, name: "Select a pull request" })).toBeInTheDocument();
-    expect(within(sidebar()).getByRole("button", { name: "Back" })).toBeInTheDocument();
+    expect(within(sidebar()).queryByRole("button", { name: "Back" })).toBeNull();
     expect(sidebar().querySelector(".sb-list")).toHaveAttribute("hidden");
     // gh answers: the column itself in the same place, its lists under the head, the page its own.
     expect(await within(sidebar()).findByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
     expect(column().closest(".sb-page-nav")).not.toBeNull();
+    expect(within(sidebar()).queryByRole("button", { name: "Back" })).toBeNull();
     expect(sidebar().querySelector(".cr-col[aria-hidden]")).toBeNull();
     expect(page().querySelector(".cr-col")).toBeNull();
     fireEvent.click(within(column()).getByRole("button", { name: /^Stream the tokenizer/ }));

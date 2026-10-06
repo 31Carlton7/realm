@@ -50,7 +50,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       data-page-nav={page !== null || undefined}>
       <div className="sidebar-slide">
         <SidebarHeader />
-        {page !== null && pageNav && <PageNavColumn label={page} setSlot={pageNav.setSlot} />}
+        {page !== null && pageNav && <PageNavColumn label={page.label} back={page.back} setSlot={pageNav.setSlot} />}
         <div className="sb-list" hidden={page !== null || undefined}>
           {/* The profile is what the column lists, so it heads the column — outside the scroller, where
               it holds still while the spaces move under it. */}
@@ -79,13 +79,14 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 }
 
 /**
- * The column while a page's rail has it: Back, which closes the page and gives the spaces back, and
- * the slot the page draws its rail into. Back is the column's own way out — the page's bar draws no
- * close, and Escape still goes back from anywhere — because a sidebar that changed what it lists needs
- * to say, where it changed, how to change it back. It stands where the profile does, at the head of
- * what the column lists.
+ * The column while a page's rail has it: the slot the page draws its rail into, under a Back that
+ * closes the page and gives the spaces back when the page asks for one (`PageRail`'s `back`). Back is
+ * the column's own way out for a page opened from a menu — the page's bar draws no close, and nothing
+ * on the rail is lit — because a sidebar that changed what it lists needs to say, where it changed,
+ * how to change it back. It stands where the profile does, at the head of what the column lists.
+ * Escape goes back from every page, with or without it.
  */
-function PageNavColumn({ label, setSlot }: { label: string; setSlot: (el: HTMLElement | null) => void }) {
+function PageNavColumn({ label, back, setSlot }: { label: string; back: boolean; setSlot: (el: HTMLElement | null) => void }) {
   const close = useApp((s) => s.closePageOverlay);
   /* The slot scrolls when a page's rail is longer than the column, and dissolves like the spaces it
      stands in for. The page finds it through the same ref, handed over before the first paint. */
@@ -94,11 +95,13 @@ function PageNavColumn({ label, setSlot }: { label: string; setSlot: (el: HTMLEl
   useLayoutEffect(() => { setSlot(nav.current); return () => setSlot(null); }, [setSlot]);
   return (
     <div className="sb-page">
-      <div className="sb-page-head">
-        <button type="button" className="sb-page-back" title={`Close ${label} and go back to your spaces (Esc)`} onClick={close}>
-          <Icon name="chevronLeft" size={14} /><span>Back</span>
-        </button>
-      </div>
+      {back && (
+        <div className="sb-page-head">
+          <button type="button" className="sb-page-back" title={`Close ${label} and go back to your spaces (Esc)`} onClick={close}>
+            <Icon name="chevronLeft" size={14} /><span>Back</span>
+          </button>
+        </div>
+      )}
       <div className="sb-page-nav" ref={nav} />
     </div>
   );

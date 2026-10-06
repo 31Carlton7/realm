@@ -779,16 +779,19 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - The sidebar answers where the user is and what else is available. Keep primary destinations,
   spaces, open items, and contextual actions visually separate.
 - One column of navigation at a time. A page with sections of its own — Settings, the Library, a
-  profile's or a space's page — draws them IN the sidebar's column while it is up, under a Back that
-  closes the page, rather than as a rail beside the sidebar: two side-by-side lists of places, the
-  left one about somewhere else, read as two sidebars. The sections wear the column's own row
-  anatomy, so it is the same sidebar listing something else, and the page they leave behind is a
-  centred column. Where there is no column to take — the sidebar collapsed — the rail stays in the
-  page, where it can still be reached (`components/page-nav.tsx`).
+  profile's or a space's page — draws them IN the sidebar's column while it is up, rather than as a
+  rail beside the sidebar: two side-by-side lists of places, the left one about somewhere else, read
+  as two sidebars. The sections wear the column's own row anatomy, so it is the same sidebar listing
+  something else, and the page they leave behind is a centred column. Where there is no column to
+  take — the sidebar collapsed — the rail stays in the page, where it can still be reached
+  (`components/page-nav.tsx`).
 - A destination page is left the way it was reached — Home or the lit rail button, a session in the
   sidebar, the column's Back — or with Escape, which goes back to where you were. Its bar is its name
   and nothing else (the owner, 10-05): a × at the bar's far end was one more way out, away from the
-  ones used to arrive.
+  ones used to arrive. The same goes for the Back: it heads the column only where a MENU opened the
+  page — Settings, a profile's or a space's settings — because nothing on the rail is lit to put that
+  page away. A page the rail opened has the rail for that, and its column's first row stands where the
+  profile does (the owner, 10-05: "I think it might only be necessary to keep it on the settings page").
 - Closing a pane should never imply deleting the object behind it. That rule is about objects that
   outlive their pane — a session's transcript, a diff's checkout — and a session goes further: it has
   no close at all (the owner, 10-05). It is reached from the sidebar and left the same way, and a ×

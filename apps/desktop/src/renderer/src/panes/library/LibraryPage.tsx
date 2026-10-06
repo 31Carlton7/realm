@@ -105,8 +105,8 @@ export function LibraryPage({ item }: PaneProps) {
           <Icon name="chevronLeft" size={14} />
         </button>
       )}
-      {/* The section it shows, as Settings' head names its page: "Library" is the pane bar's word and
-          the column's Back already says where back goes. */}
+      {/* The section it shows, as Settings' head names its page: "Library" is the pane bar's word, and
+          the rail's lit button says where the page came from. */}
       <div className="page-title"><h1>{openName ?? LIBRARY_TABS.find((t) => t.id === shown)!.label}</h1></div>
       {/* The vantage, kept. It used to live in the sub-title paragraph, and that paragraph went —
           but WHICH space a scope-grouped page is seen from is a fact about what it is showing, not

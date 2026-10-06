@@ -346,10 +346,12 @@ async function main() {
       const esc = await until(() => evalIn(c, `!document.querySelector('.page-overlay') && [...document.querySelectorAll('.panel-bar')].some((b) => b.textContent.includes(${JSON.stringify(TITLE)}))`), 5_000, "Escape").catch(() => false);
       check("Escape goes back to the session that was in front", esc === true);
       await press(c, `.app-rail .rail-btn[aria-label^="Library"]`);
-      await until(() => evalIn(c, `!!document.querySelector('.sb-page-back')`), 5_000, "the column's Back");
-      await press(c, `.sb-page-back`);
-      const back = await until(() => evalIn(c, `!document.querySelector('.page-overlay')`), 5_000, "Back").catch(() => false);
-      check("…and so does the sidebar's Back", back === true);
+      await until(() => evalIn(c, `!!document.querySelector('.sb-page-nav .page-rail')`), 5_000, "the Library's column");
+      // The rail opened it, so the column carries no Back (the owner, 10-05) — its lit button does.
+      check("…its column has no Back of its own", await evalIn(c, `!document.querySelector('.sb-page-back')`) === true);
+      await press(c, `.app-rail .rail-btn[aria-label^="Library"]`);
+      const back = await until(() => evalIn(c, `!document.querySelector('.page-overlay')`), 5_000, "the lit Library button").catch(() => false);
+      check("…and so does the rail's lit button, pressed again", back === true);
       await press(c, `.app-rail .rail-btn[aria-label^="Connections"]`);
       await until(() => evalIn(c, `document.querySelector('.page-overlay')?.getAttribute('aria-label') === 'Connections'`), 5_000, "Connections");
       await press(c, `.app-rail .rail-btn[aria-label^="Connections"]`);

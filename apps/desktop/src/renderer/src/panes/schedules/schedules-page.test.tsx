@@ -257,15 +257,17 @@ describe("the column, in the sidebar's place", () => {
   const sidebar = () => document.getElementById("app-sidebar")!;
   const page = () => document.querySelector<HTMLElement>(".page-overlay")!;
 
-  it("is the sidebar's column under its Back, the spaces hidden, and none of it in the page", async () => {
+  it("is the sidebar's column, the spaces hidden and no Back over it, and none of it in the page", async () => {
     /* The owner, 10-05: "The sidebar for scheduled tasks needs to be the same as the home sidebar and
        the library sidebar. It currently looks darker, there is no corner rounding … It is supposed to be
-       the replacement sidebar". THE MUTANTS: the column left in the page (a second, darker sidebar),
-       or drawn in the sidebar beside the spaces rather than in their place. */
+       the replacement sidebar". And later that day, of its Back: "unnecessary" — the rail opened the
+       page, and its lit button and Home put it away. THE MUTANTS: the column left in the page (a
+       second, darker sidebar), drawn in the sidebar beside the spaces rather than in their place, or
+       under a Back again. */
     const { api } = await mountInWindow({ schedules: [schedule()] });
     const col = within(sidebar()).getByRole("navigation", { name: "Scheduled tasks" });
     expect(col.closest(".sb-page-nav")).not.toBeNull();
-    expect(within(sidebar()).getByRole("button", { name: "Back" })).toBeInTheDocument();
+    expect(within(sidebar()).queryByRole("button", { name: "Back" })).toBeNull();
     expect(sidebar().querySelector(".sb-list")).toHaveAttribute("hidden");
     expect(page().querySelector(".sched-col")).toBeNull();
     // Still the page's own column: its tasks, and New task opening the page's modal.

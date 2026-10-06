@@ -11,9 +11,9 @@ import { fakeApi, skillRow, type FakeData } from "../state/store.test-fakes";
 
 /**
  * A page's own sections in the sidebar's place (page-nav.tsx): over the panes, Settings, the Library,
- * a profile's and a space's page draw their rail in the sidebar's column — the spaces hidden under a
- * Back — instead of standing beside it as a second sidebar. Every test names the change that would
- * make it fail.
+ * a profile's and a space's page draw their rail in the sidebar's column — the spaces hidden, under a
+ * Back where a menu opened the page — instead of standing beside it as a second sidebar. Every test
+ * names the change that would make it fail.
  */
 async function mount(overrides: FakeData = {}) {
   const api = fakeApi(overrides);
@@ -38,7 +38,7 @@ const open = (store: Awaited<ReturnType<typeof mount>>["store"], kind: "library-
 afterEach(() => cleanup());
 
 describe("a page's rail in the sidebar's place", () => {
-  it("draws the Library's sections in the sidebar, under a Back, with the spaces hidden — and none in the page", async () => {
+  it("draws the Library's sections in the sidebar in the spaces' place — no Back over them — and none in the page", async () => {
     // THE MUTANTS: leave the rail in the page (two sidebars), or draw it in the sidebar beside the
     // spaces rather than in their place.
     const { store } = await mount();
@@ -46,11 +46,11 @@ describe("a page's rail in the sidebar's place", () => {
     const side = within(sidebar());
     await waitFor(() => expect(side.getByRole("radio", { name: "Files" })).toBeInTheDocument());
     expect(side.getByRole("radio", { name: "Skills" })).toBeInTheDocument();
-    expect(side.getByRole("button", { name: "Back" })).toBeInTheDocument();
     expect(sidebar().querySelector(".sb-list")).toHaveAttribute("hidden");
-    // Back stands where the profile does, at the head of what the column lists — and the profile
-    // goes with the spaces it names.
-    expect(side.getByRole("button", { name: "Back" }).closest(".sb-page-head")).not.toBeNull();
+    // The rail opened it and the rail puts it away, so the sections themselves stand where the profile
+    // does, at the head of what the column lists — and the profile goes with the spaces it names.
+    expect(side.queryByRole("button", { name: "Back" })).toBeNull();
+    expect(sidebar().querySelector(".sb-page > .sb-page-nav:first-child")).not.toBeNull();
     expect(side.queryByRole("button", { name: /^Profile:/ })).toBeNull();
     expect(side.queryByRole("button", { name: "New space" })).toBeNull();
     expect(page().querySelector(".page-rail")).toBeNull();
@@ -68,10 +68,35 @@ describe("a page's rail in the sidebar's place", () => {
     expect(within(sidebar()).getByRole("radio", { name: "Files" })).not.toBeChecked();
   });
 
+  it("puts a Back over the column only for a page a menu opened — Settings, a profile's, a space's — never one the rail opened", async () => {
+    /* The owner, 10-05: "The back buttons on these pages—the scheduled task page, the library page, the
+       code review page—are unnecessary. I think it might only be necessary to keep it on the settings
+       page." A page the rail opened is put away from the rail, by its lit button or Home beside it; a
+       page opened from a menu has nothing lit, and its column says how to give the spaces back. (Code
+       review's column, which waits on gh, is held to it in its own test.) THE MUTANTS: a Back over
+       every column again, or over none — Settings changing the sidebar with no way back there. */
+    const { store } = await mount();
+    const spaceId = store.getState().activeSpaceId!;
+    const pages: [name: string, show: () => void, back: boolean][] = [
+      ["Settings", () => store.getState().openDestinationPage("settings-page"), true],
+      ["Profile", () => store.getState().openProfilePage(), true],
+      ["Overview", () => store.getState().openSpacePage(spaceId), true],
+      ["Library", () => store.getState().openDestinationPage("library-page"), false],
+      ["Scheduled tasks", () => store.getState().openDestinationPage("schedules-page"), false],
+    ];
+    for (const [name, show, back] of pages) {
+      act(() => show());
+      await waitFor(() => expect(sidebar().querySelector(".sb-page"), name).not.toBeNull());
+      expect(within(sidebar()).queryAllByRole("button", { name: "Back" }).length, name).toBe(back ? 1 : 0);
+      act(() => { store.getState().closePageOverlay(); });
+      await waitFor(() => expect(sidebar().querySelector(".sb-page"), name).toBeNull());
+    }
+  });
+
   it("Back closes the page and gives the sidebar its spaces back", async () => {
     // THE MUTANT: a Back that only swaps the column, leaving the page open with its rail gone.
     const { store } = await mount();
-    await open(store, "library-page");
+    await open(store, "settings-page");
     fireEvent.click(await within(sidebar()).findByRole("button", { name: "Back" }));
     await waitFor(() => expect(store.getState().pageOverlay).toBeNull());
     expect(sidebar().querySelector(".sb-list")).not.toHaveAttribute("hidden");
