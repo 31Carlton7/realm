@@ -119,6 +119,79 @@ export const claims: Claim[] = [
   },
 ]
 
+export type Facet = { title: string; body: string }
+
+/**
+ * What a realm is made of — the six faces of the mark, in the order they arrive (`ORDER` in
+ * lib/dimension/faces.ts), so the sentence beside a face is about the face that is landing.
+ *
+ * A realm is a place rather than a stack of layers, so these are what the place contains — each one
+ * something the shipped app does, with the limit stated wherever there is one.
+ */
+export const facets: Facet[] = [
+  {
+    title: "The agent",
+    body: "Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code or Grok, each on its own login, models and permission modes. Realm never asks for an API key.",
+  },
+  {
+    title: "The checkout",
+    body: "A space is pointed at your code \u2014 one checkout or several \u2014 and its sessions work there. Each turn is bracketed by a checkpoint, and restoring one puts the files back.",
+  },
+  {
+    title: "The terminal",
+    body: "Real terminals beside the agent — and the agent can read what one is showing, the rendered screen rather than a raw tail, and answer a prompt waiting in it.",
+  },
+  {
+    title: "The browser",
+    body: "A browser pane that stays signed in, which an agent can read and drive. It stops at a consent screen: approving a sign-in stays yours unless a space says otherwise.",
+  },
+  {
+    title: "The tools",
+    body: "Linear, GitHub, Slack, Notion and your own MCP servers, through one gateway per space. The agent is handed the tools, never the credentials, and every call is logged.",
+  },
+  {
+    title: "The boundary",
+    body: "A macOS sandbox a space can put its agents behind: the checkout writable, credential folders unreadable. It ships off, per space, because one that has not met your toolchain yet can break a build.",
+  },
+]
+
+/** The eighth step, when the view pulls back and the realm is one of many. */
+export const facetsMany: Facet = {
+  title: "One for every project, all at once.",
+  body: "Spaces sit side by side, each with its own agents at work, and none reaches another\u2019s tools. The Agents page reads every one of them at once \u2014 a wall of tiles, or an office with a figure at every desk \u2014 and the sidebar keeps every chat across them, by the day you last worked on it.",
+}
+
+/** The seventh step, when all six are in. */
+export const facetsCoda: Facet = {
+  title: "That\u2019s a realm.",
+  body: "Open one for every project. They run side by side, none of them reaches another\u2019s tools, and each is where you left it when you come back.",
+}
+
+/**
+ * The interlude between the claims: delegation, told in the order the tree draws it
+ * (lib/dimension/tree.ts). Every sentence is the delegation code's own behaviour — `agent_run` and
+ * `agent_start`, `MAX_DELEGATION_DEPTH`, the fenced final report — and `realm-agent` is on by
+ * default, so "an agent can" is true of a fresh install rather than of a setting.
+ */
+export const delegation: Facet[] = [
+  {
+    title: "One agent can open more.",
+    body: "An agent in Realm can hand work to other agents. Each one is a real session in the space \u2014 a pane you can open and watch while it works.",
+  },
+  {
+    title: "Several at once.",
+    body: "Independent tasks run in parallel, each in the space\u2019s checkout, a named environment or a fresh worktree of its own. Their permission prompts come to their own panes, and none of them inherits a bypass.",
+  },
+  {
+    title: "Two levels, and no further.",
+    body: "A sub-agent may delegate once more. Past that it is refused, because every level is another agent someone has to follow.",
+  },
+  {
+    title: "Everything comes back.",
+    body: "Each one returns a final report to the call that sent it. Its full trace stays in its own pane, and in the transcript it nests under the call that spawned it.",
+  },
+]
+
 export type Question = { q: string; a: string }
 
 /**
