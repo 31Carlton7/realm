@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Finding, PrDetail, PrFile, PrSummary } from "@realm/contracts";
 import type { AgentProbe } from "../../state/store";
 import {
-  EMPTY_DRAFT, age, appendPage, canSubmit, checksFact, dropComment, isKept, isOwnRequest, keepFinding, keepSummary, mergeFact,
+  EMPTY_DRAFT, age, ago, appendPage, canSubmit, checksFact, dropComment, isKept, isOwnRequest, keepFinding, keepSummary, mergeFact,
   postsLine, readQuery, reviewBlocked, reviewPayload, reviewerRows,
 } from "./code-review-model";
 import { fileTree, filterFiles, treeRows } from "./file-tree";
@@ -17,6 +17,12 @@ describe("the column", () => {
     const now = Date.UTC(2026, 9, 5);
     expect([0, 59_000, 5 * 60_000, 3 * 3_600_000, 2 * 86_400_000, 150 * 86_400_000, 800 * 86_400_000].map((d) => age(now - d, now)))
       .toEqual(["now", "now", "5m", "3h", "2d", "5mo", "2y"]);
+  });
+
+  it("says how long ago as a phrase, and a moment ago as just now", () => {
+    // THE MUTANT: "now ago" — the review panel's head said it for every run that had just finished.
+    const now = Date.UTC(2026, 9, 5);
+    expect([30_000, 5 * 60_000, 2 * 86_400_000].map((d) => ago(now - d, now))).toEqual(["just now", "5m ago", "2d ago"]);
   });
 
   it("reads a pasted link as an address and anything else as words", () => {

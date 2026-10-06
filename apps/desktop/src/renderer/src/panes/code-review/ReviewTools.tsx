@@ -64,7 +64,8 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
       <button type="button" className="btn cr-review-run" disabled={blocked !== null} aria-busy={running || undefined} onClick={start}
         title={running ? `${reviewer} is reviewing this pull request` : blocked ?? `A read-only ${label} reads the diff and leaves findings for you — nothing is posted`}>
         <Icon name={AGENT_META[running && review ? review.agentKind : pick.kind].icon} size={14} colored />
-        <span className="cr-review-label">{running ? "Reviewing…" : `Review with ${label}`}</span>
+        {/* The verb and the model apart, so a narrow bar can keep the verb (styles.css). */}
+        <span className="cr-review-label">{running ? "Reviewing…" : <>Review<span className="cr-review-model"> with {label}</span></>}</span>
       </button>
       <button ref={more} type="button" className="icon-btn cr-review-more" aria-label="Review instructions" title="How to review — the model and your instructions"
         aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="chevronDown" size={12} /></button>

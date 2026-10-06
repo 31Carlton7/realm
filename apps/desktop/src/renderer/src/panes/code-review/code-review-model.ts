@@ -30,6 +30,12 @@ export function age(ts: number, now = Date.now()): string {
   return `${Math.floor(d / 365)}y`;
 }
 
+/** How long ago, as a phrase: "just now", "12m ago" — never "now ago". */
+export function ago(ts: number, now = Date.now()): string {
+  const a = age(ts, now);
+  return a === "now" ? "just now" : `${a} ago`;
+}
+
 /** What the search box holds: nothing, an address (a pasted link, `owner/repo#42`), or words. */
 export type ColumnQuery = { kind: "none" } | { kind: "ref"; ref: PrRef } | { kind: "search"; query: string };
 export function readQuery(text: string): ColumnQuery {
