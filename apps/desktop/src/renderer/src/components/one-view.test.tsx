@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
-import { allItems, findLeafOfItem, findSidePane } from "@realm/contracts";
+import { allItems, findLeafOfItem, findPanel, sideTabsOf } from "@realm/contracts";
 import { Main } from "../App";
 import { Sidebar } from "./sidebar/Sidebar";
 import { CommandPalette } from "./CommandPalette";
@@ -18,9 +18,9 @@ beforeEach(() => {
 afterEach(() => { setBrowserBridgesForTests(null); vi.unstubAllGlobals(); });
 
 /**
- * The window's one view, rendered (Plan 27): a pane or a split of two, each with its own side pane,
- * and no strip of named splits above them. The store's rules are `state/store-view.test.ts`; this is
- * what the shell draws from them.
+ * The window's one view, rendered: the main panes, as many as were made, the one side panel beside
+ * them, and no strip of named splits above them. The store's rules are `state/store-view.test.ts`;
+ * this is what the shell draws from them.
  */
 
 const THREE = {
@@ -65,7 +65,7 @@ describe("one view, no named splits", () => {
     expect(container.querySelector(".main > .panehost, .panehost")).not.toBeNull();
   });
 
-  it("shows two spaces' sessions side by side, each beside its own side pane", async () => {
+  it("shows two spaces' sessions side by side, and both their tabs in the one side panel", async () => {
     const { store } = await mount("main", {
       spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework")],
       items: { s1: [item("ia", "s1", { kind: "session", refId: "a", title: "Alpha" }), item("wa", "s1", { kind: "browser", refId: "ba", title: "Alpha web" })],
@@ -76,10 +76,15 @@ describe("one view, no named splits", () => {
     await act(async () => { await store.getState().openItemBeside("ib"); });
     await act(async () => { await store.getState().openInSidePane("a", "wa"); });
     await act(async () => { await store.getState().openInSidePane("b", "wb"); });
-    expect(findSidePane(store.getState().layout!, "ia")?.tabs).toEqual(["wa"]);
-    expect(findSidePane(store.getState().layout!, "ib")?.tabs).toEqual(["wb"]);
-    await waitFor(() => expect(document.querySelectorAll(".panel[data-tabbed]")).toHaveLength(2));
-    expect(document.querySelectorAll(".panel").length).toBe(4);
+    expect(sideTabsOf(store.getState().layout!, "ia")).toEqual(["wa"]);
+    expect(sideTabsOf(store.getState().layout!, "ib")).toEqual(["wb"]);
+    // THE MUTANT: a side pane per session. Two strips, four columns.
+    await waitFor(() => expect(document.querySelectorAll(".panel[data-tabbed]")).toHaveLength(1));
+    expect(document.querySelectorAll(".panel").length).toBe(3);
+    expect(document.querySelector(".view-panel > .panel")?.getAttribute("data-leaf-id")).toBe(findPanel(store.getState().layout!)!.id);
+    // A hairline between one session's run and the next, and whose each tab is in its tooltip.
+    expect(document.querySelectorAll(".pane-tab-run")).toHaveLength(1);
+    expect(screen.getByRole("tab", { name: /Bravo web/ }).getAttribute("title")).toBe("Bravo web — Bravo");
   });
 });
 
@@ -147,13 +152,13 @@ describe("focusing a pane", () => {
       expect(row.querySelector(".menu-icon > svg"), String(name)).not.toBeNull();
     }
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
-    // Two panes: focus is offered, and the split rows are not.
+    // Two panes: focus is offered, and so are the splits, while there is room for a third.
     await act(async () => { await store.getState().splitFocused("row"); });
     await act(async () => { await store.getState().openItem("i2"); });
     fireEvent.click(screen.getByRole("button", { name: "Pane menu for Two" }));
     const focus = await screen.findByRole("menuitem", { name: /Focus pane/ });
     expect(focus.querySelector(".menu-icon > svg")).not.toBeNull();
-    expect(screen.queryByRole("menuitem", { name: /Split right/ })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: /Split right/ })).toBeEnabled();
   });
 
   /* A view with one leaf renders the same focused or not, so the toggle would be a lit button with

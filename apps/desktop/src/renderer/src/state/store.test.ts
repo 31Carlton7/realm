@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, hasLeafIn, patchKey, spaceIsPlainFolder, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, type DropEdge } from "./store";
-import { allItems, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, ElementChipSchema, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type DevicePickedElement, type Environment, type Item, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { PANE_DIVIDER, PANE_MIN, allItems, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, ElementChipSchema, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type DevicePickedElement, type Environment, type Item, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 import { DEFAULT_GROUND_ALPHA } from "@realm/ui";
 
@@ -854,18 +854,26 @@ describe("app store", () => {
     });
   });
 
-  it("the view shows two panes at most: a split of two refuses a third", async () => {
+  it("the view splits for as long as there is room, and no further", async () => {
     const store = createAppStore(api);
     await store.getState().boot();
+    // Two panes wide, one tall.
+    store.setState({ viewRoom: { width: 2 * PANE_MIN.width + PANE_DIVIDER, height: PANE_MIN.height } });
     await store.getState().newTerminal();
     await store.getState().splitFocused("row");
     const two = store.getState().layout;
     const focus = store.getState().focusedLeafId;
-    // THE MUTANT: let the split grow — a third column is the window holding more than one view.
+    // THE MUTANT: let the split grow past the room — a third column squeezed below every pane's floor.
     await store.getState().splitFocused("row");
     await store.getState().splitFocused("col");
     expect(store.getState().layout).toBe(two);
     expect(store.getState().focusedLeafId).toBe(focus);
+    // Room for more is room for more: a count was never the limit.
+    store.setState({ viewRoom: { width: 4 * PANE_MIN.width + 3 * PANE_DIVIDER, height: 2 * PANE_MIN.height + PANE_DIVIDER } });
+    await store.getState().splitFocused("row");
+    await store.getState().splitFocused("row");
+    await store.getState().splitFocused("col");
+    expect(primaryLeaves(store.getState().layout!)).toHaveLength(5);
   });
 
   it("linkProject adds a project to the active space", async () => {
@@ -2199,7 +2207,7 @@ describe("app store", () => {
       });
     }
 
-    it("a third dropped on an edge takes the OTHER side's place — never a third column", async () => {
+    it("a third dropped on an edge is a third pane, beside the one it was dropped on", async () => {
       api.data.items.s1 = [item("i1", "s1"), item("i2", "s1"), item("i3", "s1")];
       const store = createAppStore(api); await store.getState().boot();
       await store.getState().openItem("i1");
@@ -2207,11 +2215,10 @@ describe("app store", () => {
       const i1Leaf = findLeafOfItem(store.getState().layout!, "i1")!.id;
       await store.getState().openItemAt("i3", i1Leaf, "right");
       const l = store.getState().layout!; if (l.type !== "split") throw new Error();
-      expect(l.children).toHaveLength(2);
-      expect(l.children.map((c) => (c as { itemId: string | null }).itemId)).toEqual(["i1", "i3"]);
+      // One row of three equal columns, never a column nested in half of another.
+      expect(l.children.map((c) => (c as { itemId: string | null }).itemId)).toEqual(["i1", "i3", "i2"]);
+      expect(l.sizes.map(Math.round)).toEqual([33, 33, 33]);
       expect(store.getState().focusedLeafId).toBe(findLeafOfItem(l, "i3")!.id);
-      // i2 left the screen and nothing else: it is an item of its space, as it was.
-      expect(store.getState().items.map((i) => i.id)).toContain("i2");
     });
 
     it("a dragged divider keeps its place when a pane in the split is swapped", async () => {

@@ -196,14 +196,15 @@ describe("what agents open goes into the side pane of the session that asked", (
   }
   const browser = (id: string) => api.data.items.s1!.push(item(id, "s1", { kind: "browser", refId: `ref-${id}` }));
 
-  it("puts a browser beside the session that opened it, not the one with focus, and leaves focus there", async () => {
-    // THE MUTANT: the old `openItemBeside(itemId)` — the browser lands beside s-b, the pane being typed in.
+  it("puts a browser in the side panel as the session's that opened it, not the one with focus, and leaves focus there", async () => {
+    // THE MUTANT: the old `openItemBeside(itemId)` — the browser lands as a pane beside s-b, the pane
+    // being typed in, or is filed under s-b's tabs.
     const store = await twoLeads();
     const typing = store.getState().focusedLeafId;
     browser("i-br1");
     await store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: "i-br1", openedBy: "a" });
-    expect(findSidePane(store.getState().layout!, "i-a")).toMatchObject({ itemId: "i-br1", tabs: ["i-br1"] });
-    expect(open(store)).toEqual(["i-a", "i-br1", "i-b"]);
+    expect(findSidePane(store.getState().layout!, "i-a")).toMatchObject({ itemId: "i-br1", tabs: ["i-br1"], owners: { "i-br1": "i-a" } });
+    expect(open(store)).toEqual(["i-a", "i-b", "i-br1"]);
     expect(store.getState().focusedLeafId).toBe(typing);
   });
 
