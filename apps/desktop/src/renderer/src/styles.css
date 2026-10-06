@@ -590,16 +590,17 @@ kbd { font: 11px var(--font-mono); }
 /* A page the rail opened is headed by its name — the Library's drawn by the column (`.sb-page-title`,
    Sidebar.tsx), Scheduled's and Code review's by their own columns with a search or a ⋯ beside it — in
    one type and one row. The row stands as far under the rim as the name's first glyph stands in from
-   the column's edge, measured on the ink rather than the boxes (`page-heads-live.mjs`): 6px under the
-   rim, the caps — 4.5px into a 24px line centred in a 30px row — were 13.5px down against 25px in, and
-   the head read as cramped against the top (the owner, 10-06: "so it looks more even"). 6px and the
-   11.5px they were short is 25 each way. With no control of its own the row keeps the control's slot,
-   so every name is on one line and what follows starts on one, a step under it. Standing in the page,
-   with the sidebar folded away, a column keeps its own bottom and takes the same top. The Back and the
-   profile are controls in the first row, not titles, and stay where they are. */
-:root { --col-head-top: 17.5px; }
+   the column's edge, measured on the ink rather than the boxes (`page-heads-live.mjs`): a row 6px
+   under the rim put the caps 14px down against 25px in, and the head read as cramped against the top
+   (the owner, 10-06: "so it looks more even"). The caps start 5px into the 24px line, centred in a row
+   its trailing control's height, so 18px puts them 25px down — in the sidebar and in the page alike.
+   With no control of its own the row keeps the control's slot, so every name is on one line and what
+   follows starts on one, a step under it. Standing in the page, with the sidebar folded away, a column
+   keeps its own bottom. The Back and the profile are controls in the first row, not titles, and stay
+   where they are. */
+:root { --col-head-top: 18px; }
 .sb-page-head:has(> .sb-page-title), .sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-head, .cr-col-head) {
-  padding: var(--col-head-top) 12px 0 24px; min-height: calc(var(--col-head-top) + 30px); }
+  padding: var(--col-head-top) 12px 0 24px; min-height: calc(var(--col-head-top) + 28px); }
 .sched-col-title, .cr-col-title, .sb-page-title { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 24px;
   font-weight: var(--fw-title); color: var(--rl-text-bright); }
 /* The list's head (SidebarLens): what the list is showing, in the column's section-label voice — the

@@ -165,43 +165,70 @@ const HEAD_INK = `(async () => {
   const box = h.row.getBoundingClientRect();
   // A title's own box, which stops short of its row's trailing control: a search or a ⋯ is ink too.
   const right = h.kind === 'title' ? h.el.getBoundingClientRect().right : box.right;
+  // …and its first glyph's: a capital in every title here, so its ink's top is the caps' — the
+  // ascenders of a "b" or a "d" stand half a pixel above them.
+  const glyph = (() => { if (h.kind !== 'title') return null; const t = [...h.el.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+    const r = document.createRange(); r.setStart(t, 0); r.setEnd(t, 1); return r.getBoundingClientRect().right; })();
   return { kind: h.kind, text: h.text ?? h.el.textContent.trim(), rim, edge, row: __heads.box(h.row), el: __heads.box(h.el),
     clip: { x: Math.floor(edge) + 1, y: Math.floor(rim) + 1, width: Math.ceil(right - edge), height: Math.ceil(box.bottom - rim) + 2 },
+    glyphRight: glyph,
     font: h.kind === 'title' ? (() => { const cs = getComputedStyle(h.el); return cs.fontSize + '/' + cs.lineHeight + ' ' + cs.fontWeight; })() : null,
     // The first thing under the head: New task, Code review's search, a first section, Settings' search.
     next: __heads.box(col.querySelector('.sb-page-nav :is(.sched-new, .cr-col:not([aria-hidden]) .cr-col-search .search-field, .page-rail .settings-tab, .settings-search .search-field)')
       ?? col.querySelector('.sb-list:not([hidden]) .space-body > *')) };
 })()`;
 
+/** The ink box of a capture, in device px from its corner, and its scale. */
+const INK = (data, width, glyphWidth) => `(async () => {
+  const img = new Image(); img.src = "data:image/png;base64," + ${JSON.stringify(data)}; await img.decode();
+  const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
+  const g = cv.getContext("2d"); g.drawImage(img, 0, 0);
+  const px = g.getImageData(0, 0, cv.width, cv.height).data;
+  const L = (x, y) => { const i = (y * cv.width + x) * 4; return 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; };
+  const k = img.width / ${width};
+  // The ground is what most of the box is; the mark is whatever is furthest from it.
+  const all = []; for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) all.push(L(x, y));
+  const ground = [...all].sort((a, b) => a - b)[Math.floor(all.length / 2)];
+  const far = Math.max(...all.map((v) => Math.abs(v - ground)));
+  const box = (xEnd) => { let top = null, left = null, bottom = null;
+    for (let y = 0; y < cv.height; y++) for (let x = 0; x < xEnd; x++) {
+      if (Math.abs(L(x, y) - ground) < far / 2) continue;
+      if (top === null) top = y; bottom = y; left = left === null ? x : Math.min(left, x);
+    }
+    return { top, left, bottom }; };
+  return { k, all: box(cv.width), glyph: ${glyphWidth === null ? "null" : `box(Math.ceil(${glyphWidth} * k))`} };
+})()`;
+
 async function inkOf(c) {
   const head = await evalIn(c, HEAD_INK);
   if (!head) return null;
   const { data } = await c.send("Page.captureScreenshot", { format: "png", clip: { ...head.clip, scale: 1 } });
-  const ink = await evalIn(c, `(async () => {
-    const img = new Image(); img.src = "data:image/png;base64," + ${JSON.stringify(data)}; await img.decode();
-    const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
-    const g = cv.getContext("2d"); g.drawImage(img, 0, 0);
-    const px = g.getImageData(0, 0, cv.width, cv.height).data;
-    const L = (x, y) => { const i = (y * cv.width + x) * 4; return 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; };
-    // The ground is what most of the box is; the mark is whatever is furthest from it.
-    const all = []; for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) all.push(L(x, y));
-    const ground = [...all].sort((a, b) => a - b)[Math.floor(all.length / 2)];
-    const far = Math.max(...all.map((v) => Math.abs(v - ground)));
-    let top = null, left = null, bottom = null, right = null;
-    for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
-      if (Math.abs(L(x, y) - ground) < far / 2) continue;
-      if (top === null) top = y;
-      bottom = y; left = left === null ? x : Math.min(left, x); right = right === null ? x : Math.max(right, x);
-    }
-    return { k: img.width / ${head.clip.width}, top, left, bottom, right, ground: +ground.toFixed(1), far: +far.toFixed(1) };
-  })()`);
+  const ink = await evalIn(c, INK(data, head.clip.width, head.glyphRight === null ? null : head.glyphRight - head.clip.x));
   const k = ink.k;
   // Back to CSS px from the rim and from the column's edge (the clip starts a pixel past each, clear
-  // of the rim's own hairline).
-  const top = +((head.clip.y + ink.top / k) - head.rim).toFixed(2);
-  const side = +((head.clip.x + ink.left / k) - head.edge).toFixed(2);
-  return { kind: head.kind, text: head.text, top, side, uneven: +(top - side).toFixed(2), inkHeight: +((ink.bottom - ink.top + 1) / k).toFixed(2),
+  // of the rim's own hairline). A title is read off its first glyph — its caps' top and its own left —
+  // and anything else off all of its ink.
+  const at = ink.glyph ?? ink.all;
+  const top = +((head.clip.y + at.top / k) - head.rim).toFixed(2);
+  const side = +((head.clip.x + at.left / k) - head.edge).toFixed(2);
+  return { kind: head.kind, text: head.text, top, side, uneven: +(top - side).toFixed(2),
+    inkTop: +((head.clip.y + ink.all.top / k) - head.rim).toFixed(2), capHeight: +((at.bottom - at.top + 1) / k).toFixed(2),
     row: head.row, rowTop: +(head.row.t - head.rim).toFixed(2), next: head.next, nextTop: head.next ? +(head.next.t - head.rim).toFixed(2) : null, font: head.font };
+}
+
+/** The token, overridden in the page: what each inset would put where, read off the same ink. */
+async function sweep(c, values) {
+  const out = {};
+  for (const v of values) {
+    await evalIn(c, `(() => { document.getElementById('heads-sweep')?.remove(); const st = document.createElement('style'); st.id = 'heads-sweep';
+      st.textContent = ':root { --col-head-top: ${v}px !important; }'; document.head.appendChild(st); return true; })()`);
+    await evalIn(c, `new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))`);
+    const m = await inkOf(c);
+    out[v] = { top: m.top, side: m.side, inkTop: m.inkTop };
+  }
+  await evalIn(c, `(() => { document.getElementById('heads-sweep')?.remove(); return true; })()`);
+  await evalIn(c, `new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))`);
+  return out;
 }
 
 /** A capture as a person would see it: laid over the face's page colour first, since a capture holds
@@ -297,6 +324,8 @@ async function measureFace(c, mode) {
     const m = await inkOf(c);
     read[col.name] = m;
     note(`${mode} ${col.name}: the head's ink under the rim (top) and in from the column's edge (side), CSS px`, m);
+    // Where each top would put a title's caps — the old 6px among them — off the same ink.
+    if (m?.kind === "title") note(`${mode} ${col.name}: --col-head-top → its caps under the rim, its first glyph in`, await sweep(c, [6, 16, 17, 17.5, 18, 19, 20]));
     parts.push({ name: col.name, caption: m ? `${m.kind}: ink ${m.top} under the rim, ${m.side} in` : "no head", data: await shot(c, `${mode}-column-${col.name.toLowerCase().replace(/\s+/g, "-")}`, CROP) });
     await shot(c, `${mode}-page-${col.name.toLowerCase().replace(/\s+/g, "-")}`, { x: 0, y: 0, width: 900, height: 420 });
     if (col.open) await goHome(c);
@@ -349,21 +378,14 @@ async function folded(c) {
     await park(c);
     await sleep(800);
     const geo = await evalIn(c, `(() => { const t = document.querySelector(${JSON.stringify(title)}); const col = t.closest('.sched-col, .cr-col');
-      return { rim: document.querySelector('.page-overlay-bar').getBoundingClientRect().bottom, edge: col.getBoundingClientRect().left, title: __heads.box(t), head: __heads.box(t.parentElement) }; })()`);
-    const clip = { x: Math.floor(geo.edge) + 1, y: Math.floor(geo.rim) + 1, width: Math.ceil(geo.head.r - geo.edge), height: Math.ceil(geo.head.b - geo.rim) + 2 };
+      const r = document.createRange(); r.setStart(t.firstChild, 0); r.setEnd(t.firstChild, 1);
+      return { rim: document.querySelector('.page-overlay-bar').getBoundingClientRect().bottom, edge: col.getBoundingClientRect().left, title: __heads.box(t),
+        head: __heads.box(t.parentElement), glyphRight: r.getBoundingClientRect().right }; })()`);
+    const clip = { x: Math.floor(geo.edge) + 1, y: Math.floor(geo.rim) + 1, width: Math.ceil(geo.title.r - geo.edge), height: Math.ceil(geo.head.b - geo.rim) + 2 };
     const { data } = await c.send("Page.captureScreenshot", { format: "png", clip: { ...clip, scale: 1 } });
-    const ink = await evalIn(c, `(async () => {
-      const img = new Image(); img.src = "data:image/png;base64," + ${JSON.stringify(data)}; await img.decode();
-      const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height; const g = cv.getContext("2d"); g.drawImage(img, 0, 0);
-      const px = g.getImageData(0, 0, cv.width, cv.height).data; const L = (x, y) => { const i = (y * cv.width + x) * 4; return 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; };
-      const all = []; for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) all.push(L(x, y));
-      const ground = [...all].sort((a, b) => a - b)[Math.floor(all.length / 2)]; const far = Math.max(...all.map((v) => Math.abs(v - ground)));
-      let top = null, left = null;
-      for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) { if (Math.abs(L(x, y) - ground) < far / 2) continue; if (top === null) top = y; left = left === null ? x : Math.min(left, x); }
-      return { k: img.width / ${clip.width}, top, left };
-    })()`);
-    note(`folded, ${name} in the page: its title's ink under the page's top (top) and in from the column's edge (side)`,
-      { top: +((clip.y + ink.top / ink.k) - geo.rim).toFixed(2), side: +((clip.x + ink.left / ink.k) - geo.edge).toFixed(2), head: geo.head });
+    const ink = await evalIn(c, INK(data, clip.width, geo.glyphRight - clip.x));
+    note(`folded, ${name} in the page: its title's caps under the page's top (top) and its first glyph in from the column's edge (side)`,
+      { top: +((clip.y + ink.glyph.top / ink.k) - geo.rim).toFixed(2), side: +((clip.x + ink.glyph.left / ink.k) - geo.edge).toFixed(2), head: geo.head });
     await shot(c, `folded-${name.toLowerCase().replace(/\s+/g, "-")}`, { x: 0, y: 0, width: 640, height: 300 });
     await evalIn(c, open);
     await until(() => evalIn(c, `!document.querySelector('.page-overlay')`), 8_000, `${name} put away`);
@@ -463,7 +485,7 @@ async function main() {
   for (const mode of ["dark", "light"]) {
     for (const [name, m] of Object.entries(faces[mode])) {
       if (m?.kind !== "title") continue;
-      check(`${mode} ${name}: its title stands as far under the rim as in from the column's edge`, Math.abs(m.top - m.side) <= 1, { top: m.top, side: m.side });
+      check(`${mode} ${name}: its title's caps stand as far under the rim as its first glyph stands in from the column's edge`, Math.abs(m.top - m.side) <= 0.5, { top: m.top, side: m.side });
     }
     const titles = Object.entries(faces[mode]).filter(([, m]) => m?.kind === "title");
     if (titles.length > 1) {

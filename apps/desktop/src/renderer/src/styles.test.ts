@@ -1434,17 +1434,17 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     /* The owner, 10-06, of the Library's column and the titles over Scheduled's and Code review's: "make
        sure we have the title of the page for the library here … and increase the top padding … so it
        looks more even". Measured on the ink (page-heads-live.mjs), a title 6px under the rim had its caps
-       13.5px down and its first glyph 25px in; the row now starts 6px + the 11.5px it was short. Every
-       column's title takes that one top — the Library's, drawn by the column, and the two that bring
-       their own head, in the sidebar's slot and standing in the page — in one type, in a row that keeps
-       its trailing control's slot. The Back and the profile are first-row controls and stay 6px under.
-       THE MUTANTS: the token back at the profile's 6px (the cramped head), a head with a literal top of
-       its own (a column off the others' line), a row that drops the control's slot (the Library's name
-       a line higher than the others'), the Library's title in a type of its own, or the Back moved down
-       with the titles (Home → Settings jumping its first row). */
+       14px down and its first glyph 25px in; at 18px, in a row its trailing control's height, the caps
+       are 25px down. Every column's title takes that one top — the Library's, drawn by the column, and
+       the two that bring their own head, in the sidebar's slot and standing in the page — in one type,
+       in a row that keeps the control's slot. The Back and the profile are first-row controls and stay
+       6px under. THE MUTANTS: the token back at the profile's 6px (the cramped head), a head with a
+       literal top of its own (a column off the others' line), a row that drops the control's slot (the
+       Library's name, with no control, a line higher than the others'), the Library's title in a type
+       of its own, or the Back moved down with the titles (Home → Settings jumping its first row). */
     const px = (body: string, re: RegExp) => Number(re.exec(body)?.[1]);
     const root = RULES.filter((r) => r.selectors.includes(":root") && r.body.includes("--col-head-top")).map((r) => r.body).join(" ");
-    expect(root).toContain("--col-head-top: 17.5px");
+    expect(root).toContain("--col-head-top: 18px");
     const inset = px(bodiesFor(".sb-title").join(" "), /padding-top: (\d+)px/);
     expect(inset).toBe(6);
     expect(bodiesFor(".sb-page-head").join(" ")).toContain(`padding: ${inset}px 16px 0`);
@@ -1452,10 +1452,12 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(px(bodiesFor(".sb-page-back").join(" "), /height: (\d+)px/)).toBe(row);
     // The title's first glyph where every row's glyph starts: the list's inset and a row's own.
     const side = px(bodiesFor(".sb-page-nav").join(" "), /padding: \d+px (\d+)px 16px/) + px(bodiesFor(".sb-page-nav .page-rail .settings-tab").join(" "), /padding: \d+px (\d+)px/);
+    // The trailing control's slot: the icon button the Scheduled and Code review heads carry.
+    const control = px(bodiesFor(".icon-btn").join(" "), /--btn-h: (\d+)px/);
     for (const sel of [".sb-page-head:has(> .sb-page-title)", ".sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-head, .cr-col-head)"]) {
       const head = bodiesFor(sel).join(" ");
       expect(head, sel).toContain(`padding: var(--col-head-top) 12px 0 ${side}px`);
-      expect(head, sel).toContain(`min-height: calc(var(--col-head-top) + ${row}px)`);
+      expect(head, sel).toContain(`min-height: calc(var(--col-head-top) + ${control}px)`);
     }
     // Standing in the page, with the sidebar folded away, each keeps its own bottom and takes the same top.
     for (const sel of [".sched-col-head", ".cr-col-head"]) expect(bodiesFor(sel).join(" "), sel).toContain(`padding: var(--col-head-top) 12px 6px ${side}px`);
