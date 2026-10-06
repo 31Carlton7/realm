@@ -1,9 +1,11 @@
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { PR_PATCHES_PER_CALL, prKey, type FileDiff, type Finding, type PrDetail, type PrFile, type PrFiles, type PrReview, type ReviewSide } from "@realm/contracts";
+import {
+  AGENT_META, PR_PATCHES_PER_CALL, prKey, type AgentKind, type FileDiff, type Finding, type PrDetail, type PrFile, type PrFiles, type PrReview, type ReviewSide,
+} from "@realm/contracts";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useDissolve } from "../../components/ScrollFades";
-import { useApp } from "../../state/store";
+import { FALLBACK_AGENT, useApp } from "../../state/store";
 import { Markdown } from "../session/Markdown";
 import { SplitPatch, UnifiedPatch } from "../diff/PatchView";
 import { rowLineKey } from "../diff/split-rows";
@@ -11,8 +13,11 @@ import { dropComment, isKept, keepFinding, type DraftComment, type ReviewDraft }
 import { codeReview } from "./code-review-api";
 import { fileTree, filterFiles, treeRows } from "./file-tree";
 import { atHead, heldFiles, heldLines, heldPatches, patchId } from "./held";
+import { useReviewerLabel } from "./ReviewTools";
 
 type SetDraft = (d: ReviewDraft | ((d: ReviewDraft) => ReviewDraft)) => void;
+/** Who wrote a finding: the reviewer's harness, for its mark, and its model's name. */
+type Reviewer = { kind: AgentKind; label: string };
 
 /** The status as one letter, the way the diff pane and `git status` write it. */
 const LETTER: Record<PrFile["status"], string> = { added: "A", modified: "M", deleted: "D", renamed: "R", copied: "C", changed: "T" };
@@ -110,6 +115,8 @@ export function PrChanges({ detail, review, draft, setDraft, split, tree, jump }
     for (const f of review?.findings ?? []) if (f.anchored) by.set(f.path, [...(by.get(f.path) ?? []), f]);
     return by;
   }, [review]);
+  const reviewerLabel = useReviewerLabel(review?.agentKind ?? FALLBACK_AGENT, review?.model ?? null);
+  const reviewer = useMemo<Reviewer | null>(() => (review ? { kind: review.agentKind, label: reviewerLabel } : null), [review, reviewerLabel]);
 
   if (error) return <div className="cr-empty"><h2 className="cr-empty-title">The changes could not be read</h2><p className="cr-empty-line">{error}</p></div>;
   if (!files) return <div className="cr-empty"><p className="cr-empty-line">Reading the changed files…</p></div>;
@@ -124,7 +131,7 @@ export function PrChanges({ detail, review, draft, setDraft, split, tree, jump }
         {win.drawn.map((f) => (
           <FileDiffBlock key={f.path} file={f} detail={detail} headSha={headSha} split={split} hidden={hidden.has(f.path)}
             patch={heldPatches.get(patchId(key, headSha, f.path))} measure={win.measure}
-            findings={findings.get(f.path) ?? []} draft={draft} setDraft={setDraft} onToggle={() => toggleHidden(f.path)} />
+            findings={findings.get(f.path) ?? []} reviewer={reviewer} draft={draft} setDraft={setDraft} onToggle={() => toggleHidden(f.path)} />
         ))}
         <div style={{ height: win.bottom, overflowAnchor: "none" }} aria-hidden="true" />
       </div>
@@ -211,9 +218,9 @@ function upper(offsets: readonly number[], y: number): number {
 }
 
 /** One file: its head (status, path, counts, hide, menu) and its patch. */
-function FileDiffBlock({ file, detail, headSha, split, hidden, patch, measure, findings, draft, setDraft, onToggle }: {
+function FileDiffBlock({ file, detail, headSha, split, hidden, patch, measure, findings, reviewer, draft, setDraft, onToggle }: {
   file: PrFile; detail: PrDetail; headSha: string; split: boolean; hidden: boolean; patch: FileDiff | undefined;
-  measure: (path: string, h: number) => void; findings: Finding[]; draft: ReviewDraft; setDraft: SetDraft; onToggle: () => void;
+  measure: (path: string, h: number) => void; findings: Finding[]; reviewer: Reviewer | null; draft: ReviewDraft; setDraft: SetDraft; onToggle: () => void;
 }) {
   const box = useRef<HTMLElement>(null);
   const [menu, setMenu] = useState(false);
@@ -242,7 +249,7 @@ function FileDiffBlock({ file, detail, headSha, split, hidden, patch, measure, f
 
   const notes = new Map<string, ReactNode>();
   for (const f of findings) {
-    notes.set(rowLineKey(f.side, f.line), <FindingNote f={f} kept={isKept(draft, f.id)} onKeep={() => setDraft((d) => keepFinding(d, f))}
+    notes.set(rowLineKey(f.side, f.line), <FindingNote f={f} by={reviewer} kept={isKept(draft, f.id)} onKeep={() => setDraft((d) => keepFinding(d, f))}
       onDrop={() => setDraft((d) => dropComment(d, f.id))} />);
   }
   for (const c of draft.comments) {
@@ -299,10 +306,12 @@ function FileDiffBlock({ file, detail, headSha, split, hidden, patch, measure, f
   );
 }
 
-/** A reviewer's finding under its line: the person keeps it in the review, or lets it be. */
-function FindingNote({ f, kept, onKeep, onDrop }: { f: Finding; kept: boolean; onKeep: () => void; onDrop: () => void }) {
+/** A reviewer's finding under its line, headed by who said it — the person keeps it in the review,
+ *  or lets it be. */
+function FindingNote({ f, by, kept, onKeep, onDrop }: { f: Finding; by: Reviewer | null; kept: boolean; onKeep: () => void; onDrop: () => void }) {
   return (
     <div className="cr-note" data-kept={kept || undefined}>
+      {by && <p className="cr-note-by"><Icon name={AGENT_META[by.kind].icon} size={12} colored />{by.label}</p>}
       <div className="cr-note-body" data-agent-output><Markdown text={f.body} /></div>
       <div className="cr-note-actions">
         {kept

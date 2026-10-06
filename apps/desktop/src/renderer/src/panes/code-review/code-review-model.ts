@@ -1,8 +1,10 @@
 import {
-  parsePrRef, prKey, prName,
-  type CheckState, type Finding, type PrDetail, type PrPage, type PrRef, type PrSection, type PrSummary, type ReviewerState,
+  AGENT_SUPPORTS_PLAN_MODE, parsePrRef, prKey, prName,
+  type AgentKind, type CheckState, type Finding, type PrDetail, type PrPage, type PrRef, type PrSection, type PrSummary, type ReviewerState,
   type ReviewEvent, type ReviewSide, type SubmitReview,
 } from "@realm/contracts";
+import type { AgentProbe } from "../../state/store";
+import { modelRows, type ModelRow } from "../session/model-catalog";
 
 /**
  * The Code Review page's model, as plain functions over plain data: what the column's lists are
@@ -79,6 +81,39 @@ export function checksFact(checks: readonly { state: CheckState }[]): Fact {
 export const REVIEWER_STATE_LABEL: Record<ReviewerState, string> = {
   approved: "Approved", changes_requested: "Requested changes", commented: "Commented", dismissed: "Dismissed", pending: "Waiting",
 };
+
+/* ─────────────────────────────── the reviewer ─────────────────────────────── */
+
+/** A reviewer runs read-only, so only an agent Realm can hold to that reviews (`review` refuses the
+ *  rest on the server, delegation/review.ts's rule). */
+export const canReview = (kind: AgentKind): boolean => AGENT_SUPPORTS_PLAN_MODE[kind] === true;
+
+/**
+ * The models a reviewer can run on, as the prompter's picker lists them: only an agent's that can
+ * review, and only by routes that can — a model Codex and Cursor both run is offered through Codex
+ * alone. The scripted agent joins them where this Realm runs one: a check that drives the page has to
+ * be able to pick it.
+ */
+export function reviewerRows({ kind, model, agentProbe, favorites }: {
+  kind: AgentKind; model: string | null; agentProbe: AgentProbe[]; favorites: readonly string[];
+}): ModelRow[] {
+  const reviewable = (rows: ModelRow[]) => rows.filter((r) => canReview(r.kind))
+    .map((r) => ({ ...r, harnesses: r.harnesses.filter(canReview), alternates: r.alternates.filter(canReview) }));
+  const rows = reviewable(modelRows({ kind, model, agentProbe, canSwitchAgent: true, favorites }));
+  if (kind === "fake" || !agentProbe.some((p) => p.kind === "fake")) return rows;
+  const scripted = reviewable(modelRows({ kind: "fake", model: null, agentProbe, canSwitchAgent: true, favorites }))
+    .filter((r) => r.kind === "fake").map((r) => ({ ...r, selected: false }));
+  return [...rows, ...scripted];
+}
+
+/** Why Review with… cannot start a review now, as its tooltip says it — or null when it can. */
+export function reviewBlocked(detail: Pick<PrDetail, "changedFiles"> | null, hasPlace: boolean, running: boolean): string | null {
+  if (running) return "A review of this pull request is running — its findings land here when it is done";
+  if (!detail) return "Nothing to review until the pull request has been read";
+  if (detail.changedFiles === 0) return "This pull request changes no files, so there is nothing to review";
+  if (!hasPlace) return "There is no space to run the review in yet";
+  return null;
+}
 
 /** GitHub refuses an author's Approve and Request changes on their own request; a comment is fine. */
 export const isOwnRequest = (d: Pick<PrDetail, "author">, login: string | null): boolean =>

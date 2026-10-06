@@ -8,8 +8,9 @@
  * added, deleted, a binary with no patch, a generated file long enough to scroll), with its patches
  * made by a real `git diff --no-index` so every hunk header and line number is one git wrote. The
  * fake agent's scripted review (apps/server/src/app.ts) comments on two of its lines and one line
- * its diff does not show. #38 is wide — 360 files — for the virtualised list; the rest fill the
- * three lists past a page, so Show more has something to show.
+ * its diff does not show. #38 is wide — 360 files — for the virtualised list; #43 changes nothing,
+ * which Review with… cannot review; the rest fill the three lists past a page, so Show more has
+ * something to show.
  */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -308,8 +309,11 @@ export function buildFixture() {
       ["acme", "site", 120, "ana-reyes", "Rewrite the onboarding emails"],
     ].map(([owner, repo, number, author, title], i) => entry({ owner, repo, number, author, title, daysAgo: i * 4 + 2,
       files: [file(dir, "README.md", "modified", "old\n", "new\n")] }));
+    // A request whose branch has caught up with its base — nothing left in its diff, so nothing for a
+    // reviewer to read. In no list: a check reaches it by its link.
+    const empty = entry({ owner: "acme", repo: "widgets", number: 43, author: "jo-park", daysAgo: 1, title: "Bring the release branch up to date", files: [] });
     const key = (e) => `${e.node.repository.owner.login}/${e.node.repository.name}#${e.node.number}`.toLowerCase();
-    const prs = Object.fromEntries([main, wide, draft, ...review, ...team].map((e) => [key(e), e]));
+    const prs = Object.fromEntries([main, wide, draft, empty, ...review, ...team].map((e) => [key(e), e]));
     return {
       auth: "ready",
       user: { login: "carlton", name: "Carlton" },

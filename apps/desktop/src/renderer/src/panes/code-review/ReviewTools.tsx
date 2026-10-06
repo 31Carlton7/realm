@@ -2,65 +2,75 @@ import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
-  AGENT_META, AGENT_MODELS, AGENT_SUPPORTS_PLAN_MODE, AgentKindSchema, DEFAULT_MODEL_LABEL, REVIEW_INSTRUCTIONS_MAX, REVIEW_INSTRUCTION_EXAMPLES,
+  AGENT_META, REVIEW_INSTRUCTIONS_MAX, REVIEW_INSTRUCTION_EXAMPLES,
   prName, type AgentKind, type PrDetail, type PrPlace, type PrRef, type PrReview,
 } from "@realm/contracts";
 import { useDissolve } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { FALLBACK_AGENT, useApp } from "../../state/store";
-import { groupRows, modelLabel, modelRows } from "../session/model-catalog";
-import { EMPTY_DRAFT, REVIEW_EVENTS, canSubmit, isOwnRequest, postsLine, reviewPayload, type ReviewDraft } from "./code-review-model";
+import { chipLabel, modelRows, type ModelRow } from "../session/model-catalog";
+import { ModelPicker } from "../session/ModelPicker";
+import {
+  EMPTY_DRAFT, REVIEW_EVENTS, canReview, canSubmit, isOwnRequest, postsLine, reviewBlocked, reviewPayload, reviewerRows, type ReviewDraft,
+} from "./code-review-model";
 import { codeReview } from "./code-review-api";
 import { reviewerPick } from "./held";
 
 type Pick = { kind: AgentKind; model: string | null };
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-/** A reviewer runs read-only, so only an agent Realm can hold to that is offered (`review` refuses
- *  the rest on the server, delegation/review.ts's rule). */
-const canReview = (kind: AgentKind) => AGENT_SUPPORTS_PLAN_MODE[kind] === true;
 
-/** A model's name as the picker writes it: "Fable 5.1", "GPT-5.6". */
+/** A model's name as the picker's chip writes it — "Fable 5.1", "GPT-5.6" — which is how it reads
+ *  beside its harness's mark: the mark already says Claude, so the name does not. */
 export function useReviewerLabel(kind: AgentKind, model: string | null): string {
   const agentProbe = useApp((s) => s.agentProbe);
-  return useMemo(() => {
-    if (model === null) return DEFAULT_MODEL_LABEL[kind];
-    const known = [...(agentProbe.find((p) => p.kind === kind)?.models ?? []), ...AGENT_MODELS[kind]].find((m) => m.id === model);
-    return known?.label ?? model;
-  }, [kind, model, agentProbe]);
+  return useMemo(() => chipLabel(kind, model, modelRows({ kind, model, agentProbe, canSwitchAgent: false })), [kind, model, agentProbe]);
 }
 
 /**
- * Review with… — a reviewer on the model the person picks, over this request's diff, under their
- * saved instructions; the gear beside it is where both are set. The findings land on the page; none
- * of them is posted unless the person adds it to their review and presses Submit.
+ * Review with… — ONE control with a second target on it, the shape Codex gives its own: the
+ * harness's mark and the model's name, which start a read-only reviewer over this request's diff
+ * under the saved instructions, and a chevron after the name that opens how to review — the model,
+ * each with its harness's mark, and those instructions. The findings land on the page; none of them
+ * is posted unless the person adds it to their review and presses Submit.
+ *
+ * The chevron is the group's second stop for Tab, and it stays live while the body cannot run — a
+ * review in flight, a request still being read — because what it sets is for the next review, and
+ * setting it never needed one to be possible now. While one runs, the body is that review: its
+ * reviewer's mark, whatever the menu has been changed to since.
  */
 export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: {
   pr: PrRef; detail: PrDetail | null; profileId: string; place: PrPlace | null; review: PrReview | null; onStarted: (r: PrReview) => void;
 }) {
   const lastAgentKind = useApp((s) => s.lastAgentKind);
+  const agentProbe = useApp((s) => s.agentProbe);
+  const favorites = useApp((s) => s.modelFavorites);
   const run = useApp((s) => s.run);
   const [pick, setPickState] = useState<Pick>(() => reviewerPick.current
     ?? { kind: lastAgentKind && canReview(lastAgentKind) ? lastAgentKind : FALLBACK_AGENT, model: null });
   const setPick = (p: Pick) => { reviewerPick.current = p; setPickState(p); };
-  const label = useReviewerLabel(pick.kind, pick.model);
+  const rows = useMemo(() => reviewerRows({ ...pick, agentProbe, favorites }), [pick, agentProbe, favorites]);
+  const label = chipLabel(pick.kind, pick.model, rows);
   const [open, setOpen] = useState(false);
-  const gear = useRef<HTMLButtonElement>(null);
+  const more = useRef<HTMLButtonElement>(null);
   const running = review?.state === "running";
+  const reviewer = useReviewerLabel(review?.agentKind ?? pick.kind, review?.model ?? null);
+  const blocked = reviewBlocked(detail, place !== null, running);
   const start = () => run(async () => {
     if (!detail || !place) return;
     onStarted(await codeReview.review({ ref: pr, profileId, spaceId: place.spaceId, projectId: place.projectId, agentKind: pick.kind, model: pick.model }));
   });
   return (
-    <span className="cr-bar-group cr-review-with" role="group" aria-label="Review with a model">
-      <button type="button" className="btn cr-review-run" disabled={!detail || !place || running} aria-busy={running || undefined} onClick={start}
-        title={running ? "A review of this pull request is running" : `A read-only ${label} reads the diff and leaves findings for you — nothing is posted`}>
-        {running ? "Reviewing…" : `Review with ${label}`}
+    <span className="cr-review-with" role="group" aria-label="Review with a model">
+      <button type="button" className="btn cr-review-run" disabled={blocked !== null} aria-busy={running || undefined} onClick={start}
+        title={running ? `${reviewer} is reviewing this pull request` : blocked ?? `A read-only ${label} reads the diff and leaves findings for you — nothing is posted`}>
+        <Icon name={AGENT_META[running && review ? review.agentKind : pick.kind].icon} size={14} colored />
+        <span className="cr-review-label">{running ? "Reviewing…" : `Review with ${label}`}</span>
       </button>
-      <button ref={gear} type="button" className="icon-btn" aria-label="Review instructions" title="How to review — the model and your instructions"
-        aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="settings" size={14} /></button>
+      <button ref={more} type="button" className="icon-btn cr-review-more" aria-label="Review instructions" title="How to review — the model and your instructions"
+        aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="chevronDown" size={12} /></button>
       {open && (
-        <InstructionsPopover anchorRef={gear} profileId={profileId} pick={pick} onPick={setPick} onClose={() => setOpen(false)}
-          canRun={!!detail && !!place && !running} onRun={start} />
+        <InstructionsPopover anchorRef={more} profileId={profileId} pick={pick} rows={rows} onPick={setPick} onClose={() => setOpen(false)}
+          blocked={blocked} onRun={start} />
       )}
     </span>
   );
@@ -71,14 +81,19 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
  * which every review in the profile follows. Add example offers what people tell a reviewer, one a
  * press, appended where the person can edit it. Save and run does both in that order.
  */
-function InstructionsPopover({ anchorRef, profileId, pick, onPick, onClose, canRun, onRun }: {
-  anchorRef: RefObject<HTMLButtonElement | null>; profileId: string; pick: Pick; onPick: (p: Pick) => void; onClose: () => void;
-  canRun: boolean; onRun: () => void;
+function InstructionsPopover({ anchorRef, profileId, pick, rows, onPick, onClose, blocked, onRun }: {
+  anchorRef: RefObject<HTMLButtonElement | null>; profileId: string; pick: Pick; rows: ModelRow[]; onPick: (p: Pick) => void; onClose: () => void;
+  /** Why the review cannot start now, or null when Save and run may run it. */
+  blocked: string | null; onRun: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, align: "right", onClose, returnFocusRef: anchorRef, exit: true });
   const run = useApp((s) => s.run);
+  const modelInfo = useApp((s) => s.modelInfo);
+  const probeAgents = useApp((s) => s.probeAgents);
+  const toggleModelFavorite = useApp((s) => s.toggleModelFavorite);
+  useEffect(() => { run(() => probeAgents()); }, [probeAgents, run]);
   const [text, setText] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [nth, setNth] = useState(0);
@@ -102,10 +117,13 @@ function InstructionsPopover({ anchorRef, profileId, pick, onPick, onClose, canR
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top right" }}
       data-closing={closing || undefined} inert={closing}>
       <h2 className="cr-pop-title">Tell the reviewer how to review your code</h2>
-      <label className="cr-pop-row">
+      <div className="cr-pop-row">
         <span>Review with</span>
-        <ReviewerModelSelect pick={pick} onPick={onPick} />
-      </label>
+        {/* The prompter's own picker: each model under its harness's mark, with its search and its
+            keys. Opened from in here it is part of this popover while it is up (use-anchored-popover). */}
+        <ModelPicker kind={pick.kind} model={pick.model} rows={rows} info={modelInfo}
+          onToggleFavorite={(key) => run(() => toggleModelFavorite(key))} onPick={(kind, model) => onPick({ kind, model })} />
+      </div>
       <textarea ref={field} className="cr-field" rows={5} aria-label="Review instructions" disabled={text === null}
         placeholder="For example: I care most about the data model. Tell me where we might be overcomplicating things."
         value={text ?? ""} onChange={(e) => setText(e.target.value)} />
@@ -117,47 +135,11 @@ function InstructionsPopover({ anchorRef, profileId, pick, onPick, onClose, canR
         <button type="button" className="btn" onClick={addExample} disabled={text === null}>Add example</button>
         <span className="cr-bar-spacer" />
         <button type="button" className="btn" disabled={text === null || over || text === saved} onClick={() => run(save)}>Save</button>
-        <button type="button" className="btn primary" disabled={text === null || over || !canRun}
+        <button type="button" className="btn primary" disabled={text === null || over || blocked !== null} title={blocked ?? undefined}
           onClick={() => run(async () => { await save(); close(); onRun(); })}>Save and run</button>
       </div>
     </div>,
     document.body,
-  );
-}
-
-/** The models a reviewer can run on, as the prompter's picker groups them — read-only agents only. */
-function ReviewerModelSelect({ pick, onPick }: { pick: Pick; onPick: (p: Pick) => void }) {
-  const agentProbe = useApp((s) => s.agentProbe);
-  const favorites = useApp((s) => s.modelFavorites);
-  const probeAgents = useApp((s) => s.probeAgents);
-  const run = useApp((s) => s.run);
-  useEffect(() => { run(() => probeAgents()); }, [probeAgents, run]);
-  const value = (k: AgentKind, m: string | null) => `${k}|${m ?? ""}`;
-  const groups = useMemo(() => {
-    const rows = modelRows({ kind: pick.kind, model: pick.model, agentProbe, canSwitchAgent: true, favorites }).filter((r) => canReview(r.kind));
-    const out = groupRows(rows, { query: "", kind: pick.kind }).map((g) => ({
-      label: g.label, options: g.rows.filter((r) => canReview(r.kind)).map((r) => ({ value: value(r.kind, r.modelId), label: g.byHarness ? r.agentLabel : modelLabel(r) })),
-    })).filter((g) => g.options.length > 0);
-    // The scripted agent, where this Realm runs one: a check that drives the page has to pick it here.
-    if (agentProbe.some((p) => p.kind === "fake")) out.push({ label: AGENT_META.fake.label, options: AGENT_MODELS.fake.map((m) => ({ value: value("fake", m.id), label: m.label })) });
-    return out;
-  }, [pick.kind, pick.model, agentProbe, favorites]);
-  const selected = value(pick.kind, pick.model);
-  const listed = groups.some((g) => g.options.some((o) => o.value === selected));
-  return (
-    <select className="cr-select" aria-label="Review with" value={selected}
-      onChange={(e) => {
-        const [k, m] = e.target.value.split("|");
-        const parsed = AgentKindSchema.safeParse(k);
-        if (parsed.success) onPick({ kind: parsed.data, model: m ? m : null });
-      }}>
-      {!listed && <option value={selected}>{pick.model ?? DEFAULT_MODEL_LABEL[pick.kind]}</option>}
-      {groups.map((g) => (
-        <optgroup key={g.label} label={g.label}>
-          {g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </optgroup>
-      ))}
-    </select>
   );
 }
 
