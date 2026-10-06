@@ -530,12 +530,14 @@ async function measureFace(c, mode) {
   return homeSeams;
 }
 
-/* What the depth has to come to on the rail, summed over its right 12px, per face: the depth the shade
-   had on the panes' edge before it moved — the one the owner settled on (10-04) — measured by this
-   script on the build before (588778af), over the panes' first 12px. On SOLID grounds (Reduce
-   transparency), the one case where a capture is exactly what the screen shows; the shade lands in
-   whole 8-bit steps, so the window is one step of rounding either way. */
-const BEFORE = { dark: 6.26, light: 8.5 };
+/* What the depth has to come to on the rail, summed over its right 12px, per face, on SOLID grounds
+   (Reduce transparency), the one case where a capture is exactly what the screen shows; the shade
+   lands in whole 8-bit steps, so the window is one step of rounding either way. Light is the depth the
+   shade had on the panes' edge before it moved — the one the owner settled on (10-04) — measured by
+   this script on the build before (588778af), over the panes' first 12px. Dark is set on the owner's
+   own translucent window instead (a7cbf699: there the matched 0.045 read about a sixth lighter than
+   the panes' shade did), which on solid grounds sums to 8.0 against the panes' 6.26. */
+const TARGET = { dark: 8.01, light: 8.5 };
 const STEP = 0.6;
 
 async function main() {
@@ -571,8 +573,8 @@ async function main() {
     const s = await seams(c);
     note(`${mode} reduced transparency: rail strip depth`, s.rail.depth);
     note(`${mode} reduced transparency: grounds`, { rail: +s.rail.ground.toFixed(2), alpha: s.rail.alpha });
-    check(`${mode}, reduced transparency: the rail's shade is as deep as the panes' was`, Math.abs(s.rail.outside - BEFORE[mode]) <= STEP,
-      { summed: s.rail.outside, before: BEFORE[mode] });
+    check(`${mode}, reduced transparency: the rail's shade is at its depth`, Math.abs(s.rail.outside - TARGET[mode]) <= STEP,
+      { summed: s.rail.outside, target: TARGET[mode] });
     check(`${mode}, reduced transparency: …and none on the panes' edge`, Math.abs(s.main.panes) < 0.3, { panes: s.main.panes });
     await shot(c, `${mode}-reduced-transparency`, { x: 0, y: 0, width: 640, height: 420 });
   }
