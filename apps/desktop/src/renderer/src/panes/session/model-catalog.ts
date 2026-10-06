@@ -10,8 +10,9 @@ import type { AgentProbe } from "../../state/store";
  * name (`resolveModelName`).
  *
  * The prompter's picker is one reader. Anything else that picks a model — a scheduled task's Model
- * and Effort fields, a plan handed to sub-agents on other models — reads the same answers from here,
- * so a model offered in one place is offered, named and routed the same way in every other.
+ * row, which is the same picker, and a plan handed to sub-agents on other models — reads the same
+ * answers from here, so a model offered in one place is offered, named and routed the same way in
+ * every other.
  */
 
 /** One pickable line: a MODEL, and the harness that would run it. */
