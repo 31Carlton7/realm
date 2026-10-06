@@ -1,5 +1,5 @@
 import { AGENT_META, SPACE_COLORS, isRunTerminal, type Checkpoint, type Environment, type Run, type RunAttemptOutcome, type RunState, type Session, type Ship } from "@realm/contracts";
-import { Icon } from "@realm/ui";
+import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
 import { useApp, type SpacePageTab } from "../../state/store";
 import { relativeTime } from "../../components/CheckpointsSheet";
@@ -12,6 +12,8 @@ import { SpaceIcon } from "../../components/SpaceIcon";
 import { SkillsPanel } from "../../components/settings/SkillsPanel";
 import { MemoryPanel } from "../../components/settings/MemoryPanel";
 import type { PaneProps } from "../registry";
+import { PageRail } from "../../components/page-nav";
+import { PageScroll, useDissolve } from "../../components/ScrollFades";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -414,6 +416,8 @@ function RunDetail({ run: r, spaceId, onJump }: { run: Run; spaceId: string; onJ
   const approveRun = useApp((s) => s.approveRun);
   const run = useApp((s) => s.run);
   const [note, setNote] = useState("");
+  const result = useRef<HTMLParagraphElement>(null);
+  useDissolve(result);
   // The note belongs to the run being answered, not to the panel — switching runs must not carry one
   // run's half-typed reply onto another's approval.
   useEffect(() => { setNote(""); }, [r.id]);
@@ -441,7 +445,7 @@ function RunDetail({ run: r, spaceId, onJump }: { run: Run; spaceId: string; onJ
           <h4>This run needs you</h4>
           {/* The ask itself is the run's last report — shown verbatim, because paraphrasing the
               question is how a person answers the wrong one. */}
-          {r.result && <p className="task-detail-result">{r.result}</p>}
+          {r.result && <p className="task-detail-result" ref={result}>{r.result}</p>}
           <label className="visually-hidden" htmlFor={`run-note-${r.id}`}>Your reply</label>
           <textarea id={`run-note-${r.id}`} className="task-detail-note" rows={3} value={note}
             placeholder="Your answer — sent to the run when you approve it."
@@ -456,7 +460,7 @@ function RunDetail({ run: r, spaceId, onJump }: { run: Run; spaceId: string; onJ
       {r.state !== "blocked" && (r.result ?? r.error) && (
         <section className="task-detail-block">
           <h4>{r.error && !r.result ? "Why it stopped" : "Result"}</h4>
-          {r.result && <p className="task-detail-result">{r.result}</p>}
+          {r.result && <p className="task-detail-result" ref={result}>{r.result}</p>}
           {r.error && <p className="task-detail-error">{r.error}</p>}
         </section>
       )}
@@ -575,16 +579,16 @@ function HistoryTab({ spaceId }: { spaceId: string }) {
 import { ScriptsPanel } from "../../components/settings/ScriptsPanel";
 import { SandboxPanel } from "../../components/settings/SandboxPanel";
 
-const PAGE_TABS: { id: SpacePageTab; label: string }[] = [
-  { id: "general", label: "General" },
-  { id: "memory", label: "Memory" },
-  { id: "skills", label: "Skills" },
-  { id: "connections", label: "Connections" },
-  { id: "scripts", label: "Scripts" },
-  { id: "sandbox", label: "Sandbox" },
-  { id: "sessions", label: "Sessions" },
-  { id: "tasks", label: "Tasks" },
-  { id: "history", label: "History" },
+const PAGE_TABS: { id: SpacePageTab; label: string; icon: IconName }[] = [
+  { id: "general", label: "General", icon: "settings" },
+  { id: "memory", label: "Memory", icon: "context" },
+  { id: "skills", label: "Skills", icon: "sparkles" },
+  { id: "connections", label: "Connections", icon: "plug" },
+  { id: "scripts", label: "Scripts", icon: "terminal" },
+  { id: "sandbox", label: "Sandbox", icon: "shield" },
+  { id: "sessions", label: "Sessions", icon: "session" },
+  { id: "tasks", label: "Tasks", icon: "plan" },
+  { id: "history", label: "History", icon: "clock" },
 ];
 
 /**
@@ -605,6 +609,8 @@ const PAGE_TABS: { id: SpacePageTab; label: string }[] = [
  */
 export function SpacePage({ item }: PaneProps) {
   const spaceId = item.refId;
+  const railStrip = useRef<HTMLFieldSetElement>(null);
+  useDissolve(railStrip, "x");
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
   const sessions = useApp((s) => s.sessions);
   const tab = useApp((s) => s.spacePageTab[spaceId] ?? "general");
@@ -619,31 +625,34 @@ export function SpacePage({ item }: PaneProps) {
   const count = Object.values(sessions).filter((s) => s.spaceId === spaceId).length;
 
   return (
-    // `.page` establishes the pattern; the modifier is `space-page-pane` (`.space-page` is taken —
-    // it is the swiper's per-space sidebar column).
+    // `.page` establishes the pattern; the modifier is `space-page-pane`.
     <div className="page space-page-pane">
-      <header className="page-head">
-        {/* Plain text. The space's colour is carried by its icon in the sidebar, which is where a
-            person looks to tell spaces apart — a coloured TITLE reads as a link or a status, and on
-            a purple space it fought the accent it was nearly the same hue as. */}
-        <div className="page-title"><h1>{space.name}</h1></div>
-        <span className="page-vantage">{count === 1 ? "1 session" : `${count} sessions`}</span>
-        <button type="button" className="btn primary" onClick={() => run(() => newSessionInstant())}>
-          <Icon name="add" size={14} /> New session
-        </button>
-      </header>
       <div className="page-body">
-        {/* The sheet's native-radio tab idiom, stood upright: arrow keys move, one tab stop. */}
-        <fieldset className="page-rail">
+        {/* The sheet's native-radio tab idiom, stood upright: arrow keys move, one tab stop. Over the
+            panes it takes the sidebar's column (page-nav.tsx). */}
+        <PageRail label="Overview" back>
+        <fieldset className="page-rail" ref={railStrip}>
           <legend className="visually-hidden">Space page section</legend>
           {PAGE_TABS.map((t) => (
             <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
               <input type="radio" name={`space-page-tab-${spaceId}`} value={t.id} checked={tab === t.id} onChange={() => { setSpacePageTab(spaceId, t.id); navigateInPane(item.id, t.id); }} />
+              <Icon name={t.icon} size={16} className="page-rail-glyph" />
               {t.label}
             </label>
           ))}
         </fieldset>
-        <div className="page-content" data-wide={tab === "tasks" || undefined}>
+        </PageRail>
+        <PageScroll wide={tab === "tasks"}>
+          <header className="page-head">
+            {/* Plain text. The space's colour is carried by its icon in the sidebar, which is where a
+                person looks to tell spaces apart — a coloured TITLE reads as a link or a status, and on
+                a purple space it fought the accent it was nearly the same hue as. */}
+            <div className="page-title"><h1>{space.name}</h1></div>
+            <span className="page-vantage">{count === 1 ? "1 session" : `${count} sessions`}</span>
+            <button type="button" className="btn primary" onClick={() => run(() => newSessionInstant())}>
+              <Icon name="add" size={14} /> New session
+            </button>
+          </header>
           {tab === "general" && <GeneralTab spaceId={spaceId} />}
           {tab === "memory" && <MemoryTab spaceId={spaceId} />}
           {/* The same skill rows, opening the same viewer. It lives on the Library page, so this
@@ -666,7 +675,7 @@ export function SpacePage({ item }: PaneProps) {
           {tab === "sessions" && <SessionsTab spaceId={spaceId} />}
           {tab === "tasks" && <TasksTab spaceId={spaceId} />}
           {tab === "history" && <HistoryTab spaceId={spaceId} />}
-        </div>
+        </PageScroll>
       </div>
     </div>
   );

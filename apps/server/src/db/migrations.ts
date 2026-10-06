@@ -698,4 +698,153 @@ export const migrations: string[] = [
   // decides how the device is reached (Realm's test runner, not simctl) and that its input card is
   // asked even under bypassPermissions — nothing a udid's shape should be trusted to say.
   `ALTER TABLE simulators ADD COLUMN physical INTEGER NOT NULL DEFAULT 0;`,
+  // v35 — browser history: the pages a profile's browser panes have shown, for the address field's
+  // suggestions (Plan 26 W7c).
+  //
+  // One row per page per PROFILE, not per pane or per space. A profile is the boundary everything else
+  // a person carries is scoped to (skills, connections, memory), and a page visited in one of its
+  // spaces is a page they would expect to be offered in the next. Keyed on the url itself, so a second
+  // visit is an UPDATE of the same row — `visit_count` is how often, `last_visit_at` how recently, and
+  // those two are the whole ranking.
+  //
+  // A new table, empty, with nothing backfilled: Realm kept no record of where a pane had been before
+  // this — the `browsers` row holds only where each pane IS — and inventing visits from that would be
+  // a claim about the past. The cascade is the cleanup: a profile's history goes with the profile.
+  `
+  CREATE TABLE browser_history (
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    url TEXT NOT NULL, title TEXT NOT NULL,
+    visit_count INTEGER NOT NULL DEFAULT 1, last_visit_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, url));
+  CREATE INDEX browser_history_recent ON browser_history(profile_id, last_visit_at DESC);
+  `,
+  // v36 — favicons: a browser pane's, and those of the pages its profile's history holds.
+  //
+  // `browsers.favicon` is the picture itself, a `data:` URL (`isFaviconDataUrl`), never the address it
+  // was fetched from. That is what lets a tab restored after a relaunch draw its icon before its page
+  // has loaded again, with no request made to the site — and what lets the window draw it at all, since
+  // its CSP admits no remote image. '' is "none known", which is the truth for every row written before
+  // this column existed: defaulted, not backfilled, because nobody fetched those pages' icons.
+  //
+  // History does NOT carry a copy per row. A site's icon is shared by every page of it — a profile that
+  // has run a thousand searches would hold one search engine's icon a thousand times, in a table built to
+  // keep five thousand rows — so the picture is kept once per profile in `browser_favicons`, under a
+  // digest of the picture, and a page names it by that digest ('' for none). The cascade cleans up after
+  // a profile; Clear browsing data and the history's own trim sweep away pictures no page names any more.
+  `
+  ALTER TABLE browsers ADD COLUMN favicon TEXT NOT NULL DEFAULT '';
+  ALTER TABLE browser_history ADD COLUMN favicon_digest TEXT NOT NULL DEFAULT '';
+  CREATE TABLE browser_favicons (
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    digest TEXT NOT NULL, data TEXT NOT NULL,
+    PRIMARY KEY (profile_id, digest));
+  `,
+  // v37 — a browser cookie jar per profile (Plan 27 Phase 2).
+  //
+  // Until now every browser pane in every profile used ONE Electron partition, `persist:browser`, so a
+  // Work profile was signed in to whatever Personal was. Each profile now names its own partition, and
+  // the name is STORED rather than derived from the order: the profile that owns the old shared jar is
+  // decided once, here, and reordering profiles later must never hand one profile another's cookies.
+  //
+  // The backfill gives `persist:browser` to the profile the app lists first (sort order, then age, then
+  // insertion), so every sign-in made before this keeps working where the user will look for it; every
+  // other profile starts with an empty jar of its own. A home with no profiles yet is left to
+  // `ProfilesStore.create`, which gives the first profile it makes the old name for the same reason.
+  `
+  ALTER TABLE profiles ADD COLUMN browser_partition TEXT NOT NULL DEFAULT '';
+  UPDATE profiles SET browser_partition = 'persist:browser-' || id;
+  UPDATE profiles SET browser_partition = 'persist:browser'
+    WHERE rowid = (SELECT rowid FROM profiles ORDER BY sort_order, created_at, rowid LIMIT 1);
+  `,
+  // v38 — scheduled tasks keep their runs (Realm v2's Scheduled page lists each task's history and
+  // opens any run's session).
+  //
+  // `runs.schedule_id`: the schedule whose firing created the run. No foreign key, the same log posture
+  // as v23's `last_run_id` the other way round — "schedule S fired run X" stays true after S is
+  // deleted. It IS backfilled, unlike the columns v31 to v37 add, because the fact is already on the
+  // row: the scheduler has always keyed a firing's run as `schedule:<schedule id>:<moment>`, and the
+  // backfill only reads that back. A key without the second colon is not one the scheduler wrote, and
+  // is left alone. Partial index, for the one question the page asks of it.
+  //
+  // `schedules.new_session_per_run`, defaulted 1: every schedule written before this already started
+  // each run in a fresh session — it was the only thing a run could do — so the default states the
+  // past. `schedules.archive_succeeded`, defaulted 0: nothing was ever archived on a schedule's behalf.
+  `
+  ALTER TABLE runs ADD COLUMN schedule_id TEXT;
+  UPDATE runs SET schedule_id = substr(dedupe_key, 10, instr(substr(dedupe_key, 10), ':') - 1)
+    WHERE dedupe_key LIKE 'schedule:%' AND instr(substr(dedupe_key, 10), ':') > 1;
+  CREATE INDEX runs_schedule ON runs(schedule_id, created_at DESC, id DESC) WHERE schedule_id IS NOT NULL;
+  ALTER TABLE schedules ADD COLUMN new_session_per_run INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE schedules ADD COLUMN archive_succeeded INTEGER NOT NULL DEFAULT 0;
+  `,
+  // v39 — the views MCP servers draw for tool calls (MCP Apps). One row per call that drew one: the
+  // call's own arguments and the server's whole result, before Realm compressed anything for the
+  // agent, which is what the view is handed again each time it is opened. The tool result in the
+  // transcript names the row (`tool_result.view`); the HTML is not kept, and is read from the server
+  // again when the view opens.
+  //
+  // Gone with its session (the transcript that names it goes too). `server_id` is plain text with no
+  // foreign key, the log posture again: a view of a server that has since been removed says so,
+  // rather than vanishing. Nothing to backfill — no call drew a view before this.
+  //
+  // `IF NOT EXISTS` so the statement is safe to meet twice; the version table is what keeps it from
+  // being asked to.
+  `
+  CREATE TABLE IF NOT EXISTS app_views (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    tool_use_id TEXT NOT NULL,
+    server_id TEXT NOT NULL,
+    server_name TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    tool_json TEXT NOT NULL,
+    resource_uri TEXT NOT NULL,
+    input_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS app_views_session ON app_views(session_id, created_at);
+  `,
+  // v40 — files a person added to the Library themselves (the Files toolbar's Add, or a drop).
+  //
+  // A table of their own rather than rows in `artifacts`, for two reasons that are each enough. The
+  // index is DERIVED — every row in it can be rebuilt from `session_events`, and v25 says so — and an
+  // added file has no event behind it: this row is the only record that it was added. And an artifact
+  // is a file a SESSION has, `session_id NOT NULL`, its space and profile one join away; an added file
+  // belongs to a profile and to no session, which is what the Library's "Added" says. The Library reads
+  // the two as one list (`ArtifactsStore.list`), so to the page they are one kind of thing.
+  //
+  // `path` is the COPY under the home (`library/<profile>/`), never the file it was copied from: what
+  // the Library shows is Realm's to keep, whatever happens to the original. `digest` (sha-256 of the
+  // bytes) is how the same file chosen twice is recognised and not copied again. Gone with its
+  // profile; the copies stay on disk, as a deleted space leaves its folder. Nothing to backfill —
+  // nothing could be added before this — and `IF NOT EXISTS`, so the statement is safe to meet twice.
+  `
+  CREATE TABLE IF NOT EXISTS library_files (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    name TEXT NOT NULL,
+    ext TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    digest TEXT NOT NULL,
+    ts INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS library_files_recent ON library_files(profile_id, ts DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS library_files_digest ON library_files(profile_id, digest);
+  `,
+  // v41 — saved turns: the prompts a reader saved from a session's scroll track, listed again in the
+  // Library across every session of the profile.
+  //
+  // A row names the prompt's own `user_message` event by its seq — globally unique, so it is the key —
+  // and keeps nothing else of it: the words are read back off the event whenever the list is drawn.
+  // The event's cascade is the cleanup a quote could not have: a rewind that cuts the event out of the
+  // log, or the session's deletion, takes the saved turn with it. `session_id` is the event's own,
+  // carried for the per-session read a pane mounts with. Nothing to backfill — nothing was ever saved.
+  `
+  CREATE TABLE IF NOT EXISTS saved_turns (
+    event_seq INTEGER PRIMARY KEY REFERENCES session_events(seq) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    saved_at INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS saved_turns_session ON saved_turns(session_id, event_seq);
+  CREATE INDEX IF NOT EXISTS saved_turns_recent ON saved_turns(saved_at DESC, event_seq DESC);
+  `,
 ];

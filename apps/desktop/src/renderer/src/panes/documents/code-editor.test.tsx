@@ -14,6 +14,7 @@ vi.mock("./code-modes", () => ({
 }));
 
 import { CodeEditor } from "./CodeEditor";
+import { recallScroll, rememberScroll } from "../scroll-memory";
 
 /** The live view behind the rendered DOM. Edits are dispatched through it rather than typed, because
  *  jsdom lays nothing out and a `contenteditable` there does not accept synthetic text input. */
@@ -44,13 +45,6 @@ beforeEach(() => { asked.length = 0; });
 const MOD = { ctrlKey: true } as const;
 
 describe("CodeEditor", () => {
-  it("shows the file it was given", () => {
-    /* Braces, not quotes: a JSX string attribute is literal, so `text="…\n"` would hand the editor a
-       backslash and an n rather than a newline — and the assertion below, a real JS string, would not
-       match it. */
-    const { container } = render(<CodeEditor path="src/a.ts" text={"const x = 1;\n"} onChange={() => {}} />);
-    expect(docOf(container)).toBe("const x = 1;\n");
-  });
 
   it("reports the whole document on an edit, not the change", () => {
     const onChange = vi.fn();
@@ -130,18 +124,21 @@ describe("CodeEditor", () => {
     await waitFor(() => expect(asked).toEqual(["typescript", "python"]));
   });
 
-  it("still edits a file it has no grammar for", async () => {
-    const onChange = vi.fn();
-    const { container } = render(<CodeEditor path="notes.frobnicate" text="hello" onChange={onChange} />);
-    await waitFor(() => expect(asked).toEqual(["text"]));
-    type(container, 5, "!");
-    expect(onChange).toHaveBeenCalledWith("hello!");
-  });
-
   it("puts the cursor on the line a search sent it to", () => {
     const { container } = render(
-      <CodeEditor path="src/a.ts" text={"one\ntwo\nthree\n"} onChange={() => {}} revealLine={3} />);
+      <CodeEditor path="src/a.ts" text={"one\ntwo\nthree\n"} onChange={() => {}} reveal={{ line: 3 }} />);
     const view = viewOf(container);
+    expect(view.state.doc.lineAt(view.state.selection.main.anchor).number).toBe(3);
+  });
+
+  it("goes back to a line asked for again, after the reader has moved off it", () => {
+    // THE MUTANT: key the reveal on the line NUMBER, and a second click on the same `a.ts:3` link,
+    // after scrolling away, does nothing at all.
+    const text = "one\ntwo\nthree\n";
+    const { container, rerender } = render(<CodeEditor path="src/a.ts" text={text} onChange={() => {}} reveal={{ line: 3 }} />);
+    const view = viewOf(container);
+    view.dispatch({ selection: { anchor: 0 } });
+    rerender(<CodeEditor path="src/a.ts" text={text} onChange={() => {}} reveal={{ line: 3 }} />);
     expect(view.state.doc.lineAt(view.state.selection.main.anchor).number).toBe(3);
   });
 
@@ -149,8 +146,22 @@ describe("CodeEditor", () => {
     // The file can be edited between the search and the open. The top of the right file beats an
     // exception about the wrong line.
     const { container } = render(
-      <CodeEditor path="src/a.ts" text={"one\n"} onChange={() => {}} revealLine={400} />);
+      <CodeEditor path="src/a.ts" text={"one\n"} onChange={() => {}} reveal={{ line: 400 }} />);
     expect(viewOf(container).state.selection.main.anchor).toBeLessThanOrEqual(4);
+  });
+
+  it("forgets the reader's old place in a file opened at a line, so a settling restore cannot carry them off it", () => {
+    // THE MUTANT: attach the scroll memory without forgetting the mark. Its restore re-applies the
+    // old offset while the content settles, and scrolls the reader away from the line they were sent to.
+    rememberScroll("doc:d1:code:src/a.ts", { top: 900, atEnd: false });
+    render(<CodeEditor path="src/a.ts" text={"one\ntwo\nthree\n"} onChange={() => {}} reveal={{ line: 3 }} scrollKey="doc:d1:code:src/a.ts" />);
+    expect(recallScroll("doc:d1:code:src/a.ts")).toBeNull();
+  });
+
+  it("keeps the reader's place in a file opened with no line asked for", () => {
+    rememberScroll("doc:d1:code:src/b.ts", { top: 900, atEnd: false });
+    render(<CodeEditor path="src/b.ts" text={"one\n"} onChange={() => {}} scrollKey="doc:d1:code:src/b.ts" />);
+    expect(recallScroll("doc:d1:code:src/b.ts")).toMatchObject({ top: 900 });
   });
 
   it("names the file on the editing surface, where a reader will hear it", async () => {

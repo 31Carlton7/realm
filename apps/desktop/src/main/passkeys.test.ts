@@ -31,6 +31,8 @@ function harness(over: Partial<PasskeyBrokerDeps> = {}, keys: PasskeyKeyMaterial
   const prompted: string[] = [];
   const recorded: unknown[] = [];
   const counters: { credentialId: string; signCount: number }[] = [];
+  /** Which pane each store call said it was for — the store answers with THAT pane's profile. */
+  const asked: string[] = [];
   let listener: ((method: string, params: unknown) => void) | null = null;
   /** What `WebAuthn.getCredentials` answers after the request — the test's stand-in for what the
    *  authenticator actually did. */
@@ -49,16 +51,17 @@ function harness(over: Partial<PasskeyBrokerDeps> = {}, keys: PasskeyKeyMaterial
 
   const deps: PasskeyBrokerDeps = {
     pageUrl: () => "https://github.com/login",
-    hasPasskeyFor: (rpId) => keys.some((k) => k.rpId === rpId),
-    withPasskeysFor: async (rpId, kind, use) => {
+    hasPasskeyFor: (paneId, rpId) => { asked.push(paneId); return keys.some((k) => k.rpId === rpId); },
+    withPasskeysFor: async (paneId, rpId, kind, use) => {
+      asked.push(paneId);
       prompted.push(`${kind}:${rpId}`);
       if (kind === "get" && !keys.some((k) => k.rpId === rpId)) return { ok: false, refused: "no_passkey" };
       if (!presenceGranted) return { ok: false, refused: "no_presence" };
       await use(keys.filter((k) => k.rpId === rpId));
       return { ok: true };
     },
-    recordPasskey: (input) => { recorded.push(input); },
-    notePasskeyUse: (credentialId, signCount) => { counters.push({ credentialId, signCount }); },
+    recordPasskey: (paneId, input) => { asked.push(paneId); recorded.push(input); },
+    notePasskeyUse: (paneId, credentialId, signCount) => { asked.push(paneId); counters.push({ credentialId, signCount }); },
     canPromptPresence: () => true,
     notify: (n) => { notices.push(n); },
     audit: (e) => { audits.push(e); },
@@ -68,7 +71,7 @@ function harness(over: Partial<PasskeyBrokerDeps> = {}, keys: PasskeyKeyMaterial
 
   const broker = new PasskeyBroker(deps);
   return {
-    broker, cdp, sent, notices, audits, prompted, recorded, counters,
+    broker, cdp, sent, notices, audits, prompted, recorded, counters, asked,
     setCredentials: (c: Array<Record<string, unknown>>) => { credentials = c; },
     denyPresence: () => { presenceGranted = false; },
     fire: (payload: Record<string, unknown>) => {
@@ -244,7 +247,7 @@ describe("PasskeyBroker — an approved assertion", () => {
 
   it("clears the keys even when the request blows up AFTER the page was released", async () => {
     const h = harness({
-      withPasskeysFor: async (_rpId, _kind, use) => {
+      withPasskeysFor: async (_paneId, _rpId, _kind, use) => {
         await use([KEY]);
         throw new Error("the view went away mid-request");
       },
@@ -273,6 +276,20 @@ describe("PasskeyBroker — a registration", () => {
       userName: "ada@example.com", signCount: 1,
     });
     expect(h.audits.some((a) => a.outcome === "created")).toBe(true);
+  });
+
+  it("every store call names the pane that asked — the keys are that pane's profile's", async () => {
+    /* THE mutant: ask the store without the pane, and main can only answer with one profile's keys
+       for every pane — a Work pane registering into Personal, or finding Personal's passkey. */
+    const h = harness({ pageUrl: () => "https://github.com/settings" }, []);
+    await h.broker.install("b-work", h.cdp);
+    h.setCredentials([{ credentialId: "bmV3", rpId: "github.com", signCount: 1, privateKey: "bmV3LWtleQ==", userHandle: "dQ==" }]);
+    h.fire(ask({ id: "create:1", kind: "create", rpId: "github.com" }));
+    await until(() => h.verdicts().some((v) => v.includes('"allow"')));
+    h.fire({ t: "done", id: "create:1", ok: true });
+    await until(() => h.recorded.length > 0);
+    expect(h.asked.length).toBeGreaterThan(0);
+    expect(new Set(h.asked)).toEqual(new Set(["b-work"]));
   });
 });
 

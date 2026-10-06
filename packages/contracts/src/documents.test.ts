@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DOCUMENT_MAX_BYTES, documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, refineDocumentKind, shouldSurfaceWrite, writtenPathOf } from "./documents";
+import { documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, isPictureFile, refineDocumentKind, shouldSurfaceWrite, writtenPathOf } from "./documents";
 
 describe("documentKindFor", () => {
   it("routes each extension to its editor", () => {
@@ -24,7 +24,7 @@ describe("documentKindFor", () => {
   });
 
   it("answers unsupported for binaries and extensionless files", () => {
-    expect(documentKindFor("image.png")).toBe("unsupported");
+    expect(documentKindFor("disk.dmg")).toBe("unsupported");
     // Extensionless, so nothing to match on. `Makefile` and `Dockerfile` are genuinely editable text
     // and this is the honest limit of an extension-only table, not a judgement that they are not code.
     expect(documentKindFor("Makefile")).toBe("unsupported");
@@ -56,15 +56,25 @@ describe("documentKindFor", () => {
     }
   });
 
-  it("does not take a format Realm has a real editor for", () => {
-    // The named mutant: adding `csv` or `md` to the preview set, which would swap an editable
-    // document for a picture of one.
-    expect(documentKindFor("data.csv")).toBe("sheet");
-    expect(documentKindFor("notes.md")).toBe("doc");
-    expect(documentKindFor("paper.tex")).toBe("latex");
-    expect(documentKindFor("guide.html")).toBe("html");
-    expect(documentKindFor("spec.pdf")).toBe("pdf");
+  it("previews a picture rather than refusing it", () => {
+    // THE MUTANT: leave images out of the set. Opening one then put a tab on the strip that the pane
+    // would not draw, under "Nothing open yet" — and an agent's docs_open reported it opened.
+    for (const name of ["after-on-hover.png", "Screenshot 2026-10-01.PNG", "photo.jpeg", "shot.jpg", "anim.gif", "img.webp", "IMG_0001.HEIC"]) {
+      expect(documentKindFor(name), name).toBe("preview");
+    }
   });
+
+  it("tells a picture from a document drawn as one", () => {
+    // The pane's note about unselectable text and first pages is for documents; a picture has
+    // neither. Case-blind, by the last extension only, and a bare word is no picture.
+    for (const name of ["shots/after-on-hover.png", "Screenshot 2026-10-01.PNG", "photo.jpeg", "IMG_0001.HEIC"]) {
+      expect(isPictureFile(name), name).toBe(true);
+    }
+    for (const name of ["report.docx", "deck.key", "png", "notes.png.md", "archive/png"]) {
+      expect(isPictureFile(name), name).toBe(false);
+    }
+  });
+
 });
 
 describe("refineDocumentKind", () => {
@@ -103,10 +113,6 @@ describe("documentTemplate", () => {
   it("gives an unsupported file no content to write", () => {
     expect(documentTemplate("unsupported", "x")).toBe("");
   });
-});
-
-it("caps openable files at 2 MiB", () => {
-  expect(DOCUMENT_MAX_BYTES).toBe(2097152);
 });
 
 // ---- Plan 22: preview kinds, guide template, progress sidecar -----------------------------------

@@ -53,6 +53,11 @@ export class SessionsStore {
   get(id: string): Session | null {
     const r = this.db.prepare(`${SELECT} WHERE s.id = ?`).get(id) as Row | undefined; return r ? toSession(r) : null;
   }
+  /** The sessions `id` dispatched — its delegated children and anything else that names it as the
+   *  dispatching session — oldest first, in whichever space they ended up. */
+  listDispatchedBy(id: string): Session[] {
+    return (this.db.prepare(`${SELECT} WHERE s.dispatched_by_session_id = ? ORDER BY s.created_at`).all(id) as Row[]).map(toSession);
+  }
   /** Every provider session id Realm holds — the import's dedup key (`ImportService`). One set
    *  rather than a query per candidate: the question is asked of ~1100 transcripts per scan, and the
    *  column is small enough that reading it whole is cheaper than the round trips. Sessions with no
@@ -271,6 +276,19 @@ export class SessionEventsStore {
   lastTs(sessionId: string): number | null {
     const r = this.db.prepare("SELECT ts FROM session_events WHERE session_id = ? ORDER BY seq DESC LIMIT 1").get(sessionId) as Pick<EventRow, "ts"> | undefined;
     return r ? r.ts : null;
+  }
+  /** The newest persisted event of any of `types`, or null — "what was it last doing", across the
+   *  several kinds of event that say. Skips a row that fails schema validation by reading on past it. */
+  lastOfTypes(sessionId: string, types: readonly SessionEvent["type"][]): SessionEvent | null {
+    if (types.length === 0) return null;
+    const rows = this.db.prepare(`SELECT * FROM session_events WHERE session_id = ? AND type IN (${types.map(() => "?").join(", ")}) ORDER BY seq DESC LIMIT 20`)
+      .all(sessionId, ...types) as EventRow[];
+    for (const r of rows) {
+      let payload: unknown; try { payload = JSON.parse(r.payload_json); } catch { continue; }
+      const p = SessionEventSchema.safeParse({ type: r.type, ts: r.ts, payload });
+      if (p.success) return p.data;
+    }
+    return null;
   }
   /** The newest persisted event of one type, or null. Skips rows that fail schema validation. */
   lastOfType(sessionId: string, type: SessionEvent["type"]): SessionEvent | null {

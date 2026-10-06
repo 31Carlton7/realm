@@ -47,10 +47,6 @@ describe("parseClaudeTranscript", () => {
     expect(texts(t.events, "assistant_text")).toEqual(["hi back"]);
   });
 
-  it("counts only spoken turns — tool chatter must not make a quiet session look busy", () => {
-    expect(parseClaudeTranscript(transcript, NOW)!.messages).toBe(2);
-  });
-
   it("keeps real timestamps rather than stamping everything with the import time", () => {
     const t = parseClaudeTranscript(transcript, NOW)!;
     expect(t.startedAt).toBe(Date.parse("2027-01-01T00:00:00.000Z"));

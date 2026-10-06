@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { Item } from "@realm/contracts";
+import { CARET_DEFAULT, type Item } from "@realm/contracts";
 
 /** The pane subscribes to `documents.fileChanged` through the rpc singleton, which needs a real
  *  server port. Mocked here so the test can also FIRE that event — live reload and conflict handling
@@ -173,10 +173,16 @@ describe("DocumentsPane", () => {
     expect(await screen.findByLabelText("Edit q3.csv")).toHaveValue("A,B\n1,2\n");
   });
 
-  it("shows an empty state whose only control is the one that makes a document", async () => {
+  it("with nothing open and no files anywhere, says where files will come from and offers to make one", async () => {
+    // THE MUTANT this replaced: "Nothing open yet" over an empty pane, with one button and no word
+    // about what the pane is for.
     renderPane({});
-    expect(await screen.findByText(/Nothing open yet/i)).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /New document/ }).length).toBeGreaterThan(0);
+    expect(await screen.findByText("No files yet")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New document" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Code file…" })).toBeTruthy();
+    expect(screen.getByRole("searchbox", { name: "Search files" })).toBeTruthy();
+    // No strip: there is nothing open for it to hold.
+    expect(screen.queryByRole("tablist")).toBeNull();
   });
 });
 
@@ -189,15 +195,17 @@ describe("DocumentsPane", () => {
  */
 
 describe("DocumentsPane — making a document", () => {
+  /** New, from wherever it is: the strip's "+" once something is open, the home's own button before. */
   const addMenu = async () => {
     await exited();
-    fireEvent.click(await screen.findByRole("button", { name: "Add a document" }));
+    const strip = screen.queryByRole("button", { name: "Add a document" });
+    fireEvent.click(strip ?? await screen.findByRole("button", { name: "New" }));
   };
 
   it("creates and opens a document from one menu pick — no name asked for", async () => {
     const { api } = renderPane({});
     await addMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "New document" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Document" }));
     await waitFor(() => expect(api.calls).toContain("createDocumentFile:docs1:Untitled document.md"));
     // It is OPEN, not merely created: the point of the change is that you land in the document.
     expect(await screen.findByRole("tab", { name: /Untitled document/ })).toHaveAttribute("aria-selected", "true");
@@ -206,9 +214,9 @@ describe("DocumentsPane — making a document", () => {
   it("gives each kind its own extension, so the editor that opens is the one the menu named", async () => {
     const { api } = renderPane({});
     for (const [label, path] of [
-      ["New spreadsheet", "Untitled spreadsheet.csv"],
-      ["New presentation", "Untitled presentation.slides.md"],
-      ["New LaTeX", "Untitled LaTeX.tex"],
+      ["Spreadsheet", "Untitled spreadsheet.csv"],
+      ["Presentation", "Untitled presentation.slides.md"],
+      ["LaTeX", "Untitled LaTeX.tex"],
     ] as const) {
       await addMenu();
       fireEvent.click(screen.getByRole("menuitem", { name: label }));
@@ -219,14 +227,14 @@ describe("DocumentsPane — making a document", () => {
   it("numbers the second untitled document instead of failing on the name that is taken", async () => {
     const { api } = renderPane({ "Untitled document.md": "# one" });
     await addMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "New document" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Document" }));
     await waitFor(() => expect(api.calls).toContain("createDocumentFile:docs1:Untitled document 2.md"));
   });
 
   it("lands with the name selected, so the next keystroke replaces it", async () => {
     renderPane({});
     await addMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "New document" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Document" }));
     const field = await screen.findByLabelText("Document name") as HTMLInputElement;
     expect(field.value).toBe("Untitled document");
     expect(field).toHaveFocus();
@@ -273,11 +281,11 @@ describe("DocumentsPane — making a document", () => {
     // passes with or without the `key` that fixes it. Kept as a statement of the intended behaviour.
     const { api } = renderPane({});
     await addMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "New document" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Document" }));
     await waitFor(() => expect((screen.getByLabelText("Document name") as HTMLInputElement).value).toBe("Untitled document"));
 
     await addMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "New spreadsheet" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Spreadsheet" }));
     await waitFor(() => expect((screen.getByLabelText("Document name") as HTMLInputElement).value).toBe("Untitled spreadsheet"));
 
     fireEvent.blur(screen.getByLabelText("Document name"));
@@ -297,17 +305,16 @@ describe("DocumentsPane — making a document", () => {
   });
 });
 
-describe("the code editor's caret follows its OWN preference", () => {
-  it("reads editor.cursorBlink, not the terminal's switch", async () => {
-    /* THE shared-switch mutant, and the one a settings test cannot see: both stores hold a boolean,
-       both write a setting, and the page looks right either way — while the editor's caret silently
-       answers to the terminal's control. VS Code keeps `editor.cursorBlinking` and
-       `terminal.integrated.cursorBlinking` apart for the same reason, and so does this.
+describe("the code editor's own cursors follow the caret, not the terminal", () => {
+  it("blink with the caret's animation, and hold still where it is Solid, whatever the terminal's switch says", async () => {
+    /* THE shared-switch mutant, and the one a settings test cannot see: the terminal's blink and the
+       caret's animation both say "blink" somewhere, and the page looks right either way — while the
+       editor answers to the terminal's control. The editor's primary caret is the app's now; what
+       CodeMirror still draws (a second selection's cursors) follows the caret it stands beside.
 
-       The two are set to OPPOSITE values here on purpose: a caret reading the wrong one is the only
-       way the assertion can fail. */
+       The two are set to OPPOSITE answers on purpose: reading the wrong one is the only way to fail. */
     const { store, ui } = renderPane({ "a.ts": "const x = 1;" }, ["a.ts"], "a.ts");
-    act(() => store.setState({ terminalCursorBlink: false, editorCursorBlink: true }));
+    act(() => store.setState({ terminalCursorBlink: false, caret: { ...CARET_DEFAULT, animation: "pulse" } }));
     const rate = async () => {
       const layer = await waitFor(() => {
         const el = ui.container.querySelector(".cm-cursorLayer") as HTMLElement | null;
@@ -318,7 +325,7 @@ describe("the code editor's caret follows its OWN preference", () => {
     };
     expect(await rate()).toBe("1200ms");
 
-    act(() => store.setState({ editorCursorBlink: false }));
+    act(() => store.setState({ terminalCursorBlink: true, caret: { ...CARET_DEFAULT, animation: "solid" } }));
     await waitFor(async () => expect(await rate()).toBe("0ms"));
   });
 });

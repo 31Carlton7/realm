@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  bucketLabel, columnGeometry, nearestSlot, niceScale, slotCenter, sparklinePoints,
-  stackSegments, tickIndices, plotHeight, plotWidth,
+  bucketLabel, columnGeometry, labelTickPx, lineRuns, nearestSlot, niceRange, niceScale, slotCenter, sparklinePoints,
+  spreadLabels, stackSegments, tickIndices, plotHeight, plotWidth,
 } from "./chart-model";
 
 /** jsdom has no layout, so a `<rect>` with a NaN height and one with the right height are
@@ -27,6 +27,54 @@ describe("niceScale", () => {
   it("keeps ticks exact rather than accumulating float drift", () => {
     // `t += 0.1` five times is 0.5000000000000001 and prints as such on an axis.
     expect(niceScale(0.5).ticks.every((t) => Number.isFinite(t) && Math.abs(t * 10 - Math.round(t * 10)) < 1e-9)).toBe(true);
+  });
+});
+
+describe("niceRange", () => {
+  it("covers a range that need not start at zero, on the same round steps", () => {
+    expect(niceRange(782, 821)).toEqual({ min: 780, max: 830, ticks: [780, 790, 800, 810, 820, 830] });
+    expect(niceRange(-3, 12)).toEqual({ min: -5, max: 15, ticks: [-5, 0, 5, 10, 15] });
+  });
+
+  it("opens a flat range around itself instead of dividing by zero", () => {
+    // The mutant that matters: a zero span puts every point at NaN, and the line vanishes.
+    expect(niceRange(5, 5)).toEqual({ min: 4.5, max: 5.5, ticks: [4.5, 5, 5.5] });
+    expect(niceRange(0, 0)).toEqual({ min: 0, max: 1, ticks: [0, 1] });
+  });
+
+  it("never prints a negative zero on the axis", () => {
+    expect(Object.is(niceRange(-0.4, 3).ticks.find((t) => t === 0), 0)).toBe(true);
+  });
+});
+
+describe("lineRuns", () => {
+  it("breaks the line where a value was not reported, rather than diving to zero", () => {
+    // THE MUTANT: read null as 0, and a gap in the data is drawn as a measured collapse.
+    expect(lineRuns([1, null, 3, 4], 10, 0, 0, 100, 0, 4)).toEqual(["5.00,75.00", "25.00,25.00 35.00,0.00"]);
+  });
+
+  it("puts every point of a flat line halfway up rather than at NaN", () => {
+    expect(lineRuns([2, 2], 10, 0, 0, 100, 2, 2)).toEqual(["5.00,50.00 15.00,50.00"]);
+  });
+});
+
+describe("spreadLabels", () => {
+  it("keeps labels apart and in their lines' order, moving only the ones that collide", () => {
+    const at = spreadLabels([{ key: "a", y: 50 }, { key: "b", y: 52 }, { key: "c", y: 200 }], 14, 0, 100);
+    expect([at.get("a"), at.get("b"), at.get("c")]).toEqual([50, 64, 100]);
+  });
+
+  it("pulls a crowd at the bottom back up, each only as far as it must", () => {
+    const at = spreadLabels([{ key: "a", y: 95 }, { key: "b", y: 95 }, { key: "c", y: 95 }], 14, 0, 100);
+    expect([...at.values()]).toEqual([72, 86, 100]);
+  });
+});
+
+describe("labelTickPx", () => {
+  it("spaces x labels by their own length, never closer than a short date needs", () => {
+    expect(labelTickPx(["1.0", "2.0 beta 3"])).toBe(72);
+    expect(labelTickPx(["a", "b"])).toBe(56);
+    expect(tickIndices(10, 40, labelTickPx(["2.0 beta 3"])).length).toBeLessThan(10);
   });
 });
 

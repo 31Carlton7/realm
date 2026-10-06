@@ -8,10 +8,31 @@ import {
   highlightSpecialChars, keymap, lineNumbers, rectangularSelection,
 } from "@codemirror/view";
 import { EDITOR_CURSOR_BLINK_RATE } from "@realm/contracts";
+import { caretMoved, registerCaretSource } from "../../caret";
+import type { CaretSpot } from "../../caret-geometry";
 import { codeLanguageFor, type CodeLanguage } from "./code-languages";
 import { loadCodeMode } from "./code-modes";
 import { realmCodeTheme } from "./code-theme";
-import { useScrollMemory } from "../scroll-memory";
+import { forgetScroll, useScrollMemory } from "../scroll-memory";
+
+/**
+ * Where CodeMirror's primary caret is: the head of the main selection, from CodeMirror's own layout,
+ * on the side of a soft wrap CodeMirror itself draws it (the range's `assoc`), and the character after
+ * it for a block to cover. Nothing while the selection is a range — the platform hides its caret then
+ * too.
+ */
+function codeMirrorCaret(view: EditorView): CaretSpot | null {
+  const sel = view.state.selection.main;
+  if (!sel.empty) return null;
+  const at = view.coordsAtPos(sel.head, sel.assoc || 1);
+  if (!at) return null;
+  const pair = view.state.sliceDoc(sel.head, sel.head + 2);
+  const next = (pair.codePointAt(0) ?? 0) > 0xffff ? pair : pair.slice(0, 1);
+  const glyph = next === "\n" ? "" : next;
+  const end = glyph ? view.coordsAtPos(sel.head + glyph.length, -1) : null;
+  const width = end && Math.abs(end.top - at.top) < 1 ? end.left - at.left : view.defaultCharacterWidth;
+  return { x: at.left, top: at.top, height: at.bottom - at.top, glyph, glyphWidth: width };
+}
 
 /**
  * The source editor for a `code` document (CodeMirror 6).
@@ -29,7 +50,7 @@ import { useScrollMemory } from "../scroll-memory";
  * tab that inserts a character instead of a level — which is why editing two wrong characters in a
  * source file meant leaving Realm for a real editor and coming back.
  */
-export function CodeEditor({ path, text, onChange, onSave, revealLine = null, scrollKey = null, blinkCaret = true }: {
+export function CodeEditor({ path, text, onChange, onSave, reveal = null, scrollKey = null, blinkCaret = true }: {
   /** The document's path. Decides the grammar, and names the editor for a screen reader. */
   path: string;
   text: string;
@@ -37,12 +58,14 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
   /** ⌘S. Optional: the pane autosaves anyway, and this only makes "save now" explicit. The binding
    *  is claimed either way, so the key never reaches the browser's own save. */
   onSave?: () => void;
-  /** 1-based line to put the cursor on when the file opens — what a `project.grep` row means by
-   *  "this match". Null for an ordinary open, which resumes wherever the reader left off. */
-  revealLine?: number | null;
+  /** A 1-based line to put the cursor on — what a `project.grep` row or a `file.ts:42` link means by
+   *  "this line". Null for an ordinary open, which resumes wherever the reader left off. An object so
+   *  that each ask is its own: the same line asked for twice is two trips to it, after a scroll away. */
+  reveal?: { line: number } | null;
   /** Where the reader was in this file, across the unmount a space switch causes (scroll-memory.ts). */
   scrollKey?: string | null;
-  /** Whether the caret pulses. CodeMirror draws its own, so unlike the prompter's it can be told. */
+  /** Whether the cursors CodeMirror still draws itself — a second selection's — blink. The primary
+   *  caret is the app's, and moves as Settings ▸ Appearance ▸ Cursor says. */
   blinkCaret?: boolean;
 }) {
   const host = useRef<HTMLDivElement | null>(null);
@@ -58,6 +81,11 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
    *  rebuilding would throw away the undo history and the cursor on every keystroke. */
   const handlers = useRef({ onChange, onSave });
   handlers.current = { onChange, onSave };
+  /** The line asked for as the view is BUILT: a remembered scroll position must not be restored over
+   *  it — the restore keeps re-applying itself while the content settles — so the mark is forgotten
+   *  before the scroller is attached. */
+  const revealAtBuild = useRef(reveal);
+  revealAtBuild.current = reveal;
   /** The last document this editor produced, to recognise its own value arriving back as a prop. */
   const lastEmitted = useRef<string | null>(null);
   /** What the pane currently holds. Read when a view is BUILT — which is usually mount, but is also
@@ -121,6 +149,8 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
           ]),
           perFile.current.of(perFileConfig.current),
           realmCodeTheme(),
+          // The app's caret stands where CodeMirror says its own is, so it is told whenever that moves.
+          EditorView.updateListener.of((u) => { if (u.selectionSet || u.docChanged || u.geometryChanged) caretMoved(); }),
           EditorView.updateListener.of((u) => {
             if (!u.docChanged) return;
             const next = u.state.doc.toString();
@@ -131,13 +161,18 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
       }),
     });
     view.current = v;
+    /* CodeMirror lays out its own lines, so it says where its caret is rather than being mirrored, and
+       its own primary cursor steps aside while the app's is drawn there (`.cm-editor[data-rl-caret]`). */
+    const offCaret = registerCaretSource(v.contentDOM, { host: v.dom, measure: () => codeMirrorCaret(v) });
     /* The scroller is CodeMirror's own element, not one React rendered, so the hook cannot be
        attached as a ref and is called by hand. Its ref-callback cleanup is real (it removes the
        scroll listener and the settle loop) and is simply not in the hook's `void` return type. */
+    if (revealAtBuild.current !== null && scrollKey) forgetScroll(scrollKey);
     const detach = (attachScroll as (el: HTMLElement | null) => (() => void) | void)(v.scrollDOM);
     return () => {
       // `void` in the hook's return type, a real cleanup at runtime — checked rather than cast twice.
       if (typeof detach === "function") detach();
+      offCaret();
       v.destroy();
       view.current = null;
       lastEmitted.current = null;
@@ -179,10 +214,10 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
   // ---- land on the line a search sent us to --------------------------------------------------------
   useEffect(() => {
     const v = view.current;
-    if (!v || revealLine === null) return;
+    if (!v || reveal === null) return;
     // Clamped rather than ignored when out of range: the file may have been edited between the search
     // and the open, and the top of the right file beats an error about the wrong line.
-    const line = v.state.doc.line(Math.min(Math.max(1, revealLine), v.state.doc.lines));
+    const line = v.state.doc.line(Math.min(Math.max(1, reveal.line), v.state.doc.lines));
     v.dispatch({
       selection: { anchor: line.from },
       // `center`, not `nearest`: a match scrolled to the last visible row is a match with no context
@@ -190,7 +225,7 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
       effects: EditorView.scrollIntoView(line.from, { y: "center" }),
     });
     v.focus();
-  }, [revealLine, path]);
+  }, [reveal, path]);
 
   // ---- disk moved under us ------------------------------------------------------------------------
   useEffect(() => {

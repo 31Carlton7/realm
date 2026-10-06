@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { allItems } from "@realm/contracts";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, space } from "../state/store.test-fakes";
@@ -24,14 +25,10 @@ describe("NewLectureSheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start lecture" }));
     await waitFor(() => expect(api.calls).toContain("startLecture:s1:Caches"));
     await waitFor(() => expect(store.getState().sheet).toBeNull());
-    expect(store.getState().groups!.groups.some((g) => g.name.startsWith("Caches · "))).toBe(true);
+    // The lecture's notes and its assistant are what the window shows now.
+    expect(store.getState().items.filter((i) => allItems(store.getState().layout!).includes(i.id)).map((i) => i.kind)).toEqual(["documents", "session"]);
   });
 
-  it("Enter submits the form", async () => {
-    const { api } = await mount(<NewLectureSheet />);
-    fireEvent.submit(screen.getByLabelText("Lecture topic").closest("form")!);
-    await waitFor(() => expect(api.calls).toContain("startLecture:s1:"));
-  });
 });
 
 describe("WrapUpLectureSheet", () => {

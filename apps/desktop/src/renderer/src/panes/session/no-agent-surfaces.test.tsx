@@ -6,9 +6,10 @@ import { NO_AGENT_ATTR } from "@realm/contracts";
 /**
  * Which of Realm's own surfaces an agent may never act in.
  *
- * `app_act` can press any button in this window, and two of them grant things: the permission card
- * answers one request, and the bypass confirmation escalates the session to a mode where nothing is
- * asked again. An agent able to press either could approve the work it is blocked on. `app-drive.ts`
+ * `app_act` can press any button in this window, and some of them grant things: the permission card
+ * answers one request, the bypass confirmation escalates the session to a mode where nothing is
+ * asked again, the plan approval takes a session out of Plan, and a question card answers for the
+ * user. An agent able to press any of them could approve the work it is blocked on. `app-drive.ts`
  * refuses anything inside an element carrying `data-no-agent`, and this is the list of what carries
  * it — written down here so that removing one is a visible act rather than a silent regression in a
  * file about layout.
@@ -39,6 +40,55 @@ const SURFACES = [
     file: "apps/desktop/src/renderer/src/panes/session/Composer.tsx",
     on: "bypass-confirm",
   },
+  {
+    what: "a question put to the user",
+    file: "apps/desktop/src/renderer/src/panes/session/QuestionCard.tsx",
+    on: 'className="question-card"',
+  },
+  {
+    what: "the plan approval",
+    file: "apps/desktop/src/renderer/src/panes/session/PlanCard.tsx",
+    on: 'className="plan-decision"',
+  },
+  /* A question's model field opens a chooser PORTALLED out of the card, so the card's own attribute
+     does not reach it: picking a model there is answering for the user, and the chooser carries the
+     claim itself whenever a question opens it (`noAgent`). */
+  {
+    what: "the model chooser a question opens",
+    file: "apps/desktop/src/renderer/src/panes/agents-tab/ModelChooser.tsx",
+    on: 'className="menu subagents-chooser"',
+  },
+  {
+    what: "a question, after the fact",
+    file: "apps/desktop/src/renderer/src/panes/session/QuestionCard.tsx",
+    on: 'className="question-answered"',
+  },
+  /* The three that start paid work in the user's name: an agent pressing them could hand work to
+     other models nobody asked for. Opening the Agents tab with a plan is the first step of that, so
+     its two doors are guarded as well as the send that completes it. */
+  {
+    what: "the Agents tab's Build with composer",
+    file: "apps/desktop/src/renderer/src/panes/agents-tab/AgentsTab.tsx",
+    on: 'className="subagents-compose"',
+  },
+  {
+    what: "a plan's Implement with…",
+    file: "apps/desktop/src/renderer/src/panes/session/PlanCard.tsx",
+    on: "plan-implement-with",
+  },
+  {
+    what: "an answer's Implement with…",
+    file: "apps/desktop/src/renderer/src/panes/session/MessageActions.tsx",
+    on: "msg-implement-with",
+  },
+  /* A view an MCP server drew asking, through Realm, to run one of its tools, to put words in the
+     prompter, or to open a page. The user's click is the whole gate, so an agent able to press it
+     would be the agent running the vendor's tool for itself. */
+  {
+    what: "a view's request, held for the user",
+    file: "apps/desktop/src/renderer/src/panes/app-view/ViewRequestCard.tsx",
+    on: 'className="app-view-request"',
+  },
 ];
 
 describe("surfaces no agent may act in", () => {
@@ -49,6 +99,16 @@ describe("surfaces no agent may act in", () => {
     const element = src.split("\n").find((line) => line.includes(on) && line.includes("<"));
     expect(element, `no element in ${file} matching ${on}`).toBeDefined();
     expect(element).toContain(NO_AGENT_ATTR);
+  });
+
+  it("lets a menu row be one, and the prompter's Select in Realm is — it starts a pick only the person makes", () => {
+    // A row is a MenuItem rather than an element, so its attribute is asked for by name and drawn by
+    // the menu. THE MUTANT is either half going: the row stops asking, or the menu stops drawing it.
+    const menu = readFileSync(repoFile("apps/desktop/src/renderer/src/components/Menu.tsx"), "utf8");
+    expect(menu).toContain(`${NO_AGENT_ATTR}={it.noAgent}`);
+    const row = readFileSync(repoFile("apps/desktop/src/renderer/src/panes/session/Composer.tsx"), "utf8")
+      .split("\n").find((line) => line.includes('label: "Select in Realm"'));
+    expect(row).toContain('noAgent: "element picker"');
   });
 
   it("names the attribute main actually looks for", () => {

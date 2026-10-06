@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, createEvent, waitFor, act, within, cleanup } from "@testing-library/react";
 import { AGENT_CLI_COMMANDS, AGENT_NOTES, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type Environment } from "@realm/contracts";
+import { spaceColor } from "@realm/ui";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
-import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow } from "../../state/store.test-fakes";
+import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow, space } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
 import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
 import { SessionMeta, SessionPane } from "./SessionPane";
@@ -51,7 +52,7 @@ describe("SessionPane", () => {
     expect(decided).toEqual(["r1:allow"]);
     const box = screen.getByRole("textbox", { name: /message/i });
     fireEvent.change(box, { target: { value: "next" } });
-    fireEvent.keyDown(box, { key: "Enter" }); // plain Enter sends by default (Settings ▸ App: "Enter")
+    fireEvent.keyDown(box, { key: "Enter" }); // plain Enter sends by default (Settings ▸ General: "Enter")
     await waitFor(() => expect(sent).toEqual(["next"]));
     expect((box as HTMLTextAreaElement).value).toBe("");
     // A non-empty transcript is the DOCKED prompter: no greeting, no suggestion grid.
@@ -83,7 +84,7 @@ describe("SessionPane", () => {
     expect(sent).toEqual([]);
   });
 
-  it("Settings ▸ App can switch back to ⌘/Ctrl+Enter-to-send, where plain Enter is a newline again", async () => {
+  it("Settings ▸ General can switch back to ⌘/Ctrl+Enter-to-send, where plain Enter is a newline again", async () => {
     const { api, store } = await mount();
     const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
     store.setState({ submitKey: "cmdEnter" });
@@ -118,7 +119,8 @@ describe("SessionPane", () => {
     // One line out of greeting.ts's pool, picked from the session id — never "what should we build",
     // since a space is as often a course as a repo.
     expect(title).toHaveTextContent("What's on your mind in Versed?");
-    expect(title?.querySelector("em")).toHaveTextContent("Versed");
+    // The space's name is the line's link to the space's page now, not an emphasised word.
+    expect(title?.querySelector("button.hero-greeting-place")).toHaveTextContent("Versed");
     // The name from `system.info` reaches the greeting: without one, the pool it draws from is the
     // smaller, name-less half, so the same session lands on a different line.
     act(() => store.setState({ userName: "" }));
@@ -140,13 +142,6 @@ describe("SessionPane", () => {
     expect(document.querySelector(".session-pane")).toHaveAttribute("data-composer", "docked");
     expect(document.querySelector(".hero-greeting")).toBeNull();
     expect(document.querySelector(".suggestions")).toBeNull();
-  });
-
-  it("transcript content rides the centered .transcript-col rails", async () => {
-    await mount();
-    const col = document.querySelector(".transcript .transcript-col");
-    expect(col).not.toBeNull();
-    expect(col!.querySelector(".msg-user-row")).not.toBeNull(); // blocks render inside the rail column
   });
 
   it("permission chip carries data-warning only in bypassPermissions (reached via the confirm); menu selections call setSessionOptions with the right key", async () => {
@@ -198,6 +193,35 @@ describe("SessionPane", () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it("the permission control is a glyph and a word — each rung its own shield, worn by its menu row too, and no chevron", async () => {
+    const { store } = await mount("idle", reduceAll([]));
+    const chip = screen.getByRole("button", { name: "Permission mode" });
+    const glyph = () => chip.querySelector("svg")?.innerHTML;
+    // Codex's grammar: the mark and the label, nothing after them (the fill is styles.test.ts's half).
+    expect(chip.querySelector(".chip-caret")).toBeNull();
+    expect(chip.querySelectorAll("svg")).toHaveLength(1);
+    fireEvent.click(chip);
+    const rows = within(screen.getByRole("menu", { name: "Permission mode" })).getAllByRole("menuitemcheckbox");
+    expect(rows.map((r) => r.textContent)).toEqual(["Ask each time", "Accept edits", "Full access"]);
+    const marks = rows.map((r) => r.querySelector(".menu-icon svg")?.innerHTML);
+    // THE mutant: one shared shield for every rung. Three rungs read as three marks or not at all.
+    expect(marks.every(Boolean)).toBe(true);
+    expect(new Set(marks).size).toBe(3);
+    // The control wears the checked row's mark — what you pick is what it then shows.
+    expect(glyph()).toBe(marks[0]);
+    fireEvent.click(rows[1]!);
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
+    expect(glyph()).toBe(marks[1]);
+    // Full access, reached through its confirm, wears the warning shield and the warning tone.
+    await exited();
+    fireEvent.click(chip);
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Full access" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
+    expect(glyph()).toBe(marks[2]);
+    expect(chip).toHaveAttribute("data-warning");
+  });
+
   it("send morphs to Stop while running (both icons stay in the DOM) and interrupts; chip menus call setSessionOptions; opens the session on mount", async () => {
     const { api, store } = await mount("running", reduceAll([sessionEvent("assistant_delta", { messageId: "m1", delta: "str" })]));
     expect(api.calls).toContain("sessionEvents:se1:4");
@@ -215,32 +239,40 @@ describe("SessionPane", () => {
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Accept edits" }));
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
     openPicker();
-    fireEvent.click(screen.getByRole("option", { name: /Fake agent/ }));
+    fireEvent.click(screen.getByRole("option", { name: "Fake" }));
     await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("fake"));
     expect(store.getState().sessions.se1?.effort).toBeNull(); // the picker set model, not effort
   });
 
-  it("Send is disabled with an empty draft while idle; the picker's Effort section sets the effort option", async () => {
-    // Prompter rework re-pin: the standalone effort chip is retired — effort is edited inside the
-    // model picker (its permanent Effort section) and worn by the chip as a gray suffix. What
-    // carried over from the chip's tests: the edit applies via setSessionOptions with the `effort`
-    // key and touches nothing else, and a null effort shows nothing (no placeholder, no suffix).
-    const { store } = await mount("idle", reduceAll([]));
+  it("Send is disabled with an empty draft while idle; the picker's effort track sets the effort option", async () => {
+    // Effort is edited on the track in the picker's foot and worn by the chip as a grey suffix: the
+    // edit applies via setSessionOptions with the `effort` key and touches nothing else. Unset, the
+    // chip wears the level the turn runs at anyway — the model's default. A Claude session, because
+    // Claude's adapter hands the level on.
+    const { store } = await mountFresh();
     const send = screen.getByRole("button", { name: "Send" });
     expect(send).toBeDisabled();
     expect(send).toHaveAttribute("data-state", "send");
     expect(screen.queryByRole("button", { name: "Effort" })).toBeNull(); // the chip is gone
-    expect(document.querySelector(".model-chip .chip-effort")).toBeNull(); // null effort = no suffix
+    expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("High"); // the default in force
     openPicker();
-    const group = screen.getByRole("group", { name: "Effort" });
-    expect(within(group).getByRole("button", { name: "High" })).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(within(group).getByRole("button", { name: "High" }));
-    await waitFor(() => expect(store.getState().sessions.se1?.effort).toBe("high"));
+    const track = screen.getByRole("slider", { name: "Effort" });
+    expect(track).toHaveAttribute("aria-valuetext", "High");
+    expect(track).not.toHaveAttribute("data-effort"); // nothing chosen yet
+    expect(screen.queryByRole("button", { name: "Reset effort" })).toBeNull(); // nothing to reset
+    fireEvent.keyDown(track, { key: "ArrowLeft" });
+    await waitFor(() => expect(store.getState().sessions.se1?.effort).toBe("medium"));
     expect(store.getState().sessions.se1?.model).toBeNull(); // the effort edit set effort, not model
     expect(store.getState().sessions.se1?.permissionMode).toBe("default"); // …and not permission either
-    await exited();
-    expect(screen.queryByRole("dialog", { name: "Model picker" })).toBeNull(); // picking closes the picker
-    expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("High"); // the suffix wears it
+    // A setting on the surface you are looking at: the track answers, and the picker stays open for
+    // the model that may be next. Only picking a model closes it.
+    await waitFor(() => expect(track).toHaveAttribute("aria-valuetext", "Medium"));
+    expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
+    expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("Medium"); // the suffix wears it
+    // The reset hands the level back to the model: no level of Realm's at all, not "high" by name.
+    fireEvent.click(screen.getByRole("button", { name: "Reset effort" }));
+    await waitFor(() => expect(store.getState().sessions.se1?.effort).toBeNull());
+    await waitFor(() => expect(track).toHaveAttribute("aria-valuetext", "High"));
   });
 
   it("model chip shows DEFAULT_MODEL_LABEL for the kind while session.model is null, and the chosen model after", async () => {
@@ -251,7 +283,7 @@ describe("SessionPane", () => {
     // glyph is the generic Hugeicons bot, never a brand mark.
     expect(chip.querySelector("[data-brand]")).toBeNull();
     openPicker();
-    fireEvent.click(screen.getByRole("option", { name: /Fake agent/ }));
+    fireEvent.click(screen.getByRole("option", { name: "Fake" }));
     await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("fake"));
     expect(chip).toHaveTextContent("Fake"); // AGENT_MODELS label for the picked id
   });
@@ -263,44 +295,9 @@ describe("SessionPane", () => {
     expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("GPT-5.6");
     openPicker();
     const row = screen.getByRole("option", { name: /GPT-5\.6/ });
-    expect(row).toHaveTextContent("Codex");
+    // The session's own agent leads under its own name, even with only its default to offer.
+    expect(row.closest("[role=group]")).toHaveAttribute("aria-label", "Codex");
     expect(row).toHaveAttribute("aria-selected", "true");
-  });
-
-  it("the cwd chip is gone from the control row (prompter rework) — the folder is the sidebar's to name", async () => {
-    await mount("idle", reduceAll([]));
-    expect(document.querySelector(".composer-cwd")).toBeNull();
-  });
-
-  /** W2 gave the checkout its own chip (the "Work locally" slot); the prompter rework retires it —
-   *  the diff pane and the sidebar still name the environment, and the row keeps only the branch as
-   *  its way in. Pinned in both shapes so neither chip can quietly return. */
-  describe("the environment chip is retired", () => {
-    const envRow: Environment = { id: "env1", spaceId: "s1", path: "/tmp/worktrees/s1/fix-login", branch: "realm/fix-login",
-      kind: "worktree", portBlockStart: 41020, createdAt: 0, updatedAt: 0 };
-
-    async function mountIn(environment: Environment | null) {
-      const api = fakeApi({
-        sessions: [session("se1", "s1", { status: "idle", ...(environment ? { environmentId: environment.id, cwd: environment.path } : {}) })],
-        environments: environment ? { s1: [environment] } : {},
-      });
-      const store = createAppStore(api); await store.getState().boot();
-      store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
-      render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
-    }
-
-    it("renders no environment (or cwd) chip for a worktree session", async () => {
-      await mountIn(envRow);
-      expect(document.querySelector(".composer-env")).toBeNull();
-      expect(document.querySelector(".composer-cwd")).toBeNull();
-      expect(screen.queryByText("Worktree")).toBeNull();
-    });
-
-    it("renders none for a session in the space's own checkout either", async () => {
-      await mountIn(null);
-      expect(document.querySelector(".composer-env")).toBeNull();
-      expect(screen.queryByText("Work locally")).toBeNull();
-    });
   });
 
   it("attributes a question another session delivered, and never attributes the user's own words", async () => {
@@ -321,11 +318,24 @@ describe("SessionPane", () => {
     expect(rows[1]!.querySelector(".msg-user")).toHaveTextContent("an agent asked this");
   });
 
-  it("the Thinking… under-strip shows only while the session is running", async () => {
-    const { store } = await mount("running", reduceAll([sessionEvent("user_message", { text: "go", attachments: [] })]));
-    expect(document.querySelector(".composer-thinking")).toHaveTextContent("Thinking…");
-    act(() => store.getState().applySessionStatus("se1", "idle"));
-    expect(document.querySelector(".composer-thinking")).toBeNull();
+  it("names a scheduled run's task above its first message, and keeps the note Realm added for the agent out of the bubble", async () => {
+    const note = "(Scheduled task \"Morning triage\". Nobody is watching this run: end with a short report.)";
+    const goal = "Read the new issues and group them by area.";
+    await mount("idle", reduceAll([
+      sessionEvent("user_message", { text: `${goal}\n\n${note}`, attachments: [], scheduled: { task: "Morning triage", note } }),
+      // A run that stopped to ask, answered: the reply after the note is the person's, and stays.
+      sessionEvent("user_message", { text: `${goal}\n\n${note}\n\nThe person supervising this run replied:\n\nUse the backlog.`, attachments: [], scheduled: { task: "Morning triage", note } }),
+    ]));
+    const [first, resumed] = [...document.querySelectorAll(".msg-user-row")];
+    // THE mutants: draw the event's text as it was handed to the agent (the bubble ends in "Nobody is
+    // watching this run…"), or drop the line that says the clock sent it.
+    expect(first!.querySelector(".msg-user")!.textContent).toBe(goal);
+    expect(first!.querySelector(".msg-user-from")).toHaveTextContent("Scheduled run · Morning triage");
+    // The note is still the agent's to read, and the person's to find: under the pointer on that line.
+    expect(first!.querySelector(".msg-user-from")).toHaveAttribute("title", note);
+    // The person's own words: no "from another session" ring.
+    expect(first!.hasAttribute("data-from")).toBe(false);
+    expect(resumed!.querySelector(".msg-user")!.textContent).toBe(`${goal}\n\nThe person supervising this run replied:\n\nUse the backlog.`);
   });
 
   it("the Thinking… strip hides while the agent is blocked on the user (waiting_permission is not streaming)", async () => {
@@ -399,23 +409,6 @@ describe("SessionPane", () => {
     fireEvent.click(within(cards[1]!).getByRole("button", { name: /^Deny$/ }));
     fireEvent.click(within(cards[0]!).getByRole("button", { name: /^Allow$/ }));
     expect(decided).toEqual(["r2:deny", "r1:allow"]);
-  });
-
-  it("a finished run of consecutive tool calls reaches the pane as one collapsed `Worked for` ledger row (§5, Ara refresh §4)", async () => {
-    await mount("idle", reduceAll([
-      sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "ls" }, parentToolUseId: null }),
-      sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false }),
-      sessionEvent("tool_call", { toolUseId: "t2", name: "Read", input: { file_path: "/a.ts" }, parentToolUseId: null }),
-      sessionEvent("tool_result", { toolUseId: "t2", content: "ok", isError: false }),
-      sessionEvent("tool_call", { toolUseId: "t3", name: "Edit", input: { file_path: "/a.ts" }, parentToolUseId: null }),
-      sessionEvent("tool_result", { toolUseId: "t3", content: "ok", isError: false }),
-    ]));
-    const line = screen.getByRole("button", { name: "3 tool calls" });
-    expect(line).toHaveTextContent(/^Worked for /); // the events above land within the same second
-    expect(line).toHaveAttribute("title", "3 tools · 1 file · 1 command"); // the counts survive as the tooltip
-    expect(screen.queryByRole("button", { name: /Bash tool call/ })).toBeNull();
-    fireEvent.click(line);
-    expect(screen.getByRole("button", { name: /Bash tool call/ })).toBeInTheDocument();
   });
 
   it("idle session with an unresolved tool shows no spinner; error blocks render", async () => {
@@ -501,10 +494,87 @@ describe("SessionPane", () => {
     // AcpAdapter never transmits Realm's mode ids, so the picker would silently do nothing for an ACP agent.
     await mountKind("acp:cursor");
     expect(screen.queryByRole("button", { name: "Permission mode" })).toBeNull();
-    // The rest of the bar is untouched: the model chip still opens the picker, whose permanent
-    // Effort section exists for every kind (effort's home since the standalone chip retired).
+    // The model chip still opens the picker — with no effort track, because this Cursor offers no
+    // thought_level option to hand a level to (it writes effort into its own model ids), and a control
+    // wired to nothing is the thing the per-kind tables exist to prevent.
     openPicker();
-    expect(screen.getByRole("group", { name: "Effort" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
+    expect(screen.queryByRole("slider", { name: "Effort" })).toBeNull();
+  });
+});
+
+describe("reading a session by opening it", () => {
+  /* The unread ring — and the session's row in every list of what needs you — stays until the session
+     is read. Watching events arrive in the focused pane stamps them; this is the other half: what was
+     already there when the pane got the keyboard. THE MUTANT is the old rule alone, where a session
+     opened to read its news kept the ring until it said something new. */
+  const mountAt = async (focused: boolean) => {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", seenSeq: 2, lastEventSeq: 4 })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessions: { se1: { ...store.getState().sessions["se1"]!, seenSeq: 2, lastEventSeq: 4 } },
+      sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 4, t: seeded() } } });
+    const pane = (f: boolean) => <StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible focused={f} /></StoreContext.Provider>;
+    const r = render(pane(focused));
+    return { api, store, rerender: (f: boolean) => r.rerender(pane(f)) };
+  };
+
+  it("the focused pane reads what it holds", async () => {
+    const { api, store } = await mountAt(true);
+    await waitFor(() => expect(api.calls).toContain("markSessionSeen:se1@4"));
+    expect(store.getState().sessions["se1"]!.seenSeq).toBe(4);
+  });
+
+  it("a pane without the keyboard reads nothing — until it gets it", async () => {
+    const { api, store, rerender } = await mountAt(false);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(api.calls.some((c) => c.startsWith("markSessionSeen"))).toBe(false);
+    expect(store.getState().sessions["se1"]!.seenSeq).toBe(2);
+    rerender(true);
+    await waitFor(() => expect(api.calls).toContain("markSessionSeen:se1@4"));
+  });
+});
+
+describe("opened from a list, the session takes the keyboard", () => {
+  /* A session opened from the Active rows, another room's list or a notification lands with the
+     keyboard in it, so the hand that clicked can type. THE MUTANTS: never take it (the caret stays on
+     a sidebar row, or on nothing once that row is gone), or take it over a permission card that has
+     already claimed it for the answer it needs. */
+  const mountWith = async (status: "idle" | "waiting_permission", focused = true) => {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: status }, transcripts: { se1: { lastSeq: 4, t: seeded() } } });
+    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible focused={focused} /></StoreContext.Provider>);
+    return { store, ask: () => act(() => store.setState({ keyboardFor: { sessionId: "se1", n: (store.getState().keyboardFor?.n ?? 0) + 1 } })) };
+  };
+
+  it("lands in the prompter", async () => {
+    const { ask } = await mountWith("idle");
+    expect(document.activeElement).toBe(document.body);
+    ask();
+    await waitFor(() => expect(document.activeElement).toHaveClass("composer-input"));
+  });
+
+  it("a permission card waiting for an answer keeps it", async () => {
+    const { ask } = await mountWith("waiting_permission");
+    await waitFor(() => expect(document.activeElement?.closest(".permission-card")).not.toBeNull());
+    ask();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(document.activeElement?.closest(".permission-card")).not.toBeNull();
+  });
+
+  it("takes the keyboard once: the request is spent, so a remount never pulls the caret back", async () => {
+    const { store, ask } = await mountWith("idle");
+    ask();
+    await waitFor(() => expect(document.activeElement).toHaveClass("composer-input"));
+    expect(store.getState().keyboardFor).toBeNull();
+  });
+
+  it("a pane without the keyboard takes nothing, and a request for another session is not this one's", async () => {
+    const { store, ask } = await mountWith("idle", false);
+    ask();
+    act(() => store.setState({ keyboardFor: { sessionId: "other", n: 9 } }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(document.activeElement).toBe(document.body);
   });
 });
 
@@ -639,10 +709,11 @@ describe("the prompter wears its mode", () => {
   it("says the mode in WORDS too — the colour is never the only telling", async () => {
     const { store } = await mountFresh();
     act(() => store.setState({ sessions: { ...store.getState().sessions, se1: { ...store.getState().sessions.se1!, permissionMode: "plan" } } }));
-    // In the "+" menu now rather than on the row. The card's tint is still the ambient signal; this
-    // is the place the mode is spelled out, and the only place Build — which has no tint — is.
+    // In the "+" menu rather than on the row. The card's tint is still the ambient signal; this is
+    // the place the mode is spelled out, and the only place Build — which has no tint — is.
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    expect(screen.getByRole("menuitem", { name: /Mode/ })).toHaveTextContent("Plan");
+    const modes = within(screen.getByRole("menu", { name: "Add" })).getByRole("group", { name: "Mode" });
+    expect(within(modes).getByRole("menuitemcheckbox", { checked: true })).toHaveAccessibleName("Plan");
   });
 });
 
@@ -659,15 +730,6 @@ describe("the prompter's / commands", () => {
     expect(document.querySelector(".slash-picker")).not.toBeNull();
     type("look in src/renderer");
     expect(document.querySelector(".slash-picker")).toBeNull();
-  });
-
-  it("narrows as the command is typed", async () => {
-    await mountFresh();
-    type("/");
-    expect(rows()).toContain("/export");
-    expect(rows().length).toBeGreaterThan(1);
-    type("/exp");
-    expect(rows()).toEqual(["/export"]);
   });
 
   it("runs on Enter and takes its own token out of the draft", async () => {
@@ -806,7 +868,39 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
     expect(mark.querySelector("path")).toHaveAttribute("fill", "currentColor");
   });
 
-  it("the gray suffix shows the SESSION's effort, capitalised (`xhigh` → XHigh), and hides when unset", async () => {
+  it("wears no effort on the chip of a model its harness lists no levels for", async () => {
+    // A Codex session can hold a level set under Claude before the switch. Codex is handed a level
+    // only where its own catalog lists it for the model, so with no catalog a suffix would claim a
+    // setting nothing is applying.
+    await mountFresh({ agentKind: "codex", effort: "high" });
+    const chip = screen.getByRole("button", { name: "Model" });
+    expect(chip.querySelector(".chip-effort")).toBeNull();
+    expect(chip.getAttribute("title")).not.toContain("effort");
+    openPicker();
+    expect(screen.queryByRole("slider", { name: "Effort" })).toBeNull();
+  });
+
+  it("gives a Codex model the levels its own catalog lists, from its own default", async () => {
+    const probe: AgentProbe[] = [{ kind: "codex", available: true, version: "0.154.0", loggedIn: true, reason: null,
+      models: [
+        { id: "gpt-sol", label: "GPT-Sol", isDefault: true, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium" },
+        { id: "gpt-terra", label: "GPT-Terra", efforts: ["low", "high"], defaultEffort: "high" },
+      ] }];
+    const { store } = await mountFresh({ agentKind: "codex" }, 0, probe);
+    await waitFor(() => expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("Medium"));
+    openPicker();
+    const track = screen.getByRole("slider", { name: "Effort" });
+    expect(track).toHaveAttribute("aria-valuemax", "3"); // four levels, a dot each
+    expect(track).toHaveAttribute("aria-valuetext", "Medium");
+    fireEvent.keyDown(track, { key: "End" });
+    await waitFor(() => expect(store.getState().sessions.se1?.effort).toBe("xhigh"));
+    // Another model, its own levels: a level it does not list is shown as its default, not kept.
+    await act(async () => { await store.getState().setSessionOptions("se1", { model: "gpt-terra" }); });
+    await waitFor(() => expect(screen.getByRole("slider", { name: "Effort" })).toHaveAttribute("aria-valuemax", "1"));
+    expect(screen.getByRole("slider", { name: "Effort" })).toHaveAttribute("aria-valuetext", "High");
+  });
+
+  it("the gray suffix shows the SESSION's effort, capitalised (`xhigh` → XHigh), and the model's default when unset", async () => {
     const a = await mountFresh({ effort: "xhigh" });
     expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("XHigh");
     a.unmount();
@@ -814,7 +908,7 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
     expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("Max");
     b.unmount();
     await mountFresh();
-    expect(document.querySelector(".model-chip .chip-effort")).toBeNull();
+    expect(document.querySelector(".model-chip .chip-effort")).toHaveTextContent("High");
   });
 
   describe("overflow collapse", () => {
@@ -842,7 +936,8 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
       fireEvent.click(within(perms).getByRole("button", { name: "Accept edits" }));
       await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
       await exited();
-      expect(screen.queryByRole("dialog", { name: "Model picker" })).toBeNull(); // picking closes the menu
+      // A setting on the picker's card like the rest: choosing it leaves the picker open.
+      expect(screen.getByRole("dialog", { name: "Model picker" })).not.toHaveAttribute("data-closing");
     });
 
     it("bypassPermissions from the collapsed menu still goes through the inline confirm (U-M7)", async () => {
@@ -856,12 +951,12 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
       await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
     });
 
-    it("a row that fits keeps the permission chip; the menu carries only its permanent Effort section", async () => {
+    it("a row that fits keeps the permission chip; the menu carries only its permanent effort track", async () => {
       stageWidths(400, 500);
       await mountFresh();
       expect(screen.getByRole("button", { name: "Permission mode" })).toBeInTheDocument();
       openPicker();
-      expect(screen.getByRole("group", { name: "Effort" })).toBeInTheDocument(); // permanent, not overflow
+      expect(screen.getByRole("slider", { name: "Effort" })).toBeInTheDocument(); // permanent, not overflow
       expect(screen.queryByRole("group", { name: "Permissions" })).toBeNull();
     });
   });
@@ -916,11 +1011,6 @@ describe("SessionMeta", () => {
     expect(screen.queryByText("$0.50")).toBeNull();
   });
 
-  it("renders no cost while costUsd is 0, even after turns", () => {
-    mountMeta({ model: "fake-xl", costUsd: 0, numTurns: 3 });
-    expect(screen.queryByText(/\$/)).toBeNull();
-    expect(screen.getByLabelText(/^Status:/)).toBeInTheDocument(); // the rest of the meta still renders
-  });
 });
 
 describe("markdown + summaries", () => {
@@ -1014,26 +1104,31 @@ async function mountKindFresh(agentKind: "codex" | "acp:cursor") {
   return mountFresh({ agentKind });
 }
 
-/* The mode moved off the control row into the "+" menu, so every interaction below is two steps:
-   open the menu, step into Mode, pick. The mode's SEMANTICS are untouched — parking the permission
-   on the way into Plan, restoring it on the way out, the per-agent gating — which is why these tests
-   were redirected rather than rewritten. */
+/* The mode lives in the "+" menu's Mode section, as rows to pick. The mode's SEMANTICS are untouched —
+   parking the permission on the way into Plan, restoring it on the way out, the per-agent gating —
+   which is why these tests were redirected rather than rewritten. */
 const plusButton = () => screen.getByRole("button", { name: "Add" });
 /**
- * The menu's Mode row, with the menu left OPEN — for asserting what it says.
+ * The menu's Mode section, with the menu left OPEN — for asserting what it says.
  *
  * The open is conditional and the find is async because of §6's exit window: a dismissed popover
  * stays mounted for `EXIT_MS` and the button stays `aria-expanded` through it (popover-exit's own
- * note), so an unconditional click lands as a CLOSE on anything that read the row a moment earlier.
+ * note), so an unconditional click lands as a CLOSE on anything that read the section a moment earlier.
  */
-const openModeRow = async () => {
+const openModes = async () => {
   const btn = plusButton();
   if (btn.getAttribute("aria-expanded") !== "true") fireEvent.click(btn);
-  return await screen.findByRole("menuitem", { name: /Mode/ });
+  return within(await screen.findByRole("menu", { name: "Add" })).getByRole("group", { name: "Mode" });
 };
-/** …and closed again, waiting out the exit so a following interaction starts from a shut menu. */
+/** The section's rows, as their names read. */
+const modeNames = (group: HTMLElement) => within(group).getAllByRole("menuitemcheckbox").map((r) => r.querySelector(".menu-label")!.textContent);
+/** The checked row's name, and the menu closed again — waiting out the exit so a following
+ *  interaction starts from a shut menu. */
 const readMode = async () => {
-  const text = (await openModeRow()).textContent ?? "";
+  const group = await openModes();
+  const text = within(group).getByRole("menuitemcheckbox", { checked: true }).querySelector(".menu-label")!.textContent ?? "";
+  // The popover hook arms its Escape listener a tick after mount.
+  await act(async () => { await new Promise((r) => setTimeout(r, 1)); });
   fireEvent.keyDown(window, { key: "Escape" });
   await exited();
   return text;
@@ -1042,18 +1137,9 @@ const readMode = async () => {
 describe("prompter mode, in the \"+\" menu (Build / Plan)", () => {
   const permissionChip = () => screen.queryByRole("button", { name: "Permission mode" });
   const setMode = async (label: "Build" | "Plan") => {
-    fireEvent.click(await openModeRow());
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: label }));
+    fireEvent.click(within(await openModes()).getByRole("menuitemcheckbox", { name: label }));
     await exited();
   };
-
-  it("starts on Build and moves the session onto the plan permission mode", async () => {
-    const { store } = await mountFresh();
-    expect(await readMode()).toContain("Build");
-    await setMode("Plan");
-    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
-    expect(await readMode()).toContain("Plan");
-  });
 
   it("returning to Build restores the permission the user was on, not `default`", async () => {
     // The whole reason the store parks a value: Plan travels as `permissionMode`, so the round trip
@@ -1103,15 +1189,19 @@ describe("prompter mode, in the \"+\" menu (Build / Plan)", () => {
   it("is hidden for an agent with no plan mode, and shown for the ones that have it", async () => {
     // Cursor: ACP mode ids are agent-defined and Realm's are never transmitted, so a Plan chip there
     // would be a button that changes nothing.
-    /* The row itself is always there — it is where the mode is READ, and a session always has one.
-       What the agent's capability decides is whether it OPENS: a Cursor session pre-handshake has
-       nothing to switch to, so the row is a static value rather than a submenu leading nowhere. */
+    /* The section is always there — it is where the mode is READ, and a session always has one.
+       What the agent's capability decides is whether there is anything to PICK: a Cursor session
+       pre-handshake has nothing to switch to, so the section is its one mode as a static value. */
     const cursor = await mountKindFresh("acp:cursor");
-    expect(await openModeRow()).toBeDisabled();
+    const fixed = within(await openModes()).getAllByRole("menuitemcheckbox");
+    expect(fixed).toHaveLength(1);
+    expect(fixed[0]).toBeDisabled();
     cursor.unmount();
     // Codex: codexPolicyFor("plan") really does start the thread read-only under untrusted approvals.
     await mountKindFresh("codex");
-    expect(await openModeRow()).not.toBeDisabled();
+    const rows = within(await openModes()).getAllByRole("menuitemcheckbox");
+    expect(modeNames(await openModes())).toContain("Plan");
+    expect(rows.every((r) => !(r as HTMLButtonElement).disabled)).toBe(true);
   });
 });
 
@@ -1185,66 +1275,53 @@ describe("ACP mode chip — per-session modes (Plan 14 W3)", () => {
     // The materialize-honestly window: events exist, no init yet. A static value, not a submenu —
     // offering Plan before the agent has named its modes would be a guess.
     await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] })]);
-    const row = await openModeRow();
+    const rows = within(await openModes()).getAllByRole("menuitemcheckbox");
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
     expect(row).toBeDisabled();
     expect(row.title).toBe("Waiting for the agent's modes");
-    expect(row).toHaveTextContent("Build");
+    expect(row).toHaveAccessibleName("Build");
+    expect(row).toHaveAccessibleDescription("Waiting for the agent's modes");
   });
 
   it("enables the chip once the init event carries a plan-equivalent, described in the agent's own words", async () => {
     await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }), initEvent(CURSOR_MODES)]);
-    const row = await openModeRow();
-    expect(row).not.toBeDisabled();
-    expect(row).toHaveTextContent("Build");
-    expect(row.title).toContain("Cursor's own Plan mode");
-    expect(row.title).toContain("Read-only mode for planning and designing before implementation");
-    // Cursor advertises `ask` in the same handshake, so the row describes that too — from Build the
-    // title is what the user reads before choosing.
-    expect(row.title).toContain("Cursor's own Ask mode");
-    expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
-  });
-
-  it("shows NO chip for a session whose modes carry neither a plan- nor an ask-equivalent", async () => {
-    // The named mutant: a chip here would drive session/set_mode toward a mode that does not exist.
-    await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }),
-      initEvent([{ id: "agent", name: "Agent", description: "d" }, { id: "review", name: "Review", description: "d" }])]);
-    expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
+    const group = await openModes();
+    expect(modeNames(group)).toEqual(["Build", "Plan", "Ask"]);
+    const plan = within(group).getByRole("menuitemcheckbox", { name: "Plan" });
+    expect(plan).not.toBeDisabled();
+    expect(plan.title).toContain("Cursor's own Plan mode");
+    expect(plan.title).toContain("Read-only mode for planning and designing before implementation");
+    // Cursor advertises `ask` in the same handshake, so that row describes itself the same way —
+    // each title is what the user reads before choosing it.
+    expect(within(group).getByRole("menuitemcheckbox", { name: "Ask" }).title).toContain("Cursor's own Ask mode");
     expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
   });
 
   it("offers Ask alone when the agent advertises `ask` but no plan-equivalent", async () => {
     await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }),
       initEvent([{ id: "agent", name: "Agent", description: "d" }, { id: "ask", name: "Ask", description: "Q&A mode - no edits or command execution" }])]);
-    const row = await openModeRow();
-    // The mutant: gating the row's submenu on `canPlan`. An agent that offers only Ask would be left
-    // with a static value, and its one read-only mode would be unreachable.
-    expect(row).not.toBeDisabled();
-    expect(row).toHaveTextContent("Build");
-    expect(row.title).toContain("Cursor's own Ask mode");
-    expect(row.title).toContain("no edits or command execution");
-    fireEvent.click(row);
-    // …and the submenu offers exactly Build and Ask: Plan has nothing to map onto here.
-    expect(screen.getAllByRole("menuitemcheckbox").map((r) => r.textContent)).toEqual(["Build", "Ask"]);
-  });
-
-  it("shows NO chip when the agent named no modes at all", async () => {
-    await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }), initEvent()]);
-    expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
-    expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
+    const group = await openModes();
+    // The mutant: gating the section's choices on `canPlan`. An agent that offers only Ask would be
+    // left with a static value, and its one read-only mode would be unreachable.
+    // …and the section offers exactly Build and Ask: Plan has nothing to map onto here.
+    expect(modeNames(group)).toEqual(["Build", "Ask"]);
+    const ask = within(group).getByRole("menuitemcheckbox", { name: "Ask" });
+    expect(ask).not.toBeDisabled();
+    expect(ask.title).toContain("Cursor's own Ask mode");
+    expect(ask.title).toContain("no edits or command execution");
   });
 
   it("enters and leaves Plan WITHOUT the Claude-shaped permission park", async () => {
     // Cursor's Plan is its own mode: there is no chosen permission to preserve, so nothing is parked
     // and Build returns the row to its resting default.
     const { store } = await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }), initEvent(CURSOR_MODES)]);
-    fireEvent.click(await openModeRow());
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Plan" }));
+    fireEvent.click(within(await openModes()).getByRole("menuitemcheckbox", { name: "Plan" }));
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
     expect(store.getState().planReturn.se1).toBeUndefined(); // no park for an agent with no permission axis
     await exited();
-    expect(await readMode()).toContain("Plan");
-    fireEvent.click(await openModeRow());
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Build" }));
+    expect(await readMode()).toBe("Plan");
+    fireEvent.click(within(await openModes()).getByRole("menuitemcheckbox", { name: "Build" }));
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("default"));
   });
 });
@@ -1267,7 +1344,8 @@ describe("prompter model picker", () => {
 
   it("picking a model inside the current agent leaves the agent alone", async () => {
     const { api, store } = await mountFresh({ model: "claude-opus-5" });
-    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Claude Opus 5");
+    // The vendor's word is the mark's job on the chip; the tooltip says the whole name.
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Opus 5");
     openPicker();
     fireEvent.click(screen.getByRole("option", { name: /Claude Haiku 4\.5/ }));
     await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-haiku-4-5"));
@@ -1285,43 +1363,33 @@ describe("prompter model picker", () => {
     expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("GPT-5.6");
   });
 
-  it("lists every agent's models, current agent first, each carrying its provider's brand mark", async () => {
+  it("lists the current agent's models first, then each agent with a list, then every other agent by name", async () => {
     await mountKindFresh("codex");
     openPicker();
-    expect(rowNames()).toEqual(["GPT-5.6", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5.5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
-      // Then the rest of SELECTABLE_AGENT_KINDS, in its order. The Plan 18 agents each contribute
-      // one "Default" row: their real catalogs are enumerated live by the probe, and naming a guess
-      // here would put a model the session is not on into the picker. DeepSeek is the exception —
-      // its ACP server is booted with one model and enumerates nothing, so its two are curated.
-      "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
+    expect(rowNames()).toEqual(["GPT-5.6", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5", "Haiku 4.5",
+      // DeepSeek's ACP server is booted with one model and enumerates nothing, so its two are curated
+      // and keep their group. Every agent with nothing but its own default is one row, by name.
       "DeepSeek V4 Pro", "DeepSeek V4 Flash",
-      // OpenHands contributes one "Default" for a stronger version of the same reason: its model is
-      // never on the ACP wire at all. Hermes is last, and back to the ordinary reason — its catalog
-      // is the user's own authenticated providers, which no table here could name in advance.
-      "Default", "Default"]);
+      "Cursor", "Gemini", "OpenCode", "GitHub Copilot", "goose", "Qwen Code", "Grok", "fx", "OpenHands", "Hermes"]);
     const marks = screen.getAllByRole("option").map((n) => n.querySelector("[data-brand]")?.getAttribute("data-brand"));
     // Hermes' row is the one with no `data-brand`: Nous Research publishes no vector mark, so it
     // wears Realm's own caduceus from the Hugeicons set instead of a vendored brand path.
-    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "claude", "cursor", "gemini",
-      "opencode", "githubCopilot", "goose", "qwen", "grok", "fx", "deepseek", "deepseek", "openhands", undefined]);
+    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "claude", "deepseek", "deepseek",
+      "cursor", "gemini", "opencode", "githubCopilot", "goose", "qwen", "grok", "fx", "openhands", undefined]);
     expect(document.querySelector("[data-brand='qwen']")).toHaveAttribute("viewBox", "0 0 141.38 140");
     expect(document.querySelector("[data-brand='githubCopilot']")?.querySelectorAll("path")).toHaveLength(3);
   });
 
-  it("eight rows labelled Default are still told apart — the row carries its agent, not just its model", async () => {
-    // The named mutant: DEFAULT_MODEL_LABEL giving every ACP agent whose model Realm cannot name the
-    // same string is only safe because the row's accessible name includes the agent. Drop
-    // `mp-row-provider` and the picker becomes eight identical options.
+  it("tells the agents Realm cannot ask for a model apart by name, not eight rows reading Default", async () => {
+    // The named mutant: labelling an Other agents row by its model. DEFAULT_MODEL_LABEL gives eight
+    // ACP agents the same "Default", and the picker becomes eight identical options.
     await mountKindFresh("codex");
     openPicker();
-    const defaults = screen.getAllByRole("option").filter((n) => n.querySelector(".mp-row-name")!.textContent === "Default");
-    expect(defaults).toHaveLength(8);
-    const names = defaults.map((n) => n.textContent);
-    expect(new Set(names).size).toBe(8);
-    expect(names.join("|")).toContain("OpenCode");
-    expect(names.join("|")).toContain("Qwen Code");
-    expect(names.join("|")).toContain("OpenHands");
-    expect(names.join("|")).toContain("Hermes");
+    const others = within(screen.getByRole("group", { name: "Other agents" })).getAllByRole("option");
+    expect(others.map((n) => n.querySelector(".mp-row-name")!.textContent)).not.toContain("Default");
+    const names = others.map((n) => n.getAttribute("aria-label"));
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toEqual(expect.arrayContaining(["OpenCode", "Qwen Code", "OpenHands", "Hermes", "Cursor, Composer"]));
   });
 
   it("never hides a session's own kind, even one that is not offered fresh", async () => {
@@ -1329,10 +1397,10 @@ describe("prompter model picker", () => {
     // see itself would show a list with nothing selected.
     await mountFresh({ agentKind: "fake" });
     openPicker();
-    expect(rowNames()).toEqual(["Fake", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5.5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
-      "GPT-5.6", "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
-      "DeepSeek V4 Pro", "DeepSeek V4 Flash", "Default", "Default"]);
-    expect(screen.getByRole("option", { name: /Fake agent/ })).toHaveAttribute("aria-selected", "true");
+    expect(rowNames()).toEqual(["Fake", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5", "Haiku 4.5",
+      "DeepSeek V4 Pro", "DeepSeek V4 Flash",
+      "Codex", "Cursor", "Gemini", "OpenCode", "GitHub Copilot", "goose", "Qwen Code", "Grok", "fx", "OpenHands", "Hermes"]);
+    expect(screen.getByRole("option", { name: "Fake" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("marks an unavailable CLI but keeps it pickable — the install card is where picking it leads", async () => {
@@ -1343,26 +1411,25 @@ describe("prompter model picker", () => {
     const row = screen.getByRole("option", { name: /GPT-5\.6/ });
     expect(row).toHaveTextContent("not installed");
     expect(row).not.toHaveAttribute("aria-disabled");
+    fireEvent.mouseEnter(row);
+    expect(document.querySelector(".mp-about-note")).toHaveTextContent(/Codex isn’t installed/);
     fireEvent.click(row);
     // Picking it switches the agent; SessionPane then swaps the prompter for the install card.
     await waitFor(() => expect(screen.getByText(AGENT_CLI_COMMANDS.codex.install!)).toBeInTheDocument());
   });
 
   describe("once the session has run", () => {
-    it("shows cross-agent rows as unavailable, with the reason, and refuses to pick them", async () => {
+    it("lists only what the session can still run, says why, and offers no way round it", async () => {
       const { api, store } = await mountFresh({}, 1);
       openPicker();
-      const codex = screen.getByRole("option", { name: /GPT-5\.6/ });
-      expect(codex).toHaveAttribute("aria-disabled", "true");
-      // The reason lives in the detail pane, where there is room for the whole sentence — the row
-      // itself only has to say that something is wrong.
-      fireEvent.mouseEnter(codex);
-      expect(screen.getByRole("dialog", { name: "Model picker" })).toHaveTextContent(/already run/);
-      fireEvent.click(codex);
-      // Nothing transmitted, nothing changed, and the picker is still open to explain itself.
+      expect(screen.queryByRole("option", { name: /GPT-5\.6/ })).toBeNull();
+      expect(within(screen.getByRole("listbox", { name: "Models" })).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["Claude"]);
+      expect(document.querySelector(".mp-locked")).toHaveTextContent(/already run on Claude/);
+      // A search that only other agents could answer says so, rather than "no match".
+      fireEvent.change(screen.getByRole("combobox", { name: "Search models" }), { target: { value: "gpt" } });
+      expect(document.querySelector(".mp-empty")).toHaveTextContent(/already run/);
       expect(api.calls.filter((c) => c.startsWith("setSessionAgent"))).toHaveLength(0);
       expect(store.getState().sessions.se1?.agentKind).toBe("claude");
-      expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
     });
 
     it("keeps models within the current agent selectable", async () => {
@@ -1377,9 +1444,10 @@ describe("prompter model picker", () => {
     it("locks on a live event arriving into an open prompter, and on a row that already carries events", async () => {
       const { store } = await mountFresh({}, 0);
       openPicker();
-      expect(screen.getByRole("option", { name: /GPT-5\.6/ })).not.toHaveAttribute("aria-disabled");
+      expect(screen.getByRole("option", { name: /GPT-5\.6/ })).toBeInTheDocument();
       act(() => store.getState().applySessionEvent({ seq: 7, sessionId: "se1", ephemeral: false, event: sessionEvent("user_message", { text: "hi", attachments: [] }) }));
-      await waitFor(() => expect(screen.getByRole("option", { name: /GPT-5\.6/ })).toHaveAttribute("aria-disabled", "true"));
+      await waitFor(() => expect(screen.queryByRole("option", { name: /GPT-5\.6/ })).toBeNull());
+      expect(document.querySelector(".mp-locked")).not.toBeNull();
 
       // lastEventSeq comes back with sessions.list; the transcript is fetched afterwards. Trusting
       // only the transcript would flash a live agent switch on every revisit of a long session.
@@ -1389,7 +1457,7 @@ describe("prompter model picker", () => {
       render(<StoreContext.Provider value={st}><SessionPane item={item("i8", "s1", { kind: "session", refId: "se2", title: "Claude session" })} visible /></StoreContext.Provider>);
       const chips = await screen.findAllByRole("button", { name: "Model" });
       fireEvent.click(chips[1]!);
-      await waitFor(() => expect(screen.getAllByRole("option", { name: /GPT-5\.6/ })[0]).toHaveAttribute("aria-disabled", "true"));
+      await waitFor(() => expect(screen.getAllByRole("dialog", { name: "Model picker" }).at(-1)).toHaveTextContent(/already run on Claude/));
     });
   });
 
@@ -1399,7 +1467,7 @@ describe("prompter model picker", () => {
       openPicker();
       const search = screen.getByRole("combobox", { name: "Search models" });
       fireEvent.change(search, { target: { value: "opus" } }); // model name only
-      expect(rowNames()).toEqual(["Claude Opus 5.5", "Claude Opus 5"]);
+      expect(rowNames()).toEqual(["Opus 5.5", "Opus 5"]);
       fireEvent.change(search, { target: { value: "cursor" } }); // agent name only
       expect(rowNames()).toEqual(["Composer"]);
       // Model *ids* are deliberately not searched: `claude-haiku-4-5` would make this match.
@@ -1408,38 +1476,25 @@ describe("prompter model picker", () => {
       expect(screen.getByText(/No models match/)).toBeInTheDocument();
     });
 
-    it("a harness name finds every model that harness can run, not just the ones routed to it", async () => {
-      // What the icon rail used to be for, and the only part of it worth keeping. Cursor proxies a
-      // model the Claude CLI also runs: searching "cursor" has to surface it even though the row
-      // resolved to Claude, or the search would deny Cursor a model it just listed.
-      const { store } = await mountFresh({}, 0, [{ kind: "acp:cursor", available: true, version: "2026.09", loggedIn: null, reason: null,
-        models: [{ id: "claude-fable-5.1", label: "Claude Fable 5.1" }] }]);
-      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
-      openPicker();
-      fireEvent.change(screen.getByRole("combobox", { name: "Search models" }), { target: { value: "cursor" } });
-      expect(rowNames()).toContain("Claude Fable 5.1");
-      expect(rowNames()).not.toContain("Claude Sonnet 5"); // claude-only; Cursor never offered it
-    });
-
     it("groups by harness when idle and drops the headings while searching", async () => {
       // The list teaches which CLI runs what — but a filtered list is already an answer, and a
-      // heading per result would push the third match below the fold to repeat the row's own line.
+      // heading per result would push the third match below the fold to repeat the row's own mark.
       await mountFresh();
       openPicker();
       const headings = () => [...document.querySelectorAll(".mp-group-label")].map((n) => n.textContent);
-      expect(headings()).toContain("Claude");
-      expect(headings()).toContain("Codex");
+      expect(headings()).toEqual(["Claude", "DeepSeek", "Other agents"]);
       fireEvent.change(screen.getByRole("combobox", { name: "Search models" }), { target: { value: "opus" } });
-      expect(headings()).toEqual(["Run it through"]); // the detail pane's own label, not a list heading
+      expect(headings()).toEqual([]);
     });
 
     it("Enter picks the highlighted row after arrowing down", async () => {
+      // The highlight opens on the current model (Fable 5.1, the default), so one step down is Fable 5.
       const { store } = await mountFresh();
       openPicker();
       const search = screen.getByRole("combobox", { name: "Search models" });
       fireEvent.keyDown(search, { key: "ArrowDown" });
       fireEvent.keyDown(search, { key: "Enter" });
-      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-fable-5")); // row 2 of Claude's list
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-fable-5"));
     });
   });
 
@@ -1453,47 +1508,17 @@ describe("prompter model picker", () => {
     const cursorProbe = (models: AgentProbe["models"]): AgentProbe[] =>
       [{ kind: "acp:cursor", available: true, version: "2026.09", loggedIn: null, reason: null, models }];
 
-    it("renders the catalog under its own kind, default row leading and selected", async () => {
-      const { store } = await mountFresh({ agentKind: "acp:cursor" }, 0, cursorProbe(catalog));
-      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
-      openPicker();
-      // Cursor first (session's own kind): default row, then the catalog verbatim; Claude's static
-      // list and Codex's default row are untouched by Cursor's probe models.
-      expect(rowNames()).toEqual(["Composer", "Auto", "composer-2.5", "gpt-5.3-codex",
-        "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5.5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6",
-        // Every other offered kind still contributes exactly its own rows: one agent's probe catalog
-        // must not leak onto another's.
-        "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
-        "DeepSeek V4 Pro", "DeepSeek V4 Flash", "Default", "Default"]);
-      expect(screen.getByRole("option", { name: /Composer/ })).toHaveAttribute("aria-selected", "true");
-      expect(screen.getByRole("option", { name: /Auto/ })).toHaveAttribute("aria-selected", "false");
-    });
-
     it("picking a catalog row transmits its id verbatim — Auto's real id included", async () => {
       const { store } = await mountFresh({ agentKind: "acp:cursor" }, 0, cursorProbe(catalog));
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
       fireEvent.click(screen.getByRole("option", { name: /gpt-5.3-codex/ }));
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("gpt-5.3-codex[reasoning=medium,fast=false]"));
-      await exited();
-      openPicker();
+      // Still open after the pick: the next one is made in the same visit.
       // "Auto" is a REAL id in Cursor's catalog (set_model accepts `default[]`, rejects `auto`):
       // picking it transmits that id — it is never rewritten to null or to a literal "auto".
       fireEvent.click(screen.getAllByRole("option", { name: /Auto/ })[0]!);
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("default[]"));
-    });
-
-    it("search and keyboard still work across a 40-row catalog", async () => {
-      const big = Array.from({ length: 40 }, (_, i) => ({ id: `m-${i}[x=1]`, label: `Model ${i}` }));
-      const { store } = await mountFresh({ agentKind: "acp:cursor" }, 0, cursorProbe(big));
-      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
-      openPicker();
-      expect(screen.getAllByRole("option").length).toBeGreaterThan(40);
-      const search = screen.getByRole("combobox", { name: "Search models" });
-      fireEvent.change(search, { target: { value: "model 39" } });
-      expect(rowNames()).toEqual(["Model 39"]);
-      fireEvent.keyDown(search, { key: "Enter" });
-      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("m-39[x=1]"));
     });
   });
 
@@ -1501,24 +1526,19 @@ describe("prompter model picker", () => {
     const OPUS = canonicalModelKey("Claude Opus 5");
     const HAIKU = canonicalModelKey("Claude Haiku 4.5");
     const searchBox = () => screen.getByRole("combobox", { name: "Search models" });
-    const starOn = (label: string | RegExp) =>
-      within(screen.getByRole("option", { name: label })).getByRole("button", { name: /Favourite|Unfavourite/ });
+    /** A row's star, which is drawn on the row under the pointer (and on a starred one) — so the
+     *  pointer goes there first, as a person's would. */
+    const starOn = (label: string | RegExp) => {
+      const row = screen.getByRole("option", { name: label });
+      fireEvent.mouseEnter(row);
+      return within(row).getByRole("button", { name: /Favourite|Unfavourite/ });
+    };
     /** Preloads starred keys the way a previous session would have left them in `settings`. */
     const withFavorites = async (keys: string[]) => {
       const r = await mountFresh();
       await act(async () => { r.store.setState({ modelFavorites: keys }); });
       return r;
     };
-
-    it("opens on search over a list, and shows no Favourites group when nothing is starred", async () => {
-      // Search, then the strip that names the list's separators, then the list: the popover opens for
-      // typing, and the groups are what the eye falls to when the user has nothing to type.
-      await mountFresh();
-      openPicker();
-      const picker = screen.getByRole("dialog", { name: "Model picker" });
-      expect([...picker.children].map((n) => n.className)).toEqual(["mp-search", "mp-jumps-wrap", "mp-body"]);
-      expect([...document.querySelectorAll(".mp-group-label")].map((n) => n.textContent)).not.toContain("Favourites");
-    });
 
     it("leads the list with a Favourites group once something is starred", async () => {
       await withFavorites([OPUS]);
@@ -1561,7 +1581,7 @@ describe("prompter model picker", () => {
     it("floats favourites to the top and numbers them down the page", async () => {
       await withFavorites([HAIKU, OPUS]); // starred in this order; the badges must not follow it
       openPicker();
-      expect(rowNames().slice(0, 2)).toEqual(["Claude Opus 5", "Claude Haiku 4.5"]); // list order, not starring order
+      expect(rowNames().slice(0, 2)).toEqual(["Opus 5", "Haiku 4.5"]); // list order, not starring order
       const badges = screen.getAllByRole("option").map((n) => n.querySelector(".mp-kbd")?.textContent ?? null);
       expect(badges.slice(0, 2)).toEqual(["⌘1", "⌘2"]);
       expect(badges.slice(2).every((b) => b === null)).toBe(true); // only favourites are numbered
@@ -1573,7 +1593,7 @@ describe("prompter model picker", () => {
       const { store } = await withFavorites([OPUS, HAIKU]);
       openPicker();
       fireEvent.change(searchBox(), { target: { value: "haiku" } });
-      expect(rowNames()).toEqual(["Claude Haiku 4.5"]);
+      expect(rowNames()).toEqual(["Haiku 4.5"]);
       expect(screen.getByRole("option", { name: /Haiku/ }).querySelector(".mp-kbd")).toHaveTextContent("⌘1");
       fireEvent.keyDown(searchBox(), { key: "1", metaKey: true });
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-haiku-4-5"));
@@ -1611,7 +1631,7 @@ describe("prompter model picker", () => {
       openPicker();
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
-      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, now one row further down
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, three rows under the current Fable 5.1
       fireEvent.keyDown(searchBox(), { key: "Enter", altKey: true });
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([canonicalModelKey("Claude Opus 5")]));
       expect(store.getState().sessions.se1?.model).toBeNull(); // ⌥↩ stars; it does not pick
@@ -1619,39 +1639,30 @@ describe("prompter model picker", () => {
 
     it("keeps the highlight on the row ⌥↩ just starred, after it sorts to the top", async () => {
       // Starring re-sorts the list under the highlight. Anchored to an index, the highlight would
-      // stay in slot 2 while the starred row moved to slot 0 — so the very next Enter would pick
+      // stay in slot 3 while the starred row moved to slot 0 — so the very next Enter would pick
       // whichever model slid into that slot, not the one the user was looking at.
       const { store } = await mountFresh();
       openPicker();
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
-      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, row 4 since 5.5 joined
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5
       fireEvent.keyDown(searchBox(), { key: "Enter", altKey: true });
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([OPUS]));
-      expect(rowNames()[0]).toBe("Claude Opus 5"); // it moved
+      expect(rowNames()[0]).toBe("Opus 5"); // it moved
       const active = document.querySelector(".mp-row[data-active] .mp-row-name")?.textContent;
-      expect(active).toBe("Claude Opus 5"); // and the highlight moved with it
+      expect(active).toBe("Opus 5"); // and the highlight moved with it
       fireEvent.keyDown(searchBox(), { key: "Enter" });
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5"));
     });
-
-    it("a starred model appears once — in Favourites, not also under its harness", async () => {
-      await withFavorites([OPUS]);
-      openPicker();
-      const groups = [...document.querySelectorAll(".mp-group")];
-      expect(groups[0]!.querySelector(".mp-group-label")).toHaveTextContent("Favourites");
-      expect([...groups[0]!.querySelectorAll(".mp-row-name")].map((n) => n.textContent)).toEqual(["Claude Opus 5"]);
-      expect(rowNames().filter((n) => n === "Claude Opus 5")).toHaveLength(1);
-    });
   });
 
-  describe("the route pills (the harness chip's replacement)", () => {
+  describe("a model's other harness, on its own row", () => {
     /** Cursor proxying a model the Claude CLI also runs — the overlap a route switch has to carry. */
     const proxyProbe: AgentProbe[] = [
       { kind: "acp:cursor", available: true, version: "2026.09", loggedIn: null, reason: null,
         models: [{ id: "claude-fable-5.1", label: "Claude Fable 5.1" }, { id: "gpt-5.5", label: "GPT-5.5" }] },
     ];
-    const detail = () => screen.getByRole("dialog", { name: "Model picker" });
+    const picker = () => screen.getByRole("dialog", { name: "Model picker" });
 
     it("the prompter has ONE chip, and it names the harness as well as the model", async () => {
       // The harness menu is gone: a harness is only ever chosen FOR a model, so it moved inside the
@@ -1659,56 +1670,39 @@ describe("prompter model picker", () => {
       await mountFresh({ model: "claude-opus-5" });
       expect(screen.queryByRole("button", { name: "Harness" })).toBeNull();
       const chip = screen.getByRole("button", { name: "Model" });
-      expect(chip).toHaveTextContent("Claude Opus 5");
-      expect(chip.getAttribute("title")).toBe("Claude Opus 5 through Claude");
+      expect(chip).toHaveTextContent("Opus 5");
+      // …and the level the turn runs at, the model's default while the session has chosen none.
+      expect(chip.getAttribute("title")).toBe("Claude Opus 5 through Claude · High effort");
       expect(chip.querySelector("[data-brand]")).toHaveAttribute("data-brand", "claude"); // the HARNESS's mark
     });
 
-    it("offers one pill per harness that can run the highlighted model, resolved one pressed", async () => {
+    it("lists the model ONCE, and offers its harnesses on its row, the session's own lit", async () => {
+      /* The old list drew Fable under Claude and again under Cursor, with a detail pane of route pills
+         beside it — the same model read as two, and the harness was chosen in a second place. */
       const { store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
-      fireEvent.mouseEnter(screen.getAllByRole("option", { name: /Claude Fable 5\.1/ })[0]!); // the session's own placement leads
-      const pills = within(detail()).getAllByRole("button", { name: /^Run Claude Fable 5\.1 through/ });
-      expect(pills.map((p) => p.textContent)).toEqual(["Claude", "Cursor"]);
-      expect(pills[0]).toHaveAttribute("aria-pressed", "true"); // the session's own harness wins the tie
+      const fable = screen.getAllByRole("option", { name: /Claude Fable 5\.1/ });
+      expect(fable).toHaveLength(1);
+      fireEvent.mouseEnter(fable[0]!);
+      const ways = within(fable[0]!).getAllByRole("button", { name: /^Run Claude Fable 5\.1 through/ });
+      expect(ways.map((b) => b.getAttribute("aria-label"))).toEqual(["Run Claude Fable 5.1 through Claude", "Run Claude Fable 5.1 through Cursor"]);
+      expect(ways[0]).toHaveAttribute("aria-pressed", "true"); // the session's own harness wins the tie
     });
 
-    it("switching the route and using the model re-maps the id for the harness that will run it", async () => {
+    it("one click on the other harness re-maps the id for the harness that will run it", async () => {
       // The point of keeping the axes distinct: changing WHAT RUNS must not silently change WHAT IT
       // RUNS. Cursor names this model by a different id, so the switch re-maps rather than re-sends.
       const { api, store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
-      fireEvent.mouseEnter(screen.getAllByRole("option", { name: /Claude Fable 5\.1/ })[0]!); // the session's own placement leads
-      fireEvent.click(within(detail()).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" }));
-      fireEvent.click(within(screen.getByRole("dialog", { name: "Model picker" })).getByRole("button", { name: /model$/ }));
+      const fable = screen.getByRole("option", { name: /Claude Fable 5\.1/ });
+      fireEvent.mouseEnter(fable);
+      fireEvent.click(within(fable).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" }));
       await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("acp:cursor"));
       expect(store.getState().sessions.se1?.model).toBe("claude-fable-5.1"); // Cursor's id, not Claude's
       expect(api.calls.filter((c) => c.startsWith("setSessionAgent") || c.startsWith("setSessionOptions")))
         .toEqual(["setSessionAgent:se1=acp:cursor", "setSessionOptions:se1"]); // setAgent clears model, so order matters
-    });
-
-    it("lists a model under EVERY harness that offers it, and the copy routes through that harness", async () => {
-      // The bug this closes: once Cursor's catalog arrived, the Claude models it could also run
-      // resolved to the session's harness alone and disappeared from the other group — in a Cursor
-      // session the Claude list emptied, and the only way to Fable-through-Claude was to pick it
-      // under Cursor and change the route in the detail pane. Now the list says what each harness
-      // can run, and the route pane is where that choice is refined rather than where it is made.
-      const { store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
-      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
-      openPicker();
-      const copies = screen.getAllByRole("option", { name: /Claude Fable 5\.1/ });
-      expect(copies).toHaveLength(2);
-      expect(copies[0]).toHaveTextContent("Claude");
-      expect(copies[1]).toHaveTextContent("Cursor");
-      // The tick is drawn once — the session runs Fable on its own harness, and the copy is a route.
-      expect(copies.filter((c) => c.getAttribute("aria-selected") === "true")).toHaveLength(1);
-      fireEvent.mouseEnter(copies[1]!);
-      expect(within(detail()).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" })).toHaveAttribute("aria-pressed", "true");
-      fireEvent.click(copies[1]!);
-      await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("acp:cursor"));
-      expect(store.getState().sessions.se1?.model).toBe("claude-fable-5.1");
     });
 
     it("←/→ walk the routes without leaving the search field", async () => {
@@ -1718,27 +1712,30 @@ describe("prompter model picker", () => {
       const search = screen.getByRole("combobox", { name: "Search models" });
       fireEvent.change(search, { target: { value: "fable 5.1" } });
       fireEvent.keyDown(search, { key: "ArrowRight" });
-      expect(within(detail()).getByRole("button", { name: /through Cursor/ })).toHaveAttribute("aria-pressed", "true");
+      expect(within(picker()).getByRole("button", { name: /through Cursor/ })).toHaveAttribute("aria-pressed", "true");
       fireEvent.keyDown(search, { key: "Enter" });
       await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("acp:cursor"));
       expect(store.getState().sessions.se1?.model).toBe("claude-fable-5.1");
     });
 
-    it("a route the user chose applies to that model only, not to the next one they look at", async () => {
+    it("a route the user chose applies to that model only, not to the next one they pick", async () => {
       // A route is part of the choice being made, not a mode the picker is in — otherwise glancing
       // at one model would re-route the next.
-      const { store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
+      const { api, store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
-      fireEvent.mouseEnter(screen.getAllByRole("option", { name: /Claude Fable 5\.1/ })[0]!); // the session's own placement leads
-      fireEvent.click(within(detail()).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" }));
+      const search = screen.getByRole("combobox", { name: "Search models" });
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      fireEvent.keyDown(search, { key: "ArrowRight" }); // Fable now lit through Cursor
       fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Sonnet 5/ }));
-      expect(within(detail()).getByRole("button", { name: /Claude Sonnet 5 through Claude/ })).toHaveAttribute("aria-pressed", "true");
+      fireEvent.keyDown(search, { key: "Enter" });
+      await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-sonnet-5"));
+      expect(api.calls.filter((c) => c.startsWith("setSessionAgent"))).toHaveLength(0);
     });
 
-    it("says what the harness is for, and how it bills, next to the price it would charge", async () => {
-      // The line that stops a per-token number from lying: Claude Code runs on a subscription, so
-      // "$50 / Mtok" is context rather than a bill, and the picker has to say which.
+    it("describes the highlighted model in a line: what it is for, its context and its API price", async () => {
+      // The specs are secondary — a line under the list, not a column — and the price is the
+      // catalog's API list price: who actually bills for the harness is on the line's hover.
       const { store } = await mountFresh();
       await act(async () => {
         store.setState({ modelInfo: { [canonicalModelKey("Claude Fable 5.1")]: {
@@ -1746,24 +1743,23 @@ describe("prompter model picker", () => {
           priceIn: 10, priceOut: 50, context: 1_000_000, efforts: ["max", "low"], blurb: "Vendor prose." } } });
       });
       openPicker();
-      fireEvent.mouseEnter(screen.getAllByRole("option", { name: /Claude Fable 5\.1/ })[0]!); // the session's own placement leads
-      expect(detail()).toHaveTextContent("$10 / Mtok");
-      expect(detail()).toHaveTextContent("$50 / Mtok");
-      expect(detail()).toHaveTextContent("1M");
-      expect(detail()).toHaveTextContent(AGENT_NOTES.claude.billing);
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      const specs = picker().querySelector(".mp-about-specs")!;
+      expect(specs).toHaveTextContent("1M context · $10 in · $50 out per Mtok");
+      expect(specs.getAttribute("title")).toBe(AGENT_NOTES.claude.billing.replace(/`/g, ""));
       // Realm's own sentence beats the catalog's marketing first line.
-      expect(detail()).toHaveTextContent(MODEL_NOTES.get(canonicalModelKey("Claude Fable 5.1"))!);
-      expect(detail()).not.toHaveTextContent("Vendor prose.");
+      expect(picker()).toHaveTextContent(MODEL_NOTES.get(canonicalModelKey("Claude Fable 5.1"))!);
+      expect(picker()).not.toHaveTextContent("Vendor prose.");
     });
 
     it("renders a model the catalog has never heard of without inventing a price", async () => {
       // Composer and every "Default" row have no catalog entry at all. A picker that hid them, or
-      // guessed, would be worse than one that shows the sentence and stops.
+      // guessed, would be worse than one that says who bills and stops.
       await mountFresh();
       openPicker();
       fireEvent.mouseEnter(screen.getByRole("option", { name: /Composer/ }));
-      expect(detail()).not.toHaveTextContent("/ Mtok");
-      expect(detail()).toHaveTextContent(AGENT_NOTES["acp:cursor"].good);
+      expect(picker()).not.toHaveTextContent("per Mtok");
+      expect(picker().querySelector(".mp-about-specs")).toHaveTextContent(AGENT_NOTES["acp:cursor"].billing);
     });
 
     it("warns about a harness that cannot do what its neighbours can", async () => {
@@ -1772,20 +1768,19 @@ describe("prompter model picker", () => {
       await mountFresh();
       openPicker();
       fireEvent.mouseEnter(screen.getByRole("option", { name: /DeepSeek V4 Pro/ }));
-      expect(detail()).toHaveTextContent(AGENT_NOTES["acp:deepseek"].limits!);
-      expect(detail()).toHaveTextContent(AGENT_NOTES["acp:deepseek"].billing);
+      expect(picker()).toHaveTextContent(AGENT_NOTES["acp:deepseek"].limits!);
+      expect(picker()).toHaveTextContent(AGENT_NOTES["acp:deepseek"].billing);
     });
 
-    it("cannot re-route a session that has already run, and says why", async () => {
-      // sessions.setAgent refuses after the first event. The pills stay visible and disabled: a model
-      // whose routes vanished would read as a bug rather than as a rule.
-      await mountFresh({ lastEventSeq: 3 }, 3);
+    it("offers no other harness once the session has run, and says why", async () => {
+      // sessions.setAgent refuses after the first event, so a second way to run a model would be a
+      // click whose only outcome is a refusal.
+      const { store } = await mountFresh({ model: "claude-fable-5-1", lastEventSeq: 3 }, 3, proxyProbe);
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
-      fireEvent.mouseEnter(screen.getByRole("option", { name: /GPT-5\.6/ }));
-      const pill = within(detail()).getByRole("button", { name: /through Codex/ });
-      expect(pill).toBeDisabled();
-      expect(detail()).toHaveTextContent(/already run/);
-      expect(within(detail()).getByRole("button", { name: /model$/ })).toBeDisabled();
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      expect(picker().querySelector(".mp-ways")).toBeNull();
+      expect(picker()).toHaveTextContent(/already run on Claude/);
     });
   });
 });
@@ -1800,18 +1795,19 @@ function fakeHub() {
   return new TerminalHub(transport, () => ({ term, fit: { fit() {} } }));
 }
 
-describe("the session's terminal dock (W4)", () => {
+describe("the session's terminal (W4)", () => {
   beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }); });
   afterEach(() => { setTerminalHubForTests(null); vi.unstubAllGlobals(); });
 
   const sessionItem = item("i9", "s1", { kind: "session", refId: "se1", title: "Fake agent session" });
 
-  /** The pane AND its header, which is where the toggle lives (PanelBar renders per-kind actions). */
-  async function mountPane(open = false) {
+  /** The pane AND its header, which is where the button lives (PanelBar renders per-kind actions).
+   *  The dock is the BOTTOM placement's, so every test of it docks the terminal there. */
+  async function mountPane(open = false, terminalDock: "right" | "bottom" = "bottom") {
     setTerminalHubForTests(fakeHub());
     const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })] });
     const store = createAppStore(api); await store.getState().boot();
-    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } },
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } }, terminalDock,
       ...(open ? { sessionDock: { se1: { kind: "terminal" as const } } } : {}) });
     const r = render(
       <StoreContext.Provider value={store}>
@@ -1824,19 +1820,29 @@ describe("the session's terminal dock (W4)", () => {
 
   const toggle = () => screen.getByRole("button", { name: /(Show|Hide) terminal for Fake agent session/ });
 
-  it("offers a simulator beside the machine, and opening one asks the server for a pane", async () => {
-    /* The cluster's newest member. Deliberately ungated, exactly like the machine and browser
-       buttons beside it: a simulator is a place you go rather than a view of this session's
-       checkout, and hiding the button on a Mac without Xcode would hide the feature from the only
-       people who could act on it — the pane's own body says what is missing instead. */
-    const { api } = await mountPane();
-    const button = screen.getByRole("button", { name: "Open a simulator beside Fake agent session" });
-    expect(screen.getByRole("button", { name: "Connect a machine beside Fake agent session" })).toBeInTheDocument();
-    fireEvent.click(button);
-    await waitFor(() => expect(api.calls).toContain("createSimulator:s1"));
+  /* The bar carries what is about the session — the dock of what it made, and the terminal only where
+     Settings docks it to this pane's foot. Everything it opens BESIDE itself is the side pane's to
+     launch (side-tools.ts; pane-tabs.test.tsx holds the "+"). */
+  const barButtons = () => [...document.querySelectorAll(".panel-actions button")].map((b) => b.getAttribute("aria-label"));
+
+  it("carries none of the tools a session opens beside itself — those are the side pane's", async () => {
+    // THE MUTANT: any of the seven glyphs back in the bar — the row of buttons the owner asked to lose.
+    await mountPane(false, "right");
+    expect(barButtons()).toEqual(["Summary and files for Fake agent session", "Pane menu for Fake agent session"]);
   });
 
-  it("is absent until the header toggle is pressed — mounting a session never spawns a shell", async () => {
+  it("in its default place, has no terminal control and spawns nothing on mount — ⌘J and the side pane open it", async () => {
+    const { api } = await mountPane(false, "right");
+    expect(api.calls.some((c) => c.startsWith("createTerminal") || c.startsWith("openSessionTerminal"))).toBe(false);
+    expect(screen.queryByRole("button", { name: /terminal for Fake agent session/ })).toBeNull();
+  });
+
+  it("docked to the foot, the toggle is the bar's one other control", async () => {
+    await mountPane();
+    expect(barButtons()).toEqual(["Summary and files for Fake agent session", "Show terminal for Fake agent session", "Pane menu for Fake agent session"]);
+  });
+
+  it("docked to the bottom, is absent until the header toggle is pressed — mounting a session never spawns a shell", async () => {
     const { api, store } = await mountPane();
     expect(document.querySelector(".terminal-pane")).toBeNull();
     expect(toggle()).toHaveAttribute("aria-pressed", "false");
@@ -1847,30 +1853,10 @@ describe("the session's terminal dock (W4)", () => {
     expect(api.calls).toContain("openSessionTerminal:se1");
     expect(toggle()).toHaveAttribute("aria-pressed", "true");
     expect(store.getState().sessionDock["se1"]).toEqual({ kind: "terminal" });
-    // It opens on the pane's dock strip as a dialog — the transcript is beside it, not cut in half
-    // by a divider, which is what the split did and what this replaced.
+    // It opens along the pane's foot as a dialog — the transcript is above it, not cut in half by a
+    // divider, which is what the split did and what this replaced.
     expect(screen.getByRole("dialog", { name: /Terminal for/ })).toBeInTheDocument();
     expect(document.querySelector(".session-split")).toBeNull();
-  });
-
-  /* The drawer used to come back open, at a dragged width, because both facts were persisted under
-     `ui.terminalPanel`. The dock carries neither: it is a panel you open when you want it, like the
-     summary beside it, and a shell that reopened itself on every relaunch was the split's habit
-     rather than a promise anyone asked for. The pty is what survives — see the next test. */
-  it("does not reopen itself on mount: showing the terminal is a fresh decision", async () => {
-    const { store } = await mountPane();
-    expect(store.getState().sessionDock["se1"]).toBeUndefined();
-    expect(screen.queryByRole("dialog", { name: /Terminal for/ })).toBeNull();
-    expect(document.querySelector(".terminal-pane")).toBeNull();
-  });
-
-  it("hiding it removes the view but keeps the terminal — nothing is disposed", async () => {
-    const { api, store } = await mountPane(true);
-    await waitFor(() => expect(store.getState().sessionTerminals["se1"]).toBe("term-se1"));
-    fireEvent.click(toggle());
-    await waitFor(() => expect(document.querySelector(".terminal-pane")).toBeNull());
-    expect(api.disposed).toEqual([]);
-    expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
   });
 
   it("a terminal item's header has no such toggle — only sessions own one", () => {
@@ -1938,11 +1924,13 @@ describe("the CLI-missing install card (W4)", () => {
     expect(screen.queryByText(AGENT_CLI_COMMANDS.claude.install)).toBeNull();
   });
 
-  it("offers Sign in on the signed-out card, and starts the flow for THAT agent", async () => {
+  it("offers Sign in on the signed-out card, and starts the flow for THAT agent, from THIS session", async () => {
     const { api } = await mountAgent([signedOut]);
     await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Sign in" })); });
-    expect(api.calls.some((c) => c.startsWith("startSignIn:") && c.endsWith(":claude"))).toBe(true);
+    // The session id is what puts the terminal and the consent page in this session's side pane; a
+    // sign-in started without it opens panes the sidebar of sessions never shows.
+    expect(api.calls).toContain("startSignIn:s1:claude:se1");
   });
 
   /**
@@ -1972,14 +1960,26 @@ describe("the CLI-missing install card (W4)", () => {
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
   });
 
-  it("'Open in terminal' opens the session's panel with the command TYPED, never run", async () => {
-    const { api } = await mountAgent([missing]);
+  it("'Open in terminal' opens the session's terminal with the command TYPED, never run", async () => {
+    const { api, store } = await mountAgent([missing]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Open in terminal" }));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("prefillTerminal:"))).toBe(true));
+    // Into the terminal the bar's button opens: a tab of the side pane, in the session's checkout.
+    expect(api.calls).toContain("createTerminal:s1:/tmp");
+    const term = store.getState().items.filter((i) => i.kind === "terminal").at(-1)!;
+    expect(api.calls).toContain(`prefillTerminal:${term.refId}=${AGENT_CLI_COMMANDS.claude.install}`);
+    expect(api.calls.find((c) => c.startsWith("prefillTerminal:"))).not.toMatch(/[\r\n]$/);
+  });
+
+  it("'Open in terminal' with the terminal docked to the bottom types into the dock's shell", async () => {
+    const { api, store } = await mountAgent([missing]);
+    store.setState({ terminalDock: "bottom" });
     await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Open in terminal" }));
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("prefillTerminal:"))).toBe(true));
     expect(api.calls).toContain("openSessionTerminal:se1");
     expect(api.calls).toContain(`prefillTerminal:term-se1=${AGENT_CLI_COMMANDS.claude.install}`);
-    expect(api.calls.find((c) => c.startsWith("prefillTerminal:"))).not.toMatch(/[\r\n]$/);
     await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
   });
 
@@ -2105,11 +2105,11 @@ describe("prompter attachments", () => {
     return { api, store, ...r };
   }
 
-  /** The "+" menu's Add files… (Plan 12 W1): the plus opens a menu now, and the menu item reaches the
-   *  SAME store action the bare attach button used to call — every assertion below is unchanged. */
+  /** The "+" menu's Files… row: the plus opens a menu, and the row reaches the SAME store action the
+   *  bare attach button used to call — every assertion below is unchanged. */
   const attach = () => {
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Add files…/ })); // kbd hint ⌘U rides the accessible name
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Files…/ })); // kbd hint ⌘U rides the accessible name
   };
   const chips = () => Array.from(document.querySelectorAll(".attach-tile")).map((c) => c.textContent ?? "");
   const notes = () => Array.from(document.querySelectorAll(".composer-attach-note")).map((n) => n.textContent ?? "");
@@ -2236,10 +2236,10 @@ describe("prompter attachments", () => {
   it("refuses a file over the 20 MB cap in the UI, with the reason", async () => {
     const { store } = await mountFor("claude", [picked("/x/huge.png", "image/png", 21 * 1024 * 1024)]);
     attach();
-    await waitFor(() => expect(store.getState().error).toBeTruthy());
+    await waitFor(() => expect(store.getState().toasts).toHaveLength(1));
     expect(chips()).toHaveLength(0);
-    expect(store.getState().error).toContain("huge.png");
-    expect(store.getState().error).toContain("20 MB");
+    expect(store.getState().toasts[0]!.text).toContain("huge.png");
+    expect(store.getState().toasts[0]!.text).toContain("20 MB");
   });
 
   it("dropping files on the card attaches them and marks the card while the drag is over it", async () => {
@@ -2405,11 +2405,14 @@ describe("under-strip (Plan 12 W1)", () => {
     envA: env("envA", { kind: "primary", path: "/tmp" }),
     envB: env("envB", { kind: "worktree", branch: "realm/fix-tests", path: "/tmp/wt" }),
   });
-  async function mountStrip(extra: { lastEventSeq?: number; lastSeq?: number } = {}) {
+  async function mountStrip(extra: { lastEventSeq?: number; lastSeq?: number; spaces?: ReturnType<typeof space>[]; plainFolder?: boolean; onlyPrimary?: boolean } = {}) {
     const { envA, envB } = twoEnvs();
     const api = fakeApi({
       sessions: [session("se1", "s1", { status: "idle", environmentId: "envA", cwd: "/tmp", lastEventSeq: extra.lastEventSeq ?? 0 })],
-      environments: { s1: [envA, envB] },
+      environments: { s1: extra.onlyPrimary ? [envA] : [envA, envB] },
+      ...(extra.spaces ? { spaces: extra.spaces } : {}),
+      // The space's folder is a repository unless the test says it is a plain one.
+      ...(extra.plainFolder ? {} : { gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } } }),
     });
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: extra.lastSeq ?? 0, t: reduceAll([]) } } });
@@ -2424,6 +2427,18 @@ describe("under-strip (Plan 12 W1)", () => {
     const label = within(strip as HTMLElement).getByText("Carlton's M4 MacBook Pro");
     expect(label.closest("button")).toBeNull(); // display only: Realm runs agents on this Mac, full stop
     expect(label.closest(".ghost-chip")).toHaveAttribute("data-static");
+  });
+
+  it("wears the space's colour on the workspace chip's glyph, as the face can carry it (Plan 27)", async () => {
+    // THE MUTANT: leave the glyph in the chip's own ink — the composer would no longer say which
+    // space the next message runs in, now that the space is not a room on screen.
+    await mountStrip();
+    const tint = screen.getByRole("button", { name: "Workspace" }).querySelector<HTMLElement>(".chip-tint")!;
+    // jsdom has no media queries, so the face is light; the default fixture's Versed is #7c6cff.
+    const hex = spaceColor("#7c6cff", "light");
+    const n = Number.parseInt(hex.slice(1), 16);
+    expect(tint.style.color).toBe(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
+    expect(tint.querySelector("svg")).not.toBeNull();
   });
 
   it("labels the workspace chip: space name for the primary, branch for a worktree", async () => {
@@ -2455,6 +2470,38 @@ describe("under-strip (Plan 12 W1)", () => {
     await waitFor(() => expect(store.getState().sessions.se1?.environmentId).toBe(made.id));
     expect(api.calls).toContain(`setSessionEnvironment:se1=${made.id}`);
     await waitFor(() => expect(screen.getByRole("button", { name: "Workspace" })).toHaveTextContent(made.branch!));
+  });
+
+  /* A space made from nothing is a plain folder, and a plain folder has no worktrees. THE mutant: offer
+     "New worktree…" anyway — the one thing it can do there is put "…is not a git repository, so it has
+     no worktrees" on screen, which is how a space someone had just made came up under a red bar. */
+  it("a plain folder offers no worktree — the checkout it has is the only one there is", async () => {
+    const { api } = await mountStrip({ plainFolder: true });
+    await waitFor(() => expect(api.calls).toContain("gitInfo:/tmp"));
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    const menu = screen.getByRole("menu", { name: "Workspace" });
+    expect(within(menu).queryByRole("menuitem", { name: "New worktree…" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: "Move to Homework" })).toBeInTheDocument();
+  });
+
+  it("…and with nowhere else to move, its chip is the folder's name rather than a menu of one row", async () => {
+    await mountStrip({ plainFolder: true, onlyPrimary: true, spaces: [space("s1", "p1", "Versed")] });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull());
+    expect(document.querySelector(".composer-understrip .ghost-chip[data-static][title^='Workspace']")).toHaveTextContent("Versed");
+  });
+
+  it("moves a session that has not started to another space of its profile, from the same chip (Plan 27)", async () => {
+    // THE MUTANTS: leave the move off the chip, send the wrong space, offer the space it is already in,
+    // or offer another profile's — which would take the session out of this window from a composer.
+    const { api } = await mountStrip({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s4", "p1", "Lectures"), space("s3", "p2", "Thesis")] });
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    const menu = screen.getByRole("menu", { name: "Workspace" });
+    expect(within(menu).queryByRole("menuitem", { name: "Move to Versed" })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: "Move to Thesis" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: "Move to Homework" })).toBeInTheDocument();
+    // The second of two, so a row that sent the first space's id whichever was picked would fail here.
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Move to Lectures" }));
+    await waitFor(() => expect(api.calls).toContain("moveSessionToSpace:se1=s4"));
   });
 
   it("after the first event the selector is display-only — a label, not a button (named mutant)", async () => {
@@ -2490,8 +2537,9 @@ describe("under-strip (Plan 12 W1)", () => {
 });
 
 /**
- * The "+" menu (Plan 12 W1): Add files…/Add folder…/Skills/Connectors. The attach suite above already
- * proves Add files… reaches the same store action the bare button used to call; these cover the rest.
+ * The "+" menu: Add (files, a folder, skills, a goal), Mode and Connectors, drawn in the app as one
+ * sectioned list. The attach suite above already proves Files… reaches the same store action the bare
+ * button used to call; these cover the rest.
  */
 describe("the '+' menu (Plan 12 W1)", () => {
   async function mountPlus(over: Parameters<typeof fakeApi>[0] = {}, agentKind: "fake" | "claude" = "claude") {
@@ -2516,30 +2564,86 @@ describe("the '+' menu (Plan 12 W1)", () => {
     expect(screen.getByRole("menu", { name: "Add" })).toBeInTheDocument();
   });
 
-  it("carries no Plugins item — the plan refuses inventing one for menu parity", async () => {
+  it("is three named sections — Add, Mode, Connectors — each row a name and a line saying what it does", async () => {
     await mountPlus();
     openPlus();
     const menu = screen.getByRole("menu", { name: "Add" });
+    // Drawn in the app, not handed to the OS: an OS menu row has no second line to carry the detail.
+    expect(menu).toHaveClass("plus-menu");
+    expect(within(menu).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["Add", "Mode", "Connectors"]);
+    const names = (group: string) => [...within(menu).getByRole("group", { name: group }).querySelectorAll('[role^="menuitem"]')]
+      .map((b) => b.querySelector(".menu-label")!.textContent);
+    expect(names("Add")).toEqual(["Files…", "Folder…", "Select in Realm", "Skills", "Goal…"]);
+    expect(names("Mode")).toEqual(["Build", "Plan", "Ask"]);
+    expect(names("Connectors")).toEqual(["Manage connections…"]);
+    // The shortcut rides the name; the line is the row's DESCRIPTION, so a row is still found by
+    // what it is called. THE mutant: the detail inside the label, which renames every row.
+    const files = within(menu).getByRole("menuitem", { name: /^Files…/ });
+    expect(files).toHaveAccessibleName(/^Files…\s*⌘U$/);
+    expect(files).toHaveAccessibleDescription("Attach to this message");
+    expect(within(menu).getByRole("menuitem", { name: "Folder…" })).toHaveAccessibleDescription("Link a folder to this space");
+    // Select in Realm says the person's own chord for it, and is not an agent's to press (app_act
+    // refuses anything inside `data-no-agent`): a pick is the person pointing.
+    const select = within(menu).getByRole("menuitem", { name: /^Select in Realm/ });
+    expect(select).toHaveAccessibleName(/^Select in Realm\s*⌘⇧C$/);
+    expect(select).toHaveAccessibleDescription("Point at a part of the app");
+    expect(select).toHaveAttribute("data-no-agent", "element picker");
+    // Every row wears a glyph, in one slot, so the names stand on one edge.
+    expect([...menu.querySelectorAll('[role^="menuitem"]')].every((b) => b.querySelector(".menu-icon > *"))).toBe(true);
+    // No Plugins section: Realm has no plugin system, and parity is not a reason to invent one.
     expect(within(menu).queryByText(/plugin/i)).toBeNull();
-    // And the full expected set, in order: files, folder, skills, then the three that are properties
-    // of THIS session rather than of this message — a goal, the mode, and last the space's own
-    // connectors. Mode joined the menu when it left the control row.
-    const labels = within(menu).getAllByRole("menuitem").map((b) => b.textContent);
-    expect(labels[0]).toContain("Add files…");
-    expect(labels[0]).toContain("⌘U"); // the shortcut label rides the item
-    expect(labels[1]).toContain("Add folder…");
-    expect(labels[2]).toContain("Skills");
-    expect(labels[3]).toContain("Set a goal…");
-    expect(labels[4]).toContain("Mode");
-    expect(labels[4]).toContain("Build"); // the row carries the current value
-    expect(labels[5]).toContain("Connectors");
+  });
+
+  it("stays drawn in the app where the OS would draw every other menu", async () => {
+    /* In the app every other Menu goes to the OS (main/native-menu.ts). This one may not: its rows'
+       descriptions are the point of it, and an OS menu row has no second line. THE mutant: the + menu
+       dropping `inApp`, which jsdom alone cannot see, because jsdom has no OS menu to hand it to. */
+    const popupMenu = vi.fn(() => Promise.resolve(null));
+    (window as { realm?: unknown }).realm = { popupMenu, closeMenu: vi.fn(() => Promise.resolve()) };
+    try {
+      await mountPlus();
+      openPlus();
+      expect(await screen.findByRole("menu", { name: "Add" })).toHaveClass("plus-menu");
+      await new Promise((r) => setTimeout(r, 5));
+      expect(popupMenu).not.toHaveBeenCalled();
+    } finally { delete (window as { realm?: unknown }).realm; }
+  });
+
+  it("the arrows walk every section as one list, and Escape hands focus back to the +", async () => {
+    await mountPlus();
+    const btn = screen.getByRole("button", { name: "Add" });
+    btn.focus();
+    openPlus();
+    const menu = screen.getByRole("menu", { name: "Add" });
+    expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: /^Files…/ }));
+    // From the last row of Add straight into Mode — the heads are not stops.
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(within(menu).getByRole("menuitemcheckbox", { name: "Build" }));
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
+    expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "Manage connections…" }));
+    // The pointer moves the same highlight the keys do, so there is only ever one lit row.
+    fireEvent.pointerMove(within(menu).getByRole("menuitem", { name: "Folder…" }));
+    expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "Folder…" }));
+    // The popover hook arms its Escape listener a tick after mount.
+    await act(async () => { await new Promise((r) => setTimeout(r, 1)); });
+    fireEvent.keyDown(window, { key: "Escape" });
+    await exited();
+    expect(screen.queryByRole("menu", { name: "Add" })).toBeNull();
+    expect(document.activeElement).toBe(btn);
+  });
+
+  it("Select in Realm puts the in-app picker up for THIS prompter, whichever session the window would pick", async () => {
+    const { store } = await mountPlus();
+    openPlus();
+    fireEvent.click(within(screen.getByRole("menu", { name: "Add" })).getByRole("menuitem", { name: /^Select in Realm/ }));
+    expect(store.getState().appPick).toEqual({ sessionId: "se1" });
   });
 
   /* The goal row ARMS the box rather than opening anything: the objective is the argument, and
      `/goal` with nothing after it has nothing to pursue. Anything already typed becomes that
      objective instead of being thrown away, which is the one way this differs from picking the
      command out of the `/` list. */
-  it("Set a goal… puts the draft behind /goal rather than starting an empty one", async () => {
+  it("Goal… puts the draft behind /goal rather than starting an empty one", async () => {
     const { api, store } = await mountPlus();
     /* The menu holds an exit for §6's length, and it stays `open` through it — so a second press
        inside that window reads as a CLOSE. Waiting for it to go is what makes "open it again" mean
@@ -2548,7 +2652,7 @@ describe("the '+' menu (Plan 12 W1)", () => {
       await waitFor(() => expect(screen.queryByRole("menu", { name: "Add" })).toBeNull());
       openPlus();
       const menu = await screen.findByRole("menu", { name: "Add" });
-      fireEvent.click(within(menu).getByText("Set a goal…"));
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Goal…" }));
     };
     await armGoal();
     await waitFor(() => expect(store.getState().drafts["se1"]).toBe("/goal "));
@@ -2562,10 +2666,10 @@ describe("the '+' menu (Plan 12 W1)", () => {
     await waitFor(() => expect(store.getState().drafts["se1"]).toBe("/goal ship the release notes"));
   });
 
-  it("Add folder… runs the existing project-link flow", async () => {
+  it("Folder… runs the existing project-link flow", async () => {
     const { api } = await mountPlus();
     openPlus();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Add folder…" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Folder…" }));
     // pickFolder resolves "/tmp/picked-repo" in the fake; the project lands in THIS space.
     await waitFor(() => expect(api.data.projects.s1?.map((p) => p.rootPath)).toEqual(["/tmp/picked-repo"]));
   });
@@ -2595,6 +2699,36 @@ describe("the '+' menu (Plan 12 W1)", () => {
     expect(within(picker).getAllByRole("option").map((o) => o.textContent)).toEqual([expect.stringContaining("agents.apple-design")]);
   });
 
+  it("the picker's list dissolves into the search field and the footer instead of being cut by them", async () => {
+    /* 15-skills-popover-cutoff.png: the last row sliced in half by "Manage skills & folders…". The
+       dissolve is a mask on the LIST, so the field above and the footer below never go soft. THE
+       mutant: drop the hook, and the list is a plain box with a hard edge at both ends again. */
+    await mountPlus({ skills: { s1: Array.from({ length: 14 }, (_, i) => skillRow(`skill-${String(i).padStart(2, "0")}`)) } });
+    const scrolled: string[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.textContent ?? ""); };
+    try {
+      openPlus();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Skills" }));
+      const picker = await screen.findByRole("dialog", { name: "Skills" });
+      const list = picker.querySelector<HTMLElement>(".skill-picker-list")!;
+      act(() => {
+        Object.defineProperty(list, "scrollHeight", { configurable: true, value: 700 });
+        Object.defineProperty(list, "clientHeight", { configurable: true, value: 300 });
+        list.dispatchEvent(new Event("scroll"));
+      });
+      expect(list.dataset.dissolve).toBe("end");
+      expect(picker.hasAttribute("data-dissolve")).toBe(false);
+      expect(picker.querySelector(".skill-picker-search")!.hasAttribute("data-dissolve")).toBe(false);
+      // Arrowing past the fold brings the highlight along — clear of the band, by the list's own
+      // scroll-padding — where a pointer passing over a row leaves the list where it is.
+      fireEvent.keyDown(within(picker).getByRole("combobox", { name: "Search skills" }), { key: "ArrowDown" });
+      expect(scrolled.at(-1)).toContain("skill-01");
+      const before = scrolled.length;
+      fireEvent.mouseEnter(within(picker).getByRole("option", { name: /skill-09/ }));
+      expect(scrolled.length).toBe(before);
+    } finally { delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView; }
+  });
+
   it("picking a skill that is OFF turns it on for the space, then mentions it — a mention of a disabled skill resolves to nothing", async () => {
     const { api, store } = await mountPlus({ skills: { s1: [externalSkillRow("agents.apple-design")] } });
     openPlus();
@@ -2621,12 +2755,12 @@ describe("the '+' menu (Plan 12 W1)", () => {
     openPlus();
     const menu = screen.getByRole("menu", { name: "Add" });
     expect(within(menu).queryByRole("menuitem", { name: "Skills" })).toBeNull();
-    expect(within(menu).getByRole("menuitem", { name: /Add files…/ })).toBeInTheDocument(); // the rest stays
+    expect(within(menu).getByRole("menuitem", { name: /^Files…/ })).toBeInTheDocument(); // the rest stays
   });
 });
 
 /**
- * The "+" menu's Connectors submenu (Plan 12 W1): the space's ENABLED MCP servers with a health dot
+ * The "+" menu's Connectors section (Plan 12 W1): the space's ENABLED MCP servers with a health dot
  * from the hub's LAST KNOWN status — pushed via mcp.serverStatus, cached in the store. Named mutant:
  * a dot showing a fixed status. Honesty rule: opening the menu reads rows, it never probes a server.
  */
@@ -2639,11 +2773,10 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
     const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
     return { api, store, ...r };
   }
+  /** The section, in the menu the "+" opens — it is a part of that menu now, not a view swapped in. */
   const openConnectors = async () => {
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Connectors" }));
-    await waitFor(() => expect(screen.getByRole("menu", { name: "Connectors" })).toBeInTheDocument());
-    return screen.getByRole("menu", { name: "Connectors" });
+    return within(await screen.findByRole("menu", { name: "Add" })).getByRole("group", { name: "Connectors" });
   };
 
   it("opening the + menu refreshes the cache with a ROW read — no probe, no test, ever", async () => {
@@ -2663,7 +2796,7 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
     const menu = await openConnectors();
     await waitFor(() => expect(within(menu).queryByText("linear")).not.toBeNull());
     expect(within(menu).queryByText("disabled-one")).toBeNull(); // not enabled here → not offered
-    const row = (name: string) => within(menu).getByText(name).closest(".connector-row") as HTMLElement;
+    const row = (name: string) => within(menu).getByText(name).closest("[role=menuitem]") as HTMLElement;
     expect(row("linear").querySelector(".connector-dot")).toHaveAttribute("data-tone", "ok");
     // idle = the hub has never connected: say "not checked", never a green dot nobody earned.
     expect(row("posthog").querySelector(".connector-dot")).toHaveAttribute("data-tone", "muted");
@@ -2676,7 +2809,7 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
     const { store } = await mountConn([{ name: "linear", enabled: true, status: "idle" }]);
     const menu = await openConnectors();
     await waitFor(() => expect(within(menu).queryByText("linear")).not.toBeNull());
-    const dot = () => (within(screen.getByRole("menu", { name: "Connectors" })).getByText("linear").closest(".connector-row") as HTMLElement).querySelector(".connector-dot");
+    const dot = () => (within(screen.getByRole("group", { name: "Connectors" })).getByText("linear").closest("[role=menuitem]") as HTMLElement).querySelector(".connector-dot");
     expect(dot()).toHaveAttribute("data-tone", "muted");
     act(() => store.getState().applyMcpServerStatus({ id: "m1", status: "connected", oauthStatus: "unconfigured" }));
     expect(dot()).toHaveAttribute("data-tone", "ok");
@@ -2687,16 +2820,20 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
   it("an empty space says so, and Manage connections… opens the space settings' Connections tab", async () => {
     const { store } = await mountConn([]);
     const menu = await openConnectors();
-    await waitFor(() => expect(within(menu).queryByText("No connectors enabled in this space")).not.toBeNull());
+    await waitFor(() => expect(within(menu).getByRole("menuitem", { name: "Manage connections…" })).toHaveAccessibleDescription("None enabled in this space"));
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Manage connections…" }));
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("space-page"));
     expect(store.getState().spacePageTab.s1).toBe("connections");
   });
 
-  it("the back row returns to the root menu in place", async () => {
-    await mountConn([]);
+  it("a server's row leads to the space's Connections page, where acting on it lives", async () => {
+    const { store } = await mountConn([{ name: "linear", enabled: true, status: "connected" }]);
     const menu = await openConnectors();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Connectors" })); // the ‹ header row
-    await waitFor(() => expect(screen.getByRole("menu", { name: "Add" })).toBeInTheDocument());
+    await waitFor(() => expect(within(menu).queryByText("linear")).not.toBeNull());
+    const row = within(menu).getByText("linear").closest("[role=menuitem]") as HTMLElement;
+    expect(row).toHaveAccessibleDescription("connected");
+    fireEvent.click(row);
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("space-page"));
+    expect(store.getState().spacePageTab.s1).toBe("connections");
   });
 });

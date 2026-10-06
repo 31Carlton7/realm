@@ -1,26 +1,12 @@
 /**
- * Whether the code editor's caret blinks.
+ * Whether the code editor's caret blinked — the editor's own switch, before the code editor drew the
+ * app's caret (`caret.ts`) and its blink became the caret's animation.
  *
- * Separate from `terminals.cursorBlink`, and separate on purpose — the same split VS Code makes
- * between `editor.cursorBlinking` and `terminal.integrated.cursorBlinking`. The two carets are in
- * different places doing different jobs: a terminal's marks where output will land in a screen that
- * is mostly not yours, and an editor's marks where you are typing in a screen that is. Someone who
- * wants one still can be reasonably want the other.
- *
- * On by default, because a caret that never moves is one people lose in a wall of code.
- *
- * Scope is the CODE editor, which draws its own caret and can therefore be told. The prompter's is
- * the platform's: Chromium exposes no way to hold it still until `caret-animation` lands (139; this
- * app ships on 138), so it is out of this switch for exactly as long as that is true, and the switch
- * is named for the surface it can actually reach rather than for every caret in the window.
+ * Read once, never written: a home that has no caret preference yet but turned this off asked for a
+ * caret that holds still, and `parseCaretPrefs` starts its animation at Solid for it.
  */
 export const EDITOR_CURSOR_BLINK_KEY = "editor.cursorBlink";
-export const EDITOR_CURSOR_BLINK_DEFAULT = true;
 
-/** CodeMirror's own default, in ms. `0` is what turns the animation off rather than slowing it. */
+/** CodeMirror's own default, in ms. `0` is what turns the animation off rather than slowing it. It
+ *  still paces the editor's SECONDARY cursors, which CodeMirror draws itself. */
 export const EDITOR_CURSOR_BLINK_RATE = 1200;
-
-export const EDITOR_CURSOR_BLINK_COPY = {
-  label: "Blink the editor caret",
-  detail: "The caret in a code file pulses so it is findable. Turn it off for one that sits still. The prompter's caret is the system's and cannot be told either way yet.",
-} as const;

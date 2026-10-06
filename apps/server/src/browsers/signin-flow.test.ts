@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_CLI_COMMANDS } from "@realm/contracts";
-import { SignInFlow, signInUrlOn, type SignInFlowDeps } from "./signin-flow";
+import { SignInFlow, announceSignIn, signInUrlOn, type SignInFlowDeps } from "./signin-flow";
 import { renderScreen } from "../terminals/screen";
 
 const SPACE = "space1";
@@ -50,12 +50,6 @@ describe("signInUrlOn", () => {
     expect(signInUrlOn(screen)).toBe(CONSENT);
   });
 
-  it("reassembles a URL the terminal wrapped", async () => {
-    // 80 columns, a 150-character URL: three rows on screen, one link in the answer.
-    const screen = await renderScreen(`Open: ${CONSENT}`, { cols: 80, rows: 24 });
-    expect(signInUrlOn(screen)).toBe(CONSENT);
-  });
-
   it("leaves a sentence's punctuation out of the URL", async () => {
     const screen = await screenOf("Visit https://example.com/login to continue.");
     expect(signInUrlOn(screen)).toBe("https://example.com/login");
@@ -87,9 +81,10 @@ describe("starting a sign-in", () => {
   it("opens the pane at the URL the terminal printed", async () => {
     const { flow, calls } = setup({ output: ["$ ", `Open this URL:\r\n${CONSENT}`] });
     const r = await flow.start(SPACE, "claude");
-    expect(r).toMatchObject({ ok: true, terminalId: "t1" });
+    // With each pane's item, which is what a client opens beside the session that asked.
+    expect(r).toMatchObject({ ok: true, terminalId: "t1", terminalItemId: "i1" });
     if (!r.ok) return;
-    expect(await r.settled).toMatchObject({ browserId: "b1", url: CONSENT });
+    expect(await r.settled).toMatchObject({ browserId: "b1", browserItemId: "i2", url: CONSENT });
     expect(calls.opened).toEqual(["terminal", CONSENT]);
   });
 
@@ -156,5 +151,19 @@ describe("starting a sign-in", () => {
     expect(settled.browserId).toBeNull();
     expect(settled.screen.screen[0]).toContain("Checking for updates");
     expect(calls.opened).toEqual(["terminal"]);
+  });
+});
+
+describe("announcing a sign-in's panes", () => {
+  it("names the terminal as the session's at once and the page only once it is open", async () => {
+    const { flow } = setup({ output: ["Checking for updates…", `Open this link: ${CONSENT}`] });
+    const r = await flow.start(SPACE, "claude");
+    if (!r.ok) throw new Error(r.reason);
+    const said: { event: string; payload: unknown }[] = [];
+    const pending = announceSignIn({ broadcast: (event, payload) => { said.push({ event, payload }); } }, SPACE, "se1", r);
+    expect(said).toEqual([{ event: "terminal.agentOpened", payload: { spaceId: SPACE, terminalId: "t1", itemId: "i1", openedBy: "se1" } }]);
+    const settled = await pending;
+    expect(settled.browserId).toBe("b1");
+    expect(said[1]).toEqual({ event: "browser.agentOpened", payload: { spaceId: SPACE, browserId: "b1", itemId: "i2", openedBy: "se1" } });
   });
 });

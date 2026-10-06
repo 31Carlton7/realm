@@ -21,6 +21,9 @@ const PAINT_INPUTS: readonly PropertyDefinition[] = [
   { name: "--sq-fill", syntax: "<color>", initialValue: "transparent", inherits: false },
   { name: "--sq-ring", syntax: "<color>", initialValue: "transparent", inherits: false },
   { name: "--sq-ring-w", syntax: "<length>", initialValue: "0px", inherits: false },
+  /* `top` leaves the ring's top edge out — a tab stacked under another, whose top is a join inside
+   * the band rather than an edge of it, still needs its sides (squircle-paint.js, `traceOpenTop`). */
+  { name: "--sq-ring-open", syntax: "none | top", initialValue: "none", inherits: false },
   { name: "--sq-radius-top", syntax: "<length>", initialValue: "0px", inherits: false },
   { name: "--sq-radius-bottom", syntax: "<length>", initialValue: "0px", inherits: false },
   /* The superellipse exponent. Its initial value is the signature 4, so every surface that says

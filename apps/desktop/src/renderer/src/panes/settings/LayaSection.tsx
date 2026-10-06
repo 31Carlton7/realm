@@ -1,8 +1,9 @@
 import { LAYA_MODES, type LayaMode, type LayaStatus } from "@realm/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CommandCopy } from "../../components/CommandCopy";
 import { Spinner } from "../../components/Spinner";
 import { useApp } from "../../state/store";
+import { useDissolve } from "../../components/ScrollFades";
 
 /**
  * Laya (local decisions): the local model Realm can ask about every computer step, and the log of
@@ -46,6 +47,13 @@ export function LayaSection() {
       </p>
     </>
   );
+}
+
+/** A process's own output under a failure, capped like every job's and dissolving where it scrolls. */
+function JobOutput({ text }: { text: string }) {
+  const scroller = useRef<HTMLPreElement>(null);
+  useDissolve(scroller);
+  return <pre className="cli-job-output" ref={scroller}>{text}</pre>;
 }
 
 function StateRow({ laya }: { laya: LayaStatus }) {
@@ -106,7 +114,7 @@ function StateRow({ laya }: { laya: LayaStatus }) {
             {r.detail && (
               <details className="laya-output">
                 <summary>Output</summary>
-                <pre className="cli-job-output">{r.detail}</pre>
+                <JobOutput text={r.detail} />
               </details>
             )}
           </>
@@ -217,7 +225,7 @@ function EvaluationRow({ laya }: { laya: LayaStatus }) {
             {t.detail && (
               <details className="laya-output">
                 <summary>Output</summary>
-                <pre className="cli-job-output">{t.detail}</pre>
+                <JobOutput text={t.detail} />
               </details>
             )}
           </>
@@ -233,9 +241,9 @@ function EvaluationRow({ laya }: { laya: LayaStatus }) {
 }
 
 /**
- * Screens kept while a person used an app on a device pane — started from that pane's bar, which is
- * why this row says where, rather than offering a Record of its own with no device to point it at. A
- * recording under way is shown with a Stop, as the pane bar's toggle is.
+ * Screens kept while a person used an app on a device pane — started from under that pane's device,
+ * which is why this row says where, rather than offering a Record of its own with no device to point
+ * it at. A recording under way is shown with a Stop, as it is under the device and in the rail.
  */
 function RecordingsRow({ laya }: { laya: LayaStatus }) {
   const stopLayaRecording = useApp((s) => s.stopLayaRecording);
@@ -260,7 +268,7 @@ function RecordingsRow({ laya }: { laya: LayaStatus }) {
         {rec?.lastError && <span className="settings-row-desc laya-reason">Not reading the device: {rec.lastError}</span>}
         {!rec && (
           <span className="settings-row-desc">
-            To record, open an app on a device, choose Record for Laya in its pane's bar, and use the app yourself. Realm reads each new screen of that app and taps nothing.
+            To record, open an app on a device, choose Record my use of this app under it, and use the app yourself. Realm reads each new screen of that app and taps nothing.
           </span>
         )}
       </div>

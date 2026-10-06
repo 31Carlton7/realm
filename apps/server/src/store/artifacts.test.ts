@@ -24,7 +24,7 @@ function fresh() {
     spaceId: space.id, projectId: null, agentKind: "fake", model: null, effort: null,
     permissionMode: "default", environmentId: env.id, title: "New session",
   });
-  return { db, home, space, session, sessions, events, artifacts, settings };
+  return { db, home, space, session, sessions, events, artifacts, settings, profile: p, env };
 }
 
 const write = (path: string) => sessionEvent("tool_call", { toolUseId: `t${path}`, name: "Write", input: { file_path: path }, parentToolUseId: null });
@@ -130,14 +130,81 @@ describe("ArtifactsStore", () => {
     expect(artifacts.count("nope")).toBe(0);
   });
 
-  it("goes with the session: deleting one takes its files out of the Library", () => {
-    const { events, session, sessions, artifacts } = fresh();
-    events.append(session.id, write("/tmp/a/report.md"));
-    sessions.delete(session.id);
-    // ON DELETE CASCADE, not a second delete to remember — an index row pointing at a session that
-    // no longer exists is a row the read's own JOIN would drop anyway, silently and forever.
-    expect(artifacts.list({})).toEqual([]);
+  it("narrows by the type a file reads as — answered by the index, and Other as everything no type claims", () => {
+    const { events, session, artifacts } = fresh();
+    for (const name of ["shot.PNG", "brief.pdf", "index.ts", "usage.csv", "bundle.zip", "Makefile"]) events.append(session.id, write(`/tmp/${name}`));
+    const names = (type: Parameters<typeof artifacts.list>[0]["type"]) => artifacts.list({ type }).map((a) => a.name).sort();
+    expect(names("image")).toEqual(["shot.PNG"]);
+    expect(names("document")).toEqual(["brief.pdf"]);
+    expect(names("code")).toEqual(["index.ts"]);
+    expect(names("data")).toEqual(["usage.csv"]);
+    /* THE mutants: "other" as an IN over an empty list (nothing, ever), or as no filter at all
+       (everything). It is the complement — a file with no extension is other too. */
+    expect(names("other")).toEqual(["Makefile", "bundle.zip"]);
+    expect(names(null)).toHaveLength(6);
   });
+
+  it("means every space of ONE profile by \"every space\", and counts the same way", () => {
+    /* Profiles are separate homes for their spaces (Plan 27). THE mutant: a null spaceId that reads
+       the whole table, so a Work window's Library lists what Personal's sessions made, and its
+       "nothing here yet" counts them too. */
+    const { db, home, events, session, sessions, artifacts, profile } = fresh();
+    const other = new ProfilesStore(db).create({ name: "Other", icon: "x", color: "#111" });
+    const theirs = new SpacesStore(db, home).create({ profileId: other.id, name: "T", icon: "f" });
+    const theirEnv = new EnvironmentsStore(db).ensurePrimary(theirs.id);
+    const theirSession = sessions.create({
+      spaceId: theirs.id, projectId: null, agentKind: "fake", model: null, effort: null,
+      permissionMode: "default", environmentId: theirEnv.id, title: "Theirs",
+    });
+    events.append(session.id, write("/tmp/mine.md"));
+    events.append(theirSession.id, write("/tmp/theirs.md"));
+    expect(artifacts.list({ profileId: profile.id }).map((a) => a.name)).toEqual(["mine.md"]);
+    expect(artifacts.list({ profileId: other.id }).map((a) => a.name)).toEqual(["theirs.md"]);
+    expect(artifacts.count(null, profile.id)).toBe(1);
+    // Asked for the whole home, it is the whole home.
+    expect(artifacts.list({}).map((a) => a.name).sort()).toEqual(["mine.md", "theirs.md"]);
+    expect(artifacts.count(null)).toBe(2);
+  });
+
+  it("narrows to one session — the documents pane's \"This session\" — and counts it the same way", () => {
+    /* THE mutant: a sessionId the query accepts and never applies, so a brand-new session's pane
+       lists every file the space has ever seen as its own. */
+    const { events, session, sessions, artifacts, space, env } = fresh();
+    const other = sessions.create({
+      spaceId: space.id, projectId: null, agentKind: "fake", model: null, effort: null,
+      permissionMode: "default", environmentId: env.id, title: "Other",
+    });
+    events.append(session.id, write("/tmp/mine.md"));
+    events.append(other.id, write("/tmp/theirs.md"));
+    expect(artifacts.list({ sessionId: session.id }).map((a) => a.name)).toEqual(["mine.md"]);
+    expect(artifacts.list({ sessionId: other.id }).map((a) => a.name)).toEqual(["theirs.md"]);
+    expect(artifacts.count(null, null, { sessionId: session.id })).toBe(1);
+    expect(artifacts.count(space.id)).toBe(2);
+  });
+
+  it("lists a file once per file when asked, at the last time it was touched, and pages over that", () => {
+    const { events, session, artifacts } = fresh();
+    // report.md written, then plan.md, then report.md edited twice more: four events, two files.
+    const at = (path: string, ts: number) => events.append(session.id, { ...write(path), ts });
+    at("/tmp/report.md", 100);
+    at("/tmp/plan.md", 200);
+    at("/tmp/report.md", 300);
+    at("/tmp/report.md", 400);
+    expect(artifacts.list({}).map((a) => a.name)).toEqual(["report.md", "report.md", "plan.md", "report.md"]);
+    /* THE mutant: collapse with GROUP BY and no ordering, which keeps whichever row SQLite meets
+       first — the report at 100, sorted under the plan it was edited after. */
+    const files = artifacts.list({ perFile: true });
+    expect(files.map((a) => [a.name, a.ts])).toEqual([["report.md", 400], ["plan.md", 200]]);
+    expect(artifacts.count(null, null, { perFile: true })).toBe(2);
+    /* The keyset runs over the collapsed list. THE mutant: the cursor inside the inner query, where
+       it cuts the report's newest row off and its row at 300 comes back as the newest — the same
+       file on the second page as on the first. */
+    const first = artifacts.list({ perFile: true, limit: 1 });
+    const rest = artifacts.list({ perFile: true, limit: 1, before: { ts: first[0]!.ts, id: first[0]!.id } });
+    expect([...first, ...rest].map((a) => a.name)).toEqual(["report.md", "plan.md"]);
+    expect(artifacts.list({ perFile: true, limit: 1, before: { ts: rest[0]!.ts, id: rest[0]!.id } })).toEqual([]);
+  });
+
 });
 
 describe("the artifacts backfill", () => {

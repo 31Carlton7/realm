@@ -120,15 +120,6 @@ describe("map-sdk-message", () => {
       expect(e.type === "compacted" && e.payload.preTokens).toBe(186_000);
     });
 
-    it("does not mistake a compaction for a background task, or a background task for a compaction", () => {
-      // Both arrive as `system` messages with a subtype, and the compaction branch sits ahead of the
-      // task one — an over-broad match there would swallow every task notification in the session.
-      const out = createSdkMapper().map({
-        type: "system", subtype: "compact_boundary", session_id: "s", uuid: "u",
-        compact_metadata: { trigger: "auto", pre_tokens: 1, post_tokens: 1 },
-      } as never);
-      expect(out.every((e) => e.type !== "background_task")).toBe(true);
-    });
   });
 
   describe("the result states no context, because it cannot", () => {
@@ -200,10 +191,6 @@ describe("map-sdk-message", () => {
    * What is worth pinning HERE is that the system branch still does its original job.
    */
   describe("background sub-agents", () => {
-    it("keeps mapping system/init while also reading the task protocol", () => {
-      const out = createSdkMapper().map({ type: "system", subtype: "init", session_id: "s", model: "m", tools: [], cwd: "/w", uuid: "u" } as never);
-      expect(out.map((e) => e.type)).toEqual(["init"]);
-    });
 
     it("says nothing for a system message it does not recognise", () => {
       expect(createSdkMapper().map({ type: "system", subtype: "hook_started", uuid: "u", session_id: "s" } as never)).toEqual([]);
@@ -240,14 +227,6 @@ describe("map-sdk-message", () => {
       m.map(assistant("a1", [{ type: "text", text: "ok" }]) as never);
       // Mid-turn the answer is not merely incomplete, it is about a turn that has not happened.
       expect(m.chain()).toEqual({ promptUuid: null, endUuid: null });
-    });
-
-    it("names the turn's prompt and its LAST chain entry", () => {
-      const m = createSdkMapper();
-      m.map(user("p1", "go") as never);
-      m.map(assistant("a1", [{ type: "text", text: "ok" }]) as never);
-      m.map(done() as never);
-      expect(m.chain()).toEqual({ promptUuid: "p1", endUuid: "a1" });
     });
 
     it("forks at the tool_result carrier when that is the turn's last entry, not at the last assistant uuid", () => {

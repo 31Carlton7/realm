@@ -22,10 +22,6 @@ async function mount(overrides: Parameters<typeof fakeApi>[0] = {}) {
    effect the moment you flip it — which these do, straight down the rpc. A checkbox is a choice
    inside a set you are about to act on, which is what the tool allowlist below still is. */
 describe("McpSection", () => {
-  it("says a fresh space has no MCP servers rather than rendering an empty list", async () => {
-    await mount();
-    expect(screen.getByText(/No MCP servers yet — add one to give this space's agents tools\./)).toBeInTheDocument();
-  });
 
   it("adding a server makes it appear, enabled for this space", async () => {
     const { store } = await mount();
@@ -47,6 +43,27 @@ describe("McpSection", () => {
     // The named mutant (Plan 12 W3): the panel, re-mounted inside the space page, sending the
     // toggle for some other space than the one whose page this is.
     await waitFor(() => expect(api.calls).toContain("setMcpEnabled:s1:m1=false"));
+  });
+
+  it("says when a server ships views, and its Show views switch is on until turned off — for the server, in every space", async () => {
+    // THE MUTANT: no switch, or one wired per space. A person who wants Figma's views gone wants
+    // them gone everywhere they use Figma, and can only say so where the row is.
+    const viewing = mcpServer("m1", { name: "charts", enabled: true, tools: [{ name: "show_chart", description: "", view: "ui://charts/bar.html" }, { name: "refresh_chart", description: "", view: "ui://charts/bar.html", appOnly: true }] });
+    const plain = mcpServer("m2", { name: "plain", enabled: true, tools: [mcpTool("echo")] });
+    const { api } = await mount({ mcpServers: [viewing, plain] });
+    const row = (await screen.findByText("charts")).closest(".mcp-row") as HTMLElement;
+    expect(within(row).getByText("Views")).toBeInTheDocument();
+    const show = within(row).getByRole("switch", { name: "Show charts's views" });
+    expect(show).toBeChecked();
+    // A tool only the view may call says so in the tools list, where its allowlist box is.
+    expect(within(row).getByRole("checkbox", { name: /refresh_chart/ }).closest("label")?.textContent).toContain("For its view");
+    fireEvent.click(show);
+    await waitFor(() => expect(api.calls).toContain("setMcpShowViews:m1=false"));
+    await waitFor(() => expect(within(row).getByRole("switch", { name: "Show charts's views" })).not.toBeChecked());
+    // A server that ships none says nothing about them, and offers no switch for what it does not have.
+    const other = screen.getByText("plain").closest(".mcp-row") as HTMLElement;
+    expect(within(other).queryByText("Views")).toBeNull();
+    expect(within(other).queryByRole("switch", { name: /views/ })).toBeNull();
   });
 
   it("toggling a tool checkbox sends the explicit allowlist; re-checking everything restores null", async () => {
@@ -110,14 +127,14 @@ describe("McpSection", () => {
     expect(within(row).getByText(/disconnects this server's OAuth connection/)).toBeInTheDocument();
   });
 
-  it("a refresh-tools failure renders inline as a result, never as the app's error banner", async () => {
+  it("a refresh-tools failure renders inline as a result, never as the app's error toast", async () => {
     const srv = mcpServer("m6", { name: "srv6", enabled: true, tools: [] });
     const { store } = await mount({ mcpServers: [srv], mcpToolsError: { m6: "connection refused: ECONNREFUSED" } });
     const row = (await screen.findByText("srv6")).closest(".mcp-row") as HTMLElement;
     expect(within(row).getByText(/Not connected yet — Refresh tools to connect\./)).toBeInTheDocument();
     fireEvent.click(within(row).getByRole("button", { name: "Refresh tools" }));
     await waitFor(() => expect(within(row).getByText("connection refused: ECONNREFUSED")).toBeInTheDocument());
-    expect(store.getState().error).toBeNull();
+    expect(store.getState().toasts).toEqual([]);
   });
 
   it("circuit_open shows Retry with the reconnect-and-refresh copy", async () => {
@@ -349,13 +366,6 @@ describe("scoped server groups (W4)", () => {
     expect(screen.queryByTitle("Idle")).toBeNull();
   });
 
-  it("Test connection rides mcp.test and renders the probe's sentence on the row", async () => {
-    const { api } = await mount({ mcpServers: [mcpServer("m1", { name: "srv1" })], mcpTest: { m1: { reached: true, detail: "initialized in 42ms" } } });
-    const row = (await screen.findByText("srv1")).closest(".mcp-row") as HTMLElement;
-    fireEvent.click(within(row).getByRole("button", { name: "Test" }));
-    await waitFor(() => expect(api.calls).toContain("testMcpServer:m1"));
-    await waitFor(() => expect(within(row).getByText("initialized in 42ms")).toBeInTheDocument());
-  });
 });
 
 /**

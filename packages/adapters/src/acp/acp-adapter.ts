@@ -1,11 +1,11 @@
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { acpAskMode, acpBuildMode, acpPlanMode, acpSessionConfig, ASK_PERMISSION_MODE, PLAN_PERMISSION_MODE, sessionEvent, type AcpSessionMode, type AgentKind, type SessionEvent } from "@realm/contracts";
+import { acpAskMode, acpBuildMode, acpPlanMode, acpSessionConfig, askCardFromElicitation, ASK_PERMISSION_MODE, elicitationContent, loggableAnswers, normalizeAnswers, PLAN_PERMISSION_MODE, requiredAnswered, sessionEvent, type AcpSessionMode, type AgentKind, type AskAnswers, type AskCard, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { createAcpMapper } from "./map-acp";
-import { fetchAcpModels, probeAcp } from "./probe";
+import { fetchAcpCatalog, probeAcp } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 import { obj, str, type Bag } from "../bag";
 
@@ -233,10 +233,11 @@ export class AcpAdapter implements AgentAdapter {
   async probe(): Promise<ProbeResult> {
     const base = await probeAcp(this.spec.bin, undefined, this.spec.env);
     // tmpdir because the throwaway catalog session needs SOME real cwd and must not imply a project.
-    const models = base.available && this.spec.modelCatalog === true
-      ? await fetchAcpModels({ bin: this.spec.bin, args: this.spec.args, cwd: tmpdir(), env: this.spec.env })
+    const catalog = base.available && this.spec.modelCatalog === true
+      ? await fetchAcpCatalog({ bin: this.spec.bin, args: this.spec.args, cwd: tmpdir(), env: this.spec.env })
       : null;
-    return { kind: this.kind, ...base, models };
+    return { kind: this.kind, ...base, models: catalog?.models ?? null,
+      ...(catalog && catalog.efforts.length > 0 ? { efforts: catalog.efforts, defaultEffort: catalog.defaultEffort } : {}) };
   }
 
   start(opts: StartOptions): AgentHandle {
@@ -244,6 +245,8 @@ export class AcpAdapter implements AgentAdapter {
     const events = new AsyncQueue<SessionEvent>();
     const mapper = createAcpMapper();
     const pending = new Map<string, { id: JsonRpcId; options: unknown[] }>();
+    /** Open `elicitation/create` questions, by the id the transcript knows them by. */
+    const questions = new Map<string, { id: JsonRpcId; card: AskCard }>();
     let rpc: StdioJsonRpc | null = null;
     let sessionId: string | null = null;
     let imagesAllowed = false;
@@ -258,6 +261,12 @@ export class AcpAdapter implements AgentAdapter {
     let modeConfigId: string | null = null;
     /** The same seam for the model axis. */
     let modelConfigId: string | null = null;
+    /** And for the reasoning level: the agent's `thought_level` option, when it offers one, with the
+     *  values it takes and the one it started on — what a reset writes back. There is no legacy
+     *  channel for this axis, so no option means nothing is ever sent. */
+    let effortConfigId: string | null = null;
+    let effortLevels: string[] = [];
+    let effortDefault: string | null = null;
     /** `modes.currentModeId` at boot — `acpBuildMode`'s fallback when the agent has no `agent` id. */
     let bootModeId: string | null = null;
     /** True only for the duration of `session/load`, whose replay Realm has already persisted. */
@@ -277,7 +286,21 @@ export class AcpAdapter implements AgentAdapter {
       rpc?.respond(p.id, { outcome });
     };
 
-    const respond = (requestId: string, decision: PermissionDecision) => {
+    /** An elicitation answered: the form's own types on accept, MCP's `decline` for a no, and `cancel`
+     *  for nobody answering at all. A page to open is accepted as consent, with nothing to carry. */
+    const answerQuestion = (requestId: string, decision: PermissionDecision, answers?: AskAnswers, cancelled = false) => {
+      const q = questions.get(requestId);
+      if (!q) return;
+      questions.delete(requestId);
+      const given = decision !== "deny" && answers ? normalizeAnswers(q.card, answers) : undefined;
+      const answered = given !== undefined && Object.keys(given).length > 0 && requiredAnswered(q.card, given);
+      rpc?.respond(q.id, answered ? { action: "accept", ...(q.card.mode === "url" ? {} : { content: elicitationContent(q.card, given) }) } : { action: cancelled ? "cancel" : "decline" });
+      events.push(sessionEvent("permission_response", { requestId, decision: answered ? decision : "deny", ...(answered ? { answers: loggableAnswers(q.card, given) } : {}) }));
+      if (pending.size === 0 && questions.size === 0) events.push(sessionEvent("status", { status: "running" }));
+    };
+
+    const respond = (requestId: string, decision: PermissionDecision, answers?: AskAnswers) => {
+      if (questions.has(requestId)) { answerQuestion(requestId, decision, answers); return; }
       const p = pending.get(requestId);
       if (!p) return;
       const optionId = pickAcpOption(decision, p.options);
@@ -288,7 +311,7 @@ export class AcpAdapter implements AgentAdapter {
       events.push(sessionEvent("permission_response", { requestId, decision }));
       // Several tools can be waiting at once; the turn is only unblocked when the last one is answered. The
       // prompt's own resolution is what settles the status back to idle.
-      if (pending.size === 0) events.push(sessionEvent("status", { status: "running" }));
+      if (pending.size === 0 && questions.size === 0) events.push(sessionEvent("status", { status: "running" }));
     };
 
     /**
@@ -300,6 +323,30 @@ export class AcpAdapter implements AgentAdapter {
         answer(requestId, { outcome: "cancelled" });
         events.push(sessionEvent("permission_response", { requestId, decision: "deny" }));
       }
+      for (const requestId of [...questions.keys()]) answerQuestion(requestId, "deny", undefined, true);
+    };
+
+    /**
+     * `elicitation/create` (ACP 1.7): the agent asking the user, in MCP's elicitation shapes — a form, or
+     * a page to open. Drawn as Realm's card with the agent named as the one asking; a form asking for a
+     * credential is declined without being shown (ACP forbids it, as MCP does) and the declined card
+     * left in the transcript so the refusal is not silent.
+     */
+    const elicit = (id: JsonRpcId, p: Bag): void => {
+      if (replaying || disposed) { rpc?.respond(id, { action: "cancel" }); return; }
+      const mode = str(p.mode) || "form";
+      const card = askCardFromElicitation({ mode, message: p.message, requestedSchema: p.requestedSchema, url: p.url }, { kind: "agent", name: spec.label, agent: spec.kind });
+      const requestId = String(id);
+      const title = str(p.message) || `${spec.label} asks`;
+      if (card.refused) {
+        rpc?.respond(id, { action: "decline" });
+        events.push(sessionEvent("permission_request", { requestId, toolName: "elicitation/create", input: {}, title, suggestions: [], ask: card }));
+        events.push(sessionEvent("permission_response", { requestId, decision: "deny" }));
+        return;
+      }
+      if (pending.size === 0 && questions.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
+      questions.set(requestId, { id, card });
+      events.push(sessionEvent("permission_request", { requestId, toolName: "elicitation/create", input: {}, title, suggestions: [], ask: card }));
     };
 
     /** Ends the session and the child. Idempotent; the only path that closes the stream. */
@@ -354,7 +401,7 @@ export class AcpAdapter implements AgentAdapter {
       const input = { ...(merged?.input ?? {}), ...obj(patch.rawInput) };
       const options = Array.isArray(p.options) ? p.options : [];
       const requestId = String(id);
-      if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
+      if (pending.size === 0 && questions.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
       pending.set(requestId, { id, options });
       events.push(sessionEvent("permission_request", { requestId, toolName, input, title: toolName, suggestions: options }));
     };
@@ -377,6 +424,7 @@ export class AcpAdapter implements AgentAdapter {
           onServerRequest: ({ id, method, params }) => {
             const p = obj(params);
             if (method === "session/request_permission") { requestPermission(id, p); return; }
+            if (method === "elicitation/create") { elicit(id, p); return; }
             if (method === "fs/read_text_file" || method === "fs/write_text_file") { void serveFs(id, method, p); return; }
             // Agents probe for capabilities we never declared (terminal/*), and an unanswered request stalls
             // the turn permanently (§5).
@@ -406,7 +454,9 @@ export class AcpAdapter implements AgentAdapter {
 
         const init = obj(await ask("initialize", {
           protocolVersion: 1,
-          clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
+          // Elicitation in both of its modes, each named explicitly: ACP, unlike MCP, does not read an
+          // empty object as form support.
+          clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false, elicitation: { form: {}, url: {} } },
         }, INITIALIZE_TIMEOUT_MS));
         const caps = obj(init.agentCapabilities);
         imagesAllowed = obj(caps.promptCapabilities).image === true;
@@ -466,6 +516,9 @@ export class AcpAdapter implements AgentAdapter {
         bootModeId = cfg.currentModeId;
         modeConfigId = cfg.modeConfigId;
         modelConfigId = cfg.modelConfigId;
+        effortConfigId = cfg.effortConfigId;
+        effortLevels = cfg.efforts.map((e) => e.id);
+        effortDefault = cfg.currentEffort;
         // The session's pinned model is transmitted HERE, not merely displayed: ACP's `session/new`
         // takes `{cwd, mcpServers}` and nothing else, so a model picked in an earlier run (or before
         // the first message) only reaches the agent through a follow-up write. Failure is a log line,
@@ -483,12 +536,19 @@ export class AcpAdapter implements AgentAdapter {
             log(`${method} ${opts.model} failed (${message(e)}); staying on the agent's default`);
           }
         }
+        // The session's level, through the agent's own option — and only a value that option lists: a
+        // level from another harness is one this agent never named.
+        if (opts.effort && effortConfigId && effortLevels.includes(opts.effort) && opts.effort !== effortDefault) {
+          try { await ask("session/set_config_option", { sessionId: id, configId: effortConfigId, value: opts.effort }, SESSION_TIMEOUT_MS); }
+          catch (e) { log(`session/set_config_option ${effortConfigId}=${opts.effort} failed (${message(e)}); staying on the agent's own level`); }
+        }
         events.push(sessionEvent("init", {
           providerSessionId: id,
           model: pinned ? str(opts.model) : cfg.currentModelId ?? str(opts.model),
           tools: [],
           cwd: opts.cwd,
           ...(availableModes.length ? { availableModes } : {}),
+          ...(effortConfigId ? { efforts: cfg.efforts, ...(effortDefault ? { defaultEffort: effortDefault } : {}) } : {}),
           ...(opts.resume ? { resumeRequested: true } : {}),
           ...(resumeOutcome ? { resumeOutcome } : {}),
         }));
@@ -587,6 +647,13 @@ export class AcpAdapter implements AgentAdapter {
         if (o.model !== undefined) {
           if (modelConfigId) await attempt("session/set_config_option", { sessionId, configId: modelConfigId, value: o.model });
           else await attempt("session/set_model", { sessionId, modelId: o.model });
+        }
+        // A reset writes the level the agent started on back by name; anything not on its list is not
+        // sent, and an agent with no `thought_level` option is never asked.
+        if (o.effort !== undefined && effortConfigId) {
+          const value = o.effort ?? effortDefault;
+          if (value && effortLevels.includes(value)) await attempt("session/set_config_option", { sessionId, configId: effortConfigId, value });
+          else if (value) log(`effort ${value} is not one this agent offers; nothing sent`);
         }
       },
       dispose: async () => {

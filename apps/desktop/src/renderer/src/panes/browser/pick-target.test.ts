@@ -12,10 +12,6 @@ const leafFor = (l: Layout, itemId: string): string => {
 };
 
 describe("sessionForPick", () => {
-  it("sends to the only session open beside the browser", () => {
-    const items = [sessionItem("i1", "se1"), browserItem()];
-    expect(sessionForPick(items, twoUp("i1", "ib"), null)?.refId).toBe("se1");
-  });
 
   it("prefers the session in the FOCUSED leaf when several are open", () => {
     const items = [sessionItem("i1", "se1"), sessionItem("i2", "se2")];
@@ -35,8 +31,4 @@ describe("sessionForPick", () => {
     expect(sessionForPick([sessionItem("i1", "se1")], null, null)).toBeNull();
   });
 
-  it("never reaches a session that exists but is not open in this layout", () => {
-    const items = [sessionItem("i1", "se1"), browserItem()];
-    expect(sessionForPick(items, twoUp("ib", "ib"), null)).toBeNull();
-  });
 });

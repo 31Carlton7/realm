@@ -8,7 +8,7 @@ import type { McpService } from "../mcp/service";
 import type { ItemsStore } from "../store/items";
 import type { TerminalsStore } from "../store/terminals";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
-import type { SignInFlow } from "../browsers/signin-flow";
+import { announceSignIn, type SignInFlow } from "../browsers/signin-flow";
 import { MAX_SCROLLBACK_LINES, screenText, type TerminalScreen } from "./screen";
 import type { TerminalService } from "./service";
 
@@ -134,9 +134,9 @@ export function looksLikePasswordPrompt(screen: TerminalScreen): string | null {
   return patterns.some((re) => re.test(asked)) ? active : null;
 }
 
-const PASSWORD_REFUSAL = (line: string) =>
+const PASSWORD_REFUSAL = (line: string, where: string) =>
   `refused: this terminal is asking for a secret (${JSON.stringify(line)}). Realm never types into a password prompt, in any permission mode. `
-  + "Tell the user what it is asking for and let them type it in the pane — it is open in front of them.";
+  + `Tell the user what it is asking for and let them type it in the pane — ${where}.`;
 
 /* ---------------------------------- keys ---------------------------------- */
 
@@ -294,10 +294,13 @@ const HANDLERS: Record<string, Handler> = {
     // than the 80×24 `terminals.create` defaults to, because nothing is looking at this one yet and
     // the programs it exists to run — full-screen logins — lay themselves out against the size they
     // find. A menu that fits is a menu an agent can read in one go.
-    const { terminalId } = d.terminals.open({ spaceId: ctx.spaceId, cwd: args.value.cwd, cols: 100, rows: 30 });
+    const { terminalId, itemId } = d.terminals.open({ spaceId: ctx.spaceId, cwd: args.value.cwd, cols: 100, rows: 30 });
     let mine = opened.get(ctx.sessionId);
     if (!mine) opened.set(ctx.sessionId, (mine = new Set()));
     mine.add(terminalId);
+    // Before the settle wait, so the pane is mounting while the shell prints its startup. Without
+    // it the terminal was a row in the sidebar and nowhere on screen.
+    d.rpc.broadcast("terminal.agentOpened", { spaceId: ctx.spaceId, terminalId, itemId, openedBy: ctx.sessionId });
     // Give the login shell a moment to finish printing its own startup, so the first read is a
     // prompt rather than half a motd.
     await d.terminals.quiet(terminalId, SETTLE_QUIET_MS, SETTLE_MS);
@@ -334,7 +337,20 @@ const HANDLERS: Record<string, Handler> = {
     const before = await d.terminals.screen(terminalId);
     if (!before) return err(`terminal ${terminalId} is not readable — it may have just exited.`);
     const asking = looksLikePasswordPrompt(before);
-    if (asking) return err(PASSWORD_REFUSAL(asking));
+    if (asking) {
+      // The refusal sends the agent to the person, so the terminal has to be where the person is
+      // looking — and opening it once is no promise of that: they may have closed its tab, or never
+      // looked. MEASURED in 1.5: a sudo prompt sat for a day and a half in a terminal the owner could
+      // not find, while the agent kept telling them it was "open in front of them". A terminal this
+      // session opened is put back in front of them, so the sentence is true. One the person opened
+      // is theirs: it stays where they put it, and the sentence says so.
+      if (c.ownedBy(ctx.sessionId, terminalId)) {
+        const item = d.items.findByRefId(terminalId);
+        if (item) d.rpc.broadcast("terminal.agentOpened", { spaceId: ctx.spaceId, terminalId, itemId: item.id, openedBy: ctx.sessionId });
+        return err(PASSWORD_REFUSAL(asking, "it is in front of them now, in this session's side pane"));
+      }
+      return err(PASSWORD_REFUSAL(asking, "it is a terminal they opened themselves"));
+    }
 
     const bytes = (text ?? "") + (submit ? TERMINAL_KEYS.enter : "") + (key ? TERMINAL_KEYS[key] : "");
     const title = describeWrite(text, submit, key);
@@ -408,7 +424,7 @@ const HANDLERS: Record<string, Handler> = {
     if (!started.ok) return err(started.reason);
     // A tool call wants the whole outcome, so it waits for the half a button does not — see
     // `SignInStart.settled`.
-    const settled = await started.settled;
+    const settled = await announceSignIn(d.rpc, ctx.spaceId, ctx.sessionId, started);
 
     // The terminal this flow made belongs to this session, on the same terms one it opened itself
     // does: the code typed back at the end goes into THIS pty, and having to re-approve a terminal

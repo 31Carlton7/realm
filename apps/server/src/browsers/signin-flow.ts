@@ -1,7 +1,9 @@
 import { AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, agentLabel, type AgentKind } from "@realm/contracts";
+import { bundledClaude, claudeExecutable } from "@realm/adapters";
 import { isOAuthConsentUrl } from "./guards";
 import { screenText, type TerminalScreen } from "../terminals/screen";
 import type { SignInTickets } from "./signin";
+import type { RpcServer } from "../rpc/server";
 
 /**
  * Signing an agent CLI in, without handing the user a command to go and run.
@@ -41,6 +43,8 @@ export type SignInStart =
   | {
       ok: true;
       terminalId: string;
+      /** The terminal's item — what a client opens as a pane. */
+      terminalItemId: string;
       command: string;
       /**
        * The rest of it: waiting for the URL and opening the pane, which together take as long as the
@@ -65,6 +69,8 @@ export type SignInSettled = {
    *  still running, and the screen says what it is doing instead. */
   url: string | null;
   browserId: string | null;
+  /** The consent page's item, beside `browserId`; null when no page was opened. */
+  browserItemId: string | null;
   /** True when a ticket was minted, i.e. this space lets Realm press Authorize itself. */
   mayAuthorize: boolean;
   screen: TerminalScreen;
@@ -97,25 +103,26 @@ export class SignInFlow {
 
     // Wider and taller than the 80×24 default: what runs here lays itself out against the size it
     // finds, and a menu that fits on screen is one that can be read in a single look.
-    const { terminalId } = this.d.terminals.open({ spaceId, cols: 100, rows: 30 });
+    const typed = await typedCommand(kind, command);
+    const { terminalId, itemId } = this.d.terminals.open({ spaceId, cols: 100, rows: 30 });
     await this.d.terminals.quiet(terminalId, 300, 4_000);
-    await this.d.terminals.manager.writeWhenQuiet(terminalId, `${command}\r`);
-    return { ok: true, terminalId, command, settled: this.settle(spaceId, terminalId) };
+    await this.d.terminals.manager.writeWhenQuiet(terminalId, `${typed}\r`);
+    return { ok: true, terminalId, terminalItemId: itemId, command: typed, settled: this.settle(spaceId, terminalId) };
   }
 
   /** The waiting half. Every failure becomes an outcome, for the reason `settled` gives. */
   private async settle(spaceId: string, terminalId: string): Promise<SignInSettled> {
     try {
       const found = await this.waitForUrl(terminalId);
-      if (!found.url) return { url: null, browserId: null, mayAuthorize: false, screen: found.screen };
+      if (!found.url) return { url: null, browserId: null, browserItemId: null, mayAuthorize: false, screen: found.screen };
       const opened = this.d.browsers.open({ spaceId, url: found.url });
       this.d.tickets.mint(spaceId, opened.browserId, found.url);
       return {
-        url: found.url, browserId: opened.browserId,
+        url: found.url, browserId: opened.browserId, browserItemId: opened.itemId,
         mayAuthorize: this.d.tickets.enabled(spaceId), screen: found.screen,
       };
     } catch {
-      return { url: null, browserId: null, mayAuthorize: false, screen: EMPTY_SCREEN };
+      return { url: null, browserId: null, browserItemId: null, mayAuthorize: false, screen: EMPTY_SCREEN };
     }
   }
 
@@ -137,6 +144,42 @@ export class SignInFlow {
       if (!alive) return { url: screen ? signInUrlOn(screen) : null, screen: screen ?? EMPTY_SCREEN };
     }
   }
+}
+
+/**
+ * Say whose panes a started sign-in made: the terminal now, the consent page once it is open, both
+ * as `openedBy`'s — a tab each of that session's side pane, the way panes it opened itself arrive.
+ * Unannounced, the app learns of them only as items, and a sidebar that lists sessions shows them
+ * nowhere: the user would click "Sign in" and see nothing happen.
+ *
+ * Shared by the agent's tool and the session card's button, which differ only in whether they wait.
+ * Resolves with the outcome and never rejects, because `settled` never does.
+ */
+export function announceSignIn(
+  rpc: Pick<RpcServer, "broadcast">, spaceId: string, openedBy: string,
+  started: Extract<SignInStart, { ok: true }>,
+): Promise<SignInSettled> {
+  rpc.broadcast("terminal.agentOpened", { spaceId, terminalId: started.terminalId, itemId: started.terminalItemId, openedBy });
+  return started.settled.then((settled) => {
+    if (settled.browserId && settled.browserItemId) {
+      rpc.broadcast("browser.agentOpened", { spaceId, browserId: settled.browserId, itemId: settled.browserItemId, openedBy });
+    }
+    return settled;
+  });
+}
+
+/**
+ * The line typed for `kind`'s login: the table's own, except where the `claude` Realm would run is the
+ * copy it carries. That copy is not on PATH — it is why a Mac with no npm runs Claude sessions at all —
+ * so a shell told `claude auth login` answers "command not found"; it gets that binary's path, quoted.
+ * Everywhere a `claude` IS on PATH the line is exactly the table's, as it always was.
+ */
+async function typedCommand(kind: AgentKind, command: string): Promise<string> {
+  if (kind !== "claude") return command;
+  const bin = await claudeExecutable().catch(() => null);
+  if (!bin || bin !== bundledClaude()) return command;
+  const [, ...args] = command.split(/\s+/);
+  return [`'${bin.replaceAll("'", `'\\''`)}'`, ...args].join(" ");
 }
 
 const EMPTY_SCREEN: TerminalScreen = { screen: [], scrollback: [], cursor: { row: 0, col: 0 }, cols: 100, rows: 30, altScreen: false };

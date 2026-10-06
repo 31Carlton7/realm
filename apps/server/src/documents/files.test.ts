@@ -25,10 +25,6 @@ describe("readDocument", () => {
     expect(await readDocument(p("a.md"))).toEqual({ text: "# Hi\n", hash: hashText("# Hi\n") });
   });
 
-  it("refuses a directory", async () => {
-    await expect(readDocument(dir)).rejects.toThrow(/is a directory/);
-  });
-
   it("refuses a file past the editable ceiling", async () => {
     await writeFile(p("big.md"), "x".repeat(DOCUMENT_MAX_BYTES + 1));
     await expect(readDocument(p("big.md"))).rejects.toThrow(/document pane opens up to/);

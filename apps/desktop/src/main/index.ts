@@ -1,31 +1,35 @@
-import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
-import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserCredential, type MediaFile, type Passkey } from "@realm/contracts";
+import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents } from "electron";
+import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
 import { daemonStatePath, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
 import { callDaemon, daemonModeEnabled, ensureDaemon, probeDaemon, type HandoffResult } from "./daemon";
+import { ProfileDirectory, isBrowserPartition, type ProfileFacts } from "./profile-directory";
 import { decideHandoff, handoffCopy, type DaemonWork } from "./handoff-policy";
 import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, resolveHandoffMode, type DaemonState } from "@realm/contracts";
 import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
 import { confirmQuitCopy, decideQuit } from "./quit-policy";
-import { NOTIFICATIONS_DESKTOP_KEY } from "@realm/contracts";
+import { NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
-import { createBrowserPane, governBrowserDownloads, type BrowserPane } from "./browser-pane";
+import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { refuseCapture } from "./capture-guard";
-import { BlockedDownloads, DownloadGovernor, retryBlockedDownload } from "./downloads";
-import type { BrowserPaneHost, ViewRect } from "./browser-host";
+import { viewNavigationAllowed } from "./app-views";
+import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
+import { nextZoomFactor, searchUrl, type ViewRect } from "./browser-host";
+import { clearBrowsingData, saveBrowserScreenshot } from "./browser-controls";
 import { BrowserAgentHost } from "./browser-agent-host";
 import { AppDriveHost } from "./app-drive";
+import { registerAppPick } from "./app-pick";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
 import { ComputerUseHelper, axHelperPath } from "./computer-use-helper";
@@ -40,6 +44,20 @@ import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
 import { SecretStore, SecretStoreError } from "./secret-store";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
+import { applyReducedMotion } from "./reduced-motion";
+import { SleepGuard } from "./sleep-guard";
+import { installedEditors, openInEditor } from "./editors";
+import { InstalledApps, applicationDirs } from "./installed-apps";
+import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
+import { registerNativeMenus } from "./native-menu";
+import { attachTextContextMenu } from "./text-context-menu";
+import { appMenuTemplate, pageChords, shouldPageOwn } from "./app-menu";
+import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
+import { WindowRegistry, cascadeFrom } from "./window-registry";
+import { registerFileActions } from "./file-actions";
+import { AppIconStore, registerAppIcon } from "./app-icon";
+import { registerAppearance, savedAppearance } from "./appearance";
+import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
 
@@ -76,6 +94,67 @@ let serverInfo: { port: number; home: string; token: string } | null = null;
 /** RPC over the bridge's socket, for the questions main asks on its own behalf: the tray's counts,
  *  and the window flag the server refuses browser ops by. Null while the bridge is down. */
 let bridgeClient: BridgeClient | null = null;
+
+/** Ask realm-server something: on the bridge when it is up, and on a socket of its own before then —
+ *  the window's first browser panes ask whose they are before the bridge has connected. */
+async function askServer(method: string, params: unknown): Promise<unknown> {
+  if (bridgeClient) return bridgeClient.call(method, params);
+  if (!serverInfo) throw new Error("Realm is still starting up");
+  return callDaemon({ port: serverInfo.port, token: serverInfo.token }, method, params, 5_000);
+}
+
+/**
+ * Profiles as main needs them (profile-directory.ts): each one's browser partition and name, and which
+ * one kept the jar every pane used to share. Asked at launch, again on `profiles.changed`, and on a
+ * miss. A profile that disappears was deleted, and what main holds for it goes with it.
+ */
+const profileDirectory = new ProfileDirectory({
+  fetch: () => askServer("profiles.list", {}),
+  onRemoved: (profile) => forgetProfile(profile),
+});
+
+/** A profile id as the renderer names one. Not a lookup — the store answers an unknown profile with
+ *  nothing — only a guard against a value that is not an id at all. */
+const profileArg = (v: unknown): string => (typeof v === "string" && /^[0-9A-Za-z]{1,64}$/.test(v) ? v : "");
+
+/** Whose a browser pane is: the profile that owns its view's partition — each profile's is its own,
+ *  and the view was made in its space's profile's (`browser:create`). Read off the view itself, so a
+ *  view rebuilt in another profile's jar can never be mistaken for its old profile's. What the passkey
+ *  broker and the fill op read to find a pane's keys and sign-ins: a pane's secrets are its profile's. */
+function profileOfPane(browserId: string): string | null {
+  const partition = paneFor(browserId)?.partitionOf(browserId);
+  return partition ? profileDirectory.byPartition(partition)?.id ?? null : null;
+}
+
+/** Whose browser this is, asked of the server (`browsers.profile`). Null for a pane, space or profile
+ *  that is gone — such a pane gets no view rather than a guess at whose cookies to give it. */
+async function browserOwner(browserId: string): Promise<{ profileId: string; partition: string } | null> {
+  try {
+    const r = (await askServer("browsers.profile", { browserId })) as { profileId?: unknown; partition?: unknown } | null;
+    return typeof r?.profileId === "string" && isBrowserPartition(r.partition) ? { profileId: r.profileId, partition: r.partition } : null;
+  } catch { return null; }
+}
+
+/** Every window titled by the profile it shows, as the names stand now — a rename re-titles it. */
+function retitleWindows(): void {
+  for (const win of windows.all()) {
+    const id = windows.showing(win);
+    const name = id ? profileDirectory.get(id)?.name : null;
+    if (name) win.setTitle(name);
+  }
+}
+
+/** A deleted profile: its panes close, its partition's cookies, site data and cache are cleared — a
+ *  jar nobody can open again must not keep anybody signed in — and its saved sign-ins and passkeys go.
+ *  Copies it shared stay with the profiles they were shared into. */
+function forgetProfile(profile: ProfileFacts): void {
+  // A window opened FOR the profile has nothing left to show; it closes, unless it is the last window.
+  // The first window, which was opened for no profile, stays and moves to another profile's space.
+  for (const win of windows.all()) if (windows.boundTo(win) === profile.id && windows.size > 1) win.close();
+  for (const { pane } of windowPanes.values()) pane.host.destroyPartition(profile.browserPartition);
+  void clearBrowserPartition(profile.browserPartition).catch(() => {});
+  secrets()?.forgetProfile(profile.id);
+}
 
 /**
  * The menu-bar item, up whenever the window is not.
@@ -142,6 +221,27 @@ async function refreshTray() {
   sessionTray.update(counts, sessions);
 }
 
+/** Settings ▸ General ▸ Power's "keep the Mac awake" — held here, in main, because agents keep
+ *  working with no window open, and only main is there for all of it. */
+const sleepGuard = new SleepGuard(powerSaveBlocker);
+
+/** Re-read whether anything is running, on the same event the tray's counts change on. A bridge
+ *  that cannot answer reads as nothing running: with no daemon to ask there are no turns to keep a
+ *  Mac awake for, and holding on to a blocker for an answer we cannot get is how one leaks. */
+async function refreshSleepGuard() {
+  const counts = await daemonCounts();
+  sleepGuard.setWorking(counts?.working ?? 0);
+}
+
+/** The preference, read from the server when main (re)connects: the renderer pushes changes as they
+ *  happen, but a launch with no window, or a daemon restarted under it, has to find out for itself. */
+async function readSleepPreference() {
+  try {
+    const stored = await bridgeClient?.call("settings.get", { key: POWER_PREVENT_SLEEP_KEY });
+    sleepGuard.setPreference((stored as { value?: unknown } | null)?.value === true);
+  } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
+}
+
 /** The sessions worth naming in the menu: the ones waiting on an answer first, then the ones working.
  *  An idle session is not a reason to open the app, so it is not in the list. */
 async function trayCandidates(): Promise<TraySession[]> {
@@ -160,24 +260,80 @@ async function trayCandidates(): Promise<TraySession[]> {
 }
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
 let realmHome: string | null = null;
-/** The Realm window, for the things that need it OUTSIDE the renderer's own IPC: whether it is
- *  focused (the desktop-notification gate) and where a toast click sends its row id. Null before
- *  the first window and after the last one closes. */
-let mainWindow: BrowserWindow | null = null;
-/** The window's browser-pane views (Plan 11 W1). Set in createWindow; null before/after. */
-let browserHost: BrowserPaneHost | null = null;
-/** The full pane surface (W3): CDP access + identity for the agent executor. Same lifetime. */
-let browserPane: BrowserPane | null = null;
-/** The agent op executor + its server bridge (W3). The bridge lives as long as the app: it serves
- *  whichever window's views exist, and honestly reports "pane not open" between windows. */
-let agentHost: BrowserAgentHost | null = null;
-/* Realm driving its own window. Its CDP target is `mainWindow`'s own webContents, so unlike the
-   browser executor it holds no per-view state and survives as one instance — `forget()` is what
-   clears the snapshot index when the window it was indexing goes away. */
+/**
+ * Realm's windows (window-registry.ts): one for the first launch, and one more for each profile opened
+ * in a window of its own (Plan 27 Phase 2). Main used to hold a single window and assume it; everything
+ * that needs "the" window outside a renderer's own IPC — the notification gate, a toast click, the tray,
+ * a second launch, Realm driving its own interface — asks the registry for the one used last.
+ */
+const windows = new WindowRegistry<BrowserWindow>();
+/** Each window's browser-pane views (Plan 11 W1), by window id. A view composites into ONE window, so
+ *  an IPC acts on its sender's views, and an agent's op finds the window holding the view it names. */
+const windowPanes = new Map<number, { win: BrowserWindow; pane: BrowserPane }>();
+
+/** The views of the window an IPC came from. */
+function senderPane(sender: WebContents): BrowserPane | null {
+  const win = BrowserWindow.fromWebContents(sender);
+  return win ? windowPanes.get(win.id)?.pane ?? null : null;
+}
+/** The window and views holding a live view for this browser — the sender's, if it holds it, so the
+ *  window a person is acting in always wins. Null when no window has it. */
+function holderOf(browserId: string, sender?: WebContents): { win: BrowserWindow; pane: BrowserPane } | null {
+  const own = sender ? BrowserWindow.fromWebContents(sender) : null;
+  const first = own ? windowPanes.get(own.id) : undefined;
+  if (first?.pane.hasView(browserId)) return first;
+  for (const entry of windowPanes.values()) if (entry.pane.hasView(browserId)) return entry;
+  return null;
+}
+const paneFor = (browserId: string, sender?: WebContents): BrowserPane | null => holderOf(browserId, sender)?.pane ?? null;
+
+/* The element picker over Realm's own window (app-pick.ts): a window says when its person is picking,
+   and asks for the picture of a pick — always the window's OWN capture, and never inside a browser
+   pane's view. Keyed by the window's webContents, which is the only sender it answers. */
+const appPicks = registerAppPick({
+  on: (channel, fn) => ipcMain.on(channel, fn),
+  handle: (channel, fn) => ipcMain.handle(channel, fn),
+  windowOf: (sender) => {
+    const wc = sender as WebContents;
+    const win = BrowserWindow.fromWebContents(wc);
+    if (!win || win.isDestroyed() || win.webContents !== wc) return null;
+    return {
+      key: wc.id,
+      window: {
+        size: () => { const [width = 0, height = 0] = win.getContentSize(); return { width, height }; },
+        views: () => win.contentView.children.filter((v) => v.getVisible()).map((v) => v.getBounds()),
+        zoom: () => wc.getZoomFactor(),
+        capture: async (rect) => {
+          const image = await wc.capturePage(rect);
+          if (image.isEmpty()) return null;
+          // At the display's scale: the bitmap is that many times the DIP size `getSize` reports.
+          const { width, height } = image.getSize();
+          const bitmap = image.toBitmap();
+          const scale = Math.max(1, Math.round(Math.sqrt(bitmap.length / 4 / (width * height))));
+          return { bgra: new Uint8Array(bitmap), width: width * scale, height: height * scale };
+        },
+      },
+    };
+  },
+  save: async ({ bgra, width, height }, name) => {
+    if (!realmHome) throw new Error("Realm is still starting up");
+    const png = nativeImage.createFromBitmap(Buffer.from(bgra), { width, height }).toPNG();
+    return saveTempAttachment(realmHome, name, "image/png", png);
+  },
+});
+
+/* Realm driving its own window. Its CDP target is a window's own webContents — the one the person
+   used last — so unlike the browser executor it holds no per-view state and survives as one instance;
+   `forget()` clears the snapshot index whenever the window it indexes changes or goes away. It stands
+   down while anyone is picking, so an agent's click can never land as the person's pick. */
+let appDriveWindow: number | null = null;
 const appDriveHost = new AppDriveHost({
+  picking: () => appPicks.any(),
   attach: () => {
-    const wc = mainWindow?.webContents;
-    if (!wc || wc.isDestroyed()) return null;
+    const win = BrowserWindow.getFocusedWindow() ?? windows.primary();
+    if (!win || win.isDestroyed()) return null;
+    if (appDriveWindow !== win.id) { appDriveHost.forget(); appDriveWindow = win.id; }
+    const wc = win.webContents;
     try { if (!wc.debugger.isAttached()) wc.debugger.attach("1.3"); } catch { return null; }
     return { send: (method: string, params?: Record<string, unknown>) => wc.debugger.sendCommand(method, params) as Promise<unknown> };
   },
@@ -216,32 +372,37 @@ const computerHost = new ComputerUseHost({
  *  bridge asks it for the `oauth` key at registration, and Settings enrolls into it. Built lazily
  *  because it needs `realmHome`, which arrives with the server's ready line. */
 let secretStore: SecretStore | null = null;
+/** What each pane has saved, for its ⋯ menu's Downloads (Plan 26 W7b). Beside the governor, which
+ *  feeds it: the user's own Save and an approved agent download are both a file this pane put on disk. */
+const savedDownloads = new SavedDownloads(() => Date.now());
 /** The download governor (Plan 23). App-scoped: it owns the partition-wide `will-download` handler,
  *  which is registered once and outlives any window. */
 const downloadGovernor = new DownloadGovernor({
   mkdirp: (dir) => { mkdirSync(dir, { recursive: true }); },
   exists: (p) => existsSync(p),
   now: () => Date.now(),
+  onSaved: (browserId, saved) => savedDownloads.note(browserId, saved),
 });
 /** Plan 23 W4: what the pane's blocked-download bar reads. App-scoped alongside the governor. */
 const blockedDownloads = new BlockedDownloads(() => Date.now());
 
-/** With no explicit application menu, Electron installs its default one, whose File → Close Window
- *  binds ⌘W — and menu accelerators fire in the main process before the renderer ever sees the
- *  keydown, so the renderer's close-pane binding (hotkeys.ts) could never win. Install a menu with
- *  no ⌘W item: app/edit/view roles stay (⌘Q, copy/paste, devtools), the Window menu is rebuilt
- *  without the `close` role. */
+/** The person's keybindings as the renderer last reported them, and the chords they claim. The
+ *  shipped table until the renderer has loaded the file — the menu bar exists before any window. */
+let menuRules: readonly Keybinding[] = DEFAULT_KEYBINDINGS;
+let ownedChords = pageChords(menuRules);
+
+/** The menu bar (app-menu.ts). Its rows are keybinding-catalog commands showing the person's own
+ *  shortcuts; a click runs the command in the focused window's renderer. Rebuilt whenever the
+ *  keybindings change, so the menu never advertises a chord that no longer does what it says. */
 function installMenu() {
-  const darwin = process.platform === "darwin";
-  const template: MenuItemConstructorOptions[] = [
-    ...(darwin ? [{ role: "appMenu" } satisfies MenuItemConstructorOptions] : []),
-    { role: "editMenu" },
-    { role: "viewMenu" },
-    { label: "Window", submenu: [
-      { role: "minimize" }, { role: "zoom" },
-      ...(darwin ? [{ type: "separator" }, { role: "front" }] satisfies MenuItemConstructorOptions[] : []),
-    ] },
-  ];
+  const template = appMenuTemplate({
+    appName: "Realm",
+    rules: menuRules,
+    send: (command) => (BrowserWindow.getFocusedWindow() ?? windows.primary())?.webContents.send("app:command", command),
+    openExternal: (url) => void shell.openExternal(url),
+    developer: !app.isPackaged,
+    darwin: process.platform === "darwin",
+  });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
@@ -257,9 +418,25 @@ if (process.env.REALM_DEVTOOLS_PORT) app.commandLine.appendSwitch("remote-debugg
 // stacked over Realm. Cost: some battery while occluded — a workstation-app tradeoff made knowingly.
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
-async function createWindow(info: { port: number; home: string; token: string }) {
+/**
+ * Open a Realm window. With no `profileId` it is the first window, which shows whichever profile its
+ * saved space is in; with one it is that profile's window (Plan 27 Phase 2), told so on its command
+ * line (`window.realm.profileId`) so its first paint is already that profile's.
+ */
+async function createWindow(info: { port: number; home: string; token: string }, profileId: string | null = null) {
+  // Where it was left (window-state.ts) — each profile window its own place. The primary display
+  // first: a place that can no longer be reached is replaced by the saved size, centred there. A
+  // profile window with no place yet opens just off the window it was opened from.
+  const windowStateFile = join(app.getPath("userData"), windowStateFileName(profileId));
+  const savedWindow = readWindowState(windowStateFile) ?? (profileId !== null ? cascadeFrom(windows.primary()?.getNormalBounds() ?? null) : null);
+  const primary = screen.getPrimaryDisplay();
+  const place = restoredBounds(savedWindow,
+    [primary.workArea, ...screen.getAllDisplays().filter((d) => d.id !== primary.id).map((d) => d.workArea)],
+    { width: 1400, height: 900, minWidth: 900, minHeight: 600 });
   const win = new BrowserWindow({
-    width: 1400, height: 900, minWidth: 900, minHeight: 600,
+    ...(place.center ? { width: place.width, height: place.height, center: true }
+      : { x: place.x, y: place.y, width: place.width, height: place.height }),
+    minWidth: 900, minHeight: 600,
     // y:14 centres the ~14px lights in a 40px strip, and the renderer keeps every strip they can land
     // in at 40px for exactly that reason: .sb-head with the sidebar open, and with it collapsed the
     // first pane's .panel-bar (or the group bar, which is raised to 40px in that one state). One
@@ -277,8 +454,15 @@ async function createWindow(info: { port: number; home: string; token: string })
       : { backgroundColor: "#17181a" }),
     // sandbox: false because electron-vite emits an ESM preload (.mjs), which Electron only loads unsandboxed.
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
-      additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`, `--realm-token=${info.token}`] },
+      additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`, `--realm-token=${info.token}`,
+        ...(profileId !== null ? [`--realm-profile=${profileId}`] : [])] },
   });
+  windows.add(win, profileId);
+  win.on("focus", () => windows.focused(win));
+  // The title is the profile's name — what the Window menu, Mission Control and the Dock list the
+  // window by — and main sets it, so the page's own <title> does not put "Realm" back over it.
+  win.on("page-title-updated", (e) => e.preventDefault());
+  if (profileId !== null) win.setTitle(profileDirectory.get(profileId)?.name ?? "Realm");
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url);
     return { action: "deny" };
@@ -289,98 +473,178 @@ async function createWindow(info: { port: number; home: string; token: string })
     const inApp = devOrigin ? url === devOrigin || url.startsWith(`${devOrigin}/`) : url.startsWith("file://");
     if (!inApp) e.preventDefault();
   });
+  // …and keep a view an MCP server drew inside its own frame's origin (app-views.ts).
+  win.webContents.on("will-frame-navigate", (e) => {
+    if (!e.isMainFrame && !viewNavigationAllowed(e.frame?.url ?? "", e.url)) e.preventDefault();
+  });
+  // The views go in before the page loads: a restored browser pane asks for its view as soon as the
+  // renderer boots, and a window with no pane surface yet would have nowhere to put it.
+  const pane = createBrowserPane(win, (paneId, cdp) => passkeys.install(paneId, cdp)); // destroys its views on win "closed" itself
+  windowPanes.set(win.id, { win, pane });
+  pane.onViewDestroyed((id) => { agentHost.release(id); passkeys.release(id); });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
-  mainWindow = win;
+  if (savedWindow?.fullScreen) win.setFullScreen(true);
+  else if (savedWindow?.maximized) win.maximize();
+  trackWindowState(win, windowStateFile);
+  wireKeyWindow(win);
+  attachTextContextMenu(win.webContents);
   // Replay whatever the server's health last was. A window created after the event — reopened from
   // the tray, or the first one on a launch that adopted a stale daemon — has heard nothing yet.
   if (lastDaemonState) win.webContents.send("daemon:state", lastDaemonState);
-  // Native trackpad phases for the space swiper (macOS; optional helper).
+  // Native trackpad phases for the rubber band at a scroller's ends (macOS; optional helper).
   const phases = startScrollPhaseStream(win);
-  /**
-   * Passkeys (passkeys.ts). Electron gives a pane Chromium's WebAuthn API and no authenticator behind
-   * it, which is what a site reports as partial passkey support; the broker puts one there, holds the
-   * private keys in the same Keychain-sealed store the saved sign-ins live in, and puts Touch ID in
-   * front of every use.
-   *
-   * The reach into the store is a bag of bound methods rather than the store itself, for the reason
-   * the agent host's `secrets` is: nothing here can call `exportOauthKey`, and there is no key export
-   * for passkeys to call in the first place.
-   */
-  const passkeys = new PasskeyBroker({
-    pageUrl: (paneId) => browserPane?.pageState(paneId)?.url ?? null,
-    hasPasskeyFor: (rpId) => secrets()?.hasPasskeyFor(rpId) ?? false,
-    withPasskeysFor: async (rpId, kind, use) =>
-      secrets()?.withPasskeysFor(rpId, kind, use) ?? { ok: false, refused: "no_passkey" },
-    recordPasskey: (input) => { secrets()?.recordPasskey(input); },
-    notePasskeyUse: (credentialId, signCount) => { secrets()?.notePasskeyUse(credentialId, signCount); },
-    // Biometrics only, like every other presence check here: `promptTouchID` has no password
-    // fallback, so a Mac without a sensor is told so rather than shown a prompt that cannot pass.
-    canPromptPresence: () => process.platform === "darwin" && systemPreferences.canPromptTouchID(),
-    notify: (notice) => {
-      if (!win.isDestroyed()) win.webContents.send("realm:browser-passkey", notice);
-    },
-    audit: (entry) => secrets()?.audit(entry),
-    now: () => Date.now(),
+  const id = win.id;
+  // A reload or a closed window ends a pick its page can no longer finish.
+  const pickKey = win.webContents.id;
+  win.webContents.on("did-navigate", () => appPicks.set(pickKey, false));
+  win.on("closed", () => {
+    appPicks.set(pickKey, false);
+    phases.stop();
+    windows.remove(win);
+    windowPanes.delete(id);
+    if (appDriveWindow === id) { appDriveHost.forget(); appDriveWindow = null; }
   });
-  const pane = createBrowserPane(win, (paneId, cdp) => passkeys.install(paneId, cdp)); // destroys its views on win "closed" itself
-  browserPane = pane;
-  browserHost = pane.host;
-  // The agent executor (W3): drives the pane's views over in-process CDP for realm-server's
-  // realm-browser tools. Buffers and snapshot-diff state die with each view.
-  const host = new BrowserAgentHost({
-    attach: (id) => pane.attachCdp(id),
-    hasView: (id) => pane.hasView(id),
-    touch: (id) => pane.host.touch(id),
-    navigate: (id, url) => pane.host.navigate(id, url),
-    pageState: (id) => pane.pageState(id),
-    // The fill op's only reach into the store. Passed as an object of bound methods rather than the
-    // store itself, so the executor host cannot reach `exportOauthKey` or anything added later.
-    secrets: {
-      listCredentials: () => secrets()?.listCredentials() ?? [],
-      getCredential: (id) => secrets()?.getCredential(id) ?? null,
-      withCredentialValue: async (id, use) => secrets()?.withCredentialValue(id, use) ?? { ok: false, refused: "no_credential" },
-      audit: (entry) => secrets()?.audit(entry),
-    },
-    downloads: downloadGovernor,
-    // The `upload` op's drop route, and nothing else. The path is already resolved, symlink-checked,
-    // confined and user-approved by the time it reaches here — realm-server did all of that before
-    // it raised the permission card — so this reads exactly what it was handed and decides nothing.
-    readFile: async (path) => new Uint8Array(await readFile(path)),
-  });
-  pane.onViewDestroyed((id) => { host.release(id); passkeys.release(id); });
-  agentHost = host;
-  // Downloads on the browser partition are DEFAULT-DENY (Plan 11 W3), narrowed by Plan 23 to let
-  // through exactly those covered by a live one-shot grant from an approved `browser_download`.
-  // Everything else is still cancelled, in every permission mode.
-  governBrowserDownloads({
-    browserIdFor: (wcId) => browserPane?.browserIdForWebContents(wcId) ?? null,
-    decide: (browserId, item) => downloadGovernor.handle(browserId, item),
-    onBlocked: (wcId, url, reason, filename) => {
-      const id = browserPane?.browserIdForWebContents(wcId);
-      if (id) {
-        agentHost?.noteBlockedDownload(id, url);
-        // W4: remember it so the pane can say so and offer to fetch it. A download the user started
-        // and that vanished without a word is the papercut this removes.
-        const entry = blockedDownloads.note(id, url, filename);
-        const win = BrowserWindow.getAllWindows()[0];
-        if (entry && win && !win.isDestroyed()) win.webContents.send("realm:browser-download-blocked", { browserId: id, blocked: entry });
-      }
-      console.error(`[browser-agent] download blocked (${reason})${id ? ` (browser ${id})` : ""}: ${url}`);
-    },
-  });
-  win.on("closed", () => { phases.stop(); mainWindow = null; browserHost = null; browserPane = null; agentHost = null; appDriveHost.forget(); });
 }
+
+/**
+ * Passkeys (passkeys.ts). Electron gives a pane Chromium's WebAuthn API and no authenticator behind
+ * it, which is what a site reports as partial passkey support; the broker puts one there, holds the
+ * private keys in the same Keychain-sealed store the saved sign-ins live in, and puts Touch ID in
+ * front of every use. One broker for every window: a pane is named by its browser id, which is
+ * unique across windows, and its keys are its PROFILE's.
+ *
+ * The reach into the store is a bag of bound methods rather than the store itself, for the reason
+ * the agent host's `secrets` is: nothing here can call `exportOauthKey`, and there is no key export
+ * for passkeys to call in the first place.
+ */
+const passkeys = new PasskeyBroker({
+  pageUrl: (paneId) => paneFor(paneId)?.pageState(paneId)?.url ?? null,
+  // A pane's passkeys are its profile's. A pane main has no profile for has none.
+  hasPasskeyFor: (paneId, rpId) => {
+    const profileId = profileOfPane(paneId);
+    return profileId ? secrets()?.hasPasskeyFor(profileId, rpId) ?? false : false;
+  },
+  withPasskeysFor: async (paneId, rpId, kind, use) => {
+    const profileId = profileOfPane(paneId);
+    return (profileId ? await secrets()?.withPasskeysFor(profileId, rpId, kind, use) : null) ?? { ok: false, refused: "no_passkey" };
+  },
+  recordPasskey: (paneId, input) => {
+    const profileId = profileOfPane(paneId);
+    if (profileId) secrets()?.recordPasskey(profileId, input);
+  },
+  notePasskeyUse: (paneId, credentialId, signCount) => {
+    const profileId = profileOfPane(paneId);
+    if (profileId) secrets()?.notePasskeyUse(profileId, credentialId, signCount);
+  },
+  // Biometrics only, like every other presence check here: `promptTouchID` has no password
+  // fallback, so a Mac without a sensor is told so rather than shown a prompt that cannot pass.
+  canPromptPresence: () => process.platform === "darwin" && systemPreferences.canPromptTouchID(),
+  // To the window holding the pane, which is the one whose bar can say why.
+  notify: (notice) => {
+    const win = holderOf(notice.browserId)?.win;
+    if (win && !win.isDestroyed()) win.webContents.send("realm:browser-passkey", notice);
+  },
+  audit: (entry) => secrets()?.audit(entry),
+  now: () => Date.now(),
+});
+
+/**
+ * The agent executor (W3): drives the panes' views over in-process CDP for realm-server's
+ * realm-browser tools. One for every window — each op names a browser, and the executor finds the
+ * window holding its view; buffers and snapshot-diff state die with each view. Between windows it
+ * honestly reports "pane not open".
+ */
+const agentHost = new BrowserAgentHost({
+  attach: (id) => paneFor(id)?.attachCdp(id) ?? null,
+  hasView: (id) => paneFor(id) !== null,
+  touch: (id) => paneFor(id)?.host.touch(id),
+  navigate: (id, url) => paneFor(id)?.host.navigate(id, url) ?? null,
+  pageState: (id) => paneFor(id)?.pageState(id) ?? null,
+  // The fill op's only reach into the store. Passed as an object of bound methods rather than the
+  // store itself, so the executor host cannot reach `exportOauthKey` or anything added later.
+  secrets: {
+    listCredentials: (profileId) => secrets()?.listCredentials(profileId) ?? [],
+    getCredential: (profileId, id) => secrets()?.getCredential(profileId, id) ?? null,
+    withCredentialValue: async (profileId, id, use) => secrets()?.withCredentialValue(profileId, id, use) ?? { ok: false, refused: "no_credential" },
+    // No store means no place to keep a password, which is a different answer from "nothing is
+    // enrolled" — and the only safe one, since Realm must not type a secret it cannot save.
+    withGeneratedCredentialValue: async (profileId, input, use) =>
+      secrets()?.withGeneratedCredentialValue(profileId, input, use) ?? { ok: false, refused: "no_store" },
+    audit: (entry) => secrets()?.audit(entry),
+  },
+  profileOf: (id) => profileOfPane(id),
+  downloads: downloadGovernor,
+  // The `upload` op's drop route, and nothing else. The path is already resolved, symlink-checked,
+  // confined and user-approved by the time it reaches here — realm-server did all of that before
+  // it raised the permission card — so this reads exactly what it was handed and decides nothing.
+  readFile: async (path) => new Uint8Array(await readFile(path)),
+});
+
+/** The browser a download came from, in whichever window holds its view. */
+function browserIdOfWebContents(wcId: number): string | null {
+  for (const { pane } of windowPanes.values()) {
+    const id = pane.browserIdForWebContents(wcId);
+    if (id) return id;
+  }
+  return null;
+}
+/**
+ * Downloads on every profile's partition are DEFAULT-DENY (Plan 11 W3), narrowed by Plan 23 to let
+ * through exactly those covered by a live one-shot grant from an approved `browser_download`.
+ * Everything else is still cancelled, in every permission mode. One policy, applied to each partition
+ * the first time a view is made in it (`governBrowserDownloads`).
+ */
+const downloadPolicy: DownloadPolicy = {
+  browserIdFor: browserIdOfWebContents,
+  decide: (browserId, item) => downloadGovernor.handle(browserId, item),
+  onBlocked: (wcId, url, reason, filename) => {
+    const id = browserIdOfWebContents(wcId);
+    if (id) {
+      agentHost.noteBlockedDownload(id, url);
+      // W4: remember it so the pane can say so and offer to fetch it. A download the user started
+      // and that vanished without a word is the papercut this removes. Told to the window holding
+      // the pane — the one whose download bar can show it.
+      const entry = blockedDownloads.note(id, url, filename);
+      const win = holderOf(id)?.win;
+      if (entry && win && !win.isDestroyed()) win.webContents.send("realm:browser-download-blocked", { browserId: id, blocked: entry });
+    }
+    console.error(`[browser-agent] download blocked (${reason})${id ? ` (browser ${id})` : ""}: ${url}`);
+  },
+};
 
 // Browser pane (Plan 11 W1): the renderer drives the native WebContentsViews over this surface.
 // Mutations are invokes; the per-frame bounds sync is a plain send (no reply to wait on).
-ipcMain.handle("browser:create", (_e, id: string, url: string, allowlist: string[] | null) => { browserHost?.create(id, url, allowlist); });
-ipcMain.handle("browser:destroy", (_e, id: string) => { browserHost?.destroy(id); });
+/* A view is made in its PROFILE's partition — the space's profile, asked of realm-server each time a
+   pane mounts — so a space moved to another profile brings its panes to that profile's jar, and the
+   renderer has no say in whose cookies a pane gets. */
+ipcMain.handle("browser:create", async (e, id: string, url: string, allowlist: string[] | null) => {
+  const browserId = String(id);
+  const owner = await browserOwner(browserId);
+  if (!owner) throw new Error("This browser's space or profile is gone, so it has nowhere to open.");
+  const pane = senderPane(e.sender);
+  if (!pane) return;
+  // Known to main before the view is made, so the pane's profile can be read off its partition from
+  // the first request its page makes — a profile made a moment ago may not be in the last answer yet.
+  await profileDirectory.resolve(owner.profileId);
+  // A view composites into ONE window. The same browser asked for in another window — its profile
+  // moved windows — is closed where it was before it opens here.
+  for (const other of windowPanes.values()) if (other.pane !== pane) other.pane.host.destroy(browserId);
+  governBrowserDownloads(owner.partition, downloadPolicy);
+  pane.host.create(browserId, url, allowlist, owner.partition);
+});
+/* The browser was closed or deleted: no window keeps a view of it. */
+ipcMain.handle("browser:destroy", (_e, id: string) => { for (const { pane } of windowPanes.values()) pane.host.destroy(String(id)); });
 // The pane went away without the browser being closed — a space or pane-group switch. The view
 // keeps running, hidden, until the pane comes back or the off-screen budget evicts it.
-ipcMain.handle("browser:retain", (_e, id: string) => { browserHost?.retain(id); });
-ipcMain.handle("browser:navigate", (_e, id: string, input: string): string | null => browserHost?.navigate(id, input) ?? null);
-ipcMain.handle("browser:nav", (_e, id: string, action: "back" | "forward" | "reload" | "stop") => { browserHost?.navAction(id, action); });
+ipcMain.handle("browser:retain", (e, id: string) => { senderPane(e.sender)?.host.retain(String(id)); });
+ipcMain.handle("browser:navigate", (e, id: string, input: string): string | null => paneFor(String(id), e.sender)?.host.navigate(String(id), input) ?? null);
+ipcMain.handle("browser:nav", (e, id: string, action: "back" | "forward" | "reload" | "stop") => { paneFor(String(id), e.sender)?.host.navAction(String(id), action); });
+/** The suggestion list's "Search the web" row (Plan 26 W7c): the typed text as a search, even when it
+ *  looks like an address — which is the only reason to pick that row over Return. The same allowlist
+ *  and normalization as every other navigation, because it goes through the same `navigate`. */
+ipcMain.handle("browser:search", (e, id: string, query: unknown): string | null =>
+  typeof query === "string" && query.trim() !== "" ? paneFor(String(id), e.sender)?.host.navigate(String(id), searchUrl(query.trim())) ?? null : null);
 /** How many rows a back menu offers. Safari shows a dozen or so and then stops; a trail of 300 is a
  *  scroll, not a menu, and nobody navigates by it. */
 const HISTORY_MENU_MAX = 12;
@@ -398,8 +662,28 @@ const HISTORY_MENU_MAX = 12;
  * `x`/`y` come from the renderer because only it knows where the button is. Window-relative, which is
  * what `popup` takes.
  */
+registerKeyWindowQuery();
+registerNativeMenus();
+/* Every chord the person's keybindings claim belongs to the page, in every webContents — the
+   window's renderer, where the keybinding layer's `when` clauses decide, and a browser pane's page,
+   which keeps ⌘B for its own bold. Decided per keystroke, so copy, paste, undo, quit and the rest
+   still go through the menu as AppKit expects. (app-menu.ts says why `registerAccelerator: false`
+   cannot do this on macOS.) */
+app.on("web-contents-created", (_e, wc) => {
+  wc.on("before-input-event", (_ev, input) => wc.setIgnoreMenuShortcuts(shouldPageOwn(input, ownedChords)));
+});
+/** The renderer's keybindings, whenever they load or change: the menu shows them and the page owns
+ *  their chords. Validated, because a malformed list would otherwise decide which keys reach the app. */
+ipcMain.on("menu:keybindings", (_e, rules: unknown) => {
+  const parsed = KeybindingSchema.array().safeParse(rules);
+  if (!parsed.success) return;
+  menuRules = parsed.data;
+  ownedChords = pageChords(menuRules);
+  if (app.isReady()) installMenu();
+});
 ipcMain.handle("browser:history-menu", (e, id: string, dir: "back" | "forward", at: { x: number; y: number }) => {
-  const trail = browserHost?.historyTrail(id, dir) ?? [];
+  const host = paneFor(String(id), e.sender)?.host;
+  const trail = host?.historyTrail(id, dir) ?? [];
   if (trail.length === 0) return;
   const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
   const template: MenuItemConstructorOptions[] = trail.slice(0, HISTORY_MENU_MAX).map((row) => ({
@@ -407,12 +691,113 @@ ipcMain.handle("browser:history-menu", (e, id: string, dir: "back" | "forward", 
     // menu is a list of places, so each row is cut to something scannable rather than allowed to set
     // the menu's width from the worst page in the trail.
     label: row.label.length > 64 ? `${row.label.slice(0, 63)}…` : row.label,
-    click: () => browserHost?.goToIndex(id, row.index),
+    click: () => host?.goToIndex(id, row.index),
   }));
   Menu.buildFromTemplate(template).popup({ window: win, x: Math.round(at.x), y: Math.round(at.y) });
 });
-ipcMain.handle("browser:set-allowlist", (_e, id: string, allowlist: string[] | null) => { browserHost?.setAllowlist(id, allowlist); });
-ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, visible: boolean) => { browserHost?.setBounds(id, rect, dpr, visible); });
+ipcMain.handle("browser:set-allowlist", (e, id: string, allowlist: string[] | null) => { paneFor(String(id), e.sender)?.host.setAllowlist(String(id), allowlist); });
+// Bounds are a fact about the SENDER's layout: only its own view is moved, never another window's.
+ipcMain.on("browser:set-bounds", (e, id: string, rect: ViewRect, dpr: number, visible: boolean) => { senderPane(e.sender)?.host.setBounds(String(id), rect, dpr, visible); });
+
+
+/**
+ * The browser pane's ⋯ menu (Plan 26 W7b). The renderer builds the menu; these are the facts it is
+ * built from — the page's zoom and trail, what the pane blocked and saved — read from main the moment
+ * it opens, because they are webContents and download state, and copying them to the renderer on every
+ * page load for a menu most people never open would be a broadcast per navigation.
+ */
+ipcMain.handle("browser:menu-state", (e, id: string): BrowserMenuState => {
+  const browserId = String(id);
+  const browserHost = paneFor(browserId, e.sender)?.host;
+  const zoom = browserHost?.zoom(browserId, null) ?? 1;
+  const own = profileOfPane(browserId);
+  return {
+    zoom,
+    canZoomIn: nextZoomFactor(zoom, "in") > zoom,
+    canZoomOut: nextZoomFactor(zoom, "out") < zoom,
+    back: (browserHost?.historyTrail(browserId, "back") ?? []).slice(0, HISTORY_MENU_MAX),
+    forward: (browserHost?.historyTrail(browserId, "forward") ?? []).slice(0, HISTORY_MENU_MAX),
+    blocked: blockedDownloads.list(browserId),
+    saved: savedDownloads.list(browserId),
+    // Every profile but the pane's own; none while main does not know whose pane this is.
+    shareTargets: own ? profileDirectory.known().filter((p) => p.id !== own).map((p) => ({ id: p.id, name: p.name })) : [],
+  };
+});
+ipcMain.handle("browser:go-to-index", (e, id: string, index: unknown) => {
+  if (Number.isInteger(index)) paneFor(String(id), e.sender)?.host.goToIndex(String(id), index as number);
+});
+ipcMain.handle("browser:find", (e, id: string, query: unknown, step: unknown) => {
+  paneFor(String(id), e.sender)?.host.find(String(id), typeof query === "string" ? query : "", step === "next" || step === "previous" ? step : "start");
+});
+ipcMain.handle("browser:stop-find", (e, id: string) => { paneFor(String(id), e.sender)?.host.stopFind(String(id)); });
+ipcMain.handle("browser:zoom", (e, id: string, step: unknown): number =>
+  paneFor(String(id), e.sender)?.host.zoom(String(id), step === "in" || step === "out" || step === "reset" ? step : null) ?? 1);
+ipcMain.handle("browser:print", (e, id: string) => { paneFor(String(id), e.sender)?.host.print(String(id)); });
+/** Device size (Plan 26 W7e): a preset id, or null to fit the pane. Anything else reads as null. */
+ipcMain.handle("browser:set-device", (e, id: string, preset: unknown) => {
+  paneFor(String(id), e.sender)?.host.setDevice(String(id), preset === "phone" || preset === "tablet" || preset === "desktop" ? preset : null);
+});
+/**
+ * Take a screenshot: the VIEW's own capture, written into the space's `screenshots/` folder. `dir` is
+ * the server's answer (`browsers.screenshotDir`), passed through like the download bar's — the
+ * renderer never composes where a file goes.
+ */
+ipcMain.handle("browser:screenshot", async (e, id: string, dir: unknown): Promise<BrowserScreenshotSaved> => {
+  const pane = paneFor(String(id), e.sender);
+  if (!pane) return { ok: false, error: "The browser pane is not open." };
+  const browserId = String(id);
+  return saveBrowserScreenshot({
+    capture: () => pane.capture(browserId),
+    pageUrl: pane.pageState(browserId)?.url ?? "",
+    dir: typeof dir === "string" ? dir : "",
+    now: () => new Date(),
+    mkdirp: (d) => { mkdirSync(d, { recursive: true }); },
+    exists: (p) => existsSync(p),
+    writeFile: (p, bytes) => writeFile(p, bytes),
+  });
+});
+/**
+ * Clear browsing data for the PANE's profile, behind the OS's own confirm — a sheet on the window, its
+ * copy in browser-controls.ts. Cancel is the default button: this signs every one of the profile's
+ * panes out, and Return should not. Answers whose it cleared, so the renderer forgets that profile's
+ * history and no other.
+ */
+ipcMain.handle("browser:clear-data", async (e, id: unknown): Promise<{ cleared: boolean; profileId: string | null }> => {
+  const browserId = String(id);
+  const partition = paneFor(browserId, e.sender)?.partitionOf(browserId) ?? null;
+  const profileId = profileOfPane(browserId);
+  if (!partition || !profileId) return { cleared: false, profileId: null };
+  const profile = await profileDirectory.resolve(profileId);
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const { cleared } = await clearBrowsingData({
+    profileName: profile?.name ?? "this profile",
+    confirm: async (copy) => {
+      const options = { type: "warning" as const, buttons: [copy.clear, copy.cancel], defaultId: 1, cancelId: 1, message: copy.message, detail: copy.detail };
+      return (win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)).response;
+    },
+    clear: () => clearBrowserPartition(partition),
+  });
+  return { cleared, profileId };
+});
+
+/**
+ * The ⋯ menu's "Share this site's sign-in with ▸ <profile>": copy the cookies the pane's page signs in
+ * with into that profile's partition (cookie-share.ts). The pane keeps its own. The page is the VIEW's
+ * own url, never anything the renderer says it is on.
+ */
+ipcMain.handle("browser:share-signin", async (e, id: unknown, toProfileId: unknown): Promise<BrowserSignInShare> => {
+  const browserId = String(id);
+  const pane = paneFor(browserId, e.sender);
+  const from = pane?.partitionOf(browserId) ?? null;
+  const pageUrl = pane?.pageState(browserId)?.url ?? "";
+  const target = await profileDirectory.resolve(profileArg(toProfileId));
+  if (!from) return { ok: false, error: "This browser pane is not open." };
+  if (!target) return { ok: false, error: "That profile no longer exists." };
+  if (target.browserPartition === from) return { ok: false, error: `This pane is already ${target.name}'s.` };
+  const shared = await shareSiteCookies(from, target.browserPartition, pageUrl).catch(() => null);
+  if (!shared) return { ok: false, error: "This page is not on a site, so it has no sign-in to share." };
+  return { ok: true, profileName: target.name, host: shared.host, copied: shared.copied };
+});
 
 /**
  * The user's element picker. `browser:pick-element` does not resolve until the user clicks something
@@ -420,14 +805,37 @@ ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, v
  * pending for as long as a person takes to aim. Kept off the agent bridge on purpose — see
  * `BrowserAgentHost.pickElement`.
  */
-ipcMain.handle("browser:pick-element", (_e, id: string, accent?: string) => agentHost?.pickElement(String(id), typeof accent === "string" ? accent : undefined) ?? null);
-ipcMain.handle("browser:cancel-pick", (_e, id: string) => { agentHost?.cancelPick(String(id)); });
+ipcMain.handle("browser:pick-element", (_e, id: string, accent?: string) => agentHost.pickElement(String(id), typeof accent === "string" ? accent : undefined));
+ipcMain.handle("browser:cancel-pick", (_e, id: string) => { agentHost.cancelPick(String(id)); });
+
+/**
+ * Annotate (Plan 26 W7d): the picker kept armed, pending until the user presses Send in the page's
+ * own toolbar or ends the session. A send's capture — the page with its pins drawn — is written into
+ * the space's screenshots/ folder here, beside the menu's own screenshots, so the pane is handed a
+ * file it can attach rather than bytes. `dir` is the server's `browsers.screenshotDir`, passed on.
+ */
+ipcMain.handle("browser:annotate", async (_e, id: string, accent: unknown, dir: unknown): Promise<BrowserAnnotateResult> => {
+  const host = agentHost;
+  const browserId = String(id);
+  const pageUrl = paneFor(browserId)?.pageState(browserId)?.url ?? "";
+  const r = await host.annotate(browserId, typeof accent === "string" ? accent : undefined);
+  if (r.outcome !== "sent") return r;
+  const png = r.png;
+  const shot = png && typeof dir === "string"
+    ? await saveBrowserScreenshot({
+      capture: async () => png, pageUrl, dir, now: () => new Date(), nameSuffix: "-annotations",
+      mkdirp: (d) => { mkdirSync(d, { recursive: true }); }, exists: (p) => existsSync(p), writeFile: (p, bytes) => writeFile(p, bytes),
+    })
+    : null;
+  return { outcome: "sent", elements: r.elements, shot: shot?.ok ? { path: shot.path, name: shot.name, size: shot.size } : null };
+});
+ipcMain.handle("browser:cancel-annotate", (_e, id: string) => { agentHost.cancelAnnotate(String(id)); });
 
 /** The renderer's theme accent, for the marks main draws INSIDE a driven page (Plan 25 W1). Not per
- *  browser id: it is one value per window, and this process has one agent host per window. */
+ *  browser id: it is one value for the app — one theme — and one agent host serves every window. */
 ipcMain.on("browser:set-accent", (_e, accent: string) => {
   if (typeof accent !== "string") return;
-  agentHost?.setAccent(accent);
+  agentHost.setAccent(accent);
   // The same accent for Realm's own marks: one theme, one colour for "an agent is doing this",
   // whether the thing being driven is a page or the app around it.
   appDriveHost.setAccent(accent);
@@ -471,6 +879,9 @@ function secrets(): SecretStore | null {
         : Promise.resolve(false),
     now: () => Date.now(),
     newId,
+    // Sign-ins saved before they were a profile's own belong to the profile that kept the shared
+    // browser partition — the one their cookies stayed with.
+    defaultProfileId: () => profileDirectory.defaultProfileId(),
   });
   return secretStore;
 }
@@ -496,8 +907,8 @@ function secrets(): SecretStore | null {
  */
 ipcMain.handle("browser:blocked-downloads", (_e, browserId: string) => blockedDownloads.list(String(browserId)));
 ipcMain.handle("browser:dismiss-download", (_e, browserId: string, id: string) => { blockedDownloads.dismiss(String(browserId), String(id)); });
-ipcMain.handle("browser:save-download", async (_e, browserId: string, id: string, dir: string) => {
-  const pane = browserPane;
+ipcMain.handle("browser:save-download", async (e, browserId: string, id: string, dir: string) => {
+  const pane = paneFor(String(browserId), e.sender);
   if (!pane) return { ok: false, error: "the browser pane is not open" };
   // Same absolute-path requirement the agent op has: this writes to disk, and a relative path would
   // resolve against whatever cwd Electron happens to have.
@@ -509,7 +920,10 @@ ipcMain.handle("browser:save-download", async (_e, browserId: string, id: string
   });
 });
 
-ipcMain.handle("credentials:list", (): BrowserCredential[] => secrets()?.listCredentials() ?? []);
+ipcMain.handle("credentials:list", (_e, profileId: unknown): BrowserCredential[] => {
+  const pid = profileArg(profileId);
+  return pid ? secrets()?.listCredentials(pid) ?? [] : [];
+});
 ipcMain.handle("credentials:status", () => ({
   available: secrets()?.available ?? false,
   // Surfaced so Settings can say plainly that this Mac cannot fill, rather than letting the user
@@ -517,21 +931,36 @@ ipcMain.handle("credentials:status", () => ({
   canPromptTouchID: process.platform === "darwin" && systemPreferences.canPromptTouchID(),
   presenceTtlMs: secrets()?.presenceTtlMs ?? 0,
 }));
-ipcMain.handle("credentials:add", (_e, input: unknown): BrowserCredential => {
+ipcMain.handle("credentials:add", async (_e, profileId: unknown, input: unknown): Promise<BrowserCredential> => {
   const store = secrets();
   if (!store) throw new Error("Realm is still starting up; try saving the sign-in again in a moment");
+  // Saved into a profile that exists, or not at all: a sign-in under an id nobody holds is one no
+  // pane will ever be offered.
+  const owner = await profileDirectory.resolve(profileArg(profileId));
+  if (!owner) throw new Error("That profile no longer exists, so the sign-in was not saved.");
   const parsed = BrowserCredentialInputSchema.safeParse(input);
   // The zod error is NOT forwarded: it echoes the parsed input, and the parsed input is the password.
   if (!parsed.success) throw new Error("That sign-in is missing something — check the address and password fields.");
   try {
-    return store.addCredential(parsed.data);
+    return store.addCredential(owner.id, parsed.data);
   } catch (e) {
     // Same reason. `SecretStoreError` messages are written for a person and carry no input; anything
     // else is replaced wholesale rather than stringified.
     throw new Error(e instanceof SecretStoreError ? e.message : "That sign-in could not be saved.");
   }
 });
-ipcMain.handle("credentials:remove", (_e, id: string): boolean => secrets()?.removeCredential(String(id)) ?? false);
+ipcMain.handle("credentials:remove", (_e, profileId: unknown, id: string): boolean => secrets()?.removeCredential(profileArg(profileId), String(id)) ?? false);
+/**
+ * Settings ▸ Sign-ins' Share with ▸ <profile>: COPY one of this profile's sign-ins into another. The
+ * original stays. Main answers with the profile's name, so the row can say what happened in words the
+ * person chose. Nothing here returns a value — the copy is ciphertext moved inside the store.
+ */
+ipcMain.handle("credentials:share", async (_e, profileId: unknown, id: unknown, toProfileId: unknown) => {
+  const target = await profileDirectory.resolve(profileArg(toProfileId));
+  if (!target) return { ok: false as const, error: "That profile no longer exists." };
+  const copy = secrets()?.shareCredential(profileArg(profileId), String(id), target.id) ?? null;
+  return copy ? { ok: true as const, profileName: target.name } : { ok: false as const, error: "That sign-in is no longer saved here." };
+});
 
 /**
  * Settings → Sign-ins also lists the passkeys Realm holds, and this is the only way to remove one.
@@ -540,8 +969,19 @@ ipcMain.handle("credentials:remove", (_e, id: string): boolean => secrets()?.rem
  * created by a site asking for one in a pane and the user answering Touch ID — there is nothing for a
  * person to type, and nothing an agent could call to mint one.
  */
-ipcMain.handle("passkeys:list", (): Passkey[] => secrets()?.listPasskeys() ?? []);
-ipcMain.handle("passkeys:remove", (_e, id: string): boolean => secrets()?.removePasskey(String(id)) ?? false);
+ipcMain.handle("passkeys:list", (_e, profileId: unknown): Passkey[] => {
+  const pid = profileArg(profileId);
+  return pid ? secrets()?.listPasskeys(pid) ?? [] : [];
+});
+ipcMain.handle("passkeys:remove", (_e, profileId: unknown, id: string): boolean => secrets()?.removePasskey(profileArg(profileId), String(id)) ?? false);
+/** The passkey half of Share with ▸ <profile>: the key is copied into the other profile's store, and
+ *  both copies count signatures together from then on (`SecretStore.notePasskeyUse`). */
+ipcMain.handle("passkeys:share", async (_e, profileId: unknown, id: unknown, toProfileId: unknown) => {
+  const target = await profileDirectory.resolve(profileArg(toProfileId));
+  if (!target) return { ok: false as const, error: "That profile no longer exists." };
+  const copy = secrets()?.sharePasskey(profileArg(profileId), String(id), target.id) ?? null;
+  return copy ? { ok: true as const, profileName: target.name } : { ok: false as const, error: "That passkey is no longer saved here." };
+});
 ipcMain.handle("credentials:set-presence-ttl", (_e, ms: number): number => secrets()?.setPresenceTtlMs(Number(ms)) ?? 0);
 
 ipcMain.handle("pick-folder", async () => {
@@ -843,15 +1283,19 @@ updater = new RealmUpdater({
       type: "info",
       title: "Realm update ready",
       message: `Realm v${version} is ready to install.`,
-      detail: "Restart now to finish the update, or keep working and install it later from Settings → App.",
+      detail: "Restart now to finish the update, or keep working and install it later from Settings → General.",
       buttons: ["Restart and update", "Later"],
       defaultId: 0,
       cancelId: 1,
     }).then(({ response }) => { if (response === 0) updater.install(); });
   },
+  // Pushed, not polled: a download's progress has to reach the rail's button while the window sits
+  // at the front, which is exactly when nothing else would make the renderer ask.
+  onChange: (status) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send("updates:changed", status); },
 });
 ipcMain.handle("updates:status", () => updater.status());
 ipcMain.handle("updates:check", () => updater.check());
+ipcMain.handle("updates:download", () => updater.download());
 ipcMain.handle("updates:install", () => { updater.install(); });
 
 /**
@@ -870,11 +1314,14 @@ ipcMain.handle("updates:install", () => { updater.install(); });
  */
 const desktopNotifier = new DesktopNotifier({
   supported: () => Notification.isSupported(),
-  windowFocused: () => mainWindow?.isFocused() ?? false,
-  hasWindow: () => mainWindow !== null && !mainWindow.isDestroyed(),
+  // Any Realm window in front counts: the person is looking at Realm, and its own surfaces say it.
+  windowFocused: () => BrowserWindow.getFocusedWindow() !== null,
+  hasWindow: () => windows.size > 0,
   create: (o) => new Notification(o),
+  // The window used last — which is where the row id goes below, so the window raised is the one
+  // that opens the row.
   focusWindow: () => {
-    const win = mainWindow;
+    const win = windows.primary();
     // No window at all: this is the resident's own toast, and a click on it is a request to come
     // back. `reattach` recreates the window; the row id below lands once it exists.
     if (!win) { void reattach(); return; }
@@ -886,7 +1333,7 @@ const desktopNotifier = new DesktopNotifier({
     if (process.platform === "darwin") app.focus({ steal: true });
   },
   activate: (id) => {
-    const win = mainWindow;
+    const win = windows.primary();
     // A click that recreated the window has no renderer listening yet — the send would land nowhere.
     // Waiting for the first paint is the honest fix; `did-finish-load` is when a listener exists.
     if (win && !win.webContents.isLoading()) win.webContents.send("realm:notification-activate", id);
@@ -897,6 +1344,48 @@ const desktopNotifier = new DesktopNotifier({
 ipcMain.handle("daemon:quit-and-stop", () => quitAndStopAll());
 ipcMain.handle("notify:show", (_e, input: DesktopNotificationInput) => desktopNotifier.show(input));
 ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Number(count)); });
+/** Settings ▸ Appearance ▸ Reduce motion, answered on the window that asked — the quick chat is a
+ *  window of its own and keeps its own answer in step by asking at its own boot. */
+ipcMain.handle("motion:set", (e, pref: unknown) => applyReducedMotion(e.sender, pref));
+/** The renderer's half of the sleep preference: the switch's new value, so a change takes effect on
+ *  a turn already running rather than at the next status change. */
+ipcMain.handle("power:prevent-sleep", (_e, on: unknown) => { sleepGuard.setPreference(on === true); });
+/** Settings ▸ General ▸ Open files in, and the transcript's path menu: the editors this Mac has, and
+ *  opening a path that exists in one of them. `existingPath` is the gate Reveal in Finder uses, and it
+ *  is the right one here for the same reason it is loose there: an editor is handed the path as a
+ *  document to show — a folder becomes a workspace — and runs nothing it opens, which is what keeps
+ *  this out of `openablePath`'s mime table. The click is the user's, on a path they can read. */
+ipcMain.handle("editors:list", () => installedEditors());
+// The path as the transcript shows it, resolved the way Reveal resolves it: `~/…` is this account's
+// home and a relative path is the session's working directory's (`base`).
+ipcMain.handle("editors:open", async (_e, id: unknown, path: unknown, base?: unknown): Promise<boolean> => openInEditor(id, await existingPath(path, base)));
+
+/**
+ * The prompter's `@` list, Apps group: what is installed, and each app's own icon (installed-apps.ts).
+ *
+ * `REALM_APPS_DIRS` points the scan at other folders (colon-separated) and drops the Dock order
+ * unless `REALM_DOCK_PLIST` names one: a live check seeds a scratch Applications folder rather than
+ * listing — let alone mentioning — the apps of whoever's Mac it runs on.
+ */
+const installedApps = new InstalledApps({
+  dirs: () => process.env.REALM_APPS_DIRS?.split(":").filter(Boolean) ?? applicationDirs(homedir()),
+  dockPlist: () => (process.env.REALM_APPS_DIRS ? process.env.REALM_DOCK_PLIST ?? null : join(homedir(), "Library", "Preferences", "com.apple.dock.plist")),
+  // A row draws the icon at 16 points, 32 pixels here; past 64 the PNG is scaled down before it
+  // crosses, since a 1024-pixel chunk is all some icons have.
+  toDataUrl: (png, px) => {
+    if (px <= 64) return `data:image/png;base64,${Buffer.from(png).toString("base64")}`;
+    const img = nativeImage.createFromBuffer(Buffer.from(png));
+    return img.isEmpty() ? null : img.resize({ width: 64, height: 64, quality: "best" }).toDataURL();
+  },
+  // An app whose icon lives only in its asset catalog: Quick Look renders a bundle as its icon.
+  fallbackIcon: async (appPath) => {
+    const img = await nativeImage.createThumbnailFromPath(appPath, { width: 64, height: 64 }).catch(() => null);
+    return img && !img.isEmpty() ? img.toDataURL() : null;
+  },
+});
+ipcMain.handle("apps:list", () => installedApps.list());
+ipcMain.handle("apps:icons", (_e, paths: unknown) =>
+  installedApps.icons(Array.isArray(paths) ? paths.filter((p): p is string => typeof p === "string").slice(0, 64) : []));
 
 /** Attachment thumbnails. An attached file can only ever be NAMED in the renderer unless the pixels
  *  get there somehow: the renderer has no filesystem access (contextIsolation), and the page's CSP is
@@ -981,15 +1470,33 @@ ipcMain.handle("files:browse", async (_e, root: unknown, dir: unknown): Promise<
   try { return await browseFolder(root, typeof dir === "string" ? dir : ""); } catch { return null; }
 });
 /** Bigger than a tile's, because this one is meant to be read: a PDF's first page, a spreadsheet's
- *  first rows, a page of source. Same two producers as the tile — see `fileThumbnail`. */
+ *  first rows, a page of source. Same two producers as the tile — see `fileThumbnail`. `page` is the
+ *  media viewer's, which shows the page at the size of the window: 512px blown up to that is a page
+ *  nobody can read. */
 const PREVIEW_PX = 512;
-ipcMain.handle("files:preview", (_e, path: unknown): Promise<string | null> => fileThumbnail(realmHome, path, PREVIEW_PX));
+const PAGE_PX = 1600;
+ipcMain.handle("files:preview", (_e, path: unknown, size?: unknown): Promise<string | null> =>
+  fileThumbnail(realmHome, path, size === "page" ? PAGE_PX : PREVIEW_PX));
 /** Looser than the other three on purpose: a DIRECTORY is a real thing to reveal, and the transcript's
- *  path menu offers this for one. See `existingPath`. */
-ipcMain.handle("files:reveal", async (_e, path: unknown): Promise<void> => {
-  const found = await existingPath(path);
+ *  path menu offers this for one — as does `~/…`, and a path relative to `base`. See `existingPath`.
+ *  Answers whether there was anything to reveal, so a menu that asked can say when there was not. */
+ipcMain.handle("files:reveal", async (_e, path: unknown, base?: unknown): Promise<boolean> => {
+  const found = await existingPath(path, base);
   if (found) shell.showItemInFolder(found);
+  return found !== null;
 });
+/** Quick Look, Share and drag-out (file-actions.ts), behind the same existence gate as Reveal. */
+registerFileActions({ gate: existingPath });
+/** The Dock icon chosen in Settings ▸ App (app-icon.ts). Only macOS has a Dock to put it on. */
+const appIcons = new AppIconStore(app.getPath("userData"));
+const dock = process.platform === "darwin" && app.dock
+  ? { setIcon: (png: Uint8Array) => app.dock?.setIcon(nativeImage.createFromBuffer(Buffer.from(png))) }
+  : null;
+registerAppIcon({ handle: (channel, fn) => ipcMain.handle(channel, fn), store: appIcons, dock });
+/** The window's native appearance follows Realm's theme setting (appearance.ts) — applied from the
+ *  last run before any window exists, then kept current by the renderer. */
+nativeTheme.themeSource = savedAppearance(app.getPath("userData"));
+registerAppearance({ on: (channel, fn) => ipcMain.on(channel, fn), theme: nativeTheme, dir: app.getPath("userData") });
 /**
  * Save a copy of a file somewhere the user names.
  *
@@ -1139,7 +1646,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => {
-    const win = mainWindow;
+    const win = windows.primary();
     if (!win) return;
     if (win.isMinimized()) win.restore();
     win.show();
@@ -1153,6 +1660,9 @@ app.whenReady().then(async () => {
     // is the phone's picture's (capture-guard.ts says why), and the browser partition refuses the same.
     refuseCapture(session.defaultSession);
     installMenu();
+    // Before the first window, so the chosen icon is the one the Dock bounces.
+    const savedIcon = appIcons.saved();
+    if (savedIcon) dock?.setIcon(savedIcon);
     // Launched from Finder, the app inherits launchd's minimal PATH — no Homebrew, no agent CLIs, no
     // mac-cli. Adopt the login shell's PATH BEFORE the first spawn: the server child inherits this
     // env, and every probe/terminal/agent it spawns inherits the server's. Failure (exotic shell,
@@ -1163,6 +1673,10 @@ app.whenReady().then(async () => {
     const info = await startRealmServer();
     serverInfo = info;
     realmHome = info.home;
+    // Before the first window, so its first browser panes and the sign-ins page find every profile —
+    // and so sign-ins saved before profiles had their own are handed to their profile at launch.
+    await profileDirectory.refresh();
+    secrets()?.adoptUnownedRows();
     // Media streaming opens only once home is known: `media:poster` writes QuickLook scratch under it.
     handleMediaProtocol();
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never
@@ -1192,14 +1706,16 @@ app.whenReady().then(async () => {
     }
     agentBridge = startBrowserAgentBridge({
       port: info.port, token: info.token,
-      hasWindow: () => mainWindow !== null && !mainWindow.isDestroyed(),
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); },
+      hasWindow: () => windows.size > 0,
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void profileDirectory.refresh(); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
-      onDisconnected: () => { bridgeClient = null; daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
+      onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
       onEvent: (event, payload) => {
+        // A profile made, renamed or deleted: main's partitions, names and sign-ins follow.
+        if (event === "profiles.changed") { void profileDirectory.refresh().then(retitleWindows); return; }
         // The counts the tray shows change on exactly one event.
-        if (event === "session.status") { void refreshTray(); return; }
+        if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); return; }
         // And the resident's own toasts, for the case the renderer used to own alone: with no window
         // there is nobody to ask for one, and a toast is the whole of how anything reaches you.
         if (event === "notifications.changed") void residentToast(payload);
@@ -1219,14 +1735,13 @@ app.whenReady().then(async () => {
         // with a message about a pane.
         if (op === "appSnapshot") return appDriveHost.snapshot();
         if (op === "appAct") return appDriveHost.act((params as { action: BrowserAction }).action);
-        const host = agentHost;
         // Level B: Electron is here, the window is not. The refusal names the actual fix, because
         // "Realm is not connected" would be false — it is connected, that is how this message got
         // here — and an agent told the wrong problem retries the wrong thing. Ops are never queued
         // for a window that might open: a CDP click executed four minutes late against a page that
         // moved on is worse than a refusal.
-        if (!host) return Promise.reject(new Error("Realm's window is closed — open it from the menu bar, then try again"));
-        return host.handleOp(op, params);
+        if (windows.size === 0) return Promise.reject(new Error("Realm's window is closed — open it from the menu bar, then try again"));
+        return agentHost.handleOp(op, params);
       },
       onLog: (line) => console.error(line),
     });
@@ -1292,21 +1807,70 @@ function goResident() {
   void bridgeClient?.call("browserHost.register", { hasWindow: false }).catch(() => {});
 }
 
-/** Bring the window back, optionally landing on one session. */
+/** Bring a window back, optionally landing on one session — in the window showing that session's
+ *  profile when one is open, else the window used last, else a new first window. */
 async function reattach(target?: { sessionId: string; spaceId: string | null }) {
   if (process.platform === "darwin") app.dock?.show();
-  const existing = mainWindow;
-  if (existing && !existing.isDestroyed()) {
-    if (existing.isMinimized()) existing.restore();
-    existing.show();
-    existing.focus();
+  const profileId = target?.spaceId ? await profileOfSpace(target.spaceId) : null;
+  let win = (profileId ? windows.windowFor(profileId) : null) ?? windows.primary();
+  if (win && !win.isDestroyed()) {
+    bringForward(win);
   } else if (serverInfo) {
     await createWindow(serverInfo);
+    win = windows.primary();
   }
   sessionTray.hide();
   void bridgeClient?.call("browserHost.register", { hasWindow: true }).catch(() => {});
-  if (target) mainWindow?.webContents.send("realm:open-session", target);
+  if (target) win?.webContents.send("realm:open-session", target);
 }
+
+/** Raise a window in front of everything, the app included. */
+function bringForward(win: BrowserWindow): void {
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  if (process.platform === "darwin") app.focus({ steal: true });
+}
+
+/** A space's profile, asked of the server — null when it cannot say. */
+async function profileOfSpace(spaceId: string): Promise<string | null> {
+  try {
+    const spaces = (await askServer("spaces.list", {})) as { id: string; profileId: string }[];
+    return spaces.find((sp) => sp.id === spaceId)?.profileId ?? null;
+  } catch { return null; }
+}
+
+/**
+ * A profile in a window of its own (Plan 27 Phase 2) — Chrome's model, so two profiles side by side
+ * need no switching. A profile is open in at most one window: asking for one already open brings that
+ * window forward instead of opening a second, which would hold the same profile's panes twice.
+ */
+ipcMain.handle("window:open-profile", async (_e, profileId: unknown): Promise<void> => {
+  const profile = await profileDirectory.resolve(profileArg(profileId));
+  if (!profile || !serverInfo) return;
+  const open = windows.windowFor(profile.id);
+  if (open) { bringForward(open); return; }
+  await createWindow(serverInfo, profile.id);
+});
+/** The switcher's question before it switches a window: is this profile open in ANOTHER window? If so
+ *  that window comes forward, and the answer is yes — the asking window stays as it is. */
+ipcMain.handle("window:focus-profile", (e, profileId: unknown): boolean => {
+  const sender = BrowserWindow.fromWebContents(e.sender);
+  const open = windows.windowFor(profileArg(profileId), sender ?? undefined);
+  if (!open) return false;
+  bringForward(open);
+  return true;
+});
+/** A window's renderer says which profile it shows now. The window is titled by it — what the Window
+ *  menu and Mission Control list it by. */
+ipcMain.on("window:set-profile", (e, profileId: unknown) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return;
+  const id = profileArg(profileId) || null;
+  windows.setShowing(win, id);
+  const name = id ? profileDirectory.get(id)?.name : null;
+  if (name) win.setTitle(name);
+});
 
 /** True once a gesture that really means "stop everything" has been taken. Read by `before-quit` and
  *  `window-all-closed`, both of which otherwise divert into resident mode. */

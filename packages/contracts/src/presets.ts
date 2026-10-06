@@ -1,7 +1,7 @@
 export const SPACE_COLORS = ["#7c6cff", "#3ddc97", "#ffb454", "#ff6b8b", "#4cc9f0", "#f4a261", "#a3e635", "#c084fc", "#38bdf8", "#fb7185"] as const;
 /**
  * Every glyph a space's icon picker offers under its "Default" section. Curated one-clean-variant-
- * per-concept from the much larger `@hugeicons-pro/core-stroke-standard` pack already vendored into
+ * per-concept from the much larger `@hugeicons-pro/core-stroke-rounded` pack already vendored into
  * `@realm/ui`'s `Icon` component (`packages/ui/src/Icon.tsx`) — this list and that map's keys must
  * stay in lockstep, since a name here with no matching entry there silently falls back to the folder
  * glyph. The first ten are the original set (unchanged order, so existing spaces keep their glyph).
@@ -41,8 +41,23 @@ export function parseSpaceIcon(icon: string): SpaceIconRef {
   return { kind: "hugeicon", name: kind === "hugeicon" ? rest : icon };
 }
 
-/** One pickable model: the id the wire transmits and the name the row shows. */
-export type AgentModel = { id: string; label: string };
+/** One pickable model: the id the wire transmits and the name the row shows. The two flags are only
+ *  ever set from a live catalog that states them (Codex's `model/list`); a curated list says nothing,
+ *  and absent is "not stated", never "no". */
+export type AgentModel = {
+  id: string;
+  label: string;
+  /** Whether the catalog offers fast mode on this model — Codex lists its `priority` tier per model —
+   *  and what the catalog says it costs and buys ("1.5x speed, increased usage"). */
+  fastMode?: boolean;
+  fastDescription?: string;
+  /** The model an un-pinned session runs, where the catalog marks one. */
+  isDefault?: boolean;
+  /** The reasoning efforts the catalog says this model takes, in its own order, and the one it runs
+   *  when none is asked for — Codex's `supportedReasoningEfforts` and `defaultReasoningEffort`. */
+  efforts?: string[];
+  defaultEffort?: string;
+};
 
 /**
  * STATIC fallback model lists — what the picker shows for a kind when no probe has answered yet
@@ -545,7 +560,8 @@ export function acpWellKnownMode(id: string, wellKnown: "plan" | "agent" | "ask"
  */
 export type AcpConfigOption = {
   id: string;
-  /** `"mode"` and `"model"` are the two Realm consumes; anything else is carried and ignored. */
+  /** `"mode"`, `"model"` and `"thought_level"` (the spec's reasoning-level selector) are the three
+   *  Realm consumes; anything else is carried and ignored. */
   category: string | null;
   currentValue: string | null;
   options: { value: string; name: string | null; description: string | null }[];
@@ -566,6 +582,13 @@ export type AcpSessionConfig = {
   models: AgentModel[];
   currentModelId: string | null;
   modelConfigId: string | null;
+  /** The agent's reasoning levels, off a `thought_level` option — ACP's own category for "thought /
+   *  reasoning level" (`SessionConfigOptionCategory`, `@agentclientprotocol/sdk` 0.17.1) — with the one
+   *  it starts on and the id a write goes through. Empty, null and null for an agent that offers none,
+   *  which is every agent that has not adopted `configOptions`: the deprecated shape had no such axis. */
+  efforts: { id: string; label: string }[];
+  currentEffort: string | null;
+  effortConfigId: string | null;
 };
 
 const asObj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -617,7 +640,7 @@ export function parseAcpConfigOptions(raw: unknown): AcpConfigOption[] {
  * The axis Realm does not read is not lost, only unoffered: fx's provider is a real switch its own
  * `session/set_config_option` accepts, and a second axis in the picker is a feature, not a fix.
  */
-function pickConfigOption(cfg: readonly AcpConfigOption[], axis: "mode" | "model"): AcpConfigOption | undefined {
+function pickConfigOption(cfg: readonly AcpConfigOption[], axis: "mode" | "model" | "thought_level"): AcpConfigOption | undefined {
   const inCategory = cfg.filter((o) => o.category === axis);
   return inCategory.find((o) => o.id === axis) ?? inCategory[0];
 }
@@ -636,6 +659,7 @@ export function acpSessionConfig(session: unknown): AcpSessionConfig {
   const cfg = parseAcpConfigOptions(s.configOptions);
   const modeOpt = pickConfigOption(cfg, "mode");
   const modelOpt = pickConfigOption(cfg, "model");
+  const effortOpt = pickConfigOption(cfg, "thought_level");
 
   const legacyModes = asObj(s.modes);
   const legacyModeRows = (Array.isArray(legacyModes.availableModes) ? legacyModes.availableModes : [])
@@ -660,6 +684,9 @@ export function acpSessionConfig(session: unknown): AcpSessionConfig {
     models: modelOpt ? modelOpt.options.map((o) => ({ id: o.value, label: o.name ?? o.value })) : legacyModelRows,
     currentModelId: modelOpt ? modelOpt.currentValue : asStr(legacyModels.currentModelId),
     modelConfigId: modelOpt ? modelOpt.id : null,
+    efforts: effortOpt ? effortOpt.options.map((o) => ({ id: o.value, label: o.name ?? o.value })) : [],
+    currentEffort: effortOpt?.currentValue ?? null,
+    effortConfigId: effortOpt && effortOpt.options.length > 0 ? effortOpt.id : null,
   };
 }
 

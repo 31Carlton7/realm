@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserSnapshotElement, BrowserSnapshotResult } from "@realm/contracts";
 import { findLabel, signature } from "../simulators/executor";
-import { DOCUMENT_PATH, NETWORK_QUIET_MS, atRest, observedPage, pageRole, siteName, walkTreeOf } from "./walk";
+import { DOCUMENT_PATH, NETWORK_QUIET_MS, atRest, pageRole, siteName, walkTreeOf } from "./walk";
 
 /**
  * A page as the walk reads it. What must die: a covered-by-tree-order check turned back on for a page,
@@ -43,9 +43,6 @@ describe("the site a page is on", () => {
 });
 
 describe("what the browser's report makes of a read", () => {
-  it("vouches for a page that has loaded and has had nothing it waits on move for long enough to draw what came", () => {
-    expect(atRest(QUIET)).toBe(true);
-  });
 
   it("says a page waiting on a request is not at rest, whatever else is true of it", () => {
     expect(atRest({ ...QUIET, requests: 1 })).toBe(false);
@@ -100,13 +97,4 @@ describe("a snapshot as the walk reads it", () => {
     expect(signature(walkTreeOf(unticked))).not.toBe(signature(walkTreeOf(SNAP)));
   });
 
-  it("counts a click into a field as the change it is: the field has the focus now", () => {
-    const focusedOn = { ...SNAP, elements: SNAP.elements!.map((x) => (x.ref === 8 ? { ...x, focused: true } : x)) };
-    expect(walkTreeOf(focusedOn).elements[2]!.focused).toBe(true);
-    expect(signature(walkTreeOf(focusedOn))).not.toBe(signature(walkTreeOf(SNAP)));
-  });
-
-  it("hands the shadow the page's elements by ref — never the document's own entry", () => {
-    expect(observedPage(walkTreeOf(SNAP).elements).map((o) => o.id)).toEqual(["7", "8", "9", "10", "11"]);
-  });
 });

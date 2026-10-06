@@ -4,7 +4,6 @@ import { PAGE_REF_IDS } from "@realm/contracts";
 import { Sheet } from "../components/Sheet";
 import { Onboarding } from "../components/Onboarding";
 import { SettingsPage } from "../panes/settings/SettingsPage";
-import { NotificationsPage } from "../panes/notifications/NotificationsPage";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item } from "../state/store.test-fakes";
 
@@ -13,25 +12,12 @@ async function mount(ui: React.ReactElement) {
   await store.getState().boot();
   return render(<StoreContext.Provider value={store}>{ui}</StoreContext.Provider>);
 }
-const page = (kind: "settings-page" | "notifications-page") =>
+const page = (kind: "settings-page") =>
   item(`w-${kind}`, "s1", { kind, title: kind, refId: PAGE_REF_IDS[kind] });
 
 const GEOMETRY = ["--grain-hue", "--grain-x", "--grain-y", "--grain-spread"];
 
 describe("which surfaces wear the decorative wash", () => {
-  it("Notifications is plain too — it was the last page wearing the field, and it wore it worst", async () => {
-    /* Reversed deliberately. Settings lost the wash because a tint over a form reads as bleed into
-       the controls; Notifications had the same problem for a sharper reason — a decorated ground
-       under a list of things asking for your attention competes with the attention. That left the
-       app with exactly one washed pane, which is not a system, it is a leftover.
-
-       The named mutant is `className="page notifications-page-pane wash"` coming back. */
-    const { container } = await mount(<NotificationsPage item={page("notifications-page")} visible />);
-    const root = container.querySelector<HTMLElement>(".notifications-page-pane")!;
-    expect(root.classList.contains("wash")).toBe(false);
-    expect(root.hasAttribute("data-grain")).toBe(false);
-  });
-
   it("Settings is plain — a page of controls someone sits on all day is not decorated", async () => {
     // It wore the field once. Over a form it read as a tint bleeding into the controls rather than as
     // a ground, so it went; the named mutant is `className="page settings-page-pane wash"` coming back.

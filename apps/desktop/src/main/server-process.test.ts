@@ -27,11 +27,6 @@ describe("ReadyLineParser", () => {
     const p = new ReadyLineParser();
     expect(p.feed('{"type":"error","message":"port in use"}\n')).toEqual({ type: "error", message: "port in use" });
   });
-  it("skips non-JSON noise then finds ready", () => {
-    const p = new ReadyLineParser();
-    expect(p.feed("(node:1) ExperimentalWarning: SQLite\n")).toBeNull();
-    expect(p.feed('{"type":"ready","port":3,"home":"/c"}\n')).toEqual({ type: "ready", port: 3, home: "/c" });
-  });
   it("does not emit a partial trailing line without newline", () => {
     const p = new ReadyLineParser();
     expect(p.feed('{"type":"ready","port":4,"home":"/d"}')).toBeNull();

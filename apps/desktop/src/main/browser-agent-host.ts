@@ -5,8 +5,8 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
-import { DEFAULT_AGENT_ACCENT, PICK_BINDING, armElementPick, buildSnapshot, cancelFileChooser, describeElement, describePick, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex } from "./browser-agent";
+import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { ANNOTATE_BINDING, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { axElementAt, readAxSnapshot } from "./device-ax";
 
@@ -45,6 +45,25 @@ function parseSurface(v: unknown): PickPoint["surface"] {
   return box.w > 0 && box.h > 0 ? box : null;
 }
 
+/**
+ * How an annotate session ended (Plan 26 W7d). `sent` carries every pin, in the order they were made,
+ * and the page as it looked with the pins drawn; `left` is the page navigating out from under them,
+ * which takes the pins with it and is worth saying, unlike a close the user chose.
+ */
+export type AnnotateOutcome =
+  | { outcome: "sent"; elements: BrowserPickedElement[]; png: Uint8Array | null }
+  | { outcome: "closed" }
+  | { outcome: "left" };
+
+/** One annotate session on one view. `queue` orders the page's reports: each pin is resolved before
+ *  the next report is read, so a Send that arrives right behind a click still includes that pin. */
+type AnnotateSession = {
+  browserId: string;
+  pins: { n: number; element: BrowserPickedElement }[];
+  queue: Promise<void>;
+  finish: (o: AnnotateOutcome) => void;
+};
+
 /** Device strings are the device's own and travel into a prompt like every other picked field. */
 const clipField = (v: string, max = PICK_NAME_MAX): string => (v.length > max ? v.slice(0, max) : v);
 
@@ -67,9 +86,9 @@ export type BrowserAgentHostDeps = {
   touch(browserId: string): void;
   /** BrowserPaneHost.navigate — the SAME normalization + allowlist every other navigation obeys. */
   navigate(browserId: string, url: string): string | null;
-  /** Trustworthy page identity (webContents.getURL/getTitle — never page-authored text), and whether
-   *  the page is still loading (`isLoading()`, the pane's own spinner). */
-  pageState(browserId: string): { url: string; title: string; loading?: boolean } | null;
+  /** Trustworthy page identity (webContents.getURL/getTitle — never page-authored text), whether
+   *  the page is still loading (`isLoading()`, the pane's own spinner), and why it did not load. */
+  pageState(browserId: string): { url: string; title: string; loading?: boolean; error?: BrowserLoadError | null } | null;
   /** The clock a page's network quiet is measured on. A test seam; `Date.now` otherwise. */
   now?: () => number;
   /**
@@ -82,16 +101,35 @@ export type BrowserAgentHostDeps = {
    *
    * Note the shape: `withCredentialValue` takes a callback and returns no value. This dependency
    * cannot hand the host a password even if the host asked.
+   *
+   * Every door names a PROFILE (Plan 27 Phase 2): saved sign-ins are a profile's own, and the op
+   * carries the profile of the calling session's space, which realm-server resolved.
    */
   secrets?: {
-    listCredentials(): BrowserCredential[];
-    getCredential(id: string): BrowserCredential | null;
+    listCredentials(profileId: string): BrowserCredential[];
+    getCredential(profileId: string, id: string): BrowserCredential | null;
     withCredentialValue(
+      profileId: string,
       id: string,
       use: (value: string) => Promise<void>,
     ): Promise<{ ok: true } | { ok: false; refused: "no_credential" | "no_presence" }>;
+    /** Mint a password for an origin, keep it, and type it — the generated half of the fill op. Same
+     *  callback shape as `withCredentialValue`, so this dependency cannot hand the host the password
+     *  it just created either; what comes back is the metadata row, which is what the agent needs to
+     *  fill the same new value again into a confirm field. The row is the named profile's own. */
+    withGeneratedCredentialValue(
+      profileId: string,
+      input: { origin: string; username: string; label: string; length: number; symbols: boolean },
+      use: (value: string) => Promise<void>,
+    ): Promise<{ ok: true; credential: BrowserCredential } | { ok: false; refused: "no_store" | "no_presence" }>;
     audit(entry: CredentialAuditEntry): void;
   };
+  /**
+   * Whose pane this is: the profile main gave the view's partition to, or null when there is no
+   * view. A fill puts a profile's secret into a page, so the page must be that profile's — the
+   * session's space and the pane are checked against each other here rather than trusted to agree.
+   */
+  profileOf?(browserId: string): string | null;
   /**
    * The download governor (`downloads.ts`), for the `download` op alone. Optional for the same reason
    * `secrets` is: absent means every download stays blocked, which is the resting state anyway.
@@ -120,7 +158,8 @@ export type BrowserAgentHostDeps = {
 /** Executor refusals → audit outcomes. `password` is absent because a fill cannot produce it (that
  *  refusal belongs to `act`), and an unmapped code degrades to `error` rather than inventing a row. */
 const FILL_OUTCOMES: Partial<Record<string, CredentialAuditEntry["outcome"]>> = {
-  origin_mismatch: "origin_mismatch", no_credential: "no_credential", no_presence: "no_presence",
+  origin_mismatch: "origin_mismatch", no_credential: "no_credential", no_store: "no_store",
+  no_presence: "no_presence",
 };
 
 const CONSOLE_MAX = 200;
@@ -161,6 +200,10 @@ type Attached = {
   pickPoint: PickPoint | null;
   /** Bumped by every `pickElement`, so a superseded call can tell it no longer owns inspect mode. */
   pickGen: number;
+  /** The annotate session armed on this view, if any — see `annotate`. */
+  annotate: AnnotateSession | null;
+  /** Bumped by every `annotate`, for `pickGen`'s reason. */
+  annotateGen: number;
   /** File-chooser interception state for this view — see `FileChooserState`. */
   chooser: FileChooserState;
 };
@@ -233,6 +276,7 @@ export class BrowserAgentHost {
     // lit for a view that no longer exists.
     const entry = this.attached.get(browserId);
     entry?.pick?.(null);
+    if (entry?.annotate) this.finishAnnotate(entry, { outcome: "closed" });
     // A chooser waiter on a dead view resolves empty rather than hanging out its timeout, and the
     // disarm timer is cleared — it would otherwise fire against a binding whose view is gone.
     if (entry) {
@@ -264,6 +308,8 @@ export class BrowserAgentHost {
     const entry = this.ensure(browserId);
     const gen = ++entry.pickGen;
     entry.pick?.(null);
+    // One mode at a time: a pick over a page with pins on it would be two overlays answering one click.
+    if (entry.annotate) { this.finishAnnotate(entry, { outcome: "closed" }); await disarmAnnotate(entry.binding.send); }
     const ref = await new Promise<number | null>((resolve) => {
       entry.pick = resolve;
       void armElementPick(entry.binding.send, accent ?? this.accent).catch(() => this.settlePick(entry, null));
@@ -273,6 +319,12 @@ export class BrowserAgentHost {
     if (entry.pickGen !== gen) return null;
     await disarmElementPick(entry.binding.send);
     if (ref === null) return null;
+    return this.pickedElement(entry, browserId, ref, entry.pickPoint);
+  }
+
+  /** A resolved ref → the element a prompt carries. Shared by a pick and by every annotate pin, so the
+   *  two are described, clipped and upgraded to a device element in exactly one way. */
+  private async pickedElement(entry: Attached, browserId: string, ref: number, point: PickPoint | null): Promise<BrowserPickedElement | null> {
     const state = this.d.pageState(browserId);
     const picked = await describePick(entry.binding.send, ref).catch(() => null);
     if (!picked) return null;
@@ -283,7 +335,77 @@ export class BrowserAgentHost {
     // difference between "a page made its title enormous" and "this did not come from the picker".
     const url = (state?.url ?? "").slice(0, PICK_URL_MAX);
     const base: BrowserPickedElement = { ...picked, url, title: (state?.title ?? "").slice(0, PICK_TITLE_MAX) };
-    return (await this.asDeviceElement(base, url, entry.pickPoint)) ?? base;
+    return (await this.asDeviceElement(base, url, point)) ?? base;
+  }
+
+  /**
+   * Annotate (Plan 26 W7d): the picker kept armed. Resolves when the user presses Send in the page's
+   * toolbar — with every pin and a capture of the page showing them — or when the session ends without
+   * a send: the toolbar's close or Escape, the pane closing, a pick taking the view, the page navigating.
+   *
+   * Off the agent bridge for `pickElement`'s reason: this is a person pointing at their own screen, and
+   * it reaches main over the pane's own IPC. At most `MAX_ELEMENT_CHIPS` pins, because a message carries
+   * no more elements than that however many tokens stand for them; the page says so at the limit.
+   */
+  async annotate(browserId: string, accent?: string): Promise<AnnotateOutcome> {
+    if (!this.d.hasView(browserId)) return { outcome: "closed" };
+    const entry = this.ensure(browserId);
+    const gen = ++entry.annotateGen;
+    if (entry.pick) this.cancelPick(browserId);
+    if (entry.annotate) this.finishAnnotate(entry, { outcome: "closed" });
+    const outcome = await new Promise<AnnotateOutcome>((resolve) => {
+      entry.annotate = { browserId, pins: [], queue: Promise.resolve(), finish: resolve };
+      void armAnnotate(entry.binding.send, accent ?? this.accent, MAX_ELEMENT_CHIPS).catch(() => this.finishAnnotate(entry, { outcome: "closed" }));
+    });
+    // A later `annotate` owns the page now, and taking the overlay down would take ITS down. (A pick
+    // that took the page has already taken this one's down itself.)
+    if (entry.annotateGen === gen) await disarmAnnotate(entry.binding.send);
+    return outcome;
+  }
+
+  /** Take annotate mode down without sending. The armed promise resolves `closed`. */
+  cancelAnnotate(browserId: string): void {
+    const entry = this.attached.get(browserId);
+    if (!entry?.annotate) return;
+    this.finishAnnotate(entry, { outcome: "closed" });
+    void disarmAnnotate(entry.binding.send);
+  }
+
+  private finishAnnotate(entry: Attached, outcome: AnnotateOutcome): void {
+    const session = entry.annotate;
+    entry.annotate = null;
+    session?.finish(outcome);
+  }
+
+  /** A report from the page's annotator. Read in order, through the session's queue. */
+  private onAnnotate(entry: Attached, payload: string): void {
+    const session = entry.annotate;
+    if (!session) return;
+    let msg: { type?: unknown; n?: unknown; x?: unknown; y?: unknown; surface?: unknown };
+    try { msg = JSON.parse(payload) as typeof msg; } catch { return; }
+    const live = () => entry.annotate === session;
+    if (msg.type === "pin" && typeof msg.n === "number") {
+      const n = msg.n;
+      const point = parsePickPoint(JSON.stringify({ x: msg.x, y: msg.y, surface: msg.surface }));
+      session.queue = session.queue.then(async () => {
+        if (!live() || session.pins.length >= MAX_ELEMENT_CHIPS) return;
+        const ref = await resolveAnnotatedNode(entry.binding.send, n);
+        const element = ref === null ? null : await this.pickedElement(entry, session.browserId, ref, point);
+        if (element && live()) session.pins.push({ n, element });
+      });
+    } else if (msg.type === "clear") {
+      session.queue = session.queue.then(() => { if (live()) session.pins = []; });
+    } else if (msg.type === "send") {
+      session.queue = session.queue.then(async () => {
+        if (!live() || session.pins.length === 0) return;
+        const png = await captureAnnotated(entry.binding.send);
+        if (!live()) return;
+        const elements = [...session.pins].sort((a, b) => a.n - b.n).map((p) => p.element);
+        this.finishAnnotate(entry, { outcome: "sent", elements, png });
+      });
+    } else if (msg.type === "close") {
+      this.finishAnnotate(entry, { outcome: "closed" });
+    }
   }
 
   /**
@@ -356,7 +478,7 @@ export class BrowserAgentHost {
         if (!state || !this.d.hasView(browserId)) return { open: false, url: "", title: "", element: null } satisfies BrowserDescribeResult;
         let element: BrowserDescribeResult["element"] = null;
         if (typeof params.ref === "number") element = await this.describeElement(browserId, params.ref).catch(() => null);
-        return { open: true, url: state.url, title: state.title, element } satisfies BrowserDescribeResult;
+        return { open: true, url: state.url, title: state.title, element, ...(state.error ? { loadError: state.error } : {}) } satisfies BrowserDescribeResult;
       }
       case "navigate": {
         // Straight to the pane host: normalization and the per-space origin allowlist live there,
@@ -367,6 +489,12 @@ export class BrowserAgentHost {
         const entry = this.ensure(browserId);
         // Sampled before the capture: it is the state the page was in as the read began.
         const page = this.pageActivity(entry, browserId);
+        // A page that did not load is Chromium's empty error document, and what the pane draws in its
+        // place is Realm's own page, which is not in that DOM — so a capture would come back as a page
+        // with nothing on it. The failure goes in its own field rather than into the page's text: it
+        // is Realm's statement, and the text is the site's.
+        const failed = this.d.pageState(browserId)?.error ?? null;
+        if (failed) return { url: failed.url, title: "", text: "", elementCount: 0, elements: [], page, loadError: failed } satisfies BrowserSnapshotResult;
         const result = await buildSnapshot(entry.binding.send, entry.lastSnapshot);
         entry.lastSnapshot = result.index;
         const { index: _index, ...rest } = result;
@@ -385,6 +513,9 @@ export class BrowserAgentHost {
         const entry = this.ensure(browserId);
         if (kind === "console") return { text: entry.consoleLines.join("\n") };
         if (kind === "network") return { text: this.formatNetwork(entry) };
+        // The snapshot's reason: the page's text is the error document's, which is nothing.
+        const failed = this.d.pageState(browserId)?.error ?? null;
+        if (failed) return { text: "", loadError: failed } satisfies BrowserReadResult;
         return { text: await readPageText(entry.binding.send) };
       }
       case "act": {
@@ -472,30 +603,86 @@ export class BrowserAgentHost {
         return { dismissed: true, detail: "the file chooser was cancelled — the page was told nothing was picked" } satisfies BrowserDismissDialogResult;
       }
       /**
-       * Enrolled sign-ins, METADATA ONLY — the `BrowserCredential` type has no value field, so this
-       * op has nothing to redact. It exists because `fill_credential` takes a `credentialId` and the
-       * agent needs some way to learn one; origin/username/label are the same three facts the
-       * permission card shows the user, and the user typed all three themselves in Settings.
+       * Saved sign-ins, METADATA ONLY — the `BrowserCredential` type has no value field, so this op
+       * has nothing to redact. It exists because `fill_credential` takes a `credentialId` and the
+       * agent needs some way to learn one; origin/username/label are the same facts the permission
+       * card shows the user, typed by the user in Settings or, for a generated row, asked for by an
+       * earlier approved fill. Neither is page-authored.
        */
       case "credentials": {
-        return { credentials: this.d.secrets?.listCredentials() ?? [] };
+        // No profile named, no sign-ins: a call that cannot say whose it is asking for is answered as
+        // a profile with nothing saved, never as somebody's.
+        const profileId = typeof params.profileId === "string" ? params.profileId : "";
+        return { credentials: profileId ? this.d.secrets?.listCredentials(profileId) ?? [] : [] };
       }
       /**
-       * Fill one enrolled credential into `ref`. Every outcome writes an audit line — including the
-       * refusals, which are the ones worth having a record of.
+       * Fill a sign-in into `ref`: one the user enrolled, named by `credentialId`, or one the store
+       * mints now for the origin the permission card named (`generate`). Every outcome writes an audit
+       * line — including the refusals, which are the ones worth having a record of.
        *
-       * The lookup happens HERE rather than in the executor so that an unknown id never reaches CDP
-       * at all, and so the executor receives only `{ id, origin }`: the piece of the row it needs to
-       * decide the origin gate, and nothing else.
+       * Both routes resolve to a single `CredentialFill` before any CDP call, so the origin gate, the
+       * presence check and the typing are literally the same code for the two. What differs is the one
+       * closure that may see a value, and — for the generated route — that the credential does not
+       * exist until that closure has run, which is why its id is settled afterwards.
+       *
+       * The enrolled route's lookup happens HERE rather than in the executor so an unknown id never
+       * reaches CDP, and so the executor receives only the origin: the piece of the row it needs to
+       * decide the gate, and nothing else.
        */
       case "fillCredential": {
-        const credentialId = String(params.credentialId ?? "");
         const ref = Number(params.ref);
+        const profileId = typeof params.profileId === "string" ? params.profileId : "";
         const store = this.d.secrets;
-        const credential = store?.getCredential(credentialId) ?? null;
-        if (!store || !credential) {
-          this.auditFill(credentialId, "", "no_credential");
-          return { ok: false, refused: "no_credential", error: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins" } satisfies BrowserActResult;
+        const generate = readGenerate(params.generate);
+        let fill: CredentialFill;
+        let origin: string;
+        /** The row the fill used, for the audit line and the result. Empty until a generated fill has
+         *  actually minted one — an audit line for a credential that was never created would name an
+         *  id nothing in Settings can be matched against. */
+        let credentialId = "";
+        // A pane of another profile is refused before anything reaches the page, on both routes: its
+        // cookie jar is not the profile's whose secret this is — and a password minted into one
+        // profile's store and typed into another's jar would be an account neither of them can find.
+        // A call that names no profile is answered the same way: it cannot say whose store it means.
+        const paneProfile = this.d.profileOf?.(browserId);
+        const notThisProfile = !profileId || (paneProfile !== undefined && paneProfile !== profileId);
+        if (generate) {
+          // The origin comes from realm-server, which read it off this pane and put it on the card the
+          // user approved. Re-normalized here, and checked against the LIVE page by the executor a
+          // moment later: the card's origin and the filled origin are the same fact or nothing is
+          // filled. A value that will not normalize refuses without reaching the page at all.
+          const approved = normalizeOrigin(String(params.origin ?? ""));
+          if (notThisProfile) {
+            this.auditFill("", approved ?? "", "no_store");
+            return { ok: false, refused: "no_store", error: "this pane belongs to another profile, so there is no store here to keep a new password in — none was generated or filled" } satisfies BrowserActResult;
+          }
+          if (!store || approved === null) {
+            this.auditFill("", approved ?? "", "no_store");
+            return { ok: false, refused: "no_store", error: "Realm has nowhere to keep a new password right now (macOS is not offering an encryption key), so none was generated or filled" } satisfies BrowserActResult;
+          }
+          origin = approved;
+          fill = {
+            origin,
+            kind: "generated",
+            reveal: async (type) => {
+              const minted = await store.withGeneratedCredentialValue(profileId, { origin, ...generate }, type);
+              if (!minted.ok) return minted;
+              credentialId = minted.credential.id;
+              // Deliberately not `minted`: the executor learns that the value was typed, never which
+              // row it came from.
+              return { ok: true };
+            },
+          };
+        } else {
+          const id = String(params.credentialId ?? "");
+          const credential = notThisProfile ? null : store?.getCredential(profileId, id) ?? null;
+          if (!store || !credential) {
+            this.auditFill(id, "", "no_credential");
+            return { ok: false, refused: "no_credential", error: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins" } satisfies BrowserActResult;
+          }
+          credentialId = credential.id;
+          origin = credential.origin;
+          fill = { origin, kind: "saved", reveal: (type) => store.withCredentialValue(profileId, credential.id, type) };
         }
         const entry = this.ensure(browserId);
         // No `markAct` here, unlike `act`. Every mark is drawn by evaluating script in the page, and
@@ -504,18 +691,19 @@ export class BrowserAgentHost {
         // the user which pane.
         let result: BrowserActResult;
         try {
-          result = await performFillCredential(entry.binding.send, ref, {
-            credential: { id: credential.id, origin: credential.origin },
-            reveal: (type) => store.withCredentialValue(credential.id, type),
-          });
+          result = await performFillCredential(entry.binding.send, ref, fill);
         } catch {
           // Bare, like the executor's own: a thrown CDP error can carry the characters it was
           // dispatching, and nothing about it may reach a tool result.
-          this.auditFill(credential.id, credential.origin, "error");
-          return { ok: false, error: "the saved sign-in could not be typed into that field" } satisfies BrowserActResult;
+          this.auditFill(credentialId, origin, "error");
+          return { ok: false, error: `the ${generate ? "new" : "saved"} sign-in could not be typed into that field` } satisfies BrowserActResult;
         }
-        this.auditFill(credential.id, credential.origin, result.ok ? "filled" : FILL_OUTCOMES[result.refused ?? "password"] ?? "error");
-        return result;
+        this.auditFill(credentialId, origin, result.ok ? (generate ? "generated" : "filled") : FILL_OUTCOMES[result.refused ?? "password"] ?? "error");
+        // The id travels back only for a generated fill, and only as metadata: it is how the agent
+        // fills this same new password into a confirm field without ever being told what it is.
+        return result.ok && generate && credentialId
+          ? { ...result, credentialId } satisfies BrowserFillCredentialResult
+          : result;
       }
       /**
        * Download the file behind `ref`, into the directory the SERVER resolved from the space's
@@ -558,7 +746,8 @@ export class BrowserAgentHost {
         const entry = this.ensure(browserId);
         const shot = (await entry.binding.send("Page.captureScreenshot", { format: "jpeg", quality: 70 })) as { data?: string };
         if (!shot.data) throw new Error("screenshot produced no data");
-        return { data: shot.data, mimeType: "image/jpeg" };
+        const failed = this.d.pageState(browserId)?.error ?? null;
+        return { data: shot.data, mimeType: "image/jpeg", ...(failed ? { loadError: failed } : {}) } satisfies BrowserScreenshotResult;
       }
       default:
         throw new Error(`unknown browser host op "${op}"`);
@@ -680,7 +869,7 @@ export class BrowserAgentHost {
     if (cached) return cached;
     const binding = this.d.attach(browserId);
     if (!binding) throw new Error(`could not attach the debugger to browser ${browserId}`);
-    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], open: new Map(), networkAt: this.now(), lastSnapshot: null, pick: null, pickPoint: null, pickGen: 0, chooser: newChooserState() };
+    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], open: new Map(), networkAt: this.now(), lastSnapshot: null, pick: null, pickPoint: null, pickGen: 0, annotate: null, annotateGen: 0, chooser: newChooserState() };
     binding.onEvent((method, rawParams) => this.onCdpEvent(entry, method, rawParams));
     this.attached.set(browserId, entry);
     // Enable the event domains the buffers feed on. Fire-and-forget: an enable that fails costs a
@@ -743,6 +932,8 @@ export class BrowserAgentHost {
         entry.pickPoint = parsePickPoint(String(p.payload ?? ""));
         void resolvePickedNode(entry.binding.send).then((ref) => this.settlePick(entry, ref));
       }
+    } else if (method === "Runtime.bindingCalled" && p.name === ANNOTATE_BINDING) {
+      this.onAnnotate(entry, String(p.payload ?? ""));
     } else if (method === "Page.fileChooserOpened") {
       /* The page tried to open a file picker and interception caught it — NOTHING is on screen. The
          node travels with the event only because interception is on; without it Chromium would have
@@ -761,6 +952,8 @@ export class BrowserAgentHost {
       // Settling it empty is what keeps the toolbar button from staying lit over a page it can no
       // longer pick from; the user presses it again on the new page.
       this.settlePick(entry, null);
+      // The same for annotate, except that it says so: the pins went with the page they were on.
+      if (entry.annotate) this.finishAnnotate(entry, { outcome: "left" });
       // The same navigation took any pending file chooser's node with it. Forgotten rather than
       // cancelled: there is nothing left to tell, and holding a dead backendNodeId is what would
       // keep interception armed forever on a page that never asked for it.
@@ -810,4 +1003,19 @@ export class BrowserAgentHost {
 function pushRing(list: string[], line: string, max: number): void {
   list.push(line);
   while (list.length > max) list.shift();
+}
+
+/** The `generate` half of a `fillCredential` op's params, or null when the op names a credentialId
+ *  instead. realm-server has already validated this against `BrowserGeneratedCredentialSchema`; it is
+ *  read field by field anyway, because this is the process that makes the password and a length that
+ *  arrived as a string must not get that far. */
+function readGenerate(raw: unknown): { username: string; label: string; length: number; symbols: boolean } | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const asked = raw as Record<string, unknown>;
+  return {
+    username: typeof asked.username === "string" ? asked.username : "",
+    label: typeof asked.label === "string" ? asked.label : "",
+    length: typeof asked.length === "number" ? asked.length : GENERATED_PASSWORD_LENGTH,
+    symbols: asked.symbols !== false,
+  };
 }

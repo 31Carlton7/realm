@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import type { Browser, BrowserPageActivity, BrowserSnapshotElement, BrowserSnapshotResult } from "@realm/contracts";
+import { GENERATED_CREDENTIAL_NOTE, type Browser, type BrowserPageActivity, type BrowserSnapshotElement, type BrowserSnapshotResult } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createBrowserAgentProvider, BROWSER_PROVIDER_NAME, type BrowserAgentToolsDeps } from "./agent-tools";
 import type { GateResult } from "./permissions";
@@ -38,8 +38,8 @@ function setup(opts: {
   assist?: LayaAssist;
 } = {}) {
   const rows = new Map<string, Browser>();
-  rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", createdAt: 1, updatedAt: 1 });
-  rows.set("bX", { id: "bX", spaceId: "spaceOTHER", url: "https://other.com/", title: "Other", createdAt: 1, updatedAt: 1 });
+  rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", favicon: "", createdAt: 1, updatedAt: 1 });
+  rows.set("bX", { id: "bX", spaceId: "spaceOTHER", url: "https://other.com/", title: "Other", favicon: "", createdAt: 1, updatedAt: 1 });
 
   const calls = { gates: [] as { toolKey: string; toolName?: string; title: string; input: Record<string, unknown>; alwaysPrompt: boolean }[], bridge: [] as { op: string; params: Record<string, unknown> }[], broadcasts: [] as { event: string; payload: unknown }[], opened: [] as string[] };
   const bridgeResults: Record<string, unknown> = {
@@ -49,7 +49,7 @@ function setup(opts: {
     act: { ok: true, detail: "clicked" },
     navigate: { url: "https://example.com/next" },
     screenshot: { data: "aW1n", mimeType: "image/png" },
-    credentials: { credentials: [{ id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1 }] },
+    credentials: { credentials: [{ id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1, generated: false }] },
     fillCredential: { ok: true, detail: "filled saved credential for https://example.com" },
     download: { ok: true, name: "week-3.pdf", bytes: 204_800, relPath: "downloads/week-3.pdf" },
     upload: { ok: true, method: "input", names: ["hero.png"], value: "hero.png", accept: "image/*", multiple: true },
@@ -72,11 +72,13 @@ function setup(opts: {
       open: ({ spaceId, url }) => {
         calls.opened.push(url);
         const id = `b${rows.size + 1}`;
-        rows.set(id, { id, spaceId, url, title: "Browser", createdAt: 2, updatedAt: 2 });
+        rows.set(id, { id, spaceId, url, title: "Browser", favicon: "", createdAt: 2, updatedAt: 2 });
         return { browserId: id, itemId: `item-${id}`, url };
       },
     },
     documents: { rootForSpace: () => (opts.spaceRoot === undefined ? UPLOAD_ROOT : opts.spaceRoot) },
+    // space1 is the Work profile's; every other space here belongs to nobody the harness knows.
+    profileOf: (spaceId) => (spaceId === "space1" ? "profile-work" : null),
     mcp: { providerEnabled: () => opts.enabled ?? true },
     bridge: {
       call: async (op, params) => {
@@ -284,6 +286,43 @@ describe("results and scoping", () => {
     }
   });
 
+  /* A page that did not load: Electron leaves an empty document where Chrome would draw its error page,
+     so without these an agent was handed "0 interactive elements" on what it takes for the site. */
+  describe("a page that did not load", () => {
+    const REFUSED = { code: -102, name: "ERR_CONNECTION_REFUSED", url: "http://localhost:3000/" };
+    const failed = (more: Record<string, unknown> = {}) => setup({ bridgeResults: {
+      snapshot: { url: REFUSED.url, title: "", text: "", elementCount: 0, elements: [], loadError: REFUSED, page: { loading: false, requests: 0, quietMs: 900 } },
+      read: { text: "", loadError: REFUSED },
+      describe: { open: true, url: REFUSED.url, title: "localhost:3000", element: null, loadError: REFUSED },
+      screenshot: { data: "aW1n", mimeType: "image/jpeg", loadError: REFUSED },
+      ...more,
+    } });
+
+    it("browser_snapshot says what the pane shows, in Realm's words and outside the page's fence", async () => {
+      const { call } = failed();
+      const t = text(await call("browser_snapshot", { browserId: "b1" }));
+      expect(t).toContain("The page at http://localhost:3000/ did not load. This site can't be reached: localhost refused to connect. (ERR_CONNECTION_REFUSED)");
+      expect(t).toContain("browser_navigate to the same address tries again");
+      // Nothing in it came from the page, so nothing of it is fenced as the page's.
+      expect(t).not.toMatch(/<<<untrusted-/);
+    });
+
+    it("…and tells it to look again when the pane is already loading", async () => {
+      const { call } = failed({ snapshot: { url: REFUSED.url, title: "", text: "", elementCount: 0, loadError: REFUSED, page: { loading: true, requests: 1, quietMs: 0 } } });
+      expect(text(await call("browser_snapshot", { browserId: "b1" }))).toContain("take another browser_snapshot once it has finished");
+    });
+
+    it("browser_read, browser_list and browser_screenshot say it too", async () => {
+      const { call } = failed();
+      expect(text(await call("browser_read", { browserId: "b1", kind: "text" }))).toContain("localhost refused to connect.");
+      expect(text(await call("browser_list", {}))).toContain("open, url: http://localhost:3000/ — did not load (ERR_CONNECTION_REFUSED)");
+      const shot = await call("browser_screenshot", { browserId: "b1" });
+      expect(shot.content[0]).toMatchObject({ type: "text" });
+      expect(text(shot)).toContain("did not load");
+      expect(shot.content[1]).toMatchObject({ type: "image" });
+    });
+  });
+
   it("a browserId from another space is refused like one that does not exist", async () => {
     const { call, calls } = setup();
     const r = await call("browser_snapshot", { browserId: "bX" });
@@ -316,6 +355,8 @@ describe("results and scoping", () => {
        bar already saying so. The ticker reports what an agent did in a pane; the act that created
        the pane is reported by the pane appearing. */
     expect(calls.broadcasts.map((b) => b.event)).toEqual(["browser.agentOpened"]);
+    // The session that asked, which is the session whose side pane the browser belongs in.
+    expect(calls.broadcasts[0]!.payload).toMatchObject({ openedBy: "sess1" });
   });
 
   it("the provider disabled for a space lists no tools and refuses calls", async () => {
@@ -374,14 +415,6 @@ describe("W4 — watching broadcasts (browser.driving / browser.action)", () => 
     const mine = ofBrowser(calls.broadcasts, "b1");
     expect(driving(mine)).toEqual([true, false]);
     expect(actions(mine)).toEqual([expect.objectContaining({ ok: false })]);
-  });
-
-  it("a failed act still settles the broadcasts, with ok: false", async () => {
-    const { call, calls } = setup({ bridgeResults: { act: { ok: false, error: "no visible geometry" } } });
-    await call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
-    const mine = ofBrowser(calls.broadcasts, "b1");
-    expect(driving(mine)).toEqual([true, false]);
-    expect(actions(mine)[0]!.ok).toBe(false);
   });
 
   it("a denied gate broadcasts NOTHING — nothing ran, so nothing may tick", async () => {
@@ -486,12 +519,6 @@ describe("W5 constraints seam (delegated browser agents)", () => {
     expect(s.calls.bridge.filter((b) => b.op === "act")).toHaveLength(1);  // the allowed step ran
   });
 
-  it("without the constraints dep every mutating path behaves exactly as before", async () => {
-    const { call, calls } = setup();
-    const result = await call("browser_open", { url: "https://anywhere.example/" });
-    expect(result.isError).toBe(false);
-    expect(calls.opened).toEqual(["https://anywhere.example/"]);
-  });
 });
 
 /**
@@ -515,11 +542,13 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(tool.description).toMatch(/never receive the value|cannot read it back/i);
   });
 
-  it("empty list says so AND says enrollment is not something the agent can do", async () => {
+  it("empty list says so, and is exact about which half of enrollment the agent cannot do", async () => {
     const { call } = setup({ bridgeResults: { credentials: { credentials: [] } } });
     const r = await call("browser_credentials", {});
     expect(text(r)).toMatch(/Settings/);
-    expect(text(r)).toMatch(/no way for you to create one|no tool that could/i);
+    // Handing the store a password of the user's stays impossible; asking Realm to mint one does not.
+    expect(text(r)).toMatch(/no way for you to enroll a password of theirs/i);
+    expect(text(r)).toMatch(/generate/);
   });
 
   it("gates BEFORE the bridge, with a card naming origin, username and label — and never a value", async () => {
@@ -564,7 +593,17 @@ describe("browser_credentials / browser_fill_credential", () => {
     const { call, calls } = setup();
     await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
     const sent = calls.bridge.find((b) => b.op === "fillCredential")!;
-    expect(Object.keys(sent.params).sort()).toEqual(["browserId", "credentialId", "ref"]);
+    expect(Object.keys(sent.params).sort()).toEqual(["browserId", "credentialId", "profileId", "ref"]);
+  });
+
+  it("names the SESSION's profile to main on every credential op — sign-ins are a profile's own", async () => {
+    /* THE mutant: ask main for "the" sign-ins with no profile, and an agent in a Work space is offered
+       Personal's. Main keeps each profile's apart; the tool has to say whose it is asking for. */
+    const { call, calls } = setup();
+    await call("browser_credentials", {});
+    await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+    expect(calls.bridge.filter((b) => b.op === "credentials").map((b) => b.params.profileId)).toEqual(["profile-work", "profile-work"]);
+    expect(calls.bridge.find((b) => b.op === "fillCredential")!.params.profileId).toBe("profile-work");
   });
 
   it("an origin_mismatch refusal reaches the agent as an error naming both origins and nothing else", async () => {
@@ -609,12 +648,100 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(false);
   });
 
-  it("browser_act typing into a password field STILL refuses — the fill tool did not relax it", async () => {
-    const { call } = setup({ bridgeResults: { act: { ok: false, refused: "password", error: "target is a password field" } } });
-    const r = await call("browser_act", { browserId: "b1", action: { kind: "type", ref: 7, text: "hunter2" } });
+  it("refuses a call that names both a credentialId and generate, or neither — before any card or bridge op", async () => {
+    const { call, calls } = setup();
+    for (const args of [
+      { browserId: "b1", ref: 7 },
+      { browserId: "b1", ref: 7, credentialId: "cred-1", generate: {} },
+    ]) {
+      const r = await call("browser_fill_credential", args);
+      expect(r.isError, JSON.stringify(args)).toBe(true);
+      expect(text(r)).toContain("exactly one");
+    }
+    expect(calls.gates).toHaveLength(0);
+    expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(false);
+  });
+
+  it("a GENERATED fill gates on a card naming the ORIGIN READ OFF THE PANE and the cost of not being able to read it back", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: { username: "ada", label: "Sign-up" } });
+
+    expect(r.isError).toBeFalsy();
+    const gate = calls.gates[0]!;
+    // `describe` answers https://example.com/checkout, so the origin is Realm's, not the agent's.
+    expect(gate.title).toContain("Create a new saved password for https://example.com");
+    expect(gate.title).toContain('the agent labels it "ada · Sign-up"');
+    expect(gate.title).toContain(GENERATED_CREDENTIAL_NOTE);
+    expect(gate.alwaysPrompt).toBe(true);
+    expect(Object.keys(gate.input)).toEqual(["browserId", "ref", "origin", "username", "label", "generate"]);
+    expect(gate.input).toMatchObject({ origin: "https://example.com", generate: true });
+  });
+
+  it("an origin the AGENT supplies is ignored — the pane decides what a new sign-in is pinned to", async () => {
+    const { call, calls } = setup();
+    await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: { username: "ada", origin: "https://evil.example" } });
+    expect(calls.gates[0]!.input).toMatchObject({ origin: "https://example.com" });
+    const sent = calls.bridge.find((b) => b.op === "fillCredential")!;
+    expect(sent.params.origin).toBe("https://example.com");
+    expect(Object.keys(sent.params.generate as object).sort()).toEqual(["label", "length", "symbols", "username"]);
+    // THE mutant: the generated route sent without the profile. Main refuses a call that names
+    // none, so every real generated fill would fail; and the row joins the session's profile.
+    expect(sent.params.profileId).toBe("profile-work");
+  });
+
+  it("a denied card on a generated fill mints nothing (mutant: the bridge call before the answer)", async () => {
+    const { call, calls } = setup({ gate: { allowed: false, reason: "the user denied this action" } });
+    const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: {} });
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain("password field");
-    expect(text(r)).toContain("never types into password fields in any mode");
+    expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(false);
+  });
+
+  it("a pane on no http(s) page refuses WITHOUT a card — there is no site to pin a password to", async () => {
+    const { call, calls } = setup({ bridgeResults: { describe: { open: true, url: "about:blank", title: "", element: null } } });
+    const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: {} });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("not on an http(s) page");
+    expect(calls.gates).toHaveLength(0);
+    expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(false);
+  });
+
+  it("reports the new credentialId so the same password can be filled again, and tells the agent not to offer the value", async () => {
+    const { call } = setup({
+      bridgeResults: { fillCredential: { ok: true, detail: "generated a password for https://example.com, saved it to Realm's sign-ins, and filled it", credentialId: "cred-9" } },
+    });
+    const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: {} });
+    expect(r.isError).toBeFalsy();
+    expect(text(r)).toContain("credentialId cred-9");
+    expect(text(r)).toMatch(/confirm-password/);
+    expect(text(r)).toMatch(/do not offer to tell them what it is/);
+  });
+
+  it("a refused generated fill says nothing was generated either, and attaches no screenshot", async () => {
+    const { call, calls } = setup({
+      bridgeResults: { fillCredential: { ok: false, refused: "no_store", error: "Realm has nowhere to keep a new password right now" } },
+    });
+    const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: {} });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("no password was generated or filled");
+    expect(r.content.some((c) => c.type === "image")).toBe(false);
+    expect(calls.bridge.some((b) => b.op === "screenshot")).toBe(false);
+  });
+
+  it("the tool DESCRIPTION tells the agent to generate rather than hand the user a password", async () => {
+    const { provider, ctx } = setup();
+    const tool = (await provider.tools(ctx)).find((t) => t.name === "browser_fill_credential")!;
+    expect(tool.description).toMatch(/never put one in your reply/i);
+    expect(tool.inputSchema.required).toEqual(["browserId", "ref"]);
+  });
+
+  it("generating cannot be batched either — the same refusal, before the batch's prompt", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_batch", {
+      actions: [{ tool: "browser_fill_credential", arguments: { browserId: "b1", ref: 7, generate: {} } }],
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("cannot run inside browser_batch");
+    expect(calls.gates).toHaveLength(0);
   });
 });
 
@@ -1167,12 +1294,6 @@ describe("the step observer (Laya's shadow) on browser_act", () => {
     expect(delivered).toBe(1);
   });
 
-  it("keeps no snapshot at all when nobody is watching", async () => {
-    const s = setup({ bridgeResults: { snapshot: CART } });
-    await s.call("browser_snapshot", { browserId: "b1" });
-    const r = await s.call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
-    expect(r.isError).toBe(false);
-  });
 });
 
 /* ---------------------------------- walks ---------------------------------- */

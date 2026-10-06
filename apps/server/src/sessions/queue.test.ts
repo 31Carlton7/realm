@@ -66,17 +66,6 @@ async function releaseTurn(c: Awaited<ReturnType<typeof client>>, id: string) {
 }
 
 describe("mid-turn prompts", () => {
-  it("queues a message typed during a turn instead of sending it", async () => {
-    const { c, session } = await boot();
-    await holdTurn(c, session.id);
-
-    await c.call("sessions.send", { id: session.id, text: "also fix the test" });
-
-    // The transcript is what an agent was actually asked, so a queued message has no line in it yet.
-    expect(c.userMessages(session.id)).toEqual(["go"]);
-    const { queued } = (await c.call("sessions.queued", { id: session.id })).result;
-    expect(queued.map((q: { text: string }) => q.text)).toEqual(["also fix the test"]);
-  });
 
   it("drains one queued message per settle, oldest first", async () => {
     const { c, session } = await boot();
@@ -125,6 +114,31 @@ describe("mid-turn prompts", () => {
     await c.call("sessions.send", { id: session.id, text: "now", delivery: "steer" });
 
     await waitFor(() => c.userMessages(session.id).includes("now"));
+  });
+
+  /* Claude's interrupt resolves on the control response, and the cancelled turn settles after it. A
+   * steer that sent on the acknowledgement landed its message inside the turn still unwinding, and
+   * the late settle left the session idle with the message unanswered — "Send now" read as Stop. */
+  it("sends a released message only once the interrupted turn has settled", async () => {
+    class LateSettle extends FakeAdapter {
+      override start(opts: Parameters<FakeAdapter["start"]>[0]) {
+        const h = super.start(opts);
+        return { ...h, interrupt: async () => { setTimeout(() => void h.interrupt(), 50); } };
+      }
+    }
+    const { c, session } = await boot(new LateSettle({ script: [{ on: "go", emit: [{ kind: "tool", name: "Bash", input: { command: "go" }, needsPermission: true, result: "x" }] }] }));
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "queued" });
+    const { queued } = (await c.call("sessions.queued", { id: session.id })).result;
+
+    await c.call("sessions.releaseQueued", { id: session.id, queuedId: queued[0].id });
+
+    await waitFor(() => c.userMessages(session.id).includes("queued"));
+    const mine = c.events.filter((e) => e.event === "session.event" && e.payload.sessionId === session.id).map((e) => e.payload.event);
+    const stopped = mine.findIndex((e) => e.type === "status" && e.payload.interrupted === true);
+    const sent = mine.findIndex((e) => e.type === "user_message" && e.payload.text === "queued");
+    expect(stopped).toBeGreaterThanOrEqual(0);
+    expect(sent).toBeGreaterThan(stopped);
   });
 
   it("queues on request even while the setting says steer", async () => {

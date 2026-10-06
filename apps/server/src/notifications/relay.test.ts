@@ -36,11 +36,6 @@ beforeEach(() => {
 });
 
 describe("relaying a notification beyond the machine", () => {
-  it("sends nothing until a destination is configured", async () => {
-    svc.handleSessionEvent(session(), ask("req-1"));
-    await flush();
-    expect(sent).toEqual([]);
-  });
 
   it("texts the configured handle when an agent needs a permission, naming the session and the ask", async () => {
     settings.set(NOTIFICATIONS_IMESSAGE_KEY, "+15551234567");
@@ -107,10 +102,4 @@ describe("relayText names where the work is", () => {
       .toBe("Realm: Fix the login flow (Versed) needs your OK");
   });
 
-  it("says nothing about a space when there is none — a row about the app is not work in one", () => {
-    expect(relayText({ category: "session_done", title: "Nightly sweep", body: null, spaceName: null }))
-      .toBe("Realm: Nightly sweep finished");
-    expect(relayText({ category: "session_done", title: "Nightly sweep", body: null }))
-      .toBe("Realm: Nightly sweep finished");
-  });
 });

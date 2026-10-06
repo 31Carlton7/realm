@@ -1,56 +1,49 @@
 import { Icon } from "@realm/ui";
 import { useRef, useState } from "react";
-import { PAGE_REF_IDS, type Item } from "@realm/contracts";
+import type { Item } from "@realm/contracts";
 import { paneActions, paneMeta, usePaneMenuItems } from "../panes/registry";
 import { useApp } from "../state/store";
 import { Menu } from "./Menu";
+import { DELETES_ON_CLOSE, PAGE_KINDS } from "./pane-close";
+import { PaneTabs } from "./PaneTabs";
 import { useActionBudget } from "./pane-bar-fit";
 import { RenameInput } from "./RenameInput";
+import { ItemIcon } from "./PageIcon";
+import { useItemTitle } from "./ProgramMark";
+import { SpaceIcon } from "./SpaceIcon";
+import { useOpenSpacePage, useSpaceTint } from "./sidebar/use-sidebar-model";
 
-/**
- * Pages, not objects: the sidebar's destination pages plus a space's own Overview. Their `refId` is
- * a well-known sentinel rather than a row (PAGE_REF_IDS), so there is nothing behind the item to
- * lose — deleting one and re-opening it from the sidebar produces the identical page.
- */
-const PAGE_KINDS: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
-  ...(Object.keys(PAGE_REF_IDS) as Item["kind"][]), "space-page",
-]);
-
-/**
- * The kinds whose bar closes by DELETING rather than lifting the item out of the layout.
- *
- * A layout-only close leaves the row behind in the space, which is right for a session or a diff —
- * a transcript and a checkout outlive any pane that showed them, and the rule that closing must
- * never imply deletion is about exactly those. It is wrong for everything here: a destination page
- * is a view with no object under it, and a terminal, browser or documents pane is a thing you
- * opened at a moment and are done with. Closing those left a drift of rows nobody asked to keep,
- * so the bar offers the delete outright — named, wearing a trash, and (where there IS something
- * under it) two-step. The layout-only close stays reachable, on ⌘W and in the ⋯ menu.
- */
-const DELETES_ON_CLOSE: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
-  ...PAGE_KINDS, "terminal", "browser", "documents",
-]);
-
-/** Slim per-panel header: item icon + click-to-rename title, per-kind meta (right), ⋯ menu + close.
- *  Split/close/focus stay leaf-scoped callbacks (the host owns focus semantics); rename/delete are
- *  item-scoped and go straight to the store, like the sidebar's context menu. */
-export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoom, onUnzoom }: {
+/** Slim per-panel header: item icon + click-to-rename title, per-kind meta (right), the kind's own
+ *  actions, ⋯ menu — and a close for the kinds that have one. A session has none: it is left from the
+ *  sidebar, the way it was reached (`closeIntent`). Split/close/focus stay leaf-scoped callbacks (the
+ *  host owns focus semantics); rename/delete are item-scoped and go straight to the store, like the
+ *  sidebar's context menu. */
+export function PanelBar({ item, leafId, tabs, owners, onSplit, splitRefusal, onClose, onUnsplit, zoomed = false, onZoom, onUnzoom }: {
   item: Item;
+  /** The side panel's tabs, `item` the one showing. The strip takes the title's place, and each tab's
+   *  own close stands in for the bar's last control. */
+  tabs?: Item[];
+  /** Whose each tab is, while several sessions' tabs share the strip — the owner cue's data. */
+  owners?: Record<string, string>;
   /** The leaf this bar heads — the key its back/forward trail is kept under. */
   leafId: string;
-  onSplit: (dir: "row" | "col") => void; onClose: () => void;
+  /** Absent on the panel, which is never split: it is the window's, not a pane of the split. */
+  onSplit?: (dir: "row" | "col") => void; onClose: () => void;
+  /** Why a split from here is not offered — no room for another pane at its floor — or null when it
+   *  is. The rows stay, unavailable, with the sentence as their title. */
+  splitRefusal?: (dir: "row" | "col") => string | null;
+  /** Present while this session shares the window with something: the one row that takes it out of
+   *  the split, which is what ⌘W does here too. */
+  onUnsplit?: () => void;
   /** This pane is the one filling the host — the state its bar's focus toggle reads as ON. */
   zoomed?: boolean;
   onZoom?: () => void; onUnzoom?: () => void;
 }) {
   const deleteItem = useApp((s) => s.deleteItem);
   const run = useApp((s) => s.run);
-  // Subscribed to the trail itself, not to canPaneNav(): the selector has to re-read on every history
-  // write or the arrows would stay greyed out until some other state change happened to re-render.
-  const history = useApp((s) => s.paneHistory[leafId]);
-  const stepPaneNav = useApp((s) => s.stepPaneNav);
-  const canBack = !!history && history.index > 0;
-  const canForward = !!history && history.index < history.entries.length - 1;
+  /* A terminal's title says what it is running first ("claude · realm"); the rename below still edits
+     the item's own title, which is the part that is the person's. */
+  const shownTitle = useItemTitle(item);
   // The palette's "Rename focused item" arms renamingItemId; items are unique in the layout, so at
   // most one PanelBar answers. Local state covers the click-to-rename path.
   const renameArmed = useApp((s) => s.renamingItemId === item.id);
@@ -68,12 +61,32 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
      The browser's bar has no menu to overflow INTO — W2.3 forbids it a dropdown — so it is told it
      has room for everything and keeps the inline cluster it has always had. */
   const budget = useActionBudget(bar);
-  const keep = isBrowser ? Number.POSITIVE_INFINITY : budget;
+  /* In a side pane the strip is the data of unbounded length, so it is the one that gets the slack
+     (design.md: a row whose items compete for width needs a stated yielding order). A kind's own
+     actions go to the ⋯ menu outright rather than squeezing every tab to an ellipsis — except the
+     browser's, which has no menu to go to and only three. */
+  const keep = isBrowser ? Number.POSITIVE_INFINITY : tabs ? 0 : budget;
+  /* A peek is for reading and answering its cards (W11b), so its bar carries none of the session's
+     own actions, no rename and no delete: the way to do more with it is to open it, which the pane
+     offers where the prompter would be. Layout rows — split, focus, close — still apply to the tab. */
+  const peek = useApp((s) => s.peek?.item.id === item.id);
   const kindItems = usePaneMenuItems(item, keep);
+  /* A session's bar names the space it works in before its title — `Homework › Wants a yes` — in
+     the space's colour, so the window always says which space a session works in now that the space
+     is not a room you switch to (Plan 27). The space's name opens its page. */
+  const space = useApp((s) => (item.kind === "session" ? s.spaces.find((sp) => sp.id === item.spaceId) : undefined));
+  const tint = useSpaceTint(space?.color);
+  const openSpacePage = useOpenSpacePage();
   const Meta = paneMeta[item.kind];
   const Actions = paneActions[item.kind];
   const closeMenu = () => { setMenuOpen(false); setConfirmingDelete(false); };
+  // Asked while the bar renders, which is every time the room or the split changes.
+  const whyRow = onSplit ? splitRefusal?.("row") ?? null : null;
+  const whyCol = onSplit ? splitRefusal?.("col") ?? null : null;
   const deletesOnClose = DELETES_ON_CLOSE.has(item.kind);
+  /* A session that is a pane of its own has no close, in the bar or the menu (the owner, 10-05). Its
+     transcript outlives every pane, and it is left from the sidebar as it was reached. */
+  const closes = !!tabs || item.kind !== "session";
   /* The confirm is owed by the OBJECT, not by the button. A pty, a live web view and a document
      workspace are each something a stray click would cost you, so those arm first; a page has
      nothing under it, and a step that guards nothing is the dead chrome this bar bans. */
@@ -109,26 +122,28 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
   ) : null;
   return (
     <div className="panel-bar" ref={bar}>
-      {/* The pane's own trail, at the LEFT edge where every back button in every app lives. Rendered
-          disabled rather than hidden at the ends of the trail: arrows that come and go would shift
-          the title under the pointer mid-click, and a greyed arrow is how a user learns the pane
-          remembers at all. */}
-      <span className="panel-nav">
-        <button className="icon-btn" aria-label={`Back in ${item.title}`} title="Back (⌘[)"
-          disabled={!canBack} onClick={() => run(() => stepPaneNav(leafId, -1))}><Icon name="chevronLeft" size={14} /></button>
-        <button className="icon-btn" aria-label={`Forward in ${item.title}`} title="Forward (⌘])"
-          disabled={!canForward} onClick={() => run(() => stepPaneNav(leafId, 1))}><Icon name="chevronRight" size={14} /></button>
-      </span>
-      <span className="panel-icon"><Icon name={item.kind} size={14} /></span>
+      {/* No arrows of its own: the window's one pair is in the sidebar's head row (WindowNav), and the
+          pane's own trail is walked from the keyboard, ⌘[ and ⌘]. */}
+      {!tabs && (space ? (
+        <>
+          <button type="button" className="panel-crumb" aria-label={`Open ${space.name}`} title="Open the space's page"
+            onClick={() => openSpacePage(space.id)}>
+            <span className="panel-crumb-icon" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space.icon} size={14} /></span>
+            <span className="panel-crumb-name">{space.name}</span>
+          </button>
+          <span className="panel-crumb-sep" aria-hidden="true">›</span>
+        </>
+      ) : <span className="panel-icon"><ItemIcon item={item} size={14} /></span>)}
       {(renaming || renameArmed)
         ? <span className="panel-rename"><RenameInput item={item} onDone={() => { setRenaming(false); if (renameArmed) requestRename(null); }} /></span>
+        : tabs ? <PaneTabs leafId={leafId} tabs={tabs} activeId={item.id} owners={owners} onRename={() => setRenaming(true)} />
         : (
           <button className="panel-title" title="Click to rename" aria-label={`Rename ${item.title}`}
-            onClick={() => setRenaming(true)}>{item.title}</button>
+            onClick={() => setRenaming(true)}>{shownTitle}</button>
         )}
       <span className="panel-meta">{Meta ? <Meta item={item} /> : null}</span>
       <span className="panel-actions">
-        {Actions ? <Actions item={item} keep={keep} /> : null}
+        {Actions && !peek ? <Actions item={item} keep={keep} /> : null}
         {isBrowser ? (
           // W2.3 (no-overlay): a browser pane's header may never spawn a dropdown — the native view
           // paints over anything that opens below the bar. Everything the ⋯ menu carried is inline:
@@ -136,10 +151,14 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
           // delete is the bar's own trailing control, two-step (U-H2) there like everywhere else.
           <>
             {focusToggle}
-            <button className="icon-btn" aria-label={`Split ${item.title} right`} title="Split right (⌘\)"
-              onClick={() => onSplit("row")}><Icon name="splitRight" size={14} /></button>
-            <button className="icon-btn" aria-label={`Split ${item.title} down`} title="Split down (⌘⇧\)"
-              onClick={() => onSplit("col")}><Icon name="splitDown" size={14} /></button>
+            {onSplit && (
+              <>
+                <button className="icon-btn" aria-label={`Split ${item.title} right`} title={whyRow ?? "Split right (⌘\\)"}
+                  disabled={!!whyRow} onClick={() => onSplit("row")}><Icon name="splitRight" size={14} /></button>
+                <button className="icon-btn" aria-label={`Split ${item.title} down`} title={whyCol ?? "Split down (⌘⇧\\)"}
+                  disabled={!!whyCol} onClick={() => onSplit("col")}><Icon name="splitDown" size={14} /></button>
+              </>
+            )}
           </>
         ) : (
           <>
@@ -150,8 +169,9 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
           </>
         )}
         {/* The bar's last control: the × that lifts a pane out of the layout, or — for a page,
-            terminal, browser or documents pane — the trash that ends the thing itself. */}
-        {!deletesOnClose ? (
+            terminal, browser or documents pane — the trash that ends the thing itself. A side
+            pane's tabs carry their own, and a session's bar ends with its menu. */}
+        {tabs || !closes ? null : !deletesOnClose ? (
           <button className="icon-btn" aria-label={`Close ${item.title}`} title="Close (⌘W)" onClick={onClose}><Icon name="close" size={14} /></button>
         ) : confirmingDelete ? (
           <button className="icon-btn danger panel-confirm" aria-label={`Really delete ${item.title}?`}
@@ -170,24 +190,34 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
              layout marks, focus is the bar's expand arrows, and delete is the trash the bar's
              trailing control shows. A menu whose icons were invented here would teach a second
              vocabulary for the one it is a shortcut to. */
-          { label: "Rename", icon: <Icon name="edit" size={14} />, onSelect: () => setRenaming(true) },
-          /* The pane kind's own rows, above the layout ones every pane shares — a machine's Send key
-             and Clipboard belong with the thing they act on rather than under Split right. */
-          ...kindItems,
-          { kind: "separator" },
-          { label: "Split right", icon: <Icon name="splitRight" size={14} />, kbd: "⌘\\", onSelect: () => onSplit("row") },
-          { label: "Split down", icon: <Icon name="splitDown" size={14} />, kbd: "⌘⇧\\", onSelect: () => onSplit("col") },
+          ...(peek ? [] : [
+            { label: "Rename", icon: <Icon name="edit" size={14} />, onSelect: () => setRenaming(true) },
+            /* The pane kind's own rows, above the layout ones every pane shares — a machine's Send key
+               and Clipboard belong with the thing they act on rather than under Split right. */
+            ...kindItems,
+            { kind: "separator" as const },
+          ]),
+          /* Unavailable rather than gone when there is no room: the sentence says what would make
+             room, which a row that silently vanished never could. */
+          ...(onSplit ? [
+            { label: "Split right", icon: <Icon name="splitRight" size={14} />, kbd: "⌘\\", disabled: !!whyRow, title: whyRow ?? undefined, onSelect: () => onSplit("row") },
+            { label: "Split down", icon: <Icon name="splitDown" size={14} />, kbd: "⌘⇧\\", disabled: !!whyCol, title: whyCol ?? undefined, onSelect: () => onSplit("col") },
+          ] : []),
           /* The bar no longer carries a focus glyph, so this row is the whole control: the word, the
              shortcut, and a name that flips with the state rather than a pressed flag beside it. */
           ...(zoomed
             ? (onUnzoom ? [{ label: "Unfocus pane", icon: <Icon name="unfocusPane" size={14} />, kbd: "⌘⇧F", onSelect: onUnzoom }] : [])
             : (onZoom ? [{ label: "Focus pane", icon: <Icon name="focusPane" size={14} />, kbd: "⌘⇧F", onSelect: onZoom }] : [])),
-          // Where the bar's own control deletes, this is the only route left to the layout-only
-          // close — so it says which of the two it is, instead of leaving "Close" to mean either.
-          { label: deletesOnClose ? "Close pane (keep in space)" : "Close", icon: <Icon name="close" size={14} />, kbd: "⌘W", onSelect: onClose },
+          /* The layout-only close, named for what it closes — the row ⌘W runs. A tab leaves its strip;
+             a session leaves a split it shares, and alone has no row at all. Where the bar's own
+             control deletes, the row says it keeps the thing, instead of leaving "Close" to mean either. */
+          ...(closes ? [{ label: deletesOnClose ? `Close ${tabs ? "tab" : "pane"} (keep in space)` : tabs ? "Close tab" : "Close",
+            icon: <Icon name="close" size={14} />, kbd: "⌘W", onSelect: onClose }]
+            : onUnsplit ? [{ label: "Remove from split", icon: <Icon name="close" size={14} />, kbd: "⌘W",
+              title: "Takes this session out of the split; it stays in the sidebar", onSelect: onUnsplit }] : []),
           // Delete lives in the bar for those kinds; repeating it here would be two controls for
           // one action, and only one of them would ever wear the armed state.
-          ...(deletesOnClose ? [] : [
+          ...(deletesOnClose || peek ? [] : [
             { kind: "separator" as const },
             confirmingDelete
               ? { label: <strong>Really delete?</strong>, icon: <Icon name="trash" size={14} />, danger: true, onSelect: () => run(() => deleteItem(item.id)) }

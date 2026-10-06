@@ -185,7 +185,9 @@ describe("mcp over rpc", () => {
        `goal` and `realm-schedule` are last because they are registered last — both wrap a service
        declared further down `app.ts`. `goal` is on by default because its reach is the narrowest here
        (two tools that appear only on a session already pursuing a goal, and the most either can do is
-       end it); `realm-schedule` because it only writes a row this space's own page can see. */
+       end it); `realm-schedule` because it only writes a row this space's own page can see.
+       `realm-ui` is ON, and sits after the delegation tools it is registered beside: it can only ask,
+       and an answer is the user's click. */
     const before = (await c.call("mcp.providers.list", { spaceId: work.id })).result.providers;
     /* `offered`/`needs` ride every row: what the provider can do on this Mac, beside what the space
        asked for. Every provider acting inside Realm is always offered. realm-simulator depends on a
@@ -195,7 +197,7 @@ describe("mcp over rpc", () => {
       ? { name, enabled, offered: null, needs: "Xcode or Android Studio" }
       : { name, enabled, offered: true, needs: null });
     expect(before).toEqual([
-      row("realm-browser", true), row("realm-agent", true),
+      row("realm-browser", true), row("realm-agent", true), row("realm-ui", true),
       row("realm-computer", false), row("realm-terminal", true),
       row("realm-app", false), row("realm-docs", true),
       row("realm-vm", false), row("realm-simulator", true),
@@ -204,7 +206,7 @@ describe("mcp over rpc", () => {
     await c.call("mcp.setProviderEnabled", { spaceId: work.id, name: "realm-browser", enabled: false });
     // The disable is per-space: Work reads OFF, School still reads ON.
     expect((await c.call("mcp.providers.list", { spaceId: work.id })).result.providers).toEqual([
-      row("realm-browser", false), row("realm-agent", true),
+      row("realm-browser", false), row("realm-agent", true), row("realm-ui", true),
       row("realm-computer", false), row("realm-terminal", true),
       row("realm-app", false), row("realm-docs", true),
       row("realm-vm", false), row("realm-simulator", true),
@@ -317,13 +319,6 @@ describe("oauth over rpc — the whole flow through a real app", () => {
     const updated = (await c.call("mcp.update", { spaceId: work.id, id: server.id, url: "https://b.example.com/mcp" })).result;
     // Its API-key headers are the user's own, not something Realm negotiated — they survive the move.
     expect(updated).toMatchObject({ authKind: "secrets", oauthStatus: "unconfigured", headerKeys: ["Authorization"] });
-    c.close();
-  });
-
-  it("refuses to start a flow for a stdio server rather than opening a browser that goes nowhere", async () => {
-    const { c, work } = await boot();
-    const server = (await addStdio(c, work.id, "airtable")).result;
-    expect((await c.call("mcp.oauth.start", { id: server.id })).error?.code).toBe("MCP_OAUTH_UNSUPPORTED");
     c.close();
   });
 

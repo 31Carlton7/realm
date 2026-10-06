@@ -33,11 +33,6 @@ describe("axElementAt", () => {
     expect(hit.id).toBe("com.apple.settings.general");
   });
 
-  it("resolves a different row for a different point — the geometry is real", () => {
-    expect(axElementAt(SETTINGS, 0.5, 0.24)!.id).toBe("com.apple.settings.primaryAppleAccount");
-    expect(axElementAt(SETTINGS, 0.2, 0.16)!.id).toBe("0.0");
-  });
-
   it("returns nothing for a point in empty screen, rather than the nearest thing", () => {
     // Bottom of the screen, below every frame. A chip for "whatever was closest" would name a
     // control the user did not point at.

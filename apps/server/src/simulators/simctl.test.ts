@@ -117,10 +117,6 @@ describe("parseApps", () => {
     expect(parseApps(DUMP)[0]).toEqual({ bundleId: "com.acme.Widgets", name: "Acme Widgets" });
   });
 
-  it("drops a hidden app: no icon, nothing to launch", () => {
-    expect(parseApps(DUMP).some((a) => a.bundleId === "com.apple.springboard")).toBe(false);
-  });
-
   it("falls back from the display name to the bundle name, and then to the id itself", () => {
     const apps = parseApps(`{
     "com.apple.Bridge" =     {

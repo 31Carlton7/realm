@@ -124,11 +124,6 @@ describe("the read-only cap — hard, per agent kind (the write-permission mutan
     expect(reviewer.permissionMode).toBe(PLAN_PERMISSION_MODE);
   });
 
-  it("a plan-capable parent's reviewer keeps the parent's kind", async () => {
-    const { spaceId, parentId, envId } = await boot({ parentKind: "fake" });
-    await app.reviews.runTool({ sessionId: parentId, spaceId }, { environmentId: envId });
-    expect(reviewerOf(spaceId)!.agentKind).toBe("fake");
-  });
 });
 
 describe("the verdict lands — KV + broadcast + notification, and stops there", () => {

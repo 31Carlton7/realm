@@ -1,9 +1,10 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
-import { ToolCard, ToolGroup, RESULT_CLAMP } from "./ToolCard";
+import { ToolCard, ToolCwd, ToolGroup, RESULT_CLAMP } from "./ToolCard";
 import { editStat } from "./tool-summary";
 import * as summaryModule from "./tool-summary";
-import { GROUP_MIN, finishedAt, finishedOn, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, withEnter, type ToolBlock, type ToolNode } from "./tool-group";
+import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, withEnter, type ToolBlock, type ToolNode } from "./tool-group";
+import { stampLabel, stampTitle } from "./timestamps";
 import { Transcript } from "./Transcript";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 
@@ -127,6 +128,14 @@ describe("tool-run grouping (§5: group consecutive tools under a collapsed summ
   it("non-tool blocks keep the positional keys the transcript renders them under", () => {
     const items = groupTranscript([say("a"), say("b")]);
     expect(items.map((i) => i.key)).toEqual(["assistant:0", "assistant:1"]);
+  });
+
+  it("never folds a call that drew a view: the view is what the call was for", () => {
+    // THE MUTANT: let it fold, and a settled run shows "Worked for 8s" with the chart behind it.
+    const chart: ToolBlock = { ...tool("t2", "mcp__realm__Charts__show_chart", {}), view: { viewId: "V1", serverId: "S1", serverName: "Charts", tool: "show_chart" } };
+    const items = groupTranscript([tool("t1", "Read", {}), chart, tool("t3", "Read", {}), tool("t4", "Read", {})]);
+    expect(items.map((i) => i.kind)).toEqual(["block", "block", "group"]);
+    expect(items[1]!.kind === "block" && items[1]!.block).toBe(chart);
   });
 });
 
@@ -313,6 +322,53 @@ describe("editStat (Plan 9 W2: ThinkingState's measured +/− counts)", () => {
     const stat = document.querySelector(".tool-stat")!;
     expect(stat.querySelector(".tool-stat-add")).toHaveTextContent("+2");
     expect(stat.querySelector(".tool-stat-del")).toBeNull();
+  });
+});
+
+describe("an edit's row names the file it changed, one way for every agent", () => {
+  const row = (b: ToolBlock, cwd: string | null = "/w/app") => {
+    render(<ToolCwd.Provider value={cwd}><ToolCard sessionStatus="idle" block={b} /></ToolCwd.Provider>);
+    const file = document.querySelector<HTMLElement>(".tool-row .tool-file");
+    return { file, stat: document.querySelector(".tool-row .tool-stat")?.textContent ?? null };
+  };
+  const ok = { content: "ok", isError: false };
+
+  it("draws Claude's Edit as the file's mark, its directory from where the agent stands, its name, and the counts", () => {
+    const { file, stat } = row({ kind: "tool", toolUseId: "t1", name: "Edit", ts: 0, result: ok,
+      input: { file_path: "/w/app/web/lib/orgs.ts", old_string: "a", new_string: "a\nb" } });
+    expect(file!.querySelector(".tool-file-dir")!.textContent).toBe("web/lib/");
+    expect(file!.querySelector(".tool-file-name")!.textContent).toBe("orgs.ts");
+    expect(file!.querySelector(".tool-file-mark")).not.toBeNull();
+    expect(file!.title).toBe("/w/app/web/lib/orgs.ts");
+    expect(stat).toBe("+1");
+    // The raw-path chip is gone for an edit: the file IS the target.
+    expect(document.querySelector(".tool-row .tool-summary")).toBeNull();
+  });
+
+  it("names a Codex patch by its first file, and says how many more it carried", () => {
+    const { file, stat } = row({ kind: "tool", toolUseId: "t1", name: "apply_patch", ts: 0, result: ok, input: { changes: [
+      { path: "/w/app/a.ts", diff: "--- a/a.ts\n+++ b/a.ts\n@@ -1,1 +1,1 @@\n-x\n+y" }, { path: "/w/app/b.ts" }, { path: "/w/app/c.ts" }] } });
+    expect(file!.querySelector(".tool-file-name")!.textContent).toBe("a.ts");
+    expect(file!.querySelector(".tool-file-more")!.textContent).toBe("and 2 more");
+    expect(stat).toBe("+1−1");
+  });
+
+  it("reads an ACP agent's edit from what it said — its kind, its location, the diff in its result", () => {
+    const { file, stat } = row({ kind: "tool", toolUseId: "t1", name: "Editing orgs.ts", ts: 0, toolKind: "edit", paths: ["/w/app/web/lib/orgs.ts"], input: {},
+      result: { content: "--- /w/app/web/lib/orgs.ts\n+++ /w/app/web/lib/orgs.ts\n@@ -3,1 +3,2 @@\n-three\n+THREE\n+four", isError: false } });
+    expect(file!.querySelector(".tool-file-name")!.textContent).toBe("orgs.ts");
+    expect(stat).toBe("+2−1");
+  });
+
+  it("leaves every call that edits nothing exactly as it was", () => {
+    row({ kind: "tool", toolUseId: "t1", name: "Bash", ts: 0, result: ok, input: { command: "npm test" } });
+    expect(document.querySelector(".tool-row .tool-file")).toBeNull();
+    expect(document.querySelector(".tool-row .tool-summary")!.textContent).toBe("npm test");
+  });
+
+  it("says a path whole when no session tells it where the agent stood", () => {
+    const { file } = row({ kind: "tool", toolUseId: "t1", name: "Write", ts: 0, result: ok, input: { file_path: "/w/app/notes.md", content: "x" } }, null);
+    expect(file!.querySelector(".tool-file-dir")!.textContent).toBe("/w/app/");
   });
 });
 
@@ -507,25 +563,15 @@ describe("settled tool cards do not re-render behind a streaming answer", () => 
 describe("when a turn finished", () => {
   const ts = new Date(2026, 8, 7, 16, 12).getTime();
 
-  it("is a clock time, because that is the question a duration cannot answer", () => {
-    // "Cooked for 2m" reads the same whether the run ended a minute ago or last Tuesday, and a
-    // transcript you come back to is exactly where that matters.
-    expect(finishedAt(ts)).toMatch(/\b4:12\b/);
-  });
-
-  it("carries the date in full for the tooltip, since a clock time wraps at midnight", () => {
-    const full = finishedOn(ts);
-    expect(full).toMatch(/2026/);
-    expect(full).toMatch(/4:12/);
-  });
-
-  it("rides the settled run line beside the duration", () => {
+  it("rides the settled run line beside the duration, dated from the settle and not from now", () => {
     const blocks: Block[] = [{ kind: "run", ms: 125_000, startedAt: ts - 125_000, ts }];
     const t: TranscriptModel = { blocks, pendingPermissions: [],
       usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null, promptHint: null };
     render(<Transcript transcript={t} sessionStatus="idle" onDecide={() => {}} />);
     const line = document.querySelector(".msg-run")!;
     expect(line.textContent).toContain("2m");
-    expect(within(line as HTMLElement).getByTitle(finishedOn(ts)).textContent).toBe(finishedAt(ts));
+    const at = within(line as HTMLElement).getByTitle(stampTitle(ts));
+    expect(at.textContent).toBe(stampLabel(ts, Date.now()));
+    expect(at.getAttribute("datetime")).toBe(new Date(ts).toISOString());
   });
 });

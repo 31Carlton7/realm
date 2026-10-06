@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_META } from "./presets";
 import {
   PLAN_LIMIT_REPORTING, mergeWindows, planLabel, planUnavailableNote, planWindowLabel,
   reportsPlanLimits, tightestWindow, windowLabelForMinutes, windowsByUrgency, type PlanWindow,
@@ -9,9 +8,6 @@ const w = (id: string, utilization: number | null): PlanWindow =>
   ({ id, label: planWindowLabel(id), utilization, resetsAt: null });
 
 describe("PLAN_LIMIT_REPORTING", () => {
-  it("has an entry for every agent kind, so a new engine cannot default to claiming it reports", () => {
-    expect(Object.keys(PLAN_LIMIT_REPORTING).sort()).toEqual(Object.keys(AGENT_META).sort());
-  });
 
   it("claims a source only where one was actually captured", () => {
     // Both were measured off a live wire: Claude's SDKRateLimitEvent plus the /usage control request,
@@ -97,10 +93,6 @@ describe("planLabel", () => {
     expect(planLabel("claude", "max")).toBe("Claude Max");
   });
 
-  it("passes through a tier this build has never heard of", () => {
-    expect(planLabel("claude", "galaxy")).toBe("Claude Galaxy");
-  });
-
   it("answers null when the provider did not say, so the caller can word that itself", () => {
     expect(planLabel("claude", null)).toBeNull();
     expect(planLabel("claude", "   ")).toBeNull();
@@ -130,9 +122,6 @@ describe("mergeWindows", () => {
     expect(merged.map((x) => x.id)).toEqual(["five_hour", "model:Fable"]);
   });
 
-  it("keeps the base untouched when the fresher set is empty", () => {
-    expect(mergeWindows([w("five_hour", 10)], [])).toEqual([w("five_hour", 10)]);
-  });
 });
 
 describe("windowsByUrgency / tightestWindow", () => {

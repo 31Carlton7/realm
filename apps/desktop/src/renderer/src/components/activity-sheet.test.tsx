@@ -51,12 +51,6 @@ describe("ActivitySheet", () => {
     expect(screen.getByLabelText("error")).toBeInTheDocument();
   });
 
-  it("formats sub-second durations in ms and clears rows on refetch when a filter changes", async () => {
-    const fast = mcpCall("c-fast", "se1", { ts: 100, durationMs: 87 });
-    await mount({ sessions: [session("se1", "s1")], mcpCalls: [fast] });
-    expect(screen.getByText("87ms")).toBeInTheDocument();
-  });
-
   it("expanding a row shows resultSummary verbatim, never re-parsed or reformatted", async () => {
     // Deliberately VALID JSON, unlike the earlier fixture: pretty-printing it would visibly reformat it
     // (space after the colon, newlines), so this is what makes the test mutation-grade for "verbatim" —

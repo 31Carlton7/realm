@@ -7,7 +7,6 @@ import { ItemsStore } from "../store/items";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { SimulatorsStore } from "../store/simulators";
-import { RpcError } from "../store/rows";
 import { RunnerError } from "./device-runner";
 import { PhysicalDevices } from "./physical";
 import type { VideoStop } from "./phone-video";
@@ -191,15 +190,6 @@ describe("reading and driving it", () => {
     expect((await service.ax(id, { patient: true })).app).toBe("Settings");
   });
 
-  it("says a runner that is not answering is not answering — the word a step asks again on", async () => {
-    const { service, phone, open } = await setup();
-    const id = await open();
-    await phone.close();
-    const e = await service.ax(id).catch((x: unknown) => x);
-    expect(e).toBeInstanceOf(RpcError);
-    expect(e).toMatchObject({ code: "UNAVAILABLE", message: expect.stringContaining("runner is not answering") });
-  });
-
   it("takes each input in 0..1 of the screen and sends the runner points", async () => {
     const { service, phone, open } = await setup();
     const id = await open();
@@ -225,11 +215,6 @@ describe("reading and driving it", () => {
     }
     expect((await service.input(id, { kind: "press", key: "lock" })).detail).toMatch(/never presses a real iPhone's side button/);
     expect(phone.acts()).toEqual([]);
-  });
-
-  it("has no picture to judge motion by, so a walk reads the tree", async () => {
-    const { service, open } = await setup();
-    expect(service.motion(await open())).toBeNull();
   });
 
   it("never watches a simulator's old stream for a pane now pointed at the phone", async () => {

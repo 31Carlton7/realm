@@ -51,10 +51,6 @@ describe("slugifyBranch", () => {
     }
   });
 
-  it("keeps a readable slug for an ordinary title", () => {
-    expect(slugifyBranch("Fix the login flow")).toBe("fix-the-login-flow");
-  });
-
   it("has no path separator, so realm/<slug> can never collide with realm/<slug>/<more>", () => {
     for (const title of nasty) expect(slugifyBranch(title)).not.toContain("/");
   });

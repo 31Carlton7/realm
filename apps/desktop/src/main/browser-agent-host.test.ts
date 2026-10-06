@@ -1,16 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserSnapshotResult } from "@realm/contracts";
+import { MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserCredential, type BrowserLoadError, type BrowserSnapshotResult } from "@realm/contracts";
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
 
 const SECRET = "correct horse battery staple";
+/** What the fake store "generates". A distinct string so a test can tell the two values apart in the
+ *  key events, and so a leak of either is a different failure. */
+const GENERATED = "mint3d-by-realm-!x7";
 
 /** A fake pane: one live view ("b1") whose CDP send is programmable, plus event injection. */
 function setup(opts: {
   responses?: Record<string, unknown>;
   attachFails?: boolean;
-  /** Omitted = no secret store at all (safeStorage unavailable, or the app still starting). */
-  credentials?: { id: string; origin: string; username: string; label: string; createdAt: number }[];
+  /** Omitted = no secret store at all (safeStorage unavailable, or the app still starting). Each row
+   *  is Work's unless it names another profile; a row from before `generated` existed reads as not. */
+  credentials?: (Omit<BrowserCredential, "generated"> & { generated?: boolean; profileId?: string })[];
+  /** Whose pane b1 is. Omitted = no `profileOf` dep, which is a harness built before profiles. */
+  paneProfile?: string | null;
   presence?: boolean;
   /** Plan 23: a stand-in governor. Omitted = no download support, which must refuse rather than
    *  fall back to writing files. */
@@ -19,19 +25,26 @@ function setup(opts: {
   readFile?: boolean;
   /** The pane's spinner, and the clock a page's network quiet is measured on. */
   loading?: () => boolean;
+  /** The page did not load — main's own record of it, as `BrowserPane.pageState` carries it. */
+  loadError?: BrowserLoadError;
   now?: () => number;
   /** Run while the page is being captured — something the page does mid-snapshot. */
   duringCapture?: () => void;
+  /** Answers that depend on the params — consulted first, `undefined` falls through to the rest. */
+  respond?: (method: string, params?: Record<string, unknown>) => unknown;
 } = {}) {
   let emit: ((method: string, params: unknown) => void) | null = null;
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
   const audit: { ts: number; origin: string; credentialId: string; outcome: string }[] = [];
+  const minted: (BrowserCredential & { profileId: string; length: number; symbols: boolean })[] = [];
   const grants: { browserId: string; origin: string; dir: string; expiresAt: number }[] = [];
   const liveViews = new Set(["b1"]);
   const touched: string[] = [];
   const binding: CdpBinding = {
     send: async (method, params) => {
       calls.push({ method, params });
+      const answer = opts.respond?.(method, params);
+      if (answer !== undefined) return answer;
       if (method === "DOMSnapshot.captureSnapshot") { opts.duringCapture?.(); return opts.responses?.[method] ?? { documents: [], strings: [] }; }
       if (method === "Runtime.evaluate") return { result: { value: "page text here" } };
       if (method === "Page.captureScreenshot") return { data: "c2NyZWVu" };
@@ -50,16 +63,39 @@ function setup(opts: {
     hasView: (id) => liveViews.has(id),
     touch: (id) => { touched.push(id); },
     navigate: (id, url) => (liveViews.has(id) && url.startsWith("https://allowed.") ? url : null),
-    pageState: (id) => (liveViews.has(id) ? { url: "https://example.com/x", title: "Example", ...(opts.loading ? { loading: opts.loading() } : {}) } : null),
+    pageState: (id) => (liveViews.has(id) ? {
+      url: "https://example.com/x", title: "Example", ...(opts.loading ? { loading: opts.loading() } : {}),
+      ...(opts.loadError ? { error: opts.loadError } : {}),
+    } : null),
     ...(opts.now ? { now: opts.now } : {}),
     secrets: opts.credentials === undefined ? undefined : {
-      listCredentials: () => [...opts.credentials!],
-      getCredential: (id) => opts.credentials!.find((c) => c.id === id) ?? null,
-      withCredentialValue: async (id, use) => {
-        if (!opts.credentials!.some((c) => c.id === id)) return { ok: false, refused: "no_credential" };
+      listCredentials: (profileId) => opts.credentials!.filter((c) => (c.profileId ?? "pWork") === profileId)
+        .map(({ profileId: _p, ...c }) => ({ ...c, generated: c.generated ?? false })),
+      getCredential: (profileId, id) => {
+        const row = opts.credentials!.find((c) => c.id === id && (c.profileId ?? "pWork") === profileId);
+        if (!row) return null;
+        const { profileId: _p, ...c } = row;
+        return { ...c, generated: c.generated ?? false };
+      },
+      withCredentialValue: async (profileId, id, use) => {
+        if (!opts.credentials!.some((c) => c.id === id && (c.profileId ?? "pWork") === profileId)) return { ok: false, refused: "no_credential" };
         if (opts.presence === false) return { ok: false, refused: "no_presence" };
         await use(SECRET);
         return { ok: true };
+      },
+      /** The real store mints, writes the row, then types. The fake keeps that order visible: the row
+       *  it appends is what the host reports back, and `minted` is how a test sees that a refused fill
+       *  created nothing. */
+      withGeneratedCredentialValue: async (profileId, input, use) => {
+        if (opts.presence === false) return { ok: false, refused: "no_presence" };
+        const credential: BrowserCredential = {
+          id: `gen-${minted.length + 1}`, origin: input.origin, username: input.username,
+          label: input.label, createdAt: 2, generated: true,
+        };
+        minted.push({ ...credential, profileId, length: input.length, symbols: input.symbols });
+        opts.credentials!.push({ ...credential, profileId });
+        await use(GENERATED);
+        return { ok: true, credential };
       },
       audit: (entry) => { audit.push(entry); },
     },
@@ -73,15 +109,46 @@ function setup(opts: {
       },
     } : undefined,
     readFile: opts.readFile === false ? undefined : async () => new Uint8Array([1, 2, 3]),
+    ...(opts.paneProfile !== undefined ? { profileOf: (id: string) => (liveViews.has(id) ? opts.paneProfile ?? null : null) } : {}),
   });
-  return { host, calls, liveViews, audit, grants, touched, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
+  return { host, calls, liveViews, audit, minted, grants, touched, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
 }
 
-describe("BrowserAgentHost", () => {
-  it("an op against a browser whose pane is not open fails with the tell-the-user message", async () => {
-    const { host } = setup();
-    await expect(host.handleOp("snapshot", { browserId: "nope" })).rejects.toThrow(/pane is not open in the app/);
+/**
+ * A page that did not load. The view holds Chromium's empty error document and the pane draws Realm's
+ * page in its place, outside the view — so an agent reading the page through CDP would find nothing at
+ * all, and "nothing" is the one answer that sends an agent off to click at an empty page.
+ */
+describe("BrowserAgentHost — a page that did not load", () => {
+  const REFUSED: BrowserLoadError = { code: -102, name: "ERR_CONNECTION_REFUSED", url: "http://localhost:3000/" };
+
+  it("answers a snapshot with the failure, and asks the empty error document nothing", async () => {
+    /* THE mutant: skip the check and capture anyway — the agent is handed "0 interactive elements"
+       on a page it will take to be the site's own, and the reason is nowhere in what it reads. */
+    const { host, calls } = setup({ loadError: REFUSED });
+    const snap = await host.handleOp("snapshot", { browserId: "b1" }) as BrowserSnapshotResult;
+    expect(snap).toMatchObject({ url: REFUSED.url, elementCount: 0, text: "", loadError: REFUSED });
+    expect(calls.some((c) => c.method === "DOMSnapshot.captureSnapshot" || c.method === "Accessibility.getFullAXTree")).toBe(false);
   });
+
+  it("answers a read of the page's text with the failure, and still hands over its console and network", async () => {
+    const { host } = setup({ loadError: REFUSED });
+    expect(await host.handleOp("read", { browserId: "b1", kind: "text" })).toEqual({ text: "", loadError: REFUSED });
+    // The network log is where the failed request itself is written down — worth having, not hiding.
+    expect(await host.handleOp("read", { browserId: "b1", kind: "network" })).not.toHaveProperty("loadError");
+  });
+
+  it("says so in describe and on a screenshot, and says nothing for a page that loaded", async () => {
+    const failed = setup({ loadError: REFUSED });
+    expect(await failed.host.handleOp("describe", { browserId: "b1" })).toMatchObject({ open: true, loadError: REFUSED });
+    expect(await failed.host.handleOp("screenshot", { browserId: "b1" })).toMatchObject({ loadError: REFUSED });
+    const loaded = setup();
+    expect(await loaded.host.handleOp("describe", { browserId: "b1" })).not.toHaveProperty("loadError");
+    expect(await loaded.host.handleOp("snapshot", { browserId: "b1" })).not.toHaveProperty("loadError");
+  });
+});
+
+describe("BrowserAgentHost", () => {
 
   it("describe reports open:false (not an error) for a missing view — browser_list needs the distinction", async () => {
     const { host } = setup();
@@ -288,11 +355,11 @@ describe("act mark wiring (W4; the cursor and the frame, Plan 25 W2)", () => {
  * that goes unlogged, and a log line that carries anything it shouldn't.
  */
 describe("BrowserAgentHost — fillCredential", () => {
-  const cred = { id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1 };
+  const cred: BrowserCredential = { id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1, generated: false };
 
   it("fills on a matching origin and logs exactly timestamp/origin/credentialId/outcome", async () => {
     const { host, calls, audit } = setup({ credentials: [cred] });
-    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" });
 
     expect(result).toEqual({ ok: true, detail: "filled saved credential for https://example.com" });
     expect(audit).toHaveLength(1);
@@ -306,7 +373,7 @@ describe("BrowserAgentHost — fillCredential", () => {
 
   it("draws NO mark at all, unlike act — no ring, no cursor, no frame, in the one op that does the least in the page", async () => {
     const { host, calls } = setup({ credentials: [cred] });
-    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" });
     expect(calls.some((c) => c.method === "Runtime.evaluate")).toBe(false);
   });
 
@@ -315,7 +382,7 @@ describe("BrowserAgentHost — fillCredential", () => {
       credentials: [cred],
       responses: { "Page.getNavigationHistory": { currentIndex: 0, entries: [{ url: "https://examp1e.com/x" }] } },
     });
-    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" }) as { ok: boolean; refused?: string };
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" }) as { ok: boolean; refused?: string };
 
     expect(result.ok).toBe(false);
     expect(result.refused).toBe("origin_mismatch");
@@ -325,14 +392,14 @@ describe("BrowserAgentHost — fillCredential", () => {
 
   it("a cancelled Touch ID is logged as no_presence", async () => {
     const { host, audit } = setup({ credentials: [cred], presence: false });
-    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" }) as { ok: boolean; refused?: string };
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" }) as { ok: boolean; refused?: string };
     expect(result.refused).toBe("no_presence");
     expect(audit[0]).toMatchObject({ outcome: "no_presence" });
   });
 
   it("an unknown id refuses BEFORE touching CDP, and is still logged", async () => {
     const { host, calls, audit } = setup({ credentials: [cred] });
-    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "ghost" }) as { ok: boolean; refused?: string };
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "ghost", profileId: "pWork" }) as { ok: boolean; refused?: string };
 
     expect(result.refused).toBe("no_credential");
     expect(audit[0]).toMatchObject({ outcome: "no_credential", credentialId: "ghost" });
@@ -342,14 +409,144 @@ describe("BrowserAgentHost — fillCredential", () => {
   it("with NO store (safeStorage unavailable) it behaves as if nothing is enrolled — never as a fallback", async () => {
     const { host } = setup();
     expect(await host.handleOp("credentials", {})).toEqual({ credentials: [] });
-    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" }) as { ok: boolean; refused?: string };
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" }) as { ok: boolean; refused?: string };
     expect(result.refused).toBe("no_credential");
+  });
+
+  it("a GENERATED fill mints for the approved origin, types it, and reports the new id (never the value)", async () => {
+    const { host, calls, minted } = setup({ credentials: [] });
+    const result = await host.handleOp("fillCredential", {
+      browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: { username: "ada", label: "Sign-up", length: 24, symbols: true },
+    }) as { ok: boolean; detail?: string; credentialId?: string };
+
+    expect(result.ok).toBe(true);
+    expect(result.credentialId).toBe("gen-1");
+    expect(minted).toHaveLength(1);
+    expect(minted[0]).toMatchObject({ origin: "https://example.com", username: "ada", label: "Sign-up", length: 24, symbols: true, generated: true });
+    expect(JSON.stringify(result)).not.toContain(GENERATED);
+    expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent").length).toBe(GENERATED.length * 2);
+  });
+
+  it("logs a generated fill as `generated`, against the id of the row it just made", async () => {
+    const { host, audit } = setup({ credentials: [] });
+    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} });
+    expect(audit).toHaveLength(1);
+    expect(Object.keys(audit[0]!).sort()).toEqual(["credentialId", "origin", "outcome", "ts"]);
+    expect(audit[0]).toMatchObject({ origin: "https://example.com", credentialId: "gen-1", outcome: "generated" });
+    expect(JSON.stringify(audit)).not.toContain(GENERATED);
+  });
+
+  it("a generated fill on a pane that has NAVIGATED since the approval mints nothing", async () => {
+    // The race the approved origin closes: the card named example.com, the pane is somewhere else by
+    // the time the op runs, and main compares the two rather than trusting either alone.
+    const { host, audit, minted, calls } = setup({
+      credentials: [],
+      responses: { "Page.getNavigationHistory": { currentIndex: 0, entries: [{ url: "https://examp1e.com/signup" }] } },
+    });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} }) as { ok: boolean; refused?: string };
+
+    expect(result.refused).toBe("origin_mismatch");
+    expect(minted).toEqual([]);
+    expect(audit[0]).toMatchObject({ outcome: "origin_mismatch", credentialId: "" });
+    expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
+  });
+
+  it("checks the origin the CARD named, not one it re-derives itself (mutant: main reading the pane instead)", async () => {
+    // Main must not recompute the origin from the pane: that would make the check compare the live
+    // page against itself, always match, and quietly mint for whatever page the pane had reached by
+    // then. The pane here is on example.com and the approval was for somewhere else.
+    const { host, minted, calls } = setup({ credentials: [] });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://other.example", generate: {} }) as { ok: boolean; refused?: string };
+
+    expect(result.refused).toBe("origin_mismatch");
+    expect(minted).toEqual([]);
+    expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
+  });
+
+  it("an approved origin that is not an origin refuses BEFORE touching CDP", async () => {
+    const { host, calls, audit, minted } = setup({ credentials: [] });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "about:blank", generate: {} }) as { ok: boolean; refused?: string };
+
+    expect(result.refused).toBe("no_store");
+    expect(minted).toEqual([]);
+    expect(audit[0]).toMatchObject({ outcome: "no_store" });
+    expect(calls.some((c) => c.method === "Page.getNavigationHistory")).toBe(false);
+  });
+
+  it("with NO store a generated fill refuses no_store — not no_credential, and never a fallback", async () => {
+    const { host } = setup();
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} }) as { ok: boolean; refused?: string };
+    expect(result.refused).toBe("no_store");
+  });
+
+  it("a cancelled Touch ID on a generated fill is logged, with no id to log it against", async () => {
+    const { host, audit, minted } = setup({ credentials: [], presence: false });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} }) as { ok: boolean; refused?: string };
+    expect(result.refused).toBe("no_presence");
+    expect(minted).toEqual([]);
+    expect(audit[0]).toMatchObject({ outcome: "no_presence", credentialId: "" });
+  });
+
+  it("a generated fill into a pane of ANOTHER profile mints nothing and types nothing", async () => {
+    // THE mutant: the profile check left on the saved route only. Minting into Work's store and typing
+    // into Personal's jar would make an account neither profile can find its way back into.
+    const { host, minted, calls } = setup({ credentials: [], paneProfile: "pPersonal" });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} }) as { ok: boolean; refused?: string };
+    expect(result.refused).toBe("no_store");
+    expect(minted).toEqual([]);
+    expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
+  });
+
+  it("a generated fill that names no profile mints nothing — it cannot say whose store it means", async () => {
+    const { host, minted } = setup({ credentials: [] });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, origin: "https://example.com", generate: {} }) as { ok: boolean; refused?: string };
+    expect(result.refused).toBe("no_store");
+    expect(minted).toEqual([]);
+  });
+
+  it("keeps the new row in the profile that asked for it", async () => {
+    const { host, minted } = setup({ credentials: [], paneProfile: "pWork" });
+    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} });
+    expect(minted.map((m) => m.profileId)).toEqual(["pWork"]);
+  });
+
+  it("the row a generated fill made is then fillable by id, like any other — the confirm-field path", async () => {
+    const { host, calls } = setup({ credentials: [] });
+    const created = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} }) as { credentialId?: string };
+    const again = await host.handleOp("fillCredential", { browserId: "b1", ref: 8, profileId: "pWork", credentialId: created.credentialId! }) as { ok: boolean };
+
+    expect(again.ok).toBe(true);
+    expect(calls.filter((c) => c.method === "DOM.focus").length).toBe(2);
   });
 
   it("the credentials op returns metadata only — there is no value field to strip", async () => {
     const { host } = setup({ credentials: [cred] });
-    const r = await host.handleOp("credentials", {}) as { credentials: Record<string, unknown>[] };
-    expect(Object.keys(r.credentials[0]!).sort()).toEqual(["createdAt", "id", "label", "origin", "username"]);
+    const r = await host.handleOp("credentials", { profileId: "pWork" }) as { credentials: Record<string, unknown>[] };
+    expect(Object.keys(r.credentials[0]!).sort()).toEqual(["createdAt", "generated", "id", "label", "origin", "username"]);
+  });
+
+  it("lists and fills only the NAMED profile's sign-ins — a call naming none gets none", async () => {
+    /* THE mutants: list every profile's sign-ins, or fill one of another profile's because the id
+       matched. Each is a Personal secret typed into a page by an agent working in Work. */
+    const mine = { ...cred, id: "cred-w" };
+    const theirs = { ...cred, id: "cred-p", profileId: "pPersonal" };
+    const { host, calls, audit } = setup({ credentials: [mine, theirs] });
+    expect(await host.handleOp("credentials", { profileId: "pWork" })).toEqual({ credentials: [{ ...cred, id: "cred-w" }] });
+    expect(await host.handleOp("credentials", {})).toEqual({ credentials: [] });
+    const r = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-p", profileId: "pWork" }) as { ok: boolean; refused?: string };
+    expect(r.refused).toBe("no_credential");
+    expect(audit[0]).toMatchObject({ outcome: "no_credential", credentialId: "cred-p" });
+    expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
+  });
+
+  it("refuses to fill a profile's sign-in into a pane of ANOTHER profile, before touching the page", async () => {
+    const { host, calls } = setup({ credentials: [cred], paneProfile: "pPersonal" });
+    const r = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" }) as { ok: boolean; refused?: string };
+    expect(r.refused).toBe("no_credential");
+    expect(calls).toEqual([]);
+    // The same fill into Work's own pane goes through.
+    const ok = setup({ credentials: [cred], paneProfile: "pWork" });
+    expect(await ok.host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" })).toMatchObject({ ok: true });
   });
 });
 
@@ -689,11 +886,6 @@ describe("file-chooser interception", () => {
     expect(read.text).toContain("file chooser was intercepted");
   });
 
-  it("a chooser event with no node is ignored — without interception Chromium names none, and a panel is already up", async () => {
-    const { host, emitEvent } = setup();
-    emitEvent("Page.fileChooserOpened", { mode: "selectSingle" });
-    expect(((await host.handleOp("dismissDialog", { browserId: "b1" })) as { dismissed: boolean }).dismissed).toBe(false);
-  });
 });
 
 describe("the upload op", () => {
@@ -824,5 +1016,148 @@ describe("what the browser says about a page, with each snapshot", () => {
     expect((await pageOf(s.host))!.requests).toBe(500);
     s.emitEvent("Network.loadingFinished", { requestId: "r500" });
     expect((await pageOf(s.host))!.requests).toBe(499);
+  });
+});
+
+/**
+ * Plan 26 W7d — annotate: the picker kept armed. What these pin is the session's lifetime and its
+ * order: every way it can end, and that what Send carries is every pin the user made, in the order
+ * they made them, with the page captured while the pins were drawn on it.
+ */
+describe("BrowserAgentHost — annotate", () => {
+  /** Pin n's stamp resolves to node 100+n, backend 40+n, named "Item n" — so pins can be told apart. */
+  const respond = (method: string, params?: Record<string, unknown>) => {
+    if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
+    if (method === "DOM.querySelector") {
+      const n = Number(/data-realm-annotated="(\d+)"/.exec(String(params?.selector ?? ""))?.[1] ?? 0);
+      return { nodeId: n ? 100 + n : 0 };
+    }
+    if (method === "DOM.describeNode") {
+      const nodeId = Number(params?.nodeId ?? 0);
+      if (nodeId > 100) return { node: { backendNodeId: nodeId - 60, nodeName: "LI", attributes: [] } };
+      const backend = Number(params?.backendNodeId ?? 0);
+      return { node: { backendNodeId: backend, nodeName: "LI", attributes: [] } };
+    }
+    if (method === "Accessibility.getPartialAXTree") return { nodes: [{ role: { value: "listitem" }, name: { value: `Item ${Number(params?.backendNodeId) - 40}` } }] };
+    if (method === "Runtime.callFunctionOn") return { result: { value: { selector: "li", text: "", html: "<li></li>", rect: { x: 0, y: 0, w: 1, h: 1 } } } };
+    if (method === "Page.captureScreenshot") return { data: Buffer.from("pins drawn").toString("base64") };
+    return undefined;
+  };
+  const report = (emitEvent: (m: string, p: unknown) => void, msg: Record<string, unknown>) =>
+    emitEvent("Runtime.bindingCalled", { name: "__realmAnnotate", payload: JSON.stringify(msg) });
+  const pin = (emitEvent: (m: string, p: unknown) => void, n: number) => report(emitEvent, { type: "pin", n, x: 0.5, y: 0.5, surface: null });
+  const evals = (calls: { method: string; params?: Record<string, unknown> }[]) =>
+    calls.filter((c) => c.method === "Runtime.evaluate").map((c) => String(c.params?.expression ?? ""));
+
+  it("every click pins one, and Send resolves with all of them in order and the page as it looked", async () => {
+    const { host, calls, emitEvent } = setup({ respond });
+    const pending = host.annotate("b1");
+    await Promise.resolve();
+    pin(emitEvent, 1); pin(emitEvent, 2); pin(emitEvent, 3);
+    report(emitEvent, { type: "send" });
+    const done = await pending;
+    expect(done.outcome).toBe("sent");
+    if (done.outcome !== "sent") return;
+    expect(done.elements.map((e) => [e.ref, e.name, e.url])).toEqual([[41, "Item 1", "https://example.com/x"], [42, "Item 2", "https://example.com/x"], [43, "Item 3", "https://example.com/x"]]);
+    expect(Buffer.from(done.png!).toString()).toBe("pins drawn");
+    // The capture is taken with the pins drawn and the toolbar out of the way, and only then is the
+    // overlay taken down — the other order would photograph a bare page.
+    const all = evals(calls);
+    const shot = calls.findIndex((c) => c.method === "Page.captureScreenshot");
+    // The CALL, not the arming script — which defines `prepareShot` and so contains the word too.
+    const prepare = calls.findIndex((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes("window.__realmAnnotator.prepareShot()"));
+    const stop = calls.findIndex((c, i) => i > shot && c.method === "Runtime.evaluate" && String(c.params?.expression).includes("__realmAnnotator.stop()"));
+    expect(prepare).toBeGreaterThan(-1);
+    expect(prepare).toBeLessThan(shot);
+    expect(stop).toBeGreaterThan(shot);
+    expect(calls.find((c) => c.method === "Page.captureScreenshot")?.params).toEqual({ format: "png" });
+    expect(all.some((e) => e.includes("addEventListener") && e.includes("__realmAnnotate"))).toBe(true);
+  });
+
+  it("Clear takes every pin off, and the count starts again", async () => {
+    const { host, emitEvent } = setup({ respond });
+    const pending = host.annotate("b1");
+    await Promise.resolve();
+    pin(emitEvent, 1); pin(emitEvent, 2);
+    report(emitEvent, { type: "clear" });
+    pin(emitEvent, 1);
+    report(emitEvent, { type: "send" });
+    const done = await pending;
+    expect(done.outcome === "sent" && done.elements.map((e) => e.ref)).toEqual([41]);
+  });
+
+  it("carries no more pins than one message carries elements", async () => {
+    const { host, emitEvent } = setup({ respond });
+    const pending = host.annotate("b1");
+    await Promise.resolve();
+    for (let n = 1; n <= MAX_ELEMENT_CHIPS + 2; n++) pin(emitEvent, n);
+    report(emitEvent, { type: "send" });
+    const done = await pending;
+    expect(done.outcome === "sent" && done.elements).toHaveLength(MAX_ELEMENT_CHIPS);
+  });
+
+  it("a Send with nothing pinned sends nothing; the toolbar's close then ends it empty", async () => {
+    const { host, calls, emitEvent } = setup({ respond });
+    const pending = host.annotate("b1");
+    await Promise.resolve();
+    let settled = false;
+    void pending.then(() => { settled = true; });
+    report(emitEvent, { type: "send" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(settled).toBe(false);
+    report(emitEvent, { type: "close" });
+    expect(await pending).toEqual({ outcome: "closed" });
+    expect(calls.some((c) => c.method === "Page.captureScreenshot")).toBe(false);
+    expect(evals(calls).some((e) => e.includes("__realmAnnotator.stop()"))).toBe(true);
+  });
+
+  it("a navigation ends it and says the pins went with the page; a subframe's does not", async () => {
+    const { host, emitEvent } = setup({ respond });
+    const pending = host.annotate("b1");
+    await Promise.resolve();
+    emitEvent("Page.frameNavigated", { frame: { id: "f2", parentId: "f1", url: "https://ads.example/" } });
+    emitEvent("Page.frameNavigated", { frame: { id: "f1", url: "https://example.com/next" } });
+    expect(await pending).toEqual({ outcome: "left" });
+  });
+
+  it("closing the pane, or cancelling, ends it instead of leaving the button lit", async () => {
+    const a = setup({ respond });
+    const first = a.host.annotate("b1");
+    a.host.release("b1");
+    expect(await first).toEqual({ outcome: "closed" });
+    const b = setup({ respond });
+    const second = b.host.annotate("b1");
+    await Promise.resolve();
+    b.host.cancelAnnotate("b1");
+    expect(await second).toEqual({ outcome: "closed" });
+  });
+
+  it("one mode at a time: a pick ends annotate, and annotate ends a pick", async () => {
+    const { host } = setup({ respond });
+    const annotating = host.annotate("b1");
+    await Promise.resolve();
+    const picking = host.pickElement("b1");
+    expect(await annotating).toEqual({ outcome: "closed" });
+    const again = host.annotate("b1");
+    expect(await picking).toBeNull();
+    host.cancelAnnotate("b1");
+    expect(await again).toEqual({ outcome: "closed" });
+  });
+
+  it("takes the picker and the agent's own marks down before arming", async () => {
+    const { host, calls } = setup({ respond });
+    const pending = host.annotate("b1");
+    await new Promise((r) => setTimeout(r, 0));
+    const e = evals(calls);
+    const arm = e.findIndex((x) => x.includes("addEventListener") && x.includes("__realmAnnotate"));
+    expect(e.findIndex((x) => x.includes("__realmPicker.stop()"))).toBeLessThan(arm);
+    expect(e.findIndex((x) => x.includes("data-realm-agent-highlight"))).toBeLessThan(arm);
+    host.cancelAnnotate("b1");
+    await pending;
+  });
+
+  it("a pane that is not open answers closed rather than throwing at the toolbar", async () => {
+    const { host } = setup({ respond });
+    expect(await host.annotate("nope")).toEqual({ outcome: "closed" });
   });
 });

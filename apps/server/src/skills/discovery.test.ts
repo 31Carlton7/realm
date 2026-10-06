@@ -21,10 +21,18 @@ beforeEach(() => { home = tempDir("realm-discovery-"); });
 afterEach(() => { rmSync(home, { recursive: true, force: true }); });
 
 const library = () => join(home, "Realm", "skills");
-const roots = (extra?: { projectDir?: string; extraRoots?: string[] }) =>
-  scanRoots({ home, libraryRoot: library(), ...extra });
+const roots = (extra?: { projectDir?: string; extraRoots?: string[]; codexHome?: string }) =>
+  scanRoots({ userHome: home, libraryRoot: library(), ...extra });
 
 describe("scanRoots", () => {
+  it("reads Codex's skills from CODEX_HOME when it is set, not from the default beside it", () => {
+    skill(join(home, ".codex", "skills"), "default-home");
+    const moved = join(home, "Elsewhere", "codex");
+    skill(join(moved, "skills"), "moved-home");
+    const codex = roots({ codexHome: moved }).find((r) => r.key === "codex");
+    expect(codex?.path).toBe(join(moved, "skills"));
+  });
+
   it("finds the per-user agent directories that exist, and invents none that do not", () => {
     skill(join(home, ".claude", "skills"), "a");
     skill(join(home, ".codex", "skills"), "b");

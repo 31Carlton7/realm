@@ -1,15 +1,13 @@
 #!/usr/bin/env node
 /**
- * Flatten the captures the root README shows onto Realm's page colour.
+ * Copy the captures the root README shows into `docs/images/`, flattened onto Realm's page colour.
  *
- * `capture-product.mjs` writes RGBA, because the window it photographs is made of translucent
- * material — `workspace.png` is only about a fifth fully opaque. The site never notices: it lays
- * every capture on `--color-page`, which is what the translucency was composited against when the
- * shot was framed. A README has no such ground. GitHub serves it on white to half its readers, and
- * there the sidebar composites to a mid grey with its own light-grey labels on top, which is a
- * screenshot of the product with its text no longer readable.
+ * The window `capture-product.mjs` photographs is made of translucent material that is not in the
+ * DOM, so a capture composites its grounds over nothing. The capture lays each frame on
+ * `--color-page` before it is taken, which is what the site shows it on; this flattens onto the same
+ * colour again, so a frame that still carries alpha cannot reach a README GitHub serves on white —
+ * where the sidebar would composite to a mid grey under its own light-grey labels.
  *
- * So the README reads from `docs/images/` instead: the same frames with that ground painted in.
  * They are derived files and will go stale behind a re-capture — rerun this after one.
  *
  *   pnpm --filter realm-site capture:product   # retake the captures
@@ -24,7 +22,7 @@ import { fileURLToPath } from "node:url"
 const PAGE = "#17181a"
 
 /** Only what the README actually shows — this is not a second copy of the whole manifest. */
-const SHOWN = ["workspace", "models", "connections", "sandbox"]
+const SHOWN = ["workspace", "sidebar", "models", "connections", "sandbox"]
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..")
 const from = join(root, "site/public/product")

@@ -41,6 +41,71 @@ export function niceScale(max: number, count = 4): { max: number; ticks: number[
 }
 
 /**
+ * A "nice" axis covering `lo..hi` — `niceScale` for a line, which need not start at zero.
+ *
+ * The same 1/2/5 steps, with the bottom rounded DOWN as the top is rounded up, so every value lands
+ * inside the ticks. A flat range is opened around itself rather than divided by zero.
+ */
+export function niceRange(lo: number, hi: number, count = 4): { min: number; max: number; ticks: number[] } {
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return { min: 0, max: 1, ticks: [0, 1] };
+  if (lo >= 0 && hi <= 0) return { min: 0, max: 1, ticks: [0, 1] };
+  if (hi - lo <= 0) { const pad = Math.abs(hi) * 0.1 || 1; lo -= pad; hi += pad; }
+  const rough = (hi - lo) / count;
+  const mag = 10 ** Math.floor(Math.log10(rough));
+  const norm = rough / mag;
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  const first = Math.floor(lo / step);
+  const last = Math.ceil(hi / step);
+  const ticks: number[] = [];
+  // Counted rather than accumulated, as in `niceScale`; the zero fix keeps `-0` off an axis.
+  for (let i = first; i <= last; i++) ticks.push(Number((i * step).toPrecision(12)) || 0);
+  return { min: ticks[0]!, max: ticks.at(-1)!, ticks };
+}
+
+/**
+ * A line's points, as polyline strings — one per run of reported values.
+ *
+ * A null is a value nobody reported, so the line breaks there rather than diving to zero or
+ * bridging the gap with a slope nobody measured. A run of one point is still returned: the chart
+ * marks it with a dot, since a polyline of one point draws nothing at all.
+ */
+export function lineRuns(values: readonly (number | null)[], slot: number, padLeft: number, padTop: number, h: number, min: number, max: number): string[] {
+  const span = max - min;
+  const runs: string[] = [];
+  let run: string[] = [];
+  values.forEach((v, i) => {
+    if (v === null) { if (run.length) runs.push(run.join(" ")); run = []; return; }
+    const y = padTop + h - (span > 0 ? ((v - min) / span) * h : h / 2);
+    run.push(`${slotCenter(i, slot, padLeft).toFixed(2)},${y.toFixed(2)}`);
+  });
+  if (run.length) runs.push(run.join(" "));
+  return runs;
+}
+
+/**
+ * Where each line's label sits at the plot's right end, so no two overlap.
+ *
+ * Each label wants the height of its line's last point. Sorted top-down, a label closer than `gap`
+ * to the one above is pushed down; the ones that then run past the bottom are pulled back up, each
+ * only as far as it must. Labels too many to fit simply sit `gap` apart past the end — the order
+ * still matches the lines', which is what makes a direct label readable at all.
+ */
+export function spreadLabels(wanted: readonly { key: string; y: number }[], gap: number, top: number, bottom: number): Map<string, number> {
+  const s = [...wanted].sort((a, b) => a.y - b.y).map((w) => ({ ...w }));
+  const down = () => s.forEach((l, i) => { l.y = Math.max(l.y, top, i > 0 ? s[i - 1]!.y + gap : top); });
+  down();
+  // Back up from the bottom: only the labels that ran past it move, and only as far as they must.
+  for (let i = s.length - 1; i >= 0; i--) s[i]!.y = Math.min(s[i]!.y, i === s.length - 1 ? bottom : s[i + 1]!.y - gap);
+  down();
+  return new Map(s.map((l) => [l.key, l.y]));
+}
+
+/** The pixels one label needs on the x axis, from its text: `tickIndices`' spacing for labels a
+ *  writer chose, which unlike `bucketLabel`'s formats have no bounded width. */
+export const labelTickPx = (labels: readonly string[]): number =>
+  Math.max(56, Math.ceil(Math.max(0, ...labels.map((l) => l.length)) * 6) + 12);
+
+/**
  * Column geometry for `n` slots across the plot.
  *
  * The bar is capped at 24px and never fills its slot: the leftover is air, which is what stops a

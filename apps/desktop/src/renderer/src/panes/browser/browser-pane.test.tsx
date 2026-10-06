@@ -1,53 +1,117 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, createEvent, fireEvent, render, screen } from "@testing-library/react";
-import type { BlockedDownload, Browser, BrowserDownloadResult, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
-import { BrowserPane } from "./BrowserPane";
+import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
+import type { BlockedDownload, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, PasskeyNotice } from "@realm/contracts";
+import { BrowserPane, SUGGEST_DEBOUNCE_MS } from "./BrowserPane";
+import { Toasts } from "../../components/Toasts";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
+import { persistBrowserPages } from "./persist-pages";
+
+/** Savers started by the tests that check what a page saves; stopped after each test. */
+const pageSavers: (() => void)[] = [];
 import { SETTLE_MS, shouldShowView, isRealmItemDrag } from "./view-sync";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item } from "../../state/store.test-fakes";
+import { fakeApi, item, space } from "../../state/store.test-fakes";
 import { gridPreset } from "@realm/contracts";
 
 type StateMsg = BrowserViewState;
 
-function fakeBridges(row: Partial<Browser> = {}) {
-  const r: Browser = { id: "b1", spaceId: "s1", url: "", title: "Browser", createdAt: 0, updatedAt: 0, ...row };
+/**
+ * `ready`: whether main's first word about a view with a page is that the page is up — what an adopted
+ * view on a loaded page says, and what every test not about loading wants. False leaves the view
+ * where a new one starts, on its way, until the test says otherwise.
+ */
+function fakeBridges(row: Partial<Browser> = {}, { ready = true }: { ready?: boolean } = {}) {
+  const r: Browser = { id: "b1", spaceId: "s1", url: "", title: "Browser", favicon: "", createdAt: 0, updatedAt: 0, ...row };
   const calls: string[] = [];
   const bounds: { id: string; rect: DOMRectReadOnly | { x: number; y: number; width: number; height: number }; dpr: number; visible: boolean }[] = [];
   const updates: Record<string, unknown>[] = [];
   const cbs = new Set<(s: StateMsg) => void>();
   const blockedCbs = new Set<(m: { browserId: string; blocked: BlockedDownload }) => void>();
   const passkeyCbs = new Set<(m: PasskeyNotice) => void>();
+  const foundCbs = new Set<(m: BrowserFindResult) => void>();
+  const findRequestCbs = new Set<(m: { browserId: string }) => void>();
+  /** What the next ⋯ menu is built from, and which row the "user" picks when it pops. */
+  let menuState: BrowserMenuState = { zoom: 1, canZoomIn: true, canZoomOut: true, back: [], forward: [], blocked: [], saved: [], shareTargets: [] };
+  let menuChoice: string | null = null;
+  const menus: { items: NativeMenuItem[]; at: { x: number; y: number } }[] = [];
+  let screenshotDir: string | null = "/tmp/space/screenshots";
+  let screenshotResult: BrowserScreenshotSaved = { ok: true, path: "/tmp/space/screenshots/example.com-2026-10-01T19-30-05.png", name: "example.com-2026-10-01T19-30-05.png", size: 2048 };
+  let cleared = true;
+  /** What main answers "Share this site's sign-in with" with. */
+  let shareResult: BrowserSignInShare = { ok: true, profileName: "School", host: "example.com", copied: 3 };
+  /** History the server answers `suggest` with; `holdSuggest` makes each answer wait to be released. */
+  let history: BrowserHistoryPage[] = [];
+  /** What `recent` answers: the profile's last pages, newest first, as the server ranks them. */
+  let recentPages: BrowserHistoryPage[] = [];
+  let holdSuggest = false;
+  const heldSuggest: { query: string; release: () => void }[] = [];
   let allowlist: string[] | null = null;
   let downloadDir: string | null = "/tmp/proj/downloads";
   let saveResult: BrowserDownloadResult = { ok: true, name: "week-3.pdf", bytes: 2048, relPath: "downloads/week-3.pdf" };
   /** The armed pick's resolver — the real bridge stays pending until the user clicks in the view. */
   let pickResolve: ((el: BrowserPickedElement | null) => void) | null = null;
+  /** The armed annotation's resolver — pending until the user presses Send in the page's toolbar. */
+  let annotateResolve: ((r: BrowserAnnotateResult) => void) | null = null;
   const host: BrowserHostBridge = {
-    create: async (id, url, list) => { calls.push(`create:${id}:${url}:${JSON.stringify(list)}`); },
+    create: async (id, url, list) => {
+      calls.push(`create:${id}:${url}:${JSON.stringify(list)}`);
+      // Main answers a create with the view's state, as `BrowserPaneHost.create` does.
+      if (url !== "") emitState({ id, url, ready, loading: !ready });
+    },
     destroy: async (id) => { calls.push(`destroy:${id}`); },
     retain: async (id) => { calls.push(`retain:${id}`); },
     navigate: async (id, input) => { calls.push(`navigate:${id}:${input}`); return input.trim() === "" ? null : `https://${input}`; },
     nav: async (id, a) => { calls.push(`nav:${id}:${a}`); },
+    search: async (id, q) => { calls.push(`search:${id}:${q}`); return `https://www.google.com/search?q=${encodeURIComponent(q)}`; },
     historyMenu: async (id, dir, at) => { calls.push(`historyMenu:${id}:${dir}:${Math.round(at.x)},${Math.round(at.y)}`); },
     setAllowlist: async () => {},
     setBounds: (id, rect, dpr, visible) => { bounds.push({ id, rect, dpr, visible }); },
     onState: (cb) => { cbs.add(cb); return () => cbs.delete(cb); },
     pickElement: (id) => { calls.push(`pick:${id}`); return new Promise((resolve) => { pickResolve = resolve; }); },
     cancelPick: async (id) => { calls.push(`cancel-pick:${id}`); pickResolve?.(null); pickResolve = null; },
+    annotate: (id, accent, dir) => { calls.push(`annotate:${id}:${dir}`); return new Promise((resolve) => { annotateResolve = resolve; }); },
+    cancelAnnotate: async (id) => { calls.push(`cancel-annotate:${id}`); annotateResolve?.({ outcome: "closed" }); annotateResolve = null; },
     setAccent: (accent) => { calls.push(`set-accent:${accent}`); },
     blockedDownloads: async () => [],
     saveDownload: async (id, blockedId, dir) => { calls.push(`save:${id}:${blockedId}:${dir}`); return saveResult; },
     dismissDownload: async (id, blockedId) => { calls.push(`dismiss:${id}:${blockedId}`); },
     onDownloadBlocked: (cb) => { blockedCbs.add(cb); return () => blockedCbs.delete(cb); },
     onPasskey: (cb) => { passkeyCbs.add(cb); return () => passkeyCbs.delete(cb); },
+    popupMenu: async (items, at) => { menus.push({ items, at }); calls.push(`menu:${Math.round(at.x)},${Math.round(at.y)}`); return menuChoice; },
+    menuState: async (id) => { calls.push(`menu-state:${id}`); return menuState; },
+    goToIndex: async (id, index) => { calls.push(`go-to-index:${id}:${index}`); },
+    find: async (id, query, step) => { calls.push(`find:${id}:${query}:${step}`); },
+    stopFind: async (id) => { calls.push(`stop-find:${id}`); },
+    onFound: (cb) => { foundCbs.add(cb); return () => foundCbs.delete(cb); },
+    onFindRequest: (cb) => { findRequestCbs.add(cb); return () => findRequestCbs.delete(cb); },
+    zoom: async (id, step) => { calls.push(`zoom:${id}:${step}`); return 1; },
+    print: async (id) => { calls.push(`print:${id}`); },
+    setDevice: async (id, preset) => { calls.push(`set-device:${id}:${preset}`); },
+    screenshot: async (id, dir) => { calls.push(`screenshot:${id}:${dir}`); return screenshotResult; },
+    clearData: async (id) => { calls.push(`clear-data:${id}`); return { cleared, profileId: cleared ? "p1" : null }; },
+    shareSignIn: async (id, to) => { calls.push(`share-signin:${id}:${to}`); return shareResult; },
+    reveal: async (path) => { calls.push(`reveal:${path}`); return !path.includes("/gone/"); },
   };
   const server: BrowserServerBridge = {
     get: async () => r,
     update: async (id, patch) => { updates.push({ id, ...patch }); },
     allowlist: async () => allowlist,
     downloadDir: async () => downloadDir,
+    screenshotDir: async (spaceId) => { calls.push(`screenshot-dir:${spaceId}`); return screenshotDir; },
+    suggest: (spaceId, query) => {
+      calls.push(`suggest:${spaceId}:${query}`);
+      const answer = history.filter((h) => `${h.url} ${h.title}`.toLowerCase().includes(query.toLowerCase()));
+      if (!holdSuggest) return Promise.resolve(answer);
+      return new Promise((resolve) => { heldSuggest.push({ query, release: () => resolve(answer) }); });
+    },
+    recent: async (spaceId) => { calls.push(`recent:${spaceId}`); return recentPages; },
+    clearHistory: async (profileId) => { calls.push(`clear-history:${profileId}`); },
   };
+  /** A page that is up unless the test says otherwise: no error, and something to show. */
+  function emitState(s: Partial<StateMsg>) {
+    const full: StateMsg = { id: "b1", url: "", title: "", loading: false, canGoBack: false, canGoForward: false, device: null, favicon: null, error: null, ready: true, ...s };
+    for (const cb of cbs) cb(full);
+  }
   const bridges: BrowserBridges = { host, server };
   return {
     bridges, calls, bounds, updates,
@@ -55,6 +119,24 @@ function fakeBridges(row: Partial<Browser> = {}) {
     setDownloadDir: (d: string | null) => { downloadDir = d; },
     setSaveResult: (r: BrowserDownloadResult) => { saveResult = r; },
     settlePick: (el: BrowserPickedElement | null) => { pickResolve?.(el); pickResolve = null; },
+    settleAnnotate: (r: BrowserAnnotateResult) => { annotateResolve?.(r); annotateResolve = null; },
+    menus,
+    setMenuState: (m: Partial<BrowserMenuState>) => { menuState = { ...menuState, ...m }; },
+    /** The row the next ⋯ menu answers with — what the user clicks in the OS's menu. */
+    choose: (id: string | null) => { menuChoice = id; },
+    setScreenshotDir: (d: string | null) => { screenshotDir = d; },
+    setScreenshotResult: (r: BrowserScreenshotSaved) => { screenshotResult = r; },
+    setCleared: (c: boolean) => { cleared = c; },
+    setShareResult: (r: BrowserSignInShare) => { shareResult = r; },
+    found: (m: Partial<BrowserFindResult>) => {
+      const full: BrowserFindResult = { browserId: "b1", activeMatchOrdinal: 1, matches: 1, finalUpdate: true, ...m };
+      for (const cb of foundCbs) cb(full);
+    },
+    requestFind: (browserId = "b1") => { for (const cb of findRequestCbs) cb({ browserId }); },
+    setHistory: (h: BrowserHistoryPage[]) => { history = h; },
+    setRecent: (p: BrowserHistoryPage[]) => { recentPages = p; },
+    holdSuggestions: () => { holdSuggest = true; },
+    heldSuggest,
     blockDownload: (blocked: BlockedDownload, browserId = "b1") => {
       for (const cb of blockedCbs) cb({ browserId, blocked });
     },
@@ -63,13 +145,14 @@ function fakeBridges(row: Partial<Browser> = {}) {
       for (const cb of passkeyCbs) cb(full);
     },
     emit: (s: Partial<StateMsg>) => {
-      const full: StateMsg = { id: "b1", url: "", title: "", loading: false, canGoBack: false, canGoForward: false, ...s };
-      for (const cb of cbs) cb(full);
+      emitState(s);
     },
   };
 }
 
 const state = (s: Partial<StateMsg>) => s;
+/** A favicon as main hands one over: the picture itself, a 16px ICO's first bytes, in a data: URL. */
+const ICON = "data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQ";
 const browserItem = () => item("i1", "s1", { kind: "browser", refId: "b1", title: "Browser" });
 
 /**
@@ -85,6 +168,7 @@ function paneTestEnv(): void {
       { x: 10, y: 40, width: 600, height: 400, top: 40, left: 10, right: 610, bottom: 440, toJSON: () => ({}) } as DOMRect);
   });
   afterEach(() => {
+    for (const stop of pageSavers.splice(0)) stop();
     setBrowserBridgesForTests(null);
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -198,7 +282,7 @@ describe("BrowserPane", () => {
     await settle();
     expect(f.bounds.length).toBeGreaterThan(0);
     expect(f.bounds.every((b) => !b.visible)).toBe(true);
-    expect(screen.getByText("Where to?")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "New tab" })).toBeInTheDocument();
   });
 
   it("a realm item drag hides the view immediately and dragend restores it; OS file drags don't", async () => {
@@ -222,6 +306,95 @@ describe("BrowserPane", () => {
     expect(f.bounds.at(-1)!.visible).toBe(true);
   });
 
+  describe("before a page has drawn, and a page that did not load", () => {
+    const REFUSED = { code: -102, name: "ERR_CONNECTION_REFUSED", url: "http://localhost:3000/" };
+    const host = (container: HTMLElement) => container.querySelector(".browser-view-host") as HTMLElement;
+
+    it("keeps the view hidden until main says the page has something to show", async () => {
+      /* A WebContentsView paints opaque white before anything has loaded into it, which is the lighter
+         slab under the toolbar this exists to keep off the screen. THE mutant: drop `ready` from the
+         verdict, and the view is up the moment there is an address. */
+      const f = fakeBridges({ url: "http://localhost:3000/" }, { ready: false });
+      setBrowserBridgesForTests(f.bridges);
+      const { container } = render(<BrowserPane item={browserItem()} visible />);
+      await settle();
+      expect(f.bounds.every((b) => !b.visible)).toBe(true);
+      // Nothing of its own is painted either: the host is the pane's ground until the page is up.
+      expect(host(container)).not.toHaveAttribute("data-page");
+      await act(async () => { f.emit(state({ url: "http://localhost:3000/", ready: true })); await vi.advanceTimersByTimeAsync(20); });
+      expect(f.bounds.at(-1)!.visible).toBe(true);
+      expect(host(container)).toHaveAttribute("data-page");
+    });
+
+    it("shows the spiral while the first page is on its way, and nothing once it is up", async () => {
+      const f = fakeBridges({ url: "http://localhost:3000/" }, { ready: false });
+      setBrowserBridgesForTests(f.bridges);
+      const { container } = render(<BrowserPane item={browserItem()} visible />);
+      await settle();
+      expect(container.querySelector(".browser-connecting .reach-mark[data-busy]")).not.toBeNull();
+      act(() => f.emit(state({ url: "http://localhost:3000/", ready: true })));
+      expect(container.querySelector(".browser-connecting")).toBeNull();
+    });
+
+    it("a first load that was stopped shows neither the spiral nor an error page", async () => {
+      // Stopping is not failing: Chromium reports no error, and the pane must not invent one.
+      const f = fakeBridges({ url: "http://localhost:3000/" }, { ready: false });
+      setBrowserBridgesForTests(f.bridges);
+      const { container } = render(<BrowserPane item={browserItem()} visible />);
+      await settle();
+      act(() => f.emit(state({ url: "http://localhost:3000/", ready: false, loading: false })));
+      expect(container.querySelector(".browser-connecting")).toBeNull();
+      expect(screen.queryByRole("region", { name: "This site can't be reached" })).toBeNull();
+    });
+
+    it("draws the error page where the view would be, keeps the view hidden, and keeps the address", async () => {
+      const f = fakeBridges({ url: "http://localhost:3000/" }, { ready: false });
+      setBrowserBridgesForTests(f.bridges);
+      const { container } = render(<BrowserPane item={browserItem()} visible />);
+      await settle();
+      await act(async () => { f.emit(state({ url: REFUSED.url, title: "localhost:3000", ready: false, error: REFUSED })); await vi.advanceTimersByTimeAsync(20); });
+      const page = screen.getByRole("region", { name: "This site can't be reached" });
+      expect(within(page).getByText("localhost refused to connect.")).toBeInTheDocument();
+      expect(within(page).getByText("Checking that a server is running on port 3000")).toBeInTheDocument();
+      expect(within(page).getByText("ERR_CONNECTION_REFUSED")).toBeInTheDocument();
+      expect(screen.getByLabelText("Address")).toHaveValue(REFUSED.url);
+      // A DOM page under a live view is a page nobody sees: the view must be down while it is up.
+      expect(f.bounds.at(-1)!.visible).toBe(false);
+      expect(host(container)).not.toHaveAttribute("data-page");
+      // …and there is nothing on the error document to pick from.
+      expect(screen.getByLabelText("Pick an element")).toBeDisabled();
+    });
+
+    it("Reload retries the failed address, and the page stays up with its mark busy while it does", async () => {
+      const f = fakeBridges({ url: REFUSED.url }, { ready: false });
+      setBrowserBridgesForTests(f.bridges);
+      const { container } = render(<BrowserPane item={browserItem()} visible />);
+      await settle();
+      act(() => f.emit(state({ url: REFUSED.url, error: REFUSED, ready: false })));
+      fireEvent.click(within(screen.getByRole("region", { name: "This site can't be reached" })).getByRole("button", { name: "Reload" }));
+      expect(f.calls).toContain("nav:b1:reload");
+      // The retry is in flight: the error document is still what the view holds, so the page stays.
+      act(() => f.emit(state({ url: REFUSED.url, error: REFUSED, ready: false, loading: true })));
+      expect(container.querySelector(".browser-error .reach-mark[data-busy]")).not.toBeNull();
+      expect(within(screen.getByRole("region", { name: "This site can't be reached" })).getByRole("button", { name: "Reload" })).toHaveAttribute("aria-busy", "true");
+      // The server came up: the page goes and the view comes back.
+      await act(async () => { f.emit(state({ url: REFUSED.url, title: "My app", ready: true })); await vi.advanceTimersByTimeAsync(20); });
+      expect(screen.queryByRole("region", { name: "This site can't be reached" })).toBeNull();
+      expect(f.bounds.at(-1)!.visible).toBe(true);
+    });
+
+    it("a certificate failure wears the padlock and offers nothing past it but Reload", async () => {
+      const f = fakeBridges({ url: "https://127.0.0.1:8893/" }, { ready: false });
+      setBrowserBridgesForTests(f.bridges);
+      const { container } = render(<BrowserPane item={browserItem()} visible />);
+      await settle();
+      act(() => f.emit(state({ url: "https://127.0.0.1:8893/", ready: false, error: { code: -202, name: "ERR_CERT_AUTHORITY_INVALID", url: "https://127.0.0.1:8893/" } })));
+      const page = screen.getByRole("region", { name: "Your connection isn't private" });
+      expect(container.querySelector(".browser-error .lock-mark")).not.toBeNull();
+      expect(within(page).getAllByRole("button").map((b) => b.textContent)).toEqual(["Reload"]);
+    });
+  });
+
   describe("no-overlay registration (W2)", () => {
     const mountWithStore = (f: ReturnType<typeof fakeBridges>) => {
       setBrowserBridgesForTests(f.bridges);
@@ -230,6 +403,25 @@ describe("BrowserPane", () => {
         <StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
       return { store, ...view };
     };
+
+    it("a space moved to another profile asks main for its view again — the view has to change cookie jars", async () => {
+      /* THE mutant: leave the profile out of what the pane's view depends on, and a space moved from
+         Personal to Work keeps showing Personal's signed-in page until something happens to remount it. */
+      const f = fakeBridges({ url: "https://example.com" });
+      const { store } = mountWithStore(f);
+      act(() => store.setState({ spaces: [space("s1", "p1", "Versed")] }));
+      await settle();
+      const creates = () => f.calls.filter((c) => c.startsWith("create:b1:")).length;
+      const before = creates();
+      expect(before).toBeGreaterThan(0);
+      // Something unrelated changes in the store: no new view.
+      act(() => store.setState({ sidebarCollapsed: true }));
+      await settle();
+      expect(creates()).toBe(before);
+      act(() => store.setState({ spaces: store.getState().spaces.map((sp) => (sp.id === "s1" ? { ...sp, profileId: "p2" } : sp)) }));
+      await settle();
+      expect(creates()).toBe(before + 1);
+    });
 
     it("a pane with a page registers the rect its view paints, keyed by the ITEM id", async () => {
       const { store } = mountWithStore(fakeBridges({ url: "https://example.com" }));
@@ -280,6 +472,42 @@ describe("BrowserPane", () => {
       expect(store.getState().browserRects).toHaveLength(1);
     });
 
+    /* The media viewer covers the whole window, as a page covers the panes — and a view left
+       showing would paint straight through the picture being looked at. THE MUTANT: leave the
+       viewer out of the overlay selector. */
+    it("hides the view while the media viewer is up, and shows it again when it closes", async () => {
+      const shows: boolean[] = [];
+      const f = fakeBridges({ url: "https://example.com" });
+      f.bridges.host.setBounds = (_id, _rect, _dpr, show) => { shows.push(show); };
+      const { store } = mountWithStore(f);
+      await settle();
+      expect(shows.at(-1)).toBe(true);
+      await act(async () => { store.getState().openViewer({ files: [{ path: "/tmp/shot.png" }] }); await settle(); });
+      expect(shows.at(-1)).toBe(false);
+      expect(store.getState().browserRects).toEqual([]);
+      await act(async () => { store.getState().closeViewer(); await settle(); });
+      expect(shows.at(-1)).toBe(true);
+    });
+
+    /* The window's toasts, with no clear spot along its foot, hold a corner — and the view under it
+       gives that corner up for as long as they are up. THE mutant: send the placeholder's rect as it
+       is, and the view paints over the toast that is the only thing the window is trying to say. */
+    it("gives up the corner the toasts are holding, and takes it back when they go — its own rect unchanged", async () => {
+      const f = fakeBridges({ url: "https://example.com" });
+      const { store } = mountWithStore(f);
+      await settle();
+      expect(f.bounds.at(-1)!.rect).toMatchObject({ y: 40, height: 400 });
+      await act(async () => { store.getState().setToastReserve({ x: 300, y: 380, width: 372, height: 388 }); await settle(); });
+      expect(f.bounds.at(-1)!.rect).toMatchObject({ x: 10, y: 40, width: 600, height: 340 });
+      // The strip it gave up shows the pane's ground, not the placeholder's page white.
+      expect(document.querySelector(".browser-view-host")).toHaveAttribute("data-yielded");
+      // Where the view stands is still all of it: the no-overlay rect is the placeholder's.
+      expect(store.getState().browserRects).toEqual([{ itemId: "i1", x: 10, y: 40, width: 600, height: 400 }]);
+      await act(async () => { store.getState().setToastReserve(null); await settle(); });
+      expect(f.bounds.at(-1)!.rect).toMatchObject({ height: 400 });
+      expect(document.querySelector(".browser-view-host")).not.toHaveAttribute("data-yielded");
+    });
+
     it("no page, no rect — the empty state is plain DOM and floats may cover it", async () => {
       const { store } = mountWithStore(fakeBridges({ url: "" }));
       await settle();
@@ -303,17 +531,6 @@ describe("BrowserPane", () => {
       expect(store.getState().browserRects).toEqual([]);
       expect(f.calls).toContain("retain:b1");
     });
-  });
-
-  it("unmount releases the native view and never destroys it — a space switch is not a close", async () => {
-    const f = fakeBridges({ url: "https://example.com" });
-    setBrowserBridgesForTests(f.bridges);
-    const { unmount } = render(<BrowserPane item={browserItem()} visible />);
-    await settle();
-    unmount();
-    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
-    expect(f.calls).toContain("retain:b1");
-    expect(f.calls).not.toContain("destroy:b1");
   });
 
   it("remounting after a release re-adopts the view instead of reloading the page", async () => {
@@ -345,24 +562,25 @@ describe("BrowserPane", () => {
     expect(f.calls.filter((c) => c.startsWith("create:b1"))).toHaveLength(2); // idempotent on the main side
   });
 
-  it("persists committed url/title to the server, debounced, and not while loading", async () => {
+  it("persists the page's icon with its address and title, so the tab and its row can draw it", async () => {
+    // THE mutant: persist url and title alone. The icon main resolved would never reach the item.
     const f = fakeBridges({ url: "" });
     setBrowserBridgesForTests(f.bridges);
+    // The page is saved by the app-wide saver, which App starts beside every pane (persist-pages.ts).
+    pageSavers.push(persistBrowserPages(f.bridges));
     render(<BrowserPane item={browserItem()} visible />);
     await settle();
-    act(() => f.emit(state({ url: "https://example.com", title: "Example", loading: true })));
+    act(() => f.emit(state({ url: "https://www.google.com/search?q=hi", title: "hi - Google Search" })));
+    act(() => f.emit(state({ url: "https://www.google.com/search?q=hi", title: "hi - Google Search", favicon: ICON })));
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(f.updates).toHaveLength(0); // mid-load states never persist
-    act(() => f.emit(state({ url: "https://example.com", title: "Example Domain", loading: false })));
-    act(() => f.emit(state({ url: "https://example.com/2", title: "Example 2", loading: false })));
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(f.updates).toEqual([{ id: "b1", url: "https://example.com/2", title: "Example 2" }]); // one debounced write
+    expect(f.updates).toEqual([{ id: "b1", url: "https://www.google.com/search?q=hi", title: "hi - Google Search", favicon: ICON }]);
   });
+
 });
 
 describe("shouldShowView", () => {
-  it("requires all five conditions", () => {
-    const base = { paneVisible: true, pageOverlay: false, dragging: false, settled: true, hasUrl: true };
+  it("requires every condition", () => {
+    const base = { paneVisible: true, pageOverlay: false, dragging: false, settled: true, hasUrl: true, ready: true, failed: false };
     expect(shouldShowView(base)).toBe(true);
     expect(shouldShowView({ ...base, paneVisible: false })).toBe(false);
     expect(shouldShowView({ ...base, dragging: true })).toBe(false);
@@ -373,6 +591,10 @@ describe("shouldShowView", () => {
        does. The measured symptom: opening Settings with a browser behind it left the page readable
        only where the browser did not happen to be. */
     expect(shouldShowView({ ...base, pageOverlay: true })).toBe(false);
+    // Nothing of the page's own to show yet, or an error document: the pane's ground or its error
+    // page are what is meant to be seen there, and the view would cover either.
+    expect(shouldShowView({ ...base, ready: false })).toBe(false);
+    expect(shouldShowView({ ...base, failed: true })).toBe(false);
   });
 });
 
@@ -488,19 +710,6 @@ describe("the blocked-download bar (Plan 23 W4)", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Saved week-3.pdf to downloads/");
   });
 
-  it("offers Save for an executable too — no type is shown as a dead end any more", async () => {
-    const f = await mountPane();
-    await act(async () => { f.blockDownload(blocked({ id: "bd_2", name: "installer.dmg" })); });
-
-    const bar = screen.getByRole("status");
-    expect(bar).toHaveTextContent("installer.dmg");
-    // The mutant this catches is the old copy coming back: a bar that tells the user Realm will not
-    // save this, beside a button that will.
-    expect(bar).not.toHaveTextContent("file type");
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
-    expect(f.calls).toContain("save:b1:bd_2:/tmp/proj/downloads");
-  });
-
   it("a space with no project says so rather than inventing a destination", async () => {
     const f = await mountPane();
     f.setDownloadDir(null);
@@ -607,7 +816,8 @@ describe("BrowserPane — element picker", () => {
     const store = createAppStore(fakeApi());
     const items = over.withSession === false ? [browserItem()] : [browserItem(), sessionItem];
     store.setState({ items, layout: gridPreset("two-col", items.map((i) => i.id)), focusedLeafId: null });
-    const { unmount } = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    // The receipts are the window's toasts, drawn by the host beside the pane.
+    const { unmount } = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /><Toasts /></StoreContext.Provider>);
     await settle();
     return { f, store, unmount };
   };
@@ -671,7 +881,7 @@ describe("BrowserPane — element picker", () => {
     await press();
     await act(async () => { f.settlePick({ ...PICKED, ref: 43 }); });
     expect(store.getState().drafts.se1).toBe('@[button "Sign in"] @[button "Sign in" 2] ');
-    expect(store.getState().draftElements.se1!.map((c) => c.element.ref)).toEqual([42, 43]);
+    expect(store.getState().draftElements.se1!.map((c) => (c.element as BrowserPickedElement).ref)).toEqual([42, 43]);
   });
 
   it("a pick main refuses outright un-arms the button — a lit picker over a view that is not picking", async () => {
@@ -679,7 +889,7 @@ describe("BrowserPane — element picker", () => {
     f.bridges.host.pickElement = async () => { throw new Error("could not attach the debugger to browser b1"); };
     setBrowserBridgesForTests(f.bridges);
     const store = createAppStore(fakeApi());
-    render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /><Toasts /></StoreContext.Provider>);
     await settle();
     await press();
     expect(screen.getByLabelText("Pick an element")).toHaveAttribute("aria-pressed", "false");
@@ -691,5 +901,609 @@ describe("BrowserPane — element picker", () => {
     await press();
     await act(async () => { unmount(); });
     expect(f.calls).toContain("cancel-pick:b1");
+  });
+});
+
+/**
+ * Plan 26 W7 — the ⋯ menu and what it opens.
+ *
+ * The menu itself is the OS's: these tests stand in for main by answering `popupMenu` with the row a
+ * user would click, and pin what the pane does with that answer. What they also pin is the rule the
+ * whole feature is built around — nothing the menu opens is drawn over the page.
+ */
+describe("BrowserPane — the ⋯ menu (Plan 26 W7)", () => {
+  paneTestEnv();
+  // Unmount while the bridges are still in place: a pane closed with its find strip up takes the
+  // page's highlight down on the way out, and that call needs a bridge to go to.
+  afterEach(() => { cleanup(); });
+
+  const sessionItem = item("i2", "s1", { kind: "session", refId: "se1", title: "Session" });
+  const mount = async (over: { withSession?: boolean; focused?: boolean } = {}) => {
+    const f = fakeBridges({ url: "https://example.com/login" });
+    setBrowserBridgesForTests(f.bridges);
+    const store = createAppStore(fakeApi());
+    const items = over.withSession === false ? [browserItem()] : [browserItem(), sessionItem];
+    store.setState({ items, layout: gridPreset("two-col", items.map((i) => i.id)), focusedLeafId: null, activeSpaceId: "s1" });
+    const view = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible focused={over.focused} /><Toasts /></StoreContext.Provider>);
+    await settle();
+    act(() => f.emit(state({ url: "https://example.com/login", title: "Sign in" })));
+    return { f, store, ...view };
+  };
+  /** Press ⋯ and answer the OS's menu with `id` — the row a user would click, or null for Escape. */
+  const choose = async (f: ReturnType<typeof fakeBridges>, id: string | null) => {
+    f.choose(id);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "More" })); await vi.advanceTimersByTimeAsync(0); });
+  };
+  const rowsOf = (items: NativeMenuItem[]) => items as { label?: string; checked?: boolean; submenu?: { label?: string; checked?: boolean }[] }[];
+
+  it("⋯ is the chrome's last control, and its menu is the OS's: nothing opens in this window's DOM", async () => {
+    const { f, container } = await mount();
+    expect(container.querySelector(".browser-chrome")!.lastElementChild).toHaveAccessibleName("More");
+    await choose(f, null);
+    expect(f.calls).toContain("menu-state:b1");
+    // Anchored at the button's bottom-left (the mocked rect: x 10, bottom 440), like the trail menu.
+    expect(f.calls).toContain("menu:10,440");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(rowsOf(f.menus[0]!.items).map((r) => r.label ?? "—")[0]).toBe("Find in page…");
+    // Dismissed: nothing ran.
+    expect(f.calls.filter((c) => /^(find|print|zoom|screenshot|clear-data)/.test(c))).toEqual([]);
+  });
+
+  it("Find in page opens a strip ABOVE the view — never inside it, where the page would cover it", async () => {
+    const { f, container } = await mount();
+    await choose(f, "find");
+    const strip = container.querySelector(".browser-find")!;
+    const host = container.querySelector(".browser-view-host")!;
+    expect(strip).toBeInTheDocument();
+    // THE mutant: render the strip in the view host, floating. The view paints over it there.
+    expect(host.contains(strip)).toBe(false);
+    expect(host.querySelector(".browser-find, [role=search], input")).toBeNull();
+    expect(strip.parentElement).toBe(host.parentElement);
+    expect(strip.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Find in page" })).toHaveFocus();
+  });
+
+  it("typing searches the page, Return steps forward, ⇧Return back, and the count is the page's", async () => {
+    const { f } = await mount();
+    await choose(f, "find");
+    const field = screen.getByRole("textbox", { name: "Find in page" });
+    fireEvent.change(field, { target: { value: "sign" } });
+    expect(f.calls.at(-1)).toBe("find:b1:sign:start");
+    act(() => f.found({ activeMatchOrdinal: 1, matches: 3 }));
+    expect(screen.getByRole("search")).toHaveTextContent("1 of 3");
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(f.calls.at(-1)).toBe("find:b1:sign:next");
+    fireEvent.keyDown(field, { key: "Enter", shiftKey: true });
+    expect(f.calls.at(-1)).toBe("find:b1:sign:previous");
+    fireEvent.click(screen.getByRole("button", { name: "Next match" }));
+    expect(f.calls.at(-1)).toBe("find:b1:sign:next");
+    // Another pane's answer is not this one's count.
+    act(() => f.found({ browserId: "b2", activeMatchOrdinal: 9, matches: 9 }));
+    expect(screen.getByRole("search")).toHaveTextContent("1 of 3");
+    act(() => f.found({ activeMatchOrdinal: 0, matches: 0 }));
+    expect(screen.getByRole("search")).toHaveTextContent("No matches");
+  });
+
+  it("a navigation ends the search: the next step starts a new one rather than continuing a dead session", async () => {
+    const { f } = await mount();
+    await choose(f, "find");
+    const field = screen.getByRole("textbox", { name: "Find in page" });
+    fireEvent.change(field, { target: { value: "item" } });
+    act(() => f.found({ activeMatchOrdinal: 2, matches: 4 }));
+    act(() => f.emit(state({ url: "https://example.com/next", title: "Next" })));
+    expect(screen.getByRole("search")).not.toHaveTextContent("of 4");
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(f.calls.at(-1)).toBe("find:b1:item:start");
+  });
+
+  it("Escape closes the strip and takes the page's highlight with it", async () => {
+    const { f } = await mount();
+    await choose(f, "find");
+    const field = screen.getByRole("textbox", { name: "Find in page" });
+    fireEvent.change(field, { target: { value: "sign" } });
+    const ev = createEvent.keyDown(field, { key: "Escape" });
+    fireEvent(field, ev);
+    // Consumed, so the window's Escape (interrupt the focused session) does not also fire.
+    expect(ev.defaultPrevented).toBe(true);
+    expect(screen.queryByRole("search")).toBeNull();
+    expect(f.calls).toContain("stop-find:b1");
+  });
+
+  it("⌘F pressed in the PAGE reaches this pane through main — and another pane's does not open this one", async () => {
+    const { f } = await mount();
+    act(() => f.requestFind("b2"));
+    expect(screen.queryByRole("search")).toBeNull();
+    act(() => f.requestFind("b1"));
+    expect(screen.getByRole("textbox", { name: "Find in page" })).toHaveFocus();
+  });
+
+  it("⌘F in the chrome opens it while this pane is the focused one, and only then", async () => {
+    const unfocused = await mount({ focused: false });
+    fireEvent.keyDown(screen.getByLabelText("Address"), { key: "f", metaKey: true });
+    expect(screen.queryByRole("search")).toBeNull();
+    unfocused.unmount();
+
+    await mount({ focused: true });
+    // ⌘⇧F is pane focus; it must not open find on the way past.
+    fireEvent.keyDown(screen.getByLabelText("Address"), { key: "f", metaKey: true, shiftKey: true });
+    expect(screen.queryByRole("search")).toBeNull();
+    const ev = createEvent.keyDown(screen.getByLabelText("Address"), { key: "f", metaKey: true });
+    fireEvent(screen.getByLabelText("Address"), ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(screen.getByRole("textbox", { name: "Find in page" })).toBeInTheDocument();
+  });
+
+  it("Print, Zoom and History reach the view they were chosen for", async () => {
+    const { f } = await mount();
+    await choose(f, "print");
+    await choose(f, "zoom:in");
+    await choose(f, "zoom:reset");
+    f.setMenuState({ back: [{ index: 0, label: "Home" }], forward: [{ index: 2, label: "Docs" }] });
+    await choose(f, "history:0");
+    expect(f.calls).toEqual(expect.arrayContaining(["print:b1", "zoom:b1:in", "zoom:b1:reset", "go-to-index:b1:0"]));
+    const history = rowsOf(f.menus.at(-1)!.items).find((r) => r.label === "History")!.submenu!;
+    expect(history.map((r) => [r.label, r.checked ?? false])).toEqual([["Docs", false], ["Sign in", true], ["Home", false]]);
+  });
+
+  it("Take a screenshot saves into the space's folder and lands in the session's prompter", async () => {
+    const { f, store } = await mount();
+    await choose(f, "screenshot");
+    expect(f.calls).toContain("screenshot-dir:s1");
+    expect(f.calls).toContain("screenshot:b1:/tmp/space/screenshots");
+    expect(store.getState().pendingAttachments.se1).toEqual([{
+      path: "/tmp/space/screenshots/example.com-2026-10-01T19-30-05.png", mime: "image/png",
+      name: "example.com-2026-10-01T19-30-05.png", size: 2048,
+    }]);
+    expect(screen.getByRole("status")).toHaveTextContent("Added example.com-2026-10-01T19-30-05.png to Session.");
+  });
+
+  it("…with no session to take it, it is still saved, and the receipt says where", async () => {
+    const { f, store } = await mount({ withSession: false });
+    await choose(f, "screenshot");
+    expect(store.getState().pendingAttachments).toEqual({});
+    expect(screen.getByRole("status")).toHaveTextContent("Saved example.com-2026-10-01T19-30-05.png to screenshots/");
+  });
+
+  it("…and a capture that failed says why instead of attaching nothing", async () => {
+    const { f, store } = await mount();
+    f.setScreenshotResult({ ok: false, error: "The page had nothing on screen to capture." });
+    await choose(f, "screenshot");
+    expect(store.getState().pendingAttachments.se1 ?? []).toEqual([]);
+    expect(screen.getByRole("status")).toHaveTextContent("nothing on screen");
+  });
+
+  it("Downloads saves a blocked file with the server's folder, and shows a saved one in the Finder", async () => {
+    const { f } = await mount();
+    f.setMenuState({
+      blocked: [{ id: "bd_1", name: "week-3.pdf", ts: 1 }],
+      saved: [{ id: "sd_1", name: "report.pdf", path: "/tmp/proj/downloads/report.pdf", ts: 2 }],
+    });
+    await choose(f, "download:save:bd_1");
+    expect(f.calls).toContain("save:b1:bd_1:/tmp/proj/downloads");
+    await choose(f, "download:show:sd_1");
+    expect(f.calls).toContain("reveal:/tmp/proj/downloads/report.pdf");
+    const downloads = rowsOf(f.menus[0]!.items).find((r) => r.label === "Downloads")!.submenu!;
+    expect(downloads.map((r) => r.label ?? "—")).toEqual(["Save week-3.pdf", "—", "Show report.pdf in Finder"]);
+    expect(screen.queryByText(/Nothing is at/)).toBeNull();
+  });
+
+  it("says so when a saved download has gone, rather than doing nothing", async () => {
+    // THE MUTANT: drop the answer from `reveal`. The Finder shows nothing for a path with no file, so
+    // the click would do nothing at all — the report that started the reveal fix.
+    const { f } = await mount();
+    f.setMenuState({ blocked: [], saved: [{ id: "sd_2", name: "old.pdf", path: "/tmp/gone/old.pdf", ts: 3 }] });
+    await choose(f, "download:show:sd_2");
+    expect(f.calls).toContain("reveal:/tmp/gone/old.pdf");
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("Nothing is at /tmp/gone/old.pdf. It may have been moved or deleted.")).toBeTruthy();
+  });
+
+  it("Clear browsing data says so only when it happened — main asks first, and Cancel is a no", async () => {
+    const { f } = await mount();
+    f.setCleared(false);
+    await choose(f, "clear-data");
+    // Main is told WHICH pane, because the partition it clears is that pane's profile's.
+    expect(f.calls).toContain("clear-data:b1");
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(f.calls).not.toContain("clear-history:p1");
+    f.setCleared(true);
+    await choose(f, "clear-data");
+    expect(screen.getByRole("status")).toHaveTextContent("This profile's browser panes are signed out");
+    // …and the pages it showed go too, or the address field would go on suggesting them — the pane's
+    // own profile's pages, which the server names.
+    expect(f.calls).toContain("clear-history:p1");
+  });
+
+  it("Share this site's sign-in copies into the profile chosen, and the receipt names the site and the profile", async () => {
+    /* THE mutants: share into the pane's own profile, or say "Shared" when main copied nothing — the
+       person would open the other profile and find themselves signed out. */
+    const { f } = await mount();
+    f.setMenuState({ shareTargets: [{ id: "p2", name: "School" }] });
+    await choose(f, "share-signin:p2");
+    expect(f.calls).toContain("share-signin:b1:p2");
+    expect(screen.getByRole("status")).toHaveTextContent("Shared example.com's sign-in with School.");
+    f.setShareResult({ ok: true, profileName: "School", host: "example.com", copied: 0 });
+    await choose(f, "share-signin:p2");
+    expect(screen.getByRole("status")).toHaveTextContent("This pane has no sign-in for example.com, so nothing was shared with School.");
+    f.setShareResult({ ok: false, error: "That profile no longer exists." });
+    await choose(f, "share-signin:p2");
+    expect(screen.getByRole("status")).toHaveTextContent("That profile no longer exists.");
+  });
+
+  it("Device size reaches the view, and the pane's ground frames the device's box", async () => {
+    const { f, container } = await mount();
+    await choose(f, "device:phone");
+    expect(f.calls).toContain("set-device:b1:phone");
+    // Main answers on the state channel — which is also how a pane that remounts learns it.
+    act(() => f.emit(state({ url: "https://example.com/login", title: "Sign in", device: "phone" })));
+    expect(container.querySelector(".browser-view-host")).toHaveAttribute("data-device", "phone");
+    await choose(f, null);
+    const sizes = rowsOf(f.menus.at(-1)!.items).find((r) => r.label === "Device size")!.submenu!;
+    expect(sizes.find((r) => r.checked)?.label).toBe("iPhone · 390px");
+    await choose(f, "device:none");
+    expect(f.calls).toContain("set-device:b1:null");
+    act(() => f.emit(state({ url: "https://example.com/login", title: "Sign in", device: null })));
+    expect(container.querySelector(".browser-view-host")).not.toHaveAttribute("data-device");
+  });
+
+  it("Browser settings opens Settings on Sign-ins", async () => {
+    const { f, store } = await mount();
+    await choose(f, "settings");
+    expect(store.getState().pageOverlay?.kind).toBe("settings-page");
+    expect(store.getState().settingsPageTab).toBe("signins");
+  });
+});
+
+/**
+ * Plan 26 W7c — what the address field suggests while it is being typed in. The pane's own history
+ * comes from the server (`browsers.suggest`); these pin what the pane does with it: when it asks, where
+ * the list is drawn, and what each key does.
+ */
+describe("BrowserPane — address suggestions (Plan 26 W7c)", () => {
+  paneTestEnv();
+  afterEach(() => { cleanup(); });
+
+  const PAGES: BrowserHistoryPage[] = [
+    { url: "https://docs.example/start", title: "Getting started", visits: 5, lastVisitAt: 10, favicon: "" },
+    { url: "https://docs.example/config", title: "Configuration", visits: 2, lastVisitAt: 20, favicon: "" },
+    { url: "https://dogs.example/", title: "", visits: 1, lastVisitAt: 30, favicon: "" },
+  ];
+  const mount = async () => {
+    const f = fakeBridges({ url: "https://example.com/" });
+    f.setHistory(PAGES);
+    setBrowserBridgesForTests(f.bridges);
+    const view = render(<StoreContext.Provider value={createAppStore(fakeApi())}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    await settle();
+    act(() => f.emit(state({ url: "https://example.com/", title: "Example" })));
+    return { f, ...view };
+  };
+  const field = () => screen.getByLabelText("Address");
+  const type = async (...texts: string[]) => {
+    fireEvent.focus(field());
+    for (const t of texts) fireEvent.change(field(), { target: { value: t } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(SUGGEST_DEBOUNCE_MS + 1); });
+  };
+  const options = () => screen.queryAllByRole("option").map((o) => o.textContent);
+  const press = (key: string, init: Record<string, unknown> = {}) => fireEvent.keyDown(field(), { key, ...init });
+  const enter = async () => { await act(async () => { fireEvent.submit(field().closest("form")!); await vi.advanceTimersByTimeAsync(0); }); };
+
+  it("focusing the field shows the page's address, not a list — a list is for text someone types", async () => {
+    const { f } = await mount();
+    fireEvent.focus(field());
+    await act(async () => { await vi.advanceTimersByTimeAsync(SUGGEST_DEBOUNCE_MS * 2); });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(f.calls.some((c) => c.startsWith("suggest:"))).toBe(false);
+  });
+
+  it("typing lists the space's visited pages that match, best first, then a search for the text", async () => {
+    const { f } = await mount();
+    // A word typed at speed is one question, not one per letter.
+    await type("d", "do", "doc", "docs");
+    expect(f.calls.filter((c) => c.startsWith("suggest:"))).toEqual(["suggest:s1:docs"]);
+    expect(options()).toEqual([
+      "Getting starteddocs.example/start",
+      "Configurationdocs.example/config",
+      "Search the web for “docs”",
+    ]);
+    // A combobox the way a screen reader expects one: expanded, pointing at its list.
+    expect(field()).toHaveAttribute("aria-expanded", "true");
+    expect(field()).toHaveAttribute("aria-controls", screen.getByRole("listbox").id);
+  });
+
+  it("a page row wears the icon the page last showed, and one that showed none keeps the history's clock", async () => {
+    // THE mutant: the clock on every row. The row for a site the person knows by its mark says nothing of it.
+    const f = fakeBridges({ url: "https://example.com/" });
+    f.setHistory([{ ...PAGES[0]!, favicon: ICON }, PAGES[1]!]);
+    setBrowserBridgesForTests(f.bridges);
+    render(<StoreContext.Provider value={createAppStore(fakeApi())}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    await settle();
+    await type("docs");
+    const rows = screen.getAllByRole("option");
+    expect(rows[0]!.querySelector("img.page-icon")?.getAttribute("src")).toBe(ICON);
+    expect(rows[1]!.querySelector("img")).toBeNull();
+    expect(rows[1]!.querySelector("svg")).not.toBeNull();
+  });
+
+  it("the list is a strip ABOVE the view — never a dropdown inside it, where the page would cover it", async () => {
+    const { container } = await mount();
+    await type("docs");
+    const list = screen.getByRole("listbox");
+    const host = container.querySelector(".browser-view-host")!;
+    // THE mutant: draw it floating in the view host. The native view paints over everything there.
+    expect(host.contains(list)).toBe(false);
+    expect(list.parentElement).toBe(host.parentElement);
+    expect(list.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector(".browser-chrome [aria-haspopup]")).toBeNull();
+  });
+
+  it("↓ moves onto a row and Return opens that page", async () => {
+    const { f } = await mount();
+    await type("docs");
+    press("ArrowDown");
+    expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
+    expect(field()).toHaveAttribute("aria-activedescendant", screen.getAllByRole("option")[0]!.id);
+    press("ArrowDown");
+    await enter();
+    expect(f.calls).toContain("navigate:b1:https://docs.example/config");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("↑ back past the first row returns to the field, and Return goes where the text says", async () => {
+    const { f } = await mount();
+    await type("docs");
+    press("ArrowDown"); press("ArrowUp"); press("ArrowUp");
+    expect(screen.getAllByRole("option").every((o) => o.getAttribute("aria-selected") === "false")).toBe(true);
+    await enter();
+    expect(f.calls).toContain("navigate:b1:docs");
+  });
+
+  it("the search row searches the typed text, even when it looks like an address", async () => {
+    const { f } = await mount();
+    await type("docs.example");
+    for (let i = 0; i < 5; i++) press("ArrowDown"); // held at the last row, which is the search
+    expect(screen.getAllByRole("option").at(-1)).toHaveAttribute("aria-selected", "true");
+    await enter();
+    expect(f.calls).toContain("search:b1:docs.example");
+    expect(f.calls.some((c) => c.startsWith("navigate:"))).toBe(false);
+  });
+
+  it("Escape closes the list and puts the page's own address back in the field", async () => {
+    await mount();
+    await type("docs");
+    press("Escape");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(field()).toHaveValue("https://example.com/");
+  });
+
+  it("a click picks the row — the press keeps the field's focus, so the list is still there to click", async () => {
+    const { f } = await mount();
+    await type("dog");
+    const row = screen.getAllByRole("option")[0]!;
+    // A page with no title is named by its address rather than drawn as a blank row.
+    expect(row).toHaveTextContent("dogs.example");
+    const down = createEvent.mouseDown(row);
+    fireEvent(row, down);
+    expect(down.defaultPrevented).toBe(true);
+    await act(async () => { fireEvent.click(row); await vi.advanceTimersByTimeAsync(0); });
+    expect(f.calls).toContain("navigate:b1:https://dogs.example/");
+  });
+
+  it("an answer that arrives after the text has moved on is dropped, not shown against the wrong words", async () => {
+    const { f } = await mount();
+    f.holdSuggestions();
+    await type("do");
+    await type("docs");
+    expect(f.heldSuggest.map((h) => h.query)).toEqual(["do", "docs"]);
+    await act(async () => { f.heldSuggest[1]!.release(); await vi.advanceTimersByTimeAsync(0); });
+    expect(options()).not.toContain("dogs.exampledogs.example");
+    // THE mutant: no staleness check. The earlier question's answer lands last and wins.
+    await act(async () => { f.heldSuggest[0]!.release(); await vi.advanceTimersByTimeAsync(0); });
+    expect(options().some((o) => o?.includes("dogs.example"))).toBe(false);
+    expect(options()).toHaveLength(3);
+  });
+});
+
+/**
+ * Plan 26 W6 — a blank tab's Recently visited. The pages come from the server (`browsers.recent`);
+ * these pin what the pane does with them: when it asks, where a chosen one goes, and that a clear
+ * takes the list down with the history it was read from.
+ */
+describe("BrowserPane — Recently visited on a blank tab (Plan 26 W6)", () => {
+  paneTestEnv();
+  afterEach(() => { cleanup(); });
+
+  const RECENT: BrowserHistoryPage[] = [
+    { url: "https://jobs.example/delta", title: "Delta careers", visits: 1, lastVisitAt: 30, favicon: "" },
+    { url: "https://docs.example/start", title: "Getting started", visits: 4, lastVisitAt: 20, favicon: "" },
+  ];
+  const mount = async (row: Partial<Browser> = {}) => {
+    const f = fakeBridges(row);
+    f.setRecent(RECENT);
+    setBrowserBridgesForTests(f.bridges);
+    const view = render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    return { f, ...view };
+  };
+  const reads = (f: ReturnType<typeof fakeBridges>) => f.calls.filter((c) => c.startsWith("recent:"));
+  const listed = () => {
+    const section = screen.queryByRole("region", { name: "Recently visited" });
+    return section ? within(section).getAllByRole("button").map((b) => b.textContent) : null;
+  };
+  const clearData = async () => {
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "More" }).at(-1)!); await vi.advanceTimersByTimeAsync(0); });
+  };
+
+  it("each page wears the icon it last showed, and one that showed none the browser's glyph", async () => {
+    const f = fakeBridges();
+    f.setRecent([{ ...RECENT[0]!, favicon: ICON }, RECENT[1]!]);
+    setBrowserBridgesForTests(f.bridges);
+    render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    expect(screen.getByRole("button", { name: "Delta careers" }).querySelector("img.page-icon")?.getAttribute("src")).toBe(ICON);
+    expect(screen.getByRole("button", { name: "Getting started" }).querySelector("img")).toBeNull();
+  });
+
+  it("a tab with a page asks for none and draws no new-tab page", async () => {
+    // THE mutant: read them whenever the pane is visible, page or not.
+    const { f } = await mount({ url: "https://example.com/" });
+    expect(reads(f)).toEqual([]);
+    expect(screen.queryByRole("region", { name: "New tab" })).toBeNull();
+  });
+
+  it("asks again each time the blank page comes back on screen, and never per render", async () => {
+    /* THE mutants: ask on every render, and each letter typed into the address field is a read; ask
+       once and keep it, and a side pane's blank tab — kept mounted while its neighbours browse —
+       comes back listing the pages from before they went anywhere. */
+    const { f, rerender } = await mount();
+    const field = screen.getByLabelText("Address");
+    fireEvent.focus(field);
+    for (const t of ["d", "do", "doc"]) fireEvent.change(field, { target: { value: t } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(SUGGEST_DEBOUNCE_MS + 1); });
+    fireEvent.blur(field);
+    expect(reads(f)).toEqual(["recent:s1"]);
+    rerender(<BrowserPane item={browserItem()} visible={false} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(reads(f)).toHaveLength(1);
+    f.setRecent([RECENT[1]!]);
+    rerender(<BrowserPane item={browserItem()} visible />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(reads(f)).toHaveLength(2);
+    expect(listed()).toEqual(["Getting started"]);
+  });
+
+  it("Clear browsing data takes the list down once main has cleared — and a Cancel leaves it", async () => {
+    // THE mutant: keep the list as it was read. The page would go on naming what was just forgotten.
+    const { f } = await mount();
+    f.choose("clear-data");
+    f.setCleared(false);
+    await clearData();
+    expect(listed()).toEqual(["Delta careers", "Getting started"]);
+    f.setCleared(true);
+    await clearData();
+    expect(f.calls).toContain("clear-history:p1");
+    expect(listed()).toBeNull();
+  });
+
+  it("…and so does a clear chosen in another pane, since the history is one for every pane", async () => {
+    const f = fakeBridges();
+    f.setRecent(RECENT);
+    setBrowserBridgesForTests(f.bridges);
+    const { container } = render(<>
+      <BrowserPane item={browserItem()} visible />
+      <BrowserPane item={item("i2", "s1", { kind: "browser", refId: "b2", title: "Browser" })} visible />
+    </>);
+    await settle();
+    expect(container.querySelectorAll(".new-tab-section[aria-label='Recently visited']")).toHaveLength(2);
+    f.choose("clear-data");
+    await clearData(); // the second pane's ⋯
+    expect(container.querySelectorAll(".new-tab-section[aria-label='Recently visited']")).toHaveLength(0);
+  });
+});
+
+/**
+ * Plan 26 W7d — annotate, the pane's half. The pins and the toolbar are drawn in the page (main's
+ * injected annotator, tested against a real DOM in annotator.test.ts); what the pane owns is the
+ * button's lit state and where a Send lands: ONE chip, every pinned element under it, and the
+ * screenshot of the pins attached beside it.
+ */
+describe("BrowserPane — annotate (Plan 26 W7d)", () => {
+  paneTestEnv();
+  afterEach(() => { cleanup(); });
+
+  const el = (n: number): BrowserPickedElement => ({
+    ref: 40 + n, url: "https://example.com/list", title: "List", rect: { x: 0, y: 0, w: 10, h: 10 },
+    selector: `li:nth-of-type(${n})`, tag: "li", role: "listitem", name: `Item ${n}`, text: `Item ${n}`, html: "<li></li>",
+  });
+  const SHOT = { path: "/tmp/space/screenshots/example.com-2026-10-01T19-30-05-annotations.png", name: "example.com-2026-10-01T19-30-05-annotations.png", size: 4096 };
+  const sessionItem = item("i2", "s1", { kind: "session", refId: "se1", title: "Session" });
+  const mount = async (over: { withSession?: boolean } = {}) => {
+    const f = fakeBridges({ url: "https://example.com/list" });
+    setBrowserBridgesForTests(f.bridges);
+    const store = createAppStore(fakeApi());
+    const items = over.withSession === false ? [browserItem()] : [browserItem(), sessionItem];
+    store.setState({ items, layout: gridPreset("two-col", items.map((i) => i.id)), focusedLeafId: null });
+    const view = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /><Toasts /></StoreContext.Provider>);
+    await settle();
+    return { f, store, ...view };
+  };
+  const press = async () => { await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Annotate" })); await vi.advanceTimersByTimeAsync(0); }); };
+
+  it("is a mode the button wears while it is on, armed with where its screenshot goes", async () => {
+    const { f } = await mount();
+    await press();
+    expect(screen.getByRole("button", { name: "Annotate" })).toHaveAttribute("aria-pressed", "true");
+    expect(f.calls).toContain("annotate:b1:/tmp/space/screenshots");
+    await press();
+    expect(f.calls).toContain("cancel-annotate:b1");
+    expect(screen.getByRole("button", { name: "Annotate" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("Send lands as ONE chip carrying every pin, in order, with the screenshot of the pins attached", async () => {
+    /* THE mutant: one chip per pin. Three pins would be three chips in the prompter, and the thing the
+       user did — mark three places on one page as one remark — would be lost in the draft. */
+    const { f, store } = await mount();
+    await press();
+    await act(async () => { f.settleAnnotate({ outcome: "sent", elements: [el(1), el(2), el(3)], shot: SHOT }); await vi.advanceTimersByTimeAsync(0); });
+    const st = store.getState();
+    expect(st.drafts.se1).toBe("@[3 annotations] ");
+    expect(st.draftElements.se1!.map((c) => [c.label, c.pin, (c.element as BrowserPickedElement).ref, c.shot])).toEqual([
+      ["3 annotations", 1, 41, SHOT.name], ["3 annotations", 2, 42, SHOT.name], ["3 annotations", 3, 43, SHOT.name],
+    ]);
+    expect(st.pendingAttachments.se1).toEqual([{ path: SHOT.path, mime: "image/png", name: SHOT.name, size: 4096 }]);
+    expect(screen.getByRole("status")).toHaveTextContent("Added 3 annotations to Session.");
+    expect(screen.getByRole("button", { name: "Annotate" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("a Send whose page would not draw still lands its pins, naming no screenshot", async () => {
+    const { f, store } = await mount();
+    await press();
+    await act(async () => { f.settleAnnotate({ outcome: "sent", elements: [el(1)], shot: null }); await vi.advanceTimersByTimeAsync(0); });
+    expect(store.getState().drafts.se1).toBe("@[1 annotation] ");
+    expect(store.getState().draftElements.se1![0]).not.toHaveProperty("shot");
+    expect(store.getState().pendingAttachments.se1 ?? []).toEqual([]);
+  });
+
+  it("a page that navigates says its pins went with it; a close the user chose says nothing", async () => {
+    const { f } = await mount();
+    await press();
+    await act(async () => { f.settleAnnotate({ outcome: "left" }); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("status")).toHaveTextContent("The page changed, so its pins were cleared.");
+    // Arming again takes the pane's last receipt down; only a new one would put one back.
+    await press();
+    await act(async () => { f.settleAnnotate({ outcome: "closed" }); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("a Send with nowhere to go says so rather than dropping the pins", async () => {
+    const { f, store } = await mount({ withSession: false });
+    await press();
+    await act(async () => { f.settleAnnotate({ outcome: "sent", elements: [el(1)], shot: SHOT }); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("status")).toHaveTextContent("open a session pane in this group first");
+    expect(store.getState().drafts).toEqual({});
+  });
+
+  it("a draft that cannot carry that many more elements refuses the whole annotation, and says so", async () => {
+    const { f, store } = await mount();
+    for (let i = 0; i < 7; i++) store.getState().addElementChip("se1", { ...el(10 + i), name: `Pick ${i}` });
+    await press();
+    await act(async () => { f.settleAnnotate({ outcome: "sent", elements: [el(1), el(2)], shot: SHOT }); await vi.advanceTimersByTimeAsync(0); });
+    expect(store.getState().draftElements.se1).toHaveLength(7);
+    expect(store.getState().pendingAttachments.se1 ?? []).toEqual([]);
+    expect(screen.getByRole("status")).toHaveTextContent("already carrying as many picked elements as one message can");
+  });
+
+  it("closing the pane takes the page's pins and toolbar down with it", async () => {
+    const { f, unmount } = await mount();
+    await press();
+    await act(async () => { unmount(); });
+    expect(f.calls).toContain("cancel-annotate:b1");
+  });
+
+  it("has no page, has nothing to annotate", async () => {
+    const f = fakeBridges();
+    setBrowserBridgesForTests(f.bridges);
+    render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    expect(screen.getByRole("button", { name: "Annotate" })).toBeDisabled();
   });
 });

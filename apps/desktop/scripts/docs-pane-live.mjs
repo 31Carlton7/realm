@@ -102,10 +102,27 @@ globalThis.__live = {
     Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
     el.dispatchEvent(new Event("input", { bubbles: true }));
   },
-  dest(label) {
-    const row = [...document.querySelectorAll('.sb-destinations .dest-row')].find((b) => b.textContent.trim().startsWith(label));
-    if (!row) throw new Error('no destination: ' + label);
-    row.click();
+  async dest(label) {
+    // The destinations are the rail's (Plan 27), and Settings sits behind the avatar's menu — the
+    // palette's "Open settings" is the same action and reachable from a script.
+    if (label === "Settings") {
+      if (document.querySelector(".settings-page-pane")) return true;
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+      for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await new Promise((r) => setTimeout(r, 25));
+      const input = document.querySelector(".palette input");
+      if (!input) throw new Error('no palette');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "settings");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      for (let i = 0; i < 40; i++) {
+        const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((b) => /open settings/i.test(b.textContent));
+        if (hit) { hit.click(); return true; }
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error('no destination: Settings');
+    }
+    const b = [...document.querySelectorAll('.app-rail .rail-btn')].find((x) => (x.getAttribute('aria-label') ?? '').startsWith(label));
+    if (!b) throw new Error('no destination: ' + label);
+    b.click();
     return true;
   },
 };

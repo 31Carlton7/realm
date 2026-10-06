@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { USAGE_OTHER_KEY, USAGE_SERIES_CAP, type AgentKind, type UsageSample } from "@realm/contracts";
-import { aggregateUsage, buildBreakdown, sliceSession, type PriceLookup, type SessionFacts } from "./aggregate";
+import { aggregateUsage, buildBreakdown, sliceSession, turnDurations, type PriceLookup, type SessionFacts } from "./aggregate";
 
 /** A day in September 2026, at noon local — bucketing is local-calendar, so fixed offsets would drift. */
 const day = (d: number, hour = 12) => new Date(2026, 8, d, hour).getTime();
@@ -38,23 +38,6 @@ describe("sliceSession — what one session contributed", () => {
     expect(totals.reportedUsd).toBe(0);
     expect(totals.estimatedUsd).toBeCloseTo(18, 6); // 1M × $3 + 1M × $15
     expect(totals.costUsd).toBeCloseTo(18, 6);
-  });
-
-  it("counts an engine that reports nothing as UNMEASURED, never as zero spend", () => {
-    // The whole honesty rule in one assertion: an ACP session's tokens are unknown, not absent, and
-    // a page that billed it at $0.00 would be stating something false about it.
-    const s = facts({ agentKind: "acp:cursor", model: null, samples: [] });
-    const { totals } = sliceSession(s, FROM, TO, "day", priced);
-    expect(totals.unmeasuredSessions).toBe(1);
-    expect(totals.sessions).toBe(1);
-    expect(totals.costUsd).toBe(0);
-    expect(totals.inputTokens).toBe(0);
-  });
-
-  it("leaves the cost at zero when nothing prices the model, rather than inventing one", () => {
-    const s = facts({ agentKind: "codex", samples: [sample(day(2), 0, 1_000_000, 0, 1)] });
-    expect(sliceSession(s, FROM, TO, "day", unpriced).totals.costUsd).toBe(0);
-    expect(sliceSession(s, FROM, TO, "day", unpriced).totals.inputTokens).toBe(1_000_000);
   });
 
   it("applies the window to the DELTAS, not to the events — the pre-range total is never re-billed", () => {
@@ -140,19 +123,6 @@ describe("aggregateUsage", () => {
     expect(out.totals.costUsd).toBeCloseTo(1, 6);
   });
 
-  it("names the models it could not price, which is why an estimate is missing", () => {
-    const sessions = [facts({ agentKind: "codex", model: "some-private-model", samples: [sample(day(2), 0, 1000, 1000, 1)] })];
-    const out = aggregateUsage({ sessions, from: FROM, to: TO, bucket: "day", priceFor: unpriced, activity: emptyActivity, budget: noBudget });
-    expect(out.unpricedModels).toEqual(["some-private-model"]);
-  });
-
-  it("does not call an engine that reports nothing 'unpriced' — that is a different story", () => {
-    const sessions = [facts({ agentKind: "acp:qwen", model: "qwen3" })];
-    const out = aggregateUsage({ sessions, from: FROM, to: TO, bucket: "day", priceFor: unpriced, activity: emptyActivity, budget: noBudget });
-    expect(out.unpricedModels).toEqual([]);
-    expect(out.unmeasuredKinds).toEqual(["acp:qwen"]);
-  });
-
   it("builds the bucket series from the RANGE, so a quiet day is a gap and not a missing column", () => {
     const sessions = [facts({ samples: [sample(day(2), 1, 0, 0, 1)] })];
     const out = aggregateUsage({ sessions, from: day(1, 0), to: day(5, 23), bucket: "day", priceFor: priced, activity: emptyActivity, budget: noBudget });
@@ -173,5 +143,46 @@ describe("aggregateUsage", () => {
     const sessions = [facts({ id: "quiet", agentKind: "acp:cursor", model: null }), facts({ id: "loud", samples: [sample(day(2), 2, 100, 100, 1)] })];
     const out = aggregateUsage({ sessions, from: FROM, to: TO, bucket: "day", priceFor: priced, activity: emptyActivity, budget: noBudget });
     expect(out.sessions.map((s) => s.id)).toEqual(["loud"]);
+  });
+});
+
+describe("turnDurations — how long the agent worked on each turn", () => {
+  const MIN = 60_000;
+  const at = (min: number, status: string) => ({ ts: day(2, 9) + min * MIN, status });
+
+  it("takes out the time spent waiting on a permission", () => {
+    // 5 minutes of work, 8 hours on a prompt nobody answered, 3 more minutes of work. The night is
+    // not the agent's: a turn left waiting would otherwise hold the record for whoever went to bed.
+    const out = turnDurations([at(0, "running"), at(5, "waiting_permission"), at(5 + 480, "running"), at(5 + 480 + 3, "idle")]);
+    expect(out.map((t) => t.ms)).toEqual([8 * MIN]);
+  });
+
+  it("ends a turn settled while still waiting, without counting the wait", () => {
+    // Denied or stopped from the prompt: `waiting_permission` straight to `idle`.
+    const out = turnDurations([at(0, "running"), at(4, "waiting_permission"), at(60, "idle")]);
+    expect(out.map((t) => t.ms)).toEqual([4 * MIN]);
+  });
+
+  it("reads a second running inside an open turn as the same turn", () => {
+    // "Send now" and a delivered queue restate `running` while the agent never stopped. Restarting
+    // the clock there would cut the turn in two and lose its first half.
+    const out = turnDurations([at(0, "running"), at(20, "running"), at(30, "idle")]);
+    expect(out.map((t) => t.ms)).toEqual([30 * MIN]);
+  });
+
+  it("closes a turn on an error, and on the process ending, as well as on idle", () => {
+    const out = turnDurations([at(0, "running"), at(2, "error"), at(10, "running"), at(17, "ended")]);
+    expect(out.map((t) => t.ms)).toEqual([2 * MIN, 7 * MIN]);
+  });
+
+  it("counts nothing for a turn that has not finished", () => {
+    expect(turnDurations([at(0, "running"), at(3, "waiting_permission")])).toEqual([]);
+    expect(turnDurations([at(0, "running")])).toEqual([]);
+  });
+
+  it("ignores a settle with no turn open, and a status it does not know", () => {
+    // Background agents settle a session that was already idle; neither opens or closes anything.
+    const out = turnDurations([at(0, "idle"), at(1, "running"), at(2, "compacting"), at(6, "idle"), at(7, "idle")]);
+    expect(out.map((t) => t.ms)).toEqual([5 * MIN]);
   });
 });

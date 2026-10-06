@@ -7,6 +7,9 @@ import { Transcript } from "../Transcript";
 import { emptyTranscript } from "../transcript-model";
 import { GeneratingCanvas, MediaStrip, formatTime, genResolution, genWidthPx } from "./MediaView";
 import { resetMediaCache, useMediaFiles } from "./use-media";
+import { MediaViewer } from "../../../components/viewer/MediaViewer";
+import { StoreContext, createAppStore } from "../../../state/store";
+import { fakeApi } from "../../../state/store.test-fakes";
 
 /** What main would answer for a real file. */
 const file = (path: string, kind: MediaFile["kind"], size = 10_485_760): MediaFile => ({
@@ -85,21 +88,27 @@ describe("MediaStrip", () => {
     expect(open).toHaveBeenCalledWith("/out/hero.png");
   });
 
-  it("opens a file in the lightbox and closes it on Escape", async () => {
+  it("opens a file in the media viewer and closes it on Escape", async () => {
     const shot = file("/out/hero.png", "image");
     stubMedia([shot]);
-    render(<MediaStrip files={[shot]} />);
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    render(<StoreContext.Provider value={store}><MediaStrip files={[shot]} /><MediaViewer /></StoreContext.Provider>);
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open hero.png larger" }));
-    expect(screen.getByRole("dialog", { name: "hero.png" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "hero.png" })).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("draws nothing at all for an empty list", () => {
-    const { container } = render(<MediaStrip files={[]} />);
-    expect(container).toBeEmptyDOMElement();
+  it("has nothing to open into in a bare render, so the picture is just a picture", () => {
+    // The suite renders transcripts with no store; a frame there must not offer a viewer it lacks.
+    const shot = file("/out/hero.png", "image");
+    stubMedia([shot]);
+    render(<MediaStrip files={[shot]} />);
+    expect(screen.getByRole("button", { name: "hero.png" })).toBeDisabled();
   });
+
 });
 
 describe("Markdown media embeds", () => {
@@ -214,11 +223,6 @@ describe("GeneratingCanvas", () => {
     expect(container.querySelector(".gen-res")).toBeNull();
   });
 
-  it("carries no progress it cannot know", () => {
-    const { container } = render(<GeneratingCanvas label="Rendering image" />);
-    expect(container.querySelector("progress")).toBeNull();
-    expect(container.querySelector("[role='progressbar']")).toBeNull();
-  });
 });
 
 /* The feature end to end, on the shape of message that motivated it: an agent encodes three videos

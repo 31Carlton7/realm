@@ -14,18 +14,20 @@ import { clock, effect, frame, frameLoop, init, sampler, surface, target, type T
 const FIELD_SIZE = 1024
 
 /**
- * The faces of public/realm-mark.svg, flattened to polygons (each rounded corner became three
- * points). The mark's viewBox is 40 × 48, so these are in that space; the union of the six is the
- * mark's field, and their shared edges are where the glass changes facet.
+ * The faces of public/realm-mark.svg (resources/icon-src/mark.mjs), flattened to polygons: the cube's
+ * top, its right wall and its left wall, each rounded silhouette corner sampled along its arc and
+ * split where the faces meet. The mark's viewBox is 40 × 48, so these are in that space; the union of
+ * the three is the mark's field, and their shared edges are where the glass changes facet.
  */
 const FACES: readonly (readonly [number, number][])[] = [
-  [[9.725, 41.798], [28.221, 41.798], [29.444, 41.582], [30.504, 40.969], [31.303, 40.018], [35.413, 32.899], [14.865, 32.899]],
-  [[25.145, 15.101], [4.588, 15.101], [8.698, 7.982], [9.497, 7.032], [10.558, 6.419], [11.781, 6.203], [30.277, 6.203]],
-  [[39.527, 25.78], [39.951, 24.612], [39.951, 23.388], [39.527, 22.221], [35.417, 15.101], [30.279, 24], [9.729, 24], [14.866, 32.899], [35.414, 32.899]],
-  [[14.863, 32.899], [9.726, 24], [4.588, 32.899], [9.726, 41.798]],
-  [[25.145, 15.101], [4.589, 15.101], [0.48, 22.221], [0.057, 23.388], [0.057, 24.612], [0.481, 25.78], [4.592, 32.899], [9.73, 24], [30.28, 24]],
-  [[35.418, 15.101], [30.28, 6.203], [25.143, 15.101], [30.28, 24]],
+  [[20, 24], [0.278, 24], [0.294, 23.765], [0.34, 23.534], [0.415, 23.311], [0.52, 23.1], [9.48, 7.579], [9.611, 7.384], [9.766, 7.207], [9.943, 7.051], [10.139, 6.921], [10.35, 6.817], [10.573, 6.741], [10.804, 6.695], [11.039, 6.679], [28.961, 6.679], [29.196, 6.695], [29.427, 6.741], [29.65, 6.817], [29.861, 6.921]],
+  [[20, 24], [29.861, 6.921], [30.057, 7.051], [30.234, 7.207], [30.389, 7.384], [30.52, 7.579], [39.48, 23.1], [39.585, 23.311], [39.66, 23.534], [39.706, 23.765], [39.722, 24], [39.706, 24.235], [39.66, 24.466], [39.585, 24.689], [39.48, 24.9], [30.52, 40.421], [30.389, 40.616], [30.234, 40.793], [30.057, 40.949], [29.861, 41.079]],
+  [[20, 24], [29.861, 41.079], [29.65, 41.183], [29.427, 41.259], [29.196, 41.305], [28.961, 41.321], [11.039, 41.321], [10.804, 41.305], [10.573, 41.259], [10.35, 41.183], [10.139, 41.079], [9.943, 40.949], [9.766, 40.793], [9.611, 40.616], [9.48, 40.421], [0.52, 24.9], [0.415, 24.689], [0.34, 24.466], [0.294, 24.235], [0.278, 24]],
 ]
+
+/** The doorway as it is cut in the right wall. It is knocked out of the field, as the flat mark knocks
+ *  it out of the silhouette, so the light bends round the opening rather than across it. */
+const DOOR: readonly [number, number][] = [[24.4, 20.882], [28.2, 14.301], [35.9, 27.637], [32.1, 34.219]]
 
 /** Mark units per unit of field space; 20 puts the 40-wide mark exactly across the field's -1..1. */
 const MARK_SCALE = 20
@@ -74,11 +76,13 @@ fn face${index}(p: vec2f) -> f32 {
 
 const sdfBakeShader = /* wgsl */ `
 ${FACES.map((vertices, index) => faceSdf(index, vertices)).join("\n")}
+${faceSdf(FACES.length, DOOR)}
 
 fn logoSdf(point: vec2f) -> f32 {
   let p = point * ${MARK_SCALE}.0 + vec2f(${MARK_CENTER[0]}.0, ${MARK_CENTER[1]}.0);
   var distance = face0(p);
   ${FACES.slice(1).map((_, index) => `distance = min(distance, face${index + 1}(p));`).join("\n  ")}
+  distance = max(distance, -face${FACES.length}(p));
   return distance / ${MARK_SCALE}.0;
 }
 

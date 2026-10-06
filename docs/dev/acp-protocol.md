@@ -100,6 +100,15 @@ interface AuthMethod         { id: string; name: string; description?: string | 
 > The docs site (agentclientprotocol.com) already documents `auth.terminal`,
 > `elicitation`, and `session.configOptions` on `ClientCapabilities`. **None of those are
 > in npm 0.4.5.** Code against the shipped types; treat doc-only fields as unverified.
+>
+> **Elicitation** went stable in the ACP schema 1.7.0 (2026-08-20), and Realm declares it:
+> `clientCapabilities.elicitation: {form: {}, url: {}}` — each mode named, since ACP (unlike
+> MCP) does not read `{}` as form support. The agent then sends `elicitation/create` with
+> MCP's shapes (`{sessionId, mode: "form", message, requestedSchema}` or `{mode: "url",
+> elicitationId, url, message}`) and is answered flat, `{action: "accept" | "decline" |
+> "cancel", content?}`, from Realm's question card. A form asking for a credential is declined
+> unasked (form mode MUST NOT carry secrets). From the protocol's own pages; not yet captured
+> live from Gemini or Cursor.
 
 ### 2.2 `authenticate`
 

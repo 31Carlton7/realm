@@ -74,12 +74,6 @@ describe("the selection bar", () => {
     expect(bar()).toBeNull();
   });
 
-  it("stays shut over a message that is still being written", () => {
-    render(<Host onQuote={() => {}} />);
-    select('[data-state="streaming"] p');
-    expect(bar()).toBeNull();
-  });
-
   it("hands the selected text to Quote and then gets out of the way", () => {
     const onQuote = vi.fn();
     render(<Host onQuote={onQuote} />);

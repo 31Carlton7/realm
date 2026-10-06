@@ -1,7 +1,7 @@
 import {
-  AGENT_INSTALL_ROUTES, AgentKindSchema, canRunUpdate, installCommand, isNewerVersion, parseBrewFormula,
+  AGENT_INSTALL_ROUTES, AgentKindSchema, agentLabel, canRunUpdate, installCommand, isNewerVersion, parseBrewFormula,
   parseNpmLatest, parsePypiLatest, updateChannel, updateCommand, updatePlan, updateRefusal,
-  type AgentKind, type CliStatus, type InstallProvenance,
+  type AgentKind, type CliStatus, type InstallProvenance, type InstallRoute,
 } from "@realm/contracts";
 import type { ProbeResult } from "@realm/adapters";
 import { ProbeCache } from "../sessions/probe-cache";
@@ -25,6 +25,23 @@ const CHECK_TIMEOUT_MS = 8000;
  *  situations that all mean the same thing to a caller: do not claim an update exists. */
 type CliCheck = { binPath: string | null; provenance: InstallProvenance; latest: string | null };
 
+/** The tool an argv install route runs — the binary `commandSpec` spawns for it, which for all three
+ *  is the method's own name. A vendor script needs only curl and bash, which every Mac has. */
+type InstallTool = "npm" | "brew" | "uv";
+const toolFor = (route: InstallRoute | null): InstallTool | null =>
+  route?.method === "npm" || route?.method === "brew" || route?.method === "uv" ? route.method : null;
+
+/** Why there is no Install button, for someone who has never opened a terminal. The npm sentence
+ *  names Node.js because that is the thing to go and get — nobody downloads "npm". */
+function toolMissing(kind: AgentKind, tool: InstallTool): string {
+  const name = agentLabel(kind);
+  if (tool === "npm") return `${name} installs with npm, which comes with Node.js — and Node.js isn't on this Mac yet.`;
+  if (tool === "brew") return `${name} installs with Homebrew, and Homebrew isn't on this Mac yet.`;
+  return `${name} installs with uv, Astral's installer for Python tools — and uv isn't on this Mac yet.`;
+}
+
+const CARRIED_CLAUDE = "This is the copy of Claude Code that comes with Realm, and it updates when Realm does.";
+
 /**
  * "Is there a newer version of each agent CLI, and may Realm install it?"
  *
@@ -43,6 +60,16 @@ type CliCheck = { binPath: string | null; provenance: InstallProvenance; latest:
  */
 export class CliService {
   private checks: ProbeCache<Record<string, CliCheck>>;
+  /**
+   * Which of the programs `join` decides on are on PATH right now: the three install tools, and
+   * `claude` itself (see the Claude branch in `join`).
+   *
+   * Cached for the probe's thirty seconds, not the sweep's six hours, because this answer changes on
+   * the timescale of a person installing something — and the refusal below asks them to do exactly
+   * that. A Node.js installed after the first look must read as installed by the time they come back
+   * and click again; Settings' "Check for updates" forces it sooner. It is fs only, never a spawn.
+   */
+  private tools: ProbeCache<ReadonlySet<string>>;
 
   constructor(private readonly d: {
     /** `SessionService.probe` — the same cache every other probe caller rides. */
@@ -54,16 +81,19 @@ export class CliService {
     now?: () => number;
   }) {
     this.checks = new ProbeCache(() => this.sweep(), { ttlMs: d.ttlMs ?? CLI_CHECK_TTL_MS, now: d.now });
+    this.tools = new ProbeCache(() => this.lookForTools(), { now: d.now });
   }
 
   /** Every kind's install and update situation. Never throws: a caller asking "what is on this
    *  machine" must get an answer even with the network gone. */
   async status({ force = false }: { force?: boolean } = {}): Promise<CliStatus[]> {
-    const [probes, checks] = await Promise.all([
+    const [probes, checks, tools] = await Promise.all([
       this.d.probe({ force }),
       this.checks.get({ force }).catch((): Record<string, CliCheck> => ({})),
+      // Null is "could not look", which is no evidence anything is missing: no refusal follows from it.
+      this.tools.get({ force }).catch(() => null),
     ]);
-    return AgentKindSchema.options.map((kind) => this.join(kind, probes.find((p) => p.kind === kind), checks[kind]));
+    return AgentKindSchema.options.map((kind) => this.join(kind, probes.find((p) => p.kind === kind), checks[kind], tools));
   }
 
   /** Re-check with the caches bypassed — what an install or update calls when it finishes, because
@@ -72,7 +102,7 @@ export class CliService {
     return this.status({ force: true });
   }
 
-  private join(kind: AgentKind, probe: ProbeResult | undefined, check: CliCheck | undefined): CliStatus {
+  private join(kind: AgentKind, probe: ProbeResult | undefined, check: CliCheck | undefined, tools: ReadonlySet<string> | null): CliStatus {
     const route = AGENT_INSTALL_ROUTES[kind];
     const provenance = check?.provenance ?? "unknown";
     const installed = probe?.available ?? false;
@@ -82,7 +112,22 @@ export class CliService {
       kind, installed, version, binPath: check?.binPath ?? null, provenance, latest,
     };
     if (!installed) {
-      return { ...base, updateAvailable: false, action: installCommand(route) ? "install" : "none", command: installCommand(route), refusal: null };
+      const command = installCommand(route);
+      const tool = toolFor(route);
+      /* An offer the machine cannot run is not an offer. With no npm, `cli.run` spawns one anyway and
+         the person reads `spawn npm ENOENT` — after pressing a button Realm drew. Say what is missing
+         instead, in the words of the thing to go and get. */
+      if (command && tool && tools && !tools.has(tool)) {
+        return { ...base, updateAvailable: false, action: "none", command: null, refusal: toolMissing(kind, tool) };
+      }
+      return { ...base, updateAvailable: false, action: command ? "install" : "none", command, refusal: null };
+    }
+    /* Claude is available with no `claude` on PATH in exactly one way: the probe fell back to the copy
+       the Agent SDK carries inside Realm (`probeClaude`). That copy is Realm's to update — it moves
+       when the SDK floor does — and the self-updater below would spawn a `claude` that is not there.
+       An override is looked up as itself, so a REALM_CLAUDE_BIN stub still reads as a CLI on PATH. */
+    if (kind === "claude" && tools && !tools.has(agentBin("claude", this.d.env ?? process.env))) {
+      return { ...base, binPath: null, latest: null, updateAvailable: false, action: "none", command: null, refusal: CARRIED_CLAUDE };
     }
     const plan = updatePlan(route, provenance, kind);
     if (!isNewerVersion(version, latest) || !latest) {
@@ -119,6 +164,14 @@ export class CliService {
       return [kind, { binPath: found?.path ?? null, provenance: found?.provenance ?? "unknown", latest }];
     }));
     return Object.fromEntries(entries);
+  }
+
+  /** PATH lookups for `tools`, the way `resolveInstall` finds every binary here — fs, no shell. */
+  private async lookForTools(): Promise<ReadonlySet<string>> {
+    const env = this.d.env ?? process.env;
+    const names = ["npm", "brew", "uv", agentBin("claude", env)];
+    const found = await Promise.all(names.map(async (name) => ((await resolveInstall(name, env)) ? name : null)));
+    return new Set(found.filter((name): name is string => name !== null));
   }
 
   private async fetchLatest(channel: NonNullable<ReturnType<typeof updateChannel>>): Promise<string | null> {

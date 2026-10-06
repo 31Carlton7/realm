@@ -1,9 +1,10 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { callLabel, formatCallDuration, sessionLabel } from "../ActivitySheet";
 import { relTime } from "../CommandPalette";
+import { useDissolve } from "../ScrollFades";
 
 /**
  * The gateway's call log, in the sidebar's own column and in the sidebar's own rows.
@@ -36,15 +37,16 @@ export function ActivityList() {
   const sessionSpace = useApp((s) => s.sessionSpace);
   const refreshMcpCalls = useApp((s) => s.refreshMcpCalls);
   const run = useApp((s) => s.run);
+  const scroller = useRef<HTMLDivElement>(null);
+  useDissolve(scroller);
   /* The feed reads the log itself rather than being handed it. Flipping the lens only clears the
      rows and any filter; one mount is one fetch, wherever the mount came from. */
   useEffect(() => { run(() => refreshMcpCalls()); }, [refreshMcpCalls, run]);
 
-  /* Every session in the home, by id — the Agents page's own read, for the Agents page's own reason.
-     The log spans spaces and `sessions` holds only the active one, so against a real log half the
-     headings came back as `01M267WY…`: a truncated id where a title belongs, for a session that has
-     one and that `revealSession` can reach. Local state, like the Agents page's rows: this is a
-     snapshot for naming, not a second copy of the store's session map. */
+  /* Every session in the home, by id (`listAllSessions`). The log spans spaces and `sessions` holds
+     only the active one, so against a real log half the headings came back as `01M267WY…`: a
+     truncated id where a title belongs, for a session that has one and that `revealSession` can
+     reach. Local state: this is a snapshot for naming, not a second copy of the store's session map. */
   const [known, setKnown] = useState<Record<string, Session>>({});
   useEffect(() => {
     let live = true;
@@ -74,7 +76,7 @@ export function ActivityList() {
 
   if (calls.length === 0) {
     return (
-      <div className="space-body sb-activity sb-activity-blank">
+      <div className="space-body sb-activity sb-activity-blank" ref={scroller}>
         <div className="sb-activity-empty">
           <Icon name="activity" size={20} />
           <p className="sb-activity-empty-line">No calls yet</p>
@@ -89,7 +91,7 @@ export function ActivityList() {
   }
 
   return (
-    <div className="space-body sb-activity">
+    <div className="space-body sb-activity" ref={scroller}>
       {runs.map((r, i) => (
         <div key={`${r.sessionId}-${i}`}>
           <div className="group-label sb-activity-head">

@@ -5,8 +5,8 @@
  * three are about pixels rather than about the DOM:
  *
  *   1. The heavy-effort gradient PAINTS, and travels. jsdom will happily report a background-image
- *      on an element that draws nothing — `background-position: 130%` on an unanimated segment is
- *      exactly that, a gradient parked off its own box. This samples the segment, twice.
+ *      on an element that draws nothing — `background-position: 130%` on an unanimated fill is
+ *      exactly that, a gradient parked off its own box. This samples the effort track, twice.
  *   2. The signature is ink rather than an empty <svg>. The paths are a 280-unit lockup inside a
  *      viewBox: wrong numbers put the glyphs off-canvas and every DOM assertion still passes.
  *   3. The konami sequence lands on a real window, through real key events, and the palette it pays
@@ -80,16 +80,22 @@ window.__live = window.__live ?? {
     const set = Object.getOwnPropertyDescriptor(proto, "value").set;
     set.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true }));
   },
-  /** Settings → App, the tab the switch and the credit live on. */
+  /** Settings → General, the page the switch and the credit live on. */
   async openAppSettings() {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
     for (let i = 0; i < 40 && !document.querySelector(".palette-list"); i++) await new Promise((r) => setTimeout(r, 25));
     [...document.querySelectorAll(".palette-list [role=option], .palette-list button")]
       .find((b) => /settings/i.test(b.textContent))?.click();
     for (let i = 0; i < 80 && !document.querySelector(".settings-page-pane"); i++) await new Promise((r) => setTimeout(r, 25));
-    [...document.querySelectorAll(".page-rail input")].find((r) => r.value === "app")?.click();
-    for (let i = 0; i < 80 && !document.querySelector(".theme-grid"); i++) await new Promise((r) => setTimeout(r, 25));
-    return !!document.querySelector(".theme-grid");
+    return this.settingsPage("general");
+  },
+  /** One Settings page by its rail value: the switch and the credit are on General, the palettes on
+   *  Appearance. Resolves once the page's own landmark is drawn. */
+  async settingsPage(value) {
+    const ready = value === "appearance" ? ".theme-grid" : ".settings-attribution";
+    [...document.querySelectorAll(".page-rail input")].find((r) => r.value === value)?.click();
+    for (let i = 0; i < 80 && !document.querySelector(ready); i++) await new Promise((r) => setTimeout(r, 25));
+    return !!document.querySelector(ready);
   },
   eggSwitch() {
     return [...document.querySelectorAll('input[role="switch"]')].find((s) => s.getAttribute("aria-label") === "Let Realm mess around") ?? null;
@@ -104,11 +110,6 @@ window.__live = window.__live ?? {
     if (!n) return null;
     const b = n.getBoundingClientRect();
     return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) };
-  },
-  effortRect(label) {
-    const group = [...document.querySelectorAll(".mp-seg-group")].find((g) => g.getAttribute("aria-label") === "Effort");
-    const opt = group && [...group.querySelectorAll(".mp-seg-opt")].find((b) => b.textContent.trim() === label);
-    return opt ? this.rect(opt) : null;
   },
 };
 void 0`;
@@ -221,6 +222,13 @@ async function main() {
     input.closest("form").requestSubmit();
     return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 20000, "composer");
+  /* The window this opens is rarely the key one — it comes up behind whatever is in front — and an
+     unkeyed Mac window greys its accent (`data-window-inactive`, App.tsx's KeyWindowBridge). What this
+     check measures is drawn in the accent, so the window is treated as key for the run, held so in
+     case focus moves while it measures; and the page is told it has focus, or Realm goes quiet. */
+  await c.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+  await evalIn(c, `(() => { const r = document.documentElement; const hold = () => r.removeAttribute('data-window-inactive');
+    hold(); new MutationObserver(hold).observe(r, { attributes: true, attributeFilter: ['data-window-inactive'] }); return true; })()`);
   await c.send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 1, mobile: false });
   await sleep(400);
 
@@ -234,14 +242,16 @@ async function main() {
       hasSwitch: !!sw,
       href: link?.getAttribute('href') ?? null,
       credit: document.querySelector('.settings-attribution-line')?.textContent ?? null,
-      dark: __live.palettes("Dark theme"),
     };
   })()`);
-  check("the App tab carries the switch, and it is off", arrival.hasSwitch && arrival.switchOn === false, { on: arrival.switchOn });
+  await evalIn(c, `__live.settingsPage("appearance")`);
+  arrival.dark = await evalIn(c, `__live.palettes("Dark theme")`);
+  check("General carries the switch, and it is off", arrival.hasSwitch && arrival.switchOn === false, { on: arrival.switchOn });
   check("the credit is on screen with the eggs off", /Carlton Aikins/.test(arrival.credit ?? "") && arrival.href === "https://x.com/31Carlton7", arrival.credit);
   check("the konami palette is not in the grid yet", arrival.dark && !arrival.dark.includes("Phosphor"), arrival.dark);
 
   // ── 2. The signature is ink ─────────────────────────────────────────────
+  await evalIn(c, `__live.settingsPage("general")`);
   await until(() => evalIn(c, `!!document.querySelector('.settings-attribution')`), 10000, "attribution");
   // The tab is taller than the window, and a clip that runs off the bottom of the viewport samples
   // black — which reads exactly like an <svg> that drew nothing. Scroll until the box is on screen.
@@ -298,34 +308,33 @@ async function main() {
     throw new Error("the picker would not stay open long enough to measure twice");
   };
 
-  /* Measured on the SELECTED level rather than a hovered one, and that is the better test as well as
-     the steadier one: the field is what a session in Max looks like for as long as it stays there,
-     while a hover lasts as long as a pointer sits still. Picking closes the popover (that is what
-     picking does here), so each sample reopens it. */
-  const pickEffort = async (label) => {
-    await openPicker(`the picker, for ${label}`);
-    await evalIn(c, `(() => {
-      const g = [...document.querySelectorAll('.mp-seg-group')].find((x) => x.getAttribute('aria-label') === 'Effort');
-      [...g.querySelectorAll('.mp-seg-opt')].find((b) => b.textContent.trim() === ${JSON.stringify(label)})?.click();
-      return true; })()`);
-    await sleep(500);
-    await openPicker(`the picker again, after ${label}`);
-    await sleep(250);
-    return evalIn(c, `__live.rect('.mp-seg')`);
+  /* Measured on the CHOSEN level, and that is the steadier test: the field is what a session at its
+     heaviest level looks like for as long as it stays there. The level is set the way the keyboard
+     sets it, on the track — Home for the lightest, End for the heaviest — which keeps the picker open. */
+  const pickEffort = async (keyName) => {
+    await openPicker(`the picker, for ${keyName}`);
+    await evalIn(c, `(() => { document.querySelector('.mp-track')?.focus(); return true; })()`);
+    const vk = keyName === "Home" ? 36 : 35;
+    for (const type of ["rawKeyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, key: keyName, code: keyName, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk });
+    await sleep(600);
+    // The far end of the track: past the plain accent fill a light level draws, so what is sampled
+    // there is the well at a light level and the field at a heavy one.
+    const t = await evalIn(c, `__live.rect('.mp-track')`);
+    return t && { x: Math.round(t.x + t.w * 0.4), y: t.y, w: Math.round(t.w * 0.6) - 4, h: t.h, track: t.w };
   };
 
-  const coldRect = await pickEffort("Low");
-  check("the effort strip is laid out", !!coldRect && coldRect.w > 100, coldRect);
+  const coldRect = await pickEffort("Home");
+  check("the effort track is laid out", !!coldRect && coldRect.track > 100, coldRect);
   const cold = await sample(c, coldRect);
-  const hotRect = await pickEffort("Max");
+  const hotRect = await pickEffort("End");
   const hot = await twice(hotRect, 900);
   // Asserted HERE rather than at the first open: this is the moment we know the picker is up, and
   // every rule in the field hangs off this one attribute.
   check("the picker wears the one attribute every egg rule hangs off",
     await evalIn(c, `document.querySelector('.model-picker')?.hasAttribute('data-eggs') ?? false`));
-  check("choosing the heaviest level lights the whole strip", hot.a.chroma > cold.chroma + 20,
+  check("choosing the heaviest level lights the whole track", hot.a.chroma > cold.chroma + 20,
     { hot: hot.a.chroma, cold: cold.chroma });
-  check("a light level leaves it the plain control it always was", cold.chroma < 25, { chroma: cold.chroma });
+  check("a light level leaves the far end the plain well it always was", cold.chroma < 25, { chroma: cold.chroma });
   const travel = await moved(c, hot.a.data, hot.b.data);
   check("the field moves rather than sitting still", travel > 5, { changed: travel });
   save("aurora", (await c.send("Page.captureScreenshot", { format: "png" })).data);
@@ -357,6 +366,7 @@ async function main() {
 
   // ── 5. The sequence, on a real window ───────────────────────────────────
   await until(() => evalIn(c, `__live.openAppSettings()`), 20000, "app settings again");
+  await evalIn(c, `__live.settingsPage("appearance")`);
   const before = await evalIn(c, `__live.palettes("Dark theme")`);
   check("the palette is still withheld before the sequence", before && !before.includes("Phosphor"), before);
   for (const [key, code] of KONAMI) {
@@ -373,8 +383,10 @@ async function main() {
   check("the sequence pays out the hidden palette", !!after, after);
 
   // ── 6. Turning the switch back off ──────────────────────────────────────
+  await evalIn(c, `__live.settingsPage("general")`);
   await evalIn(c, `(() => { __live.eggSwitch().click(); return true; })()`);
   await until(async () => (await evalIn(c, `__live.eggSwitch().checked`)) === false, 5000, "switch off");
+  await evalIn(c, `__live.settingsPage("appearance")`);
   const kept = await evalIn(c, `__live.palettes("Dark theme")`);
   check("what was earned survives the switch going off", kept && kept.includes("Phosphor"), kept);
   save("settings", (await c.send("Page.captureScreenshot", { format: "png" })).data);

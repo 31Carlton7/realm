@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { BrowserLoadError } from "./browser-load-error";
 
 /**
  * The browser agent bridge's op payloads (Plan 11 W3) — the vocabulary realm-server (where the
@@ -24,11 +25,12 @@ import { z } from "zod";
  * addition weakens two independent gates at once, which is exactly why the list lives in one place
  * where a test can pin its exact contents.
  *
- * `browser_credentials` belongs here despite the word: it lists enrolled sign-ins as
+ * `browser_credentials` belongs here despite the word: it lists saved sign-ins as
  * `BrowserCredential`, a type with no field for a value, so there is no secret for a promptless call
- * to disclose. What it returns is the origin, username and label the USER typed into Settings — the
- * same three facts the fill's permission card shows them. `browser_fill_credential` is emphatically
- * NOT here.
+ * to disclose. What it returns is the origin, username and label the user typed into Settings (or,
+ * for a generated row, the ones the agent asked for) — the same facts the fill's permission card
+ * shows them. `browser_fill_credential` is emphatically NOT here, and that holds for the call that
+ * generates a password as much as for the one that fills an enrolled one.
  */
 export const BROWSER_READ_ONLY_TOOLS = ["browser_list", "browser_snapshot", "browser_read", "browser_screenshot", "browser_credentials"] as const;
 
@@ -85,6 +87,10 @@ export type BrowserReadKind = z.infer<typeof BrowserReadKindSchema>;
  *     user into a Touch ID reflex.
  *   - `no_credential` — nothing is enrolled under that id (or it was removed since the agent last
  *     listed credentials).
+ *   - `no_store` — a fill asked Realm to GENERATE a password and there is nowhere to keep it: macOS
+ *     is not offering an encryption key. Distinct from `no_credential` on purpose, because the two
+ *     have different fixes and only one of them is "enroll something". Realm never mints a password
+ *     it cannot store, since the page would end up holding a secret nothing on this Mac knows.
  *   - `no_presence` — the OS declined or the user cancelled the Touch ID / password prompt.
  *   - `download_blocked` — a download that arrived with no live grant, or with one that had already
  *     expired or been spent. Default-deny is the resting state of the download handler; this is what
@@ -96,7 +102,7 @@ export type BrowserReadKind = z.infer<typeof BrowserReadKindSchema>;
  * A refusal NEVER carries the secret, the page's own text, or anything derived from either.
  */
 export type BrowserRefusal =
-  | "password" | "origin_mismatch" | "no_credential" | "no_presence"
+  | "password" | "origin_mismatch" | "no_credential" | "no_store" | "no_presence"
   | "download_blocked" | "too_large" | "no_destination"
   /** The element is inside one of Realm's OWN protected surfaces — the places it asks for permission
    *  and grants things. Only `app_act` can produce this, and it is the refusal that makes driving
@@ -129,6 +135,16 @@ export type BrowserActResult =
   | { ok: true; detail: string }
   | { ok: false; error: string; refused?: BrowserRefusal };
 
+/** The `fillCredential` op's result: an act result, plus the id of the credential the fill used when
+ *  Realm MINTED one for this call. The id is how the agent fills the same new password a second time
+ *  — a confirm-password field, or the sign-in page after the sign-up — and it is metadata, the same
+ *  metadata `browser_credentials` already lists. There is no field here for a value and never will
+ *  be; a generated password leaves the secret store exactly the way an enrolled one does, as key
+ *  events into an approved page. */
+export type BrowserFillCredentialResult =
+  | { ok: true; detail: string; credentialId?: string }
+  | { ok: false; error: string; refused?: BrowserRefusal };
+
 /** `describe` op result — the trustworthy page identity (url/title from CDP, not page text) plus,
  *  when a ref was asked about, that element's AX identity for permission prompts. `open: false` means
  *  the pane's native view does not exist right now (pane not mounted in the app). */
@@ -137,10 +153,15 @@ export type BrowserDescribeResult = {
   url: string;
   title: string;
   element?: { role: string; name: string; tag: string; inputType: string | null } | null;
+  /** The page did not load (browser-load-error.ts) — main's own record, never the page's word. */
+  loadError?: BrowserLoadError | null;
 };
 
 export type BrowserSnapshotResult = {
   url: string; title: string; text: string; elementCount: number;
+  /** The page did not load, so there is nothing of the site's to read: what the pane shows in its
+   *  place is Realm's own error page, which is not in the page's DOM. Absent for a page that loaded. */
+  loadError?: BrowserLoadError | null;
   /** The same elements as `text`, in the same order, as data (below). Absent where the executor
    *  predates it; a walk reads a snapshot without them as a page with nothing on it. */
   elements?: BrowserSnapshotElement[];
@@ -182,8 +203,10 @@ export type BrowserSnapshotElement = {
  * Facts, not a verdict: what counts as "at rest" is the reader's to say.
  */
 export type BrowserPageActivity = { loading: boolean; requests: number; quietMs: number };
-export type BrowserReadResult = { text: string };
-export type BrowserScreenshotResult = { data: string; mimeType: string };
+/** `loadError`: as on a snapshot — a page that did not load has no text of its own. */
+export type BrowserReadResult = { text: string; loadError?: BrowserLoadError | null };
+/** `loadError`: the capture is of the empty document Chromium commits for a failed load. */
+export type BrowserScreenshotResult = { data: string; mimeType: string; loadError?: BrowserLoadError | null };
 export type BrowserNavigateResult = { url: string | null };
 
 /**
@@ -216,8 +239,14 @@ export type BrowserAgentConstraints = z.infer<typeof BrowserAgentConstraintsSche
  *
  * `origin` is a normalized `URL.origin` (`https://host[:port]`, lowercased scheme+host, default
  * port elided) — see `normalizeOrigin`. `username` and `label` exist for ONE reason: so the
- * permission card can say which account is about to be typed where. They are the user's own words,
- * entered in Settings; no page ever authors them.
+ * permission card can say which account is about to be typed where. They are the user's own words
+ * from Settings, or — for a `generated` row — the agent's; no page ever authors them either way, and
+ * every surface that prints them attributes them to whichever of the two wrote them.
+ *
+ * `generated` marks a password Realm minted itself, for an agent's `browser_fill_credential`. It
+ * changes nothing about how the row is stored or filled and everything about what the user should do
+ * with it: they never knew this value, so their route back into the account is the site's own
+ * password reset rather than their memory. Settings says so on the row.
  */
 export type BrowserCredential = {
   id: string;
@@ -225,6 +254,7 @@ export type BrowserCredential = {
   username: string;
   label: string;
   createdAt: number;
+  generated: boolean;
 };
 
 /** Enrollment input. `value` appears HERE and in no other exported type: this schema is used only by
@@ -237,6 +267,52 @@ export const BrowserCredentialInputSchema = z.object({
   value: z.string().min(1).max(4096),
 });
 export type BrowserCredentialInput = z.infer<typeof BrowserCredentialInputSchema>;
+
+/**
+ * How long a password Realm mints is, by default and at the edges.
+ *
+ * 24 is chosen against the sites rather than against a bit count: it is far past anything a password
+ * meter complains about, and short enough to survive the maximum length real sign-up forms impose
+ * without saying so. The floor is the shortest length that is still not worth attacking; the ceiling
+ * exists because a `maxlength` the page never mentions silently truncates what gets typed, and a
+ * credential the store holds in full but the site holds half of is an account nobody can open.
+ */
+export const GENERATED_PASSWORD_LENGTH = 24;
+export const GENERATED_PASSWORD_MIN_LENGTH = 12;
+export const GENERATED_PASSWORD_MAX_LENGTH = 64;
+
+/**
+ * What an agent may ask Realm to MINT, when `browser_fill_credential` is called with no
+ * `credentialId`. Note the shape against `BrowserCredentialInputSchema`: no `value` — that is the
+ * point, the value is Realm's to choose — and no `origin` either.
+ *
+ * The missing `origin` is the load-bearing absence. If an agent could name the origin a new
+ * credential is pinned to, the origin gate would be a formality on the way in: mint for the page you
+ * are standing on, then "fill" it. Realm derives the origin from the pane's own URL instead, shows
+ * that origin on the approval card, and checks it AGAIN against the live page from CDP before the
+ * value is typed — so an agent can ask for a password for the page the user is looking at, and for
+ * nothing else.
+ *
+ * `length` and `symbols` exist because sites have password rules and the agent cannot read the value
+ * to check one: a site that rejects punctuation, or caps the length at 16, is otherwise a dead end
+ * the agent can only fail at forever. They describe the shape of a secret, never its content.
+ */
+export const BrowserGeneratedCredentialSchema = z.object({
+  username: z.string().max(255).default(""),
+  label: z.string().max(255).default(""),
+  length: z.number().int().min(GENERATED_PASSWORD_MIN_LENGTH).max(GENERATED_PASSWORD_MAX_LENGTH).default(GENERATED_PASSWORD_LENGTH),
+  symbols: z.boolean().default(true),
+});
+export type BrowserGeneratedCredential = z.infer<typeof BrowserGeneratedCredentialSchema>;
+
+/**
+ * The consequence of a generated password, said on the card that asks for it and in Settings beside
+ * the row it made. It is the honest half of the feature: nothing can read the value back, which is
+ * the property that makes a generated fill better than an agent typing a password into chat, and it
+ * is also the property that costs the user their usual way back into the account.
+ */
+export const GENERATED_CREDENTIAL_NOTE =
+  "Realm saves it under Settings → Sign-ins and fills it from there. Nothing reads it back afterwards — not the agent, not you — so if you ever need this password outside Realm, use the site's own reset.";
 
 /**
  * How long a successful OS presence check (Touch ID / watch / password) licenses further fills.
@@ -365,6 +441,65 @@ export const BLOCKED_DOWNLOAD_TTL_MS = 5 * 60_000;
 export type BrowserDownloadResult =
   | { ok: true; name: string; bytes: number; relPath: string }
   | { ok: false; error: string; refused?: BrowserRefusal };
+
+/* ---------------------------------- the pane's ⋯ menu (Plan 26 W7) ---------------------------------- */
+
+/**
+ * A download a pane SAVED — the user's own Save, or an agent download they approved — kept so the
+ * pane's ⋯ menu can say what this pane fetched and show it in the Finder.
+ *
+ * Unlike a `BlockedDownload` this carries a path, because the file is the user's and showing it is
+ * the point. It travels only from main to Realm's own renderer: an agent's answer is still `relPath`
+ * and nothing more. In memory, per pane, and bounded — it is what this pane did, not a ledger.
+ */
+export type SavedDownload = { id: string; name: string; path: string; ts: number };
+
+/** One row of a pane's back/forward trail, nearest first (`BrowserPaneHost.historyTrail`). */
+export type BrowserTrailRow = { index: number; label: string };
+
+/** What a pane's ⋯ menu is built from, read from main the moment the menu opens. */
+export type BrowserMenuState = {
+  /** The page's zoom as Chromium reports it, 1 at 100%. */
+  zoom: number;
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  back: BrowserTrailRow[];
+  forward: BrowserTrailRow[];
+  blocked: BlockedDownload[];
+  saved: SavedDownload[];
+  /** The profiles this pane's site sign-in can be shared with: every profile but the pane's own, in
+   *  the user's order. Empty with one profile, and the menu then offers no share at all. */
+  shareTargets: { id: string; name: string }[];
+};
+
+/** What "Share this site's sign-in with ▸ <profile>" did: how many of the site's cookies were copied
+ *  into that profile's browser, for which host — zero is a real answer, a site with nothing to share. */
+export type BrowserSignInShare =
+  | { ok: true; profileName: string; host: string; copied: number }
+  | { ok: false; error: string };
+
+/** A find's answer, for the pane's find strip (`found-in-page`). `activeMatchOrdinal` counts from 1. */
+export type BrowserFindResult = { browserId: string; activeMatchOrdinal: number; matches: number; finalUpdate: boolean };
+
+/** The ⋯ menu's Take a screenshot: the PNG it wrote, in the shape an attachment needs. */
+export type BrowserScreenshotSaved =
+  | { ok: true; path: string; name: string; size: number }
+  | { ok: false; error: string };
+
+/**
+ * How an annotate session ended, as the pane hears it (Plan 26 W7d). `sent` carries every pinned
+ * element in pin order and the screenshot of the pins, already written to the space's screenshots/
+ * folder — null when the page would not draw one, which does not stop the elements going. `left` is
+ * the page navigating, which took the pins with it.
+ */
+export type BrowserAnnotateResult =
+  | { outcome: "sent"; elements: BrowserPickedElement[]; shot: { path: string; name: string; size: number } | null }
+  | { outcome: "closed" }
+  | { outcome: "left" };
+
+/** The subfolder of the space's own folder that a pane's screenshots land in — fixed, like
+ *  `DOWNLOAD_DIRNAME`, so a person always knows where to look. */
+export const SCREENSHOT_DIRNAME = "screenshots";
 
 /* ------------------------------------ element picking ------------------------------------ */
 

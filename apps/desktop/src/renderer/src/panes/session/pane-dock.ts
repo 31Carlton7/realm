@@ -13,12 +13,9 @@ import { useEffect, useLayoutEffect, useState } from "react";
 const DOCK_MIN_COLUMN = 420;
 const DOCK_GUTTER = 16;
 
-/** The docked panels' widths, in px, matching the `--summary-w` / `--terminal-dock-w` tokens.
- *  Duplicated here because the pin decision is arithmetic and CSS cannot answer it. */
+/** The docked panels' width, in px, matching the `--summary-w` token. Duplicated here because the
+ *  pin decision is arithmetic and CSS cannot answer it. */
 export const DOCK_W_SUMMARY = 320;
-/** The terminal's is far wider on purpose: 320px is about forty columns, which is a shell you cannot
- *  read a stack trace or a `git log` in. */
-export const DOCK_W_TERMINAL = 560;
 
 /**
  * Below this pane width the dock FLOATS over the transcript instead of the transcript making room.
@@ -26,14 +23,19 @@ export const DOCK_W_TERMINAL = 560;
  * A pane wide enough to give the panel up and still leave a readable column keeps it pinned beside
  * the transcript, which is what makes it usable while you scroll. Narrower, pinning would squeeze
  * the transcript into a gutter.
- *
- * Per-panel rather than one constant, because the panels are no longer one size: the same pane that
- * can comfortably pin a 320px summary would be left with a 200px transcript by a 560px terminal.
  */
 export const dockPinMinPane = (dockWidth: number): number => dockWidth + DOCK_MIN_COLUMN + DOCK_GUTTER;
 export const DOCK_PIN_MIN_PANE = dockPinMinPane(DOCK_W_SUMMARY);
 
-export type PaneRect = { right: number; top: number; height: number; width: number; pane: HTMLElement | null };
+/** The terminal, docked to the pane's BOTTOM edge (Settings ▸ General ▸ Terminals), matching
+ *  `--terminal-dock-h`: a shell's usual dozen-odd lines and its bar. */
+export const DOCK_H_TERMINAL = 320;
+/** What a bottom dock has to leave above it: enough transcript to read the last answer, and the
+ *  prompter under it. Below this the dock floats over the pane's foot instead of the pane making room. */
+const DOCK_MIN_ROWS = 300;
+export const dockPinMinPaneHeight = (dockHeight: number): number => dockHeight + DOCK_MIN_ROWS + DOCK_GUTTER;
+
+export type PaneRect = { right: number; top: number; height: number; width: number; left: number; bottom: number; pane: HTMLElement | null };
 
 /**
  * The session PANE's rectangle, in viewport coordinates, as `right`/`top`/`height` insets.
@@ -65,8 +67,9 @@ export function usePaneRect(anchorRef: React.RefObject<HTMLElement | null>): Pan
       // that vanishes for a reason the user cannot see.
       const b = pane?.getBoundingClientRect();
       setRect(b
-        ? { right: Math.max(0, window.innerWidth - b.right), top: b.top, height: b.height, width: b.width, pane }
-        : { right: 0, top: 0, height: window.innerHeight, width: window.innerWidth, pane: null });
+        ? { right: Math.max(0, window.innerWidth - b.right), top: b.top, height: b.height, width: b.width,
+            left: b.left, bottom: Math.max(0, window.innerHeight - b.bottom), pane }
+        : { right: 0, top: 0, height: window.innerHeight, width: window.innerWidth, left: 0, bottom: 0, pane: null });
     };
     measure();
     window.addEventListener("resize", measure);
@@ -86,10 +89,18 @@ export function usePaneRect(anchorRef: React.RefObject<HTMLElement | null>): Pan
  * small, reversible write to a node React owns the children of but not the state of, which is
  * cheaper than threading an open flag up through SessionPane and back down.
  */
-export function useDockPinned(rect: PaneRect | null, pinned: boolean, widthToken = "--summary-w"): void {
+export function useDockPinned(rect: PaneRect | null, pinned: boolean, widthToken = "--summary-w", edge: "right" | "bottom" = "right"): void {
   useEffect(() => {
     const pane = rect?.pane;
     if (!pane || !pinned) return;
+    /* The bottom edge gives up HEIGHT, under its own attribute: the right-hand strip is a separate
+       place, and a pane reserving a bottom dock still has its right edge free — `data-dock-pinned`
+       claiming both would pad the transcript for a strip nothing is using. */
+    if (edge === "bottom") {
+      pane.dataset.dockBottom = "";
+      pane.style.setProperty("--dock-h", `var(${widthToken})`);
+      return () => { delete pane.dataset.dockBottom; pane.style.removeProperty("--dock-h"); };
+    }
     pane.dataset.dockPinned = "";
     /* The width travels with the attribute because the padding has to match whichever panel is
        using the strip, and the pane is the panel's SIBLING — a custom property set on the panel
@@ -98,7 +109,7 @@ export function useDockPinned(rect: PaneRect | null, pinned: boolean, widthToken
        styles.css, so this narrows an existing property rather than inventing one. */
     pane.style.setProperty("--dock-w", `var(${widthToken})`);
     return () => { delete pane.dataset.dockPinned; pane.style.removeProperty("--dock-w"); };
-  }, [rect?.pane, pinned, widthToken]);
+  }, [rect?.pane, pinned, widthToken, edge]);
 }
 
 /**

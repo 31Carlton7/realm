@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { spawn as nodeSpawn } from "node:child_process";
-import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, mergeWindows, newId, planWindowLabel, sessionEvent, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
+import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaude } from "./probe";
@@ -14,6 +14,55 @@ type DeclaredSettings = { [K in keyof Settings as string extends K ? never : num
 /** A model id without its bracketed variant: `claude-opus-5-5[1m]` is the 1M-context build of
  *  `claude-opus-5-5`, the same model to everything but the window. */
 const modelBase = (id: string | undefined): string | undefined => id?.replace(/\[[^\]]*\]$/, "");
+
+/**
+ * The CLI's fast-mode answer for every model in its `supportedModels()` list, keyed the way a
+ * prompter that has started nothing will ask: by the id a session would pin, or "" for the CLI's own
+ * `default` row — what a session with no model runs.
+ *
+ * The same precedence `reportFastModeSupport` uses for one model, applied to all of them: an entry
+ * naming the id itself outranks a context-window variant of it (`opus[1m]` → `claude-opus-5-5[1m]`),
+ * and a variant only speaks for an id nothing else has named. Rows that state nothing are skipped —
+ * silence is not a `no`.
+ */
+/** The levels the SDK's `effort` takes (`EffortLevel`). A session's level can come from another
+ *  harness — Codex's `minimal`, kept across an agent switch — and that is one Claude has no word for. */
+const CLAUDE_EFFORTS: ReadonlySet<string> = new Set<EffortLevel>(["low", "medium", "high", "xhigh", "max"]);
+const claudeEffort = (e: string | null | undefined): EffortLevel | undefined => (e && CLAUDE_EFFORTS.has(e) ? e as EffortLevel : undefined);
+
+/**
+ * The CLI's effort levels for every model in its `supportedModels()` list, keyed the way
+ * `fastModeByModel` keys its answers. `supportsEffort: false` is an answer — no levels at all — and a
+ * row that says nothing about effort is left out rather than filed as either.
+ */
+export function effortByModel(rows: readonly { value: string; resolvedModel?: string; supportsEffort?: boolean; supportedEffortLevels?: readonly string[] }[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const r of rows) {
+    const levels = r.supportsEffort === false ? [] : Array.isArray(r.supportedEffortLevels) ? r.supportedEffortLevels.filter((l) => CLAUDE_EFFORTS.has(l)) : null;
+    if (levels === null) continue;
+    const isDefault = r.value === "default";
+    if (isDefault) out[""] = levels;
+    const base = modelBase(isDefault ? r.resolvedModel : r.resolvedModel ?? r.value);
+    if (!base) continue;
+    if (!isDefault && (r.value === base || r.resolvedModel === base)) out[base] = levels;
+    else if (!(base in out)) out[base] = levels;
+  }
+  return out;
+}
+
+export function fastModeByModel(rows: readonly { value: string; resolvedModel?: string; supportsFastMode?: boolean }[]): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  for (const r of rows) {
+    if (typeof r.supportsFastMode !== "boolean") continue;
+    const isDefault = r.value === "default";
+    if (isDefault) out[""] = r.supportsFastMode;
+    const base = modelBase(isDefault ? r.resolvedModel : r.resolvedModel ?? r.value);
+    if (!base) continue;
+    if (!isDefault && (r.value === base || r.resolvedModel === base)) out[base] = r.supportsFastMode;
+    else if (!(base in out)) out[base] = r.supportsFastMode;
+  }
+  return out;
+}
 
 /**
  * The truncating half of a resume: put the model back where a checkpoint found it.
@@ -122,6 +171,9 @@ export function claudeSdkPermissionMode(mode: string | null | undefined): string
   return mode === ASK_PERMISSION_MODE || !mode ? "default" : mode;
 }
 
+/** Who asks when Claude's own `AskUserQuestion` reaches the card. */
+const CLAUDE_ASKER = { kind: "agent", name: "Claude", agent: "claude" } as const;
+
 const STDERR_TAIL_LINES = 50;
 const DISPOSE_TIMEOUT_MS = 3000;
 
@@ -170,7 +222,7 @@ export class ClaudeAdapter implements AgentAdapter {
   start(opts: StartOptions & ClaudeResumeFork): ClaudeHandle {
     const events = new AsyncQueue<SessionEvent>();
     const input = new AsyncQueue<SDKUserMessage>();
-    const pending = new Map<string, { resolve: (r: PermissionResult) => void; suggestions: PermissionUpdate[]; input: Record<string, unknown> }>();
+    const pending = new Map<string, { resolve: (r: PermissionResult) => void; suggestions: PermissionUpdate[]; input: Record<string, unknown>; ask: AskCard | null }>();
     const abort = new AbortController();
     const mapper = createSdkMapper({ resumed: Boolean(opts.resume) });
     const stderrTail: string[] = [];
@@ -201,13 +253,16 @@ export class ClaudeAdapter implements AgentAdapter {
 
     // `answers` (AskUserQuestion) rides back as `updatedInput`: the SDK reads the user's choices off the
     // tool's own arguments, so answering a question IS allowing the call with the answers filled in.
-    const resolvePermission = (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => {
+    // They are held to the card first, and the log keeps a mark where a masked one was: the answer goes
+    // to Claude, who asked for it, but `permission_response` is persisted and broadcast to every window.
+    const resolvePermission = (requestId: string, d: PermissionDecision, answers?: AskAnswers) => {
       const p = pending.get(requestId); if (!p) return;
       pending.delete(requestId);
-      events.push(sessionEvent("permission_response", { requestId, decision: d, ...(answers ? { answers } : {}) }));
+      const given = p.ask && answers ? normalizeAnswers(p.ask, answers) : undefined;
+      events.push(sessionEvent("permission_response", { requestId, decision: d, ...(p.ask && given ? { answers: loggableAnswers(p.ask, given) } : {}) }));
       if (d === "deny") p.resolve({ behavior: "deny", message: "User denied" });
       else if (d === "allow_always") p.resolve({ behavior: "allow", updatedPermissions: p.suggestions });
-      else p.resolve({ behavior: "allow", ...(answers ? { updatedInput: { ...p.input, answers } } : {}) });
+      else p.resolve({ behavior: "allow", ...(given ? { updatedInput: { ...p.input, answers: claudeAnswers(given) } } : {}) });
     };
     const denyAllPending = () => { for (const id of [...pending.keys()]) resolvePermission(id, "deny"); };
 
@@ -222,10 +277,13 @@ export class ClaudeAdapter implements AgentAdapter {
       }
       const requestId = newId();
       const suggestions = o.suggestions ?? [];
+      // A question travels on this channel too, and is marked as one HERE — from the SDK's own tool
+      // name, never from anything in its arguments — so the card that draws it is the question card.
+      const ask = toolName === "AskUserQuestion" ? askCardFromAskUserQuestion(toolInput, CLAUDE_ASKER) : null;
       if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
-      events.push(sessionEvent("permission_request", { requestId, toolName, input: toolInput, title: o.title ?? `Allow ${toolName}?`, suggestions: suggestions as unknown[] }));
+      events.push(sessionEvent("permission_request", { requestId, toolName, input: toolInput, title: o.title ?? `Allow ${toolName}?`, suggestions: suggestions as unknown[], ...(ask ? { ask } : {}) }));
       const result = await new Promise<PermissionResult>((resolve) => {
-        pending.set(requestId, { resolve, suggestions, input: toolInput as Record<string, unknown> });
+        pending.set(requestId, { resolve, suggestions, input: toolInput as Record<string, unknown>, ask });
         o.signal.addEventListener("abort", () => {
           if (!pending.delete(requestId)) return;
           events.push(sessionEvent("permission_response", { requestId, decision: "deny" }));
@@ -239,7 +297,7 @@ export class ClaudeAdapter implements AgentAdapter {
     const options: Options = {
       cwd: opts.cwd,
       model: opts.model ?? undefined,
-      effort: (opts.effort ?? undefined) as Options["effort"],
+      effort: claudeEffort(opts.effort),
       permissionMode: claudeSdkPermissionMode(opts.permissionMode) as Options["permissionMode"],
       canUseTool,
       includePartialMessages: true,
@@ -341,22 +399,38 @@ export class ClaudeAdapter implements AgentAdapter {
         const base = modelBase(init.model);
         const hit = rows.find((r) => r.value === init.model || r.resolvedModel === init.model)
           ?? rows.find((r) => modelBase(r.value) === base || modelBase(r.resolvedModel) === base);
-        if (hit?.supportsFastMode === undefined) return;
-        events.push(sessionEvent("init", { ...init, supportsFastMode: hit.supportsFastMode }));
+        const all = fastModeByModel(rows);
+        const efforts = effortByModel(rows);
+        if (hit?.supportsFastMode === undefined && Object.keys(all).length === 0 && Object.keys(efforts).length === 0) return;
+        events.push(sessionEvent("init", { ...init,
+          ...(hit?.supportsFastMode === undefined ? {} : { supportsFastMode: hit.supportsFastMode }),
+          ...(Object.keys(all).length > 0 ? { fastModeModels: all } : {}),
+          ...(Object.keys(efforts).length > 0 ? { effortModels: efforts } : {}) }));
       } catch { /* the CLI declined; the capability stays unstated */ }
     };
 
     /** A utilization percentage, or null for anything that is not a finite number — the SDK types
      *  these as nullable and a `null` drawn as 0% would read as an empty window. */
     const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-    /** An ISO-8601 reset time as epoch ms. The stream reports `resetsAt` in ms already; this control
-     *  request reports `resets_at` as a string, and the two must land in one unit. */
+    /** The control request's `resets_at`, an ISO-8601 string ("ISO 8601 timestamp when the window
+     *  resets" in the CLI's own schema), as epoch ms. */
     const millis = (v: unknown): number | null => {
       if (typeof v === "number" && Number.isFinite(v)) return v;
       if (typeof v !== "string") return null;
       const t = Date.parse(v);
       return Number.isNaN(t) ? null : t;
     };
+
+    /**
+     * The stream's `rate_limit_info` is the API's rate-limit headers, in their units, which are not the
+     * control request's: `utilization` is a FRACTION (the CLI draws it as `Math.floor(utilization *
+     * 100)`) and `resetsAt` is epoch SECONDS (it waits until `resetsAt * 1000`). The control request
+     * answers in percent and ISO strings. Read as if they matched, an 86% week showed as "at 1%" and
+     * its reset as a day in January 1970 — so the stream's reading is put in the panel's units here,
+     * before the two are merged into one window.
+     */
+    const streamPercent = (v: unknown): number | null => { const n = num(v); return n === null ? null : n * 100; };
+    const streamMillis = (v: unknown): number | null => { const n = num(v); return n === null ? null : n * 1000; };
 
     /**
      * Ask the CLI for the whole plan picture — every rate-limit window, plus the subscription tier.
@@ -509,7 +583,7 @@ export class ClaudeAdapter implements AgentAdapter {
             const alert: PlanAlert = status === "rejected" ? "exceeded" : status === "allowed_warning" ? "approaching" : "none";
             const id = typeof info.rateLimitType === "string" ? info.rateLimitType : null;
             const window: PlanWindow[] = id
-              ? [{ id, label: planWindowLabel(id), utilization: num(info.utilization), resetsAt: millis(info.resetsAt) }]
+              ? [{ id, label: planWindowLabel(id), utilization: streamPercent(info.utilization), resetsAt: streamMillis(info.resetsAt) }]
               : [];
             // The full picture first, so a panel opened on this event shows every window rather than
             // only the one that moved. Its `alert` is always "none" — the control request reports
@@ -624,6 +698,13 @@ export class ClaudeAdapter implements AgentAdapter {
         // layer `query()`'s inline `settings` writes, above user and project settings and below
         // managed policy. There is no `setFastMode`, and there does not need to be.
         if (o.fastMode !== undefined) { fastRequested = o.fastMode; await q?.applyFlagSettings({ fastMode: o.fastMode }); }
+        // The level moves the same way. `effortLevel: null` is the SDK's own "back to the model's
+        // default effort" (`applyFlagSettings`), which is what a reset in the picker means; a level the
+        // SDK has no word for is not sent at all.
+        if (o.effort !== undefined) {
+          const level = o.effort === null ? null : claudeEffort(o.effort);
+          if (level !== undefined) await q?.applyFlagSettings({ effortLevel: level });
+        }
         if (o.permissionMode) {
           // Realm's own record moves FIRST: it is what the gate above reads, and it must hold even
           // if the SDK call throws.

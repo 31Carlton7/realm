@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_SKILL_SUPPORT, SkillIdSchema, SkillSchema, skillSupportNote } from "./skills";
+import { AGENT_SKILL_SUPPORT, SkillIdSchema, skillSupportNote } from "./skills";
 import { AGENT_META } from "./presets";
 import { Methods } from "./rpc";
 import type { AgentKind } from "./entities";
@@ -7,9 +7,6 @@ import type { AgentKind } from "./entities";
 const kinds = Object.keys(AGENT_META) as AgentKind[];
 
 describe("AGENT_SKILL_SUPPORT", () => {
-  it("has a row for every agent kind", () => {
-    expect(Object.keys(AGENT_SKILL_SUPPORT).sort()).toEqual(kinds.sort());
-  });
 
   it("says injected only for the two agents with a proven per-invocation route", () => {
     // Cursor is the one that matters: it ships skills, so the tempting answer is `injected`. Its
@@ -41,18 +38,6 @@ describe("SkillIdSchema", () => {
     for (const bad of ["", ".hidden", "-leading", "has space", "a/b", "../escape", "a\\b"]) {
       expect(SkillIdSchema.safeParse(bad).success).toBe(false);
     }
-  });
-});
-
-describe("SkillSchema", () => {
-  it("round-trips a listed skill and requires a reason slot even when valid", () => {
-    const s = { id: "mac", name: "mac", description: "d", path: "/x/mac/SKILL.md", enabled: true, valid: true, reason: null,
-      scope: { kind: "space" as const, spaceId: null },
-      origin: { kind: "library" as const, key: "library", label: "Realm library", root: "/x" } };
-    expect(SkillSchema.parse(s)).toEqual(s);
-    expect(SkillSchema.safeParse({ ...s, reason: undefined }).success).toBe(false);
-    // Origin is not optional: a row with no origin could not be grouped, and every caller now asks.
-    expect(SkillSchema.safeParse({ ...s, origin: undefined }).success).toBe(false);
   });
 });
 

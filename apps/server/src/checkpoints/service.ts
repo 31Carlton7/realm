@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import {
   AGENT_CONVERSATION_REWIND, newId,
-  type Checkpoint, type CheckpointKind, type RestoreAck, type RestorePreview, type RestoreResult,
+  type Checkpoint, type CheckpointKind, type FileDiff, type RestoreAck, type RestorePreview, type RestoreResult, type TurnChanges,
 } from "@realm/contracts";
 import type { CheckpointsStore } from "../store/checkpoints";
 import type { EnvironmentsStore } from "../store/environments";
@@ -46,9 +46,13 @@ export type CheckpointDeps = {
   environments: EnvironmentsStore;
   sessions: SessionsStore;
   git: CheckpointGit;
-  /** Whether a live adapter handle is attached to any session in this environment. Injected rather than
-   *  imported: `SessionService` calls INTO this service on every turn, so it cannot also be a dependency. */
+  /** Whether a session in this environment is mid-turn. Injected rather than imported: `SessionService`
+   *  calls INTO this service on every turn, so it cannot also be a dependency. */
   isEnvironmentBusy?: (environmentId: string) => boolean;
+  /** Stop one session's agent between turns, so a rewind armed for its next start is the next thing it
+   *  does. Injected for `isEnvironmentBusy`'s reason; absent, a rewind restore falls back to files only
+   *  whenever that agent is still running, exactly as `rewindSession` reports it. */
+  releaseSession?: (sessionId: string) => Promise<void>;
   /** Retention budget per environment. Overridable only so tests can reach the pruning branch without
    *  spawning fifty-odd git processes; production passes nothing. */
   maxPerEnvironment?: number;
@@ -166,6 +170,42 @@ export class CheckpointService {
     }
   }
 
+  /** The `turn` checkpoint this session's in-flight turn was captured in front of, or null. A look, not
+   *  a claim: the settle that reads it hands the same entry to `noteTurnCursor` next. */
+  frontingCheckpoint(sessionId: string): string | null {
+    return this.turnCheckpoints.get(sessionId) ?? null;
+  }
+
+  /** The turn is over. A message steered into the next one takes no checkpoint of its own, and must
+   *  find nothing here rather than the turn before it — which, for an agent with no cursor to record,
+   *  is what this map would otherwise still be holding. */
+  endTurn(sessionId: string): void {
+    this.turnCheckpoints.delete(sessionId);
+  }
+
+  /**
+   * What the turn this checkpoint fronted did to the checkout, measured against the checkout as it is
+   * now — which, asked at the turn's settle, is the turn's own work. Null when there is no longer
+   * anything to ask: the row has been pruned, or its checkout is gone or no longer a repository.
+   */
+  async turnChanges(checkpointId: string): Promise<Pick<TurnChanges, "root" | "afterTree" | "files" | "totalFiles"> | null> {
+    const cp = this.d.checkpoints.get(checkpointId);
+    if (!cp) return null;
+    const env = this.d.environments.get(cp.environmentId);
+    if (!env || !existsSync(env.path) || !await this.d.git.isRepository(env.path)) return null;
+    return this.d.git.changes({ cwd: env.path, beforeTree: cp.state.worktreeTree });
+  }
+
+  /** One file's patch across the turn this checkpoint fronted, against the tree its settle recorded. */
+  async turnFileDiff(input: { id: string; afterTree: string; path: string; oldPath: string | null }): Promise<FileDiff> {
+    const cp = this.d.checkpoints.require(input.id);
+    const env = this.environment(cp.environmentId);
+    if (!existsSync(env.path) || !await this.d.git.isRepository(env.path)) {
+      throw new RpcError("NOT_A_REPOSITORY", `${env.path} is not a git repository`);
+    }
+    return this.d.git.treeFileDiff({ cwd: env.path, before: cp.state.worktreeTree, after: input.afterTree, path: input.path, oldPath: input.oldPath });
+  }
+
   /**
    * A turn settled: write down where the provider's conversation now stands, and complete the cursor on
    * the checkpoint this turn was captured in front of.
@@ -237,8 +277,10 @@ export class CheckpointService {
    *
    * Order, and why each step is where it is:
    *
-   *  1. Refuse while an agent is live in that environment. Rewriting a working tree under a running
+   *  1. Refuse while an agent is mid-turn in that environment. Rewriting a working tree under a running
    *     tool call corrupts whatever it is halfway through, and no checkpoint can undo a half-written file.
+   *     An agent idle between turns is writing nothing, and refusing over it made a restore impossible
+   *     for as long as the session that had just run stayed open — which is the moment Undo is for.
    *  2. Re-read the hazard and require the acknowledgement to match it exactly. The user said yes to
    *     numbers; if the agent has written another file since, those numbers are not the ones they saw.
    *  3. Capture the CURRENT state as a `pre-restore` checkpoint. If this fails, nothing is restored —
@@ -258,7 +300,7 @@ export class CheckpointService {
     const env = this.environment(cp.environmentId);
 
     if (this.d.isEnvironmentBusy?.(env.id)) {
-      throw new RpcError("CHECKPOINT_ENVIRONMENT_BUSY", "an agent is still running in this checkout; stop it before restoring");
+      throw new RpcError("CHECKPOINT_ENVIRONMENT_BUSY", "an agent is mid-turn in this checkout; stop it before restoring");
     }
     const preview = await this.preview(id);
     if (!preview.intact) {
@@ -271,6 +313,12 @@ export class CheckpointService {
         title: "Checkpoint restore refused", body: describeRestore(preview) });
       throw new RpcError("RESTORE_UNSAFE", describeRestore(preview));
     }
+
+    // The agent whose conversation this rewinds is stopped first: the rewind is armed for its NEXT
+    // start, and `rewindConversation` refuses to arm one under a handle still running. Only when there
+    // is a rewind to make — every other agent here is idle between turns, and stopping one that cannot
+    // resume would cost it the conversation for no file's sake.
+    if (this.rewindsConversation(cp)) await this.d.releaseSession?.(cp.sessionId!);
 
     // Rule 2. `capture` throws on a git failure and returns null only when there is nothing to capture,
     // which cannot happen here — `preview.intact` already established this is a live repository.

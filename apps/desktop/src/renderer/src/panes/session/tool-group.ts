@@ -1,7 +1,21 @@
+import { bareToolName } from "@realm/contracts";
 import { blockKey, type Block } from "./transcript-model";
 import { toolSummary } from "./tool-summary";
 
 export type ToolBlock = Extract<Block, { kind: "tool" }>;
+
+/** The calls that start a Realm sub-agent, drawn as that sub-agent's own line (DelegationLine). A
+ *  refused call is an ordinary card, whose Error well is the only place the refusal's words show. */
+const SPAWNS = new Set(["agent_start", "agent_run"]);
+export const isDelegationLine = (b: ToolBlock): boolean => SPAWNS.has(bareToolName(b.name)) && !b.result?.isError;
+/** The call that collects them, drawn as a line of its own too (DelegationWait). */
+export const isDelegationWait = (b: ToolBlock): boolean => bareToolName(b.name) === "agent_wait" && !b.result?.isError;
+
+/** Calls that never fold into a run. A fan-out is two starts and a wait in a row — a run by the rule
+ *  below — and a run collapses to "Worked for 8s" once it settles, which hid the one thing a reader
+ *  of a delegation wants to see: each sub-agent, and how it ended. A call that drew a view is the
+ *  same case: the view is what the call was for, and a ledger line is no place to keep it. */
+const standsAlone = (b: ToolBlock): boolean => isDelegationLine(b) || isDelegationWait(b) || b.view !== undefined;
 
 /** §2.8: "the agent's work is a quiet ledger" — a run of consecutive tool calls collapses to one
  *  summary line ("18 tools · 5 files · 2 commands · 6m 12s") that expands into its steps.
@@ -64,9 +78,9 @@ export function groupTranscript(blocks: readonly Block[]): TranscriptItem[] {
   let i = 0;
   while (i < top.length) {
     const e = top[i]!;
-    if (!e.node) { out.push({ kind: "block", key: e.key, block: e.block, nested: NO_NESTED }); i++; continue; }
+    if (!e.node || standsAlone(e.node.block)) { out.push({ kind: "block", key: e.key, block: e.block, nested: e.node?.nested ?? NO_NESTED }); i++; continue; }
     const steps: ToolNode[] = [];
-    for (let n = top[i]?.node; n; n = top[i]?.node) { steps.push(n); i++; }
+    for (let n = top[i]?.node; n && !standsAlone(n.block); n = top[i]?.node) { steps.push(n); i++; }
     // Keyed on the run's first tool: a run only ever grows at its tail, so the group keeps its
     // identity — and the user's expand/collapse choice — as more tools land in it.
     if (steps.length >= GROUP_MIN) out.push({ kind: "group", key: `group:${steps[0]!.key}`, steps });
@@ -150,25 +164,8 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /** The `Worked for <this>` half of the collapsed ledger row (Ara refresh §4): "<1s", "42s",
  *  "6m 12s", "1h 4m". A settled sub-second run says "<1s" rather than the lie "0s". Seconds drop
  *  past the hour: at that length they are noise, and "124m 3s" is arithmetic the reader should not
- *  have to do. Shared with the per-run line the transcript settles on (Transcript's `run` block). */
-/**
- * When a turn finished, as a clock time — the answer to "was that just now, or before lunch?".
- *
- * A duration alone cannot answer it: "Cooked for 2m" reads the same whether the run ended a minute
- * ago or last Tuesday, and a transcript you come back to is exactly where that matters. Locale
- * formatting, because a clock is one of the few things in this app that is genuinely the reader's
- * convention rather than ours.
- */
-export function finishedAt(ts: number): string {
-  return new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
-/** The same moment in full, for the line's `title` — a time with no date is ambiguous the moment a
- *  session spans midnight, and the tooltip is where that ambiguity is cheap to resolve. */
-export function finishedOn(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
+ *  have to do. Shared with the per-run line the transcript settles on (Transcript's `run` block),
+ *  whose finish time is `timestamps.ts`'s. */
 export function formatDuration(ms: number): string {
   const secs = Math.round(ms / 1000);
   if (secs < 1) return "<1s";
@@ -182,7 +179,7 @@ export function formatToolRun(s: ToolRunSummary): string {
   const parts = [plural(s.tools, "tool")];
   if (s.files > 0) parts.push(plural(s.files, "file"));
   if (s.commands > 0) parts.push(plural(s.commands, "command"));
-  const secs = Math.round(s.durationMs / 1000);
-  if (secs > 0) parts.push(secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`);
+  // The row's own clock, so a run past the hour reads "1h 4m" in the tooltip as it does on the row.
+  if (Math.round(s.durationMs / 1000) > 0) parts.push(formatDuration(s.durationMs));
   return parts.join(" · ");
 }

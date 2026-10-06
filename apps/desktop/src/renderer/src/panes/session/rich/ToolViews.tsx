@@ -1,6 +1,7 @@
 import { Icon } from "@realm/ui";
 import DOMPurify from "dompurify";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useDissolve } from "../../../components/ScrollFades";
 import { DiffView, PathLabel } from "./DiffView";
 import { grammarForPath, highlightToHtml } from "./highlight";
 import type { MatchGroup, ToolInputView, ToolResultView, Todo, UploadFile } from "./tool-view";
@@ -39,15 +40,21 @@ export function CodeBlock({ text, lang, firstLine = null, clamp = LINE_CLAMP }: 
   // runs anyway: the sanitizer is this app's single gate for generated markup, and carving out an
   // exception for "markup we believe is safe" is how the one that is not gets in.
   const html = useMemo(() => DOMPurify.sanitize(highlightToHtml(shown, lang)), [shown, lang]);
+  /* The block scrolls down past its cap and its body scrolls across: each dissolves where it runs on
+     downwards, and neither sideways — a code line is read to its last character. */
+  const block = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLPreElement>(null);
+  useDissolve(block);
+  useDissolve(body);
   return (
     <>
-      <div className="code-block">
+      <div className="code-block" ref={block}>
         {firstLine !== null && (
           <div className="code-gutter" aria-hidden="true">
             {Array.from({ length: lineCount(shown) }, (_, i) => firstLine + i).join("\n")}
           </div>
         )}
-        <pre className="code-body"><code className="hljs" dangerouslySetInnerHTML={{ __html: html }} /></pre>
+        <pre className="code-body" ref={body}><code className="hljs" dangerouslySetInnerHTML={{ __html: html }} /></pre>
       </div>
       {!showAll && total > clamp && <More label={`Show all ${total} lines`} onClick={() => setShowAll(true)} />}
     </>
@@ -81,9 +88,11 @@ export function TerminalView({ output, exitCode }: { output: string; exitCode: n
   const [showAll, setShowAll] = useState(false);
   const total = lineCount(output);
   const shown = showAll || total <= LINE_CLAMP ? output : output.split("\n").slice(0, LINE_CLAMP).join("\n");
+  const out = useRef<HTMLPreElement>(null);
+  useDissolve(out);
   return (
     <>
-      <pre className="term-out">{shown || "(no output)"}</pre>
+      <pre className="term-out" ref={out}>{shown || "(no output)"}</pre>
       {!showAll && total > LINE_CLAMP && <More label={`Show all ${total} lines`} onClick={() => setShowAll(true)} />}
       {exitCode !== null && <span className="term-exit" data-bad={exitCode !== 0 || undefined}>exit {exitCode}</span>}
     </>
@@ -117,8 +126,10 @@ export function TodoTrack({ todos }: { todos: readonly Todo[] }) {
 }
 
 export function TodoItems({ todos }: { todos: readonly Todo[] }) {
+  const list = useRef<HTMLUListElement>(null);
+  useDissolve(list);
   return (
-    <ul className="todo-list">
+    <ul className="todo-list" ref={list}>
       {todos.map((t, i) => (
         <li key={i} data-status={t.status}>
           {/* off-ladder: the dot is 13px, so the inline rung would fill it edge to edge. */}

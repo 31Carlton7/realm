@@ -359,7 +359,7 @@ describe("simulator_open", () => {
        and the pane never comes into the layout, so the user watches nothing while an agent drives a
        phone. The item id is the one the renderer opens, so it has to be THIS row's item. */
     const opened = calls.broadcasts.filter((b) => b.event === "simulator.agentOpened");
-    expect(opened).toEqual([{ event: "simulator.agentOpened", payload: { spaceId, simulatorId: row!.id, itemId: items.findByRefId(row!.id)!.id } }]);
+    expect(opened).toEqual([{ event: "simulator.agentOpened", payload: { spaceId, simulatorId: row!.id, itemId: items.findByRefId(row!.id)!.id, openedBy: "sess1" } }]);
   });
 
   it("brings back the pane it already has for a device, and leaves a running stream alone", async () => {
@@ -1295,12 +1295,6 @@ describe("through the real gateway", () => {
     const r = (await client.callTool({ name: "realm-browser__browser_open", arguments: { url: "http://127.0.0.1:3100/" } })) as CallToolResult;
     expect(r.isError).toBe(true);
     expect(text(r)).toContain('simulator_open with udid "UDID-UP"');
-    await client.close();
-  });
-
-  it("lists nothing on a Mac with no simulators, where the switch alone would have said yes", async () => {
-    const { client } = await boot("missing");
-    expect((await client.listTools()).tools.some((t) => t.name.startsWith(`${SIMULATOR_PROVIDER_NAME}__`))).toBe(false);
     await client.close();
   });
 

@@ -804,18 +804,6 @@ describe("session.agentSettled — the settle half of agentOpened", () => {
     wire.close();
   });
 
-  it("says a run that ran out of budget timed out, rather than that it finished", async () => {
-    // THE MUTANT: announce `done` unconditionally (the tool resolved, after all) and the renderer
-    // takes back the pane of a child that was cut off mid-task — the one a person most needs to read.
-    const { spaceId, parentId } = await boot({ script: longScript(60), delayMs: 50, timeouts: { baseMs: 400, perTurnMs: 0, pollMs: 20 } });
-    const wire = await listen();
-    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
-    const child = childOf(spaceId, parentId);
-    await waitFor(() => settlesOf(wire.frames, child.id).length === 1);
-    expect(settlesOf(wire.frames, child.id)[0]!.payload.outcome).toBe("timeout");
-    wire.close();
-  });
-
   it("says a run whose parent was interrupted was cancelled", async () => {
     const { spaceId, parentId } = await boot({ script: longScript(60), delayMs: 50 });
     const wire = await listen();

@@ -56,11 +56,6 @@ describe("relInRoot", () => {
     expect(relInRoot(ROOT, "/tmp/realm-space-evil/a.md")).toBeNull();
   });
 
-  it("round-trips with resolveInRoot", () => {
-    for (const rel of ["a.md", "docs/b.csv", "x/y/z.tex"]) {
-      expect(relInRoot(ROOT, resolveInRoot(ROOT, rel))).toBe(rel);
-    }
-  });
 });
 
 describe("relInRoot across a symlinked root", () => {

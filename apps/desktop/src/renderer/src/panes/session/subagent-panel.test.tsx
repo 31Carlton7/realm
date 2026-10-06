@@ -4,7 +4,7 @@ import { sessionEvent, type DelegatedRun } from "@realm/contracts";
 import { DOCK_PIN_MIN_PANE } from "./pane-dock";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
-import { SessionPane } from "./SessionPane";
+import { SessionMeta, SessionPane } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
 
 const ITEMS = { s1: [item("i9", "s1", { kind: "session", title: "Parent", refId: "se1" })] };
@@ -25,12 +25,14 @@ async function mount(events: ReturnType<typeof sessionEvent>[], delegatedRuns: R
   await store.getState().boot();
   store.setState({ sessionStatus: { se1: "running" }, transcripts: { se1: { lastSeq: 0, t: reduceAll(events) } } });
   await store.getState().openItem("i9");
-  const r = render(<StoreContext.Provider value={store}><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>);
+  const r = render(<StoreContext.Provider value={store}><SessionMeta item={ITEMS.s1[0]!} /><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>);
   return { store, ...r };
 }
 
 const drawer = () => screen.getByRole("dialog", { name: /Sub-agent/ });
+/** The row lives in the running-agents popover, opened from the session's bar. */
 const watch = async (label: string) => {
+  if (!screen.queryByRole("button", { name: `Watch ${label}` })) fireEvent.click(await screen.findByRole("button", { name: /working for/ }));
   fireEvent.click(await screen.findByRole("button", { name: `Watch ${label}` }));
 };
 
@@ -75,12 +77,6 @@ describe("the sub-agent panel", () => {
     const body = within(drawer());
     expect(body.getByText("What it was asked")).toBeInTheDocument();
     expect(body.getByText(/drops a field/)).toBeInTheDocument();
-  });
-
-  it("says it is still working out what to do rather than drawing an empty list", async () => {
-    await mount([launch("t1", "audit the mapper")]);
-    await watch("audit the mapper");
-    expect(within(drawer()).getByText(/still working out what to do/)).toBeInTheDocument();
   });
 
   it("closes on a TRASH, not a ×: there is no object under this view to keep", async () => {
@@ -142,7 +138,7 @@ describe("the sub-agent panel", () => {
     ]) } } });
     store.getState().toggleSessionDock("se1", { kind: "subagent", toolUseId: "t1" });
     await store.getState().openItem("i9");
-    render(<StoreContext.Provider value={store}><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>);
+    render(<StoreContext.Provider value={store}><SessionMeta item={ITEMS.s1[0]!} /><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>);
     const body = within(await screen.findByRole("dialog", { name: /Sub-agent/ }));
     expect(body.getByText("It failed")).toBeInTheDocument();
     expect(body.getByText(/ran out of context/)).toBeInTheDocument();

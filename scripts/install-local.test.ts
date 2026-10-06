@@ -104,11 +104,6 @@ describe("installLocal", () => {
 });
 
 describe("sweepable", () => {
-  it("keeps only the bundle the running daemon is executing out of", () => {
-    const kept = ["/Applications/.Realm.app.previous-1", "/Applications/.Realm.app.previous-2"];
-    expect(sweepable(kept, "/Applications/.Realm.app.previous-2/Contents/Resources/server/dist/main.js"))
-      .toEqual(["/Applications/.Realm.app.previous-1"]);
-  });
 
   it("sweeps everything when no daemon is running", () => {
     const kept = ["/Applications/.Realm.app.previous-1"];

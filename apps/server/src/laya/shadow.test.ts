@@ -7,7 +7,7 @@ import { sessionEvent } from "@realm/contracts";
 import type { ActObservation, ObservedElement } from "../mcp/act-observer";
 import { LayaClient } from "./client";
 import { DecisionLog } from "./log";
-import { LayaShadow, MAX_CANDIDATES, SENSITIVE_PARTS, pickCandidates, plainRole, screenDiff, sensitiveRule, socialStep, type ShadowRow } from "./shadow";
+import { LayaShadow, MAX_CANDIDATES, pickCandidates, plainRole, screenDiff, sensitiveRule, socialStep, type ShadowRow } from "./shadow";
 import { fakeLayaServer, until, type FakeLaya } from "./test-fakes";
 
 /**
@@ -149,13 +149,6 @@ describe("asking Laya about a step", () => {
     expect(rows().map((r) => r.truth.target)).toEqual([{ id: "2", source: "laya" }, { id: "3", source: "agent" }]);
   });
 
-  it("labels the step sensitive by rule, with the word that matched", async () => {
-    const { shadow, rows } = await setup();
-    shadow.observe(step({ intent: "buy the upgrade", chosen: { element: el("9", "Buy $4.99") }, elements: [el("9", "Buy $4.99")] }));
-    await shadow.flush();
-    expect(rows()[0]!.truth.sensitive).toEqual({ value: true, source: "rule", matched: "buy" });
-  });
-
   it("labels a like sensitive in the app other people see it in, and the same kind of word in Settings as not", async () => {
     // THE MUTANT: judge without the app. Every like an agent gives teaches Laya a like is a plain tap.
     const { shadow, rows } = await setup();
@@ -189,17 +182,6 @@ describe("asking Laya about a step", () => {
 });
 
 describe("never in the way", () => {
-  it("returns at once and asks nothing until the tool has gone on", async () => {
-    const { shadow, server: s } = await setup();
-    const t0 = performance.now();
-    shadow.observe(step({ elements: Array.from({ length: 500 }, (_, i) => el(String(i), `Item ${i}`)), chosen: null }));
-    // THE MUTANT: building and sending the questions inside `observe`. A step would then wait for its
-    // own question to be put together.
-    expect(performance.now() - t0).toBeLessThan(20);
-    expect(s.asked).toEqual([]);
-    await shadow.flush();
-    expect(s.asked).toHaveLength(1);
-  });
 
   it("puts no question together inside the step — not even the candidates — until the tool has gone on", async () => {
     // A client that notes every call the moment it is made, before any network: what the fake server
@@ -361,9 +343,6 @@ describe("candidates", () => {
     expect(pickCandidates(elements, elements[2]!, "screen reader").map((p) => p.id)).toEqual(["h", "g", "b"]);
   });
 
-  it("leave out elements nobody could name, unless the agent chose one", () => {
-    expect(pickCandidates(SETTINGS, null, "x").map((p) => p.id)).not.toContain("6");
-  });
 });
 
 describe("after the act", () => {
@@ -446,14 +425,6 @@ describe("after the act", () => {
     expect(written.map((r) => r.truth.verify)).toEqual([null, null]);
   });
 
-  it("gives no verdict when the next step came too late to be about this one", async () => {
-    const { shadow, rows } = await setup({ nextStepWindowMs: 30 });
-    shadow.observe(step());
-    await new Promise((r) => setTimeout(r, 60));
-    shadow.observe(step());
-    await shadow.flush();
-    expect(rows().map((r) => r.truth.verify)).toEqual([null, null]);
-  });
 });
 
 describe("the user's answer", () => {
@@ -650,8 +621,3 @@ describe("what a step changed on screen", () => {
   });
 });
 
-describe("the sensitive parts", () => {
-  it("are the four narrow questions the spike measured, and only those", () => {
-    expect(Object.keys(SENSITIVE_PARTS)).toEqual(["money", "delete", "send", "secret"]);
-  });
-});

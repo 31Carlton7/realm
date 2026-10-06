@@ -1,12 +1,13 @@
 import { z } from "zod";
 import type { CliJobStart, CliStatus } from "./cli";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, BrowserHistoryPageSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema } from "./entities";
 
 import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
 import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
-import { LibraryEntrySchema, LibraryQuerySchema } from "./library";
+import { SAVED_TURNS_MAX, SavedTurnSchema } from "./saved-turns";
+import { LibraryAddResultSchema, LibraryAddSchema, LibraryEntrySchema, LibraryQuerySchema, LibraryRemoveResultSchema, LibraryRemoveSchema, LibraryRestoreResultSchema, LibraryRestoreSchema } from "./library";
 import { SkillSchema, SkillDetailSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
 import { CommandOriginKindSchema, UserCommandSchema } from "./commands";
 import { ScriptInputSchema, ScriptSchema } from "./scripts";
@@ -17,19 +18,25 @@ import {
 } from "./project-search";
 import { CatalogFontSchema, InstalledFontSchema, StoredThemeSchema } from "./theme-seed";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
+import { AppViewSchema } from "./mcp-apps";
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
-import { DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
+import {
+  GhStatusSchema, PrDetailSchema, PrFilesSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
+  PR_PATCHES_PER_CALL, ReviewInstructionsSchema, ReviewerPickSchema, SubmitReviewSchema, SubmittedReviewSchema,
+} from "./code-review";
+import { DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
-import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageSummarySchema } from "./usage";
+import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchema, UsageSummarySchema } from "./usage";
 import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
+import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
 import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAxTreeSchema, SimulatorCameraSourceSchema, SimulatorDeviceSchema, SimulatorEventSchema, SimulatorSchema, SimulatorStateSchema, SimulatorPlatformSchema, SimulatorUiStateSchema } from "./simulator";
 import { GoalSchema, GoalStatusSchema } from "./goal";
 import { UnlockedEggPackSchema } from "./egg-pack";
@@ -37,6 +44,8 @@ import { FailoverPolicySchema } from "./failover";
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
+import { AskAnswersSchema } from "./ui-ask";
+import { TerminalProgramSchema } from "./terminal-programs";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -303,6 +312,49 @@ const CliJobStartSchema = z.object({
 }) satisfies z.ZodType<CliJobStart>;
 
 /**
+ * An agent CLI's own sign-in, run by Realm with no space around it: the first run's "Sign in with
+ * Claude" and "Sign in with ChatGPT", which happen before there is a space for `signin.start`'s
+ * terminal pane to open in.
+ *
+ * The CLI's login command runs in a pty the server owns (both CLIs draw their login as a full-screen
+ * TUI that hangs without one), and its rendered screen is read for the two things a person needs:
+ * the sign-in page — which the CLI opens in the browser itself, `url` being the way to open it again
+ * — and a prompt for a code to paste back from that page, which `agentSignIn.code` types in. The
+ * command comes from Realm's own table, never from a caller.
+ *
+ *  - `starting`  — spawned; nothing to show yet.
+ *  - `browser`   — the sign-in page is up; the person finishes in the browser.
+ *  - `code`      — the CLI is asking for the code the page shows.
+ *  - `done`      — the CLI exited cleanly and a fresh probe of that agent agrees it is signed in.
+ *  - `failed`    — it ended any other way; `detail` is the last of what it printed.
+ *  - `cancelled` — `agentSignIn.cancel`, or another sign-in for the same agent replaced it.
+ */
+export const AgentSignInSchema = z.object({
+  id: z.string(),
+  kind: AgentKindSchema,
+  state: z.enum(["starting", "browser", "code", "done", "failed", "cancelled"]),
+  url: z.string().nullable(),
+  detail: z.string().nullable(),
+});
+export type AgentSignIn = z.infer<typeof AgentSignInSchema>;
+
+/** One agent as a probe found it: installed or not, which version, and whether it is signed in —
+ *  `loggedIn: null` when the CLI cannot be asked without starting a session. */
+export const AgentProbeRowSchema = z.object({
+  kind: AgentKindSchema,
+  available: z.boolean(),
+  version: z.string().nullable(),
+  loggedIn: z.boolean().nullable(),
+  reason: z.string().nullable(),
+  models: z.array(z.object({ id: z.string(), label: z.string(), fastMode: z.boolean().optional(), fastDescription: z.string().optional(), isDefault: z.boolean().optional(),
+    efforts: z.array(z.string()).optional(), defaultEffort: z.string().optional() })).nullable().optional(),
+  /** An agent's own reasoning levels where they are a session setting rather than a model's — an ACP
+   *  agent's `thought_level` option, read off the probe's throwaway session — and the one it starts on. */
+  efforts: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
+  defaultEffort: z.string().nullable().optional(),
+});
+
+/**
  * Everything Settings needs about one space's execution sandbox, in one answer.
  *
  * Mirrors `ExecutionSandboxService.state()` field for field. The lock is on the server side rather
@@ -334,10 +386,20 @@ export const Methods = {
   "profiles.list":   { params: z.object({}), result: z.array(ProfileSchema) },
   "profiles.create": { params: z.object({ name: z.string().min(1), icon: z.string().default("user"), color: z.string().default("#6b7280") }), result: ProfileSchema },
   "profiles.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: z.string().optional(), sortOrder: z.number().int().optional() }), result: ProfileSchema },
+  /** Delete a profile with its spaces and their sessions, terminals, machines and simulators — each
+   *  stopped the way deleting the space stops it. Refused for the last profile (`LAST_PROFILE`): a
+   *  home with none has nowhere to put a space. Folders on disk are kept, as a space's are. */
   "profiles.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** What deleting a profile takes with it, counted, so the confirm can say so before anyone types
+   *  the name. */
+  "profiles.usage": { params: z.object({ id: IdSchema }), result: z.object({ spaces: z.number().int(), sessions: z.number().int() }) },
 
   "spaces.list":   { params: z.object({}), result: z.array(SpaceSchema) },
   "spaces.create": { params: z.object({ profileId: IdSchema, name: z.string().min(1), icon: z.string().default("folder"), color: HexColorSchema.optional() }), result: SpaceSchema },
+  /** The folder `spaces.create` would make for this name under this profile, right now — its slug,
+   *  and the `-2` it takes when the first choice is already on disk. Read-only: the New space sheet
+   *  asks it as the name is typed, to say where a space without a folder of its own will work. */
+  "spaces.folderFor": { params: z.object({ profileId: IdSchema, name: z.string().min(1) }), result: z.object({ path: z.string() }) },
   "spaces.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: HexColorSchema.optional(), profileId: IdSchema.optional(), sortOrder: z.number().int().optional(), activeItemId: IdSchema.nullable().optional() }), result: SpaceSchema },
   "spaces.reorder": { params: z.object({ ids: z.array(IdSchema) }), result: z.object({ ok: z.literal(true) }) },
   "spaces.setLayout": { params: z.object({ id: IdSchema, layout: LayoutSchema }), result: SpaceSchema },
@@ -362,41 +424,6 @@ export const Methods = {
   "iconAssets.generate": { params: z.object({ profileId: IdSchema, prompt: z.string().min(1).max(300) }), result: IconAssetSchema },
   "iconAssets.upload":   { params: z.object({ profileId: IdSchema, path: z.string().min(1) }), result: IconAssetSchema },
   "iconAssets.delete":   { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
-
-  /* The pixel office's prompter. One description in, one world out, as the model's raw JSON TEXT —
-     deliberately unparsed here. The renderer owns the only validator (`@realm/pixel-office`'s
-     `checkWorld`/`checkTheme`), because it is the thing that has to survive the answer, and a second
-     weaker copy of those rules in this file is how two validators come to disagree about what is
-     safe to draw. `vocabulary` travels IN for the same reason it is not imported: the furniture
-     catalog is built from decoded sprites in the renderer, and reaching for it server-side would
-     pull a canvas into the daemon. */
-  "office.generate": {
-    params: z.object({
-      prompt: z.string().min(1).max(600),
-      vocabulary: z.array(z.object({ category: z.string().min(1), ids: z.array(z.string().min(1)).max(200) })).max(20),
-      current: z.object({ name: z.string(), room: z.array(z.string()).max(64) }).nullable().default(null),
-      maxCols: z.number().int().min(4).max(60),
-      maxRows: z.number().int().min(4).max(60),
-      /** How many agents need a desk. The room is built for the crowd that is actually there. */
-      seats: z.number().int().min(1).max(40).default(6),
-      /** How many props the model may ask to have drawn for it. */
-      maxDrawn: z.number().int().min(0).max(8).default(0),
-      /** What the last attempt got wrong, handed back so one retry can fix it. */
-      problems: z.array(z.string().max(300)).max(12).default([]),
-    }),
-    result: z.object({ json: z.string() }),
-  },
-  /* The same proxy for one piece of furniture rather than a whole room. Separate from
-     `office.generate` because they are different asks with different costs: a room is rearranged
-     occasionally, a prop is drawn one at a time while you are looking at the result. */
-  "office.drawSprite": {
-    params: z.object({
-      prompt: z.string().min(1).max(200),
-      maxWidth: z.number().int().min(8).max(48),
-      maxHeight: z.number().int().min(8).max(48),
-    }),
-    result: z.object({ json: z.string() }),
-  },
 
   "projects.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ProjectSchema) },
   "projects.create": { params: z.object({ spaceId: IdSchema, name: z.string().min(1), rootPath: z.string(), defaultBranch: z.string().default("main") }), result: ProjectSchema },
@@ -445,10 +472,22 @@ export const Methods = {
    * overwritten is captured as a `pre-restore` checkpoint FIRST, and its id comes back as
    * `undoCheckpointId` — so a restore of the wrong thing is itself undoable.
    *
-   * Refused while a session is still running in that environment (CHECKPOINT_ENVIRONMENT_BUSY):
-   * rewriting a working tree under a live agent's feet corrupts whatever it is halfway through.
+   * Refused while a session is mid-turn in that environment (CHECKPOINT_ENVIRONMENT_BUSY): rewriting
+   * a working tree under a running tool call corrupts whatever it is halfway through. An agent idle
+   * between turns writes nothing and is left alone — except the one whose conversation the restore
+   * rewinds, which is stopped first, because the rewind is honoured when its agent next starts.
    */
   "checkpoints.restore": { params: z.object({ id: IdSchema, acknowledge: RestoreAckSchema }), result: RestoreResultSchema },
+  /**
+   * One file's patch across one turn, for the transcript's Review: this checkpoint's tree against the
+   * `afterTree` the turn's `turn_changes` event recorded. Paths relative to the checkout root, the
+   * rename's source in `oldPath`. Refused with TREE_GONE once either tree has left the repository —
+   * a pruned checkpoint, or an after-tree a `git gc` collected — rather than diffing something else.
+   */
+  "checkpoints.turnDiff": {
+    params: z.object({ id: IdSchema, afterTree: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/), path: z.string(), oldPath: z.string().nullable().default(null) }),
+    result: FileDiffSchema,
+  },
 
   /**
    * Deep search across ONE profile's world (Plan 16 W1): session transcripts (user + assistant text)
@@ -478,6 +517,41 @@ export const Methods = {
   "library.artifacts": {
     params: LibraryQuerySchema,
     result: z.object({ entries: z.array(LibraryEntrySchema), total: z.number() }),
+  },
+  /** Every turn saved in a profile's sessions, the newest saved first: the Library's Saved section.
+   *  `total` is how many there are, so a list cut at `limit` can say that it was. */
+  "library.saved": {
+    params: z.object({ profileId: IdSchema, limit: z.number().int().min(1).max(SAVED_TURNS_MAX).default(SAVED_TURNS_MAX) }),
+    result: z.object({ entries: z.array(SavedTurnSchema), total: z.number().int() }),
+  },
+  /**
+   * Add files to the Library: the Files toolbar's Add, or files dropped on the page.
+   *
+   * Each chosen file is COPIED into the profile's own folder in the Realm home and listed as `added`,
+   * belonging to no session. The copy keeps the file's name, made safe, and never replaces anything:
+   * a different file of the same name is kept beside it as `name 2.ext`, and the same file again is
+   * not copied twice. A symbolic link is never followed, among the chosen items or inside a folder.
+   * A folder is only described unless `folders` is set (see `LibraryAddSchema`).
+   */
+  "library.add": {
+    params: LibraryAddSchema,
+    result: LibraryAddResultSchema,
+  },
+  /**
+   * Take files the person added back out of the Library. Realm's copy goes and the file it was copied
+   * from is never touched; a path that is not one of the profile's added files is left alone, and
+   * nothing outside the profile's Library folder is ever deleted. The copies wait, hidden, until the
+   * removal is undone (`library.restore`) or a few minutes have passed.
+   */
+  "library.remove": {
+    params: LibraryRemoveSchema,
+    result: LibraryRemoveResultSchema,
+  },
+  /** Undo a removal: the copies go back exactly as they were — bytes, names, and their places in the
+   *  list — unless a file added since has taken a name, when that copy is kept beside it instead. */
+  "library.restore": {
+    params: LibraryRestoreSchema,
+    result: LibraryRestoreResultSchema,
   },
 
   /**
@@ -544,6 +618,11 @@ export const Methods = {
   "terminals.prefill": { params: z.object({ terminalId: IdSchema, command: z.string() }), result: z.object({ ok: z.literal(true) }) },
   "terminals.resize": { params: z.object({ terminalId: IdSchema, cols: z.number().int(), rows: z.number().int() }), result: z.object({ ok: z.literal(true) }) },
   "terminals.close":  { params: z.object({ terminalId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** What every live terminal is running, keyed by terminal id — only the ones running something
+   *  other than their shell. A client reads it once on connect and keeps it with `terminal.program`,
+   *  because a tab that is not showing still says what its terminal is running, and that tab's
+   *  terminal may have started its program before this client was listening. */
+  "terminals.programs": { params: z.object({}), result: z.record(IdSchema, TerminalProgramSchema) },
 
   /** The browser trio is row + item only (Plan 11 W1): the native `WebContentsView` lives in Electron
    *  main and is driven over IPC, never through the server. These methods carry only what must survive
@@ -743,9 +822,23 @@ export const Methods = {
   "eggs.unlock": { params: z.object({ passphrase: z.string().min(1).max(200) }), result: z.object({ pack: UnlockedEggPackSchema.nullable() }) },
   "eggs.forget": { params: z.object({ id: z.string().min(1).max(64) }), result: z.object({ ok: z.literal(true) }) },
   "browsers.get":    { params: z.object({ browserId: IdSchema }), result: BrowserSchema },
+  /**
+   * Whose browser this is: the profile of the space the pane is in, and that profile's partition
+   * (`Profile.browserPartition`). Electron main asks before it gives a pane a view, so a pane's
+   * cookie jar is decided by the server's space→profile join rather than by anything a window
+   * remembers — a space moved to another profile takes its panes to that profile's jar.
+   */
+  "browsers.profile": { params: z.object({ browserId: IdSchema }), result: z.object({ profileId: IdSchema, partition: z.string() }) },
   /** Last committed navigation state, written back by the renderer (debounced). A `title` also renames
-   *  the browser's item — the pane header and sidebar track the page, as in any browser's tab strip. */
-  "browsers.update": { params: z.object({ browserId: IdSchema, url: z.string().optional(), title: z.string().optional() }), result: z.object({ ok: z.literal(true) }) },
+   *  the browser's item — the pane header and sidebar track the page, as in any browser's tab strip —
+   *  and a `favicon` becomes the item's mark. Any string is accepted and one that is not
+   *  `isFaviconDataUrl` is kept as '', so a bad icon can never cost the url and title beside it.
+   *  `failed` says the address did not load: the row keeps it, because the tab still shows it and
+   *  Reload retries it, but it is no visit — a blank tab's Recently visited listed every address that
+   *  had refused to connect. Optional, and absent means it loaded, which is what every caller before
+   *  it meant. */
+  "browsers.update": { params: z.object({ browserId: IdSchema, url: z.string().optional(), title: z.string().optional(), favicon: z.string().optional(),
+    failed: z.boolean().optional() }), result: z.object({ ok: z.literal(true) }) },
   "browsers.close":  { params: z.object({ browserId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /**
    * Where a download from this space's panes lands (Plan 23): `<project root>/downloads`, or null
@@ -756,6 +849,35 @@ export const Methods = {
    * than by the renderer joining paths of its own.
    */
   "browsers.downloadDir": { params: z.object({ spaceId: IdSchema }), result: z.object({ dir: z.string().nullable() }) },
+  /**
+   * Where a pane's Take a screenshot lands (Plan 26 W7b): `<space folder>/screenshots`, or null for a
+   * space that does not exist. The SPACE's folder rather than a project's, because a screenshot is the
+   * user's picture of a page, not a file a checkout needs — the simulator's screenshots live in the
+   * same folder for the same reason. Resolved here for `downloadDir`'s reason: one rule, in one place.
+   */
+  "browsers.screenshotDir": { params: z.object({ spaceId: IdSchema }), result: z.object({ dir: z.string().nullable() }) },
+  /**
+   * The address field's suggestions (Plan 26 W7c): pages this space's PROFILE has visited whose address
+   * or title contains `query`, most visited first and then most recent. Nothing for an empty query —
+   * the list is for text someone is typing, not a history browser.
+   */
+  "browsers.suggest": {
+    params: z.object({ spaceId: IdSchema, query: z.string().max(2_048), limit: z.number().int().min(1).max(20).default(6) }),
+    result: z.object({ pages: z.array(BrowserHistoryPageSchema) }),
+  },
+  /**
+   * A blank tab's Recently visited (Plan 26 W6): the pages this space's PROFILE went to last, most
+   * recent first. A handful by default — the new-tab page lists them under its tools, and the rest of
+   * the history is the address field's to search.
+   */
+  "browsers.recent": {
+    params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(20).default(5) }),
+    result: z.object({ pages: z.array(BrowserHistoryPageSchema) }),
+  },
+  /** Forget the pages ONE profile's panes visited — Clear browsing data's other half, after main has
+   *  cleared that profile's partition. Each profile has its own cookie jar now, so a clear in one
+   *  takes nothing from another. */
+  "browsers.clearHistory": { params: z.object({ profileId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   /**
    * The document workspace (Plan 17 W1). Unlike the browser trio, the SERVER owns the content here —
@@ -828,8 +950,10 @@ export const Methods = {
    * checkout when omitted), add `path` to its tab strip as the active tab, and broadcast
    * `documents.openRequested` so a mounted pane opens the tab and the store brings the item on screen.
    * The agent-facing `docs_open` tool and the store's own "open this lecture" both come through here.
+   * `path` comes back as the tab now names it — relative to the workspace root, whatever shape the
+   * caller sent — so a caller that wants a LINE of it shown can say which tab the line belongs to.
    */
-  "documents.openPath": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional(), path: z.string() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema, environmentId: IdSchema }) },
+  "documents.openPath": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional(), path: z.string() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema, environmentId: IdSchema, path: z.string() }) },
   /** A guide's quiz history from its sidecar; empty when there is none. */
   "documents.progressRead": { params: z.object({ documentsId: IdSchema, path: z.string() }), result: GuideProgressSchema },
   /** Fold one quiz attempt into the sidecar and return the updated history. */
@@ -905,13 +1029,27 @@ export const Methods = {
    * started was already visible. What follows (reading the URL, opening the consent pane) arrives
    * as panes, through the item broadcasts every other pane uses.
    *
+   * `sessionId` names the session whose card asked. Both panes are then announced as its own
+   * (`terminal.agentOpened`, then `browser.agentOpened`) and open in its side pane; without one they
+   * arrive only as items, which a sidebar of sessions does not show.
+   *
    * Refuses for an agent with no login command — Gemini's route is an API key, which is a sentence
    * rather than a line to run.
    */
   "signin.start": {
-    params: z.object({ spaceId: IdSchema, kind: AgentKindSchema }),
+    params: z.object({ spaceId: IdSchema, kind: AgentKindSchema, sessionId: IdSchema.optional() }),
     result: z.object({ terminalId: IdSchema, command: z.string() }),
   },
+  /**
+   * Start signing `kind` in with no space (`AgentSignInSchema`). Answers at once with the sign-in's
+   * first state; every later one arrives as `agentSignIn.changed`. A second start for the same agent
+   * replaces the first, which is reported `cancelled`. Refuses an agent with no login command.
+   */
+  "agentSignIn.start": { params: z.object({ kind: AgentKindSchema }), result: AgentSignInSchema },
+  /** Type a code the sign-in page showed back into the CLI that asked for it, and press Return. */
+  "agentSignIn.code": { params: z.object({ id: z.string(), code: z.string().min(1).max(4096) }), result: z.object({ ok: z.literal(true) }) },
+  /** Stop a sign-in that is still running. Idempotent: a finished one is left as it finished. */
+  "agentSignIn.cancel": { params: z.object({ id: z.string() }), result: z.object({ ok: z.literal(true) }) },
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
 
@@ -1091,6 +1229,9 @@ export const Methods = {
   "mcp.remove": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Turn one server on or off for one space. Sessions already running keep the set they started with. */
   "mcp.setEnabled": { params: z.object({ spaceId: IdSchema, id: IdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /** Whether Realm draws the views a server ships (MCP Apps) — the server's own switch, in every space
+   *  at once. Off, its calls carry text only, and its views already in transcripts stop showing. */
+  "mcp.setShowViews": { params: z.object({ id: IdSchema, show: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
   /**
    * Move a server's defining scope from space level to `spaceId`'s profile (W2). Effective-set neutral
    * at the moment it runs: every space of the profile where the server was not enabled gets a per-space
@@ -1169,6 +1310,32 @@ export const Methods = {
   "mcp.oauth.disconnect": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Close a tripped circuit breaker and let the next call try the upstream server again. */
   "mcp.retry": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  /**
+   * One view an MCP server drew for a tool call (MCP Apps), ready to frame: the server reads the
+   * `ui://` resource through the hub, builds the frame's CSP from what the resource declared, and
+   * hands back an address on an origin of the view's own. Asked for each time a view is mounted —
+   * the address is good until it is released, and a second mount gets an origin of its own.
+   *
+   * `hidden` when the server's views are switched off; `unavailable` with a sentence saying why when
+   * the server is gone, is off in the session's space, or did not serve a resource Realm can show.
+   */
+  "apps.view": {
+    params: z.object({ viewId: IdSchema }),
+    result: z.discriminatedUnion("state", [
+      z.object({ state: z.literal("ready"), view: AppViewSchema }),
+      z.object({ state: z.literal("hidden") }),
+      z.object({ state: z.literal("unavailable"), reason: z.string() }),
+    ]),
+  },
+  /** A mounted view went away: its address stops serving. A no-op for one already released. */
+  "apps.release": { params: z.object({ url: z.string() }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * A tool call a view asked for, made because the user clicked to allow it — never on the view's say
+   * alone. Its own server only, under the space's policy, recorded in Activity. The result is the
+   * server's `CallToolResult`, handed back to the view and to no agent.
+   */
+  "apps.callTool": { params: z.object({ viewId: IdSchema, name: z.string().min(1), arguments: z.record(z.unknown()).default({}) }), result: z.record(z.unknown()) },
 
   /**
    * This space's Realm memory document plus the state of its opt-in `AGENTS.md`. The document lives at
@@ -1287,6 +1454,24 @@ export const Methods = {
     }),
     result: ProjectFilesResultSchema,
   },
+  /**
+   * The prompter's `@` list, Files group: the SESSION's checkout ranked against what follows the `@`.
+   *
+   * By session rather than by `cwd`, unlike `project.files`: the list is "this session's workspace",
+   * and a client-supplied directory is one more thing a caller could point somewhere else. The paths
+   * are the ones `project.files` would rank, minus the files that exist to hold a secret
+   * (`isSecretPath`) — a mention hands a file to the agent, and the keys are the one thing it must
+   * never make easy to hand over. The listing is cached briefly per checkout, so a word typed after
+   * the `@` costs one ranking per keystroke rather than one `git ls-files`.
+   */
+  "mentions.files": {
+    params: z.object({
+      sessionId: IdSchema,
+      query: z.string().max(PROJECT_QUERY_MAX).default(""),
+      limit: z.number().int().min(1).max(PROJECT_FILES_LIMIT_MAX).default(MENTION_FILES_LIMIT),
+    }),
+    result: ProjectFilesResultSchema,
+  },
   /** `git add` for exactly these paths — per file, not per hunk. See git-write.ts for why. */
   "workspace.stage": { params: z.object({ cwd: z.string(), paths: z.array(z.string()).min(1) }), result: z.object({ ok: z.literal(true) }) },
   /** Take these paths back out of the index. Never touches the working tree. */
@@ -1338,8 +1523,9 @@ export const Methods = {
   /** Fire once, now, WITHOUT moving the schedule's own clock — see `ScheduleService.runNow`. Answers
    *  the schedule, whose `lastRunId` now names the run this created. */
   "schedules.runNow": { params: z.object({ id: IdSchema }), result: ScheduleSchema },
+  /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
-    params: z.object({ spaceId: IdSchema, states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
+    params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
     result: z.object({ runs: z.array(RunSchema), nextCursor: z.string().nullable() }),
   },
   /** One run plus its full attempt log, oldest attempt first. Null result = no such run (a run the
@@ -1424,10 +1610,77 @@ export const Methods = {
    *  window's pane hears the `review.changed` that follows. */
   "review.dismiss": { params: z.object({ environmentId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
+  /* ── code review (v2): pull requests through the person's own `gh` ───────────────────────────
+     Reads are cached on the server for as long as each is worth (code-review/service.ts); `force`
+     skips the cache, which is what Refresh and "Check again" send. The one write is `submit`, and
+     only the page's Submit button calls it — no agent tool reaches any of these. */
+  /** Whether `gh` is installed and signed in, and as whom. */
+  "codeReview.status": { params: z.object({ force: z.boolean().default(false) }), result: GhStatusSchema },
+  /** One of the page's three lists, a page at a time; `cursor` is the previous page's `nextCursor`. */
+  "codeReview.list": { params: z.object({ section: PrSectionSchema, cursor: z.string().nullable().default(null), force: z.boolean().default(false) }), result: PrPageSchema },
+  /** Pull requests matching what was typed. A pasted link is not a search — the page opens it. */
+  "codeReview.search": { params: z.object({ query: z.string().trim().min(1).max(256), cursor: z.string().nullable().default(null) }), result: PrPageSchema },
+  "codeReview.detail": { params: z.object({ ref: PrRefSchema, force: z.boolean().default(false) }), result: PrDetailSchema },
+  /** The changed files at `headSha`, without their patches — those come a screen at a time. */
+  "codeReview.files": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1) }), result: PrFilesSchema },
+  "codeReview.patches": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1), paths: z.array(z.string()).min(1).max(PR_PATCHES_PER_CALL) }), result: z.object({ patches: z.array(FileDiffSchema) }) },
+  /** A file's lines at `headSha`, for opening an unchanged band. Null for a file GitHub will not
+   *  hand over as text (too large, binary, or gone). */
+  "codeReview.fileLines": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1), path: z.string().min(1) }), result: z.object({ lines: z.array(z.string()).nullable() }) },
+  /** Post a review, exactly as composed — on the owner's click of Submit and nothing else. */
+  "codeReview.submit": { params: SubmitReviewSchema, result: SubmittedReviewSchema },
+  /** The profile's standing review instructions (the gear beside Review with…). */
+  "codeReview.instructions": { params: z.object({ profileId: IdSchema }), result: ReviewInstructionsSchema },
+  /** Refused, not trimmed, past `REVIEW_INSTRUCTIONS_MAX` (INSTRUCTIONS_TOO_LONG). */
+  "codeReview.setInstructions": { params: z.object({ profileId: IdSchema, text: z.string() }), result: ReviewInstructionsSchema },
+  /** The profile's reviewer — the model Review with… names, and the level and fast mode its card sets
+   *  — or null until one is picked. An agent that cannot be held to read-only is refused. */
+  "codeReview.reviewerPick": { params: z.object({ profileId: IdSchema }), result: z.object({ pick: ReviewerPickSchema.nullable() }) },
+  "codeReview.setReviewerPick": { params: z.object({ profileId: IdSchema, pick: ReviewerPickSchema }), result: ReviewerPickSchema },
+  "codeReview.pins": { params: z.object({ profileId: IdSchema }), result: z.object({ pins: z.array(PrSummarySchema) }) },
+  "codeReview.setPinned": { params: z.object({ profileId: IdSchema, pr: PrSummarySchema, pinned: z.boolean() }), result: z.object({ pins: z.array(PrSummarySchema) }) },
+  /**
+   * Review with… — run a read-only reviewer session on the chosen model over the request's diff,
+   * under the profile's saved instructions, at the level and speed the menu's card set. Returns as
+   * soon as the session exists; its findings land as `codeReview.reviewChanged`. They are the
+   * person's to keep or discard: nothing here posts.
+   */
+  "codeReview.review": { params: z.object({ ref: PrRefSchema, profileId: IdSchema, spaceId: IdSchema, projectId: IdSchema.nullable().default(null), agentKind: AgentKindSchema, model: z.string().nullable().default(null), effort: z.string().nullable().default(null),
+    fastMode: z.boolean().default(false) }), result: PrReviewSchema },
+  /** The request's latest reviewer run, or null. */
+  "codeReview.reviewGet": { params: z.object({ ref: PrRefSchema }), result: z.object({ review: PrReviewSchema.nullable() }) },
+  /** Every space of the profile and its projects, with the GitHub repository each checkout pushes to. */
+  "codeReview.places": { params: z.object({ profileId: IdSchema }), result: z.object({ places: z.array(PrPlaceSchema) }) },
+  /** The session this request's questions went to, while it still exists. */
+  "codeReview.thread": { params: z.object({ ref: PrRefSchema }), result: z.object({ sessionId: IdSchema.nullable(), spaceId: IdSchema.nullable() }) },
+  /**
+   * Ask about this pull request: the question goes to the request's session in the chosen place,
+   * continuing it while it lives there; otherwise a new session starts with the request's context —
+   * its link and summary, its diff as an attached file, and the checkout when the place has the
+   * repository.
+   */
+  "codeReview.ask": { params: z.object({ ref: PrRefSchema, spaceId: IdSchema, projectId: IdSchema.nullable().default(null), agentKind: AgentKindSchema, model: z.string().nullable().default(null), effort: z.string().nullable().default(null),
+    /** How the session a first question starts runs, as the prompter's card and permission chip set it
+     *  before there was a session to set it on. Ignored for a thread that is carried on. */
+    fastMode: z.boolean().default(false), permissionMode: z.string().nullable().default(null), text: z.string().trim().min(1),
+    /** Files the person attached in the prompter, beside the request's own. */
+    attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]) }), result: z.object({ sessionId: IdSchema, itemId: IdSchema.nullable() }) },
+
   /** The delegated runs this session is waiting on right now. The registry is in memory and dies
    *  with the process, so this is a read of live state, not of a table — a pane opened after a run
    *  began has no other way to learn about it, and `delegation.changed` carries it from then on. */
   "delegation.running": { params: z.object({ sessionId: IdSchema }), result: z.object({ running: z.array(DelegatedRunSchema) }) },
+  /** Every session this one delegated to — its sub-agents, settled ones included, in the order they
+   *  were started. A read of tables, not of the engine: it answers for runs the registry has already
+   *  let go, and after a relaunch. */
+  "delegation.children": { params: z.object({ sessionId: IdSchema }), result: z.object({ children: z.array(DelegatedChildSchema) }) },
+  /** What the Agents tab's composer offers: the models a sub-agent can be put on, and what this
+   *  session itself runs — the one choice that needs no name at all. */
+  "delegation.models": { params: z.object({ sessionId: IdSchema }), result: z.object({
+    models: z.array(DelegableModelSchema), own: z.object({ kind: AgentKindSchema, label: z.string() }) }) },
+  /** The session's Agents tab, as an item of its space: the one it has, or a new one. Its `refId` is
+   *  the session's id — the tab is a view of that session and of nothing else. */
+  "delegation.tab": { params: z.object({ sessionId: IdSchema }), result: z.object({ itemId: IdSchema }) },
   /** `force` skips the server's TTL cache — what the install card's "Check again" and its window-focus
    *  refresh send, because a cached "not installed" is exactly what the user just fixed. */
   /**
@@ -1466,6 +1719,26 @@ export const Methods = {
   /** Write the monthly ceiling and its alert thresholds. Answers the STORED budget (thresholds
    *  normalized), so the client renders what was actually saved rather than what it sent. */
   "usage.setBudget": { params: UsageBudgetSchema, result: UsageBudgetSchema },
+  /**
+   * The page about you: lifetime tokens, the peak day, the longest turn, both streaks and the most
+   * used models, efforts, skills and tools — over all of time and every space, in one read.
+   *
+   * No range and no scope, on purpose. A streak or a record is a fact about the person, and the
+   * moment it is narrowed to a window it stops being one: the longest streak "in the last 30 days" is
+   * a different and much less interesting number. "Today" is this machine's, as the calendar's days
+   * are — Realm runs on the Mac whose calendar it is.
+   */
+  "usage.records": { params: z.object({}), result: UsageRecordsSchema },
+  /**
+   * The picture the page about you shows, as a path under the Realm home, or null for none.
+   *
+   * `avatar.set` COPIES the file it is given into the home and answers with the copy; the path it
+   * was handed is never stored, so the picture survives the original being moved, edited or deleted,
+   * and nothing outside the home is read again. `avatar.clear` deletes the copy.
+   */
+  "avatar.get": { params: z.object({}), result: z.object({ path: z.string().nullable() }) },
+  "avatar.set": { params: z.object({ path: z.string().min(1) }), result: z.object({ path: z.string() }) },
+  "avatar.clear": { params: z.object({}), result: z.object({ path: z.null() }) },
   /** Availability of the local Graphify extractor. `force` bypasses the shared probe cache. */
   "graphify.probe": {
     params: z.object({ force: z.boolean().default(false) }),
@@ -1538,7 +1811,14 @@ export const Methods = {
   "laya.stopRecording": { params: z.object({}), result: LayaStatusSchema },
   /** Every recording and every screen it kept, gone. */
   "laya.deleteRecordings": { params: z.object({}), result: LayaStatusSchema },
-  "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable(), models: z.array(z.object({ id: z.string(), label: z.string() })).nullable().optional() })) },
+  "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(AgentProbeRowSchema) },
+  /**
+   * One agent's probe, fresh, for a screen that leads with one or two agents and must not wait on
+   * the slowest of all of them — `agents.probe` answers when every adapter has, and an ACP agent's
+   * model listing can take half a minute. The row also replaces that agent's in the cache
+   * `agents.probe` serves. `null` for a kind with no adapter registered.
+   */
+  "agents.probeOne": { params: z.object({ kind: AgentKindSchema }), result: AgentProbeRowSchema.nullable() },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
   /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */
   /** Every session Realm holds, or every session in ONE profile. Scoped by the server's space→profile
@@ -1587,7 +1867,7 @@ export const Methods = {
    *  `elements` is OPTIONAL rather than defaulted, and the prompter omits the key outright when the
    *  draft has no element chips — so a message that never touched a browser pane puts exactly the
    *  bytes on this wire that it always has. */
-  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
+  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), mentionRefs: z.array(MentionRefSchema).max(MAX_MENTION_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
     .refine((p) => p.text.length > 0 || p.attachments.length > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ ok: z.literal(true) }) },
   /** Drop one message off the queue before its turn comes. `queuedId` rather than an index: the queue
    *  drains on its own as turns settle, so an index the prompter read a moment ago may already name a
@@ -1608,13 +1888,22 @@ export const Methods = {
    *  going nowhere else — there is no endpoint behind this and no aggregate anywhere. `rating: null`
    *  retracts an earlier one. */
   "sessions.recordFeedback": { params: z.object({ id: IdSchema, messageId: z.string().min(1), rating: z.enum(["up", "down"]).nullable() }), result: z.object({ ok: z.literal(true) }) },
-  /** `answers` rides along only for question-shaped tools (AskUserQuestion): question text -> chosen
-   *  label, multi-select comma-joined. Deliberately a record of strings rather than a free-form input
-   *  override — the UI answers a question, it never gets to rewrite the tool's arguments. */
-  "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: z.record(z.string()).optional() }), result: z.object({ ok: z.literal(true) }) },
+  /** The turns the reader saved in one session (saved-turns.ts), as the seqs of their prompts' events,
+   *  in the log's order. Live changes arrive on `session.saved`; this is the read a pane mounts with. */
+  "sessions.saved": { params: z.object({ id: IdSchema }), result: z.object({ seqs: z.array(z.number().int()) }) },
+  /** Save one turn, or unsave it. `seq` names the prompt's own `user_message` event and nothing else:
+   *  any other event, or one of another session's, is refused rather than saved as a stray number.
+   *  Saving what is saved, or unsaving what is not, changes nothing. Answers with the session's set. */
+  "sessions.setSaved": { params: z.object({ id: IdSchema, seq: z.number().int(), saved: z.boolean() }), result: z.object({ seqs: z.array(z.number().int()) }) },
+  /** `answers` rides along only for a question: question id -> what was chosen or typed, several as a
+   *  list. Deliberately a record of strings rather than a free-form input override — the UI answers a
+   *  question, it never gets to rewrite the tool's arguments — and each answer is held to the card it
+   *  was asked with before it goes anywhere (`normalizeAnswers`). */
+  "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: AskAnswersSchema.optional() }), result: z.object({ ok: z.literal(true) }) },
   /** `fastMode` is a REQUEST — see `Session.fastMode`. The server records it and hands it to the
-   *  adapter; whether the harness honours it comes back on the `usage` event. */
-  "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional(), fastMode: z.boolean().optional() }), result: SessionSchema },
+   *  adapter; whether the harness honours it comes back on the `usage` event. `effort: null` is "the
+   *  model's own default", and reaches a running session as much as a level does. */
+  "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().nullable().optional(), permissionMode: z.string().optional(), fastMode: z.boolean().optional() }), result: SessionSchema },
   /** Re-point an untouched session at another agent. Server-guarded: rejected (SESSION_STARTED) once the
    *  session has any event — a transcript belongs to the agent that produced it. Clears `model`, since a
    *  model id from the old kind means nothing to the new one. */
@@ -1681,6 +1970,9 @@ export const Events = {
   /** An install or update finished. The probe and the version sweep have already been re-run by the
    *  time this lands, so a client that refetches `cli.status` on it reads the new machine. */
   "cli.done": z.object({ id: z.string(), kind: AgentKindSchema, ok: z.boolean(), code: z.number().nullable(), error: z.string().nullable() }),
+  /** A space-less agent sign-in moved (`AgentSignInSchema`). Broadcast: the first run in any window
+   *  may be the one watching. */
+  "agentSignIn.changed": AgentSignInSchema,
   /** Laya's status changed: an install step moved, the runtime came up or went down, a row was
    *  logged, the log was deleted. Carries the whole status, which is small. */
   "laya.changed": LayaStatusSchema,
@@ -1707,6 +1999,9 @@ export const Events = {
   "themes.changed":   z.object({}),
   /** A font family was installed or removed. */
   "fonts.changed":    z.object({}),
+  /** The picture on the page about you changed — chosen, replaced or removed. Carries the new path
+   *  (or null) so every window shows the same face without a re-read. */
+  "avatar.changed":   z.object({ path: z.string().nullable() }),
   /** An MCP server was added, edited, removed, or toggled for a space. Carries no payload because the
    *  server list is global: add/edit/remove change what EVERY space lists, and a per-space event would
    *  leave the other spaces' open settings panes stale. Clients holding a list re-fetch. */
@@ -1739,14 +2034,19 @@ export const Events = {
   "documents.fileChanged": z.object({ environmentId: IdSchema, path: z.string(), hash: z.string().nullable() }),
   /** `documents.openPath` ran (Plan 22): a mounted pane over this workspace opens the tab, and the
    *  store puts the item on screen if the space is active. Carries the item so the store need not
-   *  re-list. */
-  "documents.openRequested": z.object({ spaceId: IdSchema, environmentId: IdSchema, documentsId: IdSchema, itemId: IdSchema, path: z.string() }),
+   *  re-list. `openedBy` is the session whose agent asked, which is the session whose side pane the
+   *  tab belongs in; absent when a person opened the file. */
+  "documents.openRequested": z.object({ spaceId: IdSchema, environmentId: IdSchema, documentsId: IdSchema, itemId: IdSchema, path: z.string(), openedBy: IdSchema.optional() }),
   /** `runId` and `seq` are what make this the app's one delta stream a client can catch up on. Every
    *  other broadcast carries whole current state and is repaired by a refetch; terminal output is a
    *  delta, so a client that missed some has no way back without a cursor. `runId` changes whenever a
    *  pty is (re)spawned, which is exactly when a seq stops meaning anything. */
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string(), runId: z.string(), seq: z.number().int() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
+  /** The terminal's foreground program changed: an agent or a tool started, or the shell came back
+   *  (null). Whole state, like every broadcast but `terminal.data` — a client that missed one reads
+   *  `terminals.programs` and is current again. */
+  "terminal.program": z.object({ terminalId: IdSchema, program: TerminalProgramSchema.nullable() }),
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
   "session.event":    StoredSessionEventSchema.extend({ ephemeral: z.boolean() }),
   "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),
@@ -1754,6 +2054,9 @@ export const Events = {
    *  Carries the whole list rather than a delta: it is a handful of short strings, and a prompter that
    *  applied deltas would have to reason about one arriving before its initial `sessions.queued` read. */
   "session.queue":    z.object({ sessionId: IdSchema, queued: z.array(QueuedPromptSchema) }),
+  /** A session's saved turns changed — one saved or unsaved, here or in another window. Carries the
+   *  whole set, as `session.queue` carries the whole queue: it is a few numbers. */
+  "session.saved":    z.object({ sessionId: IdSchema, seqs: z.array(z.number().int()) }),
   /** A provider restated the account's plan quota. Carries every kind's row rather than the one that
    *  changed: it is a short list, and the panel and the session chip both read the whole thing. */
   "limits.changed":   z.object({ limits: z.array(PlanLimitsSchema) }),
@@ -1775,12 +2078,18 @@ export const Events = {
   "session.agentSettled": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema, outcome: DelegationOutcomeSchema }),
   /** An agent opened a browser pane via `browser_open` (Plan 11 W3). The row + item already exist
    *  (`items.changed` was broadcast too); this tells the renderer to bring the pane INTO the layout —
-   *  an agent-driven browser the user cannot see defeats the point of the architecture. */
-  "browser.agentOpened": z.object({ spaceId: IdSchema, browserId: IdSchema, itemId: IdSchema }),
+   *  an agent-driven browser the user cannot see defeats the point of the architecture. `openedBy` is
+   *  the session whose tool call opened it: the pane goes into THAT session's side pane, not beside
+   *  whichever pane happens to have focus. */
+  "browser.agentOpened": z.object({ spaceId: IdSchema, browserId: IdSchema, itemId: IdSchema, openedBy: IdSchema }),
   /** An agent opened a device in a simulator pane via `simulator_open`. The row + item already exist
    *  (`items.changed` was broadcast too); this brings the pane INTO the layout beside the session, for
    *  `browser.agentOpened`'s reason — a device an agent is running an app on is one the user watches. */
-  "simulator.agentOpened": z.object({ spaceId: IdSchema, simulatorId: IdSchema, itemId: IdSchema }),
+  "simulator.agentOpened": z.object({ spaceId: IdSchema, simulatorId: IdSchema, itemId: IdSchema, openedBy: IdSchema }),
+  /** An agent opened a terminal via `terminal_open`. The row + item already exist (`items.changed`
+   *  was broadcast too); this brings the pane INTO the layout as a tab of the opener's side pane, for
+   *  `browser.agentOpened`'s reason — a shell an agent is typing into is one the user watches. */
+  "terminal.agentOpened": z.object({ spaceId: IdSchema, terminalId: IdSchema, itemId: IdSchema, openedBy: IdSchema }),
   /** The notifications feed changed (Plan 12 W5). `unread` is the fresh global unread count — the
    *  sidebar pill applies it directly, so the count has exactly one derivation site (the server's).
    *  `notification` is the row an event just created or re-surfaced, so the renderer can react to it
@@ -1800,6 +2109,9 @@ export const Events = {
    *  the fresh result), or was dismissed / cleared by a ship (`review` is null). Diff panes holding
    *  this environment apply the payload directly — no refetch race. */
   "review.changed": z.object({ environmentId: IdSchema, review: ReviewResultSchema.nullable() }),
+  /** A pull request's reviewer run started, moved or settled (`key` is its `prKey`). The page holding
+   *  it applies the payload as is. */
+  "codeReview.reviewChanged": z.object({ key: z.string(), review: PrReviewSchema.nullable() }),
   /** The set of runs a session is waiting on changed — one began, settled, or was collected. Carries
    *  the WHOLE fresh set rather than a delta: the engine's registry is the only copy of this fact,
    *  and a renderer that had to accumulate deltas would drift out of step with it after one dropped

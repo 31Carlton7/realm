@@ -1,5 +1,633 @@
 # Changelog
 
+## v2.0.0 — 2026-10-06
+
+This release was going to be 1.6, and before it shipped it grew into a redesign of the prompter, the
+model picker, the transcript and the window around them — so it is 2.0. What 1.6 was to bring is all
+here, as it now stands.
+
+### Working with an agent
+
+**The prompter is quieter, and every chip in it is one shape.** What you type is set in medium
+weight, a rung up from the text around it, because it is what the card is for. A picked element, a
+link, a skill, a skill that has since gone and a command opening the draft, such as `/goal`, are
+each one rounded pill in its own tone, with a mark and a name; under the pointer the mark becomes
+the chip's ×, and a selection that covers a chip lights the chip instead of a square box round it.
+The permission control has lost its fill and its chevron and is a shield and a word — a shield with
+a question mark for Ask each time, one with a tick for Accept edits, and one with a warning mark, in
+red, for Full access — and its menu wears the same marks. The + opens a menu drawn by Realm rather
+than macOS, because its rows say what they do: Add, with Files… (⌘U), Folder…, Select in Realm,
+Skills and Goal…; Mode, picked in place rather than through a submenu; and Connectors, which lead to
+the space's Connections. The skill picker and the @ and / lists fade where they scroll instead of
+being cut off by their search field.
+
+**@ names anything the agent can use.** One list: the files in the session's checkout, the ones it
+has changed first; the Library; skills; the apps on this Mac; and @Mac, which drives Calendar,
+Reminders, Contacts and the Mac's other apps, and wears the Apple mark. A bare @ is a short tour, a
+few of each kind under quiet heads; a word after it is one list ranked across every kind, each row
+saying what it is, so Return takes the best match whatever it is. A mentioned file goes to the agent
+as an attached one would, and the chip is the file. A mentioned app gets computer use for that app,
+in that session, and nothing more: its first action still asks, the session's mode still holds, and
+nothing outlives the session or becomes a setting of the space.
+
+**Point at a part of Realm, and the agent gets it.** Select in Realm, in the + menu or on ⌘⇧C, does
+for the app what the browser pane's picker does for a page: the same outline follows the pointer
+across the window, and a click drops the part it outlines into the prompter as a chip, with a
+picture of it attached. A press on a control's glyph or its label picks the control; hold ⌥ to take
+exactly what is under the pointer. The chip is written for an agent working on Realm — what the part
+is and says, the component that draws it, a selector made of the app's own class names — and
+mentions the picture only while the picture is still attached. A part under a browser pane, which
+the window's own capture cannot see, goes without one, and its chip says so. Escape cancels.
+
+**The model picker is one short list, with effort and fast mode at its foot.** The chip says who
+will answer — the harness's mark, the model, its effort, and a bolt when fast mode is on — and
+behind it is one compact list, grouped by the harness a click runs a model through, with the current
+model ticked and in view, a search at the top, and another harness's mark on a row only where that
+harness can run the same model too, one click away, rather than the model listed twice. What the
+highlighted model is for, its context and its price sit in a strip under the list. The foot is the
+effort card: the level by name, a track with a dot for each level that model takes — ← and → step
+it, Home and End go to the ends — a reset once you have moved it, and the bolt. Unset, it names the
+model's own default rather than going blank, and the level now reaches the agent: on every Codex
+turn, mid-session for Claude, and through an ACP agent's own thought level where it has one. Fast
+mode can be asked for before the first turn — Codex's catalog says which models take it, one Claude
+session answers for every Claude model, and elsewhere the bolt says the first turn will check — and
+a model that cannot run fast names the ones that can. Asked for before a session's first message, it
+also really runs fast; until now it never reached Claude. Code review's and the media viewer's
+question boxes kept only the model you picked before their first question, so the level, the bolt
+and the permission did nothing there; that question now starts with all four. Every popover opens
+where it will stay, so the bolt is still under the pointer for a second press. Picking a model no
+longer closes the picker: the model changes, the list stays where it was and the card turns to the
+new model's levels, so its level and fast mode are set in the same visit, and a click outside, the
+chip or Escape put it away; ← and → in its search step the level of the model just picked. A level you choose at
+XHigh or Max lights the track the way the landing page draws its light — streams running into a white
+core at the knob, the cube's facets faint beside it — hotter at Max, and turning fast mode on charges
+the bolt and sends a glint down the track and across the chip. Reduce motion shows the light still;
+Low power and a window in the background pause it.
+
+**A session can hand work to other models.** Ask in words — "have GPT-6 Luna build this" — and the
+session's agent starts a sub-agent on that model. A model is found by its name, so GPT-6 Luna runs
+through Codex and Fable on the newest Fable, and a sub-agent on the lead's own harness runs the
+lead's model unless another is named. Or open the session's Agents tab, from the side panel's +: its
+sub-agents, each with its model, its task, where it stands and its report, a click from its own
+transcript, and under them Build with, where you pick models — this session's own, your starred
+ones, More models for the rest — say what to build, and Split by model to give each its own part
+instead of leaving the split to the agent. It sends an ordinary message in your name, so the
+session's agent still divides the work, starts each sub-agent, gives them worktrees of their own
+when they would edit the same files, waits for their reports and tells you what each did, all in the
+transcript beside your ask. Implement with…, on a plan and under an answer, opens the tab with that
+text in it. In the lead's transcript each sub-agent is a quiet line of its own — "Subagent finished
+· Write the tests", its model, its time — rather than folded into a "Worked for 8s" that hides the
+one thing a reader of a delegation came for.
+
+**Every agent's questions come on one card.** A question looks the same whichever agent or server
+asks it, and says who is asking first — "Codex asks", "Linear's MCP server asks" — because the same
+question means something different from each. What it offers comes from Realm, never from the asker:
+options, with pictures as tiles; several at once; text, masked when it is a secret; yes or no; a
+model for each step of a plan, from the catalog; a file in the workspace, found the way ⌘P finds
+one; a branch of the checkout; a date or a time; or a page to open, shown whole and opened in your
+browser only on a click. 1 to 9 pick an option, Return takes the highlighted row and Escape skips.
+Answered, it stays where it was asked, as the question and your answer. Codex's questions used to
+arrive as nothing at all; they reach the card now, with the ones its MCP servers pass on. Gemini,
+Cursor and the other ACP agents can ask too, and so can a Connection's MCP server in the middle of a
+call, which waits while you think. Any agent can ask through `ui_ask`, one of Realm's own tools, on
+by default and allowed in every permission mode — up to four questions at once, a secret among them
+masked as you type it. A form from Codex, an ACP agent or an MCP server that asks for a key or a
+password is declined without being put to you.
+
+**The transcript says when, and what each turn changed.** A message you send shows the time it was
+sent as you point at it, and the keyboard can reach it too. A finished turn is dated the same way —
+a clock time today, Yesterday 7:38 PM, then the date, with the full date and time in the tooltip —
+where it used to show a bare time that read the same a minute or a week later, and a turn that
+failed says Failed after 4s instead of the playful past tense, which read as a job done. A file the
+agent names that is really in its checkout becomes a link, and opens in Documents beside the session
+at the line it named. A turn that changed files ends with an Edited 3 files card: each file, in the
+order it was edited and a click from opening, with its counts as git measured them when the turn
+settled rather than as its tool calls claimed them; Review, which opens that turn's diff as the side
+pane's Changes tab; and Undo, offered only where a checkpoint takes back exactly that turn and
+nothing after it — where Realm took none, the card says so. A tool call that edits a file now names
+it the same way for Claude, Codex and the ACP agents: the file's mark, its path, its counts.
+
+**A track down every transcript's edge, and turns you can keep.** A session pane has a tick down its
+left edge for each prompt, placed where the prompt sits in the log, the one being read in ink and a
+dot on any turn that changed files. Point at a tick and a card says what was asked, how the answer
+began, when, and what the turn edited; a click goes there and leaves the keyboard in the prompter,
+and once the track has the keyboard ↑ and ↓ walk it. The bookmark in the card's corner, or S on the
+track, saves that turn: its tick takes the accent, ⌥↑ and ⌥↓ step between saved turns, and Library ▸
+Saved lists every turn saved in the profile, with the answer each began with, a click from the
+prompt in its session.
+
+**A reply can carry a chart, a diagram or a comparison.** An agent can write a Mermaid diagram, a
+`realm-chart` (columns, bars, lines or a sparkline) or a `realm-compare` of up to six options as
+fenced code, and the transcript draws it once the fence closes — in Realm's own palette, with the
+values a click away and the source a click further. A body that does not parse stays code, with the
+reason. Nothing in a block fetches anything: a diagram that would load a picture or follow a link to
+lay itself out is left as code, saying so. In a narrow column a comparison becomes a card per option,
+and a Markdown document's rich view draws the same blocks.
+
+**A Connection can show its own views, and they act only on your click.** An MCP server that ships
+views, as the MCP Apps extension describes them, now has them drawn: compact under the tool call
+that made one, or as a tab beside the session. Each runs in a sandboxed frame on an origin of its
+own, out of reach of Realm and of every other view. What a view asks to do waits on a card Realm
+draws outside the frame, where the view can neither reach nor imitate it, and only your click
+answers: running one of its server's tools, writing a message for the agent — which goes into the
+prompter for you to read, change and send yourself — or opening a page in your browser. The
+Connection's row says when its server ships views, with a Show views switch, on until you turn it
+off and the same in every space; off, its tools answer in text.
+
+### The window
+
+**Every space is in the sidebar at once.** A space used to be a room: you stood in one, the sidebar
+listed what was in it, and an agent waiting in another space was a badge on a strip and a walk away.
+Now each space of the profile is a section of one list, under a Spaces caption — its name in its
+colour, a tally of what is waiting and working in it, and its sessions, with what needs you first
+and five before Show more. A section folds and remembers that it did; its + starts a session there,
+and its ⋯ reaches the space's folder, connections, memory, archived sessions and settings. Pinned
+gathers the pins from every space, and the activity button at the caption's end lists the same
+sessions by when they last moved, until you press it again. New space stays at the column's foot,
+where no length of list can carry it out of reach. The sidebar lists sessions only now, and the
+space strip and its swipe went with the rooms. Since you no longer go anywhere to be in a space, a
+session says where it works — its pane bar reads *Space › Session*, in the space's colour — and one
+that has not started yet can be moved from the composer's space chip.
+
+**The window shows one view, not a layout per space.** As many panes as you make, split right or
+down and nested the way you split them, from whichever spaces their sessions are in, and moving
+between them loads and unloads nothing, because every space is already loaded. The only limit is
+room: a pane is never drawn narrower than 280 points or shorter than 300, the least a session's
+prompter and transcript work at, so where another pane would go below that, Split right, Split down
+and a drop on that edge are unavailable and say what would make room, and ⌘\ says it in a toast. A
+session is on screen once; opening it again goes to it. The current space is just the one the
+focused session works in, which is where a new session goes. ⌘-click a session to open it beside
+the one you are in, or beside the one next to it when there is no room for another; ⌘\ and ⌘⇧\
+split.
+Named splits went with the rooms, and so did their strip and their keys — ⌘⇧[, ⌘⇧] and ⌘⇧G. On the
+first launch the split you were last in comes back as the view, and the sessions in your other
+splits stay in their spaces. The view, and where the keyboard was in it, survive a relaunch.
+
+**A rail holds the app's pages, and Home takes you back to the work.** Library, Connections,
+Scheduled tasks and Code review are a narrow column of icons at the window's edge, under Home, and
+the column stays when ⌘B folds the sidebar away. Home is not a page: it puts away whatever page is
+up and lands on the session that was in front, in its space, or on a fresh prompter when there was
+none, so it is never lit and carries no count — a session that needs you says so on its own row and
+under Needs you, and the Dock's badge counts what came in while you were away. At the rail's foot
+are the Stop of a Laya recording while one runs; a disc when a newer Realm is out, which rings its
+download's progress and, once it is ready, restarts into it; and your avatar, for your page and
+Settings. The sidebar's head row holds its toggle, search and a new session, with the profile as the
+first row under it; back and forward sit beside the traffic lights, on ⌃- and ⌃⇧- too, and the
+toggle joins them once the sidebar has folded. The sidebar opens and closes as one box, its contents
+sliding with its edge, and stands a hair above the rail, casting a light shadow over it from its
+left edge. Landing on a session puts the keyboard in its prompter. The pane bars' own arrows are
+gone; ⌘[ and ⌘] still walk the focused pane's history.
+
+**A page takes the room it needs, and is left the way it was reached.** Connections has no use for
+the spaces beside it, so while it is up the sidebar is away and the page takes the width right of
+the rail; a page with a column of its own — Settings, the Library, Scheduled tasks, Code review —
+puts it in the sidebar's column instead of drawing a second sidebar beside the first, with a Back
+at its head only on the settings pages, which are opened from a menu rather than the rail, and the
+page's name at the head of the others. Every column's first row — the profile, a Back, a page's
+name — stands at one depth under the column's top, with as much room above a name as beside it, so
+going from Home to a page moves nothing.
+Either change lands in the frame the page opens in — only ⌘B or the toggle draws the sidebar moving
+— and leaving gives the sidebar back as it was. A page's bar is its name and nothing
+else: there is no close button, because Home, the lit rail button, a session in the sidebar, the
+settings pages' Back and Escape already go back.
+
+**What needs you is one list, and you can answer from it.** Needs you, at the top of the sidebar,
+gathers every session waiting on a permission or a question — longest first, then failures you have
+not read — from every space and every profile, and it is drawn only while something waits. A waiting
+row unfolds that session's own card: Allow, Allow always or Deny, or the question and its fields.
+The cards are the transcript's own, so an answer given anywhere clears it everywhere, and Escape
+folds a card instead of denying the request that had the focus. Peek, from a session's menu, opens
+any session as a tab beside the one you are in — its transcript and its card, with no prompter — and
+saves it nowhere.
+
+**What an agent opens arrives as a tab in the side panel.** A browser, a device, a document or a
+terminal an agent opens is a tab of the one side panel at the window's right edge, rather than a new
+column beside whatever had focus — which is how a fan-out of six agents once filled a window with
+eight columns too narrow to read. The panel is the full height of the window and half the room right
+of the sidebar until you drag its edge, which it remembers for the window (a double-click puts it
+back to half). It narrows to make room before any pane goes below its floor, and where even its
+narrowest will not fit beside the panes it steps aside, and the button at the top right shows it in
+their place. Its tabs still belong to their sessions. The strip holds the tabs of every session on
+screen, each session's run in the order its pane is read, a hairline between one run and the next;
+a tab's tooltip names its session, and the pointer on a tab marks that session's pane. A session
+joining the split brings its tabs into the strip without taking the panel from what you were
+reading, and leaving it takes them along, to bring back. What is opened for a session that is off
+screen waits with it, still live for the agent driving it, and an agent's new tab comes to the front
+only over its own session's. The session's Agents and its Changes are tabs there too; Changes no
+longer opens as a pane of its own. A sub-agent gets no pane at all: the agents a session has working
+are a count in its bar, and the list behind the count can preview one as a tab. Every browser tab
+stays live behind the one showing, and choosing a tab shows it without taking the keyboard from the
+prompter you were typing in. The button at the window's top right puts the panel away, every tab
+still open behind it, and brings it back. The + after the tabs opens a blank tab for the session
+you are working in (⌘⇧B, or ⌥⌘B for full view) whose page lists the session's tools — Documents,
+Terminal, Agents, Simulator and Machine — and the pages you visited last, or opens one of those tools
+straight away, and ⌘J puts the session's terminal there too. The strip fades where its tabs run past its ends, and every tab's
+glyph is one size at any width. A device's controls left the strip, where they took the width the
+tabs needed, for a toolbar centred over the device — Home, Screenshot, the elements overlay and
+Rotate, with the volume and side buttons, its apps, the Simulator's settings, the frame and stopping
+the stream one click away. A terminal an agent opened comes back to the front when it stops at a
+password prompt; in 1.5, a sudo prompt sat for a day and a half in a terminal its owner could not
+find.
+
+**A session's bar is about the session, and a session has no close.** The bar carried seven
+glyphs for the tools a session opens beside itself. It now carries the session's place and name, the
+count of agents it has working, its status, one button for what it made — the summary and the
+files, switched in the panel's own head — and its menu. The tools are where they open: the side
+panel's + and a blank tab's page list them, the button at the window's top right opens the panel
+onto that page, and the command palette has each one. A session is left from the
+sidebar, the way it was reached, so neither its bar nor its menu has a Close. ⌘W closes what the
+keyboard is in: a tab leaves the side panel; a pane leaves the split it shares, which its menu calls
+Remove from split, and the pane beside it takes the keyboard; an empty pane beside a session goes
+instead of the session; and a session alone closes nothing — the keyboard goes to its prompter. File
+▸ Close Tab or Split says the same.
+
+**New space asks what the space is, and lands you in it.** The sheet asked for a name and a profile,
+then opened the new space's settings. It leads with the name now, with the space's icon beside it —
+a symbol, an emoji, one generated or one uploaded, shown in the space's colour — and its colours
+under it, then one card of the rest: a folder, chosen or dropped, or without one the path Realm will
+make for it; the profile, with New profile… in the list; and the memory every session there reads
+before it starts. Create starts a session in the space, in that folder, with the keyboard in its
+prompter, and Return from the name is still all it takes. The sheet stays up while Create runs, so a
+failure keeps everything you typed and says what went wrong beside Create, and Create again finishes
+the space rather than making a second.
+
+**First run gets you to a signed-in agent with no terminal.** It was thirteen equal radio rows
+beside a form, and a row that said "Not installed" or "Signed out" handed a newcomer a problem with
+no way to solve it. Now it is one page: Choose your agent, with Claude and Codex as cards that do
+what their state needs right there — Install, Sign in with Claude, Sign in with ChatGPT, a field for
+the code the sign-in page shows — the other agents folded behind one line, then Name your space —
+the New space sheet's own fields, icon and folder included — and Start. Claude needs no install,
+since Realm already carries Claude Code, and Codex's card says when it needs Node.js first. A
+signed-out Claude also reads as signed out now: the check misread the CLI's answer, and a stale
+credentials file passed for a sign-in.
+
+### Look and feel
+
+**Notices are toasts, and tooltips come at once.** A failed action or a refused file was a red bar
+across the top of the window that stayed until you closed it. It is a toast at the window's foot
+now, and so is a browser pane's receipt: a toast says its piece, runs a thin line along its foot
+while it is up, and leaves when the line reaches the end. Toasts stack, the newest in front and two
+tucked behind it, and fan out under the pointer; the pointer on them, the keyboard in them or Realm
+not being the app in front stops every clock, so one you are reading or copying from never leaves.
+They move along the foot clear of a browser pane, which would paint over them, and lift over a
+prompter rather than cover its send button. What needs a decision — a permission, a sign-in, a
+server that has gone — is not a toast, and stays until it is answered. A tooltip is the app's own
+quiet label, shown a fifth of a second after the pointer arrives and at once on the next control,
+where the system's took a second and a half, with any shortcut drawn as keys; one with no room above
+or below its control goes beside it.
+
+**The cursor is yours to choose.** Settings ▸ Appearance ▸ Cursor sets the caret everywhere text is
+typed — the prompter, every field, the code editor — with a field to try it in: its shape, from
+Line, Thin line, Pill, Beam, Block, Soft block, Outline block, Underline and Thin underline; its
+animation, from Blink, Smooth fade, Phase, Expand, Pulse, a blink that comes to rest, and Solid;
+whether it glides to each new position; and whether it takes the accent or the text's colour. In 1.5
+the prompter's caret could not be held still, because it was the platform's; Realm draws it now, on
+the platform's own pixel, and steps aside where the platform's would, for a selection, an input
+method composing or a window that is not in front. Under Reduce motion it holds solid rather than
+stopping mid-blink. A terminal's cursor takes any of those shapes as a setting of its own, with its
+own blink, drawn on the terminal's own cursor cell, and the code editor, which had a blink switch of
+its own, follows the animation.
+
+**Everything that scrolls fades at its ends, nothing sticks, and everything you can click points.**
+Every list, page, popover, sheet, strip of tabs and capped well of output dissolves where it has
+more to show, as the transcript does, instead of stopping at a hard edge; what keeps its edges is
+what is read to the last character — code, a diff, a command — a table whose column heads pin, and
+the editors. A page's head scrolls away with the page instead of staying pinned over it, and what
+holds still is only what is used while the content moves: a sheet's title and its buttons, a long
+table's column heads. The pointing hand is over everything a click acts on — a button, a row, a tab,
+a chip, a menu row, a disclosure, the label round a switch — from one rule, so a control added later
+points too; that is a deliberate step away from the Mac's arrow over controls. The arrow stays where
+a click does nothing: a disabled control, a row that only reports, the space round a sheet. Fields
+keep the I-beam, and drag handles and dividers their own cursors.
+
+**Realm behaves like a Mac app, not a page in one.** The difference was a dozen small web habits,
+each one a Mac user notices without being able to name it. A button darkens when pressed instead of
+shrinking, and lets go if you drag off it, and dragging across the interface no longer selects it
+like text. Menus, all but the prompter's +, are the system's own — type-to-select, real shortcuts,
+and able to open over a browser pane, which nothing Realm drew could — and a right-click in text
+offers spelling, Look Up and the link under the pointer. Popovers and sheets move on a spring, lists
+rubber-band under the trackpad but never under a mouse wheel, and a window that is not in front
+greys its accent. There is a real menu bar — Settings… (⌘,), File, Edit, View, Go, Window and Help —
+whose rows show your own keybindings, and Reload is in development builds only; before, ⌘R could
+reload the app out from under a running agent. The window reopens where you left it, at its size,
+maximised or in full screen.
+
+**Light mode is light.** On a Mac set to Dark, Realm's light mode came out a muddy grey: nothing
+told macOS the window had an appearance of its own, so the material behind it stayed dark and the
+light ground was laid over that. Realm now tells macOS which theme it is in, and menus, Quick Look
+and the Share sheet follow it. The light palette also steps the way the dark one does — the sidebar
+a shade under the work, wells recessed instead of bright — lets far less of the desktop through, and
+its quiet text, hints and links, is dark enough to read.
+
+**Realm has a new mark, a new icon, and eight more for the Dock.** The mark is a cube lying on its
+side with a lit doorway in its dark wall: a space, and the way into it. The icon wears it in white
+and greys on a graphite body, on the very shape macOS gives every app icon — Apple's continuous
+corner, measured against the Finder's own — so macOS shows it full size instead of shrinking it
+onto a grey plate as it did the last one, and it is lit the way macOS lights its own: a body graded
+top to bottom, one short shadow, and the glass edge macOS draws over it. Settings ▸ Appearance ▸
+App icon offers eight alternates drawn the same way — indigo, clay, frost, smoke, sticker, ocean,
+ember and mint — and a pick goes on the Dock at once and is there from the start of the next launch.
+The Finder and Launchpad keep the standard icon, because a running app can change only its own Dock
+tile, and the row says so.
+
+**Type sits on one scale, and icons are drawn at the weight of their text.** Six text sizes had
+grown inside a 2.5px band and were used interchangeably. Every size is a rung of one ladder now,
+which also put the code preview's line numbers back beside their lines — they had drifted a full
+line behind by the twenty-fourth. Icons come from a rounder set and are drawn heavier at small
+sizes, the way a Mac draws small symbols, so a 12px glyph is no longer a hairline beside its label.
+Labels set in tracked capitals are sentence case, edges are a rung softer, and a focus ring follows
+its control's curve rather than drawing a rectangle around it.
+
+### Pages
+
+**Pull requests are read and reviewed in Realm.** Code review, on the rail, lists GitHub pull
+requests through your own `gh`, so Realm holds no GitHub token and sees what gh sees; until gh is
+installed and signed in, the page says what is missing, and Set up GitHub opens a terminal with the
+command typed in for you to run. Its column takes a search or a pasted pull request link, and lists
+Authored by me, Needs my review and Needs my team's review, with any you pin at the top. A request
+opens on Summary — its description, whether it can merge, who has reviewed, its checks — and
+Changes, side by side or in one column, beside a file tree. Review with — one button, the model's
+mark and name, with its level and a bolt for fast mode once you set them, and a chevron to the
+reviewer's instructions and its model, chosen in the prompter's own picker and its card — runs a
+reviewer over the diff at the model, level and speed you choose, held to read-only, under
+instructions the profile keeps along with its reviewer, and leaves its findings on the page, each
+review naming the level it ran at; none of them, nor any line comment of yours,
+reaches GitHub until you press Submit review and choose Comment, Approve or Request changes, with a
+comment, which posts it as you. Ask about this pull request, at its foot, puts a question to the
+request's own session in a space you choose, one whose checkout is the request's repository first,
+so asking twice is one conversation.
+
+**Scheduled tasks have a page of their own, and every run is a session.** The page follows Codex's
+layout. A column holds New task, your upcoming tasks — each with the model it runs on — and their runs
+under them, each new run unread until you read it, and suggestions to start from. Beside it a run is
+its real session — the transcript, and a prompter to carry it on — with the task's card at the top
+right: when it repeats and runs next, a run it missed while the Mac slept, the model each run starts
+on, the space and its connections, and Run now, Pause, Edit and Delete. Schedule a task is a sheet: a
+name, the instructions, whether it repeats — hourly, daily, on weekdays, weekly, monthly or by a cron
+expression — or runs once at a date and time, and under Advanced whether each run starts a new
+session or carries on the last, whether successful runs are archived, the space, and the model: the
+prompter's own chip and picker, with each model's own levels and its default named, fast mode, and
+whether a run asks each time or accepts edits. The card and the column name the model as the chip
+does, its level and bolt included. A run is handed the task's instructions first, as written, and
+shows them under a quiet Scheduled run line; it lands under its task instead of opening a pane beside
+whatever you were doing, and a task that carries on one session carries what you changed since into
+its next run. A task an agent schedules from a session runs on that session's agent, model, level
+and speed.
+
+**The Library sorts by kind, takes your own files, and Memory saves itself.** The Library's files
+open on tabs — All, Images, Documents, Code, Data — beside a filter for where a file was made and by
+whom, a choice of tiles or rows, and a search; a tab narrows the whole Library, not only the page
+already loaded. Every file is one square tile, a picture filling its own. Add, at the end of its
+toolbar, or a drop anywhere on the page, brings files of yours in: Realm keeps its own copy under
+the profile, never over another file, never twice and never through a link, a dropped folder asks
+before its files go in, and they are marked Added by you wherever the Library's files are listed.
+Remove from Library — on a file's menu, its ⋯, the viewer's menu, or ⌫ — takes one back out, with
+Undo; Realm's copy waits ten minutes before it goes, and a message the file was sent with keeps its
+name. A file a session made stays: only your own come out.
+"Every space" now means every space of this window's profile; a Work window used to list what
+School's sessions had made. Saved lists the turns you save from a transcript's track. Memory was a
+textarea with a Save button. It is the document itself now, at reading size, with Write and Preview:
+a pause in typing saves it, and the head says Edited, Saving or Saved. It says who reads it — every
+new Claude and Codex session in the space — and how it travels, through the AGENTS.md mirror and the
+file it is kept in. The Library's Memory covers every space, the profile's own document first.
+
+**Settings is grouped by what you came for, and you can read it.** Seven flat tabs read as seven
+equal things, and App alone held a theme picker, a permission default, a notification relay and the
+credits. The pages now sit under You, Engines, Browser, Computer and Data; App is split into
+General, Appearance and Notifications; and a search finds any row and opens its page on that
+control. Rows are cards, with labels at reading size and descriptions dark enough to read — the old
+hints measured 3.5:1 on the dark ground — and each page's head names the page. Computer use gathers
+every space's computer-control switch and always-allowed apps beside the two macOS grants they need,
+and Archived lists every space's archived sessions. Appearance gains UI and code text sizes that
+change the type without zooming the layout, a content font for messages and documents, Reduce motion
+as System, On or Off, and separate translucency for the sidebar and the panes. General gains Keep
+the Mac awake while agents work, off unless you turn it on; where the session terminal goes; and
+Open files in, for whichever of Cursor, VS Code, Zed and Xcode this Mac has.
+
+**A page about you.** Your avatar at the foot of the rail opens it: your name and picture; tokens
+over all time, your busiest day, the longest an agent worked on one turn, and your current and
+longest streaks; the activity calendar, which now reads by day, by week or as a running total; and
+the models, efforts, skills and tools you use most. A figure no engine can report is left off, with
+the reason, rather than shown as a zero. A picture you choose is copied into Realm's folder, so
+moving the original changes nothing, and until you choose one you are a person in a neutral circle
+rather than a bare initial.
+
+### Files, browsers, terminals and devices
+
+**The Documents pane opens on your files.** With nothing open it said "Nothing open yet" over an
+empty pane. It opens on a home now — what this session has made and been given, then the Library's
+files — under one search that also finds the checkout's own files by name, and its Files tab brings
+the home back. ⌘P puts the keyboard in that search from anywhere, where it used to open a palette
+that found a file and opened it somewhere else; ⌘⇧P still searches contents. New makes a document, a
+spreadsheet, a presentation, a LaTeX paper or a study guide, or a code file — TypeScript, Python,
+Swift and more — named with its extension and opened in the code editor, and a name typed in the
+search that nothing has is an offer to make it. A button on each row adds the file to the next
+message.
+
+**One viewer for every file, with the prompter under it.** A picture in a message, a chip in the
+prompter, a tile in the Library, a row of the Documents pane's home, a session's summary and its
+file list all open the same viewer, in place of a lightbox and a preview sheet that were two answers
+to one question. The file fills the window, ← and → walk the files it came with, and the session's
+prompter is docked under it: a question asked there is a turn of the session the file came from,
+carrying the file, and the viewer shows its own part of that transcript, so a new version an answer
+names lands on the stage with the original a step behind. Mark up draws on a picture, and the next
+question carries a copy with the marks in its pixels, so the agent sees what was circled rather than
+reading where; a file dropped on the viewer goes with the next question. A file no session can be
+asked about starts one in its space at the first question, never at the look. Escape or ⌘W closes
+it, and its bar opens the file in Documents or its own app, in Quick Look or the Share menu, in the
+Finder, or saves a copy.
+
+**A file in Realm does what a file in the Finder does.** In the Library, the Documents pane's home
+or a session's file list, Space shows it in Quick Look and Return opens it; it drags out into
+another app as the real file; and its menu, there and on a path in the transcript, offers Quick Look
+and the Share menu. A session's file browser can also lay its folder out as the Library's tiles.
+Reveal in Finder works on the ~/ and relative paths agents write, and says so when nothing is there.
+
+**A terminal's tab says what is running in it.** A terminal's tab, its pane bar and its dock wear
+the mark of what is in the foreground — an agent's own mark on a tile in its maker's colour, a
+tool's glyph for node, python, vim and the rest, or the shell's — and name the program before the
+folder: "claude · realm". Realm reads it from the terminal's foreground process, not its shell. Only
+an agent wears colour there, so colour in a strip of tabs means an agent and nothing else. Terminals
+draw in Realm's own sixteen colours, tuned to each theme with every text colour readable on the
+pane's ground, on the chat's own background instead of a darker slab; a theme such as Nord or Rosé
+Pine wears its own terminal colours, and in light mode a program's own colours are darkened until
+they read. A powerlevel10k prompt keeps its colours, and its icons draw instead of empty boxes.
+Settings ▸ General ▸ Terminals ▸ Terminal colours chooses Realm's or your shell's.
+
+**A page that did not load says so.** Typing localhost:3000 with nothing listening left a blank
+white pane. The pane now draws a page in its place — "This site can't be reached", the reason, such
+as "localhost refused to connect.", what to try, the error code and Reload — for a refused,
+unresolved, timed-out, reset or closed connection, an empty or unreadable response, a blocked port,
+a proxy, a redirect loop, and a certificate or TLS failure, which gets an open padlock and no way
+past it. The address stays in the bar, Back and Forward walk past it and Reload tries again, the
+mark pulsing while it does, and a page that failed stays out of a blank tab's Recently visited. An
+agent driving the pane is told the same thing in words, where it used to read an empty page. The
+pane is one ground from its toolbar down, without the lighter strip under a new tab or round a
+device, and the white a page starts on is never shown. And the element picker draws a fine rounded
+outline over a soft fill, following the element's own corners, with a small label naming it and its
+size, where it drew a thick square box over a dimmed page; Annotate's highlight looks the same.
+
+**The browser pane has a browser's controls.** Each tab wears its site's own icon, kept for the next
+launch. The ⋯ at the end of the toolbar opens a menu macOS draws, so it can sit over the page: Find
+in page (⌘F), Print, Zoom, Take a screenshot — saved to the space's screenshots folder and attached
+to the session — downloads, history and Clear browsing data. Device size lays the page out at an
+iPhone's, an iPad's or a desktop's width; it is a check of a layout at a width, not a phone, since
+the user agent stays Realm's and touch is not emulated. The address field suggests pages you have
+visited as you type, most visited first, then a web search — a history that starts with this
+version, because Realm kept none before. And Annotate pins several elements of a page, numbered, and
+sends them to the session as one chip, with a screenshot that shows the numbers.
+
+**Agents get the simulator pane, and hands to use it with.** Asked to show an iOS app, an agent used
+to start serve-sim in a terminal and open its stream in a browser pane — a worse copy of the pane
+Realm already had, without the device controls. The simulator tools hand it the pane itself: list
+devices, open one beside the session, take a screenshot, read the elements, install, launch and open
+a URL — and tap, double tap, long press, swipe, type and press the hardware buttons, on iOS
+simulators and Android emulators. An element is a number from the agent's latest read, and a number
+from an older read is refused, because the same position on a screen that has moved is a different
+control. Each step says what it is for, which is what the permission card shows, and the card is
+asked once per device per session. The tools are on by default; on a Mac with neither Xcode nor
+Android Studio, the Connections row says what is missing instead of a switch reading Enabled.
+
+**A whole path in one call.** Tapping through an app by number costs an agent a read and a tap per
+step, each one of its turns, and a turn takes seconds. A walk takes the labels once —
+`["General", "About"]` on a device, `["File", "Export as PDF…"]` in a Mac app,
+`["Docs", "Getting started"]` on a web page — finds each on the live screen as a person would write
+it, presses it, waits for the screen to settle, and answers with where it ended up, numbered for the
+next step. On a web page it measured no faster in tool time; what it saves is the agent's turns. It
+stops rather than guesses: at a label it cannot find, at a press that changed nothing, and before
+any step that buys, deletes, clears data, sends or shares, signs out, makes an account or types a
+secret — and, in Instagram, TikTok and the other social apps, before a like, a follow, a comment or
+a message.
+
+**A real iPhone, over the cable.** A connected iPhone or iPad appears in the device pane's picker
+under Connected devices. Picking it has Realm build a small test runner, sign it with your own Apple
+Development identity and run it on the phone — a minute or two the first time, with the phone
+unlocked — and the agents' device tools and walks then work on it as they do on a simulator. The
+picture is live, the way QuickTime shows a connected phone, rather than a screenshot about once a
+second; macOS reaches a phone's screen as a camera, so the pane asks for camera access with one
+click, and Settings ▸ Permissions has a Camera row. No web page in a browser pane can have the
+camera or the microphone. And because a phone is somebody's phone, the rules are stricter: its cards
+are asked even under Full access, a locked phone is refused, the side button is never pressed, a
+system alert is never answered for you, only apps Xcode installed are listed, and every touch is
+checked under the finger just before it lands — one on the keyboard's Dictate key is refused,
+whatever was asked for. The runner comes off the phone when its last pane closes.
+
+**Laya, a decision model that runs on your Mac, watches agents work.** Settings ▸ Engines ▸ Laya
+(local decisions) installs it when you ask — about 1 GB of PyTorch and 0.8 GB of weights, on Apple
+silicon — and it runs on this Mac alone. In Shadow it is asked about every step an agent takes in a
+Mac app, on a device or on a web page: which element fits what the agent meant, whether the step is
+sensitive, whether it worked. Its answers are logged beside what really happened, and nothing it
+says reaches the agent, a permission card or the transcript. Train makes a new checkpoint from the
+screens Realm ships, your recordings and that log, in half an hour to an hour on the Mac's GPU, and
+keeps it only if it scores better on steps it never trained on; it will not start on a Mac short of
+memory or disk, and stops itself before swap can fill the disk. Record my use of this app…, under a
+device, opens a sheet before anything is kept, saying what is kept of each screen — what each thing
+on it is, what it is called and where it sits, as the app describes them to VoiceOver — and what is
+left out: pictures of the screen, your taps and keystrokes, anything typed into a field, and every
+app but the one in front. Only its Start records, and Realm taps nothing. While it runs, the row
+under the device is the recording, with its Stop, and the foot of the rail carries the same Stop,
+because a recording goes on while its device is out of sight. Assist, where an agent names an
+element in words and Laya picks it, is earned rather than chosen: it unlocks only for a checkpoint
+that is right 95% of the time on held-out steps. None is yet, the download included, so Assist stays
+locked and says by how much. The log and the recordings never leave this Mac.
+
+### Profiles and sign-ins
+
+**Profiles keep their sign-ins to themselves.** Every browser pane in every profile shared one
+cookie jar, so Work was signed in to whatever Personal was, and an agent in a Work space was offered
+Personal's saved passwords. Each profile now has its own cookie jar, saved sign-ins, passkeys and
+browsing history, and Clear browsing data clears only the profile it names. What you were already
+signed in to stays with your first profile; the others start signed out. Where you do want to share,
+a saved sign-in or passkey has Share with, and a browser pane's menu can copy the site's sign-in
+into another profile. A space moved to another profile takes its browser into that profile's jar.
+Profiles can be made, renamed, recoloured and deleted in the app now — deleting one says how many
+spaces and sessions go with it, and asks you to type its name — and the switcher says what waits in
+each.
+
+**An agent can make a password for a sign-up, and nobody sees it.** Asked to create an account, an
+agent had nowhere to put a password but the chat. Now it can ask Realm to make one: Realm generates
+it on this Mac, saves it to the profile's sign-ins and types it into the page, after a card that names
+the site and after Touch ID. The agent is never told the value; it can fill the same password into a
+confirm field by the new sign-in's id, and nothing more. Settings ▸ Sign-ins marks those rows
+Generated by Realm, and because you have never seen the value either, the site's own reset is the way
+back if you need it outside Realm.
+
+**A profile can have a window of its own.** The profile switcher, or the command palette, opens a
+profile in a window of its own, or brings forward the one already showing it, so Work and Personal
+can sit side by side. Each window boots into its profile and remembers its place, and a browser an
+agent drives, or a passkey prompt, finds the window that holds its pane.
+
+### What is gone
+
+- The Agents page — its List, Wall and Office, the pixel office and its credit at the foot of
+  Settings, and the Start agents… sheet. What it ranked is on each session's own row, under Needs
+  you and on the Dock's badge, and work for several agents is asked of a session, in words or from
+  its Agents tab.
+- The Notifications page and its bell. Notifications still reach macOS and count on the Dock, the
+  iMessage and Slack relay still sends, and Settings ▸ Notifications still chooses what counts; Code
+  review has the page's place on the rail.
+- The red bar across the top of the window, for toasts.
+- The lightbox and the file preview sheet, for the media viewer.
+- The ⌘P file palette, for the Documents pane's own search.
+- The close button on a page's bar, for Home, the rail, the sidebar and Escape.
+
+### Smaller changes and fixes
+
+- Claude's weekly and five-hour limits read right. The readings Claude Code sends during a turn give
+  the share used as a fraction and the reset in seconds, and both were read as if they were already
+  a percent and milliseconds, so an 86% week showed as "Weekly limit at 1%", resetting on a day in
+  January 1970.
+- The question and plan cards are as off-limits to an agent driving the window as the permission
+  card was: one could answer a question another session had put to you, or press Implement this plan
+  and take a session out of Plan. Build with and Implement with…, which start paid work in your
+  name, are off-limits too.
+- A masked answer reaches the agent that asked and nothing else: the log, every window, the Activity
+  record and an exported session keep a mark in its place, even when the agent quotes it back.
+- A space whose folder is not a git repository simply has no worktrees: nothing offers one, and
+  opening it no longer puts "… is not a git repository, so it has no worktrees" in a red bar across
+  the window.
+- The strips stacked above the prompter — a plan, a goal, the agents running, the git line — keep
+  their side edges down to where the prompter tucks over them, in the mode's colour too.
+- A session filling the window no longer shows a half-lit split glyph in the sidebar: the glyph
+  pictures the panes of the split, never the side panel beside them.
+- A page rising into view no longer makes the window scrollable for the length of its rise, which
+  put a scrollbar across the app for a moment and nudged a centred page sideways.
+- Scrolling a long transcript no longer redraws all of it on every frame.
+- Realm's own tools can run past Codex's one-minute limit on a tool call.
+- The + menu and the skill picker take the arrow keys as soon as they open, and an @ chip no longer
+  splits from its name at the end of a line, which put every glyph after it a line off the caret.
+- Escape in a popover over a sheet closes the popover, not the sheet.
+- An answer fades in as it streams, a run of text at a time, instead of stamping on in chunks. A
+  restored transcript stays still, and so does everything under Reduce motion.
+- Send now on a queued message waits for the Claude turn it stops to settle, instead of landing in
+  that turn and being lost with it.
+- A sidebar row keeps its state at its far end, and its actions take that place on hover rather than
+  holding back part of the title for buttons it is not showing. A resting row wears nothing; one
+  with news wears the unread ring, which until now could never appear, and opening the session
+  clears it.
+- The empty session's greeting links to its space, and names the worktree or linked checkout when
+  that is where the next message runs.
+- A delegating tool call links to each agent it started. A delegated Claude agent you stop yourself
+  is reported to the lead as stopped, with what it had written, rather than as finished; a stopped
+  Codex or ACP agent still reads as finished.
+- Skills in `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills` (or under `CODEX_HOME`) and
+  `~/.cursor/skills` are found now; the scan had been looking inside Realm's own folder. They arrive
+  switched off, as before.
+- A browser an agent drives with no pane showing it keeps its page, title and icon saved, so its
+  tab, and the next launch, show where it really is.
+- A finished download is reported as finished rather than "interrupted", and a pane's first page no
+  longer has a Back that leads to a blank page.
+- A theme with a hue, Rosé Pine or Nord, now colours the sidebar as well as the panes. The sidebar
+  had been more the system's grey than the theme.
+- Panes are a touch more see-through by default, at 84%: measured, the thinnest at which body text
+  still clears WCAG AA on every theme, over a white desktop or a black one.
+- The transcript no longer scrolls sideways under a sent file's tip, or paints a scrollbar corner
+  white.
+- `pnpm app:update`, which builds and installs Realm from source, now signs the build with your
+  Developer ID, so macOS keeps its Accessibility, Screen Recording, Automation, Calendar and
+  Contacts grants from one install to the next. It refuses to put an unsigned build over a signed
+  one unless told to.
+
 ## v1.5.0 — 2026-09-27
 
 **Realm can use itself.** A session in a space can now open a terminal pane and read what it is

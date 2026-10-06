@@ -1,11 +1,13 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { actionsThatFit } from "./components/pane-bar-fit";
+import { BAR_CHROME, actionsThatFit } from "./components/pane-bar-fit";
+import { TOOLBAR_BUTTON, TOOLBAR_CHROME } from "./panes/simulator/toolbar-fit";
 import { REALM_SEED, deriveVars } from "@realm/ui";
 import { AGENT_FRAME, oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
 import { MAX_ROWS_PX } from "./panes/session/Composer";
+import { PRESSABLE } from "./press-tracking";
 
 /** §6's motion table and its "do NOT animate" list are enforceable only against the stylesheet
  *  itself — jsdom has no layout, no compositor and no CSSOM for a raw file, so nothing else in the
@@ -28,8 +30,21 @@ const tokensCss = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tok
 
 /** Flat (non-nested) rules: `selector { body }`. Bodies containing braces — @media, @keyframes —
  *  never match as a whole, so their inner rules are picked up with their own bare selectors instead. */
+/** A selector list split at its OWN commas — not the ones inside `:is(a, b)` or `:not(a, b)`, which
+ *  are part of one selector. */
+const splitSelectors = (list: string): string[] => {
+  const out: string[] = [];
+  let depth = 0, cur = "";
+  for (const ch of list) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) { out.push(cur); cur = ""; } else cur += ch;
+  }
+  out.push(cur);
+  return out;
+};
 const RULES = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
-  selectors: m[1]!.split(",").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean),
+  selectors: splitSelectors(m[1]!).map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean),
   body: m[2]!.replace(/\s+/g, " ").trim(),
 }));
 
@@ -56,10 +71,10 @@ it("gives up the app's tracking on every surface that uses the mono face, so its
   expect([...monoSelectors].filter((s) => !reset.includes(s))).toEqual([]);
 });
 
-/* The two system notices — the socket-down banner and the error bar — are the only surfaces in the
-   app that a state change alone puts on screen. They used to cut in fully formed. */
+/* The socket-down banner is the one surface in the app that a state change alone puts at the top of
+   the window. It used to cut in fully formed. (The error bar that stood beside it is a toast now.) */
 it("brings the system notices in on the transcript's own entrance rung, from the edge each hangs off", () => {
-  for (const sel of [".conn-banner", ".error-bar"]) {
+  for (const sel of [".conn-banner"]) {
     const body = bodiesFor(sel).join(" ");
     expect(body, `${sel} enters with no animation`).toMatch(/animation:\s*rl-[a-z-]+ var\(--dur-enter\) var\(--ease-out-strong\)/);
   }
@@ -108,13 +123,6 @@ const dur = (rung: string): string => {
 };
 
 describe("§6 motion ladder", () => {
-  it("is the one place a duration is written, and these are its rungs", () => {
-    expect(LADDER).toEqual({
-      "--dur-drag": 80, "--dur-hover": 180, "--dur-press": 120, "--dur-pop": 140, "--dur-fast": 150,
-      "--dur-swap": 160, "--dur-enter": 180, "--dur-base": 200, "--dur-rise": 220, "--dur-slow": 240,
-      "--dur-move": 320,
-    });
-  });
 
   it("no component writes a duration of its own", () => {
     // The failure mode this closes is the one the ladder was built to end: four tokens existed, two
@@ -127,36 +135,38 @@ describe("§6 motion ladder", () => {
     // grain's drift: an ambient tempo an order of magnitude off the slowest rung, and putting it on
     // the ladder would invite a UI transition to reach for it.
     for (const period of ["0.9s", "1.4s", "3.6s", "24s", "40ms"]) bare.delete(period);
+    // Nor is a threshold: 600ms is how long a browser pane's first page has to keep a person waiting
+    // before its spinner comes up at all — a page that answers sooner never shows one.
+    bare.delete("600ms");
+    // Zero is not a rung either: it is the absence of a duration, written where a hover or a press
+    // has to land on the frame the pointer did (the Press rule).
+    bare.delete("0s");
     expect([...bare].sort()).toEqual([]);
   });
 });
 
 describe("§6 motion table", () => {
-  it("sheets enter at 240ms ease-out-strong with a .96 scale — one rule for every sheet, no per-sheet carve-out", () => {
-    expect(bodiesFor(".sheet").join(" ")).toContain(`animation: rl-sheet-in ${dur("--dur-slow")} var(--ease-out-strong)`);
-    expect(blockAfter("@keyframes rl-sheet-in")).toContain("scale(.96)");
-    // W4b scoped 240ms to onboarding alone; W5's whole job was to hoist it. If the override comes
-    // back, the shared sheet has silently regressed to something else.
-    expect(bodiesFor(".sheet.onboarding").join(" ")).not.toContain("animation");
+
+  /* A menu is NSMenu: there at once, gone on a short fade. THE mutants are an entrance creeping back
+     onto `.menu` (a click waiting on a picture of the answer) and the exit growing travel again. */
+  it("menus open instantly and leave on a fade with no travel, on the press rung", () => {
+    for (const body of bodiesFor(".menu")) expect(body).not.toContain("animation");
+    const exit = bodiesFor(".menu[data-closing]").join(" ");
+    expect(exit).toContain(`animation: rl-fade-out ${dur("--dur-press")} var(--ease-fade) forwards`);
+    // A surface that is on its way out must not still be catching clicks. `inert` is the real
+    // guard (Menu.tsx sets it) — this is the half that holds for the frame before the attribute.
+    expect(exit).toContain("pointer-events: none");
+    expect(blockAfter("@keyframes rl-fade-out")).not.toContain("transform");
   });
 
-  it("the sheet scrim fades on its own at 160ms", () => {
-    expect(bodiesFor(".sheet-backdrop").join(" ")).toContain(`animation: rl-fade-in ${dur("--dur-swap")}`);
-  });
-
-  it("menus enter at 140ms ease-out-strong, scale .97→1, from an origin the component supplies", () => {
-    expect(bodiesFor(".menu").join(" ")).toContain(`animation: rl-menu-in ${dur("--dur-pop")} var(--ease-out-strong)`);
-    expect(blockAfter("@keyframes rl-menu-in")).toContain("scale(.97)");
-  });
-
-  it("popovers leave the way they arrived: the exit reverses the enter on the press rung, and holds nothing behind", () => {
-    for (const sel of [".menu[data-closing]", ".model-picker[data-closing]", ".icon-picker[data-closing]"]) {
-      const body = bodiesFor(sel).join(" ");
+  it("popovers grow out of their anchor on the spring and leave the way they arrived, holding nothing behind", () => {
+    for (const sel of [".model-picker", ".icon-picker"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain(`animation: rl-menu-in ${dur("--dur-pop")} var(--spring-smooth)`);
+      const body = bodiesFor(`${sel}[data-closing]`).join(" ");
       expect(body, sel).toContain(`animation: rl-menu-out ${dur("--dur-press")} var(--ease-out-strong) forwards`);
-      // A surface that is on its way out must not still be catching clicks. `inert` is the real
-      // guard (Menu.tsx sets it) — this is the half that holds for the frame before the attribute.
       expect(body, sel).toContain("pointer-events: none");
     }
+    expect(blockAfter("@keyframes rl-menu-in")).toContain("scale(.97)");
     // The exit is the enter played backwards, not a second idea about what a popover does.
     expect(blockAfter("@keyframes rl-menu-out")).toContain("scale(.97)");
     // No half-pairs. A surface that only animates while you are trying to get rid of it is worse
@@ -167,6 +177,19 @@ describe("§6 motion table", () => {
     for (const sel of listOf("rl-menu-out")) expect(enters, sel).toContain(sel.replace("[data-closing]", ""));
   });
 
+  /* The curve is a spring because of how it STARTS. THE mutant is a cubic ease-out pasted over it:
+     that leaves at full speed, and the first sample here would be far past 0.01. */
+  it("the spring starts from rest and settles without overshoot", () => {
+    const curve = tokensCss.match(/--spring-smooth:\s*linear\(([^)]*)\)/)?.[1];
+    expect(curve, "--spring-smooth is not a linear() curve in tokens.css").toBeTruthy();
+    const values = curve!.split(",").map((stop) => Number(stop.trim().split(/\s+/)[0]));
+    expect(values[0]).toBe(0);
+    expect(values[1]).toBeLessThan(0.05);
+    expect(values.at(-1)).toBe(1);
+    for (let i = 1; i < values.length; i++) expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!);
+    expect(Math.max(...values)).toBe(1);
+  });
+
   it("the DOM hold and the CSS exit are the same number", () => {
     // `use-anchored-popover.ts` keeps a dismissed popover mounted on a timer; the stylesheet fades it
     // on an animation. Nothing in either file can notice the two drifting apart — a short timer clips
@@ -175,21 +198,33 @@ describe("§6 motion table", () => {
     expect(Number(hook.match(/const EXIT_MS = (\d+);/)?.[1])).toBe(LADDER["--dur-press"]);
   });
 
-  it("the model picker is a popover and enters on the same rule as menus, not one of its own", () => {
-    // It shares `.menu`'s declaration rather than carrying a copy: §6 gives every popover one timing,
-    // and a second animation here is how the prompter's picker drifts away from every other surface.
-    expect(bodiesFor(".model-picker").join(" ")).toContain(`animation: rl-menu-in ${dur("--dur-pop")} var(--ease-out-strong)`);
-    // Its interactive rows honour the hover rule — background/colour only, never geometry.
-    const hover = `transition: background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`;
-    for (const sel of [".mp-row", ".mp-seg-opt"]) {
-      expect(bodiesFor(sel).join(" "), sel).toContain(hover);
-      expect(bodiesFor(sel).join(" "), sel).not.toContain("transform");
-    }
-    // The route pills animate their border too — they carry the selected state on the outline rather
-    // than on a fill — but still nothing geometric.
-    expect(bodiesFor(".mp-route").join(" ")).toContain(
-      `transition: border-color ${dur("--dur-hover")} ease, background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`);
-    expect(bodiesFor(".mp-route").join(" ")).not.toContain("transform");
+  /* A toast rises on the spring a surface arrives on and leaves on a shorter fade, and the component
+     holds a leaving one in the DOM on a timer. THE mutants: the two numbers drifting apart (a clipped
+     fade, or a finished toast parked on screen), a leaving toast still catching clicks, and the line
+     across its foot running on while the clock it draws is stopped. */
+  it("toasts arrive on the spring, leave on a shorter fade the DOM waits out, and their line stops with their clock", () => {
+    expect(bodiesFor(".toast").join(" ")).toContain(`animation: rl-toast-rise ${dur("--dur-slow")} var(--spring-smooth)`);
+    const leaving = bodiesFor(".toast[data-leaving]").join(" ");
+    expect(leaving).toContain(`opacity ${dur("--dur-swap")} var(--ease-fade)`);
+    expect(leaving).toContain("pointer-events: none");
+    const toasts = readFileSync(repoFile("apps/desktop/src/renderer/src/components/Toasts.tsx"), "utf8");
+    expect(Number(toasts.match(/export const TOAST_EXIT_MS = (\d+);/)?.[1])).toBe(LADDER["--dur-swap"]);
+    expect(bodiesFor(".toast[data-paused] .toast-progress").join(" ")).toContain("animation-play-state: paused");
+  });
+
+  /* THE mutants: a tooltip that catches the pointer (it would steal the hover from the control it
+     names, and flicker), one drawn under the menus and toasts it explains, and one that wears a colour
+     of its own instead of the per-theme chip tokens. */
+  it("the tooltip never takes the pointer, floats over menus and toasts, and arrives on the tip's own rung", () => {
+    const tip = bodiesFor(".tooltip").join(" ");
+    expect(tip).toContain("pointer-events: none");
+    const z = (sel: string) => Number(bodiesFor(sel).join(" ").match(/z-index:\s*(\d+)/)?.[1]);
+    expect(z(".tooltip")).toBeGreaterThan(z(".menu"));
+    expect(z(".tooltip")).toBeGreaterThan(z(".toasts"));
+    expect(tip).toContain("background: var(--tooltip-bg)");
+    expect(tip).toContain("color: var(--tooltip-fg)");
+    expect(bodiesFor(".tooltip[data-open]").join(" ")).toContain(`opacity ${dur("--dur-fast")}`);
+    expect(bodiesFor(".tooltip[data-instant]").join(" ")).toContain("transition: none");
   });
 
   it("transcript items enter at 180ms with a 6px rise, gated on the data-enter mark Transcript.tsx sets", () => {
@@ -228,17 +263,51 @@ describe("§6 motion table", () => {
     expect(body).not.toMatch(/(^|;|\s)opacity:/);
   });
 
-  it("hover fills run on the hover rung, on plain `ease`, and touch background/colour only — never geometry", () => {
-    const hover = bodiesFor(".item-row").join(" ");
-    expect(hover).toContain(`transition: background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`);
-    expect(hover).not.toContain("transform");
+  /* A Mac button does not shrink; it darkens, on the mouse-down frame. THE mutants: a scale coming
+     back onto any press, and the zero leaving the hovered/pressed state (the highlight eases in). */
+  it("a press is a fill one rung past hover, never a change of size", () => {
+    for (const r of RULES.filter((r) => r.selectors.some((s) => s.includes(":active"))))
+      expect(r.body, r.selectors.join(", ")).not.toMatch(/\bscale\b/);
+    for (const sel of [".btn:is([data-pressed], :active:focus-visible):not(:disabled)", ".ghost-chip:is([data-pressed], :active:focus-visible):not([data-static])"])
+      expect(bodiesFor(sel).join(" "), sel).toContain("--fill: var(--hover-2)");
+    expect(bodiesFor(".icon-btn:is([data-pressed], :active:focus-visible):not(:disabled)").join(" ")).toContain("background: var(--hover-2)");
+    expect(bodiesFor(".btn.primary:is([data-pressed], :active:focus-visible):not(:disabled)").join(" ")).toContain("--fill: var(--rl-accent-press)");
+    expect(bodiesFor(".composer-send:is([data-pressed], :active:focus-visible):not(:disabled)").join(" ")).toContain("background: var(--rl-accent-press)");
+    // The fill TRACKS the pointer (press-tracking.ts): drag off a held button and it lets go, drag
+    // back and it lights again. THE mutant is a bare `:active` fill, which Chromium drops for good
+    // the moment a held pointer leaves.
+    for (const r of RULES.filter((r) => /--fill:|background/.test(r.body)))
+      for (const sel of r.selectors.filter((sel) => sel.includes(":active") && !sel.includes("::-webkit-slider-thumb")))
+        expect(sel, sel).toContain(":is([data-pressed], :active:focus-visible)");
+    expect(bodiesFor(".ghost-chip").join(" ")).not.toContain("transform");
   });
 
-  it("pressables scale to .96 over 120ms", () => {
-    const press = bodiesFor(".ghost-chip").join(" ");
-    expect(press).toContain(`transform ${dur("--dur-press")} var(--ease-out-strong)`);
-    for (const sel of [".btn:active:not(:disabled)", ".icon-btn:active:not(:disabled)", ".composer-send:active:not(:disabled)"])
-      expect(bodiesFor(sel).join(" "), sel).toContain("transform: scale(.96)");
+  it("a hover or press arrives on the frame the pointer does, and only the release fades", () => {
+    const instant = RULES.filter((r) => r.body === "transition-duration: 0s;" && r.selectors.some((s) => s.includes(":is(:hover, :active, [data-press-tracking])")));
+    expect(instant).toHaveLength(1);
+    const sel = instant[0]!.selectors.join(", ");
+    // A tracked press is instant BOTH ways: dragged off a held button, the highlight goes at once.
+    expect(sel).toContain(":is(:hover, :active, [data-press-tracking])");
+    for (const control of ["button", '[role="button"]', '[role^="menuitem"]', ".item-row"]) expect(sel).toContain(control);
+  });
+
+  /* A choice is never half-made: the rows a person picks from change instantly in BOTH directions,
+     so the zero sits on their base rule, not only on their hovered state. */
+  it("rows chosen from a list highlight and unhighlight instantly", () => {
+    const rows = RULES.find((r) => r.body === "transition-duration: 0s;" && r.selectors.includes(".palette-opt"));
+    expect(rows, "no instant rule for list rows").toBeTruthy();
+    for (const sel of [".palette-opt", '.menu [role^="menuitem"]', ".mp-row", ".mp-seg-opt", ".seg-opt", ".mention-row"])
+      expect(rows!.selectors, sel).toContain(sel);
+    // …and it comes after the shared hover rule it overrides, or the cascade would hand the fade back.
+    const shared = RULES.findIndex((r) => r.selectors.includes(".palette-opt") && r.body.includes("transition: background-color"));
+    expect(RULES.indexOf(rows!)).toBeGreaterThan(shared);
+    // …and no LATER rule for one of them states a transition again: `.seg-opt`'s own rule did, after
+    // this one, and every segmented control in the app faded its choice in and out.
+    const after = RULES.slice(RULES.indexOf(rows!) + 1);
+    for (const sel of rows!.selectors) {
+      const later = after.filter((r) => r.selectors.includes(sel) && /(^|;)\s*transition(-duration)?:/.test(r.body));
+      expect(later.map((r) => r.body), sel).toEqual([]);
+    }
   });
 
   it("the send↔stop icon swap cross-fades over 160ms with opacity, scale and blur", () => {
@@ -255,15 +324,15 @@ describe("§6 motion table", () => {
   });
 
   it("every disclosure in the app opens the same way — one rule, never a second guess at max-height", () => {
-    // The sidebar's archived shelf rides the tool row's declaration rather than carrying a copy.
+    // The sidebar's space sections ride the tool row's declaration rather than carrying a copy.
     // max-height is the alternative, and it is the wrong one twice over: the number has to be
     // guessed, and the easing then runs against a height the content does not have, so a short list
     // snaps and a long one is clipped.
-    for (const sel of [".archived-wrap", ".tool-body-wrap"])
+    for (const sel of [".sb-section-wrap", ".tool-body-wrap"])
       expect(bodiesFor(sel).join(" "), sel).toContain(`transition: grid-template-rows ${dur("--dur-base")} var(--ease-in-out-strong)`);
-    expect(bodiesFor(".archived-wrap[data-open]").join(" ")).toContain("grid-template-rows: 1fr");
+    expect(bodiesFor(".sb-section-wrap[data-open]").join(" ")).toContain("grid-template-rows: 1fr");
     // 0fr only clips against an overflow container; without it the folded rows spill up the sidebar.
-    expect(bodiesFor(".archived-clip").join(" ")).toContain("overflow: hidden");
+    expect(bodiesFor(".sb-section-clip").join(" ")).toContain("overflow: hidden");
     expect(css, "no disclosure may animate max-height").not.toMatch(/transition:[^;]*max-height/);
   });
 
@@ -295,39 +364,34 @@ describe("§6 motion table", () => {
   });
 
   it("the bar's action budget never outlives the furniture it budgets for", () => {
-    /* `BAR_CHROME` includes the nav pair's 48px, because at the widths this rung operates in the nav
-       is still drawn. Below `@container (max-width: 300px)` it is not — so the estimate would be
-       48px too pessimistic there, and the bar would collapse an action it had room for. The ladder
-       only stays honest if the budget has already reached zero by the time that rule fires.
-       THE mutant: raise `BAR_CHROME` or `TITLE_MIN` far enough that actions survive past 300px. */
-    const navGone = Number(/\(max-width: (\d+)px\) \{ \.panel-nav/.exec(css)?.[1]);
-    expect(navGone).toBeGreaterThan(0);
+    /* `BAR_CHROME` is what the bar always draws besides its title and actions. The pane's own back and
+       forward were part of it (48px) until the window's one pair moved to the sidebar's head row
+       (WindowNav): nothing may still style them, and the budget may not still be paying for them.
+       THE mutant: leave the 48px in the sum, and every narrow bar folds an action it has room for. */
+    expect(RULES.filter((r) => r.selectors.some((x) => x.includes(".panel-nav")))).toEqual([]);
+    expect(BAR_CHROME).toBeLessThan(144 - 48 + 1);
     // The observer reports the CONTENT box, so the bar's own padding comes off the rule's number.
     const padding = 28;
-    expect(actionsThatFit(navGone - padding)).toBe(0);
-    // …and the rung above it, where the meta goes, must still be leaving room for something — a
-    // ladder whose last two rungs fire together is one rung with two names.
+    // The rung where the meta goes must still be leaving room for something — a ladder whose rungs
+    // fire together is one rung with two names.
     const metaGone = Number(/\(max-width: (\d+)px\) \{ \.panel-meta/.exec(css)?.[1]);
     expect(actionsThatFit(metaGone - padding)).toBeGreaterThan(0);
   });
 
-  it("New session and Quick chat are ONE block of two equal rows, not a row with a sub-item", () => {
-    /* Twice now the quick row has been drawn to say "smaller occasion" — once smaller (30px/12.5px),
-       once a rung quieter in ink — and both times it read as a child of the row above it. THE
-       mutant: put either back. The two are alternatives to pick between, so nothing paints a rank.
-       The negative margin cancels `.sb-top`'s gap for this ONE seam; taking it off the container
-       instead would close the seam under the search field too. */
-    const quick = bodiesFor(".quick-row").join(" ");
-    const primary = bodiesFor(".new-row").join(" ");
-    for (const decl of ["color: var(--rl-text-dim)", "min-height: 32px", "border-radius: var(--r-ctl)"]) {
-      expect(quick, decl).toContain(decl);
-      expect(primary, decl).toContain(decl);
+  it("New session is the head row's glyph and Quick chat a keystroke — neither is a row any more", () => {
+    /* Plan 27: the column's first rows were "New session" and "Quick chat", two equal rows of one verb.
+       New session is the ✎ in the head row now (and each space's + on hover), and Quick chat stays a
+       keystroke. THE mutant is the half-removal: the rows deleted and their rules left behind. */
+    for (const sel of [".new-row", ".quick-row", ".new-item", ".sb-head", ".sb-toggle", ".needs-you", ".sb-active", ".space-header"]) {
+      expect(RULES.filter((r) => r.selectors.some((x) => x.split(/[\s:>[]/).includes(sel))), sel).toEqual([]);
     }
-    expect(bodiesFor(".quick-row:hover").join(" ")).toContain("color: var(--rl-text-bright)");
-    expect(bodiesFor(".new-row:hover").join(" ")).toContain("color: var(--rl-text-bright)");
-    // Flush: the row pulls back exactly the gap its container hands out.
-    const gap = /gap: (\d+)px/.exec(bodiesFor(".sb-top").join(" "))?.[1];
-    expect(quick).toContain(`margin: -${gap}px 0 `);
+    // The head row is the 40px band the traffic lights centre in, beside the rail's.
+    expect(bodiesFor(".sb-header").join(" ")).toContain("height: var(--frame-top)");
+    expect(bodiesFor(":root").join(" ")).toContain("--frame-top: 40px");
+    // The profile's name is the unbounded part of its row, so it is what gives way.
+    expect(bodiesFor(".sb-profile").join(" ")).toContain("min-width: 0");
+    expect(bodiesFor(".sb-profile-name").join(" ")).toContain("text-overflow: ellipsis");
+    expect(bodiesFor(".sb-header-actions").join(" ")).toContain("flex: none");
   });
 
   it("a menu's shortcut reads as a KEY — a filled chip on the chip rung, not more of the sentence", () => {
@@ -363,8 +427,8 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".msg-action:not([data-copied]) .copied-icon").join(" ")).toContain("blur(4px)");
     const btn = bodiesFor(".msg-action").join(" ");
     expect(btn).toContain(`background-color ${dur("--dur-hover")} ease`);
-    expect(btn).toContain(`transform ${dur("--dur-press")} var(--ease-out-strong)`);
-    expect(bodiesFor(".msg-action:active:not(:disabled)").join(" ")).toContain("transform: scale(.96)");
+    expect(btn).not.toContain("transform");
+    expect(bodiesFor(".msg-action:is([data-pressed], :active:focus-visible):not(:disabled)").join(" ")).toContain("background: var(--hover-2)");
     // A thumb's glyph is the same pressed or not, so the fill is the only thing saying which — one
     // rung past hover, the same reading .icon-btn's toggles get.
     expect(bodiesFor('.msg-action[aria-pressed="true"]').join(" ")).toContain("background: var(--hover-2)");
@@ -373,16 +437,6 @@ describe("§6 motion table", () => {
     // Exactly one rule reaches it: joining the shared list would give it a second, all-sides one.
     expect(bodiesFor(".msg-action::after")).toEqual(['content: ""; position: absolute; inset: -6px 0;']);
   });
-
-  it("the sources chevron turns on the swap rung — a glyph changing state, not a box changing size", () => {
-    expect(bodiesFor(".msg-sources-chevron").join(" ")).toContain(`transform ${dur("--dur-swap")} var(--ease-out-strong)`);
-    expect(bodiesFor(".msg-sources[data-open] .msg-sources-chevron").join(" ")).toContain("rotate(0deg)");
-  });
-
-  it("W2's prompter hero→docked move keeps its 320ms ease-in-out-strong (§6 assigns that easing to on-screen movement)", () => {
-    expect(bodiesFor(".composer-dock").join(" ")).toContain(`transition: transform ${dur("--dur-move")} var(--ease-in-out-strong)`);
-  });
-
 
   it("the three in-flight states share one ping, and its ring survives prefers-reduced-motion", () => {
     // Only the ring moves; the core is untouched, so the row's dot column cannot jitter.
@@ -413,11 +467,14 @@ describe("§6 motion table", () => {
       expect(bodiesFor(`.status-dot[data-status="${s}"]`).join(" "), s).not.toContain("rl-pulse");
   });
 
-  it("the space strip's badge stays still — presence, not a summons", () => {
-    // Deliberately NOT the status dot's ping: this is a rollup for a space nobody is looking at, and
-    // only "waiting on you" asks anyone to go there. A running agent elsewhere needs no attention.
-    expect(bodiesFor('.strip-badge[data-status="running"]').join(" ")).not.toContain("animation");
-    expect(bodiesFor('.strip-badge[data-status="waiting_permission"]').join(" ")).toContain("rl-pulse 0.9s ease-in-out infinite");
+  it("a space's state is the rows' own marks with a count, not a badge with a vocabulary of its own", () => {
+    /* The strip's corner badge is gone with the strip (Plan 27). A section's head says what is going on
+       in its space with the same `.status-dot` its rows wear, a count beside each — one fact, one mark,
+       whether it is about a session or about the space it works in. THE mutant is a second badge style
+       coming back for the head. */
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".strip-badge")))).toEqual([]);
+    expect(bodiesFor(".item-tally").join(" ")).toContain("display: flex");
+    expect(bodiesFor(".item-count").join(" ")).toContain("font-variant-numeric: tabular-nums");
   });
 
   it("the greeting's nod is on the ladder like everything else, and the preference takes it away", () => {
@@ -429,9 +486,57 @@ describe("§6 motion table", () => {
     expect(RULES.some((r) => r.selectors.some((sel) => sel.includes("::") && sel.includes("hero-greeting")))).toBe(false);
   });
 
-  it("`will-change` is reserved for the swiper track (§6 performance note)", () => {
+  it("nothing asks for `will-change` now the swiper is gone (§6 performance note)", () => {
+    // The swiper's track was the one surface that earned a promoted layer — it moved under the fingers
+    // every frame. With the spaces as sections nothing slides, and a hint with no motion behind it is a
+    // layer held for nothing.
     const owners = RULES.filter((r) => r.body.includes("will-change")).flatMap((r) => r.selectors);
-    expect(owners).toEqual([".swiper-track"]);
+    expect(owners).toEqual([]);
+  });
+});
+
+describe("the scroll track (ScrollTrack.tsx)", () => {
+  it("lies over the log's own padding, and takes the pointer only where its ticks are", () => {
+    const track = bodiesFor(".scroll-track").join(" ");
+    expect(track).toContain("position: absolute");
+    expect(track).toContain("pointer-events: none");
+    expect(bodiesFor(".track-tick").join(" ")).toContain("pointer-events: auto");
+  });
+
+  /* THE mutant: a longer lit tick, a wider gap before the edit dot, or a track that starts further in.
+     Any of them puts a resting mark over the first letters of every line in a narrow pane. */
+  it("ends every resting mark inside the transcript's side padding, in the narrowest pane", () => {
+    const px = (body: string, re: RegExp) => Number(body.match(re)?.[1]);
+    const start = px(bodiesFor(".scroll-track").join(" "), /--track-x: clamp\((\d+)px/);
+    const lit = px(bodiesFor(".track-tick[data-current] .track-line").join(" "), /width: (\d+)px/);
+    const dot = bodiesFor(".track-tick[data-edited] .track-line::after").join(" ");
+    const pad = px(bodiesFor(".transcript").join(" "), /padding: \d+px (\d+)px/);
+    expect(start + lit + px(dot, /left: calc\(100% \+ (\d+)px\)/) + px(dot, /width: (\d+)px/)).toBeLessThan(pad);
+  });
+
+  it("rests as a mark a rung heavier on the light face, and comes up at once under the pointer", () => {
+    expect(bodiesFor(".track-line").join(" ")).toContain("background: var(--tick)");
+    expect(bodiesFor(':root[data-mode="light"] .scroll-track').join(" ")).toContain("--tick: var(--overlay-darken-500)");
+    expect(bodiesFor(".scroll-track:is(:hover, :focus-within) .track-line").join(" ")).toContain("transition-duration: 0s");
+  });
+
+  it("puts up its card the way the tooltip comes and goes, and the card takes the pointer only while it is up", () => {
+    const card = bodiesFor(".track-card").join(" ");
+    expect(card).toContain("pointer-events: none");
+    expect(card).toContain(`opacity ${dur("--dur-press")}`);
+    const open = bodiesFor(".track-card[data-open]").join(" ");
+    expect(open).toContain(`opacity ${dur("--dur-fast")}`);
+    expect(open).toContain("pointer-events: auto");
+  });
+
+  it("gives a saved turn the accent — on the track, and on the card's filled ribbon", () => {
+    expect(bodiesFor(".track-tick[data-saved] .track-line").join(" ")).toContain("var(--accent-ink)");
+    expect(bodiesFor(".scroll-track:is(:hover, :focus-within) .track-tick[data-saved] .track-line").join(" ")).toContain("background: var(--accent-ink)");
+    expect(bodiesFor('.track-card-save[aria-pressed="true"] svg *').join(" ")).toContain("fill: currentColor");
+    // After the lens, so a saved tick under the pointer keeps its colour rather than turning to ink.
+    const at = (sel: string) => RULES.findIndex((r) => r.selectors.includes(sel));
+    expect(at(".scroll-track:is(:hover, :focus-within) .track-tick[data-saved] .track-line"))
+      .toBeGreaterThan(at('.scroll-track:is(:hover, :focus-within) .track-tick[data-near="0"] .track-line'));
   });
 });
 
@@ -470,7 +575,6 @@ describe("Ara refresh §3/§4 geometry", () => {
     }
   });
 
-
   /* Measured in a real Chromium at pane widths from 1100px down to 360px (jsdom has no layout, so
      the numbers below came from the browser, not from here). At a fixed 30px the longest greeting
      took three lines under roughly a 400px pane and a fixed-height box centred them, spilling a line
@@ -497,13 +601,6 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(span).toContain("overflow-wrap: break-word");
   });
 
-  it("the send button is a 32px circle; the hero textarea starts at ~56px", () => {
-    const send = bodiesFor(".composer-send").join(" ");
-    expect(send).toContain("width: 32px");
-    expect(send).toContain("height: 32px");
-    expect(bodiesFor('.session-pane[data-composer="hero"] .composer-input').join(" ")).toContain("min-height: 56px");
-  });
-
   /* The rich-text mirror is only correct while it is metrically IDENTICAL to the textarea it sits
      under: same font, same size, same line-height, same padding box, same wrapping. Nothing in jsdom
      can notice a drift here — there is no layout — so the stylesheet is the only place to catch a
@@ -520,59 +617,60 @@ describe("Ara refresh §3/§4 geometry", () => {
     // variant paints the same glyphs on the same layer and is under exactly the same rule.
     const chips = RULES.filter((r) => r.selectors.some((sel) => /\.ch-[a-z-]+/.test(sel)));
     expect(chips.length, "no .ch-* rules in styles.css").toBeGreaterThan(0);
+    /* Paint, never layout. A custom property is not a metric (what reads it is checked here in its
+       turn), and `box-decoration-break` only changes where padding and borders go at a line break —
+       a run has neither. The mark is the one thing allowed to move: it is absolutely positioned over
+       its sigil, out of the flow the caret is measured in, so it may fade while the × has its place. */
+    const PAINT = ["color", "background", "background-color", "border-radius", "box-shadow", "text-decoration", "text-underline-offset",
+      "text-decoration-color", "-webkit-box-decoration-break", "box-decoration-break"];
+    const MARK = ["opacity", "transition-duration"];
     for (const rule of chips) {
+      const onMark = rule.selectors.filter((sel) => /\.ch-[a-z-]+/.test(sel)).every((sel) => / \.chip-mark$/.test(sel));
       for (const decl of rule.body.split(";").map((d) => d.trim()).filter(Boolean)) {
         const prop = decl.split(":")[0]!.trim();
-        expect(["color", "background", "background-color", "border-radius", "box-shadow", "text-decoration", "text-underline-offset", "text-decoration-color"],
-          `${rule.selectors.join(",")} { ${decl} }`).toContain(prop);
+        if (prop.startsWith("--")) continue;
+        expect(onMark ? [...PAINT, ...MARK] : PAINT, `${rule.selectors.join(",")} { ${decl} }`).toContain(prop);
       }
     }
   });
 
-  it("a chip run wears the app's chip corner, and both kinds wear the SAME one", () => {
-    /* The runs are painted at 3px, which is the corner of an inline code mark — and one of them IS
-       an inline code mark (`.ch-code`), which is why it keeps it. A picked element is not code, it
-       is a control the user pointed at, and it read as a snippet.
-
-       Stated concentrically, because a run may carry no padding (`draft-format.ts`): the 2px
-       box-shadow is the chip's visible edge, so the fill's radius is the chip corner LESS that
-       spread and the outline lands on `--r-chip`.
-
-       THE mutant: give one of the two its own number. They are the same chip — the test below says
-       so about their hover — and two chips that lift identically but round differently is worse than
-       either treatment on its own. */
-    /* Revised: a chip wears NO corner now, because it wears no fill and no ring — it is its icon
-       and its accent ink, inline with the draft. The two kinds are still one treatment: the same
-       single declaration. THE mutant: give one of them a fill back. */
-    for (const sel of [".ch-element", ".ch-mention"]) {
-      const body = bodiesFor(sel).join(" ");
-      expect(body, sel).toContain("color: var(--rl-accent)");
-      expect(body, sel).not.toContain("background");
-      expect(body, sel).not.toContain("box-shadow");
-    }
+  it("every chip kind is ONE pill — one corner, one geometry, a tone of its own and nothing else", () => {
+    /* The owner's ask, by screenshot: the picked element's square highlight and the `/goal` wash
+       were two shapes for one idea. Every kind now reads its pill from ONE rule — the fill, the spread
+       that stands in for padding, and the corner stated concentrically with it, so the visible edge
+       lands on `--r-chip` — the rung the chips of the control row under it are cut to. THE mutant:
+       give one kind a radius or a fill of its own. */
+    const family = bodiesFor(".ch-element").join(" ");
+    for (const decl of ["background: var(--chip-fill)", "border-radius: calc(var(--chip-r) - var(--chip-spread))",
+                        "box-shadow: var(--chip-dx) 0 0 var(--chip-spread) var(--chip-fill)", "box-decoration-break: clone"])
+      expect(family, decl).toContain(decl);
+    const shared = RULES.find((r) => r.body.includes("background: var(--chip-fill)"))!;
+    for (const kind of [".ch-mention", ".ch-mention-stale", ".ch-element", ".ch-slash"]) expect(shared.selectors, kind).toContain(kind);
+    expect(bodiesFor(".composer-highlight").join(" ")).toContain("--chip-r: var(--r-chip)");
+    // No other rule reaching a chip run draws a shape of its own; the states only move the fill.
+    const shaped = RULES.filter((r) => r !== shared && r.selectors.some((sel) => /\.ch-(mention|element|slash)/.test(sel))
+      && /(?:^|[;\s])(?:background|border-radius|box-shadow):/.test(r.body));
+    expect(shaped.map((r) => r.selectors.join(", "))).toEqual([]);
+    // Each kind's tone is a TOKEN pair — ink and tint — never a hand-rolled mix.
+    for (const [kind, tint] of [[".ch-element", "--accent-tint"], [".ch-mention-stale", "--orange-tint"], [".ch-slash", "--green-tint"]] as const)
+      expect(bodiesFor(kind).join(" "), kind).toContain(`--chip-tint: var(${tint})`);
     // The code mark stays a code mark. §"Shape" gives 2px to ticks, rails and code marks.
     expect(bodiesFor(".ch-code").join(" ")).toContain("border-radius: 3px");
   });
 
-  it("a chip is the same chip once the message is SENT — one treatment, no per-kind fill", () => {
-    /* `.msg-chip[data-kind="element"]` used to take `--inset` under bright ink. The bubble it lands
-       in is `--rl-raised`, one step away: 1.05:1, which is a chip that exists only as text with a
-       smudge behind it — "hard to even contrast it or see it in general".
-       The accent tint is what separates a named thing from the prose around it, and it holds on both
-       faces (measured on the shipped palette: the fill stands 1.24:1 off the dark bubble and 1.19:1
-       off the light one, against 1.05 and 1.06 before, and the accent ink on it measures 4.35:1 dark
-       / 3.05:1 light — the same pairing the mention chip and the composer's own chips already ship,
-       and above the 2.9 floor `--rl-accent` is derived against).
-       THE mutant: re-add a `[data-kind]` rule with a fill in it. */
-    /* Revised: the fill is gone on both faces. A chip in the log is an icon and a name in the
-       accent, inline with the prose; the pill read as a control dropped into a sentence. What is
-       held is the SAMENESS: one ink, no per-kind fill, on the composer and in the log alike. */
+  it("a chip is the same chip once the message is SENT — one pill, one tone, no per-kind fill", () => {
+    /* `.msg-chip[data-kind="element"]` once took `--inset` under bright ink: 1.05:1 on the bubble,
+       a chip that existed only as text with a smudge behind it. Then the fill went altogether and the
+       log's chip stopped matching the prompter's the moment the prompter's grew a shape. What is held
+       is the SAMENESS: the prompter's accent chips and the log's wear one tint, one ink and one corner.
+       THE mutant: re-add a `[data-kind]` rule with a fill in it, or let the two corners part. */
     const chip = bodiesFor(".msg-chip").join(" ");
-    expect(chip).toContain("color: var(--rl-accent)");
-    expect(chip).not.toContain("background");
-    expect(bodiesFor(".ch-element").join(" ")).toContain("color: var(--rl-accent)");
-    expect(bodiesFor(".ch-element").join(" ")).not.toContain("background");
-    const variants = RULES.flatMap((r) => r.selectors.map((sel) => ({ sel, body: r.body })))
+    expect(chip).toContain("background: var(--accent-tint)");
+    expect(chip).toContain("color: var(--accent-ink)");
+    expect(bodiesFor(".ch-element").join(" ")).toContain("--chip-tint: var(--accent-tint)");
+    expect(bodiesFor(".ch-element").join(" ")).toContain("--chip-ink: var(--accent-ink)");
+    expect(chip).toContain("border-radius: var(--r-chip)");
+    const variants = RULES.flatMap((rule) => rule.selectors.map((sel) => ({ sel, body: rule.body })))
       .filter(({ sel }) => /^\.msg-chip\[/.test(sel))
       .filter(({ body }) => /(?:^|[;\s])(?:background(?:-color)?|color):/.test(body))
       .map(({ sel }) => sel);
@@ -594,12 +692,6 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(chip).toContain("corner-shape: squircle");
   });
 
-  it("no rule still styles a mode CHIP, because the row no longer has one", () => {
-    // Left behind, these would tint whatever next took that aria-label — and they were written for a
-    // control inside a group that no longer exists.
-    expect(css).not.toContain('aria-label="Mode"');
-  });
-
   /* The one thing the mode's move could break invisibly. With the chip gone, the card's tint is the
      only place a running session says it is in Plan or Ask — remove these and the mode becomes
      something you can only discover by opening a menu. */
@@ -608,42 +700,54 @@ describe("Ara refresh §3/§4 geometry", () => {
     const plan = bodiesFor('.composer[data-mode="plan"]').join(" ");
     expect(ask).toContain("--rl-success");
     expect(plan).toContain("--rl-warning");
-    // And the "+" menu's row names it in words, which is where BUILD — the untinted default — is read.
-    const value = bodiesFor(".plus-submenu-value").join(" ");
-    expect(value).toContain("margin-left: auto");
-    expect(bodiesFor('.plus-submenu-value[data-mode="plan"]').join(" ")).toContain("var(--rl-warning)");
-    expect(bodiesFor('.plus-submenu-value[data-mode="ask"]').join(" ")).toContain("var(--rl-success)");
+    // And the "+" menu's Mode section names it in words, which is where BUILD — the untinted default
+    // — is read, with each read-only mode's mark in the tone the card wears for it.
+    expect(bodiesFor('.mode-mark[data-mode="plan"]').join(" ")).toContain("var(--rl-warning)");
+    expect(bodiesFor('.mode-mark[data-mode="ask"]').join(" ")).toContain("var(--rl-success)");
   });
 
-  it("a hovered chip is the same chip lifted, never a new shape", () => {
-    // Both chips now lift the same way, because both now ARE the same chip. A picked element used
-    // to be a grey inset box behind a hairline, which in a prompter that already renders inline
-    // code that way read as code — and it is not code, it is something the user pointed at and is
-    // about to send. They are told apart by what they say, not by two treatments to learn.
-    // With no fill to lift, the hover is an underline — the one affordance a metric-free run may
-    // wear — and it is the same underline for both.
-    for (const sel of [".ch-element[data-hot]", ".ch-mention[data-hot]"]) {
-      expect(bodiesFor(sel).join(" "), sel).toContain("text-decoration: underline");
-    }
-    // At rest this run wears no pill, and growing one under the pointer would read as an element
-    // chip — a token that resolves to nothing dressing up as one that resolves to something.
-    expect(bodiesFor(".ch-mention-stale[data-hot]").join(" ")).not.toContain("box-shadow");
+  it("a hovered chip is the same chip lifted, never a new shape — and never underlined", () => {
+    /* One rule for every kind, and all it moves is the fill, toward the chip's own tone. An underline
+       is the web's "this is a hyperlink", and the pointer is over a mirror that takes no clicks: the
+       gesture a chip's hover announces takes the CHIP (a click selects it, its × removes it). THE
+       mutant: an underline back on a hovered run, which was the old affordance. */
+    const hot = RULES.filter((r) => r.selectors.some((sel) => sel.includes(".ch-") && sel.includes("[data-hot]")));
+    expect(hot.length).toBeGreaterThan(0);
+    for (const r of hot) expect(r.body, r.selectors.join(", ")).not.toContain("text-decoration");
+    const lift = bodiesFor(":is(.ch-mention, .ch-mention-stale, .ch-element, .ch-slash)[data-hot]").join(" ");
+    expect(lift).toContain("--chip-fill: color-mix(in oklab, var(--chip-tint), var(--chip-tone)");
+    // …and the mark gives its slot to the × at once, the way a hover arrives, rather than both
+    // drawing in one place — and comes back on the shared swap's rung, not a copy of it.
+    const mark = bodiesFor(":is(.ch-mention, .ch-mention-stale, .ch-element)[data-hot] .chip-mark").join(" ");
+    for (const decl of ["opacity: 0", "transition-duration: 0s"]) expect(mark).toContain(decl);
+    expect(RULES.find((r) => r.selectors.includes(".icon-swap > *"))!.selectors).toContain(".chip-sigil > .chip-mark");
   });
 
-  it("a hovered LINK chip lifts without underlining — it is not a hyperlink", () => {
-    /* The one chip that already looks like a link: an app's mark and accent ink. An underline on top
-       is the web's "this is a hyperlink", and that is a promise the run does not keep — the pointer
-       is over a mirror that takes no clicks, and the gesture the highlight announces takes the CHIP
-       rather than opening the URL. THE mutant is the rule being dropped, which puts the underline
-       straight back via `.ch-element[data-hot]`. */
-    const body = bodiesFor(".ch-element[data-service][data-hot]").join(" ");
-    expect(body).toContain("text-decoration: none");
-    // …and it still says "target" some other way, or the affordance is simply gone.
-    expect(body).toMatch(/background:/);
-    // The override has to outrank the underline it is overriding: same layer, more specific.
-    const generic = RULES.findIndex((r) => r.selectors.includes(".ch-element[data-hot]"));
-    const link = RULES.findIndex((r) => r.selectors.includes(".ch-element[data-service][data-hot]"));
-    expect(link, "the link rule must come after the one it overrides").toBeGreaterThan(generic);
+  it("a chip's sigil is never an atomic inline — the mirror may not wrap where the textarea cannot", () => {
+    /* An inline-block is an atomic inline, and the line breaker may break on either side of one. The
+       textarea reads `@mac` as one word and moves it to the next line whole; a mirror whose `@` was an
+       inline-block broke after it, and from there every painted glyph sat a line off the caret. The
+       mark only needs a positioned box to hang from, and an inline one is that. */
+    const body = bodiesFor(".chip-sigil").join(" ");
+    expect(body).toContain("position: relative");
+    expect(body).not.toMatch(/display:\s*inline-(block|flex|grid)/);
+    /* …and the line may not break after the out-of-flow mark either, which Chromium allows. The
+       sigil and the name's first glyph are held together by wrap mode alone — `white-space: nowrap`
+       would also collapse the spaces a hand-typed label holds, and the mirror would come up short. */
+    const lead = bodiesFor(".chip-lead").join(" ");
+    expect(lead).toContain("text-wrap-mode: nowrap");
+    expect(lead).not.toContain("white-space");
+  });
+
+  it("a chip selected whole lights in its own shape, and the textarea's square selection steps aside", () => {
+    /* 14-prompter-element-chip-and-full-access.png: the "square thing" was the textarea's own
+       selection rectangle, drawn over the chip a click had just selected. For exactly that range the
+       textarea's selection goes transparent and the chip draws its selected state instead.
+       THE mutant: drop the transparent selection, which puts the rectangle back over the pill. */
+    expect(bodiesFor(".composer-input[data-chip-selected]::selection").join(" ")).toContain("background: transparent");
+    const selected = bodiesFor(".composer-editor:focus-within :is(.ch-mention, .ch-mention-stale, .ch-element, .ch-slash)[data-selected]").join(" ");
+    expect(selected).toContain("--chip-fill: color-mix(in oklab, var(--chip-tint), var(--chip-tone)");
+    expect(selected).toContain("--chip-ink: var(--rl-text-bright)");
   });
 
   it("the prompter's column gives up MORE width than the zoom already takes", () => {
@@ -680,6 +784,39 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(input).toContain("padding: 14px 16px 10px");
   });
 
+  it("the prompter's text is set at the medium rung, on the box both layers inherit from", () => {
+    /* Asked for by name: medium, not regular, inside the prompter. It goes on `.composer-editor` and
+       on neither layer under it, because the mirror's glyphs have to sit exactly under the textarea's
+       caret — THE mutant is the weight on the mirror alone (or the textarea alone), which paints
+       every run a few pixels off the caret by the end of a line. Through the ladder, never a literal,
+       so the font-weight preference still reaches it. */
+    expect(bodiesFor(".composer-editor").join(" ")).toContain("font-weight: var(--fw-medium)");
+    for (const layer of [".composer-highlight", ".composer-input", ".composer-hint"]) {
+      const body = bodiesFor(layer).join(" ");
+      expect(body, layer).toContain("font: inherit");
+      expect(body, layer).not.toContain("font-weight");
+    }
+  });
+
+  it("the prompter's popover lists dissolve at their ends, inside a surface that does not", () => {
+    /* 15-skills-popover-cutoff.png: the skill list's last row was cut by its footer. Each list is the
+       SCROLLER, so the mask fades rows into the field and the footer while the card keeps its fill
+       and corner; its scroll-padding is the band's own depth, so a row brought into view by the
+       keyboard lands clear of the band rather than half inside it. */
+    for (const list of [".skill-picker-list", ".mention-list"]) {
+      const body = bodiesFor(list).join(" ");
+      expect(body, list).toMatch(/overflow-y: auto/);
+      const depth = /--fade-h: (\d+)px/.exec(body)?.[1];
+      expect(depth, list).toBeDefined();
+      expect(body, list).toContain(`--fade-top-h: ${depth}px`);
+      expect(body, list).toContain(`scroll-padding-block: ${depth}px`);
+    }
+    // THE mutant: the scroller back on the surface — the mask would take the card's own edge with it.
+    const surface = bodiesFor(".mention-picker").join(" ");
+    expect(surface).toContain("overflow: hidden");
+    expect(surface).not.toMatch(/overflow-y: auto/);
+  });
+
   it("an app-level page is the BOTTOM of the overlay stack, not the top", () => {
     /* THE BUG this pins, which was four bugs wearing one number: the page overlay sat at z-index 200,
        above every floating surface in the app. Quick chat opened behind Settings, ⌘K opened behind
@@ -689,7 +826,7 @@ describe("Ara refresh §3/§4 geometry", () => {
     const rung = (sel: string) => Number(/z-index:\s*(\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
     const page = rung(".page-overlay");
     expect(page).toBeGreaterThan(rung(".session-usage-panel")); // …and over the tallest thing in a pane
-    for (const above of [".sheet-backdrop", ".palette-backdrop", ".spaces-backdrop", ".media-lightbox", ".quick-chat", ".menu"]) {
+    for (const above of [".sheet-backdrop", ".palette-backdrop", ".spaces-backdrop", ".media-viewer", ".quick-chat", ".menu"]) {
       expect(rung(above), `${above} must float over a page`).toBeGreaterThan(page);
     }
   });
@@ -860,6 +997,76 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect([...new Set(tooSmall)].sort(), "below the 11px floor — raise it, or name the geometry that forbids it").toEqual([]);
   });
 
+  it("every size is a rung of the type ladder — no half-pixel steps a reader cannot tell apart", () => {
+    /* The floor stopped sizes going below 11; nothing stopped them multiplying above it. The app had
+       grown 11, 11.5, 12, 12.5, 13 and 13.5 — six sizes in a 2.5px band, used interchangeably, so two
+       labels doing the same job in two places were half a pixel apart and read as a mistake rather
+       than as a distinction. The ladder is design.md's: 11 tiny, 12 caption, 13 small UI, 14 body,
+       15 reading, then the four title rungs. Below 11 is the floor test's business, and its named
+       exceptions stand here too. THE mutant: put any one rule back at 12.5. */
+    const LADDER = new Set([11, 12, 13, 14, 15, 18, 20, 24, 28]);
+    const EXEMPT = new Set([".md-cite", ".attach-ext", ".cal-month", ".cal-weekday", ".chart-tick",
+      ".summary-step-mark", ".tile-title",
+      // A display numeral: the one figure on the usage page that is the page's subject.
+      ".stat-value-hero",
+      // Plan 26's readable-type redesign of Settings, the Library, Memory, Usage and first run set
+      // these by name (Settings in Codex's grammar: notes at 12.5, rail tabs at 13.5, a first-run step
+      // head at 17). They are the owner's sizes, kept as stated — named here one by one, so a NEW
+      // half step anywhere else still fails.
+      ".agent-card-by",
+      ".agent-card-note",
+      ".agent-card-tail",
+      ".budget-input",
+      ".budget-line",
+      ".budget-note",
+      ".budget-threshold",
+      ".budget-thresholds legend",
+      ".failover-note",
+      ".filter-chip",
+      ".library-more",
+      ".library-row-name",
+      ".library-row-time",
+      ".memory-doc-status",
+      ".memory-fact-label",
+      ".memory-fact-sub",
+      ".memory-reader",
+      ".memory-space-here",
+      ".memory-space-size",
+      ".onboarding-note",
+      ".onboarding-step-head",
+      ".onboarding-step-sub",
+      ".page-empty p",
+      ".page-rail .settings-tab",
+      ".sb-page-nav .page-rail-head",
+      ".scope-move",
+      ".settings-hint",
+      ".settings-result-place",
+      ".settings-row-problem",
+      ".stat-delta",
+      ".stat-label",
+      ".tcc-state",
+      ".usage-card-head .usage-card-sub",
+      ".usage-caveats p",
+      ".usage-table thead th"]);
+    const off = RULES
+      .flatMap((r) => [...r.body.matchAll(/(?:font-size:|\bfont:)\s*(?:var\([^)]*\)\s+)?([\d.]+)px/g)]
+        .filter((m) => !LADDER.has(Number(m[1])))
+        .flatMap(() => r.selectors))
+      .filter((sel) => ![...EXEMPT].some((e) => sel.includes(e)));
+    expect([...new Set(off)].sort(), "off the type ladder — pick a rung").toEqual([]);
+  });
+
+  it("no label is set in tracked capitals — a section is named in sentence case", () => {
+    /* design.md rejects all-caps tracked eyebrows, and nineteen rules wore them: the palette's
+       sections, the model picker's groups, table heads, kind tags. A quiet sentence-case label at the
+       caption rung names a section as clearly and does not shout over the rows it heads. Uppercase
+       also hid raw source strings — an import row printed its "space-folder" enum for months because
+       the transform made it look like a label. One exception, typography rather than taste: a file
+       extension on an attachment tile ("PDF"), which is an acronym in any case. */
+    const caps = RULES.filter((r) => /text-transform:\s*uppercase/.test(r.body)).flatMap((r) => r.selectors);
+    expect(caps).toEqual([".attach-ext"]);
+  });
+
   it("the weight ladder is four named rungs on tembo's values — no bare weight survives in a component rule", () => {
     const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
     // 450/500/560/600. The old 500/550/600/650 spread had two rungs nobody could tell apart.
@@ -883,8 +1090,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(tokens).toContain("--hairline-w: 0.5px");
     expect(tokens).toMatch(/--shadow-hairline: 0 0 0 var\(--hairline-w\) var\(--line\)/);
     // The border ramp is derived from the overlay ladder, not from a solid grey.
-    expect(tokens).toMatch(/--line: var\(--overlay-lighten-300\)/);
-    expect(tokens).toMatch(/:root\[data-mode="light"\] \{[^}]*--line: var\(--overlay-darken-200\)/);
+    // One rung softer than tembo's in both faces (border-softness-live.mjs measured the old pair).
+    expect(tokens).toMatch(/--line: var\(--overlay-lighten-200\)/);
+    expect(tokens).toMatch(/:root\[data-mode="light"\] \{[^}]*--line: var\(--overlay-darken-100\)/);
   });
 
   it("type carries per-size tracking and explicit line heights, not one em-relative value for the whole document", () => {
@@ -920,6 +1128,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The video scrubber's fill (MediaView.tsx): the played fraction, set inline per frame so the
       // track and the knob are one box and cannot drift out of register.
       "--media-progress",
+      // The rubber-band's offset (rubber-band.ts): written on the scroller per wheel event and per
+      // spring frame, and only while the content is past an end.
+      "--rubber",
       // The decorative wash's geometry (theme/grain.ts): drawn once per launch per surface and set
       // inline, because a value that is randomised cannot be written in a stylesheet. Every one is
       // used with a fallback, so a surface that never receives them is still a finished surface.
@@ -929,6 +1140,11 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // with a 0% fallback, so a slider that never receives it is an empty track rather than a
       // broken one.
       "--fill",
+      // Where a point sits on the model picker's effort track (ModelPicker.tsx's `EffortTrack`): the
+      // fill, the knob and each dot carry their own fraction of the run, set inline because the
+      // number of levels is the model's, not the stylesheet's. Used with a 0 fallback, so a track
+      // that never receives it is empty rather than broken.
+      "--at",
       // The pane glyph's grid shape (sidebar/ItemList.tsx): how many columns and rows the layout
       // actually has, set inline because the mark is a picture of a tree that changes per item.
       // Both carry a fallback of 1, so a glyph that never receives them is still a single cell.
@@ -970,85 +1186,323 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // real pixels, which only the laid-out tile has. Carries a `none` fallback, so a tile measured
       // before layout is unclipped rather than clipped away to nothing.
       "--attach-clip",
+      // How far an update's download has got (Rail.tsx, RailUpdate): main's own percentage, set inline
+      // as it arrives, with a 0% fallback for the moment before main has said.
+      "--update-progress",
+      // A terminal's ink and sixteen colours, and the share faint text keeps (terminal-hub.ts, from
+      // terminal-palette.ts): set on each terminal's host, because they are computed from the live
+      // theme's tokens and must reach the terminals already open when it changes. Each carries a
+      // fallback — the span's own colour, and xterm's own half — so a host that never receives them
+      // draws faint text exactly as xterm would.
+      "--term-fg", "--term-dim", ...Array.from({ length: 16 }, (_, i) => `--term-ansi-${i}`),
+      // A drawn diagram's own width (panes/session/rich/UiBlock.tsx): Mermaid's viewBox, set inline
+      // because the drawing's size is the diagram's and not the stylesheet's; the rule that shrinks it
+      // to four fifths and then scrolls is arithmetic on that one number.
+      "--diagram-w",
+      // How much of its list a model picker held after a pick keeps (ModelPicker.tsx's `floor`), and
+      // the room it leaves under the last row (`slack`): both read off the laid-out list at the pick.
+      // Used with 0px fallbacks, so a held picker that never receives them is merely unpadded.
+      "--mp-floor", "--mp-slack",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
   });
 
-  it("collapsing costs no height: no rail, and a corner overlay that clears the lights", () => {
-    // The rail spent 38px of window HEIGHT, full width, to hold one button — a permanent strip across
-    // every pane bought so the traffic lights would not land on pane chrome. Its return is the
-    // regression this pins; sidebar-collapsed-live.mjs measures that the panes really start at y=0.
-    expect(RULES.some((r) => r.selectors.some((s) => s.includes(".sb-rail")))).toBe(false);
-    /* …and the shell no longer changes axis: collapsed is the same row with the column taken out.
-       Read off the rule set rather than through `bodiesFor`, which requires the selector to exist:
-       the collapsed shell has no properties of its own any more — `--corner-w` moved to `:root` so
-       the portalled page could reach it — and "no rule at all" satisfies this just as well. */
-    expect(RULES.filter((r) => partsOf(r).includes(".app[data-sidebar-collapsed]"))
-      .every((r) => !r.body.includes("flex-direction"))).toBe(true);
-    const corner = bodiesFor(".sb-corner").join(" ");
-    expect(corner).toContain("position: absolute");
-    expect(corner).toContain("height: 40px");      // the band trafficLightPosition y:14 centres in
-    expect(corner).toContain("padding-left: 76px"); // clears the lights before the toggle starts
-    // The window must still be draggable by its own top-left, and the toggle still clickable inside it.
-    expect(corner).toContain("-webkit-app-region: drag");
-    expect(bodiesFor(".sb-corner button").join(" ")).toContain("-webkit-app-region: no-drag");
-    // An absolutely positioned corner is only in the window's corner if the shell is its containing block.
-    expect(bodiesFor(".app").join(" ")).toContain("position: relative");
+  it("a page's bar moves the window, as the pane bars it covers do, and anything put in it still clicks", () => {
+    /* A page (Connections, Library, Settings…) covers the pane host, whose panes — and with them their
+       draggable bars — are hidden while it is up. Its own bar is the window's top row then, and with
+       no region of its own the band held still everywhere but the sidebar's head (reported 10-04). It
+       holds only the page's name now (page-overlay.test.tsx), and stays a drag region all the way
+       across. THE mutants: the bar's `drag` dropped, or a button put back in it left inside it. */
+    expect(bodiesFor(".page-overlay-bar").join(" ")).toContain("-webkit-app-region: drag");
+    expect(bodiesFor(".page-overlay-bar button").join(" ")).toContain("-webkit-app-region: no-drag");
   });
 
-  it("the corner that brings the sidebar back outranks an app-level page", () => {
-    /* THE BUG: open Agents, collapse the sidebar, and there is no way to open it again. A page takes
-       the whole window when the sidebar is collapsed (`.page-overlay[data-sidebar-collapsed]` has
-       `inset: 0`), and the corner sat at z-index 5 — painted over and, worse, hit-tested to the page.
-       The corner is window chrome, beside the traffic lights the OS draws over everything; it yields
-       to the scrims and to nothing else. */
+  it("a folded sidebar takes no part in the window's drag regions, so the rail's buttons stay clickable", () => {
+    /* Electron lays drag regions down in DOCUMENT order, not stacking order. The folded column slides
+       under the rail, and the rail comes first in the DOM, so a drag region left on the column covers
+       the rail's buttons again and macOS takes a click on them for the start of a window drag: the
+       toggle folded the sidebar and could not bring it back (reported 10-04). A live check cannot
+       see this — CDP's clicks go straight into the page and never meet the OS's regions — so the
+       rule is held here. THE mutant: the column's own `drag` left in force while it is folded. */
+    expect(bodiesFor(".sidebar").join(" ")).toContain("-webkit-app-region: drag");
+    // `initial`, which is no region at all. An explicit `none` computes as `no-drag` in this Chromium
+    // (measured): clickable, but a hole in the rail's own drag region wherever the column sits.
+    expect(bodiesFor(".sidebar[data-collapsed]").join(" ")).toContain("-webkit-app-region: initial");
+    // And everything in it: a drag band inside would cover the rail just the same, and a no-drag
+    // button would punch it.
+    expect(bodiesFor(".sidebar[data-collapsed] *").join(" ")).toContain("-webkit-app-region: initial");
+  });
+
+  it("the rail is as narrow as its icons, an even margin round each, and the lights run on across the top row", () => {
+    /* The owner, 10-04: the rail was wider than it should be, with more room either side of its icons
+       than between them. It is Codex's now: 36px buttons with the same 8px beside them as between and
+       above them, which makes it narrower than the traffic lights (main places them at x:12, y:14; they
+       run to ~66px). So the lights cross into the top row, which is the WINDOW's — back and forward sit
+       just past them (`.window-lead`), and whatever the row holds under them makes room (the next test).
+       THE mutants: the old 76px rail, uneven margins, or a lead that starts under the lights. */
+    const rail = bodiesFor(".app-rail").join(" ");
+    expect(rail).toContain("width: var(--rail-w)");
+    const root = RULES.filter((r) => r.selectors.includes(":root")).map((r) => r.body).join(" ");
+    const px = (name: string) => Number(new RegExp(`${name}: (\\d+)px`).exec(root)?.[1]);
+    const railW = px("--rail-w");
+    expect(bodiesFor(".rail-btn").join(" ")).toContain("width: 36px; height: 36px");
+    const gap = Number(/gap: (\d+)px/.exec(bodiesFor(".rail-group").join(" "))?.[1]);
+    expect((railW - 36) / 2, "the margin beside an icon is the gap between two").toBe(gap);
+    // The first destination sits the same step below the head row.
+    expect(rail).toContain(`padding: calc(var(--frame-top) + ${gap}px) 0 ${gap}px`);
+    expect(railW).toBeLessThan(px("--lights-end"));
+    expect(root).toContain("--lead-x: calc(var(--lights-end) + 10px)");
+    expect(bodiesFor(".window-lead").join(" ")).toContain("left: var(--lead-x)");
+    // The window is still draggable by its own left edge, and the rail's buttons still clickable.
+    expect(rail).toContain("-webkit-app-region: drag");
+    expect(bodiesFor(".app-rail button").join(" ")).toContain("-webkit-app-region: no-drag");
+    // The rail wears the window's rounded corners now; the sidebar beside it is square.
+    expect(rail).toContain("border-radius: var(--r-float) 0 0 var(--r-float)");
+    expect(bodiesFor(".sidebar").join(" ")).not.toContain("border-radius");
+    // The rail stacks over the sidebar's column.
+    expect(rail).toContain("position: relative");
+    expect(rail).toMatch(/z-index: \d/);
+    /* …and the shell still does not change axis: collapsed is the same row with the column taken out.
+       Read off the rule set rather than through `bodiesFor`, which requires the selector to exist. */
+    expect(RULES.filter((r) => partsOf(r).includes(".app[data-sidebar-collapsed]"))
+      .every((r) => !r.body.includes("flex-direction"))).toBe(true);
+  });
+
+  it("the sidebar opens and closes as ONE box: its width, its slide and its head row's clip read one number", () => {
+    /* THE BUG (reported 10-04, with a video): the column slid out UNDER the rail on a negative margin,
+       so its rows and its head showed through the rail's translucent ground, passing beneath the
+       destinations and the traffic lights; and its head faded on its own clock over the page's bar.
+       Now the column is a box that clips what it holds, its width a fraction of the sidebar's, and the
+       one wrapper inside it slides with that edge — the fraction registered, so it interpolates, and
+       one transition on it moves all three together. THE mutants: the clip dropped (the slide is drawn
+       over the rail), the old margin back, or a second clock on any part. */
+    expect(css).toMatch(/@property --sidebar-open \{ syntax: "<number>"; inherits: true; initial-value: 1; \}/);
+    const column = bodiesFor(".sidebar").join(" ");
+    expect(column).toContain("width: calc(var(--sidebar-w) * var(--sidebar-open))");
+    expect(column).toContain("overflow: hidden");
+    expect(column).toContain("transition: --sidebar-open var(--dur-move) var(--ease-in-out-strong)");
+    expect(column).not.toContain("margin-inline-start");
+    expect(column).not.toMatch(/(^|;)\s*opacity/);
+    expect(bodiesFor(".sidebar[data-collapsed]").join(" ")).toContain("--sidebar-open: 0");
+    const slide = bodiesFor(".sidebar-slide").join(" ");
+    expect(slide).toContain("width: var(--sidebar-w)");
+    expect(slide).toContain("translate: calc(var(--sidebar-w) * (var(--sidebar-open) - 1)) 0");
+    // Nothing inside keeps a clock of its own.
+    for (const sel of [".sidebar-slide", ".sb-header", ".sb-list"]) {
+      expect(RULES.filter((r) => r.selectors.includes(sel)).map((r) => r.body).join(" "), sel).not.toContain("transition");
+    }
+    // The frame changes hands once the column has gone, never at the click (App.tsx, useSidebarFolded).
+    const handedAtClick = RULES.flatMap(partsOf).filter((sel) => sel.includes("[data-sidebar-collapsed]")
+      && /(\.main|\.page-overlay)(::|\s|$)/.test(sel) && !sel.endsWith("-bar"));
+    expect(handedAtClick).toEqual([]);
+  });
+
+  it("a page hides the panes' bars and their dividers, which would otherwise run up through its clear bar", () => {
+    // Reported in the live check: a split's divider drawn as a stray rule across the page's top row.
+    expect(bodiesFor(":root:has(.page-overlay) .main .panel-bar").join(" ")).toContain("visibility: hidden");
+    expect(bodiesFor(":root:has(.page-overlay) .main .resize-handle").join(" ")).toContain("visibility: hidden");
+  });
+
+  it("the column stands a hair above the rail: its LEFT edge casts a light shade over the rail, and the panes' edge takes none", () => {
+    /* The owner, 10-05, circling the shade at the column's right edge: "I want that to be on the left
+       side instead, on the outside of it. This will make it feel a little bit elevated." So the column
+       casts it, outward over the rail, from a box of its own shape: below the 40px head row (chrome
+       across the window, casting nothing and taking nothing), its corner rounded as the rim's is, and
+       cast to the LEFT only — offset that way, pulled in by its spread so nothing reaches above the
+       rim, and clipped to its left side. Its width is the column's on every frame of the fold, and
+       folded away there is none. `sidebar-shade-live.mjs` measures the pixels. THE MUTANTS: the shade
+       back on the panes' edge, cast up into the head row or down, square at the corner (a band drawn
+       into it), on a width of its own (a shade where the column has gone), under the rail, or kept
+       while folded. */
+    // One place casts it, and it is not the panes'.
+    expect(RULES.filter((r) => r.body.includes("var(--seam-shade)")).flatMap(partsOf)).toEqual([".sidebar-shade"]);
+    expect(RULES.flatMap(partsOf).filter((sel) => sel.includes(".main::after") && !sel.includes("[data-sidebar-folded]") && !sel.includes("[data-first-run]"))).toEqual([]);
+    const shade = bodiesFor(".sidebar-shade").join(" ");
+    // Out of the column's clip (it lies outside the column) and against the window, the column's box.
+    expect(shade).toContain("position: fixed");
+    expect(shade).toContain("pointer-events: none");
+    expect(shade).toContain("top: var(--frame-top); bottom: 0; left: var(--rail-w)");
+    expect(shade).toContain(`width: ${/width: (calc\([^;]+\))/.exec(bodiesFor(".sidebar").join(" "))?.[1]}`);
+    expect(shade).toContain("border-top-left-radius: var(--frame-r)");
+    expect(bodiesFor(".sidebar::before").join(" ")).toContain("border-top-left-radius: var(--frame-r)");
+    // Left by its own width, no rise or drop, a spread that takes back what the blur would spill.
+    expect(shade).toContain("box-shadow: calc(-1 * var(--seam-w)) 0 calc(var(--seam-w) / 2) calc(var(--seam-w) / -2) var(--seam-shade)");
+    expect(shade).toContain("clip-path: inset(0 0 0 calc(-1 * var(--seam-w)))");
+    // Over the rail it falls on, under everything that floats (a page is the bottom of that stack).
     const rung = (sel: string) => Number(/z-index:\s*(\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
-    expect(rung(".sb-corner")).toBeGreaterThan(rung(".page-overlay"));
+    expect(rung(".sidebar-shade")).toBeGreaterThan(rung(".app-rail"));
+    expect(rung(".sidebar-shade")).toBeLessThan(rung(".page-overlay"));
+    expect(bodiesFor(".app[data-sidebar-folded] .sidebar-shade").join(" ")).toContain("display: none");
+    // Its own alpha per face: the same black reads far heavier on the light ground.
+    const alpha = (block: string) => Number(/--seam-shade: oklch\(0 0 0 \/ ([\d.]+)\)/.exec(block)?.[1]);
+    const dark = alpha(bodiesFor(":root").join(" "));
+    const light = alpha(bodiesFor(':root[data-mode="light"]').join(" "));
+    expect(dark).toBeGreaterThan(0);
+    expect(light).toBeGreaterThan(0);
+    expect(light).toBeLessThan(dark);
+    /* Very light means very light: the depth the panes' shade had once the owner found the first cut a
+       touch heavy (10-04) — 0.062 dark and 0.0095 light there — matched on the rail, which in dark is
+       a step lighter than the panes, so it takes less. THE mutant: the panes' alpha carried over. */
+    expect(dark).toBeLessThan(0.062);
+    expect(light).toBeLessThanOrEqual(0.0095);
+  });
+
+  it("an app-level page is laid out in the panes' column: it moves with them and never covers the rail", () => {
+    /* THE BUG this pins (reported 10-04, with a video): the page was a window-fixed layer inset by
+       numbers of its own, so at a sidebar toggle it jumped to its final edge on the first frame while
+       the panes it covers were still moving — they flashed through beside it — and its bar's title
+       jumped with it. Inside `.main` (App.tsx), at `inset: 0`, it is the panes' box on every frame.
+       THE mutant: `position: fixed` and an inset again. */
+    const page = bodiesFor(".page-overlay").join(" ");
+    expect(page).toContain("position: absolute");
+    expect(page).toContain("inset: 0;");
+    expect(page).not.toContain("position: fixed");
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".page-overlay[data-sidebar")))).toEqual([]);
+    const rung = (sel: string) => Number(/z-index:\s*(\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
+    // The rail is chrome, not a floating surface: every scrim still covers it.
     for (const modal of [".sheet-backdrop", ".palette-backdrop"]) {
-      expect(rung(modal), `${modal} still covers the corner`).toBeGreaterThan(rung(".sb-corner"));
+      expect(rung(modal), `${modal} no longer covers the rail`).toBeGreaterThan(rung(".app-rail"));
+    }
+    // The window's lead (back, forward, the toggle) stays above a page and under every scrim.
+    expect(rung(".window-lead")).toBeGreaterThan(rung(".page-overlay"));
+    expect(rung(".window-lead")).toBeLessThan(rung(".sheet-backdrop"));
+  });
+
+  it("whatever the top row holds under the window's lead makes room for it, on the column's own timing", () => {
+    /* The lights, back and forward are the window's (WindowLead), so each thing that can sit under
+       them clears them: the sidebar's head row clips what it draws past the lead (and the clip rides
+       the slide, so it stays put on the window while the row moves), and — while the sidebar is away —
+       the first pane's bar or a page's bar starts its content past the lead and the toggle. Their
+       padding moves on the column's own duration and curve, so a title travels with the edge instead
+       of jumping to its final place at the click. THE mutants: no room made (a title under the lead),
+       or room made on a different timeline (the title arrives before or after the edge). */
+    expect(bodiesFor(".sb-header").join(" ")).toContain("clip-path: inset(0 0 0 calc(var(--lead-nav-end) - var(--rail-w) + var(--sidebar-w) * (1 - var(--sidebar-open))))");
+    for (const bar of [".app[data-sidebar-collapsed] .panel[data-first-leaf] > .panel-bar", ".app[data-sidebar-collapsed] .page-overlay-bar"]) {
+      expect(bodiesFor(bar).join(" "), bar).toContain("padding-left: calc(var(--lead-end) - var(--rail-w))");
+    }
+    const column = bodiesFor(".sidebar").join(" ");
+    const timing = /transition: --sidebar-open (var\(--dur-move\) var\(--ease-in-out-strong\))/.exec(column)?.[1];
+    expect(timing).toBeTruthy();
+    for (const bar of [".panel[data-first-leaf] > .panel-bar", ".page-overlay-bar"]) {
+      expect(bodiesFor(bar).join(" "), bar).toContain(`transition: padding-left ${timing}`);
+    }
+    // The old corner overlay is still gone: one way of making room, not two.
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".sb-corner")))).toEqual([]);
+    expect(css).not.toContain("--corner-w");
+    // Every strip at the top of the window is still 40px: main places the lights once at y:14 and
+    // never moves them, which centres them in a 40px band — the rail's, beside the sidebar's header
+    // and the first pane's bar.
+    expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
+  });
+
+  it("the Scheduled and Code review columns are the sidebar's in its slot — its ground, edge, width and dissolve", () => {
+    /* The owner, 10-05: the Scheduled page's column "looks darker, there is no corner rounding … It is
+       supposed to be the replacement sidebar, not like its own custom thing. Same for the code review
+       part." In the slot (page-nav.tsx) each column gives up the frame's ground, its hairline edge and
+       its fixed width — the sidebar's ground, corner and seam are under it then, and its width the
+       sidebar's, resizer and all — and the slot neither insets it again nor scrolls it, since the
+       column brings its own head and scroller. That scroller dissolves on the spaces list's depths.
+       THE MUTANTS: the column's own ground or edge kept in the slot (the darker second sidebar), its
+       fixed width kept (a column narrower or wider than the sidebar), or the slot's inset doubling the
+       column's own. */
+    const slot = bodiesFor(".sb-page-nav:has(> :is(.sched-col, .cr-col))").join(" ");
+    expect(slot).toContain("padding: 0");
+    expect(slot).toContain("overflow: hidden");
+    const col = bodiesFor(".sb-page-nav > :is(.sched-col, .cr-col)").join(" ");
+    for (const want of ["flex: 1", "width: auto", "background: none", "border-right: 0"]) expect(col, want).toContain(want);
+    // Standing in the page, with the sidebar folded away, each keeps the ground and edge it had.
+    for (const sel of [".sched-col", ".cr-col"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("background: var(--rl-frame)");
+      expect(bodiesFor(sel).join(" "), sel).toContain("border-right: var(--hairline-w) solid var(--rl-line)");
+    }
+    const depth = (body: string, v: string) => new RegExp(`${v}: (\\d+px)`).exec(body)?.[1];
+    const list = bodiesFor(".sb-page").join(" ");
+    const bodies = bodiesFor(".sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-body, .cr-col-body)").join(" ");
+    expect(depth(bodies, "--fade-h")).toBe(depth(list, "--fade-h"));
+    expect(depth(bodies, "--fade-top-h")).toBe(depth(list, "--fade-top-h"));
+    // …and its bar the column's own narrow one, the spaces list's — not the 10px channel every other
+    // dissolving scroller takes, which in the live check stood out down Code review's long list.
+    const GUARD = ":root:not([data-overlay-scrollbars])";
+    for (const body of [".sb-page-nav > .sched-col > .sched-col-body", ".sb-page-nav > .cr-col > .cr-col-body"]) {
+      expect(bodiesFor(`${GUARD} ${body}::-webkit-scrollbar`).join(" "), body).toBe(bodiesFor(`${GUARD} .space-body::-webkit-scrollbar`).join(" "));
+      expect(bodiesFor(`${GUARD} ${body}::-webkit-scrollbar-thumb`).join(" "), body).toBe(bodiesFor(`${GUARD} .space-body::-webkit-scrollbar-thumb`).join(" "));
     }
   });
 
-  it("exactly one strip reserves the lights — whichever is at the top of the main column", () => {
-    // :first-child on each candidate is what keeps the three mutually exclusive: an error bar pushes
-    // the others down, and only the strip actually under the lights may be indented.
-    const owners = RULES.filter((r) => r.body.includes("padding-left: var(--corner-w)")).flatMap((r) => r.selectors);
-    expect(owners).toEqual([
-      ".app[data-sidebar-collapsed] .main > .error-bar:first-child",
-      ".app[data-sidebar-collapsed] .main > .group-bar:first-child",
-      ".app[data-sidebar-collapsed] .main > .panehost:first-child .panel[data-first-leaf] > .panel-bar",
-      /* A fourth candidate, and the only one outside the shell: an app-level page covers the whole
-         window while the sidebar is collapsed, so ITS bar is the strip under the lights then. It is
-         portalled to <body>, which is why it cannot be a fourth selector on the rule above and why
-         the width has to be a root token rather than one declared on `.app`. */
-      ".page-overlay[data-sidebar-collapsed] .page-overlay-bar",
-    ]);
-    // One declaration of the width, or the corner and the space reserved for it drift apart.
-    expect(RULES.filter((r) => r.body.includes("--corner-w:")).flatMap((r) => r.selectors)).toEqual([":root"]);
-    // Every strip the lights can land in is 40px. main places them once at y:14 and never moves them,
-    // which only works while that is true of all of them (see the comment on trafficLightPosition).
-    expect(bodiesFor(".sb-head").join(" ")).toContain("height: 40px");
-    expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
-    expect(bodiesFor(".app[data-sidebar-collapsed] .main > .group-bar:first-child").join(" ")).toContain("min-height: 40px");
+  it("every column's first row stands one depth under the rim, from one token, where a title's caps stand as far down as in", () => {
+    /* The owner, 10-06: "make sure we have the title of the page for the library here … increase the top
+       padding … so it looks more even", then "add some top padding to the profile switcher and where the
+       back button is". Measured on the ink (page-heads-live.mjs), a title 6px under the rim had its caps
+       14px down and its first glyph 25px in; at 17px, in the column's 30px first row, the caps are 25px
+       down. Every column's first row takes that one depth and is that one row — Home's profile, a Back,
+       the Library's name drawn by the column, and the heads Scheduled's and Code review's columns bring,
+       in the sidebar's slot and standing in the page — so going from Home to a page moves nothing, and
+       the names share one type. THE MUTANTS: the token back at 6px (the cramped heads); a head with a
+       literal top of its own (the first row jumping between Home and that page); a title's line off the
+       row's 30px (its name off the profile's line, and with no control beside it, a row shorter than the
+       others); the Library's title in a type of its own. */
+    const px = (body: string, re: RegExp) => Number(re.exec(body)?.[1]);
+    const root = RULES.filter((r) => r.selectors.includes(":root") && r.body.includes("--col-head-top")).map((r) => r.body).join(" ");
+    expect(root).toContain("--col-head-top: 17px");
+    // The profile and the Back: a 30px control each, at the token's depth.
+    const row = px(bodiesFor(".sb-profile").join(" "), /height: (\d+)px/);
+    expect(px(bodiesFor(".sb-page-back").join(" "), /height: (\d+)px/)).toBe(row);
+    expect(bodiesFor(".sb-title").join(" ")).toContain("padding-top: var(--col-head-top)");
+    expect(bodiesFor(".sb-page-head").join(" ")).toContain("padding: var(--col-head-top) 16px 0");
+    // A page's name at the same depth, its first glyph where every row's glyph starts — the list's inset
+    // and a row's own — and standing in the page with the column's own bottom kept.
+    const side = px(bodiesFor(".sb-page-nav").join(" "), /padding: \d+px (\d+)px 16px/) + px(bodiesFor(".sb-page-nav .page-rail .settings-tab").join(" "), /padding: \d+px (\d+)px/);
+    for (const sel of [".sb-page-head:has(> .sb-page-title)", ".sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-head, .cr-col-head)"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain(`padding: var(--col-head-top) 12px 0 ${side}px`);
+    }
+    for (const sel of [".sched-col-head", ".cr-col-head"]) expect(bodiesFor(sel).join(" "), sel).toContain(`padding: var(--col-head-top) 12px 6px ${side}px`);
+    // Nothing else in the stylesheet writes a first row's top for itself.
+    const heads = /^\.sb-title$|sb-page-head|(sched|cr)-col-head|sb-page-title/;
+    expect(RULES.filter((r) => r.selectors.some((sel) => heads.test(sel)) && /padding(-top|-block)?: \d/.test(r.body)).map((r) => r.selectors.join(", "))).toEqual([]);
+    // One type for the three names, from one rule, on a line the row's height.
+    const type = RULES.filter((r) => r.selectors.includes(".sb-page-title"));
+    expect(type).toHaveLength(1);
+    expect(type[0]!.selectors).toEqual(expect.arrayContaining([".sched-col-title", ".cr-col-title", ".sb-page-title"]));
+    for (const want of ["font-size: 18px", `line-height: ${row}px`, "font-weight: var(--fw-title)", "color: var(--rl-text-bright)"]) expect(type[0]!.body, want).toContain(want);
+    for (const sel of [".sched-col-title", ".cr-col-title"]) expect(bodiesFor(sel), sel).toEqual([type[0]!.body]);
   });
 
-  it("insets the split strip further than a tab's own padding, so no tab sits flush with the window", () => {
-    /* The strip runs to both edges of the window and its tabs are the only thing in it, so the bar's
-       inset is the entire gap between a tab's text and the frame. THE MUTANT: put either number back
-       under the tab's own 14px and the first tab's label lands within a couple of pixels of the
-       traffic lights on one side, or of the window edge on the other. */
-    const bar = bodiesFor(".group-bar").join(" ");
-    expect(bar).toContain("padding: 0 14px 0 16px");
-    expect(bar).toContain("min-height: 38px");
-    expect(bodiesFor(".group-tab").join(" ")).toContain("padding: 6px 14px");
-    // The ring's padding is paid back exactly, or the bar grows by it — see the rule's own comment.
-    const tabs = bodiesFor(".group-tabs").join(" ");
-    expect(tabs).toContain("padding-block: 4px");
-    expect(tabs).toContain("margin-block: -4px");
+  it("the window never scrolls: the shell is clipped at its own edges, without becoming a scroller", () => {
+    /* Measured live (10-05): a page rising in from 6px under its place overran the window's foot, the
+       document became scrollable by those 6px, and a classic scrollbar took 15px off the whole app
+       until the rise ended — a page's centred column jumped 7.5px. THE MUTANTS: no clip (the
+       scrollbar back), or `hidden`, which makes the shell a scroll container for every sticky header
+       inside it. */
+    const shell = bodiesFor(".app").join(" ");
+    expect(shell).toContain("overflow: clip");
+    expect(shell).not.toMatch(/overflow: (hidden|auto|scroll)/);
+    expect(bodiesFor(".page-overlay").join(" ")).toContain("animation: rl-page-in");
   });
 
-  it("the sidebar's right edge is a BORDER on .main, and only while the sidebar is there", () => {
+  it("navigation lands the column at once: the cut takes the motion off everything on the column's clock", () => {
+    /* The owner, 10-05, with a video: a page with no sidebar drew itself at once while the spaces
+       folded shut beside it, and a page whose sections take the column unfolded them beside a page
+       already drawn. A change navigation makes is a cut (App.tsx, `useSidebarCut`), and under it
+       nothing that moves with the column moves — the column, the bars that make room for the lead and
+       the toggle arriving in the lead — while the person's own toggle keeps all of it (above). Read
+       off the rule set, so a part given the column's timing later is held to the cut as well.
+       THE MUTANTS: any one of them left moving, or the page that takes the sidebar with it still
+       rising in over the panes taking its room. */
+    const onTheColumnsClock = RULES.filter((r) => /transition: (--sidebar-open|padding-left) var\(--dur-move\) var\(--ease-in-out-strong\)/.test(r.body))
+      .flatMap(partsOf);
+    expect(onTheColumnsClock).toEqual(expect.arrayContaining([".sidebar", ".panel[data-first-leaf] > .panel-bar", ".page-overlay-bar"]));
+    for (const sel of onTheColumnsClock) {
+      const cut = RULES.filter((r) => partsOf(r).some((p) => p === `.app[data-sidebar-cut] > ${sel}` || p === `.app[data-sidebar-cut] ${sel}`));
+      expect(cut.map((r) => r.body).join(" "), sel).toContain("transition: none");
+    }
+    expect(bodiesFor(".window-lead > .icon-btn").join(" ")).toContain("animation: rl-lead-in");
+    expect(bodiesFor(".app[data-sidebar-cut] > .window-lead > .icon-btn").join(" ")).toContain("animation: none");
+    expect(bodiesFor(".page-overlay").join(" ")).toContain("animation: rl-page-in");
+    expect(bodiesFor(".page-overlay[data-cut]").join(" ")).toContain("animation: none");
+  });
+
+  it("the left chrome's edge is a BORDER on .main, in both states", () => {
     /* Measured live (`sidebar-edge-live.mjs`): as an inset box-shadow this line computed perfectly
        and painted nothing at all. An inset shadow sits below the element's children, and `.main`'s
        children — `.panehost` and every `.panel` — carry --rl-panel edge to edge, so the pane covered
@@ -1056,10 +1510,20 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        its padding box. This test is the cheap half; the pixels are the real one. */
     const edge = RULES.filter((r) => r.selectors.some((sel) => /(^|\s)\.main$/.test(sel.trim())) && r.body.includes("border-left"))
       .flatMap((r) => r.selectors);
-    expect(edge).toEqual([".app:not([data-sidebar-collapsed]) .main"]);
-    // THE mutant: drop the :not(). Collapsed, nothing takes the sidebar's column, so the same line
-    // becomes a stray rule down the window's own left edge.
-    expect(bodiesFor(".app:not([data-sidebar-collapsed]) .main").join(" ")).toContain("var(--rl-line)");
+    // Unconditional now: collapsed, the rail is still beside the panes (Plan 27), so the line is still
+    // between two surfaces rather than a stray rule down the window's own edge.
+    // Collapsed, there is no sidebar for it to stand against: the frame's rim takes the sheet's left
+    // edge from it, round the corner, and the border goes rather than doubling the rim.
+    // First run has neither the rail nor the sidebar beside it (`.app[data-first-run]`), so there is
+    // nothing for the line to stand between and it goes with them.
+    // FOLDED, not collapsed: the line rides the column's edge all the way in, and goes only once the
+    // column has gone (App.tsx, useSidebarFolded) — at the click it left the sidebar unbounded for
+    // the length of the motion.
+    expect(edge).toEqual([".app > .main", ".app[data-sidebar-folded] > .main", ".app[data-first-run] > .main"]);
+    expect(bodiesFor(".app[data-first-run] > .main").join(" ")).toContain("border-left: 0");
+    expect(bodiesFor(".app > .main").join(" ")).toContain("var(--rl-line)");
+    expect(bodiesFor(".app[data-sidebar-folded] > .main").join(" ")).toContain("border-left: 0");
+    expect(bodiesFor(".app[data-sidebar-folded] .main::before").join(" ")).toMatch(/border-left: var\(--hairline-w\) solid var\(--rl-line-strong\)/);
     // And no inset shadow creeps back onto .main to say the same thing twice, invisibly.
     expect(bodiesFor(".main").join(" ")).not.toContain("box-shadow: inset");
   });
@@ -1068,13 +1532,21 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // The intent this pins moved: the sidebar used to be --page at a literal 82%, and is now the
     // composed --sidebar-ground, because the number is the user's. What has NOT moved is which
     // surface is translucent — exactly one, so text on a pane never renders over the desktop.
-    expect(bodiesFor(".sidebar").join(" ")).toContain("background: var(--sidebar-ground)");
+    // Its own ground under the head band's chrome and the panes' shade at the seam (both below).
+    expect(bodiesFor(".sidebar").join(" ")).toMatch(/background:[^;]*var\(--sidebar-ground\);/);
+    // The rail is the window's chrome: the sidebar's ground, a step off it (the window's frame).
+    expect(bodiesFor(".app-rail").join(" ")).toContain("background: linear-gradient(var(--chrome-tint), var(--chrome-tint)), var(--sidebar-ground)");
     // The old per-mode rgba override is gone — --page flips with data-mode on its own.
     expect(css).not.toContain("rgba(244,244,244,.82)");
     // THE second-ground mutant: give .main or a pane a color-mix over --page too. The window looks
     // better on a nice wallpaper and every pane's body text starts depending on it.
     const translucent = RULES.filter((r) => /background:[^;]*var\(--sidebar-ground\)/.test(r.body)).flatMap((r) => r.selectors);
-    expect(translucent).toEqual([".sidebar"]);
+    // Chrome only: the rail, the sidebar, the head row across the window (the panes' top band, the
+    // page's bar) and the frame's corner where the sheet meets the rail. Never a pane's BODY — the
+    // panes' ground below the head row is --pane-ground, painted once by `.main`.
+    expect(translucent.sort()).toEqual([".app-rail", ".app[data-sidebar-folded] .main::after", ".app[data-sidebar-folded] > .main",
+      ".main", ".sidebar"].sort());
+    expect(bodiesFor(".main").join(" ")).toMatch(/var\(--pane-ground\)\) 0 var\(--frame-top\)/);
   });
 
   it("the ground's alpha is driven, defaulted opaque in CSS, and overridden by reduced transparency", () => {
@@ -1104,18 +1576,6 @@ describe("Plan 9 W1 — the BUI bridge", () => {
 });
 
 describe("Plan 9 W2 — BUI transcript primitives", () => {
-  it("the permission card wears ApprovalCard's shell: a resting surface card on shadow-card with a hairline-topped footer", () => {
-    // Re-pin from §5's floating raised+overlay-shadow treatment: BUI cards rest in the flow.
-    const card = bodiesFor(".permission-card").join(" ");
-    expect(card).toContain("background: var(--surface)");
-    expect(card).toContain("box-shadow: var(--shadow-card)");
-    expect(card).toContain("border-radius: var(--r-panel)");
-    expect(bodiesFor(".permission-footer").join(" ")).toContain("border-top: var(--hairline-w) solid var(--line)");
-    // The kbd number chips take BUI's inset fill + hairline ring.
-    const num = bodiesFor(".permission-num").join(" ");
-    expect(num).toContain("background: var(--inset)");
-    expect(num).toContain("box-shadow: var(--shadow-hairline)");
-  });
 
   it("the tool ledger wears ThinkingState: shimmer on the working header (data-working, never a clock), a solid 1px trace rail, muted settled checks", () => {
     const shimmer = bodiesFor('.tool-group[data-working] .tool-group-summary').join(" ");
@@ -1183,7 +1643,7 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
       "these wear the signature curve but are never painted — they will render as round rects").toEqual([]);
   });
 
-  it("fenced code is a ringless panel on the prompter's curve, with a 12.5/1.65 mono body", () => {
+  it("fenced code is a ringless panel on the prompter's curve, with a 13/1.65 mono body", () => {
     /* Changed deliberately from the hairline-ringed 12px card this used to pin. A fenced block is
        the same KIND of surface the composer is — a machine-text panel the eye rests in — so it
        wears the same corner; and a ring around a large radius is the one thing that makes the
@@ -1198,7 +1658,7 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     // this the block would render a plain round rect beside a composer wearing a real squircle.
     expect(bodiesFor(":root[data-squircle] .md-code").join(" ")).toContain("--sq-fill: var(--surface)");
     const body = bodiesFor(".md-code pre").join(" ");
-    expect(body).toContain("font-size: 12.5px");
+    expect(body).toContain("font-size: 13px");
     expect(body).toContain("line-height: calc(1.65 + var(--lh-shift))");
   });
 
@@ -1269,6 +1729,18 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
       .map((sel) => Number(/z-index: (\d+)/.exec(bodiesFor(sel).join(" "))?.[1]));
     expect(win).toBeGreaterThan(60);
     for (const z of popovers) expect(z).toBeGreaterThan(win);
+  });
+
+  it("the media viewer covers the quick chat, and stays under the popovers its prompter raises", () => {
+    /* Its prompter has a model picker, and the viewer is opened from INSIDE the quick chat as often
+       as from a pane — so it must clear the chat window and nothing that floats from its own controls.
+       Not a filter either: Chromium paints a video layer through one, and a blur over the window's
+       material smudges (design.md). The workspace's own frames go while it is up instead. */
+    const z = (sel: string) => Number(/z-index: (\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
+    expect(z(".media-viewer")).toBeGreaterThan(z(".quick-chat"));
+    for (const over of [".menu", ".model-picker", ".mention-picker", ".toasts", ".tooltip"]) expect(z(over), over).toBeGreaterThan(z(".media-viewer"));
+    expect(bodiesFor(".media-viewer").join(" ")).not.toMatch(/backdrop-filter/);
+    expect(css).toContain("body[data-media-viewer] .app .media-el { visibility: hidden; }");
   });
 
   it("everything decorative stops when nobody is looking at the window", () => {
@@ -1351,29 +1823,67 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(paintedFocus).toContain("box-shadow: none");
     expect(paintedFocus).toContain("--sq-ring: var(--rl-accent)");
 
-    /* Frame / No frame. They carry `.btn`, which is painted — so the picked one has to mark itself
-       with `--fill`. THE MUTANT is the obvious `background: var(--rl-accent)`: `background` is spent
-       on `paint()` there, so the segment paints its resting fill in every state and the control ends
-       up with no visible selection at all. */
-    expect(bodiesFor('.sim-frame-opt[aria-checked="true"]').join(" ")).toContain("--fill: var(--rl-accent)");
-    expect(bodiesFor('.sim-frame-opt[aria-checked="true"]').join(" ")).not.toContain("background:");
+  });
+
+  it("a device pick's picture is of the device: Realm's boxes and the silenced tooltip leave it at once", () => {
+    /* The picture is the window's own capture, two frames after the press. THE MUTANT is the tooltip
+       left to its own exit — a fade that outlasts those frames, so the picture carried the box's
+       "Green curry — Button" across the row it was a picture of. */
+    const hidden = bodiesFor(":root[data-pick-capture] :is(.sim-ax, .tooltip)").join(" ");
+    expect(hidden).toContain("visibility: hidden");
+    expect(hidden).toContain("transition: none");
+  });
+
+  it("the device's controls over it and under it are one pill", () => {
+    /* The toolbar over the device, and under it the Record control, the recording it becomes and a
+       phone's offer to go live: one height, fill, corner and lift, so above and below read as one
+       instrument around the device. THE MUTANT: a row under the device in a material of its own —
+       the `.btn` the Record control was, whose painter trades the lift for a ring. */
+    const pill = RULES.find((r) => partsOf(r).includes(".sim-toolbar") && partsOf(r).includes(".sim-record-start"));
+    expect(pill && partsOf(pill).sort()).toEqual([".sim-live", ".sim-record-start", ".sim-recording", ".sim-toolbar"]);
+    // Its lift is the object surface every file and Library item wears too (asserted with them below).
+    for (const decl of ["height: 32px", "border-radius: 999px", "background: var(--rl-raised)", "box-shadow: var(--rl-object-shadow)"]) {
+      expect(pill!.body).toContain(decl);
+    }
+    // What sits inside a pill is a pill, under the painter too — or Stop is a squircle in a capsule.
+    const inner = bodiesFor(":root[data-squircle] :is(.sim-recording-stop, .sim-live-btn)").join(" ");
+    expect(inner).toContain("--sq-radius-top: calc(var(--btn-h) / 2)");
+    expect(inner).toContain("--sq-radius-bottom: calc(var(--btn-h) / 2)");
+    expect(bodiesFor(".sim-toolbar .icon-btn").join(" ")).toContain("border-radius: 999px");
+  });
+
+  it("the device toolbar's budget is its own rule's arithmetic", () => {
+    /* `toolbar-fit.ts` decides how many presses a narrow pane keeps from these numbers: the pill's
+       padding, its gaps, the 28px buttons and the rule between the state and them (its hairline
+       counted as a whole pixel). Change the toolbar's box and the budget stops describing it —
+       buttons clip, or fold into the overflow with room to spare. */
+    const bar = bodiesFor(".sim-toolbar").join(" ");
+    const pad = Number(/padding: (\d+)px/.exec(bar)?.[1]);
+    const gap = Number(/gap: (\d+)px/.exec(bar)?.[1]);
+    const margin = Number(/margin: 0 (\d+)px/.exec(bodiesFor(".sim-toolbar-rule").join(" "))?.[1]);
+    const button = Number(/width: (\d+)px/.exec(bodiesFor(".icon-btn").join(" "))?.[1]);
+    expect(TOOLBAR_BUTTON).toBe(button + gap);
+    expect(TOOLBAR_CHROME).toBe(2 * pad + 1 + 2 * margin + button + 2 * gap);
   });
 
   it("the prompter's strips are edged alike — every tab above the card wears the ring the under-strip does", () => {
     /* They are one object seen twice: same fill, same corner, same inset, mirrored. Only the lower
        one was edged, which read as a prompter with a bottom and no top — and edging the over-strip
-       alone left the same hole whenever the goal, plan or agents strip was the one on top. The
-       exception is a MIDDLE tab: a ring there would trace a hairline across the band where two
-       strips meet, so a strip arriving under another gives up both its ring and its top corners. */
+       alone left the same hole whenever the goal, plan or agents strip was the one on top. A MIDDLE
+       tab gives up its top corners and the top of its ring — a ring across it would trace a hairline
+       through the band where two strips meet — but never its sides. It once gave up the whole ring,
+       and the git footer under the plan strip read as an open-sided box down both edges, right where
+       the card tucks over it: its fill is the pane's own ground, so the ring is the only edge it has.
+       THE mutant: `--sq-ring-w: 0` back on a stacked tab. */
     const ring = "--sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w)";
-    for (const sel of [".composer-agents", ".composer-goal", ".composer-todos", ".composer-overstrip", ".composer-understrip"])
+    for (const sel of [".composer-goal", ".composer-todos", ".composer-overstrip", ".composer-understrip"])
       expect(bodiesFor(`:root[data-squircle] ${sel}`).join(" "), sel).toContain(ring);
-    // Every pair the band can actually stack, in DOM order: agents, goal, plan, over-strip.
-    const STACKED = [".composer-agents + .composer-goal", ".composer-agents + .composer-todos", ".composer-goal + .composer-todos",
-                     ".composer-agents + .composer-overstrip", ".composer-goal + .composer-overstrip", ".composer-todos + .composer-overstrip"];
+    // Every pair the band can actually stack, in DOM order: goal, plan, over-strip.
+    const STACKED = [".composer-goal + .composer-todos", ".composer-goal + .composer-overstrip", ".composer-todos + .composer-overstrip"];
     for (const sel of STACKED) {
       const body = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
-      expect(body, sel).toContain("--sq-ring-w: 0");
+      expect(body, sel).toContain("--sq-ring-open: top");
+      expect(body, sel).not.toMatch(/--sq-ring-w:\s*0/);
       expect(body, sel).toContain("--sq-radius-top: 0px");
       // …and the same corner under the fallback, where the radius is the browser's rather than the
       // worklet's: a pair squared in one path and rounded in the other is one seam in two shapes.
@@ -1448,42 +1958,24 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".diff-list").join(" ")).not.toContain("--fade-h:");
   });
 
-  it("the sidebar list clears its own fade the same way, and dissolves by masking itself", () => {
-    // Same invariant as the changes list: a full band of padding, and ONE declaration of the number,
-    // so the ramp and the clearance that keeps the last session out of it cannot drift apart.
+  it("the sidebar list dissolves with the app's shared mask, only where rows run past an end, and starts close under the profile", () => {
+    /* It wore a mask of its own that was always drawn, so its first row sat a whole band (12px, and 4
+       more) under the profile to stay out of a fade with nothing under it — the gap the owner asked to
+       close (10-04). It takes the shared dissolve now (`data-dissolve`, set by Sidebar.tsx through
+       `useDissolve`): a mask that appears at an end only while rows run past it. THE mutants: the
+       static ramp back on the scroller, or the band's depth back in its top padding. */
     const body = bodiesFor(".space-body").join(" ");
-    // The clearance is the band PLUS room to breathe under it — the fade is still the one declared
-    // number, and the extra is written in terms of it rather than as a second magic figure.
-    expect(body).toContain("padding-bottom: calc(var(--fade-h) + 24px)");
-    // …and the same at the top, which needs it more: a row half-dissolved under the header is one
-    // you can see and cannot confidently click.
-    expect(body).toContain("padding-top: calc(var(--fade-top-h) + 4px)");
-
-    expect(bodiesFor(".space-page").join(" ")).toContain("--fade-h: 44px");
+    expect(body).not.toContain("mask-image");
+    expect(body).toContain("padding-top: 4px");
+    // The depths the shared mask reads are still declared once, on the list, for the scroller to inherit.
+    expect(bodiesFor(".sb-list").join(" ")).toContain("--fade-h: 44px");
+    expect(bodiesFor(".sb-list").join(" ")).toContain("--fade-top-h: 12px");
     expect(body).not.toContain("--fade-h:");
-    // The ramp is the scroller's own mask, reading the same --fade-h, and it runs to TRANSPARENT: the
-    // rows' alpha goes to zero and whatever ground was behind them shows — the vibrancy material, or
-    // the opaque page under reduced transparency. Nothing is painted over the rows. The two named
-    // mutants are the old band: a backdrop blur over this translucent column blurs the window's own
-    // transparency and composites toward black (a dark smudge above the strip, verified on screen);
-    // a colour wash to any fixed tone stripes the material. So no `.space-fade` rule may exist, and
-    // no rule on the scroller may blur or wash.
-    // One gradient, two stops in and two out — the top edge dissolves the same way the bottom does,
-    // and both read their own declared height rather than a literal.
-    const RAMP = "linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent)";
-    expect(body).toContain(`mask-image: ${RAMP}`);
-    expect(body).toContain(`-webkit-mask-image: ${RAMP}`);
+    // Still a mask and nothing painted over the rows: a blur over this translucent column composites
+    // toward black, and a wash to a fixed tone stripes the material.
     expect(body).not.toContain("backdrop-filter");
     expect(body).not.toContain("background:");
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".space-fade")))).toEqual([]);
-  });
-
-  it("the sidebar's dissolve needs no reduced-transparency fallback, because it paints nothing", () => {
-    // The transcript's band drops its blur under this preference and keeps its wash. The sidebar's
-    // mask has neither to drop: it is the same declaration on an opaque ground as on the material.
-    const reduced = blocksAfter("@media (prefers-reduced-transparency: reduce)").join("\n").replace(/\s+/g, " ");
-    expect(reduced).not.toContain(".space-fade");
-    expect(reduced).not.toContain(".space-body");
   });
 
   /* Dropping a file anywhere on the session pane. jsdom has no compositing, so the one thing these
@@ -1520,14 +2012,6 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(glow).not.toContain("mask-image");
   });
 
-  it("the glow appears on the drag rung, and reduced motion is what takes the fade away", () => {
-    // `--dur-drag` is the ladder's rung for exactly this: a drop target appearing mid-drag.
-    expect(bodiesFor(".session-drop").join(" ")).toContain(`animation: rl-fade-in ${dur("--dur-drag")} linear`);
-    // Reduced motion needs no rule of its own here: the blanket `*` kill covers a real element (it
-    // would NOT cover a pseudo-element, which is why the glow is one).
-    expect(blockAfter("@media (prefers-reduced-motion: reduce)")).toContain("animation: none !important");
-  });
-
   it("has nothing left for reduced transparency to take off the glow", () => {
     /* There used to be a carve-out here dropping the glow's backdrop blur under the preference. The
        blur is gone at every setting now, so a rule naming it would be dead code that reads as
@@ -1547,7 +2031,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(RULES.some((r) => r.selectors.includes(".btn-quiet:disabled"))).toBe(false);
   });
 
-  it("an attachment is a SQUARE on the field fill behind a hairline ring — no name, no label column", () => {
+  it("an attachment is a SQUARE on the field fill under the object's border and shadow — no name, no label column", () => {
     const tile = bodiesFor(".attach-tile").join(" ");
     // Square, and the same square in both directions: a chip that grows with its filename is the
     // thing this replaced. Both sides now come off ONE property, which is also what the corner
@@ -1558,7 +2042,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".msg-user-files .attach-tile").join(" ")).toContain("--attach-tile: 56px");
     const art = bodiesFor(".attach-art").join(" ");
     expect(art).toContain("background: var(--field)");
-    expect(art).toContain("box-shadow: var(--shadow-hairline)");
+    expect(art).toContain("box-shadow: var(--rl-object-shadow)");
     /* The corner is a proportion of the tile, not a flat length, and it is the squircle ratio rather
        than the control one — `--sq-ratio-ctl` would spend the whole 44px box and render the circular
        fallback as a disc (see the token's own note). `corner-shape` makes it a true superellipse on
@@ -1588,8 +2072,9 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(open).toContain("background: none");
     expect(open).toContain("padding: 0");
     // A drop target's cursor must not promise a zoom the file cannot do: only a tile main has
-    // confirmed is media gets zoom-in, and the mark only lands once that answer is back.
-    expect(open).toContain("cursor: pointer");
+    // confirmed is media gets zoom-in, and the mark only lands once that answer is back. Every other
+    // tile is a button that opens its file, and points like one (the pointer rule, by tag).
+    expect(open).not.toContain("cursor:");
     expect(bodiesFor(".attach-tile[data-media] .attach-open").join(" ")).toContain("cursor: zoom-in");
   });
 
@@ -1615,20 +2100,24 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".attach-tile:hover .attach-tip, .attach-tile:focus-within .attach-tip".split(", ")[0]!).join(" ")).toContain("opacity: 1");
   });
 
+  it("a sent attachment's tip opens leftward from the tile's right edge, so it never overhangs the transcript", () => {
+    /* Centred, the tip hung past the right edge of a row that hugs it — unseen at rest but still the
+       scroller's overflow, so every transcript with a screenshot in it scrolled sideways and showed a
+       white corner. THE MUTANT: drop the override and the centred placement returns. (That nothing
+       overhangs is measured in the real window, against a replayed transcript; this pins the rule.) */
+    const sent = bodiesFor(".msg-user-files .attach-tip").join(" ");
+    expect(sent).toContain("left: auto");
+    expect(sent).toContain("right: 0");
+    expect(sent).not.toContain("translateX");
+    expect(bodiesFor(".msg-user-files .attach-tile:hover .attach-tip").join(" ")).toContain("transform: translateY(0)");
+  });
+
   it("sent attachments stack ABOVE the bubble, in a column that keeps the transcript's right edge", () => {
     const row = bodiesFor(".msg-user-row").join(" ");
     expect(row).toContain("flex-direction: column");
     expect(row).toContain("align-items: flex-end");
     // Not inside the bubble: the tiles are a list of their own, and the bubble is a sibling.
     expect(bodiesFor(".msg-user-files").join(" ")).toContain("list-style: none");
-  });
-
-  it("the send circle carries BUI Button's accent treatment: inset top highlight, accent-ink hover, PromptBar's line-strong disabled fill", () => {
-    expect(bodiesFor(".composer-send").join(" ")).toContain("box-shadow: var(--fill-bevel)");
-    expect(bodiesFor(".composer-send:hover:not(:disabled)").join(" ")).toContain("background: var(--accent-ink)");
-    const off = bodiesFor(".composer-send:disabled").join(" ");
-    expect(off).toContain("background: var(--line-strong)");
-    expect(off).toContain("color: var(--ink-2)");
   });
 
   it("the Thinking strip shimmers on the shared shimmer-text gradient — no opacity pulse", () => {
@@ -1645,28 +2134,24 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     const pill = bodiesFor(".bypass-confirm").join(" ");
     expect(pill).toContain("color: var(--rl-danger)");
     expect(pill).toContain("background: var(--red-tint)");
-    expect(bodiesFor('.ghost-chip[data-warning]').join(" ")).toContain("var(--red-tint)");
-    for (const body of [pill, bodiesFor('.ghost-chip[data-warning]').join(" ")]) {
+    // The chip's half of the pair is its HOVER now — see the test below for why it rests unfilled.
+    const lifted = bodiesFor(".ghost-chip[data-warning]:hover:not([data-static])").join(" ");
+    expect(lifted).toContain("--fill: var(--red-tint)");
+    for (const body of [pill, bodiesFor('.ghost-chip[data-warning]').join(" "), lifted]) {
       expect(body).not.toMatch(/(?:color|background|--fill):\s*color-mix/);
     }
   });
 
-  it("menus and the model picker are surface cards on shadow-raised with the opaque hover ladder (GlideMenu's surface, minus its JS glide layer)", () => {
-    for (const sel of [".menu", ".model-picker"]) {
-      const body = bodiesFor(sel).join(" ");
-      expect(body, sel).toContain("background: var(--surface)");
-      expect(body, sel).toContain("box-shadow: var(--shadow-raised)");
-      expect(body, sel).not.toContain("--rl-shadow");
-    }
-    expect(bodiesFor('.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus'.split(", ")[0]!).join(" ")).toContain("var(--hover)");
-  });
-
-  it("sheets and the palette are surface cards at window radius on shadow-overlay — and the palette stays instant (pinned above)", () => {
-    for (const sel of [".sheet", ".palette"]) {
-      const body = bodiesFor(sel).join(" ");
-      expect(body, sel).toContain("background: var(--surface)");
-      expect(body, sel).toContain("box-shadow: var(--shadow-overlay)");
-    }
+  it("the permission control rests as a glyph and a word — Full access keeps its tone on the ink alone", () => {
+    /* Codex's control, which the owner holds up as the bar: no fill and no highlight, an icon and a
+       label. The red wash Full access used to rest on was a second warning laid under the first, and
+       the only resting fill on a row of unfilled chips. THE mutant: put `--fill: var(--red-tint)` back
+       on the resting rule. */
+    const rest = bodiesFor(".ghost-chip[data-warning]").join(" ");
+    expect(rest).toContain("color: var(--rl-danger)");
+    expect(rest).not.toMatch(/--fill|background/);
+    // …and the hover keeps the tone, so pointing at the chip never reads as the warning going away.
+    expect(bodiesFor(".ghost-chip[data-warning]:hover:not([data-static])").join(" ")).toContain("color: var(--rl-danger)");
   });
 
   it("sidebar actives are a fill alone — SidebarNav has no accent tick and no weight bump", () => {
@@ -1689,7 +2174,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
        property through the worklet, and there is nothing left for a state to win. So the invariant
        is not "the painted rule is specific enough" — it is "no state rule declares `background` at
        all", which is checkable and stays true as states are added. */
-    const painted = [".btn", ".ghost-chip", ".mp-use", ".palette-opt"];
+    const painted = [".btn", ".ghost-chip", ".palette-opt"];
     const offenders = RULES.flatMap((r) => r.selectors.map((sel) => ({ sel, body: r.body })))
       .filter(({ sel }) => !sel.includes("[data-squircle]"))
       .filter(({ sel }) => painted.some((c) => new RegExp(`\\${c}(?![\\w-])`).test(sel)))
@@ -1722,7 +2207,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(sw).not.toContain("corner-shape");
   });
 
-  it("the unread badge OVERHANGS the bell, and wears the count pill's own colours", () => {
+  it("a count OVERHANGS its glyph in the rail, and wears the count pill's own colours", () => {
     /* The feed's count used to be a pill in a destination row, where an opaque row sat under it and
        there was width for padding. It is a badge on a 26px button now, and two things have to hold
        or it stops being readable as the same fact:
@@ -1735,8 +2220,10 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
        make see-through it is the desktop wearing an orange cast, not a chip. The row gave it an
        opaque ground for free and this has to state it. */
     const badge = bodiesFor(".sb-badge").join(" ");
-    expect(bodiesFor(".sb-bell").join(" ")).toContain("position: relative");
-    expect(bodiesFor(".sb-bell").join(" ")).toContain("overflow: visible");
+    // In the rail (Plan 27) the count hangs off the GLYPH's shoulder — Home's and the bell's — and the
+    // button around it does not clip it.
+    expect(bodiesFor(".rail-glyph").join(" ")).toContain("position: relative");
+    expect(bodiesFor(".rail-btn").join(" ")).toContain("overflow: visible");
     expect(badge).toContain("position: absolute");
     expect(badge).toMatch(/top: -\d/);
     expect(badge).toContain("color: var(--orange)");
@@ -1747,7 +2234,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     // Not under the floor: §type — nothing is set below 11px, badges included.
     expect(badge).toContain("font-size: 11px");
     expect(bodiesFor(".item").join(" ")).toContain("border-radius: var(--r-ctl)");
-    expect(bodiesFor(".group-label").join(" ")).toContain("font-size: 12.5px");
+    expect(bodiesFor(".group-label").join(" ")).toContain("font-size: 13px");
   });
 
   it("the sidebar's search bar is GONE, rule and token both", () => {
@@ -1902,11 +2389,28 @@ const SCROLLERS = (css.match(/:where\(([^)]*)\)\s*\{\s*scrollbar-width: thin/)?.
 const leaf = (sel: string): string => sel.split(" ").pop()!;
 
 describe("scrollbars", () => {
+  const GUARD = ":root:not([data-overlay-scrollbars])";
   it("the track is hidden by INHERITANCE, so a scroller written tomorrow is covered too", () => {
     // The whole point of putting it on :root: `scrollbar-color` inherits, and a list is a thing to
     // keep up with. The transparent second value is the track.
-    expect(bodiesFor(":root").join(" ")).toContain("scrollbar-color: var(--rl-line) transparent");
-    expect(bodiesFor(":hover").join(" ")).toContain("scrollbar-color: var(--rl-line-strong) transparent");
+    // A thumb is a MARK, not an edge: it keeps its weight when the app's borders soften.
+    expect(bodiesFor(GUARD).join(" ")).toContain("scrollbar-color: var(--mark) transparent");
+    expect(bodiesFor(`${GUARD} :hover`).join(" ")).toContain("scrollbar-color: var(--mark-strong) transparent");
+  });
+
+  /* On a Mac whose system draws overlay bars, every rule that styles one stands down (App.tsx,
+     ScrollbarStyleBridge): a colour repaints the system's thumb in the page's ink, and a
+     `::-webkit-scrollbar` rule turns it into a classic bar holding a gutter (8px against 0, measured).
+     THE mutant is a new scrollbar rule written without the guard. `none` is exempt: hiding a bar is
+     not drawing one. */
+  it("stands down wherever the system draws overlay scrollbars", () => {
+    const styling = RULES.filter((r) =>
+      r.selectors.some((sel) => sel.includes("::-webkit-scrollbar"))
+      || /scrollbar-color:\s*(?!auto)/.test(r.body)
+      || /scrollbar-width:\s*thin/.test(r.body));
+    expect(styling.length).toBeGreaterThan(10);
+    for (const r of styling) for (const sel of partsOf(r))
+      expect(sel.startsWith(GUARD) || sel.startsWith(`:where(${GUARD})`), sel).toBe(true);
   });
 
   /** Base selectors that own a `::-webkit-scrollbar*` rule, deduped. */
@@ -1933,19 +2437,37 @@ describe("scrollbars", () => {
     }
   });
 
+  it("every scroller that draws its own bar says what goes where two bars meet", () => {
+    /* Owning the pseudo-elements owns the corner too, and a corner nobody states paints opaque white:
+       the square at the foot of every transcript that scrolled both ways. THE MUTANT: style the bar,
+       the track and the thumb and stop there, which is what all three owners did. An owner is
+       covered by a corner rule on itself or on a selector it compounds (`.mp-list[data-dissolve]` is
+       a `[data-dissolve]`). */
+    const corners = RULES.filter((r) => r.body.includes("background: transparent"))
+      .flatMap((r) => r.selectors).filter((sel) => sel.endsWith("::-webkit-scrollbar-corner"))
+      .map((sel) => sel.slice(0, sel.indexOf("::-webkit-scrollbar-corner")));
+    expect(corners.length).toBeGreaterThan(0);
+    // Read past the scope every webkit bar rule now sits under (overlay scrollbars stand all of them
+    // down), so a compound owner still finds the corner rule on the selector it compounds.
+    const unscoped = (sel: string) => sel.replace(":root:not([data-overlay-scrollbars]) ", "");
+    for (const owner of webkitBarOwners()) {
+      expect(corners.some((base) => unscoped(owner).includes(unscoped(base))), `${owner} leaves its scrollbar corner to paint white`).toBe(true);
+    }
+  });
+
   it("the sidebar's thumb is held clear of the mask, by the mask's own two depths", () => {
-    /* `.space-body` is masked at both ends, and a mask applies to the element's whole rendering —
+    /* `.space-body` dissolves at both ends, and a mask applies to the element's whole rendering —
        scrollbar included — so the thumb dissolved at exactly the two places a scrollbar is most
        used. The track's margin is what holds it clear, and it is written as the same two custom
        properties the mask reads rather than as numbers: tune one end of the fade and the thumb
        follows it instead of drifting back under it.
        Only the wiring is checkable here. That the thumb is actually crisp at both ends is a
        composited-pixel question, and jsdom has no scrollbars at all. */
-    const track = bodiesFor(".space-body::-webkit-scrollbar-track").join(" ");
+    const track = bodiesFor(`${GUARD} .space-body::-webkit-scrollbar-track`).join(" ");
     expect(track).toContain("margin-block: var(--fade-top-h) var(--fade-h)");
-    const masked = bodiesFor(".space-body").join(" ");
-    expect(masked).toContain("var(--fade-top-h)");
-    expect(masked).toContain("var(--fade-h)");
+    // The mask is the shared dissolve, reading the same two depths at its two ends.
+    expect(bodiesFor('[data-dissolve~="start"]').join(" ")).toContain("var(--fade-top-h");
+    expect(bodiesFor('[data-dissolve~="end"]').join(" ")).toContain("var(--fade-h");
   });
 
   it("every scroller in the stylesheet has had a deliberate decision made about its bar", () => {
@@ -1958,13 +2480,159 @@ describe("scrollbars", () => {
     // are short tab rows, and a bar under them would be the tallest thing in the row) and say so with
     // `scrollbar-width: none` in their own rule, which is why they are filtered rather than listed.
     // xterm is the one exception that keeps an explicit treatment: it measures this element to decide
-    // the terminal's column count, and its interior is dark in both app modes.
+    // the terminal's column count.
     const exempt = new Set([".xterm-viewport"]);
     const uncovered = RULES
       .filter((r) => /overflow(-[xy])?:\s*(auto|scroll)/.test(r.body) && !/scrollbar-width:\s*none/.test(r.body))
       .flatMap((r) => r.selectors)
       .filter((sel) => !covered.has(leaf(sel)) && !exempt.has(leaf(sel)));
     expect([...new Set(uncovered)].sort()).toEqual([]);
+  });
+});
+
+/* The owner, 10-05: "every scrollable surface in the entire app to have our signature blur". The
+   dissolve is a mask a component asks for on its scroller (`useDissolve`, ScrollFades.tsx), so the
+   stylesheet alone cannot say a scroller has it: what is checked is the MARKUP — every element that
+   wears a scroller's class hands its ref to the hook — or that the scroller is named below with the
+   reason a dissolve would hurt it. */
+describe("every scroller dissolves", () => {
+  /** Scrollers that do not, each with why. */
+  const EXCEPTIONS: Record<string, string> = {
+    // Lines that scroll sideways. A line of code, a diff, a command or a formula is read to its last
+    // character, which is exactly where a dissolve sits; the scrollbar already says there is more.
+    ".md pre": "a fenced block's code lines, scrolling sideways",
+    ".code-body": "a file's code lines, scrolling sideways (it dissolves downwards where a tool's body caps it)",
+    ".fd-body": "a diff's lines, scrolling sideways",
+    ".diff-hunks": "a file's patch in the diff pane, scrolling sideways on its own panel",
+    ".cr-diffs": "a pull request's diffs, read line by line to the last character, under file heads that pin to its top",
+    ".install-cmd code": "one command to copy, scrolling sideways",
+    ".code-preview": "the code font's preview lines, scrolling sideways",
+    ".documents-raw": "a document's raw source lines, scrolling sideways",
+    ".math-display": "a typeset formula's line, scrolling sideways",
+    // Surfaces that own something a mask would take.
+    ".md-scroll": "a table whose column heads pin to its top, where a top band would dissolve the heads",
+    ".settings-tabs": "a segmented control lying down in a narrow pane: a mask would fade the track it sits in",
+    ".sched-card": "a scheduled task's card, whose own fill and rim a mask would dissolve with its rows",
+    ".ql-view": "Quick Look's render on a ground of its own, which a mask would fade with the picture",
+    ".media-viewer-canvas[data-pans]": "a zoomed picture being panned: its edges are the picture's pixels, which is what a zoom is for",
+    // Editors keep their engines' scrolling, as they keep its rubber-banding (design.md).
+    ".documents-rich-scroll": "the rich-text editor's page, where the caret can be on any line",
+    ".documents-rich-surface pre": "a code block inside the rich-text editor",
+    // A selector whose elements are all held to it under their own classes above.
+    ".tool-body pre": "the wells a tool's body holds — .tool-well, .term-out, .code-body — each held here by its own class",
+  };
+  /** Scrollers whose element wears no class of its own, found by where they are drawn instead. */
+  const BY_PLACE: Record<string, { file: string; tag: string }> = {
+    ".permission-details pre": { file: "panes/session/PermissionCard.tsx", tag: "pre" },
+    ".msg-error pre": { file: "panes/session/Transcript.tsx", tag: "pre" },
+  };
+  /** An element that wears a scroller's class without being the one that scrolls. */
+  const NOT_THE_SCROLLER: Record<string, string> = {
+    "panes/settings/SettingsPage.tsx .page-rail": "Settings' rail box never scrolls — narrow it is `overflow: visible`, and its lists are the strip",
+  };
+
+  const scrollers = [...new Set(RULES.filter((r) => /overflow(-[xy])?:\s*(auto|scroll)/.test(r.body)).flatMap(partsOf))];
+  const root = dirname(repoFile("apps/desktop/src/renderer/src/styles.css"));
+  const tsx = (function walk(dir: string): string[] {
+    return readdirSync(dir).flatMap((f) => {
+      const p = join(dir, f);
+      return statSync(p).isDirectory() ? walk(p) : /\.tsx$/.test(f) && !/\.test\./.test(f) ? [p] : [];
+    });
+  })(root).map((p) => ({ file: p.slice(root.length + 1), src: readFileSync(p, "utf8") }));
+
+  /** Every lower-case opening tag in a file, whole: to its first `>` outside braces and strings. */
+  const tags = (src: string): { tag: string; text: string; at: number }[] => {
+    const out: { tag: string; text: string; at: number }[] = [];
+    for (const m of src.matchAll(/<([a-z][\w-]*)[\s>/]/g)) {
+      if (/[\w"'`$.\]]/.test(src[m.index - 1] ?? "")) continue;
+      let depth = 0, quote: string | null = null, j = m.index + m[1]!.length + 1;
+      for (; j < src.length; j++) {
+        const ch = src[j]!;
+        if (quote) { if (ch === quote && src[j - 1] !== "\\") quote = null; continue; }
+        if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
+        if (ch === "{") depth++; else if (ch === "}") depth--; else if (ch === ">" && depth === 0) break;
+      }
+      out.push({ tag: m[1]!, text: src.slice(m.index, j + 1), at: m.index });
+    }
+    return out;
+  };
+  /** The names a file hands to the dissolve: to the hook, to the components that call it, or out of
+   *  the two helpers that return a scroller already wired. */
+  const dissolved = (src: string): Set<string> => new Set([
+    ...[...src.matchAll(/useDissolve\((\w+)/g)].map((m) => m[1]!),
+    ...[...src.matchAll(/<ScrollFades(?:X)? scroller=\{(\w+)\}/g)].map((m) => m[1]!),
+    ...[...src.matchAll(/const \{ ref: (\w+)[^}]*\} = useFadedScroller\(/g)].map((m) => m[1]!),
+    ...[...src.matchAll(/const \{ (\w+)[^}]*\} = usePickerScroller\(/g)].map((m) => m[1]!),
+  ]);
+  const wears = (text: string, cls: string): boolean =>
+    [...text.matchAll(/className=(?:"([^"]*)"|\{([^]*?)\}(?=\s|\/?>))/g)].some((m) => (m[1] ?? m[2] ?? "").split(/[\s"'`?:]+/).includes(cls));
+
+  it("is wired to the dissolve everywhere its element is drawn, or is named with its reason", () => {
+    expect(scrollers.length, "no scrollers read out of the stylesheet").toBeGreaterThan(40);
+    const bare: string[] = [];
+    for (const sel of scrollers) {
+      if (sel in EXCEPTIONS) continue;
+      const place = BY_PLACE[sel];
+      const cls = place ? null : /\.([\w-]+)(?:\[[^\]]*\]|:[\w-]+(?:\([^)]*\))?)*$/.exec(sel.split(" ").pop()!)?.[1];
+      if (!place && !cls) { bare.push(`${sel}: no class to find it by — name it in BY_PLACE or EXCEPTIONS`); continue; }
+      const sites = tsx.filter((f) => !place || f.file === place.file).flatMap((f) =>
+        tags(f.src).filter((t) => (place ? t.tag === place.tag : wears(t.text, cls!))).map((t) => ({ ...t, file: f.file, src: f.src })));
+      if (sites.length === 0) { bare.push(`${sel}: drawn nowhere in the renderer`); continue; }
+      for (const s of sites) {
+        if (`${s.file} ${sel}` in NOT_THE_SCROLLER) continue;
+        const ref = /\bref=\{(\w+)\}/.exec(s.text)?.[1];
+        if (!ref || !dissolved(s.src).has(ref)) bare.push(`${sel}: ${s.file}:${s.src.slice(0, s.at).split("\n").length} <${s.tag}${ref ? ` ref=${ref}` : ""}>`);
+      }
+    }
+    expect(bare).toEqual([]);
+  });
+
+  it("names nothing that is not a scroller", () => {
+    // An exception that outlived its scroller is a hole left open for the next one.
+    for (const sel of [...Object.keys(EXCEPTIONS), ...Object.keys(BY_PLACE)]) expect(scrollers, sel).toContain(sel);
+  });
+});
+
+describe("a side pane's tab strip", () => {
+  it("keeps every tab's glyph whole, whatever the title beside it is doing", () => {
+    /* The documents and device tabs drew smaller marks than a session's: the glyph was a flex item
+       that SHRANK with its title — an SVG's automatic minimum width is zero — so every tab whose
+       title ran to an ellipsis lost width off its mark, measured 5px across for "Documents · realm".
+       THE MUTANT: the glyph left to the flex default. A page's own icon is held the same way. */
+    expect(bodiesFor(".pane-tab-label > svg").join(" ")).toMatch(/flex: none/);
+    expect(bodiesFor(".page-icon").join(" ")).toMatch(/flex: none/);
+  });
+
+  it("stays without a scrollbar where the dissolve hands every other scroller its bar back", () => {
+    /* `[data-dissolve-x]` reclaims the bar on a Mac set to show classic scrollbars, so the strip's
+       own `scrollbar-width: none` loses to it the moment the strip dissolves. THE MUTANT: no
+       override, and a 10px bar appears under a 28px row of tabs on those Macs only. */
+    expect(bodiesFor(":root:not([data-overlay-scrollbars]) [data-dissolve-x]").join(" ")).toContain("scrollbar-width: auto");
+    expect(bodiesFor(":root:not([data-overlay-scrollbars]) .pane-tabs[data-dissolve-x]").join(" ")).toContain("scrollbar-width: none");
+  });
+
+  it("gives a tab's close a hit target that ends at the tab, so a strip that fits has nothing to scroll", () => {
+    /* Every icon button reaches 6px past itself, and the close sits 3px in from its tab's end: the
+       last tab's reached 3px past the strip, which the strip measured as slack and dissolved its far
+       end over. The reach may be no more than the gap between the close and its tab's edges. */
+    const close = bodiesFor(".pane-tab .pane-tab-close").join(" ");
+    const tab = bodiesFor(".pane-tab").join(" ");
+    const room = Math.min(Number(/margin-right: (\d+)px/.exec(close)?.[1]),
+      (Number(/height: (\d+)px/.exec(tab)?.[1]) - Number(/--btn-h: (\d+)px/.exec(close)?.[1])) / 2);
+    const reach = -Number(/inset: (-?\d+)px/.exec(bodiesFor(".pane-tab > .icon-btn::after").join(" "))?.[1]);
+    expect(room).toBe(3);
+    expect(reach).toBeLessThanOrEqual(room);
+  });
+
+  it("draws a focused tab's ring inside the tab, where the strip's clip cannot cut it", () => {
+    /* The strip is exactly one tab tall and clips like any scroller, so the app's ring — 1px outside
+       the label — lost its top and bottom and read as two accent bars. THE MUTANT: the global ring
+       left to the label. The tab draws it instead, inset by its own width. */
+    const ring = bodiesFor(".pane-tab:has(> .pane-tab-label:focus-visible)").join(" ");
+    const width = Number(/outline: (\d+)px solid var\(--rl-accent\)/.exec(ring)?.[1]);
+    expect(width).toBeGreaterThan(0);
+    expect(ring).toContain(`outline-offset: -${width}px`);
+    expect(bodiesFor(".pane-tab-label:focus-visible").join(" ")).toContain("outline: none");
   });
 });
 
@@ -1986,6 +2654,16 @@ describe("dividers", () => {
     expect(offenders.sort()).toEqual([]);
   });
 
+  it("a card of settings rows draws ONE line between two rows — the inset divider — not the row's own border as well", () => {
+    /* Measured in the New space sheet and on Settings: the row above kept its full-width bottom
+       border and the row below drew the inset divider straight under it, so every boundary was two
+       lines, one of them running edge to edge. THE mutant drops the upper row's hand-over. */
+    expect(bodiesFor(".settings-row").join(" ")).toContain("border: var(--hairline-w) solid var(--rl-card-rim)");
+    expect(bodiesFor(".settings-row + .settings-row").join(" ")).toContain("border-top: 0");
+    expect(bodiesFor(".settings-row:has(+ .settings-row)").join(" ")).toContain("border-bottom: 0");
+    expect(bodiesFor(".settings-row + .settings-row::before").join(" ")).toContain("inset: 0 16px auto 16px");
+  });
+
   it("the diff list draws a seam only under an OPEN file", () => {
     // The exception that proves the rule, and the reason the check above says "unconditional": an
     // expanded file's patch panel really would run into the next filename, so a seam there is doing
@@ -2001,11 +2679,11 @@ describe("dividers", () => {
        them. What the lines actually drew was a horizontal stripe across the top of every pane in
        every split.
        What separates a pane from what is AROUND it is untouched, and is asserted below. */
-    for (const sel of [".panel-bar", ".group-bar", ".browser-chrome"])
+    for (const sel of [".panel-bar", ".browser-chrome"])
       expect(bodiesFor(sel).join(" "), sel).not.toMatch(/border-bottom: *1px/);
     // The claim is falsifiable, so it is checked: none of the three is sticky, which is the only way
     // content could pass under one.
-    for (const sel of [".panel-bar", ".group-bar", ".browser-chrome"])
+    for (const sel of [".panel-bar", ".browser-chrome"])
       expect(bodiesFor(sel).join(" "), sel).not.toContain("position: sticky");
   });
 
@@ -2024,13 +2702,13 @@ describe("dividers", () => {
     // beside it. Ruling them apart drew a line across a panel with one thing in it.
     expect(bodiesFor(".md-code-head").join(" ")).not.toMatch(/border-bottom: var\(--hairline-w\) solid/);
     /* Same reading, two more bars that lost theirs: a page overlay's bar and the terminal dock's
-       hold the thing's own name and the control that closes it — chrome FOR the surface below, not a
-       section beside it. Each page also opens with its own heading, so the rule was a second edge
-       under a title that already had one. */
+       hold the thing's own name (the dock's, the control that closes it too) — chrome FOR the surface
+       below, not a section beside it. Each page also opens with its own heading, so the rule was a
+       second edge under a title that already had one. */
     for (const sel of [".page-overlay-bar", ".terminal-dock-bar"])
       expect(bodiesFor(sel).join(" "), sel).not.toMatch(/border-bottom/);
     // Footers hold their place while the body scrolls past them.
-    for (const sel of [".permission-footer", ".question-footer", ".spaces-foot", ".mp-detail-foot"])
+    for (const sel of [".permission-footer", ".question-footer", ".spaces-foot", ".mp-foot"])
       expect(bodiesFor(sel).join(" "), sel).toMatch(/border-top: var\(--hairline-w\) solid/);
     // A table's rules ARE its structure, and the sidebar's edge is the app's one column boundary.
     expect(bodiesFor(".md th").join(" ")).toContain("border-bottom: var(--hairline-w) solid");
@@ -2070,8 +2748,9 @@ describe("dividers", () => {
     const dock = bodiesFor(".terminal-dock").join(" ");
     // Without this the pty paints a square straight over the corners the card just rounded.
     expect(dock).toContain("overflow: hidden");
-    // Full height, unlike its content-height neighbours.
-    expect(dock).toContain("height: calc(var(--dock-pane-h) - var(--sidebar-inset) * 2)");
+    // A shell's own height along the pane's foot, not its content's: a dock that grew as output
+    // scrolled would move the window being typed into.
+    expect(dock).toContain("height: var(--terminal-dock-h)");
     /* No seam between the title and the shell it names. The bar is chrome FOR the terminal, not a
        section beside it — the same reason `.md-code-head` left the divider list above. */
     expect(bodiesFor(".terminal-dock-bar").join(" ")).not.toMatch(/border-bottom/);
@@ -2100,6 +2779,16 @@ describe("dividers", () => {
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".edge-fade"))), "the bands are gone").toEqual([]);
   });
 
+  it("a docked panel arrives from the edge it docks to and never past it — its travel is the gap it rests at", () => {
+    /* The summary came in from 12px out to rest 8px in, so its first frames hung 4px past the window's
+       edge, and a window that could not run the animation left it there (new-surfaces-live measured
+       the panel at 1404 in a 1400px window). THE mutant: any travel wider than the inset — the
+       terminal dock rises from the foot by the same rule. */
+    expect(bodiesFor(".pane-dock").join(" ")).toContain("margin: var(--sidebar-inset)");
+    expect(blockAfter("@keyframes rl-summary-in")).toMatch(/from \{ translate: var\(--sidebar-inset\) 0;/);
+    expect(blockAfter("@keyframes rl-dock-up")).toMatch(/from \{ translate: 0 var\(--sidebar-inset\);/);
+  });
+
   it("\"this icon button is on\" has ONE appearance, whichever attribute carries it", () => {
     /* Two rules used to say it: `.icon-btn[aria-pressed=\"true\"]` for Bold and ⌘J, and a bespoke
        `.summary-btn[data-on]` on a different token for the summary toggle. Which attribute a toggle
@@ -2126,6 +2815,8 @@ describe("squircle surfaces", () => {
   const worklet = readFileSync(repoFile("apps/desktop/src/renderer/public/squircle-paint.js"), "utf8");
   const registrar = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/squircle.ts"), "utf8");
   const SURFACES = [".composer", ".composer-drop-hint", ".composer-todos", ".composer-overstrip", ".composer-understrip", ".install-card", ".commit-card"];
+  /** The cards that cast a lift from a layer of their own. */
+  const LIFTED = [".composer", ".install-card", ".commit-card"];
 
   it("every squircle surface keeps a circular-corner fallback AND the declarative form", () => {
     // `corner-shape` is a no-op on Chromium 138 (measured in squircle-live.mjs) and takes over at
@@ -2141,9 +2832,11 @@ describe("squircle surfaces", () => {
   it("the painted treatment is gated on the mark theme/squircle.ts only sets once the worklet loaded", () => {
     // `paint()` with no registered painter resolves to nothing, so a card that opted in before the
     // module arrived would render as an invisible box. The gate is what makes that unreachable.
+    // A card that casts a lift paints its face on its ::after instead of on itself (see below).
     for (const sel of SURFACES) {
       const body = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
-      expect(body, sel).toContain("background: paint(rl-squircle)");
+      const face = LIFTED.includes(sel) ? bodiesFor(`:root[data-squircle] ${sel}::after`).join(" ") : body;
+      expect(face, sel).toContain("background: paint(rl-squircle)");
       // The background painting area is clipped by the radius, and a superellipse sits FURTHER into
       // the corner than the arc of the same radius — left in place it shaves the painted corner
       // straight back into the rounded rect this replaces.
@@ -2170,6 +2863,33 @@ describe("squircle surfaces", () => {
       expect(focus, sel).not.toContain("0 0 0 1px");
     }
     expect(bodiesFor(":root[data-squircle] .composer[data-dropping]").join(" ")).toContain("--sq-ring: var(--rl-accent)");
+  });
+
+  it("a lifted card's shadow is under its face — both are children, ordered, in the card's own stacking context", () => {
+    /* A negative-z child of a stacking context paints ABOVE that element's own background, never
+       below it. With the face on the card's background the lift layer sat on top of it: its fill
+       covered all but the card's outer 2px, and its shadow darkened those 2px into a second edge
+       inside the ring — measured 8 luminance levels darker than the fill beside it, and wider at the
+       corners. THE MUTANTS: paint the face on the card again (its background), put the lift above the
+       face, or leave a card without the stacking context its two layers are ordered in. */
+    for (const sel of LIFTED) {
+      const card = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
+      expect(card, sel).toContain("background: none");
+      const lift = bodiesFor(`:root[data-squircle] ${sel}::before`).join(" ");
+      const face = bodiesFor(`:root[data-squircle] ${sel}::after`).join(" ");
+      expect(lift, sel).toContain("z-index: -2");
+      expect(face, sel).toContain("z-index: -1");
+      // The face covers the whole card, ring included; the lift may sit inside it, since only its
+      // shadow beyond the face is ever seen.
+      expect(face, sel).toContain("inset: 0");
+      // The face is driven by the card's own state rules, so it takes every input the painter reads.
+      for (const input of ["--sq-fill", "--sq-ring", "--sq-ring-w", "--sq-ring-open", "--sq-radius-top", "--sq-radius-bottom", "--sq-n"]) {
+        expect(face, `${sel} ${input}`).toContain(`${input}: inherit`);
+      }
+      const context = [...bodiesFor(sel), card].join(" ");
+      expect(context, `${sel} orders its layers in a context of its own`).toMatch(/z-index: 1|isolation: isolate/);
+      expect(context, `${sel} places its layers against itself`).toContain("position: relative");
+    }
   });
 
   it("--shadow-card is composed from the ring and the lift, in both modes", () => {
@@ -2201,6 +2921,22 @@ describe("squircle surfaces", () => {
 /** Light mode is a real mode, not a filter over the dark one. These pin the colours that were being
  *  written as dark-tuned literals in `styles.css` — one layer below the token ramps, where a sweep of
  *  tokens.css cannot see them — and, just as importantly, the ones that deliberately do NOT flip. */
+/* The owner's report: the band behind the address field and the arrows was a different colour from
+   the rest of the browser pane, and both from the session pane. The pane's chrome paints nothing, so it
+   is the session pane's ground; the view's host painted the opaque panel tone under a new tab and round
+   a device box, which beside the translucent band read as a lighter strip. THE mutants: a `background`
+   back on the host's own rule, or on the chrome. Only the page's white, and only while the page shows. */
+describe("the browser pane is one ground", () => {
+  it("paints nothing behind its chrome or in the view's rectangle, but the page's white while a page shows", () => {
+    for (const sel of [".browser-pane", ".browser-chrome", ".browser-view-host", ".new-tab", ".browser-error", ".browser-connecting"]) {
+      for (const body of RULES.filter((r) => partsOf(r).includes(sel)).map((r) => r.body)) expect(body, sel).not.toMatch(/(^|;|\s)background(-color)?:/);
+    }
+    const painted = RULES.filter((r) => /(^|;|\s)background(-color)?:/.test(r.body)).flatMap(partsOf).filter((s) => s.includes(".browser-view-host"));
+    // Not while the window's toasts hold the view's foot either: the strip it gives up is the ground.
+    expect(painted).toEqual([".browser-view-host[data-page]:not([data-device]):not([data-yielded])"]);
+  });
+});
+
 describe("light mode", () => {
   const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
   const lightBlocks = [...tokens.matchAll(/:root\[data-mode="light"\]\s*\{([^}]*)\}/g)].map((m) => m[1]!).join("\n");
@@ -2214,10 +2950,9 @@ describe("light mode", () => {
     [".media-play", "on a video frame"], [".media-play:hover", "on a video frame"],
     [".media-controls", "on a video frame"], [".media-btn:hover", "on a video frame"],
     [".media-scrub", "on a video frame"], [".media-scrub::-webkit-slider-thumb", "on a video frame"],
-    [".media-lightbox-bar", "on a video frame"],
-    [".media-lightbox-bar .media-name", "on a video frame"], [".media-lightbox-bar .media-detail", "on a video frame"],
-    [".media-lightbox-bar .media-action", "on a video frame"], [".media-lightbox-bar .media-action:hover", "on a video frame"],
     [".attach-tile[data-image] .attach-ext", "on the attached picture"],
+    // The Library tile's caption, which comes up over the file's own picture.
+    [".library-tile-caption", "on the file's own picture"],
     /* A switch knob is white in both modes, the way it is on every platform that has one. It used to
        take `--surface`, which flips — so in dark mode the OFF state was a dark dot on a light track,
        backwards from every switch a person has ever used, and the ON state was a dark dot on the
@@ -2226,21 +2961,29 @@ describe("light mode", () => {
     // The slider's handle is the switch's knob, for the same reason and with the same answer: two
     // round controls a few rows apart must not disagree about what a handle looks like.
     ['.slider-row input[type="range"]::-webkit-slider-thumb', "the same knob the switch wears"],
+    // …and so is the knob on the model picker's effort track, which is a slider in all but element.
+    [".mp-track-knob", "the same knob the switch wears"],
     [".attach-remove", "on the attached picture"], [".attach-remove:hover", "on the attached picture"],
     // An element's name, drawn over the DEVICE's own screen — whatever the simulator is showing is
     // the same in both modes, so the halo that keeps the name legible on it answers to the device.
     [".sim-ax-label", "on the device's own screen"],
     // Matching the native WebContentsView's own opaque white, so the sliver it trails during a
     // resize cannot flash the panel tone through the gap.
-    [".browser-view-host", "the browser view's own ground"],
+    [".browser-view-host[data-page]:not([data-device]):not([data-yielded])", "the browser view's own ground"],
     // White on a red fill, the same as white on the accent fill (--rl-accent-contrast), which is
     // deliberately one value for both modes.
     [".btn.destructive", "ink on a filled control"],
+    // The stop square on the rail's recording light: white on the same red fill, for the same reason.
+    [".rail-recording-stop", "ink on a filled control"],
     // The base half of a pair: the rule immediately below it flips the outline for light mode.
     [".md img", "paired with a light override"],
     // The base half of a pair, like `.md img` above it: a Quick Look render is a picture on the
     // pane's own ground, and the rule below flips its outline for light mode.
     [".ql-page", "paired with a light override"],
+    // The picture on the page about you: a photo on the page's ground, paired the same way.
+    ["img.avatar", "paired with a light override"],
+    // The picture in the media viewer, on the viewer's own ground — paired the same way.
+    [".media-viewer-img", "paired with a light override"],
   ]);
 
   it("no rule paints a raw black or white that the mode cannot reach", () => {
@@ -2255,7 +2998,7 @@ describe("light mode", () => {
   });
 
   it("every literal that is half a pair really does have its other half", () => {
-    for (const sel of [".md img", ".ql-page"]) {
+    for (const sel of [".md img", ".ql-page", "img.avatar", ".media-viewer-img"]) {
       expect(bodiesFor(sel).join(" "), sel).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
       expect(bodiesFor(`:root[data-mode="light"] ${sel}`).join(" "), sel).toContain("outline-color: rgba(0, 0, 0, 0.1)");
     }
@@ -2271,12 +3014,12 @@ describe("light mode", () => {
   });
 
   it("the colours that answer to something other than the theme are named, and stay put", () => {
-    // Each of these is drawn ON something that is the same in both modes — the terminal's own dark
-    // interior, or a picture the user attached — so a light override would be the bug. They are
-    // tokens rather than literals precisely so that reading is available to the next sweep.
-    for (const token of ["--rl-terminal-ink", "--rl-terminal-ink-dim", "--rl-on-media"])
+    // Each of these is drawn ON something that is the same in both modes — a machine's dark letterbox,
+    // or a picture the user attached — so a light override would be the bug. They are tokens rather
+    // than literals precisely so that reading is available to the next sweep.
+    for (const token of ["--rl-terminal-ink-dim", "--rl-on-media"])
       expect(lightBlocks, token).not.toContain(token);
-    expect(bodiesFor(".terminal-hint-path").join(" ")).toContain("color: var(--rl-terminal-ink)");
+    expect(bodiesFor(".machine-starting").join(" ")).toContain("color: var(--rl-terminal-ink-dim)");
     expect(bodiesFor(".attach-remove").join(" ")).toContain("color: var(--rl-on-media)");
     // Same case, one level up: a filled control's lit top edge. The fill under it is a saturated
     // accent in both modes and the light still comes from above.
@@ -2285,15 +3028,44 @@ describe("light mode", () => {
       expect(bodiesFor(sel).join(" "), sel).toContain("box-shadow: var(--fill-bevel)");
   });
 
+  it("every file and Library item stands on the device toolbar's own border and shadow — one token, never a copy", () => {
+    /* The owner, 10-05: "Files and library items should have a very slight shadow under them instead of
+       being just a flat square. And also it should have a light border. Look at the simulator and the
+       bar that has the live indicator… That should be the shadow and border used for any library item."
+       So the toolbar and the items all wear ONE token. THE MUTANTS: an item put back on a flat inset rim
+       (or on no edge), an item given the toolbar's stack copied rather than named, the toolbar moved to
+       another stack on its own, and a picture tile's ring traced back inside the border round it. */
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-shadow: var(--shadow-card)");
+    expect(RULES.filter((r) => /(^|[;\s])--rl-object-shadow\s*:/.test(r.body)), "defined once, so there is one place to change it").toHaveLength(1);
+    for (const sel of [".sim-toolbar", ".library-tile", ".library-row-mark", ".saved-turn-open", ".docs-home-glyph[data-type]", ".attach-art"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("box-shadow: var(--rl-object-shadow)");
+      expect(body, `${sel} keeps a rim of its own as well`).not.toMatch(/border: var\(--hairline-w\) solid|inset 0 0 0 var\(--hairline-w\)/);
+    }
+    // One ring round a picture: the tile's, outside it. A second traced inside sat half a pixel off it.
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".library-tile[data-thumb]::after")))).toEqual([]);
+    expect(bodiesFor(".library-tile").join(" ")).toContain("overflow: hidden");
+    // A file the agent will drop keeps its warning ring, and rests on the same lift as every other.
+    expect(bodiesFor('.attach-tile[data-disposition="ignored"] .attach-art').join(" ")).toContain("box-shadow: 0 0 0 var(--hairline-w) var(--orange), var(--shadow-card-lift)");
+    /* Painted, the attachment's well takes the same surface in its two halves: the border from the
+       painter, the shadow as a filter on the control round the well — not on the well, whose own
+       clip-path would cut it off. THE mutants: the painter's ring left on --line, or no lift. */
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-ring: var(--card-ring)");
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-lift-filter: var(--shadow-card-lift-filter)");
+    expect(bodiesFor(":root[data-squircle] .attach-art").join(" ")).toContain("--sq-ring: var(--rl-object-ring)");
+    expect(bodiesFor(":root[data-squircle] .attach-open").join(" ")).toContain("filter: var(--rl-object-lift-filter)");
+    expect(bodiesFor(":root[data-squircle] .attach-art").join(" ")).not.toContain("filter:");
+  });
+
   it("a file card set into the dock's raised surface takes the raised frame step, and light's is no weaker than dark's", () => {
-    /* One card, two grounds. In the Library it is --rl-frame on the canvas, and stays so; in the Files
-       dock it stands on --surface, where --rl-frame is one rung off white on the light face and
-       measured 1.04:1 — a card with no edge. THE MUTANTS: point the dock's card or its well back at
-       --rl-frame; drop the dock's hover (its fill then out-ranks the Library's `:hover`, and the card
-       stops answering the pointer); or set the light value back up the ladder. */
-    expect(bodiesFor(".library-tile").join(" ")).toContain("background: var(--rl-frame)");
+    /* One card, two grounds. In the Library it is a tile raised off the canvas (--rl-tile), as Codex's
+       are; in the Files dock it stands on --surface, where a lift off white is no step at all, so it
+       takes the raised frame step instead — --rl-frame one rung off white measured 1.04:1 there, a
+       card with no edge. THE MUTANTS: point the dock's card back at the Library's fill; drop the
+       dock's hover (its fill then out-ranks the Library's `:hover`, and the card stops answering the
+       pointer); or set the light value back up the ladder. */
+    expect(bodiesFor(".library-tile").join(" ")).toContain("background: var(--rl-tile)");
     expect(bodiesFor(".session-files .library-tile").join(" ")).toContain("background: var(--rl-frame-raised)");
-    expect(bodiesFor(".session-files .library-tile-mark").join(" ")).toContain("background: var(--rl-frame-raised)");
     expect(bodiesFor(".session-files .library-tile:hover").join(" ")).toContain("background: var(--rl-frame-raised-hover)");
     expect(bodiesFor(":root").join(" ")).toContain("--rl-frame-raised: var(--page)");
 
@@ -2322,12 +3094,6 @@ describe("light mode", () => {
     expect(ratio(rest, hover)).toBeGreaterThanOrEqual(1.05);
   });
 
-  it("a token defined for one mode only is a token that would carry a dark value into light", () => {
-    // --grid-line and --shadow-glass-inset were both declared in the dark block alone and referenced
-    // nowhere. That is worse than unused: the first thing to reach for one would have got a dark
-    // value in light mode with nothing reporting it.
-    for (const gone of ["--grid-line", "--shadow-glass-inset"]) expect(tokens, gone).not.toContain(gone);
-  });
 });
 
 describe("§6 do-NOT-animate list", () => {
@@ -2395,8 +3161,8 @@ describe("§6 do-NOT-animate list", () => {
     const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
     const stepOf = (block: string, name: string) =>
       Number(new RegExp(`--${name}: var\\(--overlay-(?:lighten|darken)-(\\d+)\\)`).exec(block)?.[1] ?? NaN);
-    const dark = tokens.slice(tokens.indexOf("--line: var(--overlay-lighten-300)"));
-    const light = tokens.slice(tokens.indexOf("--line: var(--overlay-darken-200)"));
+    const dark = tokens.slice(tokens.indexOf("--line: var(--overlay-lighten-200)"));
+    const light = tokens.slice(tokens.indexOf("--line: var(--overlay-darken-100)"));
 
     // Dragging is always a step above resting, in both faces.
     expect(stepOf(dark, "divider-hover")).toBeGreaterThan(stepOf(dark, "divider"));
@@ -2500,6 +3266,19 @@ describe("row and control layout", () => {
     expect(btn).toContain("flex-shrink: 0");
   });
 
+  it("a space's folder path takes the room it is given and asks for none, so it cannot widen the page around it", () => {
+    /* One unbroken line of unbounded length: measured into first run's `1fr` tracks, the default
+       location's path widened the whole page past a 520px window and un-stacked the agent cards
+       (onboarding-live.mjs). THE mutant drops the containment — `min-width: 0` alone only lets a flex
+       item shrink; it still reports the whole path as its intrinsic width. */
+    for (const sel of [".space-folder-path", ".space-folder-made"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("contain: inline-size");
+      expect(body, sel).toContain("text-overflow: ellipsis");
+      expect(body, sel).toMatch(/flex: 1/);
+    }
+  });
+
   it("a page row has exactly one elastic column, so its trailing metadata forms a straight edge", () => {
     // The bug: `.page-row-dim` and `.item-status` both carried `margin-left: auto`, which splits the
     // leftover space between them — every row parked its timestamp at a different x. The title grows
@@ -2514,14 +3293,69 @@ describe("row and control layout", () => {
     expect(bodiesFor(".page-row > svg").join(" ")).toContain("flex: none");
   });
 
-  it("a page pane can shrink to its slot — otherwise it is painted over by the pane beside it", () => {
-    // A pane is a flex ITEM, and a flex item's default `min-width: auto` floors it at its content's
-    // min-content width. Without this, a page whose content did not fit grew PAST its slot and the
-    // neighbouring pane painted over the overflow — `elementFromPoint` in the covered strip returned
-    // the neighbour, so the buttons there could not be clicked. Found by driving the real app with
-    // three panes open (Sessions overflowed by 179px, the Tasks lens by 247px). jsdom has no layout,
-    // so this line is the only thing in the suite that can notice it going away.
-    expect(bodiesFor(".page").join(" ")).toContain("min-width: 0");
+  it("a sidebar row's state and its actions share one slot at the far end", () => {
+    /* The actions sat after the row at opacity 0 — hidden, but still taking ~50px of every row's
+       title and parking the state in the middle of the line. THE MUTANTS: put the actions back in the
+       flow, leave the state on screen under the buttons, or reveal on `:focus-within`, which a click
+       satisfies — the row just opened would show its buttons instead of its state. */
+    const actions = bodiesFor(".item-actions").join(" ");
+    expect(actions).toContain("position: absolute");
+    expect(actions).toContain("opacity: 0");
+    expect(actions).toContain("pointer-events: none");
+    for (const when of [":hover", ":has(:focus-visible)", ":has([data-confirming])"]) {
+      expect(bodiesFor(`.item${when} .item-actions`).join(" "), when).toContain("opacity: 1");
+      expect(bodiesFor(`.item${when} .item-trail`).join(" "), when).toContain("display: none");
+      expect(bodiesFor(`.item${when} .item-row`).join(" "), when).toContain("padding-right:");
+    }
+    expect(css).not.toMatch(/\.item:focus-within \.item-actions/);
+    // The title gives way by the actions' width, so a row with two takes more than a row with one.
+    const one = parseFloat(/padding-right: ([\d.]+)px/.exec(bodiesFor(".item:hover .item-row").join(" "))![1]!);
+    const two = parseFloat(/padding-right: ([\d.]+)px/.exec(bodiesFor('.item[data-actions="2"]:hover .item-row').join(" "))![1]!);
+    expect(two - one).toBe(24);
+    // No button reserves its own width any more: the slot is the overlay's.
+    expect(bodiesFor(".item-close, .item-shelf, .item-delete".split(", ")[0]!).join(" ")).not.toContain("opacity: 0");
+  });
+
+  it("a row with no actions keeps its state under the pointer, and gives its title nothing", () => {
+    /* The cross-room rows — a session drawn outside its room, a room with nothing to unfold — have no
+       action to show, and W1's rule would still hide their state and pad their title for one. THE
+       MUTANT is dropping this pair: the dot vanishes under the pointer for a slot with nothing in it. */
+    for (const when of [":hover", ":has(:focus-visible)"]) {
+      expect(bodiesFor(`.item[data-actions="0"]${when} .item-trail:not(:empty)`).join(" "), when).toContain("display: flex");
+      expect(bodiesFor(`.item[data-actions="0"]${when} .item-row`).join(" "), when).toContain("padding-right: 8px");
+    }
+    // The resting inset is the same 8px, so a row with nothing to offer does not move at all.
+    expect(bodiesFor(".item-row").join(" ")).toContain("padding: 5px 8px");
+    // The disclosure is one of the row's own controls: the same box, the same hit area, the same hover.
+    expect(bodiesFor(".item-disclose").join(" ")).toContain("width: 22px");
+    expect(bodiesFor(".item-disclose::after").join(" ")).toContain("inset: -6px");
+    expect(bodiesFor('.item-disclose[aria-expanded="true"] svg').join(" ")).toContain("rotate(90deg)");
+  });
+
+  it("the sidebar's list is headed by a caption and a switch, not a segmented control across the column", () => {
+    /* The owner, 10-04: "The tabs between spaces and recent should be removed. It should just have a
+       smaller subsection title that says spaces, then all the way to the right a button with an
+       activity icon". The caption is in the column's section-label voice — the size, weight and ink
+       "Pinned" wears. THE mutants: the old `.seg` track back, or a caption louder than the labels
+       around it. */
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".sb-lens") && /seg/.test(sel)))).toEqual([]);
+    const title = bodiesFor(".sb-lens-title").join(" ");
+    const label = bodiesFor(".group-label").join(" ");
+    for (const part of ["font-size: 13px", "font-weight: var(--fw-medium)", "color: var(--rl-text-faint)"]) {
+      expect(label, part).toContain(part);
+      expect(title, part).toContain(part);
+    }
+  });
+
+  it("a cross-space row's space name keeps its width, and the title is what gives way", () => {
+    /* design.md's yielding order: the title is unbounded and takes the slack; the space's name is
+       reserved up to a cap. THE MUTANT is letting the name shrink as well — two shrinking items share
+       the shortfall, and a four-letter space comes out as "L." beside a title with room to spare. */
+    const where = bodiesFor(".item-where").join(" ");
+    expect(where).toContain("flex: none");
+    expect(where).toMatch(/max-width: \d+px/);
+    expect(where).toContain("text-overflow: ellipsis");
+    expect(bodiesFor(".item-title").join(" ")).toContain("flex: 1");
   });
 
   it("the Tasks lens wraps rather than clipping: both columns shrink, neither is fixed-width", () => {
@@ -2553,6 +3387,19 @@ describe("row and control layout", () => {
  *  is a declaration that parses and nothing more. What is checkable here is the arithmetic: that each
  *  page shape is capped at what that shape's own parts add up to, read from the rules that state
  *  those parts, so a drift in either place fails. */
+describe("no header is pinned", () => {
+  it("nothing is sticky but a long table's column heads and a code block's line numbers", () => {
+    /* The owner, 10-05: "the header shouldn't be sticky at all". A page's head is in its column and
+       scrolls with it (page-heads.test.tsx mounts every page to hold that). Two pins stay, each a
+       thing read ACROSS while it scrolls rather than a header over a page: a markdown table's heads,
+       which name the columns of the rows passing under them, and a code block's numbers, which stay
+       beside the lines they count while the code scrolls sideways. THE mutant: `position: sticky` on
+       anything else. */
+    const pinned = RULES.filter((r) => /position:\s*sticky/.test(r.body)).flatMap(partsOf).sort();
+    expect(pinned).toEqual([".code-gutter", ".md thead th"]);
+  });
+});
+
 describe("the page measure", () => {
   /** A declaration from the first rule that states it for `sel` — the base rule, which the narrow
    *  container block further down the file overrides rather than replaces. */
@@ -2584,23 +3431,26 @@ describe("the page measure", () => {
     return MEASURES.get(sel)!;
   };
 
-  it("the header's indent is built from the SAME two numbers the rail is", () => {
-    /* The title now starts where the content column does, which on a railed page means clearing the
-       rail. Written as a literal, that number silently stops matching the moment the rail moves —
-       so the indent is `calc(gutter + rail + gap)` off the variables, and this is what says so. */
-    const indent = decl(".page:has(.page-rail) .page-head", "padding-left");
-    expect(indent).toContain("--page-rail-w");
-    expect(indent).toContain("--page-rail-gap");
+  it("the head stands in the column it names, so it takes no indent — and the rail starts level with its band", () => {
+    /* The head is the column's first child now (PageScroll), so it starts where the content does by
+       construction, and an indent written for the head ABOVE the column would push it past the
+       content it names. THE mutants: an indent back on the head, or the rail left at the body's top
+       edge, a whole title band above the head beside it. The band is one variable, so the two cannot
+       drift. */
+    expect(decl(".page-head", "padding")).toBe("var(--page-head-top) 0 18px");
+    const indented = RULES.filter((r) => r.selectors.some((s) => /\.page-head$/.test(s)) && /padding-(left|inline)/.test(r.body));
+    expect(indented).toEqual([]);
+    expect(decl(".page-body > .page-rail", "margin-top")).toBe("var(--page-head-top)");
     expect(decl(".page-rail", "width")).toBe("var(--page-rail-w)");
     expect(decl(".page-body", "gap")).toBe("var(--page-rail-gap)");
   });
 
-  it("head, rail and content are ONE centred block — the title stays over the column it introduces", () => {
-    // The mutant: drop `.page-head` from this rule. The form centres itself in the pane and the title
-    // that names it stays at the pane's left edge, introducing nothing.
-    const band = RULES.filter((r) => r.selectors.includes(".page-head") && r.body.includes("margin-inline: auto"));
+  it("rail and column are ONE centred block, and the head rides in the column — the title stays over what it introduces", () => {
+    // The mutant: centre the column alone. The rail would stand at the pane's left edge beside a
+    // column in the middle of it, belonging to neither.
+    const band = RULES.filter((r) => r.selectors.includes(".page-body") && r.body.includes("margin-inline: auto"));
     expect(band).toHaveLength(1);
-    expect(band[0]!.selectors).toContain(".page-body");
+    expect(band[0]!.selectors).not.toContain(".page-head");
     // The load-bearing one: an auto cross-axis margin switches a flex item's stretch OFF, so without
     // an explicit width each band shrinks to fit its own longest line instead of filling the cap.
     expect(band[0]!.body).toContain("width: 100%");
@@ -2620,15 +3470,6 @@ describe("the page measure", () => {
     // makes the wider one win. Losing that is a lens squeezed into the reading measure.
     expect(measure(".page:has(.page-content[data-wide])"))
       .toBeGreaterThan(measure(".page:has(.page-rail)"));
-  });
-
-  it("the notifications feed takes the shared reading column, opting out in NEITHER direction", () => {
-    /* Two reversals, and the second is the subtle one. It used to opt out UPWARD, to a 968px
-       two-column page whose detail half stood empty until something was selected. Capping the feed
-       narrower and centring it looked like the fix, and was not: the page then centred the cards and
-       the header independently, leaving the title 76px to the left of the list it names. */
-    expect(decl(".notif-feed", "max-width")).toBe("none");
-    expect(MEASURES.has(".notifications-page-pane")).toBe(false);
   });
 
   it("no cap can bind inside the narrow pass, so the two never fight", () => {
@@ -2678,10 +3519,9 @@ describe("narrow panes", () => {
     for (const sel of [".page", ".diff-pane", ".panel"]) {
       expect(bodiesFor(sel).join(" "), sel).toContain("container-type: inline-size");
     }
-    // The notifications page declared its own container first; hoisting it to `.page` is what lets
-    // every page share the breakpoints. A re-declaration would be a second, narrower container
-    // shadowing the shared one.
-    expect(RULES.filter((r) => r.selectors.includes(".notifications-page-pane"))).toHaveLength(0);
+    // Hoisting the container to `.page` is what lets every page share the breakpoints. A page that
+    // re-declared its own would be a second, narrower container shadowing the shared one.
+    expect(RULES.filter((r) => r.selectors.some((sel) => /^\.[\w-]+-page(?:-pane)?$/.test(sel)) && /container-type/.test(r.body))).toHaveLength(0);
   });
 
   it("the edge bands are positioned against the SCROLLER, never against the body the rail shares", () => {
@@ -2762,9 +3602,11 @@ describe("narrow panes", () => {
     expect(narrow).toMatch(/\.settings-row > \.settings-row-main \{[^}]*flex-basis: 100%/);
   });
 
-  it("the panel bar spends a narrow pane on identity: meta goes, then the trail, never the title", () => {
+  it("the panel bar spends a narrow pane on identity: the meta goes, never the title", () => {
     expect(blockAfter("@container (max-width: 380px)")).toMatch(/\.panel-meta \{[^}]*display: none/);
-    expect(blockAfter("@container (max-width: 300px)")).toMatch(/\.panel-nav \{[^}]*display: none/);
+    // The pane's own back and forward are gone from the bar (WindowNav has the window's one pair), and
+    // with them the rung that hid them.
+    expect(css).not.toMatch(/\.panel-nav/);
   });
 
   it("the diff head breaks onto its own row under 560px, and the commit bar holds out to 380", () => {
@@ -2775,14 +3617,6 @@ describe("narrow panes", () => {
     const tight = blockAfter("@container (max-width: 380px)");
     expect(tight).toMatch(/\.diff-commit-bar \{[^}]*flex-wrap: wrap/);
     expect(tight).toMatch(/\.diff-staged-count \{[^}]*flex-basis: 100%/);
-  });
-
-  it("the notifications feed needs no narrow pass at all", () => {
-    /* There was a 760px threshold here that stacked a two-column split. The split is gone — one
-       measured column of cards reflows on its own — and a container query for a layout that no
-       longer exists is the kind of dead rule the next person spends an afternoon on. */
-    expect(css).not.toContain(".notif-split");
-    expect(css).not.toContain(".notif-detail {");
   });
 
   it("every override sits AFTER the shorthand it overrides — a container query adds no specificity", () => {
@@ -2803,7 +3637,10 @@ describe("Plan 24 W1: inline UI in the transcript", () => {
   it("the transcript's diff keeps its own selectors — a change to the diff pane cannot restyle it", () => {
     // The pane owns staging and history across a full-height list; this is a read-only card in a
     // 680px column. Sharing `.diff-line` would couple a message from three weeks ago to the pane.
-    const shared = RULES.filter((r) => r.selectors.some((s) => s.includes(".fd-") && s.includes(".diff-")));
+    // The scrollbar list names every scroller in the app in one `:where(...)`; that is a roll call,
+    // not a style the two diffs share.
+    const shared = RULES.filter((r) => r.body !== "scrollbar-width: thin;"
+      && r.selectors.some((s) => s.includes(".fd-") && s.includes(".diff-")));
     expect(shared).toEqual([]);
   });
 
@@ -2823,9 +3660,12 @@ describe("Plan 24 W1: inline UI in the transcript", () => {
     const gutter = bodiesFor(".code-gutter").join(" ");
     expect(gutter).toContain("position: sticky");
     expect(gutter).toContain("left: 0");
-    // Both columns must run the same mono line-height or the numbers drift off their lines.
-    expect(gutter).toContain("11.5px/1.65 var(--font-mono)");
-    expect(bodiesFor(".code-body").join(" ")).toContain("12px/1.65 var(--font-mono)");
+    // Both columns must run the same mono SIZE and line-height or the numbers drift off their lines.
+    // They did: the rail was 11.5px/1.65 beside a 12px/1.65 body, which lands 0.8px lower per line —
+    // a number a full line off by the twenty-fourth. The same font string, not two that agree today.
+    const font = (b: string) => b.match(/font: ([^;]+);/)?.[1];
+    expect(font(gutter)).toBe("12px/1.65 var(--font-mono)");
+    expect(font(bodiesFor(".code-body").join(" "))).toBe(font(gutter));
     expect(bodiesFor(".code-body").join(" ")).toContain("white-space: pre");
   });
 
@@ -3005,8 +3845,10 @@ describe("custom themes", () => {
       const block = modeBlock(mode);
       // The seeds are read back out of the palette rather than written here, so this cannot drift
       // by someone updating tokens.css and the copy in the test to match each other.
+      // A light theme's seed background is its paper (themes.ts, `Ramp.page`), a dark one's its ground.
+      const anchor = mode === "dark" ? "--page" : "--canvas";
       const derived = deriveVars({
-        bg: hexIn("--page", block), ink: hexIn("--ink", block), accent: hexIn("--accent", block),
+        bg: hexIn(anchor, block), ink: hexIn("--ink", block), accent: hexIn("--accent", block),
         green: hexIn("--green", block), orange: hexIn("--orange", block), red: hexIn("--red", block),
         // The same role mapping the base --syn-* block states, so the seeds are Realm's own.
         syntax: { comment: hexIn("--ink-3", block), keyword: hexIn("--accent", block), string: hexIn("--green", block),
@@ -3015,7 +3857,7 @@ describe("custom themes", () => {
 
       // The surface ladder and the tooltip chip are pure geometry off the seed: they have to land on
       // the shipped lightness to finer than a display can resolve.
-      for (const token of ["--canvas", "--surface", "--inset", "--hover", "--hover-2", "--field",
+      for (const token of ["--page", "--canvas", "--surface", "--inset", "--hover", "--hover-2", "--field",
         "--stripe-bg", "--tooltip-bg", "--tooltip-border", "--tooltip-fg"]) {
         expect(derivedL(derived[token]!), `${mode} ${token}`).toBeCloseTo(L(token, block), 3);
       }
@@ -3036,7 +3878,7 @@ describe("custom themes", () => {
     for (const mode of ["dark", "light"] as const) {
       const block = modeBlock(mode);
       const want = REALM_SEED[mode];
-      for (const [role, token] of [["bg", "--page"], ["ink", "--ink"], ["accent", "--accent"],
+      for (const [role, token] of [["bg", mode === "dark" ? "--page" : "--canvas"], ["ink", "--ink"], ["accent", "--accent"],
         ["green", "--green"], ["orange", "--orange"], ["red", "--red"]] as const) {
         expect(want[role], `${mode} ${role}`).toBe(hexIn(token, block));
       }
@@ -3112,6 +3954,26 @@ describe("the decorative wash", () => {
   });
 });
 
+/**
+ * A terminal sits on the pane's ground, as the transcript does. The pane area is ONE translucent sheet
+ * (`.main`), and a terminal that filled itself with the same token painted that colour a second time
+ * at full strength — the darker slab beside the chat it was meant to match.
+ */
+describe("a terminal's surface", () => {
+  it("paints no ground of its own and keeps no colour scheme of its own", () => {
+    // THE MUTANTS: any background on the pane, and the slab is back; `color-scheme: dark`, and on the
+    // light face xterm's scrollbar stays a dark gutter on a light ground.
+    const pane = bodiesFor(".terminal-pane").join(" ");
+    expect(pane).not.toMatch(/background/);
+    expect(pane).not.toMatch(/color-scheme/);
+  });
+
+  it("writes its hint in the pane's own inks, which are the ones that read on the pane's ground", () => {
+    // THE MUTANT: the white-on-dark terminal inks it used to wear, invisible on the light face.
+    expect(bodiesFor(".terminal-hint-path").join(" ")).toContain("color: var(--rl-text-dim)");
+    expect(bodiesFor(".terminal-hint-keys").join(" ")).toContain("color: var(--rl-text-faint)");
+  });
+});
 
 /**
  * The machine pane's surfaces (Plan 25 W3).
@@ -3122,9 +3984,9 @@ describe("the decorative wash", () => {
  */
 describe("the machine pane's screen", () => {
   it("letterboxes on the terminal's ground, not the canvas token", () => {
-    // A guest desktop must not fight a near-white surround in light mode — the ruling
-    // `.terminal-pane` already writes down for its own interior. `--canvas` is the working plane's
-    // colour and would put a pale border around a pale screen in exactly the mode it shows most.
+    // A guest desktop must not fight a near-white surround in light mode. `--canvas` is the working
+    // plane's colour and would put a pale border around a pale screen in exactly the mode it shows
+    // most.
     const body = bodiesFor(".machine-screen").join(" ");
     expect(body).toContain("background: var(--rl-terminal-bg)");
     expect(body).not.toContain("var(--canvas)");
@@ -3245,6 +4107,19 @@ describe("the machine pane's screen", () => {
     expect(bodiesFor('.status-dot[data-status="machine-off"]').join(" ")).toContain("background: var(--rl-text-faint)");
   });
 
+  it("puts a recording for Laya in the in-flight ping family, in red, and in both lists", () => {
+    // Red is what a recording light is everywhere; the ring has to survive reduced motion and leave
+    // when the window goes quiet, which only a name in every list gets it.
+    expect(bodiesFor('.status-dot[data-status="recording"]').join(" ")).toContain("background: var(--rl-danger)");
+    expect(bodiesFor('.status-dot[data-status="recording"]::after').join(" ")).toContain("--ring: var(--rl-danger)");
+    const ping = RULES.filter((r) => /animation:\s*rl-ping/.test(r.body)).flatMap(partsOf);
+    expect(ping).toContain('.status-dot[data-status="recording"]::after');
+    const reduced = RULES.filter((r) => /animation:\s*none/.test(r.body)).flatMap(partsOf);
+    expect(reduced).toContain('.status-dot[data-status="recording"]::after');
+    const quiet = RULES.filter((r) => /display:\s*none/.test(r.body)).flatMap(partsOf);
+    expect(quiet).toContain(':root[data-quiet] .status-dot[data-status="recording"]::after');
+  });
+
   it("puts `booting` in the in-flight ping family rather than giving it a second animation", () => {
     // The halo has to survive reduced motion, which the global `*` rule cannot reach on a
     // pseudo-element — so a value added to the family without being added to BOTH lists is the one
@@ -3260,13 +4135,22 @@ describe("the machine pane's screen", () => {
    strip left on the neutral `--card-ring` draws a different-coloured line up each side of the same
    band — which shows as a notch at either edge, where the card's own top corners sit inside the strip.
    THE MUTANT: colour the card alone, which is what it did. */
-it("carries the prompter's mode ring up through every strip stacked above it", () => {
+it("carries the prompter's mode ring up through every strip stacked above it, and down through the one below", () => {
   for (const [mode, token] of [["plan", "--rl-warning"], ["ask", "--rl-success"]] as const) {
-    for (const strip of [".composer-agents", ".composer-goal", ".composer-todos", ".composer-overstrip"]) {
-      const painted = bodiesFor(`:root[data-squircle] ${strip}:has(~ .composer[data-mode="${mode}"])`).join(" ");
+    const strips: [string, string][] = [
+      ...[".composer-goal", ".composer-todos", ".composer-overstrip"].map((strip): [string, string] => [strip, `${strip}:has(~ .composer[data-mode="${mode}"])`]),
+      // The under-strip is the card's LATER sibling, so it reads the mode with no `:has`.
+      [".composer-understrip", `.composer[data-mode="${mode}"] ~ .composer-understrip`],
+    ];
+    for (const [strip, sel] of strips) {
+      const painted = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
       expect(painted, `${strip} under ${mode}`).toContain(token);
+      /* …and under the gate the edge is the painter's ALONE. The fallback's box-shadow is drawn on the
+         border box, which the painter squares to radius 0, so left on it drew a second ring: square
+         past the painted corners, and across the band where two strips meet. THE mutant: drop this. */
+      expect(painted, `${strip} under ${mode} keeps the fallback's box-shadow`).toContain("box-shadow: none");
       // The painter is gated, so the fallback edge has to say the same thing.
-      const fallback = bodiesFor(`${strip}:has(~ .composer[data-mode="${mode}"])`).join(" ");
+      const fallback = bodiesFor(sel).join(" ");
       expect(fallback, `${strip} fallback under ${mode}`).toContain(token);
       expect(fallback, `${strip} fallback hairline`).toContain("var(--hairline-w)");
     }
@@ -3285,6 +4169,41 @@ it("carries the prompter's mode ring up through every strip stacked above it", (
  * Geometry is deliberately absent: see `AGENT_FRAME`'s own comment for why insetting a pane-scoped
  * frame is parity rather than a departure from it.
  */
+describe("the model picker's light and its fast-mode moment", () => {
+  const LIGHT = [".mp-track-facets", ".mp-track-flow", ".mp-track-core", ".mp-track-shine"];
+
+  it("loops only in the light's own layers, and pauses them with every other ambient loop", () => {
+    // THE MUTANT: a layer of the light left off the quiet list keeps a core busy in a window nobody is
+    // looking at — and under Low power, which is supposed to still it.
+    for (const sel of LIGHT) {
+      expect(bodiesFor(sel).join(" "), sel).toMatch(/animation: rl-[a-z]+ var\(--mp-[a-z]+\) [a-z-]+ infinite/);
+      expect(bodiesFor(`:root[data-quiet] ${sel}`).join(" "), sel).toContain("animation-play-state: paused");
+    }
+  });
+
+  it("answers a chosen heavy level, scaled by --heat, and draws in the live accent alone", () => {
+    expect(bodiesFor('.mp-track[data-effort="xhigh"]').join(" ")).toContain("--heat: .55");
+    expect(bodiesFor('.mp-track[data-effort="max"]').join(" ")).toContain("--heat: 1");
+    // Hue is not free (theme/grain.ts): every colour in the light is the accent moved, never a hue
+    // somebody picked — so it is the theme's own light at every palette.
+    for (const sel of [...LIGHT, ".mp-track-glint"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body.match(/oklch\((?!from var\(--rl-accent\))/g), sel).toBeNull();
+    }
+  });
+
+  it("plays the fast-mode moment once, on the ladder, and never as a loop", () => {
+    // A moment that looped would be the decorative pulsing §6 forbids; one off the ladder would be a
+    // duration of its own (the motion ladder above).
+    for (const sel of [".mp-bolt[data-charge]", ".mp-track-glint", '.model-chip[data-sweep] :is(.chip-label, .chip-effort)']) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toMatch(/animation: rl-[a-z-]+ var\(--(mp-moment|dur-move)\)/);
+      expect(body, sel).not.toContain("infinite");
+    }
+    for (const sel of [".model-chip", ".mp-run"]) expect(bodiesFor(sel).join(" "), sel).toContain("--mp-moment: calc(var(--dur-move) * 1.5)");
+  });
+});
+
 describe("the agent-controlled frame", () => {
   const glow = bodiesFor(".drive-frame-glow").join(" ");
 
@@ -3316,5 +4235,261 @@ describe("the agent-controlled frame", () => {
     // The quiet list is an enumeration, not a wildcard: a new looping surface that nobody adds to it
     // keeps burning a core in an unfocused window, which is the audit this list came out of.
     expect(bodiesFor(":root[data-quiet] .drive-frame-glow").join(" ")).toContain("animation-play-state: paused");
+  });
+});
+
+/** Settings' rail (Plan 26 W9a): a search above headed lists of pages, and a mark on the row a search
+ *  lands on. jsdom lays nothing out, so `settings-groups-live.mjs` measures both in the real window;
+ *  these pin the rules those measurements depend on. */
+describe("Settings' search and grouped rail", () => {
+  it("narrow, the search keeps a line of its own and only the pages lie down into the strip", () => {
+    /* The generic narrow rail is one horizontal scroller. THE mutant: let the search ride in it, and
+       the field scrolls out of sight exactly when the strip is too long to scan — which is when
+       someone reaches for it. */
+    const narrow = blockAfter("@container (max-width: 640px)");
+    expect(narrow).toMatch(/\.page-rail\.settings-rail \{[^}]*flex-direction: column/);
+    expect(narrow).toMatch(/\.page-rail\.settings-rail \{[^}]*overflow: visible/);
+    expect(narrow).toMatch(/\.settings-rail-lists \{[^}]*flex-direction: row[^}]*overflow-x: auto/);
+  });
+
+  it("narrow, each headed list keeps its own width in the strip", () => {
+    /* `.page-rail-list` is `min-width: 0`, so in a row it shrinks to share the strip. THE mutant:
+       drop this, and the five lists squeeze to the strip's width with their tabs drawn over each
+       other — measured live as "AppearanceEnginesKeysSign-ins" in one smear. */
+    expect(blockAfter("@container (max-width: 640px)")).toMatch(/\.settings-rail-lists > \.page-rail-list \{[^}]*flex: none/);
+  });
+
+  it("wide, the lists scroll under the search when the page is shorter than the rail", () => {
+    /* 530px of rail against 479px of page at the 600px minimum window. THE mutant: let the rail
+       size to its content, and Import sits below the page with nothing to scroll it into view. In the
+       page the rail starts a head's band down, so its cap gives that band back; in the sidebar's
+       column there is no band, and the cap is the column. */
+    expect(bodiesFor(".page-rail.settings-rail").join(" ")).toMatch(/max-height: calc\(100% - var\(--page-head-top, 0px\)\)/);
+    const lists = bodiesFor(".settings-rail-lists").join(" ");
+    expect(lists).toContain("min-height: 0");
+    expect(lists).toContain("overflow-y: auto");
+  });
+
+  it("on the light face a search field on this page takes the raised fill, through the painter when there is one", () => {
+    /* `--field` and `--canvas` are the same lightness on the light face, so a field laid on the
+       page's ground has no edge. THE painter mutant: write `background` where the worklet paints —
+       it replaces `paint(rl-squircle)` and, at `border-radius: 0`, squares the field off. */
+    expect(bodiesFor(':root[data-mode="light"] .settings-page-pane .search-field').join(" ")).toBe("--sq-fill: var(--surface);");
+    expect(bodiesFor(':root[data-mode="light"]:not([data-squircle]) .settings-page-pane .search-field').join(" ")).toContain("background: var(--surface)");
+  });
+
+  it("marks a landed row with an edge down its inside, never a ring", () => {
+    /* A ring on a meshed row redraws the box the mesh removed and crosses the dividers either side
+       of it — the reason the engine cards' warning is an inside edge. THE mutant: `inset 0 0 0 1.5px`. */
+    for (const sel of [".settings-page-pane .settings-row[data-found]", ".settings-page-pane .engine-card[data-found]"]) {
+      expect(bodiesFor(sel).join(" "), sel).toMatch(/box-shadow: inset 3px 0 0 var\(--rl-accent\)/);
+    }
+    // It fades because the RESTING row carries the transition; reduced motion's global kill is what
+    // turns that into a plain on and off.
+    expect(bodiesFor(".settings-page-pane .settings-row").join(" ")).toMatch(/transition: box-shadow var\(--dur-slow\)/);
+  });
+});
+
+/** The content face (Plan 26 W9b). jsdom computes no cascade, so `settings-groups-live.mjs` reads the
+ *  computed family off probes in the real window; this pins the declarations that reading depends on. */
+describe("prose reads in the content face", () => {
+  it("every surface prose is read on names --font-content, and the root starts it as the UI face", () => {
+    /* THE missed-surface mutant: leave one off, and choosing a serif changes the transcript but not
+       the documents editor — two faces for the same kind of reading in one window. */
+    for (const sel of [".msg-assistant", ".msg-user", ".md", ".documents-rich-surface"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("font-family: var(--font-content)");
+    }
+    expect(bodiesFor(":root").join(" ")).toContain("--font-content: var(--font-ui)");
+  });
+});
+
+describe("the pointer", () => {
+  /** The one rule that asks for the hand, and what it lists. */
+  const hands = RULES.filter((r) => /cursor:\s*pointer/.test(r.body));
+  const list = (hands[0]?.selectors ?? []).join(", ");
+
+  it("points with the hand at everything a click acts on, from ONE rule by tag and role, at no specificity", () => {
+    /* The owner's call (10-05): the hand over buttons and wherever it makes sense. THE mutants: a kind
+       of control left out of the list (every one of them keeps the arrow), a class rule asking for the
+       hand on its own (the next control like it does not), or the rule given specificity (every drag
+       handle, resize edge and zoomable picture loses its own cursor to it). */
+    expect(hands.flatMap(partsOf)).toHaveLength(1);
+    expect(list.startsWith(":where(")).toBe(true);
+    for (const part of ["button", "a[href]", "summary", "select", '[role="button"]', '[role="link"]', '[role="tab"]',
+      '[role="menuitem"]', '[role="menuitemradio"]', '[role="menuitemcheckbox"]', '[role="option"]', '[role="switch"]',
+      '[role="checkbox"]', '[role="radio"]', '[role="slider"]', 'input:is([type="checkbox"], [type="radio"], [type="range"]',
+      'label:has(input:is([type="checkbox"], [type="radio"]))']) expect(list).toContain(part);
+    // Everything that tracks a press (press-tracking.ts) is something that points.
+    for (const sel of PRESSABLE.split(", ")) expect(list, sel).toContain(sel === '[role^="menuitem"]' ? '[role="menuitem"]' : sel.replace(/^input\[type="checkbox"\]$/, '[type="checkbox"]'));
+    // tokens.css loads first; a link is the one tag that asks there.
+    const tokenHands = [...tokensCss.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{[^{}]*cursor:\s*pointer/g)].map((m) => m[1]!.trim());
+    expect(tokenHands).toEqual(["a"]);
+    expect(bodiesFor("button").join(" ")).not.toContain("cursor");
+  });
+
+  it("no control turns the hand back off — the arrow is for what a click does nothing on", () => {
+    /* Sixty rules once wrote `cursor: default` to keep the Mac's arrow over their control, and each of
+       them would out-rank a rule of no specificity. THE mutant is one of them coming back. What may ask
+       for the arrow: a control that is off, and the handful of things that look like rows and are not
+       pressed, each named for why. */
+    const records: Record<string, string> = {
+      ".summary-fact": "a context fact in the summary, read and not pressed",
+      ".skill-file-name[data-inert]": "a skill's file the Library cannot open",
+      ".ghost-chip[data-static]": "a chip that only reports a value",
+      ".ship-row": "a record of a ship, whose PR link is the only thing in it that opens",
+      ".media-video .media-el": "a video's picture, which its own play control sits over",
+    };
+    const arrows = RULES.filter((r) => /cursor:\s*default/.test(r.body)).flatMap(partsOf);
+    const unexplained = arrows.filter((sel) => !(sel in records) && !/:disabled|\.disabled|aria-disabled/.test(sel));
+    expect(unexplained).toEqual([]);
+    expect(Object.keys(records).filter((sel) => !arrows.includes(sel)), "a record that no longer asks").toEqual([]);
+  });
+
+  it("gives the arrow back to a control that is off, and the I-beam to a field inside a row that points", () => {
+    // Both are rules of no specificity AFTER the hand, so they win by order and lose to any class.
+    const at = (re: RegExp) => RULES.findIndex((r) => re.test(r.body) && r.selectors.join(", ").startsWith(":where("));
+    const hand = at(/cursor:\s*pointer/), off = at(/cursor:\s*default/), field = at(/cursor:\s*text/);
+    expect(hand).toBeGreaterThanOrEqual(0);
+    expect(off).toBeGreaterThan(hand);
+    expect(field).toBeGreaterThan(hand);
+    expect(RULES[off]!.selectors.join(", ")).toContain(':disabled, [aria-disabled="true"]');
+    // `cursor` inherits, so a rename field inside a sidebar row would point without this.
+    for (const part of ["input:not(", "textarea", '[contenteditable="true"]']) expect(RULES[field]!.selectors.join(", ")).toContain(part);
+  });
+
+  it("keeps a drag handle's grab and a divider's resize, which the hand would otherwise take", () => {
+    expect(bodiesFor(".quick-chat-bar").join(" ")).toContain("cursor: grab");
+    expect(bodiesFor(".quick-chat-bar[data-dragging]").join(" ")).toContain("cursor: grabbing");
+    expect(bodiesFor(".sb-resize").join(" ")).toContain("cursor: col-resize");
+    expect(bodiesFor(".attach-tile[data-media] .attach-open").join(" ")).toContain("cursor: zoom-in");
+  });
+});
+
+describe("the Mac idiom", () => {
+
+  it("does not let a drag or a double-click select the chrome, and leaves fields selectable inside it", () => {
+    const chrome = RULES.find((r) => r.body.includes("user-select: none") && r.selectors.some((s) => s.includes(".sidebar")));
+    expect(chrome, "no rule takes selection off the chrome").toBeTruthy();
+    for (const part of ["button", '[role="button"]', ".panel-bar", ".menu"]) expect(chrome!.selectors.join(", ")).toContain(part);
+    const fields = RULES.find((r) => r.selectors.some((s) => s.startsWith(":is(input")));
+    expect(fields?.body).toContain("user-select: text");
+  });
+
+  /* The ring closes onto the control. Only `from` is written so each control keeps its own offset;
+     a `to` would flatten every one of them to the same number. */
+  it("draws the focus ring in from a wider halo, on controls only", () => {
+    const ring = blockAfter("@keyframes rl-focus-ring");
+    expect(ring).toContain("from");
+    expect(ring).not.toMatch(/\bto\b/);
+    const rule = RULES.find((r) => r.body.includes("animation: rl-focus-ring"));
+    expect(rule?.body).toContain(`${dur("--dur-slow")} var(--spring-smooth)`);
+    expect(rule!.selectors.join(", ")).toMatch(/^:is\(button/);
+  });
+
+  /* THE mutants: a grey that does not keep the accent's LUMINANCE — contrast is a function of it, and
+     OKLCH's L is not, for a saturated accent a theme may choose — or reaching for `--accent-ink`,
+     which would grey the links in a background window's prose. The contrast itself is measured live
+     (native-feel-live.mjs); this pins the construction. */
+  it("greys the accent in a window that is not key, keeping its luminance and leaving link ink alone", () => {
+    const drained = bodiesFor(":root[data-window-inactive]").join(" ");
+    // Luminance, not OKLCH lightness: the D65 white's x and z scaled by the colour's own Y.
+    expect(drained).toContain("--accent-drained: color(from var(--accent) xyz-d65 calc(y * 0.9505) y calc(y * 1.089))");
+    expect(drained).toContain("--accent-tint-drained: color(from var(--accent-tint) xyz-d65 calc(y * 0.9505) y calc(y * 1.089) / alpha)");
+    const body = bodiesFor(":root[data-window-inactive] body").join(" ");
+    for (const name of ["--accent", "--rl-accent", "--accent-tint", "--rl-accent-press"]) expect(body).toContain(`${name}:`);
+    expect(body).not.toContain("--accent-ink");
+  });
+});
+
+describe("the Mac idiom, continued", () => {
+  it("does not light a sidebar row the pointer passes over, and still shows the row's own controls", () => {
+    // Nothing under the pointer paints the row. The row's actions DO come up on hover — in the slot
+    // its state gives up (Plan 26 W1), which moves the title's padding but lights nothing.
+    const lights = (sel: string) => RULES.filter((r) => r.selectors.includes(sel) && /\b(background|color|box-shadow)\s*:/.test(r.body));
+    expect(lights(".item:hover")).toEqual([]);
+    expect(lights(".item:hover .item-row")).toEqual([]);
+    expect(bodiesFor(".item:hover .item-actions").join(" ")).toContain("opacity: 1");
+    // The selection still reads: clicking is what lights a row.
+    expect(bodiesFor(".item[data-active]").join(" ")).toContain("background: var(--rl-active)");
+  });
+
+  it("keeps code copyable in the chrome, but not inside a control, where a drag is a press", () => {
+    const rule = RULES.find((r) => r.selectors.some((s) => s.startsWith(":is(code")));
+    expect(rule?.body).toContain("user-select: text");
+    expect(rule!.selectors.join(", ")).toContain(":not(:is(button");
+  });
+
+  /* The children move, never the scroller: THE mutant is the offset landing on the scroller, which
+     would drag its mask and scrollbar along and read as the pane itself sliding. */
+  it("rubber-bands a scroller's content, not the scroller", () => {
+    expect(bodiesFor("[data-rubber] > *").join(" ")).toContain("translate: 0 var(--rubber, 0px)");
+    expect(RULES.filter((r) => r.selectors.includes("[data-rubber]"))).toEqual([]);
+  });
+});
+
+describe("softer edges", () => {
+  const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
+  const stepOf = (block: string, name: string) =>
+    Number(new RegExp(`--${name}: var\\(--overlay-(?:lighten|darken)-(\\d+)\\)`).exec(block)?.[1] ?? NaN);
+  const dark = tokens.slice(tokens.indexOf("--line: var(--overlay-lighten-200)"));
+  const light = tokens.slice(tokens.indexOf(':root[data-mode="light"]'));
+
+  /* The edges went one rung softer; the FILLS that used to borrow their tokens did not. THE mutant is
+     a switch's track left on `--rl-line`: softened with the borders, an off switch on the panel ground
+     reads as a white knob floating on nothing. */
+  it("keeps every mark a rung above the edge it used to share a token with, in both faces", () => {
+    for (const [face, block] of [["dark", dark], ["light", light]] as const) {
+      expect(stepOf(block, "mark"), face).toBeGreaterThan(stepOf(block, "line"));
+      expect(stepOf(block, "mark-strong"), face).toBeGreaterThan(stepOf(block, "line-strong"));
+      // …and a pane divider is still the heaviest line in the app: it is the whole boundary.
+      expect(stepOf(block, "divider"), face).toBeGreaterThan(stepOf(block, "line-strong"));
+    }
+    for (const [sel, decl] of [
+      [".switch", "background: var(--mark)"], [".switch:hover:not(:disabled)", "background: var(--mark-strong)"],
+      [".todo-track", "background: var(--mark)"], ['.status-dot[data-status="idle"]', "background: var(--mark-strong)"],
+      [".item-glyph rect", "fill: var(--mark-strong)"],
+    ] as const) expect(bodiesFor(sel).join(" "), sel).toContain(decl);
+  });
+});
+
+describe("the focus ring on a painted control", () => {
+  /* THE mutant: the outline left on a control the worklet paints. Its border-radius is 0, so the
+     outline is a square around a squircle — measured live (visual-review-live.mjs), a blue rectangle
+     around the composer's model chip. */
+  it("is drawn by the painter on the control's own curve, not as a square outline", () => {
+    const rule = bodiesFor(":root[data-squircle] :is(.btn, .ghost-chip, .palette-opt):focus-visible").join(" ");
+    expect(rule).toContain("outline: none");
+    expect(rule).toContain("--sq-ring: var(--rl-accent)");
+    expect(rule).toContain(`animation: rl-focus-ring-painted ${"var(--dur-slow)"} var(--spring-smooth)`);
+    expect(blockAfter("@keyframes rl-focus-ring-painted")).toContain("--sq-ring: transparent");
+    // Every control the worklet paints is covered — the list must not drift from the paint rule's.
+    const painted = RULES.find((r) => r.body.includes("background: paint(rl-squircle)") && r.selectors.includes(":root[data-squircle] .ghost-chip"))!;
+    for (const sel of painted.selectors) expect(sel.replace(":root[data-squircle] ", ""), sel).toMatch(/^\.(btn|ghost-chip|palette-opt)$/);
+    expect(bodiesFor(":root[data-squircle] .btn.primary:focus-visible").join(" ")).toContain("--rl-accent-contrast");
+  });
+});
+
+describe("the drawn caret (caret.ts)", () => {
+  it("turns a field's own caret off only on the field the layer marks, and paints the platform's in the caret's colour", () => {
+    /* THE always-off mutant: `caret-color: transparent` on every field, and a field the layer cannot
+       stand in for — an email or number input, a composition — has no caret at all. The live check
+       cannot see this one: a thin drawn line and the platform's land on the same pixel. */
+    const off = RULES.filter((r) => /caret-color:\s*transparent/.test(r.body));
+    expect(off.flatMap((r) => r.selectors)).toEqual([":is(input, textarea, [contenteditable])[data-rl-caret]"]);
+    expect(bodiesFor("input").join(" ")).toContain("caret-color: var(--caret)");
+  });
+
+  it("sits over every other layer in the window, since a field drawn over the caret hides it", () => {
+    /* Measured live: at 80 the caret went under a field at 100 — a popover's search — and was drawn
+       where nobody could see it. What floats over a field hides the caret by the hit test instead. */
+    const zOf = (body: string) => Number(body.match(/z-index:\s*(\d+)/)?.[1] ?? NaN);
+    const caret = zOf(bodiesFor(".caret-layer").join(" "));
+    const others = RULES.filter((r) => !r.selectors.includes(".caret-layer")).map((r) => zOf(r.body)).filter((z) => Number.isFinite(z));
+    expect(caret).toBeGreaterThan(Math.max(...others));
+  });
+
+  it("holds every caret still while motion is off, its blink and its glide alike", () => {
+    expect(bodiesFor(":root[data-caret-still] .caret-layer .caret").join(" ")).toMatch(/animation: none;.*transition: none/);
+    expect(bodiesFor(":root[data-caret-still] .terminal-host .xterm-cursor").join(" ")).toContain("animation: none !important");
   });
 });

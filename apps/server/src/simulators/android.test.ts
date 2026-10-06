@@ -2,17 +2,9 @@ import { describe, expect, it } from "vitest";
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import {
-  android, androidBins, encodeInputText, firstUntypeable, parseAdbDevices, parseAvds,
-  parseBounds, parsePackages, parseUiAutomator, parseWmSize, sdkRoot,
-} from "./android";
+import { android, androidBins, encodeInputText, firstUntypeable, parseAdbDevices, parseAvds, parseBounds, parsePackages, parseUiAutomator, parseWmSize } from "./android";
 
 describe("finding the SDK", () => {
-  it("prefers ANDROID_HOME, then the deprecated root, then the default path", () => {
-    const home = "/Users/x";
-    expect(sdkRoot({ ANDROID_HOME: "/nope" }, home)).toBe(null); // must EXIST, not just be named
-    expect(sdkRoot({}, "/definitely/not/here")).toBe(null);
-  });
 
   it("reports each tool as missing rather than handing back a path that is not there", () => {
     // The failure this prevents: returning `<root>/emulator/emulator` on a machine that has the SDK

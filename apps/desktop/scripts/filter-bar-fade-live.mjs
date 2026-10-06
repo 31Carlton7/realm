@@ -94,10 +94,27 @@ function rpc(port, token) {
 
 const HELPERS = `
 globalThis.__live = {
-  dest(label) {
-    const row = [...document.querySelectorAll('.sb-destinations .dest-row')].find((b) => b.textContent.trim().startsWith(label));
-    if (!row) throw new Error('no destination: ' + label);
-    row.click();
+  async dest(label) {
+    // The destinations are the rail's (Plan 27), and Settings sits behind the avatar's menu — the
+    // palette's "Open settings" is the same action and reachable from a script.
+    if (label === "Settings") {
+      if (document.querySelector(".settings-page-pane")) return true;
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+      for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await new Promise((r) => setTimeout(r, 25));
+      const input = document.querySelector(".palette input");
+      if (!input) throw new Error('no palette');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "settings");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      for (let i = 0; i < 40; i++) {
+        const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((b) => /open settings/i.test(b.textContent));
+        if (hit) { hit.click(); return true; }
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error('no destination: Settings');
+    }
+    const b = [...document.querySelectorAll('.app-rail .rail-btn')].find((x) => (x.getAttribute('aria-label') ?? '').startsWith(label));
+    if (!b) throw new Error('no destination: ' + label);
+    b.click();
     return true;
   },
   tab(label) {
@@ -231,6 +248,10 @@ async function main() {
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const session = (await api.call("sessions.listAll", {}))[0];
+  // Onboarding's session runs the first engine this Mac can — the signed-in, billed one — whatever
+  // REALM_ENABLE_FAKE_AGENT says. Onto the fake before anything is sent: the uploads index off the
+  // user's message, which records its attachments whichever agent reads them.
+  await api.call("sessions.setAgent", { id: session.id, agentKind: "fake" });
   const files = Array.from({ length: 12 }, (_, i) => path.join(scratch, `seed-${i}.md`));
   for (const f of files) fs.writeFileSync(f, "# seed\n");
   await api.call("sessions.send", { id: session.id, text: "here are some files",
@@ -240,10 +261,24 @@ async function main() {
   await until(() => evalIn(c, `document.querySelectorAll('.library-grid li').length >= 12`), 20000, "seeded files");
   await sleep(500);
 
-  /* How far into the bar to park, per tab. The Library's is two rows and the chips are the second, so
-     50px puts the strip on the CHIPS — which is the row that was reported smudged. The Skills bar is
-     one row, so it is read at its own top. */
-  for (const [tab, sel, ready, into] of [["Files", ".page-filters", ".library-files", 50], ["Skills", ".skills-filter-row", ".settings-panel", 6]]) {
+  /* Files: its toolbar is the column's head now, standing OUTSIDE the scroller (Codex's layout), so it
+     is never under the dissolve at all — the strongest form of the property this check exists for.
+     Held: scrolled to the end, the toolbar has not moved a pixel and is not inside what scrolls. */
+  await evalIn(c, `__live.tab("Files")`);
+  await until(() => evalIn(c, `!!document.querySelector('.library-files .library-toolbar')`), 15000, "Files toolbar");
+  await sleep(400);
+  const toolbar = await evalIn(c, `(() => {
+    const bar = document.querySelector('.library-files .library-toolbar');
+    const col = document.querySelector('.library-files .page-content');
+    const at = () => { const r = bar.getBoundingClientRect(); return { y: Math.round(r.top), h: Math.round(r.height) }; };
+    const before = at(); col.scrollTop = col.scrollHeight; const after = at(); col.scrollTop = 0;
+    return { before, after, inScroller: col.contains(bar), overflow: col.scrollHeight - col.clientHeight };
+  })()`);
+  check("Files: the toolbar stands outside the scroller and stays put while the files scroll",
+    !toolbar.inScroller && toolbar.overflow > 12 && toolbar.before.y === toolbar.after.y && toolbar.before.h === toolbar.after.h, toolbar);
+
+  /* The Skills bar is one row inside its column, so it is read at its own top. */
+  for (const [tab, sel, ready, into] of [["Skills", ".skills-filter-row", ".settings-panel", 6]]) {
     await evalIn(c, `__live.tab(${JSON.stringify(tab)})`);
     await until(() => evalIn(c, `!!document.querySelector('${ready} ${sel}')`), 15000, `${tab} bar`);
     await sleep(400);
@@ -282,5 +317,7 @@ main()
   .catch((e) => { console.log(`FAIL harness ${e.message}`); process.exitCode = 1; })
   .finally(() => {
     electron?.kill("SIGTERM");
-    setTimeout(() => { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch {} process.exit(process.exitCode ?? 0); }, 800);
+    // SIGTERM alone left the window running after the script had exited — holding this harness's
+    // CDP port, so the next run refused to start. The SIGKILL is what makes the teardown a teardown.
+    setTimeout(() => { electron?.kill("SIGKILL"); try { fs.rmSync(scratch, { recursive: true, force: true }); } catch {} process.exit(process.exitCode ?? 0); }, 1200);
   });

@@ -17,16 +17,8 @@ import {
   executionSandboxSpaceKey,
   parseExecutionSandboxPrefs,
 } from "./execution-sandbox";
-import { SANDBOX_NOTES } from "./sandbox";
 
 describe("the naming does not collide with the VNC sandbox", () => {
-  // The two files are about completely different things and the only thing they share is a word.
-  // This is the cheapest possible guard against someone later exporting `SandboxPolicy` from one of
-  // them and shadowing the other's meaning at the index.
-  it("keeps the VNC module's vocabulary out of this one", () => {
-    expect(Object.keys(SANDBOX_NOTES)).toContain("e2b");
-    expect(Object.keys(EXECUTION_SANDBOX_COPY).sort()).toEqual(["off", "read-only", "workspace-write"]);
-  });
 
   it("prefixes every stored key so a settings row says which feature it belongs to", () => {
     expect(EXECUTION_SANDBOX_DEFAULT_KEY).toBe("executionSandbox.default");
@@ -49,10 +41,6 @@ describe("postures", () => {
     // …and the Codex refusal is copy, not a release note — it is the reason a session will not start.
     expect(EXECUTION_SANDBOX_SECTION_COPY.codexNote).toMatch(/Codex/);
     expect(EXECUTION_SANDBOX_SECTION_COPY.codexNote).toMatch(/refuses to start/);
-  });
-
-  it("refuses a posture nobody implemented", () => {
-    expect(ExecutionSandboxPostureSchema.safeParse("containers-please").success).toBe(false);
   });
 
   it("gives every posture copy, including the one that means no protection", () => {

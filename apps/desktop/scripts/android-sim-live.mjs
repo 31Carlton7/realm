@@ -17,6 +17,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP = Number(process.env.LIVE_CDP_PORT ?? 9357), PORT = Number(process.env.LIVE_SERVER_PORT ?? 8919);
@@ -67,7 +68,8 @@ async function main() {
     return r;
   })().catch(e => ({ error: String(e) }))`);
   // The renderer module path is not stable across builds; ask the pane instead.
-  await ev(`(()=>{const b=[...document.querySelectorAll('.panel-actions .icon-btn')].find(x=>/simulator/i.test(x.getAttribute('aria-label')??''));if(!b)throw new Error('no simulator button: '+[...document.querySelectorAll('.panel-actions .icon-btn')].map(x=>x.getAttribute('aria-label')).join('|'));b.click();return true})()`);
+  // From the session's side pane — the session's bar carries no tools.
+  await openSideTool(c, null, "Simulator");
   await until(() => ev(`!!document.querySelector('.sim-devices')`), 20000, "picker");
   await sleep(800);
   await shot("picker");

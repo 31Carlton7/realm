@@ -1,6 +1,6 @@
 {
   "name": "@realm/desktop",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -15,8 +15,7 @@
     "dist:dir": "node scripts/stage-pack.mjs && node scripts/pack.mjs --dir --publish never"
   },
   "dependencies": {
-    "emojilib": "4.0.3",
-    "@realm/pixel-office": "workspace:*"
+    "emojilib": "4.0.3"
   },
   "devDependencies": {
     "@codemirror/commands": "^6.7.0",
@@ -49,6 +48,7 @@
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.1.0",
     "@tiptap/core": "^3.31.0",
+    "@tiptap/extension-code-block": "^3.31.0",
     "@tiptap/extension-image": "^3.31.0",
     "@tiptap/extension-table": "^3.31.3",
     "@tiptap/pm": "^3.31.0",
@@ -72,6 +72,7 @@
     "katex": "^0.16.47",
     "markdown-it": "^15.0.1",
     "marked": "^18.0.9",
+    "mermaid": "^12.1.0",
     "papaparse": "^5.7.0",
     "prosemirror-markdown": "^1.13.7",
     "react": "^19.0.0",

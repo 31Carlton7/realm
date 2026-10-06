@@ -43,8 +43,11 @@ const planFileName = (title: string): string => {
  * are there too, because the thing a reader most often wants to do with a plan is take it somewhere
  * else — and both act on the WHOLE plan, never on the preview.
  */
-export function PlanCard({ text, steps, onExpand, enter = false }: {
+export function PlanCard({ text, steps, onExpand, onImplementWith, enter = false }: {
   text?: string; steps?: PlanStep[];
+  /** Build this plan with sub-agents on other models: the Agents tab, opened with the plan in its
+   *  composer. Absent in the read-only mounts, which draw no button rather than a dead one. */
+  onImplementWith?: (plan: string) => void;
   /** Open the whole plan. Passed down from the pane rather than reached for from the store, because
    *  this card also renders in the read-only mounts (the fork preview, the suite), which have no
    *  store and no sheet host. Absent means the button is not drawn — never drawn dead. */
@@ -83,6 +86,14 @@ export function PlanCard({ text, steps, onExpand, enter = false }: {
               <Icon name="expand" size={14} />
             </button>
           )}
+          {/* The plan as the work for other models. It opens the Agents tab rather than starting
+              anything, but it begins paid work in the user's name, so no agent may press it. */}
+          {onImplementWith && (
+            <button type="button" className="btn-quiet plan-implement-with" data-no-agent="sub-agent launch" title="Hand this plan to sub-agents on other models"
+              onClick={() => onImplementWith(markdown)}>
+              <Icon name="agents" size={12} />Implement with…
+            </button>
+          )}
         </div>
       </div>
       <div className="plan-preview" ref={preview} data-clipped={clipped || undefined}>
@@ -110,12 +121,17 @@ const firstLine = (md: string): string =>
  */
 export const isPlanDecision = (p: PendingPermission): boolean => p.toolName === "ExitPlanMode";
 
-export function PlanDecision({ onDecide, autoFocus = false, enter = false }: {
+export function PlanDecision({ onDecide, autoFocus = false, enter = false, ownsEscape = true }: {
   onDecide: (d: PermissionDecision) => void; autoFocus?: boolean; enter?: boolean;
+  /** False where the surface around the card owns Escape (the need-you list), so Escape leaves it
+   *  instead: the card then neither answers on Escape nor offers it as a key. */
+  ownsEscape?: boolean;
 }) {
   return (
-    <div className="plan-decision" role="group" aria-label="Plan approval" data-enter={enter || undefined}
-      onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onDecide("deny"); } }}>
+    /* data-no-agent, for PermissionCard's reason: approving a plan takes the session out of Plan, so
+       an agent able to press "Implement this plan" through `app_act` could grant itself edits. */
+    <div className="plan-decision" role="group" aria-label="Plan approval" data-no-agent="plan approval" data-enter={enter || undefined}
+      onKeyDown={(e) => { if (e.key === "Escape" && ownsEscape) { e.preventDefault(); e.stopPropagation(); onDecide("deny"); } }}>
       <span className="plan-decision-ask">Ready to build this?</span>
       <div className="plan-decision-actions">
         <button type="button" className="plan-approve" autoFocus={autoFocus} onClick={() => onDecide("allow")}>Implement this plan</button>

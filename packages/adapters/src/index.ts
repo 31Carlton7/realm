@@ -1,9 +1,9 @@
 export * from "./types";
 export { AsyncQueue } from "./event-queue";
-export { FakeAdapter, type FakeScript, type FakeStep } from "./fake/fake-adapter";
+export { FakeAdapter, fakeStandIn, type FakeScript, type FakeStep } from "./fake/fake-adapter";
 export { createSdkMapper } from "./claude/map-sdk-message";
 export { ClaudeAdapter } from "./claude/claude-adapter";
-export { probeClaude } from "./claude/probe";
+export { bundledClaude, claudeExecutable, probeClaude } from "./claude/probe";
 export { generateSvgIcon } from "./claude/generate-svg-icon";
 export { generateSessionTitle } from "./claude/generate-session-title";
 export { cleanSummary, SUMMARY_MAX } from "./claude/generate-session-summary";
@@ -15,5 +15,3 @@ export { createCodexMapper } from "./codex/map-codex";
 export { CodexAdapter, CODEX_SANDBOX_REFUSAL, pickCodexDecision, codexPolicyFor } from "./codex/codex-adapter";
 export { probeCodex } from "./codex/probe";
 export { AcpAdapter, pickAcpOption, type AcpAgentSpec } from "./acp/acp-adapter";
-export { generatePixelWorld, extractJson, type PixelWorldRequest, type WorldVocabulary } from "./claude/generate-pixel-world";
-export { generatePixelSprite, type PixelSpriteRequest } from "./claude/generate-pixel-sprite";

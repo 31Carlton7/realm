@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { AgentKindSchema, IdSchema } from "./entities";
+import { AgentKindSchema, IdSchema, SessionSchema } from "./entities";
+import { SessionEventSchema } from "./session-events";
 import { SkillIdSchema } from "./skills";
 
 /**
@@ -20,9 +21,15 @@ import { SkillIdSchema } from "./skills";
  *   time budget, stated honestly in the tool description); `timeoutMs` overrides it wholesale.
  * - `skills` narrows the child's skill set to a SUBSET of the space's enabled skills; an id that is
  *   not enabled-and-valid in the space refuses the whole call loudly.
+ * - `model` puts the child on a model by the name a person uses for it ("GPT-6 Luna", "Fable",
+ *   "Opus 5.5", or an id). The server resolves it against the models the agents on this Mac reported
+ *   (`delegation/models.ts`) to the harness that runs it, so it needs no `agentKind` beside it; with
+ *   one, the name is looked up on that harness alone. Omitted, the child runs on its parent's model
+ *   when it runs on its parent's harness, and on the harness's default otherwise.
  */
 export const AgentRunConstraintsSchema = z.object({
   agentKind: AgentKindSchema.optional(),
+  model: z.string().trim().min(1).max(120).optional(),
   environmentId: IdSchema.optional(),
   newWorktree: z.union([z.boolean(), z.string().min(1).max(80)]).optional(),
   /** Both read-only modes are requestable: they are the two most restrictive things a parent can ask
@@ -76,18 +83,6 @@ export const DelegationOutcomeSchema = z.enum(["done", "stopped", "interrupted",
 export type DelegationOutcome = z.infer<typeof DelegationOutcomeSchema>;
 
 /**
- * Settings key for taking a finished sub-agent's pane back out of the layout when its run settles
- * `done` — the renderer's half of `session.agentSettled`. Read only by the renderer: the server
- * announces every settle whatever this says, because the announcement is a fact and this is a
- * preference about what to do with it.
- *
- * On unless it is exactly `false`. An unset key — every home from before the switch existed — and a
- * failed read both mean nobody has said otherwise, and the default is the reason the switch exists:
- * a lead agent that fans out four children otherwise leaves four finished panes to close by hand.
- */
-export const CLOSE_FINISHED_AGENT_PANES_KEY = "sessions.closeFinishedAgentPanes";
-
-/**
  * A run the delegation engine is holding open for a parent session, as the renderer reads it.
  *
  * Deliberately thin. The child is a REAL session, so its title, agent, status and space already
@@ -108,3 +103,46 @@ export const DelegatedRunSchema = z.object({
   owned: z.boolean(),
 });
 export type DelegatedRun = z.infer<typeof DelegatedRunSchema>;
+
+/**
+ * One of a session's sub-agents, as the lead's Agents tab lists it.
+ *
+ * The child's own session row rides along whole — harness, model, title and status are the ROW's and
+ * are not copied out of it — beside what only the delegation knows: the task it was handed, when its
+ * run began and how it ended. `outcome` is null while the run is going and for a child whose run was
+ * never recorded (a browser agent's, a reviewer's: their tools keep no ledger), which the tab reads
+ * off the session's status instead.
+ *
+ * `report` and `activity` are read off the child's transcript at the moment of asking — its last
+ * word, and the newest event that says what it was doing — so a tab opened after a relaunch has
+ * something true to say about a child that finished yesterday. While the tab is up, the live event
+ * stream every window already receives keeps both current.
+ */
+export const DelegatedChildSchema = z.object({
+  session: SessionSchema,
+  goal: z.string().nullable(),
+  startedAt: z.number().int(),
+  settledAt: z.number().int().nullable(),
+  outcome: DelegationOutcomeSchema.nullable(),
+  report: z.string().nullable(),
+  activity: SessionEventSchema.nullable(),
+});
+export type DelegatedChild = z.infer<typeof DelegatedChildSchema>;
+
+/**
+ * A model the Agents tab's composer offers: one per MODEL, with the harness a delegation to it would
+ * take and whether that harness can run right now.
+ *
+ * The server's own resolution produces it (`delegation/models.ts`), so the name the composer writes
+ * into its instruction is a name `constraints.model` resolves to this very route. A list built in the
+ * renderer would be a second opinion about the same question, and the day the two disagreed the
+ * composer would offer a model the tool then refused.
+ */
+export const DelegableModelSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  kind: AgentKindSchema,
+  id: z.string(),
+  ready: z.boolean(),
+});
+export type DelegableModel = z.infer<typeof DelegableModelSchema>;

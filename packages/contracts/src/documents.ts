@@ -13,8 +13,8 @@ export const DOCUMENT_MAX_BYTES = 2 * 1024 * 1024;
 const SHEET_EXT = new Set(["csv", "tsv"]);
 
 /**
- * Files macOS can preview and Realm cannot edit — Word, Excel, PowerPoint, the iWork three, and the
- * open-format and e-book equivalents.
+ * Files macOS can preview and Realm cannot edit — Word, Excel, PowerPoint, the iWork three, the
+ * open-format and e-book equivalents, and pictures.
  *
  * These open READ-ONLY, as a picture of the document rendered by Quick Look: the same thing the
  * Finder's space bar shows, which is the one renderer on the machine that already knows all of these
@@ -25,15 +25,30 @@ const SHEET_EXT = new Set(["csv", "tsv"]);
  * to select and long documents may render as a first page. That is what makes this a `preview` kind
  * rather than a `doc`.
  */
+/** The pictures among the previews. A picture has no text to select and no pages to run out of, so
+ *  the note a document's preview carries about both would be wrong under one. */
+const PICTURE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "heic", "tif", "tiff", "bmp"]);
+
 const PREVIEW_EXT = new Set([
   "doc", "docx", "xls", "xlsx", "ppt", "pptx",
   "pages", "numbers", "key",
   "rtf", "odt", "ods", "odp", "epub",
+  // Pictures, for the same reason and on the same path. A screenshot an agent saved, or one the user
+  // dropped into the space, was `unsupported`: opening it put a tab on the strip that the pane would
+  // not draw, and it said "Nothing open yet" over a file that was right there. Quick Look renders an
+  // image at the preview's 1600px, which is the picture itself for anything screen-sized.
+  ...PICTURE_EXT,
 ]);
 
 /** Whether Realm shows this file as a rendered preview rather than in an editor. Exported so the
  *  server's preview listener and the pane agree about which files take the Quick Look path. */
 export const isPreviewKind = (path: string): boolean => documentKindFor(path) === "preview";
+
+/** Whether a previewed file is a picture rather than a document drawn as one. */
+export const isPictureFile = (path: string): boolean => {
+  const name = path.split("/").pop()?.toLowerCase() ?? "";
+  return name.includes(".") && PICTURE_EXT.has(name.slice(name.lastIndexOf(".") + 1));
+};
 
 /**
  * Path → editor, by extension alone. Deliberately pure and content-blind so it can run on a directory

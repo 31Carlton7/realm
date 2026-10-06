@@ -1,0 +1,549 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
+import { MODEL_NOTES, canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
+import { exited } from "../../components/popover-exit.test-fakes";
+import { ModelPicker, type OverflowGroup } from "./ModelPicker";
+import { modelRows, type EffortControl, type FastMode, type ModelRow } from "./model-catalog";
+import type { AgentProbe } from "../../state/store";
+
+const probe = (kind: AgentProbe["kind"], models: AgentProbe["models"]): AgentProbe =>
+  ({ kind, available: true, version: "1", loggedIn: true, reason: null, models });
+
+/** Cursor's live catalog, raw ids for labels, proxying a Claude model — the one overlap that gives a
+ *  row a second harness. */
+const CURSOR_FABLE = "claude-fable-5-1[thinking=true,context=300k,effort=high,fast=false]";
+const cursorCatalog = [{ id: "default[]", label: "Auto" }, { id: CURSOR_FABLE, label: "claude-fable-5-1" }, { id: "gpt-5.5", label: "GPT-5.5" }];
+
+const rowsFor = (over: Partial<Parameters<typeof modelRows>[0]> = {}) =>
+  modelRows({ kind: "claude", model: "claude-opus-5", canSwitchAgent: true, agentProbe: [probe("acp:cursor", cursorCatalog)], ...over });
+
+let scrolled: string[];
+beforeEach(() => {
+  scrolled = [];
+  // jsdom has no scrolling at all; the stub is also the record of what the highlight asked to see.
+  Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.id); };
+});
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+function mount({ rows = rowsFor(), kind = "claude" as AgentKind, model = "claude-opus-5" as string | null, effort,
+  overflow, fast, info = {} }: { rows?: ModelRow[]; kind?: AgentKind; model?: string | null; effort?: EffortControl;
+  overflow?: OverflowGroup[]; fast?: FastMode; info?: Record<string, ModelInfo> } = {}) {
+  const picked: [AgentKind, string | null][] = [];
+  const starred: string[] = [];
+  render(<ModelPicker kind={kind} model={model} effort={effort} rows={rows} info={info}
+    onToggleFavorite={(k) => starred.push(k)} onPick={(k, m) => picked.push([k, m])} overflow={overflow} fast={fast} />);
+  fireEvent.click(screen.getByRole("button", { name: "Model" }));
+  return { picked, starred };
+}
+
+const dialog = () => screen.queryByRole("dialog", { name: "Model picker" });
+const search = () => screen.getByRole("combobox", { name: "Search models" });
+const option = (name: string | RegExp) => screen.getByRole("option", { name });
+const active = () => document.querySelector(".mp-row[data-active]");
+
+const repoFile = (rel: string): string => {
+  let dir = dirname(new URL(import.meta.url).pathname);
+  while (dir !== "/" && !existsSync(join(dir, "pnpm-workspace.yaml"))) dir = dirname(dir);
+  return join(dir, rel);
+};
+
+describe("the current choice", () => {
+  it("opens on it: ticked, highlighted, and described in the strip under the list", () => {
+    mount();
+    const opus = option("Claude Opus 5");
+    expect(opus).toHaveAttribute("aria-selected", "true");
+    expect(opus).toHaveAttribute("data-active");
+    expect(opus.querySelector(".mp-check")).not.toBeNull();
+    // The vendor's word is the heading's and the mark's; the row says the model.
+    expect(opus.querySelector(".mp-row-name")).toHaveTextContent(/^Opus 5$/);
+    expect(document.querySelector(".mp-about-note")).toHaveTextContent(MODEL_NOTES.get(canonicalModelKey("Claude Opus 5"))!);
+  });
+
+  it("ticks exactly one row", () => {
+    mount();
+    expect(document.querySelectorAll(".mp-check")).toHaveLength(1);
+  });
+});
+
+describe("picking", () => {
+  it("is one click on a row, and the picker stays open for how the model runs", async () => {
+    /* The owner, 10-05: "if I change the model, the modal always closes … Only when clicking outside
+       of the modal should it close." THE MUTANT: close on a pick, as it did. */
+    const { picked } = mount();
+    fireEvent.click(option("Claude Sonnet 5"));
+    expect(picked).toEqual([["claude", "claude-sonnet-5"]]);
+    await exited();
+    expect(dialog()).toBeInTheDocument();
+    expect(dialog()).not.toHaveAttribute("data-closing");
+  });
+
+  it("is Enter on the highlighted row, after walking to it, and stays open", async () => {
+    const { picked } = mount();
+    fireEvent.keyDown(search(), { key: "ArrowDown" });
+    fireEvent.keyDown(search(), { key: "Enter" });
+    expect(picked).toEqual([["claude", "claude-sonnet-5"]]); // the row after Opus 5
+    await exited();
+    expect(dialog()).not.toHaveAttribute("data-closing");
+  });
+
+  it("is a favourite's ⌘-digit, and stays open", async () => {
+    const { picked } = mount({ rows: rowsFor({ favorites: [canonicalModelKey("Claude Haiku 4.5")] }) });
+    fireEvent.keyDown(search(), { key: "1", metaKey: true });
+    expect(picked).toEqual([["claude", "claude-haiku-4-5"]]);
+    await exited();
+    expect(dialog()).not.toHaveAttribute("data-closing");
+  });
+
+  it("is put away by a click outside it, by its chip, and by Escape", async () => {
+    // The popover hook arms its listeners a tick after mount.
+    const armed = () => act(async () => { await new Promise((r) => setTimeout(r, 1)); });
+    mount();
+    await armed();
+    fireEvent.pointerDown(document.body);
+    await exited();
+    expect(dialog()).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    await armed();
+    fireEvent.keyDown(search(), { key: "Escape" });
+    await exited();
+    expect(dialog()).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    await exited();
+    expect(dialog()).toBeNull();
+  });
+
+  it("keeps the keyboard in the search after a press, its words selected for the next search", () => {
+    mount();
+    fireEvent.change(search(), { target: { value: "sonnet" } });
+    // A press on a row does not take the focus: the field keeps the keys the picker answers next.
+    expect(fireEvent.mouseDown(option("Claude Sonnet 5"))).toBe(false);
+    fireEvent.click(option("Claude Sonnet 5"));
+    const field = search() as HTMLInputElement;
+    expect(document.activeElement).toBe(field);
+    expect([field.selectionStart, field.selectionEnd]).toEqual([0, "sonnet".length]);
+    // …and the list is the one that was picked from, until the next keystroke.
+    expect(screen.getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["Claude Sonnet 5"]);
+  });
+
+  it("holds the list still when a pick moves the session to another harness", () => {
+    /* The session's own harness leads the list and takes every model it also offers, so a pick on
+       Cursor re-sorted the rows under the pointer and Fable came back under Claude wearing Cursor's
+       mark. THE MUTANT: read the live rows (`holdRows` skipped). */
+    const picked: [AgentKind, string | null][] = [];
+    const ui = (kind: AgentKind, model: string | null) => (
+      <ModelPicker kind={kind} model={model} rows={rowsFor({ kind, model })} info={{}}
+        onToggleFavorite={() => {}} onPick={(k, m) => picked.push([k, m])} />
+    );
+    const { rerender } = render(ui("claude", "claude-opus-5"));
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    const groups = () => within(screen.getByRole("listbox", { name: "Models" })).getAllByRole("group").map((g) => g.getAttribute("aria-label"));
+    const names = () => screen.getAllByRole("option").map((o) => o.getAttribute("aria-label"));
+    const [before, order] = [groups(), names()];
+    fireEvent.click(option("GPT-5.5"));
+    expect(picked).toEqual([["acp:cursor", "gpt-5.5"]]);
+    rerender(ui("acp:cursor", "gpt-5.5"));
+    expect(groups()).toEqual(before);
+    expect(names()).toEqual(order);
+    expect(option("GPT-5.5")).toHaveAttribute("aria-selected", "true");
+    expect(document.querySelectorAll(".mp-check")).toHaveLength(1);
+    // Fable is still Claude's, and a click on it goes back through Claude, as the row says.
+    expect(option("Claude Fable 5.1").querySelector(".mp-row-mark")).toHaveAttribute("data-brand", "claude");
+    fireEvent.click(option("Claude Fable 5.1"));
+    expect(picked.at(-1)).toEqual(["claude", "claude-fable-5-1"]);
+  });
+
+  it("holds its height from a pick on, the list taking up a card of another size, and lets go for a search", () => {
+    /* The popover hangs from its chip, so a card that changed height moved every row above it — the
+       one just pressed too. jsdom lays nothing out, so the heights are staged: a list of 500 scrolled
+       160 down in a box of 300, 40 short of its end, over a card of 111. THE MUTANTS: no hold, and no
+       slack — a list near its end pulled back down when a smaller card gave it the difference. */
+    const staged: [string, keyof HTMLElement, number][] = [["model-picker", "offsetHeight", 480], ["mp-list-wrap", "offsetHeight", 320],
+      ["mp-foot", "offsetHeight", 111], ["mp-list", "scrollHeight", 500], ["mp-list", "clientHeight", 300]];
+    // Shadowed on HTMLElement and taken off again after: jsdom keeps two of the three on Element.
+    const own = new Map((["offsetHeight", "scrollHeight", "clientHeight"] as const).map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)]));
+    for (const [prop] of own) {
+      Object.defineProperty(HTMLElement.prototype, prop, { configurable: true, get(this: HTMLElement) {
+        return staged.find(([cls, p]) => p === prop && this.classList.contains(cls))?.[2] ?? 0;
+      } });
+    }
+    try {
+      mount({ fast: { on: false, state: null, reason: null, requested: null, onChange: () => {}, availability: { state: "unknown" }, tip: "Fast mode." } });
+      expect(dialog()!.style.height).toBe("");
+      screen.getByRole("listbox", { name: "Models" }).scrollTop = 160;
+      fireEvent.click(option("Claude Sonnet 5"));
+      expect(dialog()!.style.height).toBe("480px");
+      expect(dialog()).toHaveAttribute("data-held");
+      // At most three rows of the list are kept back from a card that grew; past that, the box grows.
+      expect(dialog()!.style.getPropertyValue("--mp-floor")).toBe("118px");
+      // The card could give back all 111 of its height, and the list has 40 to absorb it: 71 under it.
+      expect(dialog()!.style.getPropertyValue("--mp-slack")).toBe("71px");
+      fireEvent.change(search(), { target: { value: "op" } });
+      expect(dialog()!.style.height).toBe("");
+      expect(dialog()).not.toHaveAttribute("data-held");
+    } finally {
+      for (const [prop, d] of own) {
+        if (d) Object.defineProperty(HTMLElement.prototype, prop, d);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[prop];
+      }
+    }
+  });
+
+  it("walks a page at a time, and stops at the ends", () => {
+    mount();
+    fireEvent.keyDown(search(), { key: "PageUp" });
+    expect(active()).toHaveAttribute("aria-label", "Claude Fable 5.1");
+    fireEvent.keyDown(search(), { key: "ArrowUp" });
+    expect(active()).toHaveAttribute("aria-label", "Claude Fable 5.1");
+    fireEvent.keyDown(search(), { key: "PageDown" });
+    expect(active()?.getAttribute("aria-label")).not.toBe("Claude Fable 5.1");
+  });
+
+  it("narrows as you type, and the first match is what Enter takes", () => {
+    const { picked } = mount();
+    fireEvent.change(search(), { target: { value: "haiku" } });
+    expect(screen.getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["Claude Haiku 4.5"]);
+    fireEvent.keyDown(search(), { key: "Enter" });
+    expect(picked).toEqual([["claude", "claude-haiku-4-5"]]);
+  });
+});
+
+describe("the harness, only where there is a choice", () => {
+  it("shows a model's other harness on its row, and one click there runs it through that one", () => {
+    const { picked } = mount();
+    fireEvent.mouseEnter(option("Claude Fable 5.1"));
+    const ways = within(option("Claude Fable 5.1")).getByRole("group", { name: "Run Claude Fable 5.1 through" });
+    const buttons = within(ways).getAllByRole("button");
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Run Claude Fable 5.1 through Claude", "Run Claude Fable 5.1 through Cursor"]);
+    expect(buttons[0]).toHaveAttribute("aria-pressed", "true"); // where a click on the row goes
+    fireEvent.click(buttons[1]!);
+    // Cursor's own id for the model, never Claude's re-sent to a harness that would reject it.
+    expect(picked).toEqual([["acp:cursor", CURSOR_FABLE]]);
+  });
+
+  it("draws nothing about routes on a model with one way to run, or on a row not under the pointer", () => {
+    mount();
+    fireEvent.mouseEnter(option("Claude Sonnet 5"));
+    expect(document.querySelector(".mp-ways")).toBeNull();
+  });
+
+  it("walks the highlighted model's harnesses with ←/→, and Enter takes the lit one", () => {
+    const { picked } = mount();
+    fireEvent.change(search(), { target: { value: "fable 5.1" } });
+    fireEvent.keyDown(search(), { key: "ArrowRight" });
+    expect(within(option("Claude Fable 5.1")).getByRole("button", { name: /through Cursor/ })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.keyDown(search(), { key: "Enter" });
+    expect(picked).toEqual([["acp:cursor", CURSOR_FABLE]]);
+  });
+
+  it("leaves ←/→ to the search field's caret on a row with one harness", () => {
+    mount();
+    // `fireEvent` answers false when a handler called preventDefault — the caret would not move.
+    expect(fireEvent.keyDown(search(), { key: "ArrowRight" })).toBe(true);
+  });
+
+  it("re-routes the model it was changed on, not the next one looked at", () => {
+    mount();
+    fireEvent.mouseEnter(option("Claude Fable 5.1"));
+    fireEvent.keyDown(search(), { key: "ArrowRight" });
+    fireEvent.keyDown(search(), { key: "ArrowDown" });
+    fireEvent.keyDown(search(), { key: "ArrowUp" });
+    expect(within(option("Claude Fable 5.1")).getByRole("button", { name: /through Cursor/ })).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+describe("the long list", () => {
+  it("folds the agents with nothing but a default into one group, each named by the agent", () => {
+    mount({ rows: rowsFor({ agentProbe: [] }) });
+    const others = screen.getByRole("group", { name: "Other agents" });
+    const names = within(others).getAllByRole("option").map((o) => o.getAttribute("aria-label"));
+    // Codex and Cursor say which model their default is; the rest have no name to say.
+    expect(names).toEqual(expect.arrayContaining(["Codex, GPT-5.6", "Cursor, Composer", "OpenCode", "Hermes"]));
+    expect(new Set(names).size).toBe(names.length);
+    expect(within(others).queryAllByText("Default")).toEqual([]);
+  });
+
+  it("keeps the session's own agent leading under its own name when it lists nothing", () => {
+    const rows = modelRows({ kind: "acp:openhands", model: null, canSwitchAgent: true, agentProbe: [] });
+    mount({ rows, kind: "acp:openhands", model: null });
+    const groups = within(screen.getByRole("listbox", { name: "Models" })).getAllByRole("group");
+    expect(groups[0]).toHaveAttribute("aria-label", "OpenHands");
+    expect(within(groups[0]!).getByRole("option", { name: "Default" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("puts a star on the row under the pointer, not a column of them down the list", () => {
+    const { starred } = mount();
+    expect(document.querySelectorAll(".mp-star")).toHaveLength(1); // the highlighted current row's
+    fireEvent.mouseEnter(option("Claude Sonnet 5"));
+    expect(document.querySelectorAll(".mp-star")).toHaveLength(1);
+    fireEvent.click(within(option("Claude Sonnet 5")).getByRole("button", { name: "Favourite Claude Sonnet 5" }));
+    // Starring a model is not choosing it.
+    expect(starred).toEqual([canonicalModelKey("Claude Sonnet 5")]);
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it("dissolves at its ends with the app's own primitive", () => {
+    mount();
+    expect(screen.getByRole("listbox", { name: "Models" })).toHaveAttribute("data-dissolve");
+  });
+});
+
+describe("a session that has already run", () => {
+  const locked = () => rowsFor({ canSwitchAgent: false });
+
+  it("lists only what it can still run, and says why in one line", () => {
+    mount({ rows: locked() });
+    const groups = within(screen.getByRole("listbox", { name: "Models" })).getAllByRole("group").map((g) => g.getAttribute("aria-label"));
+    expect(groups).toEqual(["Claude"]);
+    expect(document.querySelector(".mp-locked")).toHaveTextContent("This session has already run on Claude, so other agents’ models are not offered.");
+    expect(document.querySelector(".mp-ways")).toBeNull();
+  });
+
+  it("explains an empty search that matched only models it can no longer reach", () => {
+    mount({ rows: locked() });
+    fireEvent.change(search(), { target: { value: "gpt" } });
+    expect(screen.queryAllByRole("option")).toEqual([]);
+    expect(document.querySelector(".mp-empty")).toHaveTextContent(/No Claude model matches “gpt” — this session has already run/);
+  });
+});
+
+describe("the strip under the list", () => {
+  it("names the context and API price, with who bills for the harness a hover away", () => {
+    const key = canonicalModelKey("Claude Opus 5");
+    mount({ info: { [key]: { key, label: "Claude Opus 5", vendor: "Anthropic", priceIn: 5, priceOut: 25, context: 200_000, efforts: [], blurb: null } } });
+    const specs = document.querySelector(".mp-about-specs")!;
+    expect(specs).toHaveTextContent("200K context · $5 in · $25 out per Mtok");
+    expect(specs.getAttribute("title")).toMatch(/Claude subscription/);
+  });
+
+  it("sets a harness's commands as code, and keeps the tooltip plain", () => {
+    const rows = modelRows({ kind: "acp:openhands", model: null, canSwitchAgent: true, agentProbe: [] });
+    mount({ rows, kind: "acp:openhands", model: null });
+    const note = document.querySelector(".mp-about-note")!;
+    expect([...note.querySelectorAll("code")].map((c) => c.textContent)).toEqual(["openhands", "/settings"]);
+    expect(note.textContent).not.toContain("`");
+    expect(note.getAttribute("title")).not.toContain("`");
+  });
+
+  it("holds one height whatever the model says — the popover grows upward, so a taller strip would move the rows", () => {
+    const css = readFileSync(repoFile("apps/desktop/src/renderer/src/styles.css"), "utf8");
+    const about = /\.mp-about \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(about).toMatch(/(^|[;\s])height:/);
+    expect(about).not.toMatch(/min-height|max-height/);
+  });
+});
+
+describe("where it opens", () => {
+  it("is never taller than the roomier side of its chip, so it opens whole beside it", () => {
+    /* A brand-new session's prompter sits mid-window. With 300px above the chip and 440px below,
+       neither held the whole list, and the picker landed on its own chip or ran off the window. */
+    const real = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("aria-label") === "Model" ? new DOMRect(900, 300, 140, 28) : real.call(this);
+    });
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(768);
+    mount();
+    expect(dialog()!.style.maxHeight).toBe(`${768 - 328 - 10}px`);
+  });
+});
+
+describe("how it runs", () => {
+  const LEVELS = [{ id: "low", label: "Low" }, { id: "medium", label: "Medium" }, { id: "high", label: "High" }];
+  /** An effort control over three levels, recording what it is asked to become. */
+  const control = (value: string | null, defaultId: string | null = "medium") => {
+    const asked: (string | null)[] = [];
+    return { asked, effort: { levels: LEVELS, value, defaultId, onChange: (id: string | null) => asked.push(id) } as EffortControl };
+  };
+  const track = () => screen.getByRole("slider", { name: "Effort" });
+  const fastMode = (over: Partial<FastMode> = {}): FastMode => ({ on: false, state: null, reason: null, requested: null, onChange: () => {},
+    availability: { state: "unknown" }, tip: "Fast mode: faster responses, at a higher cost.", ...over });
+
+  it("carries Realm's light at a heavy level the session chose, and nothing at any other", () => {
+    /* The light is four small layers, mounted only where it means something. THE MUTANTS: mount them
+       at every level (a treatment every level wore says nothing about the one picked), or at a heavy
+       level the harness only defaulted to (nobody chose it). */
+    const HEAVY = [{ id: "high", label: "High" }, { id: "xhigh", label: "XHigh" }, { id: "max", label: "Max" }];
+    const lit = () => ["mp-track-facets", "mp-track-flow", "mp-track-core", "mp-track-shine"].filter((c) => document.querySelector(`.${c}`));
+    mount({ effort: { levels: HEAVY, value: "max", defaultId: "high", onChange: () => {} } });
+    expect(lit()).toEqual(["mp-track-facets", "mp-track-flow", "mp-track-core", "mp-track-shine"]);
+    expect(track()).toHaveAttribute("data-effort", "max");
+    cleanup();
+    mount({ effort: { levels: HEAVY, value: "high", defaultId: "high", onChange: () => {} } });
+    expect(lit()).toEqual([]);
+    cleanup();
+    mount({ effort: { levels: HEAVY, value: null, defaultId: "max", onChange: () => {} } });
+    expect(lit()).toEqual([]);
+  });
+
+  it("charges the bolt and runs a glint along the track when fast mode goes on, and is quiet when it goes off", () => {
+    const LEVELS3 = LEVELS;
+    const effort = { levels: LEVELS3, value: "medium", defaultId: "medium", onChange: () => {} } as EffortControl;
+    const ui = (on: boolean) => <ModelPicker kind="claude" model="claude-opus-5" effort={effort} rows={rowsFor()} info={{}}
+      onToggleFavorite={() => {}} onPick={() => {}} fast={fastMode({ on })} />;
+    const { rerender } = render(ui(false));
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    const bolt = screen.getByRole("button", { name: "Fast mode" });
+    expect(bolt).not.toHaveAttribute("data-charge");
+    expect(document.querySelector(".mp-track-glint")).toBeNull();
+    rerender(ui(true));
+    expect(bolt).toHaveAttribute("data-charge");
+    expect(document.querySelectorAll(".mp-track-glint")).toHaveLength(1);
+    const end = new Event("animationend", { bubbles: true });
+    Object.defineProperty(end, "animationName", { value: "rl-bolt-charge" });
+    bolt.dispatchEvent(end);
+    expect(bolt).not.toHaveAttribute("data-charge");
+    // Off is quiet: no charge, and no second pass mounted.
+    rerender(ui(false));
+    expect(bolt).not.toHaveAttribute("data-charge");
+    const pass = document.querySelector(".mp-track-glint");
+    rerender(ui(true));
+    // On again is a fresh pass — keyed by the count, so the finished one is not merely replayed.
+    expect(document.querySelector(".mp-track-glint")).not.toBe(pass);
+  });
+
+  it("names the level in force over the model it is for, and puts a dot for every level on the track", () => {
+    mount({ effort: control(null).effort });
+    expect(document.querySelector(".mp-run-level")).toHaveTextContent(/^Medium$/); // the model's default, by name
+    expect(document.querySelector(".mp-run-model")).toHaveTextContent("Opus 5");
+    expect(track()).toHaveAttribute("aria-valuenow", "1");
+    expect(track()).toHaveAttribute("aria-valuetext", "Medium");
+    expect(track().querySelectorAll(".mp-track-dot")).toHaveLength(3);
+    expect(track().querySelector(".mp-track-knob")).not.toBeNull();
+    // …and the chip names the same level.
+    expect(screen.getByRole("button", { name: "Model" }).querySelector(".chip-effort")).toHaveTextContent("Medium");
+  });
+
+  it("steps a level with ←/→ and goes to the ends with Home and End, in place", async () => {
+    const { asked, effort } = control("medium");
+    mount({ effort });
+    fireEvent.keyDown(track(), { key: "ArrowRight" });
+    fireEvent.keyDown(track(), { key: "ArrowLeft" });
+    fireEvent.keyDown(track(), { key: "End" });
+    fireEvent.keyDown(track(), { key: "Home" });
+    expect(asked).toEqual(["high", "low", "high", "low"]);
+    // Past the exit window, not just the key: a closing popover is still in the DOM for its fade.
+    await exited();
+    expect(dialog()).toBeInTheDocument();
+    expect(dialog()).not.toHaveAttribute("data-closing");
+  });
+
+  it("lands a press on the nearest dot", () => {
+    const { asked, effort } = control("low");
+    mount({ effort });
+    const real = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("mp-track") ? new DOMRect(100, 0, 200, 22) : real.call(this);
+    });
+    // The run is inset by half the track's height: 111 to 289, so 270 is nearest the last dot. jsdom
+    // has no PointerEvent, so the coordinate is set on the event it does build.
+    const press = createEvent.pointerDown(track(), { pointerId: 1 });
+    Object.defineProperty(press, "clientX", { value: 270 });
+    fireEvent(track(), press);
+    expect(asked).toEqual(["high"]);
+  });
+
+  it("offers the way back to the model's default only once the level has been moved off it", () => {
+    const moved = control("high");
+    mount({ effort: moved.effort });
+    const reset = screen.getByRole("button", { name: "Reset effort" });
+    expect(reset.getAttribute("title")).toBe("Back to Opus 5’s default, Medium");
+    fireEvent.click(reset);
+    expect(moved.asked).toEqual([null]);
+    cleanup();
+    mount({ effort: control(null).effort });
+    expect(screen.queryByRole("button", { name: "Reset effort" })).toBeNull();
+    cleanup();
+    mount({ effort: control("medium").effort }); // asked for, but it IS the default
+    expect(screen.queryByRole("button", { name: "Reset effort" })).toBeNull();
+  });
+
+  it("puts no knob on a level nobody chose and the harness never named", () => {
+    const { asked, effort } = control(null, null);
+    mount({ effort });
+    expect(document.querySelector(".mp-run-level")).toHaveTextContent(/^Default$/);
+    expect(track().querySelector(".mp-track-knob")).toBeNull();
+    fireEvent.keyDown(track(), { key: "ArrowRight" });
+    expect(asked).toEqual(["low"]);
+  });
+
+  it("shows the level a session asked for under another model as what actually runs here", () => {
+    // `max`, set under a Claude model, is no level of this one's: the default runs, so that is shown.
+    mount({ effort: control("max").effort });
+    expect(track()).toHaveAttribute("aria-valuetext", "Medium");
+  });
+
+  it("draws no track where the harness takes no level", () => {
+    mount({ fast: fastMode() });
+    expect(screen.queryByRole("slider", { name: "Effort" })).toBeNull();
+    expect(document.querySelector(".mp-run-level")).toHaveTextContent("Fast mode");
+  });
+
+  it("draws no foot at all where the harness takes neither", () => {
+    mount();
+    expect(document.querySelector(".mp-foot")).toBeNull();
+  });
+
+  it("keeps the picker open on a folded chip's choice, a setting on the card like the rest", async () => {
+    const chosen: string[] = [];
+    mount({ overflow: [{ label: "Permissions", items: [{ label: "Accept edits", onSelect: () => chosen.push("acceptEdits") }] }] });
+    fireEvent.click(within(screen.getByRole("group", { name: "Permissions" })).getByRole("button", { name: "Accept edits" }));
+    expect(chosen).toEqual(["acceptEdits"]);
+    await exited();
+    expect(dialog()).not.toHaveAttribute("data-closing");
+  });
+
+  it("steps the level of a model just picked with ←/→ in the search, until the highlight moves on", () => {
+    /* After Enter the keyboard is still in the search field; the level is the next thing it sets.
+       THE MUTANTS: ←/→ left to the caret after a pick, or still stepping once ↓ is walking the list. */
+    const { asked, effort } = control("medium");
+    mount({ effort });
+    fireEvent.keyDown(search(), { key: "ArrowRight" });
+    expect(asked).toEqual([]); // before a pick they are the caret's, as they always were
+    fireEvent.keyDown(search(), { key: "ArrowDown" });
+    fireEvent.keyDown(search(), { key: "Enter" });
+    expect(fireEvent.keyDown(search(), { key: "ArrowRight" })).toBe(false);
+    fireEvent.keyDown(search(), { key: "ArrowLeft" });
+    expect(asked).toEqual(["high", "low"]);
+    fireEvent.keyDown(search(), { key: "ArrowDown" });
+    expect(fireEvent.keyDown(search(), { key: "ArrowRight" })).toBe(true);
+    expect(asked).toEqual(["high", "low"]);
+  });
+
+  it("walks the harnesses again, not the level, once the search changes after a pick", () => {
+    const { asked, effort } = control("medium");
+    mount({ effort });
+    fireEvent.click(option("Claude Sonnet 5"));
+    fireEvent.change(search(), { target: { value: "fable 5.1" } });
+    fireEvent.keyDown(search(), { key: "ArrowRight" });
+    expect(asked).toEqual([]);
+    expect(within(option("Claude Fable 5.1")).getByRole("button", { name: /through Cursor/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("puts fast mode beside the level as a bolt, with what it buys as its tooltip, and keeps the picker open", async () => {
+    const flips: boolean[] = [];
+    mount({ effort: control(null).effort, fast: fastMode({ availability: { state: "offered", source: "catalog" }, onChange: (on) => flips.push(on) }) });
+    const bolt = screen.getByRole("button", { name: "Fast mode" });
+    expect(bolt).toHaveAttribute("aria-pressed", "false");
+    expect(bolt.getAttribute("title")).toBe("Fast mode: faster responses, at a higher cost.");
+    fireEvent.click(bolt);
+    expect(flips).toEqual([true]);
+    await exited();
+    expect(dialog()).toBeInTheDocument();
+    expect(dialog()).not.toHaveAttribute("data-closing");
+  });
+
+  it("does not press a bolt on a model that cannot run it", () => {
+    const flips: boolean[] = [];
+    mount({ fast: fastMode({ on: true, availability: { state: "unavailable", source: "catalog", alternatives: ["Opus 5.5"] }, onChange: (on) => flips.push(on) }) });
+    const bolt = screen.getByRole("button", { name: "Fast mode" });
+    expect(bolt).toHaveAttribute("aria-disabled", "true");
+    expect(bolt).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(bolt);
+    expect(flips).toEqual([]);
+    // Asked for on a model that cannot: the line says so, and which can.
+    expect(document.querySelector(".mp-fast-note")).toHaveTextContent("Fast mode isn’t offered on Opus 5 — Opus 5.5 offers it.");
+  });
+});
+

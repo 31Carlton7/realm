@@ -1,6 +1,6 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, fastSupportKey, offeredModes, sessionModeOf, type Item, type LinkChip, type SessionMode, type Skill, runnableCommands, type UserCommand } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type Skill, runnableCommands, type UserCommand, type TurnChanges } from "@realm/contracts";
 
 /** A stable empty list for the commands selector. A fresh `[]` in the selector is a new reference on
  *  every render, which is how a zustand subscription turns into a render loop. */
@@ -8,7 +8,7 @@ const EMPTY_COMMANDS: readonly UserCommand[] = Object.freeze([]);
 
 /** Stable empty array for `useSyncExternalStore`: a fresh `[]` per render reads as a change forever. */
 const NO_LINKS: LinkChip[] = [];
-import { useApp, type PickedAttachment } from "../../state/store";
+import { spaceIsPlainFolder, useApp, type PickedAttachment } from "../../state/store";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import type { PaneProps } from "../registry";
 import type { MenuItem } from "../../components/Menu";
@@ -17,6 +17,7 @@ import { useFileDrop } from "../../components/use-file-drop";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
 import { SubagentPanel } from "./SubagentPanel";
+import { RunningAgents } from "./DelegatedRuns";
 import { TerminalDock } from "./TerminalDock";
 import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
@@ -24,14 +25,19 @@ import { latestTodos } from "./session-todos";
 import { SessionSummaryHost, useSummaryLive } from "./SessionSummary";
 import { SessionFilesHost } from "./SessionFiles";
 import { GoalStrip } from "./GoalStrip";
+import { useSelectInRealm } from "../../app-pick/start";
 import { PathMenu, asRef } from "./PathMenu";
+import { useSpaceTint } from "../../components/sidebar/use-sidebar-model";
 import type { SlashCommand } from "./slash-commands";
+import { MediaSessionContext } from "../../components/viewer/open";
 
 /** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
  *  re-render (and warn) forever. */
 const NO_ATTACHMENTS: PickedAttachment[] = [];
 const NO_SKILLS: Skill[] = [];
 const NO_MENTIONS: string[] = [];
+const NO_REFS: MentionRef[] = [];
+const NO_SAVED: number[] = [];
 
 const STATUS_LABEL = { idle: "Idle", running: "Running", waiting_permission: "Needs permission", error: "Error", ended: "Ended" } as const;
 
@@ -46,19 +52,13 @@ export function SessionMeta({ item }: { item: Item }) {
       {/* The status dot, alone. The cost used to sit here; it now rides the summary button, which is
           where the rest of what a session produced already lives — and a number in the bar was one
           more thing competing with the title for a strip that has four buttons on the other end. */}
+      {/* The agents this session has working — at the bar's right, where "what is it doing" is read. */}
+      <RunningAgents sessionId={id} />
       <span className="status-dot" data-status={status} title={STATUS_LABEL[status]} aria-label={`Status: ${STATUS_LABEL[status]}`} />
     </>
   );
 }
 
-/**
- * PanelBar action cluster for a session: summary, then the three panes a session opens beside
- * itself — terminal, documents, browser.
- *
- * The diff button is deliberately gone. It was the one action here duplicated a few pixels away:
- * the prompter's under-strip carries the branch chip, and that chip IS the way into the diff — it
- * also says which branch and how many files changed, which a bare icon in the bar never did.
- */
 /** What each mode's `/`-command says in the picker. The ids ARE the mode ids — `/plan`, `/ask`,
  *  `/build` — because a command is typed from memory and the word it is named after is the word on
  *  the chip. */
@@ -71,16 +71,14 @@ const MODE_COMMAND: Record<SessionMode, { label: string; hint: string; icon: "to
 /**
  * A session's own actions, as data — one list, read by the bar and by the ⋯ menu.
  *
- * Data rather than six components, because the two halves have to agree: the bar draws the first
- * `keep` of them (components/pane-bar-fit.ts) and the menu picks up exactly where it left off. With
- * a component per button the menu would have to be given its own copy of the same six decisions,
- * and the first time somebody added a seventh it would appear in one place and not the other.
+ * Data rather than a component per button, because the two halves have to agree: the bar draws the
+ * first `keep` of them (components/pane-bar-fit.ts) and the menu picks up exactly where it left off.
  *
- * ORDER IS PRIORITY, left to right, and the overflow simply takes from the end. The summary and the
- * terminal are what this session IS — one is the only place its outputs and spend are listed, the
- * other is its own shell — so they hold the bar longest. The three after them open a pane BESIDE the
- * session rather than showing anything about it, and every one of them is reachable from the sidebar
- * and the palette as well, so they are what a narrow pane can most afford to spell out in a menu.
+ * What is here is what is about THIS session, and nothing else: the panels that dock to the session's
+ * own pane. The tools a session opens beside itself — documents, the terminal, its agents, a page, a
+ * device, a machine — are launched from the side pane they open in (`side-tools.ts`), which is where
+ * the seven glyphs this bar used to carry now live. A bar of icons that each open something somewhere
+ * else said nothing about the session it headed, and was the loudest thing at the top of the window.
  */
 type BarAction = {
   id: string;
@@ -108,71 +106,34 @@ function useSessionActions(item: Item): BarAction[] {
   const id = item.refId;
   const dock = useApp((s) => s.sessionDock[id]?.kind);
   const toggleSessionDock = useApp((s) => s.toggleSessionDock);
-  // Same precondition the documents button always had: gated on the environment being loaded,
-  // because an action that could only no-op is dead chrome (Ara refresh §7).
-  const environmentId = useApp((s) => {
-    const e = s.sessions[id]?.environmentId;
-    return e && s.environments[e] ? e : null;
-  });
+  const closeSessionDock = useApp((s) => s.closeSessionDock);
+  const terminalDocked = useApp((s) => s.terminalDock === "bottom");
+  const showSessionTerminal = useApp((s) => s.showSessionTerminal);
   const summaryLive = useSummaryLive(item);
-  const openDocuments = useApp((s) => s.openDocuments);
-  const newBrowser = useApp((s) => s.newBrowser);
-  const newMachine = useApp((s) => s.newMachine);
-  const newSimulator = useApp((s) => s.newSimulator);
   const run = useApp((s) => s.run);
   return useMemo(() => {
     const list: BarAction[] = [];
-    if (summaryLive) list.push({
-      id: "summary", label: "Summary", title: "Outputs, sources and plans", icon: "info",
-      aria: `Summary of ${item.title}`, dialog: true, on: dock === "summary",
-      onSelect: () => toggleSessionDock(id, { kind: "summary" }),
-    });
-    /* Second, right behind the summary, and for the summary's own reason: this is the only list in
-       the app that shows a file the session actually produced. The Library and the summary are both
-       folded out of tool calls, so anything a shell line or a script wrote is in neither — which is
-       the case someone is in when they go looking. It holds the bar as long as the summary does. */
+    /* What the session made, from both of the places that know: the summary, folded out of the
+       transcript (outputs, sources, plans, spend), and its files, read off the disk — which is the
+       only list that has a file a shell line or a script wrote. Two answers to one question ("where
+       did that go?") are one control, and the panel says which it is showing (DockViews). Always
+       offered, because the files always have something to show; it opens on the summary once there
+       is one. */
+    const open = dock === "summary" || dock === "files";
     list.push({
-      id: "files", label: "Files", title: "Files in this space and checkout", icon: "folder",
-      aria: `Files for ${item.title}`, dialog: true, on: dock === "files",
-      onSelect: () => toggleSessionDock(id, { kind: "files" }),
+      id: "summary", label: "Summary and files", title: "Summary and files", icon: "info",
+      aria: `Summary and files for ${item.title}`, dialog: true, on: open,
+      onSelect: () => (open ? closeSessionDock(id) : toggleSessionDock(id, { kind: summaryLive ? "summary" : "files" })),
     });
-    list.push({
+    /* The terminal is a tab of the side pane, launched from there — unless Settings has docked it to
+       this pane's foot, where it is the session's own panel and this bar is what shows and hides it. */
+    if (terminalDocked) list.push({
       id: "terminal", label: "Terminal", title: "Terminal (⌘J)", icon: "terminal",
-      aria: `${dock === "terminal" ? "Hide" : "Show"} terminal for ${item.title}`,
-      dialog: true, pressed: dock === "terminal",
-      onSelect: () => toggleSessionDock(id, { kind: "terminal" }),
-    });
-    if (environmentId) list.push({
-      id: "documents", label: "Documents", title: "Documents", icon: "documents",
-      aria: `Open documents for ${item.title}`,
-      /* Beside, not instead. This is pressed FROM a session to read something alongside it, and
-         taking the session's own pane to do that left the reader with a back button as the only way
-         home. An empty focused leaf is still filled rather than split; see `openItemBeside`. */
-      onSelect: () => run(() => openDocuments(environmentId, null, true)),
-    });
-    /* The last three take no precondition and are always offered, on one reasoning: each opens a
-       PLACE YOU GO rather than a view of this session's checkout, so gating any of them on an
-       environment would be gating it on something it has nothing to do with. The simulator in
-       particular is not gated on this Mac having Xcode — the pane's own body answers that in a
-       sentence, where a button that vanished would be a feature nobody could discover they were one
-       install away from. */
-    list.push({
-      id: "browser", label: "Browser", title: "Browser", icon: "browser",
-      aria: `Open a browser beside ${item.title}`,
-      onSelect: () => run(() => newBrowser(null, true)),
-    });
-    list.push({
-      id: "machine", label: "Machine", title: "Machine", icon: "machine",
-      aria: `Connect a machine beside ${item.title}`,
-      onSelect: () => run(() => newMachine(null, true)),
-    });
-    list.push({
-      id: "simulator", label: "Simulator", title: "Simulator", icon: "simulator",
-      aria: `Open a simulator beside ${item.title}`,
-      onSelect: () => run(() => newSimulator(null, true)),
+      aria: `${dock === "terminal" ? "Hide" : "Show"} terminal for ${item.title}`, dialog: true, pressed: dock === "terminal",
+      onSelect: () => run(() => showSessionTerminal(id)),
     });
     return list;
-  }, [id, item.title, dock, environmentId, summaryLive, toggleSessionDock, openDocuments, newBrowser, newMachine, newSimulator, run]);
+  }, [id, item.title, dock, terminalDocked, summaryLive, toggleSessionDock, closeSessionDock, showSessionTerminal, run]);
 }
 
 /**
@@ -225,9 +186,26 @@ export function useSessionMenuItems(item: Item, keep: number): MenuItem[] {
   }, [actions, keep, item.kind]);
 }
 
+/**
+ * Where a peek's prompter would be (W11b): what the tab is, which space the session lives in when it
+ * is not this one, and the way in. Peeks answer cards and nothing more — no composer, by the user's
+ * decision — so writing to the session is opening it, and the button says where that will be.
+ */
+function PeekBar({ spaceName, elsewhere, onOpen }: { spaceName: string; elsewhere: boolean; onOpen: () => void }) {
+  return (
+    <div className="peek-bar" role="group" aria-label="Peek">
+      <span className="peek-where"><Icon name="peek" size={14} /><span className="peek-where-text">{elsewhere ? `Peek · ${spaceName}` : "Peek"}</span></span>
+      <button type="button" className="btn" onClick={onOpen}
+        title={elsewhere ? `Switches to ${spaceName} and opens it there` : "Keeps it as a tab here"}>Open session</button>
+    </div>
+  );
+}
+
 /** Transcript + composer for one agent session (item.refId = session id). PanelBar renders the header. */
 /** Stable, so a pane with no references hands the Composer the same array every render. */
 const EMPTY_REFS: readonly { sessionId: string; title: string; agent: string }[] = [];
+
+const trimSlash = (path: string): string => path.replace(/\/+$/, "");
 
 export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const id = item.refId;
@@ -245,6 +223,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
   const entry = useApp((s) => s.transcripts[id]);
   const spaces = useApp((s) => s.spaces);
+  const moveSessionToSpace = useApp((s) => s.moveSessionToSpace);
   const openSession = useApp((s) => s.openSession);
   const sendMessage = useApp((s) => s.sendMessage);
   const interruptSession = useApp((s) => s.interruptSession);
@@ -261,12 +240,25 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const respondPermission = useApp((s) => s.respondPermission);
   const setParkedPermission = useApp((s) => s.setParkedPermission);
   const openSheet = useApp((s) => s.openSheet);
+  const openAgentsTabFor = useApp((s) => s.openAgentsTab);
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const setSessionAgent = useApp((s) => s.setSessionAgent);
   const setSessionMode = useApp((s) => s.setSessionMode);
   const planReturn = useApp((s) => s.planReturn[id] ?? null);
+  /* Looked at, not opened: a peek keeps the transcript and its cards and gives up the prompter. */
+  const peek = useApp((s) => s.peek?.item.id === item.id);
+  const activeSpaceId = useApp((s) => s.activeSpaceId);
+  const openPeek = useApp((s) => s.openPeek);
   const run = useApp((s) => s.run);
+  const markSessionSeen = useApp((s) => s.markSessionSeen);
   const transcript = entry?.t ?? emptyTranscript();
+  /* Having the pane with the keyboard IS reading it. `applySessionEvent` stamps what arrives while the
+     pane is focused; this stamps what was already here when the focus did. Without it a session
+     opened to read its news kept the unread ring — and its row in every list of what needs you —
+     until it said something new. Unfocused, nothing: a pane restored behind another one has been
+     opened, not read. */
+  const readTo = entry?.lastSeq ?? 0;
+  useEffect(() => { if (focused && readTo > 0) void run(() => markSessionSeen(id)); }, [focused, readTo, id, markSessionSeen, run]);
   // Store-owned, keyed by session id (A-M9): layout reshapes/remounts never lose typed text, and a
   // suggestion chip in the empty state can fill the draft without sending it.
   const draft = useApp((s) => s.drafts[id] ?? "");
@@ -280,6 +272,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const resumeGoal = useApp((s) => s.resumeGoal);
   const clearGoal = useApp((s) => s.clearGoal);
   const addLinkChip = useApp((s) => s.addLinkChip);
+  const selectInRealm = useSelectInRealm(id);
   const draftLinks = useApp((s) => s.draftLinks[id] ?? NO_LINKS);
   // Attachments are part of the draft and are held the same way, for the same reason.
   const attachments = useApp((s) => s.pendingAttachments[id] ?? NO_ATTACHMENTS);
@@ -287,17 +280,24 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // be handed — empty for a Cursor (or fake) session, which is what keeps `@` from opening anything
   // there. `spaceSkills` rows are store-held references, so the memo only re-filters on real change.
   const spaceSkillList = useApp((s) => { const sess = s.sessions[id]; return (sess && s.spaceSkills[sess.spaceId]) || NO_SKILLS; });
+  /* @Mac: the `mac` skill, offered wherever the space's library holds it — on or off, and whatever the
+     agent, because where it cannot be invoked it is handed over by its instructions instead. */
+  const macSkill = useMemo(() => spaceSkillList.find((k) => k.id === MAC_SKILL_ID && k.valid) ?? null, [spaceSkillList]);
   const agentKind = useApp((s) => s.sessions[id]?.agentKind);
-  /* What the last session on this model heard about fast mode — the answer a session that has not
-     started yet can offer the switch on. Its own `init` overrides it the moment it has one. */
-  const rememberedFast = useApp((s) => { const sess = s.sessions[id]; return sess ? s.fastSupport[fastSupportKey(sess.agentKind, sess.model)] : undefined; });
+  /* What harnesses have said about fast mode, per model — the answer a session that has not started
+     yet can offer the switch on. Its own `init` overrides it the moment it has one. */
+  const fastSupport = useApp((s) => s.fastSupport);
+  const effortSupport = useApp((s) => s.effortSupport);
   const mentionSkills = useMemo(
     () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList.filter((k) => k.enabled && k.valid) : NO_SKILLS),
     [agentKind, spaceSkillList],
   );
   // The transcript recognises a sent message's `@name` against this same live set, so a bubble's
   // chips and the composer's agree about what is a skill and what is just an address.
-  const liveMentionIds = useMemo(() => mentionSkills.map((k) => k.id), [mentionSkills]);
+  const liveMentionIds = useMemo(() => {
+    const ids = mentionSkills.map((k) => k.id);
+    return macSkill && !ids.includes(MAC_SKILL_ID) ? [...ids, MAC_SKILL_ID] : ids;
+  }, [mentionSkills, macSkill]);
   // The "+ → Skills" picker's source: the same space list, unfiltered by enabled — the picker's whole
   // job is to show what is NOT on yet. Still gated on the agent, because a Cursor session cannot be
   // handed a skills directory at all and a picker there would promise something that never arrives.
@@ -309,9 +309,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // Recognised mentions whose skill has since been disabled/deleted — the draft still carries the
   // token, so the prompter warns that it will go as plain text.
   const staleMentions = useMemo(() => {
-    const live = new Set(mentionSkills.map((k) => k.id));
+    const live = new Set(liveMentionIds);
     return draftMentionIds.filter((m) => !live.has(m));
-  }, [draftMentionIds, mentionSkills]);
+  }, [draftMentionIds, liveMentionIds]);
   const attachFiles = useApp((s) => s.attachFiles);
   const attachFromPicker = useApp((s) => s.attachFromPicker);
   const removeAttachment = useApp((s) => s.removeAttachment);
@@ -321,6 +321,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const environments = useApp((s) => s.environments);
   const setSessionEnvironment = useApp((s) => s.setSessionEnvironment);
   const moveSessionToNewWorktree = useApp((s) => s.moveSessionToNewWorktree);
+  // A plain folder has no worktrees, so its prompter offers none (store.ts, `spaceIsPlainFolder`).
+  const plainFolder = useApp((s) => (session ? spaceIsPlainFolder(s, session.spaceId) : false));
   const connectors = useApp((s) => { const sess = s.sessions[id]; return (sess && s.connectors[sess.spaceId]) ?? null; });
   const refreshConnectors = useApp((s) => s.refreshConnectors);
   const pickAndLinkProject = useApp((s) => s.pickAndLinkProject);
@@ -330,18 +332,29 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     () => Object.values(environments).filter((e) => session && e.spaceId === session.spaceId),
     [environments, session],
   );
-  // The environments map loads on space activation, BEFORE this session (and its lazily-created
-  // primary row) may exist — so a session whose own environment is missing from the map re-fetches
-  // once. Also what makes the diff button above appear without a space switch.
+  // The environments map loads with the profile, which may be BEFORE this session (and its
+  // lazily-created primary row) exists — so a session whose own environment is missing from the map
+  // re-fetches its space's once. Also what makes the diff button above appear.
   const refreshEnvironments = useApp((s) => s.refreshEnvironments);
   const missingOwnEnv = session !== undefined && !environments[session.environmentId];
-  useEffect(() => { if (missingOwnEnv) run(() => refreshEnvironments()); }, [missingOwnEnv, refreshEnvironments, run]);
+  const ownSpace = session?.spaceId ?? null;
+  useEffect(() => { if (missingOwnEnv) run(() => refreshEnvironments(ownSpace)); }, [missingOwnEnv, ownSpace, refreshEnvironments, run]);
   /* Once per mounted session: the pane catching up on a queue that filled while it was closed. */
   useEffect(() => { run(() => refreshSessionQueue(id)); }, [id, refreshSessionQueue, run]);
+  /* The turns saved in this log, for its track, read once as the pane mounts and kept by `session.saved`;
+     and a prompt to open AT, when the Library sent the reader here for one. */
+  const savedSeqs = useApp((s) => s.savedTurns[id] ?? NO_SAVED);
+  const saveTurn = useApp((s) => s.saveTurn);
+  const refreshSavedTurns = useApp((s) => s.refreshSavedTurns);
+  useEffect(() => { run(() => refreshSavedTurns(id)); }, [id, refreshSavedTurns, run]);
+  const onSaveTurn = useCallback((seq: number, saved: boolean) => { run(() => saveTurn(id, seq, saved)); }, [id, saveTurn, run]);
+  const promptFor = useApp((s) => (s.promptFor?.sessionId === id ? s.promptFor : null));
+  const promptTaken = useApp((s) => s.promptTaken);
   const gitInfo = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.gitInfo[cwd] ?? null : null; });
   // What is docked to this pane's right edge, if anything — one strip, one occupant.
   const dock = useApp((s) => s.sessionDock[id]);
   const closeSessionDock = useApp((s) => s.closeSessionDock);
+  const terminalDocked = useApp((s) => s.terminalDock === "bottom");
   /* A callback ref, and the panel is gated on the STATE it sets — not on the ref alone.
      React attaches refs bottom-up, so a child rendered inside this div runs its own layout effect
      before this div's ref is assigned: the panel measured `null`, fell back to the whole window,
@@ -350,6 +363,19 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const paneRef = useRef<HTMLDivElement | null>(null);
   const [paneEl, setPaneEl] = useState<HTMLDivElement | null>(null);
   const setPane = useCallback((el: HTMLDivElement | null) => { paneRef.current = el; setPaneEl(el); }, []);
+  /* Opened from a list of sessions — the Active rows, another room's list, a notification — so the
+     keyboard lands here, in the prompter, and the hand that clicked can type. Unless something in the
+     pane already has it: a permission card takes the keyboard for itself the moment it is on screen
+     (U-H4), and the answer it is asking for comes first. Either way the request is spent
+     (`keyboardTaken`), so a later remount of this pane never pulls the caret back out of wherever the
+     person has put it since. */
+  const keyboardFor = useApp((s) => (s.keyboardFor?.sessionId === id ? s.keyboardFor.n : 0));
+  const keyboardTaken = useApp((s) => s.keyboardTaken);
+  useEffect(() => {
+    if (!focused || !paneEl || keyboardFor === 0) return;
+    if (!paneEl.contains(document.activeElement)) paneEl.querySelector<HTMLElement>(".composer-input")?.focus();
+    keyboardTaken(keyboardFor);
+  }, [focused, paneEl, keyboardFor, keyboardTaken]);
   const agentProbe = useApp((s) => s.agentProbe);
   const probeAgents = useApp((s) => s.probeAgents);
   const modelFavorites = useApp((s) => s.modelFavorites);
@@ -384,6 +410,28 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const [quote, setQuote] = useState<{ text: string; n: number } | null>(null);
   /** The file path whose menu is open, and the element it was clicked on. */
   const [pathMenu, setPathMenu] = useState<{ path: string; at: HTMLElement } | null>(null);
+  /* A file the prose names inside this session's checkout opens straight in the documents pane, at
+     the line it named — beside the session, as the side pane's Documents does, never in its place.
+     Stable, because every finished message re-checks its links against it. */
+  const openDocumentPath = useApp((s) => s.openDocumentPath);
+  const ownEnvironmentId = session?.environmentId ?? null;
+  const checkoutRoot = useApp((s) => { const sess = s.sessions[id]; return sess ? s.environments[sess.environmentId]?.path ?? sess.cwd : null; });
+  const openFileAt = useCallback((path: string, line: number | null) => { run(() => openDocumentPath(path, ownEnvironmentId, null, { line: line ?? undefined, beside: { sessionId: id } })); },
+    [run, openDocumentPath, ownEnvironmentId, id]);
+  const checkout = useMemo(() => (checkoutRoot ? { root: checkoutRoot, onOpen: openFileAt } : null), [checkoutRoot, openFileAt]);
+  /* The edit cards' half: every checkpoint in this checkout (whether a turn's Undo is honest), the
+     turn's own diff for Review, and Undo through the checkpoint restore's own confirmation. */
+  const envCheckpoints = useApp((s) => (ownEnvironmentId ? s.envCheckpoints[ownEnvironmentId] : undefined));
+  const refreshEnvCheckpoints = useApp((s) => s.refreshEnvCheckpoints);
+  const openCheckpoints = useApp((s) => s.openCheckpoints);
+  const askRestoreCheckpoint = useApp((s) => s.askRestoreCheckpoint);
+  const reviewTurn = useApp((s) => s.reviewTurn);
+  useEffect(() => { if (ownEnvironmentId) run(() => refreshEnvCheckpoints(ownEnvironmentId)); }, [ownEnvironmentId, refreshEnvCheckpoints, run]);
+  const turnEditing = useMemo(() => (ownEnvironmentId ? {
+    sessionId: id, checkpoints: envCheckpoints,
+    onReview: (changes: TurnChanges, asked: string | null) => { run(() => reviewTurn(ownEnvironmentId, { changes, asked })); },
+    onUndo: (checkpointId: string) => { run(async () => { await openCheckpoints(ownEnvironmentId, id); await askRestoreCheckpoint(checkpointId); }); },
+  } : null), [id, ownEnvironmentId, envCheckpoints, run, reviewTurn, openCheckpoints, askRestoreCheckpoint]);
   /* The whole pane takes a dropped file, not just the prompter: with a transcript on screen the card
      is a strip at the bottom, and aiming at it with a file in hand is the chore this removes. The
      session id is closed over here, so a four-pane split lands each file in the pane it was dropped
@@ -418,6 +466,43 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const eggPacks = useApp((st) => st.eggPacks);
   const packLabels = useMemo(() => eggPacks.flatMap((p) => p.labels), [eggPacks]);
   const packGreetings = useMemo(() => eggPacks.flatMap((p) => p.greetings), [eggPacks]);
+  // The space's colour on the composer's space chip — one of the three places it marks (Plan 27).
+  const spaceTint = useSpaceTint(spaces.find((s) => s.id === session?.spaceId)?.color);
+  // Where else the chip may move it: the profile's other spaces. Another profile's would take the
+  // session out of this window, which is the sidebar menu's deliberate act, not a composer guess.
+  const otherSpaces = useMemo(() => {
+    const here = spaces.find((s) => s.id === session?.spaceId);
+    return here ? spaces.filter((s) => s.profileId === here.profileId && s.id !== here.id) : [];
+  }, [spaces, session?.spaceId]);
+  /* The `@` list beyond the skills (mention-sources.ts): the checkout's files and the Library over the
+     wire, the apps and their icons from main by way of the store, and whether macOS lets Realm drive
+     them. Every function is held still, because the list keys its fetches on them. */
+  const installedApps = useApp((st) => st.installedApps);
+  const appIcons = useApp((st) => st.appIcons);
+  const accessibility = useApp((st) => { const row = st.computerAccess?.rows.find((r) => r.id === "accessibility"); return row ? row.state === "granted" : null; });
+  const loadInstalledApps = useApp((st) => st.loadInstalledApps);
+  const ensureAppIcons = useApp((st) => st.ensureAppIcons);
+  const refreshComputerAccess = useApp((st) => st.refreshComputerAccess);
+  const addMentionRef = useApp((st) => st.addMentionRef);
+  const mentionFilesFor = useApp((st) => st.mentionFiles);
+  const libraryArtifacts = useApp((st) => st.libraryArtifacts);
+  const draftRefs = useApp((st) => st.draftRefs[id] ?? NO_REFS);
+  const profileId = spaces.find((s) => s.id === session?.spaceId)?.profileId ?? null;
+  const mentionFiles = useCallback(async (q: string) => (await mentionFilesFor(id, q)).hits, [id, mentionFilesFor]);
+  // One row per FILE (`perFile`): the list names things to hand over, not the moments they were touched.
+  const mentionLibrary = useCallback(async (q: string) => (await libraryArtifacts({ profileId, query: q, limit: 20, perFile: true })).entries, [profileId, libraryArtifacts]);
+  // Each opening re-reads both: an app installed, or Accessibility granted, since the last `@`.
+  const onMentionOpen = useCallback(() => { run(() => loadInstalledApps()); run(() => refreshComputerAccess()); }, [run, loadInstalledApps, refreshComputerAccess]);
+  const ensureIcons = useCallback((paths: readonly string[]) => { void ensureAppIcons(paths); }, [ensureAppIcons]);
+  const addRef = useCallback((ref: UnlabelledRef, candidates: readonly string[]) => addMentionRef(id, ref, candidates), [id, addMentionRef]);
+  const cwd = session?.cwd ?? "";
+  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef }),
+    [cwd, macSkill, installedApps, appIcons, accessibility, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef]);
+  /* The apps the log's own messages named keep their icons after a relaunch: asked for once each,
+     when the transcript first carries them. */
+  const loggedApps = useMemo(() => [...new Set(transcript.blocks.flatMap((b) => (b.kind === "user" && b.refs ? b.refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])) : [])))].join("\n"),
+    [transcript.blocks]);
+  useEffect(() => { if (loggedApps) ensureIcons(loggedApps.split("\n")); }, [loggedApps, ensureIcons]);
 
   /* EVERY hook is above this line, and that is load-bearing rather than tidy: an early return with
      hooks below it renders a different NUMBER of hooks depending on whether the session row has
@@ -425,6 +510,14 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
      throw takes the whole window down to a blank screen. */
   if (!session) return <div className="pane-placeholder muted">Loading session…</div>;
   const space = spaces.find((s) => s.id === session.spaceId);
+  /* What the empty session's greeting names, and links to the space's page: the space, when the
+     session works in the space's own folder; otherwise the checkout it works in, by its folder name,
+     because that is the place the next message runs. The environment's kind says which when it has
+     loaded; until then the paths do. */
+  const ownEnv = environments[session.environmentId];
+  const inSpaceFolder = ownEnv ? ownEnv.kind === "primary" : space !== undefined && trimSlash(session.cwd) === trimSlash(space.folderPath);
+  const place = space ? { name: inSpaceFolder ? space.name : basenameOf(session.cwd), title: `Open ${space.name}`,
+    onOpen: () => openSpacePage(space.id) } : undefined;
   // Hero vs docked (§4): the prompter centers as the hero only while there is nothing to read —
   // no transcript blocks and no visible permission cards (pending ones only show while waiting).
   const hero = transcript.blocks.length === 0 && (status !== "waiting_permission" || transcript.pendingPermissions.length === 0);
@@ -522,27 +615,34 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   ];
   const body = (
     <div ref={setPane} className="session-pane" data-visible={visible || undefined} data-focused={focused || undefined} data-composer={hero ? "hero" : "docked"}
-      data-dropping={fileDrop.dropping || undefined} {...fileDrop.handlers}>
-      <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
+      data-peek={peek || undefined}
+      data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
+      <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd} track
+        saved={savedSeqs} onSave={onSaveTurn} reveal={promptFor} onRevealed={promptTaken}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
+        // A plan, or an answer, handed to other models: this session's Agents tab, with it as the work.
+        onImplementWith={peek ? undefined : (text) => run(() => openAgentsTabFor(id, { plan: text }))}
+        sessionId={id}
         mode={sessionModeOf(session.permissionMode)}
         eggs={easterEggs} packLabels={packLabels}
-        onPath={(p, at) => setPathMenu({ path: p, at })}
+        onPath={(p, at) => setPathMenu({ path: p, at })} checkout={checkout} turnEditing={turnEditing}
         onQuote={(text) => setQuote((q) => ({ text, n: (q?.n ?? 0) + 1 }))}
         sends={sends}
         // Keyed by SESSION, not by pane: a space switch tears this pane down and rebuilds it, and
         // what the reader is owed back is their place in this log (scroll-memory.ts).
         scrollKey={id}
-        mentionIds={liveMentionIds}
+        mentionIds={liveMentionIds} appIcons={appIcons}
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))}
         onRetry={() => { setSends((n) => n + 1); run(() => retryLastTurn(id)); }}
         onRate={(messageId, rating) => run(() => rateMessage(id, messageId, rating))} />
-      {blocked && isBlocked(availability)
+      {peek
+        ? <PeekBar spaceName={space?.name ?? "another space"} elsewhere={session.spaceId !== activeSpaceId} onOpen={() => run(() => openPeek())} />
+        : blocked && isBlocked(availability)
         ? <InstallCard availability={availability} onRetry={reprobe}
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))}
             offer={cliOffer} job={cliJob ?? null}
             onInstall={() => run(() => runCliAction(session.agentKind, "install"))}
-            onSignIn={() => run(() => startSignIn(session.agentKind))}
+            onSignIn={() => run(() => startSignIn(session.agentKind, session.spaceId, session.id))}
             onDismissJob={() => dismissCliJob(session.agentKind)} />
         : <Composer session={session} status={status} gitInfo={gitInfo} todos={todos} quote={quote}
             onOpenDiff={() => run(() => openDiff(session.environmentId))} draft={draft} onDraftChange={(t) => setDraft(id, t)}
@@ -588,21 +688,23 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onManageSkills={() => openSpacePage(session.spaceId, "skills")}
             machineName={machineName} userName={userName} environments={spaceEnvironments}
             onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}
-            onNewWorktree={() => run(() => moveSessionToNewWorktree(id))}
+            onNewWorktree={plainFolder ? undefined : () => run(() => moveSessionToNewWorktree(id))}
+            otherSpaces={otherSpaces} onMoveToSpace={(spaceId) => run(() => moveSessionToSpace(id, spaceId))}
             connectors={connectors} onConnectorsOpened={() => run(() => refreshConnectors(session.spaceId))}
-            onAddFolder={() => run(() => pickAndLinkProject())}
+            onAddFolder={() => run(() => pickAndLinkProject(session.spaceId))}
             onManageConnections={() => openSpacePage(session.spaceId, "connections")}
             submitKey={submitKey}
             eggs={easterEggs}
-            hero={hero} spaceName={space?.name ?? "this space"}
+            hero={hero} spaceName={space?.name ?? "this space"} spaceTint={spaceTint} place={place}
             promptHint={hint} usage={transcript.usage} slashCommands={slashCommands}
             packGreetings={packGreetings}
             goal={<GoalStrip goal={goal}
               onPause={() => run(() => setGoalStatus(id, "paused", "You paused it."))}
               onResume={() => run(() => resumeGoal(id))}
               onDrop={() => run(() => clearGoal(id))} />}
-            supportsFastMode={transcript.init?.supportsFastMode ?? rememberedFast}
+            sessionInit={transcript.init} fastSupport={fastSupport} effortSupport={effortSupport}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
+            mentions={mentionSources} refs={draftRefs} selectInRealm={selectInRealm}
             queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}
             onReleaseQueued={(queuedId) => run(() => releaseQueuedPrompt(id, queuedId))}
             onDropQueued={(queuedId) => run(() => dequeuePrompt(id, queuedId))} />}
@@ -619,10 +721,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         <SubagentPanel sessionId={id} toolUseId={dock.toolUseId} anchorRef={paneRef}
           onClose={() => closeSessionDock(id)} />
       )}
-      {/* The terminal, on the same strip and by the same rules — see TerminalDock. Rendered from the
-          pane like the sub-agent view rather than wrapping it in a split, which is what stops the
-          pane from looking cut in half for a shell most turns never ask for. */}
-      {dock?.kind === "terminal" && paneEl && (
+      {/* The terminal, when Settings docks it to the pane's foot — see TerminalDock. Its default place
+          is a tab of the side pane, which is not this pane's to draw, so a dock left open when the
+          setting moved back is not drawn either. Rendered from the pane like the sub-agent view
+          rather than wrapping it in a split, which would cut the pane in half for a shell most turns
+          never ask for. */}
+      {dock?.kind === "terminal" && terminalDocked && paneEl && (
         <TerminalDock sessionId={id} title={terminalTitle(session.cwd)} visible={visible}
           anchorRef={paneRef} onClose={() => closeSessionDock(id)} />
       )}
@@ -631,11 +735,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
           constantly, and a menu parented to a message would be torn down under the pointer. */}
       {pathMenu && (
         <PathMenu path={pathMenu.path} anchorRef={asRef(pathMenu.at)} environmentId={session.environmentId}
-          onClose={() => setPathMenu(null)} />
+          cwd={session.cwd} onClose={() => setPathMenu(null)} />
       )}
     </div>
   );
-  return body;
+  // What this pane shows — its transcript's media, its prompter's chips — is asked about in this session.
+  return <MediaSessionContext.Provider value={id}>{body}</MediaSessionContext.Provider>;
 }
 
 /** The drawer's empty-state hint names where the shell opened — the session's cwd, by basename. */

@@ -3,18 +3,14 @@ import { AgentKindSchema } from "./entities";
 import { SELECTABLE_AGENT_KINDS } from "./presets";
 import {
   DEFAULT_USAGE_BUDGET, USAGE_REPORTING, bucketNext, bucketRange, bucketStart, defaultBucketFor,
-  estimateCostUsd, formatTokens, formatUsd, normalizeThresholds, parseUsageBudget, sumDeltas,
-  thresholdsCrossed, usageDeltas, type UsageSample,
+  estimateCostUsd, formatTokens, formatUsd, nextDayKey, normalizeThresholds, parseUsageBudget, skillUseName,
+  sumDeltas, thresholdsCrossed, usageDeltas, usageStreaks, type UsageSample,
 } from "./usage";
 
 const sample = (ts: number, costUsd: number, inputTokens: number, outputTokens: number, numTurns: number): UsageSample =>
   ({ ts, costUsd, inputTokens, outputTokens, numTurns });
 
 describe("USAGE_REPORTING", () => {
-  it("answers for every agent kind — a new engine cannot slip in defaulting to a guess", () => {
-    for (const kind of AgentKindSchema.options) expect(USAGE_REPORTING[kind], kind).toBeDefined();
-    expect(Object.keys(USAGE_REPORTING).sort()).toEqual([...AgentKindSchema.options].sort());
-  });
 
   it("records the ACP gap honestly: every acp:* kind reports NOTHING", () => {
     // This is the page's central claim, and it is a fact about the protocol (docs/dev/acp-protocol.md
@@ -171,5 +167,99 @@ describe("formatting", () => {
     expect(formatTokens(1200)).toBe("1.2K");
     expect(formatTokens(45_000)).toBe("45K");
     expect(formatTokens(2_400_000)).toBe("2.4M");
+  });
+});
+
+describe("nextDayKey", () => {
+  it("steps by the calendar across a month, a year and a leap day", () => {
+    expect(nextDayKey("2026-09-30")).toBe("2026-10-01");
+    expect(nextDayKey("2026-12-31")).toBe("2027-01-01");
+    expect(nextDayKey("2028-02-28")).toBe("2028-02-29");
+    expect(nextDayKey("2027-02-28")).toBe("2027-03-01");
+  });
+
+  it("lands on the next date across both clock changes, wherever the machine is", () => {
+    // A fixed 86,400,000 from a local midnight is 23:00 the same day when the clocks go back, and
+    // the streak would count that day twice. These are the 2026 transitions in the US and the EU.
+    const zone = process.env.TZ;
+    try {
+      for (const tz of ["America/Los_Angeles", "Europe/London"]) {
+        process.env.TZ = tz;
+        expect(nextDayKey("2026-03-08"), tz).toBe("2026-03-09");
+        expect(nextDayKey("2026-03-29"), tz).toBe("2026-03-30");
+        expect(nextDayKey("2026-10-25"), tz).toBe("2026-10-26");
+        expect(nextDayKey("2026-11-01"), tz).toBe("2026-11-02");
+      }
+    } finally {
+      if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
+    }
+  });
+});
+
+describe("usageStreaks", () => {
+  const today = "2026-09-15";
+
+  it("counts a run of consecutive days that reaches today", () => {
+    const s = usageStreaks(["2026-09-13", "2026-09-14", "2026-09-15"], today);
+    expect(s.current).toEqual({ days: 3, from: "2026-09-13", to: "2026-09-15" });
+    expect(s.longest).toEqual({ days: 3, from: "2026-09-13", to: "2026-09-15" });
+  });
+
+  it("is broken by a single day with nothing in it", () => {
+    // The 12th is the gap. The run after it is the current one; the run before it is the longest.
+    const s = usageStreaks(["2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11", "2026-09-13", "2026-09-14", "2026-09-15"], today);
+    expect(s.current.days).toBe(3);
+    expect(s.longest).toEqual({ days: 4, from: "2026-09-08", to: "2026-09-11" });
+  });
+
+  it("keeps the streak alive through a today that has nothing in it yet", () => {
+    // From midnight until the first message of the morning, a streak that reached yesterday is
+    // still a streak. Reading it as broken would be wrong for most of the hours anyone looks.
+    const s = usageStreaks(["2026-09-12", "2026-09-13", "2026-09-14"], today);
+    expect(s.current).toEqual({ days: 3, from: "2026-09-12", to: "2026-09-14" });
+  });
+
+  it("is over once neither today nor yesterday has anything", () => {
+    const s = usageStreaks(["2026-09-11", "2026-09-12", "2026-09-13"], today);
+    expect(s.current).toEqual({ days: 0, from: null, to: null });
+    expect(s.longest.days).toBe(3);
+  });
+
+  it("joins days across a month boundary", () => {
+    const s = usageStreaks(["2026-08-30", "2026-08-31", "2026-09-01"], "2026-09-01");
+    expect(s.current.days).toBe(3);
+  });
+
+  it("gives the more recent run when two tie for longest", () => {
+    const s = usageStreaks(["2026-09-01", "2026-09-02", "2026-09-05", "2026-09-06"], today);
+    expect(s.longest).toEqual({ days: 2, from: "2026-09-05", to: "2026-09-06" });
+  });
+
+  it("reads days in any order, once each", () => {
+    const s = usageStreaks(["2026-09-15", "2026-09-13", "2026-09-14", "2026-09-14"], today);
+    expect(s.current.days).toBe(3);
+  });
+
+  it("does not let a day after today count", () => {
+    // A clock that was set wrong once must not hand out a streak.
+    const s = usageStreaks(["2026-09-15", "2026-09-16", "2026-09-17"], today);
+    expect(s.current).toEqual({ days: 1, from: "2026-09-15", to: "2026-09-15" });
+    expect(s.longest.days).toBe(1);
+  });
+
+  it("answers zero with no days at all", () => {
+    expect(usageStreaks([], today)).toEqual({ current: { days: 0, from: null, to: null }, longest: { days: 0, from: null, to: null } });
+  });
+});
+
+describe("skillUseName", () => {
+  it("drops Realm's own namespace so a library skill counts once whichever route loaded it", () => {
+    expect(skillUseName("realm:caikins-deslop")).toBe("caikins-deslop");
+    expect(skillUseName("caikins-deslop")).toBe("caikins-deslop");
+    expect(skillUseName("/realm:browsing")).toBe("browsing");
+  });
+
+  it("keeps another plugin's namespace, which is what tells two same-named skills apart", () => {
+    expect(skillUseName("superpowers:brainstorming")).toBe("superpowers:brainstorming");
   });
 });

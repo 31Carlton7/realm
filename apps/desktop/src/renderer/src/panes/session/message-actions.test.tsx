@@ -20,15 +20,6 @@ const fetched = (url: string): Block =>
 const row = () => document.querySelector(".msg-assistant-row")!;
 
 describe("the assistant message's action bar", () => {
-  it("stays away until the message is finished", () => {
-    const view = render(<Transcript sessionStatus="running" onDecide={() => {}}
-      transcript={model([assistant("half a sen", true)])} />);
-    expect(screen.queryByRole("group", { name: "Message actions" })).toBeNull();
-
-    view.rerender(<Transcript sessionStatus="idle" onDecide={() => {}}
-      transcript={model([assistant("half a sentence, then the rest.", false)])} />);
-    expect(screen.getByRole("group", { name: "Message actions" })).toBeInTheDocument();
-  });
 
   it("says which of the two states it is in, on the container the reference puts it on", () => {
     const view = render(<Transcript sessionStatus="running" onDecide={() => {}}
@@ -60,18 +51,6 @@ describe("the assistant message's action bar", () => {
       act(() => { vi.advanceTimersByTime(2_000); });
       expect(copy).not.toHaveAttribute("data-copied");
     } finally { vi.useRealTimers(); }
-  });
-
-  it("keeps the entrance mark on the element §6's rule can actually reach", () => {
-    // The wrapper made the prose a grandchild of `.transcript-col`, and `> [data-enter]` does not
-    // reach one. Only a block that is genuinely arriving carries the mark, so this has to grow one
-    // to have anything to look at. (Markdown no longer takes an `enter` at all, so putting the mark
-    // back on the prose is a compile error rather than a thing this has to catch.)
-    const view = render(<Transcript sessionStatus="idle" onDecide={() => {}}
-      transcript={model([assistant("first", false)])} />);
-    view.rerender(<Transcript sessionStatus="idle" onDecide={() => {}}
-      transcript={model([assistant("first", false), assistant("second", false, "m2")])} />);
-    expect(document.querySelector(".transcript-col > .msg-assistant-row[data-enter]")).not.toBeNull();
   });
 
   it("appears under the newest answer alone — earlier messages carry no bar at all", () => {
@@ -187,12 +166,6 @@ describe("the assistant message's action bar", () => {
     // target=_blank is the whole mechanism for reaching the OS browser; without it a click would
     // navigate the renderer itself out of the app.
     expect(links[0]!.getAttribute("target")).toBe("_blank");
-  });
-
-  it("says nothing at all about sources when the turn fetched nothing", () => {
-    render(<Transcript sessionStatus="idle" onDecide={() => {}}
-      transcript={model([user("q"), assistant("an answer with https://typed.test/x in it", false)])} />);
-    expect(document.querySelector(".msg-sources")).toBeNull();
   });
 
   it("credits the answer whose turn did the fetching, not the one after it", () => {

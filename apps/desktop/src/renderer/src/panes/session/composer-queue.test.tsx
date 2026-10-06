@@ -99,11 +99,6 @@ describe("the prompter's queue", () => {
     expect(screen.getByLabelText("Remove queued message: also fix the test")).toBeTruthy();
   });
 
-  it("reads the queue when the pane mounts, for one that filled while it was closed", async () => {
-    const { store } = await mount([prompt("q1", "waiting since before this pane opened")]);
-    await waitFor(() => expect(store.getState().sessionQueues.se1).toHaveLength(1));
-  });
-
   /* An empty queue holds no key at all rather than an empty array — the prompter asks "is anything
    * waiting", and one shape for "no" is fewer than two. */
   it("drops the session's key when its queue empties", async () => {

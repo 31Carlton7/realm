@@ -3,11 +3,11 @@ import {
   Add01Icon, Cancel01Icon, Folder01Icon, Briefcase01Icon, MortarboardIcon, Home01Icon, UserIcon,
   ComputerTerminal01Icon, GlobeIcon, SmartPhone01Icon, File01Icon, BrainIcon, LayoutGridIcon,
   Settings01Icon, MoreHorizontalIcon, ChatIcon, Search01Icon, PinIcon, PinOffIcon, ArrowLeft01Icon, ArrowRight01Icon,
-  Tick01Icon, Delete02Icon, PencilEdit02Icon, Sun03Icon, Moon02Icon, RefreshIcon,
-  SentIcon, StopIcon, SparklesIcon, ArrowDown01Icon, ArrowDown02Icon, ArrowUp02Icon, CheckmarkCircle02Icon, CancelCircleIcon,
+  Tick01Icon, PencilEdit02Icon, Sun03Icon, Moon02Icon, RefreshIcon,
+  SentIcon, StopIcon, SparklesIcon, ArrowDown01Icon, ArrowUp01Icon, ArrowDown02Icon, ArrowUp02Icon, ArrowRight02Icon, CheckmarkCircle02Icon, CancelCircleIcon,
   Alert02Icon, BotIcon, Wrench01Icon, CodeIcon, IdeaIcon, Copy01Icon, Attachment01Icon, Image01Icon,
   Task01Icon, GitBranchIcon, GitCompareIcon, GitCommitIcon, GitPullRequestIcon, LaptopIcon, PlugSocketIcon, QuoteUpIcon,
-  Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Notification02Icon, Download04Icon,
+  Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Download04Icon,
   // Space icon picker's "Default" section (SPACE_ICONS, packages/contracts/src/presets.ts) — every
   // name there must have a matching key below.
   Rocket01Icon, StarIcon, Book01Icon, Camera01Icon, MusicNote01Icon, Shield01Icon, Flag01Icon, Coffee01Icon, RadioButtonIcon, Target01Icon, Compass01Icon,
@@ -32,8 +32,57 @@ import {
   CaduceusIcon,
   // A session's file browser, laid out as cards (SessionFiles.tsx).
   GridViewIcon,
-} from "@hugeicons-pro/core-stroke-standard";
+  // A peek: a session looked at, not opened (the side pane's transient tab, a notification row's eye).
+  ViewIcon,
+  // The page about you (YouPage.tsx).
+  UserCircleIcon,
+  // Settings' pages, each beside its glyph in the column (settings-index.ts), and the Library's toolbar.
+  CpuIcon, DashboardSpeed02Icon, Cursor01Icon, CommandIcon, InboxDownloadIcon, FilterHorizontalIcon, LeftToRightListBulletIcon,
+  SquareLockPasswordIcon,
+  // The permission ladder's marks (Composer's permission control).
+  SecurityCheckIcon,
+  // A session's Agents tab: one box handing down to two (AgentsTab.tsx).
+  HierarchySquare02Icon,
+  // The window's two panel toggles: the sidebar on the left, the side pane on the right.
+  LayoutLeftIcon, LayoutRightIcon,
+  // What a terminal is running, beside its tab's title (terminal-programs.ts in contracts). The
+  // language marks are also what a file named in the transcript wears (the renderer's `file-icon.ts`).
+  JavaScriptIcon, Typescript01Icon, PythonIcon, GemIcon, JavaIcon, PhpIcon, PackageIcon, ServerStack01Icon, DatabaseIcon,
+  // A device's own toolbar (SimulatorBar.tsx): turning it, selecting its elements, its volume down.
+  ScreenRotationIcon, CursorRectangleSelection01Icon, VolumeLowIcon,
+  // The rest of the kinds of file the transcript names (the renderer's `file-icon.ts`).
+  ReactIcon, ThirdBracketSquareIcon, Html5Icon, Css3Icon, SqlIcon, Pdf01Icon, Xml01Icon, Svg01Icon, FileZipIcon, FileScriptIcon,
+  // A turn's edits, put back (EditSummary.tsx).
+  Undo02Icon,
+  // A view an MCP server drew (AppView.tsx), as a tab and under its tool call.
+  WebDesign01Icon,
+  // The media viewer's zoom out, beside `add` for zoom in (components/viewer/ViewerStage.tsx).
+  MinusSignIcon,
+  // Code review: a request's state, a fold of unchanged lines, a link to copy, a check still running.
+  GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, UnfoldMoreIcon, Link01Icon, Comment01Icon, ViewOffIcon, DashedLineCircleIcon,
+  // A turn saved from the scroll track's card (ScrollTrack.tsx), and the Library's list of them: the
+  // plain ribbon, which fills when the turn is saved. `bookmark` stays the space icon it already is.
+  Bookmark02Icon,
+} from "@hugeicons-pro/core-stroke-rounded";
+import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
+
+/* Two shields the pack does not draw — one asking, one warning — made of its own parts: Shield01's
+   outline (the one SecurityCheck draws its tick inside), with HelpCircle's question mark and
+   AlertCircle's exclamation scaled into the interior the tick occupies. Same stroke, same caps, same
+   grid, so the three permission marks read as one family rather than two packs and a drawing. */
+const interior = (d: string, key: string) =>
+  ["path", { d, stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "1.5", key }] as const;
+const ShieldQuestionIcon: IconSvgElement = [
+  Shield01Icon[0]!,
+  interior("M10 9C10 7.89543 10.8954 7 12 7C13.1046 7 14 7.89543 14 9C14 9.6855 13.6551 10.2905 13.1294 10.6509C12.5826 11.0255 12 11.5373 12 12.2", "1"),
+  interior("M12 15H12.0072", "2"),
+];
+const ShieldAlertIcon: IconSvgElement = [
+  Shield01Icon[0]!,
+  interior("M12 7.5V11.5", "1"),
+  interior("M12 14.4883V14.4983", "2"),
+];
 
 export const icons = {
   add: Add01Icon, close: Cancel01Icon, folder: Folder01Icon, briefcase: Briefcase01Icon, cap: MortarboardIcon,
@@ -41,8 +90,10 @@ export const icons = {
   artifact: File01Icon, documents: File01Icon, context: BrainIcon, layout: LayoutGridIcon, settings: Settings01Icon, more: MoreHorizontalIcon,
   sidebar: SidebarLeft01Icon,
   session: ChatIcon, search: Search01Icon, pin: PinIcon, unpin: PinOffIcon, chevronLeft: ArrowLeft01Icon, chevronRight: ArrowRight01Icon,
-  check: Tick01Icon, trash: Delete02Icon, edit: PencilEdit02Icon, sun: Sun03Icon, moon: Moon02Icon,
-  send: SentIcon, stop: StopIcon, sparkles: SparklesIcon, chevronDown: ArrowDown01Icon, arrowDown: ArrowDown02Icon, arrowUp: ArrowUp02Icon,
+  check: Tick01Icon, trash: Cancel01Icon, edit: PencilEdit02Icon, sun: Sun03Icon, moon: Moon02Icon,
+  send: SentIcon, stop: StopIcon, sparkles: SparklesIcon, chevronDown: ArrowDown01Icon, chevronUp: ArrowUp01Icon, arrowDown: ArrowDown02Icon, arrowUp: ArrowUp02Icon,
+  // A branch merging into another (Code review's head → base), the pair's own shaft and head.
+  arrowRight: ArrowRight02Icon,
   checkCircle: CheckmarkCircle02Icon, errorCircle: CancelCircleIcon, alert: Alert02Icon, bot: BotIcon, tool: Wrench01Icon, code: CodeIcon, idea: IdeaIcon,
   /* Hermes Agent's glyph (AGENT_META), and the one agent here whose mark is NOT vendored into
      brand-icons.ts. Nous Research publishes no vector for it: the docs site's favicon is the
@@ -77,6 +128,9 @@ export const icons = {
      square quartered by two rules — at 12px that reads as a single box, and it already stands for
      "All spaces…" and the simulator's element overlay. */
   grid: GridViewIcon,
+  /* An eye: a session LOOKED AT rather than opened. On the peek's tab it stands where the kind's
+     glyph does, which is what marks the tab as one that will not stay. */
+  peek: ViewIcon,
   laptop: LaptopIcon, plug: PlugSocketIcon, download: Download04Icon,
   /* A trace, not a bar chart: `Activity01` and its siblings draw the line inside a framed box, and
      at 14px beside the sidebar toggle the frame is most of what survives — two glyphs that read as
@@ -104,17 +158,79 @@ export const icons = {
   "space-page": Home01Icon,
   "library-page": BookOpen01Icon,
   "connections-page": PlugSocketIcon,
-  "notifications-page": Notification02Icon,
+  /* Code review: the pull-request mark Codex and GitHub both draw — two commits on a line and the
+     arrow bringing a third across — in this set's own stroke, so it sits in the rail at its weight. */
+  "code-review-page": GitPullRequestIcon,
   "settings-page": Settings01Icon,
   "profile-page": UserIcon,
   "schedules-page": Clock01Icon,
-  /* Missing for as long as the Agents page has existed: `Icon` falls back to `icons.folder` for a
-     name it does not hold, silently, so the page wore a folder in the sidebar and in its own pane
-     bar. `icon-kinds.test.ts` is what stops the next one lasting that long. */
-  "agents-page": BotIcon,
+  /* A session's own sub-agents: one box handing work down to two — the tree under one session,
+     which is the thing the shape says. */
+  agents: HierarchySquare02Icon,
+  /* A window with a layout drawn in it: an interface somebody else made. Not `browser`'s globe, which
+     is a page anywhere on the web, and not `layout`, which is Realm arranging its own panes. */
+  "app-view": WebDesign01Icon,
+  /* A face in a circle, set apart from `profile-page`'s bare figure: the profile is a scope (its
+     skills, connections and memory), and this page is the person. */
+  "you-page": UserCircleIcon,
   /* A monitor on a stand, and deliberately not `laptop`, which is taken and means THIS Mac — the one
      Realm is running on, in the computer-use surfaces. A machine is a screen somewhere else. */
   machine: ComputerIcon,
+  /* Settings' pages, as the column lists them. An engine is the CLI a session runs on, so a chip; what
+     it costs is a gauge, the meter Codex puts beside its own usage page; an agent driving this Mac's
+     apps is the plain arrow it moves (the pack's `CursorPointer` rings the arrow with a filled ripple
+     that is a blob at 16px) — named `pointer`, because `cursor` is the Cursor editor's brand mark and a
+     brand name wins the lookup; shortcuts are the ⌘ every Mac menu prints beside them — the pack's
+     `Keyboard` is a face at row size; and an import is the tray things arrive in. */
+  cpu: CpuIcon, gauge: DashboardSpeed02Icon, pointer: Cursor01Icon, command: CommandIcon, inboxDownload: InboxDownloadIcon,
+  /* A saved password's mark: a padlock. `lock` is the pack's round keyhole, which at 16px is a circle
+     with a dot — and it stays as it is, because it is a space icon people have already picked. */
+  padlock: SquareLockPasswordIcon,
+  /* The Library's toolbar: the narrowing a filter menu does, and the view as rows beside `grid`'s
+     view as tiles — the pair every file browser draws. */
+  filter: FilterHorizontalIcon, list: LeftToRightListBulletIcon,
+  /* How freely a session's agent may act, as the prompter's permission control draws it: a shield
+     that asks (Ask each time), one that has already said yes (Accept edits), and one that warns
+     (Full access) — the rung that takes the gate away is the one whose mark says so. */
+  shieldQuestion: ShieldQuestionIcon, shieldCheck: SecurityCheckIcon, shieldAlert: ShieldAlertIcon,
+  /* The window's panel toggles, as Codex and every Mac editor draw them: a window with the panel
+     ruled off at its side. `sidebar` is the older glyph with list rows drawn in the panel — at 14px
+     beside the traffic lights the rows were a smudge, and the bare rule is the cleaner mark. */
+  panelLeft: LayoutLeftIcon, panelRight: LayoutRightIcon,
+  /* What a terminal's foreground program is, when it is a tool rather than an agent (an agent wears
+     its vendor's mark). The language for a runtime — node is the JS square, deno the TS one, Ruby a
+     gem — and the job for the rest: a package manager is a parcel, which is also what a dev server
+     started through one wears, and a container runtime is the server stack it stands for. */
+  javascript: JavaScriptIcon, typescript: Typescript01Icon, python: PythonIcon, gem: GemIcon, java: JavaIcon, php: PhpIcon,
+  package: PackageIcon, serverStack: ServerStack01Icon, database: DatabaseIcon,
+  /* A device's own controls. Rotate is a phone turning between two arrows — the `reload` arrow it wore
+     says "load again". The elements overlay is a selection drawn over the screen, the pointer in a
+     dashed box. Volume down is the speaker with one wave: the struck-through one it borrowed from
+     playback says mute, which is a different button. */
+  rotate: ScreenRotationIcon, select: CursorRectangleSelection01Icon, volumeLow: VolumeLowIcon,
+  /* What kind of file a path names, where the pack draws it: a language's own badge (the TS and JS
+     squares Codex marks its file links with are the terminal's `typescript` and `javascript` above;
+     `{ }` for JSON, the HTML and CSS shields), the format's letters in a page for the rest, and a page
+     with `< >` on it for source the pack has no mark for. */
+  fileReact: ReactIcon, fileJson: ThirdBracketSquareIcon, fileHtml: Html5Icon, fileCss: Css3Icon, fileSql: SqlIcon,
+  filePdf: Pdf01Icon, fileXml: Xml01Icon, fileSvg: Svg01Icon, fileZip: FileZipIcon, fileCode: FileScriptIcon,
+  /* The open arc turning back — the mark Codex sets beside its own Undo, and what every editor draws
+     for it. Not `reload`, whose closed circle means "again", which is the opposite. */
+  undo: Undo02Icon,
+  /* A picture's zoom out, the plain bar beside the plain plus — the pair every image viewer's −/+
+     is, which a magnifier holding either sign only restates at a size where the sign is a speck. */
+  minus: MinusSignIcon,
+  /* A pull request's other states beside `pullRequest` (open): merged, closed unmerged, and a draft —
+     the marks GitHub draws for each, so the state reads by shape before its word. */
+  merged: GitMergeIcon, prClosed: GitPullRequestClosedIcon, prDraft: GitPullRequestDraftIcon,
+  /* Lines a diff folded away, opened in place: the two chevrons pulling apart. */
+  unfold: UnfoldMoreIcon,
+  link: Link01Icon, comment: Comment01Icon, hide: ViewOffIcon,
+  /* A check still running: the circle not yet drawn closed. */
+  pending: DashedLineCircleIcon,
+  /* The plain ribbon, outlined until the turn is saved and filled once it is (the model picker's star
+     does the same). Bookmark01's band across the top would read as a second, ruled-off control. */
+  saved: Bookmark02Icon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */
@@ -168,6 +284,38 @@ export function Icon({ name, size = 16, className, colored = false }: { name: Ic
     );
   }
   const icon = Object.prototype.hasOwnProperty.call(icons, name) ? icons[name as keyof typeof icons] : icons.folder;
-  // Design language §7: stroke weight stays the pack's 1.5px at every size.
-  return <HugeiconsIcon icon={icon} size={size} className={className} strokeWidth={1.5} />;
+  return <HugeiconsIcon icon={icon} size={size} className={className} strokeWidth={iconStroke(size)} absoluteStrokeWidth />;
+}
+
+/**
+ * The glyph `Icon` draws, as markup — for the one renderer that writes HTML rather than React:
+ * assistant markdown, where a file the agent names is drawn as a link wearing its file type's mark.
+ * The same data and the same stroke rule, so the string and the component cannot draw two glyphs.
+ * Stroke glyphs only; a brand mark has its own string form beside it (`brandMarks`).
+ */
+export function iconSvg(name: IconName | (string & {}), size: number, className = ""): string {
+  const stroke = (iconStroke(size) * 24) / size;
+  const kebab = (k: string) => k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  // The same fallback `Icon` takes for a name it does not hold.
+  const icon = Object.prototype.hasOwnProperty.call(icons, name) ? icons[name as keyof typeof icons] : icons.folder;
+  const parts = icon.map(([tag, attrs]) => {
+    const list = Object.entries(attrs).filter(([k]) => k !== "key")
+      .map(([k, v]) => `${kebab(k)}="${k === "strokeWidth" ? stroke : String(v)}"`);
+    return `<${tag} ${list.join(" ")}/>`;
+  });
+  return `<svg class="${className}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">${parts.join("")}</svg>`;
+}
+
+/**
+ * The stroke a glyph is drawn with, in CSS px, for the rung it sits on.
+ *
+ * The pack's 1.5 is in its own 24-unit grid, so left alone it SCALES with the glyph: 0.75px at the
+ * 12 rung, 0.875 at 14 — a hairline that greys out beside 13px text, which is most of why Realm's
+ * icons read fainter than the label next to them. A Mac's symbols do the opposite: a small symbol is
+ * drawn relatively HEAVIER so it holds the same weight as the text it sits in. So the stroke has a
+ * floor at the small rungs and a ceiling at the large ones, and rises between: 1.125 at 12, 1.17 at 14,
+ * 1.33 at 16, 1.5 from 18 up.
+ */
+export function iconStroke(size: number): number {
+  return Math.min(1.5, Math.max(1.125, size / 12));
 }

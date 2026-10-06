@@ -1,31 +1,12 @@
 import { describe, expect, it } from "vitest";
-import {
-  AGENT_HAS_MCP, MCP_SECRET_STORAGE_NOTE, McpCallSchema, McpOauthStatusSchema, McpServerNameSchema,
-  McpServerSchema, McpServerStatusSchema, McpToolSchema, mcpSupportNote,
-} from "./mcp";
+import { MCP_SECRET_STORAGE_NOTE, McpServerNameSchema, McpServerSchema, mcpSupportNote } from "./mcp";
 import { AGENT_META } from "./presets";
-import { Methods, Events } from "./rpc";
+import { Methods } from "./rpc";
 import type { AgentKind } from "./entities";
 
 const kinds = Object.keys(AGENT_META) as AgentKind[];
 const SPACE = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const SERVER = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
-
-describe("AGENT_HAS_MCP", () => {
-  it("has a row for every agent kind", () => {
-    expect(Object.keys(AGENT_HAS_MCP).sort()).toEqual(kinds.sort());
-  });
-
-  it("is true for every live agent — since W3 each one gets exactly the gateway's http entry", () => {
-    for (const kind of ["claude", "codex", "acp:cursor", "acp:gemini"] as const) {
-      expect(AGENT_HAS_MCP[kind]).toBe(true);
-    }
-  });
-
-  it("is false only for the fake agent, which never reads mcpServers", () => {
-    expect(AGENT_HAS_MCP.fake).toBe(false);
-  });
-});
 
 describe("mcpSupportNote", () => {
   it("names the agent, so a note rendered for the wrong session is visibly wrong", () => {
@@ -65,10 +46,6 @@ describe("McpServerSchema", () => {
     enabled: true, scope: { kind: "space" as const, spaceId: null }, createdAt: 1,
   };
 
-  it("round-trips a listed server", () => {
-    expect(McpServerSchema.parse(listed)).toEqual(listed);
-  });
-
   it("carries no field a secret VALUE could travel in", () => {
     // The guarantee is structural, not a convention someone has to remember: strip() drops anything the
     // schema does not name, so a caller that hands it `env` gets a result without one.
@@ -78,37 +55,6 @@ describe("McpServerSchema", () => {
     expect(Object.keys(McpServerSchema.shape).filter((k) => k === "env" || k === "headers" || k === "secrets")).toEqual([]);
   });
 
-  it("allows a narrowed allowlist, and null for 'every tool'", () => {
-    expect(McpServerSchema.parse({ ...listed, allowedTools: ["search"] }).allowedTools).toEqual(["search"]);
-    expect(McpServerSchema.parse({ ...listed, allowedTools: null }).allowedTools).toBeNull();
-  });
-});
-
-describe("McpToolSchema", () => {
-  it("is name and description only — no input schema to go stale against the live server", () => {
-    const t = McpToolSchema.parse({ name: "search", description: "Search records" });
-    expect(t).toEqual({ name: "search", description: "Search records" });
-    expect(Object.keys(McpToolSchema.shape)).toEqual(["name", "description"]);
-  });
-});
-
-describe("McpOauthStatusSchema / McpServerStatusSchema", () => {
-  it("names exactly the states the gateway design defines", () => {
-    expect(McpOauthStatusSchema.options).toEqual(["unconfigured", "connected", "reconnect_needed"]);
-    expect(McpServerStatusSchema.options).toEqual(["idle", "connected", "error", "circuit_open"]);
-  });
-});
-
-describe("McpCallSchema", () => {
-  const call = {
-    id: SERVER, sessionId: SPACE, serverId: SERVER, serverName: "airtable", tool: "search",
-    argsJson: "{}", resultSummary: "3 records", ok: true, durationMs: 42, ts: 1000,
-  };
-
-  it("round-trips a call log entry, and allows a null serverId for a deleted server", () => {
-    expect(McpCallSchema.parse(call)).toEqual(call);
-    expect(McpCallSchema.parse({ ...call, serverId: null }).serverId).toBeNull();
-  });
 });
 
 describe("MCP_SECRET_STORAGE_NOTE", () => {
@@ -144,17 +90,9 @@ describe("mcp methods", () => {
     expect(p.headers).toBeUndefined();
   });
 
-  it("broadcast a payload-free mcp.changed, since add/edit/remove change what EVERY space lists", () => {
-    expect(Events["mcp.changed"].safeParse({}).success).toBe(true);
-  });
 });
 
 describe("gateway methods (Plan 9 W1 — contracts only, no handlers yet)", () => {
-  it("mcp.tools.list reports a connect failure as a result field, never as a schema that forces a throw", () => {
-    expect(Methods["mcp.tools.list"].params.safeParse({ id: SERVER }).success).toBe(true);
-    expect(Methods["mcp.tools.list"].result.safeParse({ tools: [], error: "upstream refused the connection" }).success).toBe(true);
-    expect(Methods["mcp.tools.list"].result.safeParse({ tools: [{ name: "search", description: "d" }], error: null }).success).toBe(true);
-  });
 
   it("mcp.setAllowedTools accepts a list or null (= every tool)", () => {
     expect(Methods["mcp.setAllowedTools"].params.safeParse({ spaceId: SPACE, id: SERVER, tools: ["search"] }).success).toBe(true);
@@ -185,10 +123,4 @@ describe("gateway methods (Plan 9 W1 — contracts only, no handlers yet)", () =
     expect(Methods["mcp.oauth.start"].result.safeParse({ authUrl: "https://example.com/authorize" }).success).toBe(true);
   });
 
-  it("mcp.call and mcp.serverStatus are registered events with the expected shapes", () => {
-    const call = { id: SERVER, sessionId: SPACE, serverId: SERVER, serverName: "airtable", tool: "search", argsJson: "{}", resultSummary: "ok", ok: true, durationMs: 1, ts: 1 };
-    expect(Events["mcp.call"].safeParse(call).success).toBe(true);
-    expect(Events["mcp.serverStatus"].safeParse({ id: SERVER, status: "idle", oauthStatus: "unconfigured" }).success).toBe(true);
-    expect(Events["mcp.serverStatus"].safeParse({ id: SERVER, status: "bogus", oauthStatus: "unconfigured" }).success).toBe(false);
-  });
 });

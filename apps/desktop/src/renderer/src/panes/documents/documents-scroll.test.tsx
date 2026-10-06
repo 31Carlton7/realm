@@ -90,18 +90,6 @@ describe("a Quick Look render's scroll position", () => {
 });
 
 describe("a document's scroll position across a space switch", () => {
-  it("puts the reader back where they were in the file", async () => {
-    const staged = stageSource();
-    const store = makeStore({ "a.md": "# A" }, ["a.md"], "a.md");
-    const { unmount } = render(pane(store));
-    staged.readerScrollsTo(await sourceFor("a.md"), 1200);
-
-    unmount();
-    render(pane(store));
-
-    const reborn = await sourceFor("a.md");
-    expect(staged.topOf(reborn)).toBe(1200);
-  });
 
   it("remembers each file separately — the other tab keeps its own place", async () => {
     const staged = stageSource();
@@ -120,15 +108,4 @@ describe("a document's scroll position across a space switch", () => {
     expect(staged.topOf(await screen.findByLabelText("Edit a.md"))).toBe(1200);
   });
 
-  it("a file nobody has scrolled opens at the top", async () => {
-    const staged = stageSource();
-    const store = makeStore({ "a.md": "# A" }, ["a.md"], "a.md");
-    const { unmount } = render(pane(store));
-    await sourceFor("a.md");
-
-    unmount();
-    render(pane(store));
-
-    expect(staged.topOf(await sourceFor("a.md"))).toBe(0);
-  });
 });

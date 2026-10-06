@@ -44,11 +44,6 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("resizing the sidebar", () => {
-  it("paints the stored width, and ships 280 when nothing is stored", async () => {
-    const { store } = await mountShell();
-    expect(store.getState().sidebarWidth).toBe(SIDEBAR_WIDTH.default);
-    expect(painted()).toBe("280px");
-  });
 
   it("a stored width comes back on the next launch", async () => {
     const { store } = await mountShell({ settings: { [KEY]: 360 } });

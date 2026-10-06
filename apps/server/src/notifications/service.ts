@@ -44,6 +44,9 @@ const SETTLE_WORD: Record<string, string> = { idle: "Finished a turn", ended: "E
  * genuinely new information to a user who saw the old one.
  */
 export class NotificationsService {
+  /** Requests that are QUESTIONS, by requestId, while their rows are open — so a question's row says
+   *  "Answered" or "Skipped", which is what happened to it, rather than "Allowed" or "Denied". */
+  private readonly questions = new Set<string>();
   constructor(private d: { store: NotificationsStore; settings: SettingsStore; rpc: RpcServer; relay?: NotificationRelay;
     /** Space names, for the relay line. Optional: a server built without it relays exactly as it did
      *  before, naming the session and not where it lives. */
@@ -105,6 +108,10 @@ export class NotificationsService {
    */
   handleSessionEvent(session: Session, ev: SessionEvent): void {
     if (ev.type === "permission_request") {
+      // A question Realm declined itself waited on nobody: it is a line in the transcript, never a row
+      // that says "needs you" — and never a text to a phone.
+      if (ev.payload.ask?.refused) return;
+      if (ev.payload.ask) { this.questions.add(ev.payload.requestId); if (this.questions.size > 512) this.questions.delete(this.questions.values().next().value!); }
       this.notify({ category: "permission", spaceId: session.spaceId, sessionId: session.id, refId: ev.payload.requestId,
         title: session.title, body: ev.payload.title || ev.payload.toolName, acted: false });
       return;
@@ -112,7 +119,9 @@ export class NotificationsService {
     if (ev.type === "permission_response") {
       // The staleness rule: HOWEVER the request was answered — session pane, notifications page, a boot
       // deny — the feed reconciles here, because every answer flows through this same event.
-      const word = ev.payload.decision === "allow" ? "Allowed" : ev.payload.decision === "allow_always" ? "Always allowed" : "Denied";
+      const question = this.questions.delete(ev.payload.requestId);
+      const word = question ? (ev.payload.decision === "deny" ? "Skipped" : "Answered")
+        : ev.payload.decision === "allow" ? "Allowed" : ev.payload.decision === "allow_always" ? "Always allowed" : "Denied";
       this.resolveOpen("permission", ev.payload.requestId, word);
       return;
     }

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { AppShell } from "../../App";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi } from "../../state/store.test-fakes";
+import type { DestinationPageKind } from "@realm/contracts";
 
 /** The shell, not the Sidebar alone: the whole point of this control is that it survives its own
- *  container being unmounted, which only the app shell can show. */
+ *  container closing, which only the app shell can show. */
 async function mountShell(api = fakeApi()) {
   const store = createAppStore(api);
   await store.getState().boot();
@@ -13,19 +14,22 @@ async function mountShell(api = fakeApi()) {
   return { store, api, ...r };
 }
 
-const toggle = () => screen.getByRole("button", { name: /(Hide|Show) sidebar/ });
+const lead = () => document.querySelector<HTMLElement>(".window-lead")!;
+const head = () => document.querySelector<HTMLElement>(".sb-header")!;
+/** The toggle a person can reach: the head row's while the sidebar is there, the lead's once it is not. */
+const reachable = () => (document.querySelector(".app[data-sidebar-collapsed]") ? within(lead()) : within(head()))
+  .getByRole("button", { name: /(Hide|Show) sidebar/ });
 
 describe("sidebar collapse toggle", () => {
-  it("collapses the sidebar and keeps a toggle on screen to bring it back", async () => {
+  it("is in the sidebar's head row while there is a sidebar, and in the window's lead once it has folded", async () => {
+    /* The owner, 10-04: the toggle goes in the top row with search and a new session, and — Codex's
+       way — stays reachable beside the traffic lights, back and forward when the sidebar is away.
+       THE MUTANTS: a lead with no toggle once folded (a collapse with no way back), or one beside the
+       head row's while the sidebar is still there (two toggles at once). */
     const { store } = await mountShell();
-    // Open: the sidebar is mounted and the button offers to hide it.
-    expect(document.querySelector(".sidebar")).not.toBeNull();
-    expect(document.querySelector(".sb-corner")).toBeNull();
-    expect(toggle()).toHaveAccessibleName("Hide sidebar (⌘B)");
-    expect(toggle()).toHaveAttribute("aria-expanded", "true");
-    // Kills a mutation that renders the toggle only in the open branch: after collapsing, the
-    // sidebar is out of reach but exactly one toggle must remain, now offering the way back.
-    fireEvent.click(toggle());
+    expect(within(head()).getByRole("button", { name: "Hide sidebar (⌘B)" })).toHaveAttribute("aria-expanded", "true");
+    expect(within(lead()).queryByRole("button", { name: /sidebar/ })).toBeNull();
+    fireEvent.click(reachable());
     await waitFor(() => expect(store.getState().sidebarCollapsed).toBe(true));
     /* The sidebar is still in the tree — it has to be, or there is nothing left to animate out —
        and `inert` is what makes that safe: no focus, no pointer, nothing in the a11y tree. Asserted
@@ -34,34 +38,36 @@ describe("sidebar collapse toggle", () => {
     const aside = document.querySelector(".sidebar");
     expect(aside).toHaveAttribute("data-collapsed");
     expect(aside).toHaveAttribute("inert");
-    expect(document.querySelector(".sb-corner")).not.toBeNull();
-    expect(screen.getAllByRole("button", { name: /(Hide|Show) sidebar/ })).toHaveLength(1);
-    expect(toggle()).toHaveAccessibleName("Show sidebar (⌘B)");
-    expect(toggle()).toHaveAttribute("aria-expanded", "false");
-    // And back — the collapsed toggle is not decorative.
-    fireEvent.click(toggle());
+    // jsdom runs no transition, so the column has folded at once and the lead holds the way back.
+    expect(document.querySelector(".app")).toHaveAttribute("data-sidebar-folded");
+    const back = within(lead()).getByRole("button", { name: "Show sidebar (⌘B)" });
+    expect(back).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(back);
     await waitFor(() => expect(store.getState().sidebarCollapsed).toBe(false));
     expect(document.querySelector(".sidebar")).not.toHaveAttribute("inert");
+    expect(document.querySelector(".app")).not.toHaveAttribute("data-sidebar-folded");
+    expect(within(lead()).queryByRole("button", { name: /sidebar/ })).toBeNull();
   });
 
-  it("moves the toggle from the sidebar's head row into the window's corner", async () => {
+  it("wears the window-with-its-left-panel glyph, not the sidebar-with-rows one", async () => {
+    // The owner asked for the layout-left mark by name: the old glyph drew list rows in the panel.
+    await mountShell();
+    const glyph = reachable().querySelector("svg")!;
+    expect(glyph.querySelectorAll("path")).toHaveLength(2);
+  });
+
+  it("keeps the window's back and forward beside the traffic lights in both states, and nowhere else", async () => {
+    // THE MUTANT: a pair in the sidebar's head row again, or in the rail — a second pair a few inches
+    // from the first, or a pair that moves when the sidebar does.
     const { store } = await mountShell();
-    // Open: inside the sidebar, in its head row (the traffic-light band), NOT in the corner.
-    expect(toggle().closest(".sb-head")).not.toBeNull();
-    expect(toggle().closest(".sidebar")).not.toBeNull();
-    await act(async () => { await store.getState().toggleSidebar(); });
-    // Collapsed: same button, now in the corner overlay. Kills a mutation that leaves it parented to
-    // the sidebar subtree (where it would be unmounted with it) or drops the corner wrapper.
-    const corner = toggle().closest(".sb-corner");
-    expect(corner).not.toBeNull();
-    expect(toggle().closest(".sb-head")).toBeNull();
-    // After .main, not before it: panes are positioned, so a corner earlier in the DOM would be
-    // painted over by the first pane's bar however the z-index reads.
-    expect(corner!.previousElementSibling).toHaveClass("main");
-    // …and no rail: the whole point is that collapsing costs no height any more. Whether the lights
-    // actually clear the bar underneath is measured in sidebar-collapsed-live.mjs.
-    expect(document.querySelector(".sb-rail")).toBeNull();
-    expect(document.querySelector(".app")).toHaveAttribute("data-sidebar-collapsed");
+    for (const collapsed of [false, true]) {
+      if (collapsed) await act(async () => { await store.getState().toggleSidebar(); });
+      expect(within(lead()).getByRole("button", { name: "Go back" })).toBeInTheDocument();
+      expect(within(lead()).getByRole("button", { name: "Go forward" })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: "Go back" })).toHaveLength(1);
+    }
+    // After the panes in the document, which is what keeps it clickable over the bars' drag regions.
+    expect(document.querySelector(".main")!.compareDocumentPosition(lead()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("persists the collapsed state so a collapsed window reopens collapsed", async () => {
@@ -83,5 +89,119 @@ describe("sidebar collapse toggle", () => {
       await store.getState().boot();
       expect(store.getState().sidebarCollapsed, `for ${JSON.stringify(bad)}`).toBe(false);
     }
+  });
+});
+
+describe("a page with no use for the spaces", () => {
+  const shown = () => !document.querySelector(".app")!.hasAttribute("data-sidebar-collapsed");
+
+  it("takes the sidebar away while Connections is up, and gives it back as it was", async () => {
+    /* The owner, 10-04: no sidebar on Connections. The page takes the width right of the rail. THE
+       MUTANTS: the page left out of the declaration, or the page writing the person's own collapse
+       setting (so leaving it would not bring the sidebar back). */
+    const { store, api } = await mountShell();
+    for (const kind of ["connections-page"] as const) {
+      act(() => store.getState().openDestinationPage(kind));
+      await waitFor(() => expect(shown(), kind).toBe(false));
+      expect(document.getElementById("app-sidebar")).toHaveAttribute("inert");
+      expect(within(lead()).getByRole("button", { name: "Show sidebar (⌘B)" })).toBeInTheDocument();
+      act(() => store.getState().closePageOverlay());
+      await waitFor(() => expect(shown(), kind).toBe(true));
+    }
+    expect(store.getState().sidebarCollapsed).toBe(false);
+    expect(api.calls.some((c) => c.startsWith("setSetting:ui.sidebarCollapsed"))).toBe(false);
+  });
+
+  it("leaves the sidebar alone on every other page — the Scheduled and Code review pages' columns take its place", async () => {
+    /* The owner, 10-05: "The sidebar for scheduled tasks needs to be the same as the home sidebar and
+       the library sidebar … Same for the code review part." Their columns are the sidebar's now
+       (page-nav.tsx), so the sidebar stays. THE MUTANT: either page back in PAGE_SHELL. */
+    const { store } = await mountShell();
+    for (const kind of ["library-page", "settings-page", "you-page", "schedules-page", "code-review-page"] as const) {
+      act(() => store.getState().openDestinationPage(kind));
+      await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe(kind));
+      expect(shown(), kind).toBe(true);
+    }
+  });
+
+  it("brings back a sidebar the person had folded away as folded", async () => {
+    const { store } = await mountShell(fakeApi({ settings: { "ui.sidebarCollapsed": true } }));
+    act(() => store.getState().openDestinationPage("connections-page"));
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("connections-page"));
+    act(() => store.getState().closePageOverlay());
+    expect(shown()).toBe(false);
+  });
+
+  it("answers ⌘B with the sidebar for that visit alone, and persists nothing", async () => {
+    // THE MUTANT: a ⌘B that does nothing on these pages, or one that flips the setting every other
+    // screen reads.
+    const { store, api } = await mountShell();
+    act(() => store.getState().openDestinationPage("connections-page"));
+    await waitFor(() => expect(shown()).toBe(false));
+    fireEvent.click(within(lead()).getByRole("button", { name: "Show sidebar (⌘B)" }));
+    await waitFor(() => expect(shown()).toBe(true));
+    expect(within(head()).getByRole("button", { name: "Hide sidebar (⌘B)" })).toBeInTheDocument();
+    expect(api.calls.some((c) => c.startsWith("setSetting:ui.sidebarCollapsed"))).toBe(false);
+    // The visit ends with the page: the next time it opens, it opens without the sidebar again.
+    act(() => store.getState().closePageOverlay());
+    act(() => store.getState().openDestinationPage("connections-page"));
+    await waitFor(() => expect(shown()).toBe(false));
+  });
+});
+
+describe("what moves the column", () => {
+  const cut = () => document.querySelector(".app")!.hasAttribute("data-sidebar-cut");
+  const shown = () => !document.querySelector(".app")!.hasAttribute("data-sidebar-collapsed");
+
+  it("lands it with the page that changed it, and moves it only for the person's own toggle", async () => {
+    /* The owner, 10-05, with a video: Home → Scheduled drew the page at once beside spaces still
+       folding shut, then a stub of them, then the page jumped left; Scheduled → Library drew the page
+       with no column and then unfolded the page's sections beside it. A change navigation makes lands
+       in the page's own frame (`data-sidebar-cut`, which takes the column's motion off); only the
+       toggle — its button, ⌘B — is drawn moving. THE MUTANTS: navigation that moves the column (the
+       bug), or a toggle that has lost its motion. */
+    const { store } = await mountShell();
+    expect(cut(), "the window opens as it was left, not moving").toBe(true);
+    fireEvent.click(reachable());
+    await waitFor(() => expect(shown()).toBe(false));
+    expect(cut(), "the head row's Hide").toBe(false);
+    fireEvent.click(reachable());
+    await waitFor(() => expect(shown()).toBe(true));
+    expect(cut(), "the lead's Show").toBe(false);
+
+    // Home → Scheduled → Library → Connections → the session, then back the other way. Scheduled and
+    // Code review keep the column (their own lists are in it); Connections is the page that has none.
+    const open = (kind: DestinationPageKind) => () => store.getState().openDestinationPage(kind);
+    const close = () => store.getState().closePageOverlay();
+    const home = () => { void store.getState().goHome(); };
+    const route: [string, () => void, boolean][] = [
+      ["Home", home, true], ["Scheduled", open("schedules-page"), true], ["Library", open("library-page"), true],
+      ["Connections", open("connections-page"), false], ["the session", close, true],
+      ["Connections again", open("connections-page"), false], ["Code review", open("code-review-page"), true],
+      ["Connections a third time", open("connections-page"), false], ["Library again", open("library-page"), true],
+      ["Scheduled again", open("schedules-page"), true], ["Home again", home, true],
+    ];
+    let changes = 0;
+    for (const [name, go, sidebar] of route) {
+      const before = shown();
+      act(() => go());
+      expect(shown(), name).toBe(sidebar);
+      if (sidebar === before) continue;
+      // In the same act: the cut is committed with the change it governs, never a render behind it.
+      expect(cut(), name).toBe(true);
+      changes++;
+    }
+    expect(changes).toBe(6);
+
+    // ⌘B on a page that has no sidebar moves it — it is the person asking — and the next page that
+    // takes it away again cuts.
+    act(() => store.getState().openDestinationPage("connections-page"));
+    await act(async () => { await store.getState().toggleSidebar(); });
+    expect(shown()).toBe(true);
+    expect(cut(), "⌘B on Connections").toBe(false);
+    act(() => store.getState().closePageOverlay());
+    act(() => store.getState().openDestinationPage("connections-page"));
+    expect(shown()).toBe(false);
+    expect(cut(), "Connections opened again").toBe(true);
   });
 });

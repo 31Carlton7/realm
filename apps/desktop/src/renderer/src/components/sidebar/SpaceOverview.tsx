@@ -4,6 +4,7 @@ import type { StoreApi } from "zustand";
 import { centerOverComplement } from "../../state/no-overlay";
 import { spaceBadge, useApp, useBrowserRects, type AppState } from "../../state/store";
 import { SpaceIcon } from "../SpaceIcon";
+import { useDissolve } from "../ScrollFades";
 
 /** The grid is a fixed three columns (see `.spaces-grid`), so ↑/↓ can step by a known stride instead
  *  of measuring a layout jsdom does not have. Change one and change the other. */
@@ -51,6 +52,8 @@ export function SpaceOverview() {
  * and `lastSpaceByProfile` records it, so the chip's "back to where I was" is true afterwards.
  */
 function OverviewBody() {
+  const list = useRef<HTMLDivElement>(null);
+  useDissolve(list);
   const profiles = useApp((s) => s.profiles);
   const spaces = useApp((s) => s.spaces);
   const activeSpaceId = useApp((s) => s.activeSpaceId);
@@ -113,7 +116,7 @@ function OverviewBody() {
             placeholder="Filter spaces" aria-label="Filter spaces" spellCheck={false} />
           <kbd>esc</kbd>
         </div>
-        <div className="spaces-list">
+        <div className="spaces-list" ref={list}>
           {sections.map((sec) => (
             <section key={sec.profile.id} className="spaces-section">
               <h3 className="spaces-section-head">

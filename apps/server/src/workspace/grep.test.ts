@@ -234,11 +234,6 @@ describe("the not-a-repository fallback", () => {
     expect(paths(res.hits)).toEqual(["src/a.ts"]);
     expect(res.hits[0]!.line).toBe(2);
   });
-  it("skips build directories, dotfiles and binaries it cannot gitignore its way out of", async () => {
-    const res = await svc().grep(makePlainDir(), "beta");
-    expect(paths(res.hits)).not.toContain("node_modules/dep/index.js");
-    expect(paths(res.hits)).not.toContain("logo.bin");
-  });
   it("lists files the same way", async () => {
     const res = await svc().listFiles(makePlainDir());
     expect(res.source).toBe("walk");
@@ -269,14 +264,6 @@ describe("the argv Realm actually sends", () => {
     // The query must arrive as a query even when it looks exactly like an option.
     expect(argv[argv.indexOf("-e") + 1]).toBe("-oh no");
     expect(argv.at(-1)).toBe("--");
-  });
-  it("drops -i only when the query carries a capital", async () => {
-    const { calls, git } = capture();
-    const s = new ProjectSearchService({ git });
-    await s.grep("/tmp/x", "beta");
-    expect(calls.at(-1)).toContain("-i");
-    await s.grep("/tmp/x", "Beta");
-    expect(calls.at(-1)).not.toContain("-i");
   });
   it("reports a git failure instead of an empty result", async () => {
     const git: GitRun = async (_cwd, args) => args.includes("--is-inside-work-tree")

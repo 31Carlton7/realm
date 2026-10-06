@@ -12,6 +12,7 @@ function harness(o: { enabled?: boolean } = {}) {
   writeFileSync(join(root, "lectures", "2026-09-01-pipelining.md"), "# Pipelining\n\nforwarding fixes data hazards");
   writeFileSync(join(root, "lectures", "2026-09-03-caches.md"), "# Caches\n\nthrashing");
   const opened: string[] = [];
+  const openedBy: (string | undefined)[] = [];
   let progress = emptyGuideProgress();
   const deps: DocsAgentToolsDeps = {
     mcp: { providerEnabled: () => o.enabled ?? true },
@@ -20,7 +21,7 @@ function harness(o: { enabled?: boolean } = {}) {
     listForSpace: async (_s, dir): Promise<DocumentEntry[]> => (dir === "lectures"
       ? [{ path: "lectures/2026-09-01-pipelining.md", name: "2026-09-01-pipelining.md", isDir: false, size: 40 }]
       : [{ path: "lectures", name: "lectures", isDir: true, size: 0 }]),
-    openPath: async (p) => { opened.push(p.path); return { documentsId: "d1", itemId: "i1", environmentId: "e1" }; },
+    openPath: async (p) => { opened.push(p.path); openedBy.push(p.openedBy); return { documentsId: "d1", itemId: "i1", environmentId: "e1" }; },
     progressForSpace: async () => progress,
   };
   const provider = createDocsAgentProvider(deps);
@@ -29,7 +30,7 @@ function harness(o: { enabled?: boolean } = {}) {
     const r = await provider.call(ctx, tool, args);
     return { text: r.content.map((c) => ("text" in c ? c.text : "")).join(""), isError: r.isError };
   };
-  return { provider, ctx, call, opened, setProgress: (p: typeof progress) => { progress = p; } };
+  return { provider, ctx, call, opened, openedBy, setProgress: (p: typeof progress) => { progress = p; } };
 }
 
 describe("realm-docs provider", () => {
@@ -66,6 +67,7 @@ describe("realm-docs provider", () => {
     const r = await h.call("docs_open", { path: "/lectures/2026-09-01-pipelining.md" });
     expect(r.isError).toBe(false);
     expect(h.opened).toEqual(["lectures/2026-09-01-pipelining.md"]);
+    expect(h.openedBy).toEqual(["sess"]);
     expect(r.text).toContain("Opened lectures/2026-09-01-pipelining.md");
     expect((await h.call("docs_open", {})).isError).toBe(true);
   });

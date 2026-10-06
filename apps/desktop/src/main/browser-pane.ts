@@ -1,14 +1,22 @@
 import { WebContentsView, screen, session, type BrowserWindow, type WebContents } from "electron";
-import { BrowserPaneHost, browserUserAgent, type ViewFactory } from "./browser-host";
+import { FAVICON_MAX_BYTES, type BrowserLoadError } from "@realm/contracts";
+import { BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, browserUserAgent, createFaviconResolver, isFindShortcut, readCapped, shownPage, type FaviconFetch, type ViewFactory } from "./browser-host";
+import { attachTextContextMenu } from "./text-context-menu";
 import { refuseCapture } from "./capture-guard";
 import type { CdpBinding } from "./browser-agent-host";
-import type { DownloadDecision, DownloadItemLike } from "./downloads";
+import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
 import type { PasskeyCdp } from "./passkeys";
+import { cookieToSet, siteCookies, siteOf } from "./cookie-share";
 
-/** The browser views' session partition. Persistent and Realm's own: never the user's daily Chrome
- *  profile — they log in once inside Realm, and the isolation is structural (capability research §5:
- *  no shared cookies/autofill/OAuth grants with any real browser). */
-export const BROWSER_PARTITION = "persist:browser";
+/*
+ * The browser views' session partitions. Persistent and Realm's own: never the user's daily Chrome
+ * profile — they log in once inside Realm, and the isolation is structural (capability research §5: no
+ * shared cookies/autofill/OAuth grants with any real browser).
+ *
+ * One per PROFILE (Plan 27 Phase 2), named by realm-server (`Profile.browserPartition`): the first
+ * profile kept `persist:browser`, the jar every pane shared before, and every other profile has
+ * `persist:browser-<id>`. Everything below that reads or writes a partition takes the one it means.
+ */
 
 /** Installs the pane's virtual authenticator and the passkey shim (passkeys.ts). Injected rather
  *  than imported so the factory stays testable and a build without it simply has no passkeys. */
@@ -48,6 +56,29 @@ async function installPasskeys(id: string, wc: WebContents, install: PasskeyInst
 }
 
 /**
+ * An icon's bytes, fetched on the pane's own partition — its profile's, the one session that has ever
+ * talked to the site for this profile — with no cookies (`credentials: "omit"`) and no referrer (main's
+ * requests carry none), and given up past `FAVICON_FETCH_MS` or `FAVICON_MAX_BYTES`. A server error is
+ * no answer rather than "no icon": the next page of the site asks again.
+ */
+const fetchFaviconIn = (partition: string): FaviconFetch => async (url) => {
+  const res = await session.fromPartition(partition).fetch(url, { credentials: "omit", signal: AbortSignal.timeout(FAVICON_FETCH_MS) });
+  if (res.status >= 500) throw new Error(`favicon ${res.status}`);
+  if (!res.ok || !res.body) return null;
+  return readCapped(res.body, FAVICON_MAX_BYTES);
+};
+
+/** The icons resolved so far, one memory per partition: a list of icons is a list of the sites they
+ *  came from, so one profile's is not another's to reuse, and a clear forgets it (`clearBrowserPartition`).
+ *  Shared by every window, as the partitions are. */
+const faviconResolvers = new Map<string, ReturnType<typeof createFaviconResolver>>();
+const faviconResolverFor = (partition: string) => {
+  let resolve = faviconResolvers.get(partition);
+  if (!resolve) { resolve = createFaviconResolver(fetchFaviconIn(partition)); faviconResolvers.set(partition, resolve); }
+  return resolve;
+};
+
+/**
  * The thin Electron half of the browser pane (Plan 11 W1): every decision is in browser-host.ts;
  * this file only touches WebContentsView.
  *
@@ -62,10 +93,11 @@ export function electronViewFactory(
   onView?: (id: string, wc: WebContents | null) => void,
   installPasskeysFor?: PasskeyInstaller,
 ): ViewFactory {
-  return (id, hooks) => {
+  return (id, hooks, partition) => {
+    applyBrowserUserAgent(partition);
     const view = new WebContentsView({
       webPreferences: {
-        partition: BROWSER_PARTITION,
+        partition,
         // Untrusted web content: full Chromium sandbox, no node, no preload, isolated world.
         sandbox: true, contextIsolation: true, nodeIntegration: false,
         // A browser pane keeps working while its space is off screen, and Chromium's default
@@ -87,6 +119,9 @@ export function electronViewFactory(
        has no view (workers, the partition's own fetches) and this covers the view in hand. One
        derivation feeds both, so they cannot drift. */
     wc.setUserAgent(browserUserAgent(wc.getUserAgent()));
+    // A page gets the menu a browser gives it: the text and link commands, and Back/Forward/Reload
+    // on empty page. Electron gives a view none of these on its own.
+    attachTextContextMenu(wc, { page: true });
     onView?.(id, wc);
 
     // The URL the pane was ASKED for, which is what every reader of this view's state wants to hear
@@ -107,27 +142,80 @@ export function electronViewFactory(
     wc.on("will-navigate", guard);
     wc.on("will-redirect", guard);
 
+    /* Realm's `about:blank` bootstrap (above) commits a history entry like any page does, so the first
+       real page had a Back — and a row in the back menu and in History — that went to a blank view the
+       address bar still named as the page. Once the first real page commits, the bootstrap entry goes.
+       A first page that FAILS commits an entry as well — its error page's — so that counts too.
+       Registered ahead of the state events below, so the state they send already has no Back. */
+    let bootstrapEntry = !!installPasskeysFor;
+    const dropBootstrapEntry = (url: string) => {
+      if (!bootstrapEntry || url === "about:blank") return;
+      bootstrapEntry = false;
+      const history = wc.navigationHistory;
+      if (history.getActiveIndex() > 0 && history.getEntryAtIndex(0)?.url === "about:blank") history.removeEntryAtIndex(0);
+    };
+    wc.on("did-navigate", (_e, url) => dropBootstrapEntry(url));
+    wc.on("did-fail-provisional-load", (_e, _code, _name, url, isMainFrame) => { if (isMainFrame) dropBootstrapEntry(url); });
+
+    /* Whether there is a page to show, and whether the one the view is on failed (`PageLoad`) — what
+       keeps the view's blank white off the screen. Ahead of the state events too. */
+    const pageLoad = new PageLoad();
+    wc.on("did-fail-provisional-load", (_e, code, name, url, isMainFrame) => { if (isMainFrame) pageLoad.failed(code, name, url); });
+    wc.on("did-navigate", (_e, url) => pageLoad.committed(url));
+    wc.on("dom-ready", () => pageLoad.settled(wc.getURL()));
+    wc.on("did-stop-loading", () => pageLoad.settled(wc.getURL()));
+
+    /* The page's icon. A new document drops the last one's — registered ahead of the state events, so
+       the state they send already has none — and the icons it offers (Electron fires this after load,
+       and again when a page swaps its <link rel=icon>) are resolved to the first that loads. `asked`
+       numbers the requests, so an answer that lands after the page has moved on is thrown away rather
+       than painted onto the page that replaced it. */
+    let favicon: string | null = null;
+    let asked = 0;
+    wc.on("did-navigate", () => { asked++; favicon = null; });
+    wc.on("page-favicon-updated", (_e, candidates) => {
+      const n = ++asked;
+      // Looked up at each use rather than kept: a clear forgets the partition's icons, and a view
+      // already open must not go on answering from the memory that was just cleared.
+      void faviconResolverFor(partition)(candidates).then((icon) => {
+        if (n !== asked || wc.isDestroyed() || icon === favicon) return;
+        favicon = icon;
+        hooks.emitState();
+      });
+    });
+
     const stateEvents = [
       "did-start-loading", "did-stop-loading", "did-navigate", "did-navigate-in-page",
-      "page-title-updated", "did-fail-load",
+      "page-title-updated", "did-fail-load", "did-fail-provisional-load", "dom-ready",
     ] as const;
     for (const ev of stateEvents) wc.on(ev as Parameters<typeof wc.on>[0], () => hooks.emitState());
+    wc.on("found-in-page", (_e, r) => hooks.found({ activeMatchOrdinal: r.activeMatchOrdinal, matches: r.matches, finalUpdate: r.finalUpdate }));
+    // ⌘F with the page holding the keyboard. That keydown goes to this view's renderer, never to the
+    // window's, so this is the only place it can be heard; taken from the page so a site's own ⌘F
+    // handler (or Chromium's, which there is none of here) does not also run.
+    wc.on("before-input-event", (e, input) => {
+      if (isFindShortcut(input, process.platform)) { e.preventDefault(); hooks.findShortcut(); }
+    });
+
+    const loadURL = (url: string) => {
+      wanted = url;
+      // Queued behind the passkey install rather than racing it: a page that runs its own scripts
+      // first is a page whose passkey button is already broken.
+      void ready.then(() => {
+        if (wc.isDestroyed() || wanted !== url) return;
+        wc.loadURL(url).catch(() => { /* did-fail-provisional-load reports honestly */ });
+      });
+    };
 
     return {
       setBounds: (r) => view.setBounds(r),
       setVisible: (v) => view.setVisible(v),
-      loadURL: (url) => {
-        wanted = url;
-        // Queued behind the passkey install rather than racing it: a page that runs its own scripts
-        // first is a page whose passkey button is already broken.
-        void ready.then(() => {
-          if (wc.isDestroyed() || wanted !== url) return;
-          wc.loadURL(url).catch(() => { /* did-fail-load reports honestly */ });
-        });
-      },
+      loadURL,
       goBack: () => wc.navigationHistory.goBack(),
       goForward: () => wc.navigationHistory.goForward(),
-      reload: () => wc.reload(),
+      // A first page stopped before it committed leaves the view on the bootstrap `about:blank`, and a
+      // reload of that reloads nothing. The bar names the page that was asked for, so that is Reload's.
+      reload: () => { if (wc.getURL() === "about:blank" && wanted !== null && wanted !== "about:blank") loadURL(wanted); else wc.reload(); },
       stop: () => wc.stop(),
       canGoBack: () => wc.navigationHistory.canGoBack(),
       canGoForward: () => wc.navigationHistory.canGoForward(),
@@ -138,12 +226,18 @@ export function electronViewFactory(
         activeIndex: wc.navigationHistory.getActiveIndex(),
       }),
       goToIndex: (index) => wc.navigationHistory.goToIndex(index),
-      getURL: () => {
-        const live = wc.getURL();
-        return live === "about:blank" || live === "" ? wanted ?? "" : live;
-      },
-      getTitle: () => wc.getTitle(),
+      getURL: () => shownPage({ url: wc.getURL(), title: "" }, wanted).url,
+      getTitle: () => shownPage({ url: wc.getURL(), title: wc.getTitle() }, wanted).title,
       isLoading: () => wc.isLoading(),
+      getFavicon: () => favicon,
+      getLoadError: () => pageLoad.error,
+      isReady: () => pageLoad.ready,
+      findInPage: (text, opts) => { wc.findInPage(text, opts); },
+      stopFindInPage: () => wc.stopFindInPage("clearSelection"),
+      getZoomFactor: () => wc.getZoomFactor(),
+      setZoomFactor: (factor) => wc.setZoomFactor(factor),
+      // The system dialog, attached to the window. A failure or a cancel is the dialog's to report.
+      print: () => wc.print({}, () => {}),
       destroy: () => {
         onView?.(id, null);
         // On window close, Electron tears the child views down WITH the window before our "closed"
@@ -169,9 +263,10 @@ export type BrowserPane = {
    *  per view; null when the view is gone or the attach was refused (DevTools already attached). */
   attachCdp(id: string): CdpBinding | null;
   hasView(id: string): boolean;
-  /** Trustworthy page identity, straight off the webContents — never page-authored text — and
-   *  whether it is still loading, which is what the pane's own spinner shows. */
-  pageState(id: string): { url: string; title: string; loading: boolean } | null;
+  /** Trustworthy page identity, straight off the webContents — never page-authored text — whether it
+   *  is still loading, which is what the pane's own spinner shows, and why it did not load, if it did
+   *  not: the page Realm draws in its place is not in the page's DOM for an agent to read. */
+  pageState(id: string): { url: string; title: string; loading: boolean; error: BrowserLoadError | null } | null;
   /** browser id for a WebContents id — how the partition-wide download handler finds its pane. */
   browserIdForWebContents(webContentsId: number): string | null;
   /** Re-request a URL as a download, on the view's own session so its cookies apply (Plan 23 W4's
@@ -180,20 +275,43 @@ export type BrowserPane = {
   downloadURL(id: string, url: string): void;
   /** Fires on view destruction, so the agent host can drop buffers and snapshot state. */
   onViewDestroyed(cb: (id: string) => void): void;
+  /** The view's visible viewport as a PNG, or null when there is no view or nothing was drawn.
+   *  The VIEW's own capture: the window's `capturePage` composites no child view and comes back blank
+   *  over the whole of the page. */
+  capture(id: string): Promise<Uint8Array | null>;
+  /** The partition the view lives in — its profile's — or null when there is no view. */
+  partitionOf(id: string): string | null;
 };
 
 export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller): BrowserPane {
   const views = new Map<string, WebContents>();
   const destroyedCbs: ((id: string) => void)[] = [];
+  const send = (channel: string, payload: unknown) => { if (!win.isDestroyed()) win.webContents.send(channel, payload); };
   const host = new BrowserPaneHost({
     createView: electronViewFactory(win, (id, wc) => {
       if (wc) views.set(id, wc);
       else { views.delete(id); for (const cb of destroyedCbs) cb(id); }
     }, installPasskeysFor),
-    sendState: (s) => { if (!win.isDestroyed()) win.webContents.send("realm:browser-state", s); },
+    sendState: (s) => send("realm:browser-state", s),
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
+    sendFound: ({ id, ...result }) => send("realm:browser-found", { browserId: id, ...result }),
+    // The keyboard is in the VIEW when this fires, and focusing an input inside the window's own page
+    // does not move it — typing would go on landing in the site. Handing focus to the window's
+    // webContents first is what lets the find field the pane focuses actually receive the keys.
+    requestFind: (id) => {
+      if (win.isDestroyed()) return;
+      win.webContents.focus();
+      send("realm:browser-find-request", { browserId: id });
+    },
+    emulate: (id, metrics) => {
+      const wc = views.get(id);
+      if (!wc || wc.isDestroyed()) return;
+      try { if (!wc.debugger.isAttached()) wc.debugger.attach("1.3"); } catch { return; } // DevTools has it
+      void (metrics
+        ? wc.debugger.sendCommand("Emulation.setDeviceMetricsOverride", metrics)
+        : wc.debugger.sendCommand("Emulation.clearDeviceMetricsOverride")).catch(() => {});
+    },
   });
-  applyBrowserUserAgent();
   // The views composite into this window; they must never outlive it.
   win.on("closed", () => host.destroyAll());
   return {
@@ -201,7 +319,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     hasView: (id) => { const wc = views.get(id); return !!wc && !wc.isDestroyed(); },
     pageState: (id) => {
       const wc = views.get(id);
-      return wc && !wc.isDestroyed() ? { url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading() } : null;
+      return wc && !wc.isDestroyed() ? { url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), error: host.loadErrorOf(id) } : null;
     },
     browserIdForWebContents: (webContentsId) => {
       for (const [id, wc] of views) if (!wc.isDestroyed() && wc.id === webContentsId) return id;
@@ -212,6 +330,20 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       if (wc && !wc.isDestroyed()) wc.downloadURL(url);
     },
     onViewDestroyed: (cb) => destroyedCbs.push(cb),
+    partitionOf: (id) => host.partitionOf(id),
+    capture: async (id) => {
+      const wc = views.get(id);
+      if (!wc || wc.isDestroyed()) return null;
+      // At a device preset the view's own capture is the emulated SURFACE — for a desktop width scaled
+      // into a narrow pane, a page shrunk into one corner of a mostly blank picture (measured). CDP's
+      // capture is the emulated viewport at full size, which is the screenshot a person asked for.
+      if (host.deviceOf(id) && wc.debugger.isAttached()) {
+        const shot = await wc.debugger.sendCommand("Page.captureScreenshot", { format: "png" }).catch(() => null) as { data?: string } | null;
+        if (shot?.data) return new Uint8Array(Buffer.from(shot.data, "base64"));
+      }
+      const image = await wc.capturePage();
+      return image.isEmpty() ? null : new Uint8Array(image.toPNG());
+    },
     attachCdp: (id) => {
       const wc = views.get(id);
       if (!wc || wc.isDestroyed()) return null;
@@ -225,7 +357,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
 }
 
 /**
- * Put the pane user agent on the partition's session. Once per process, like
+ * Put the pane user agent on a partition's session. Once per partition per process, like
  * `governBrowserDownloads` and for the same reason: the session outlives any window, and a second
  * window must not re-derive a string from a UA its own views have already been given.
  *
@@ -233,11 +365,11 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
  * whatever Chromium the app ships without anyone remembering to update it — which is the failure
  * mode a hardcoded UA has, and it fails by claiming an engine version that no longer exists.
  */
-let userAgentApplied = false;
-export function applyBrowserUserAgent(): void {
-  if (userAgentApplied) return;
-  userAgentApplied = true;
-  const ses = session.fromPartition(BROWSER_PARTITION);
+const userAgentApplied = new Set<string>();
+export function applyBrowserUserAgent(partition: string): void {
+  if (userAgentApplied.has(partition)) return;
+  userAgentApplied.add(partition);
+  const ses = session.fromPartition(partition);
   ses.setUserAgent(browserUserAgent(ses.getUserAgent()));
   refuseCapture(ses);
 }
@@ -252,24 +384,63 @@ export function applyBrowserUserAgent(): void {
  * why "permit the user, keep blocking the agent" is not implementable at this layer (CDP input is
  * indistinguishable from a real click, so any rule loose enough for a human is loose for the agent).
  *
- * Registered once per partition. `decide` is the governor's; this function only translates its answer
- * into Electron's event API and routes the notice to the pane's console buffer via the wc→browser map.
+ * Registered once per partition — every profile's jar is governed the same way, from the first view
+ * made in it. `decide` is the governor's; this function only translates its answer into Electron's
+ * event API and routes the notice to the pane's console buffer via the wc→browser map.
  */
-let downloadsGoverned = false;
-export function governBrowserDownloads(d: {
+const downloadsGoverned = new Set<string>();
+export type DownloadPolicy = {
   browserIdFor(webContentsId: number): string | null;
   decide(browserId: string | null, item: DownloadItemLike): DownloadDecision;
   onBlocked(webContentsId: number, url: string, reason: string, filename: string): void;
-}): void {
-  if (downloadsGoverned) return;
-  downloadsGoverned = true;
-  session.fromPartition(BROWSER_PARTITION).on("will-download", (event, item, wc) => {
+};
+export function governBrowserDownloads(partition: string, d: DownloadPolicy): void {
+  if (downloadsGoverned.has(partition)) return;
+  downloadsGoverned.add(partition);
+  session.fromPartition(partition).on("will-download", (event, item, wc) => {
     const wcId = wc?.id ?? -1;
-    const decision = d.decide(d.browserIdFor(wcId), item as unknown as DownloadItemLike);
+    const decision = d.decide(d.browserIdFor(wcId), asDownloadItem(item));
     if (decision.allow) return; // the governor already called setSavePath and wired the item
     event.preventDefault();
     // The filename travels too, so W4's bar can name what was blocked. Page/server-authored, and
     // sanitized by `BlockedDownloads.note` before it is stored or shown — never used as a path here.
     d.onBlocked(wcId, item.getURL(), decision.refused, item.getFilename());
   });
+}
+
+/**
+ * Cookies, site storage and the HTTP cache of ONE profile's partition (Plan 26 W7b's Clear browsing
+ * data, and a deleted profile's jar). Every pane of that profile at once, and not as a side effect: a
+ * profile's panes share its partition, which is what keeps a sign-in made in one pane good in the next
+ * — and so what one clear takes from all of them. Another profile's jar is another partition, and is
+ * untouched. Realm's saved sign-ins and passkeys are not in any partition (they are in the
+ * Keychain-sealed secret store), so they are untouched too.
+ */
+export async function clearBrowserPartition(partition: string): Promise<void> {
+  faviconResolvers.delete(partition);
+  const ses = session.fromPartition(partition);
+  await ses.clearStorageData();
+  await ses.clearCache();
+}
+
+/**
+ * Share this site's sign-in: copy the cookies the page at `pageUrl` signs in with from one profile's
+ * partition into another's (cookie-share.ts decides which, and how each is written). Answers how many
+ * were copied and for which host, or null for a page with no site. The source keeps every cookie.
+ */
+export async function shareSiteCookies(fromPartition: string, toPartition: string, pageUrl: string): Promise<{ host: string; copied: number } | null> {
+  const site = siteOf(pageUrl);
+  if (!site) return null;
+  const from = session.fromPartition(fromPartition);
+  const to = session.fromPartition(toPartition);
+  const [sent, onHost] = await Promise.all([from.cookies.get({ url: site.url }), from.cookies.get({ domain: site.host })]);
+  const nowSeconds = Date.now() / 1000;
+  let copied = 0;
+  for (const c of siteCookies(sent, onHost)) {
+    const details = cookieToSet(c, nowSeconds);
+    if (!details) continue;
+    try { await to.cookies.set(details); copied++; } catch { /* Chromium refused this one; the rest still go */ }
+  }
+  await to.cookies.flushStore();
+  return { host: site.host, copied };
 }

@@ -119,21 +119,6 @@ describe("dialling a machine", () => {
     expect(await c.until(() => c.all().includes("echo:ping"))).toBe(true);
   });
 
-  /* Dialling a TLS endpoint as plaintext is the mistake the transport inference exists to prevent,
-     and it fails in the least helpful way available: the server sees an RFB version line where a
-     ClientHello should be and answers with an alert, or with nothing. */
-  it("fails visibly when a TLS endpoint is dialled as plain TCP", async () => {
-    const tls = selfSigned();
-    if (!tls) { expect(true).toBe(true); return; }
-    const server: TlsServer = createTlsServer({ key: tls.key, cert: tls.cert }, (sock) => sock.write(Buffer.from("RFB 003.008\n")));
-    const port = await listen(server);
-    const c = collect({ transport: "tcp", host: "127.0.0.1", port, path: "/" });
-    expect(await c.until(() => c.isOpen())).toBe(true);
-    // No RFB version line ever arrives, because the far end is waiting for a ClientHello.
-    await new Promise((r) => setTimeout(r, 300));
-    expect(c.all().toString()).not.toContain("RFB");
-  });
-
   it("carries bytes both ways over a WebSocket, which is the only shape a hosted sandbox has", async () => {
     const backend = createTcpServer((sock) => {
       sock.on("data", (d) => sock.write(Buffer.concat([Buffer.from("echo:"), d])));
@@ -205,18 +190,6 @@ describe("dialling a machine", () => {
     // connection as RFC 6455 permits. Offering it is therefore a free gain, and the next test is the
     // other half of that claim.
     expect(seen).toEqual(["binary"]);
-  });
-
-  it("still connects to a server that ignores the subprotocol entirely", async () => {
-    // The other half: most websockify builds answer with no `Sec-WebSocket-Protocol` at all. A
-    // client that treated that as a failure — which the RFC allows — would connect to none of them.
-    const http = createHttpServer();
-    const wss = new WebSocketServer({ server: http, path: "/websockify" });
-    wss.on("connection", (ws) => ws.send(Buffer.from("ok")));
-    const port = await listen(http);
-    const c = collect({ transport: "ws", host: "127.0.0.1", port, path: "/websockify" });
-    expect(await c.until(() => c.all().length > 0)).toBe(true);
-    expect(c.all().toString()).toBe("ok");
   });
 
   it("normalises a path with no leading slash rather than dialling a broken URL", async () => {

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, renderHook, act } from "@testing-library/react";
-import { CommandPalette, PALETTE_EXIT_MS, matchScore, relTime, usePaletteHotkey } from "./CommandPalette";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { CommandPalette, PALETTE_EXIT_MS, matchScore, relTime } from "./CommandPalette";
 import { StoreContext, createAppStore } from "../state/store";
-import { findLeafOfItem } from "@realm/contracts";
+import { PANE_DIVIDER, PANE_MIN, findLeafOfItem } from "@realm/contracts";
 import { fakeApi, item, session } from "../state/store.test-fakes";
 
 async function mount(over: Parameters<typeof fakeApi>[0] = {}) {
@@ -32,7 +32,6 @@ describe("no-overlay centering (W2)", () => {
   });
 });
 
-
 const input = () => screen.getByRole("combobox");
 
 describe("matchScore (subsequence + boosts)", () => {
@@ -42,9 +41,6 @@ describe("matchScore (subsequence + boosts)", () => {
     expect(matchScore("tn", "not")).toBeNull(); // order matters — not a bag of chars ("nt" would match)
     expect(matchScore("", "anything")).toBe(0);
     expect(matchScore("TERM", "New terminal")).not.toBeNull(); // case-insensitive
-  });
-  it("ranks word-start hits above buried ones: 'nt' prefers New terminal to Open Terminal", () => {
-    expect(matchScore("nt", "New terminal")!).toBeGreaterThan(matchScore("nt", "Open Terminal…")!);
   });
   it("boosts a whole-query prefix", () => {
     expect(matchScore("new", "New terminal")!).toBeGreaterThan(matchScore("new", "Renew things")!);
@@ -77,6 +73,25 @@ describe("CommandPalette", () => {
       expect(l.type === "leaf" && l.itemId).toBe("i2"); // opened into the fresh space's layout
     });
     expect(store.getState().paletteOpen).toBe(false);
+  });
+
+  it("offers every OTHER profile in a window of its own, and a new profile — the window's own profile is already here", async () => {
+    /* THE mutant: list this window's own profile too. Picking it would bring this same window forward
+       and do nothing, which reads as a broken command. */
+    const { api, store } = await mount();
+    expect(screen.queryByRole("option", { name: /Open Work in a new window/ })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: /Open School in a new window/ }));
+    await waitFor(() => expect(api.calls).toContain("openProfileWindow:p2"));
+    act(() => store.setState({ paletteOpen: true }));
+    fireEvent.click(screen.getByRole("option", { name: /New profile…/ }));
+    expect(store.getState().sheet).toEqual({ kind: "new-profile" });
+  });
+
+  it("a browser's row wears its page's own icon, as its tab does", async () => {
+    // THE mutant: the kind's glyph here while the tab and the sidebar row show the page's mark.
+    const ICON = "data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQ";
+    await mount({ items: { s1: [item("i1", "s1", { kind: "browser", refId: "b1", title: "hi - Google Search", favicon: ICON })] } });
+    expect(screen.getByRole("option", { name: /hi - Google Search/ }).querySelector("img.page-icon")?.getAttribute("src")).toBe(ICON);
   });
 
   it("archived rows are absent from the jump list, in this space and in every other", async () => {
@@ -147,7 +162,7 @@ describe("CommandPalette", () => {
   });
 
   it("'New session in a worktree' pins the session to a worktree it makes first (W2)", async () => {
-    const { store, api } = await mount();
+    const { store, api } = await mount({ gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } } });
     fireEvent.change(input(), { target: { value: "worktree" } });
     fireEvent.click(screen.getByRole("option", { name: /New session in a worktree/ }));
     await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
@@ -159,6 +174,13 @@ describe("CommandPalette", () => {
     expect(env.kind).toBe("worktree");
     expect(store.getState().environments[env.id]).toMatchObject({ kind: "worktree", branch: "realm/session" });
     expect(store.getState().sheet).toBeNull();
+  });
+
+  it("offers no session in a worktree where the space is a plain folder — it has none to make", async () => {
+    const { store } = await mount();
+    await act(async () => { await store.getState().refreshGitInfo("/tmp"); });
+    fireEvent.change(input(), { target: { value: "worktree" } });
+    expect(screen.queryByRole("option", { name: /New session in a worktree/ })).toBeNull();
   });
 
   it("a per-agent one-shot names its agent and routes through the very same newSession path", async () => {
@@ -184,6 +206,39 @@ describe("CommandPalette", () => {
     act(() => store.setState({ paletteOpen: true }));
     fireEvent.click(screen.getByRole("option", { name: /Close pane/ }));
     await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBeNull(); });
+  });
+
+  it("names ⌘W for where the keyboard is — a tab, a split — and offers nothing to close on a session alone", async () => {
+    // THE MUTANT: the old "Close pane" on every focused item. On a lone session it would close the
+    // session's pane, the close the session no longer has.
+    const items = [item("ia", "s1", { kind: "session", refId: "sa", title: "Alpha" }), item("ib", "s1", { kind: "session", refId: "sb", title: "Bravo" }),
+      item("it", "s1", { kind: "terminal", refId: "t", title: "Shell" })];
+    const { store } = await mount({ items: { s1: items }, sessions: [session("sa", "s1"), session("sb", "s1")] });
+    const closeRow = () => screen.queryAllByRole("option").map((o) => o.textContent ?? "").find((t) => /^(Close|Remove from split)/.test(t)) ?? null;
+    act(() => store.setState({ layout: { type: "leaf", id: "LA", itemId: "ia" }, focusedLeafId: "LA" }));
+    expect(closeRow()).toBeNull();
+    act(() => store.setState({ layout: { type: "split", id: "r", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "LA", itemId: "ia" }, { type: "leaf", id: "LS", itemId: "it", tabs: ["it"], owner: "ia" }] }, focusedLeafId: "LS" }));
+    expect(closeRow()).toMatch(/^Close tab/);
+    act(() => store.setState({ layout: { type: "split", id: "r", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "LA", itemId: "ia" }, { type: "leaf", id: "LB", itemId: "ib" }] }, focusedLeafId: "LB" }));
+    expect(closeRow()).toMatch(/^Remove from split/);
+    fireEvent.click(screen.getByRole("option", { name: /Remove from split/ }));
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBe("ia"); });
+  });
+
+  it("lists the tools that left the session's bar, opening beside the session the keyboard is in", async () => {
+    // THE MUTANT: no palette entry for them. A simulator or the session's agents would then be one
+    // route deep — a menu in the side pane — where every other tool has a key or a row here too.
+    const it9 = item("i9", "s1", { kind: "session", refId: "se1", title: "Lead" });
+    const { store, api } = await mount({ items: { s1: [it9] }, sessions: [session("se1", "s1")] });
+    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "i9" }, focusedLeafId: "L1" }));
+    for (const name of ["New tab", "Show terminal", "Sub-agents", "Open a simulator"]) expect(screen.getByRole("option", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Show terminal/ })).toHaveTextContent("⌘J");
+    fireEvent.click(screen.getByRole("option", { name: /^Open a simulator/ }));
+    await waitFor(() => expect(api.calls).toContain("createSimulator:s1"));
+    await waitFor(() => expect(store.getState().layout!.type).toBe("split"));
+    expect(findLeafOfItem(store.getState().layout!, "i9")).not.toBeNull();
   });
 
   it("Interrupt running session appears only while the focused pane's session is running", async () => {
@@ -218,31 +273,39 @@ describe("CommandPalette", () => {
     await waitFor(() => expect(store.getState().themePref).toBe("dark"));
   });
 
-  it("space switching and layout presets still work", async () => {
+  it("makes another space current, and offers no grid layouts — the window shows one view", async () => {
     const { store } = await mount();
     fireEvent.change(input(), { target: { value: "switch to home" } });
     fireEvent.keyDown(input(), { key: "Enter" });
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
     act(() => store.setState({ paletteOpen: true }));
-    fireEvent.change(input(), { target: { value: "layout: 3 col" } });
-    fireEvent.keyDown(input(), { key: "Enter" });
-    await waitFor(() => {
-      const l = store.getState().layout;
-      expect(l?.type === "split" && l.dir === "row" && l.children.length).toBe(3);
-    });
+    fireEvent.change(input(), { target: { value: "layout" } });
+    expect(screen.queryByText(/^Layout: /)).toBeNull();
   });
 
-  it("⌘K toggles the palette (still guarded by sheets)", () => {
-    const store = createAppStore(fakeApi());
-    renderHook(() => usePaletteHotkey(store));
-    fireEvent.keyDown(window, { key: "k", metaKey: true });
-    expect(store.getState().paletteOpen).toBe(true);
-    fireEvent.keyDown(window, { key: "k", metaKey: true });
-    expect(store.getState().paletteOpen).toBe(false);
-    store.getState().openSheet({ kind: "new-space" });
-    fireEvent.keyDown(window, { key: "k", metaKey: true });
-    expect(store.getState().paletteOpen).toBe(false); // ignored while a sheet is open
+  it("offers a split while there is room for another pane, and once there is none says why instead", async () => {
+    // THE MUTANTS: a split offered that the room refuses (an entry whose only outcome is nothing
+    // happening), or the entries gone without a word about what would bring them back.
+    const { store } = await mount({ items: { s1: [item("i1", "s1", { title: "Notes" }), item("i2", "s1", { title: "Plan" })] } });
+    act(() => store.setState({ viewRoom: { width: 2 * PANE_MIN.width + PANE_DIVIDER, height: PANE_MIN.height } }));
+    await act(async () => { await store.getState().openItem("i1"); });
+    const split = () => screen.getAllByRole("option").filter((o) => /Split (right|down)/.test(o.textContent ?? ""));
+    expect(split()).toHaveLength(2);
+    expect(split()[0]!.getAttribute("aria-disabled")).toBeNull();
+    // Down never fitted: one pane tall is all the room there is.
+    expect(split()[1]!.getAttribute("aria-disabled")).toBe("true");
+    // The row keeps its name and says the reason's first clause; the whole sentence is its tooltip.
+    expect(split()[1]!.textContent).toBe("Split downNo room for another pane below it");
+    expect(split()[1]!.querySelector("[title]")?.getAttribute("title")).toMatch(/each needs to be 300 points tall/);
+    await act(async () => { await store.getState().openItemBeside("i2"); });
+    await waitFor(() => expect(split()[0]!.getAttribute("aria-disabled")).toBe("true"));
+    expect(split()[0]!.textContent).toBe("Split rightNo room for another pane beside it");
+    // Chosen anyway (Return on it), it does nothing.
+    fireEvent.click(split()[0]!);
+    const l = store.getState().layout;
+    expect(l?.type === "split" ? l.children : []).toHaveLength(2);
   });
+
 });
 
 /** Plan 12 W3: the palette's settings entry survived the sheet's retirement — it opens the space PAGE.
@@ -269,22 +332,6 @@ describe("Open library / Open connections (Plan 12 W4)", () => {
     expect(store.getState().items.some((i) => i.kind === "library-page")).toBe(false);
   });
 
-  it("offers ONE entry per page — a placement would be a choice with no outcome", async () => {
-    /* There used to be a second, "Open library in this pane", because a page was a layout item and
-       where it landed was a real choice. A page is an overlay now: there is one, and it is over
-       everything. */
-    await mount();
-    fireEvent.change(input(), { target: { value: "open library" } });
-    expect(options().filter((o) => o!.includes("Open library"))).toHaveLength(1);
-  });
-
-  it("Open connections shows the Connections page", async () => {
-    const { store } = await mount();
-    fireEvent.change(input(), { target: { value: "open connections" } });
-    fireEvent.click(screen.getByRole("option", { name: /Open connections/ }));
-    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("connections-page"));
-  });
-
   it("Open profile shows the PROFILE page, not the space page (Plan 14 W2)", async () => {
     const { store } = await mount();
     fireEvent.change(input(), { target: { value: "open profile" } });
@@ -292,12 +339,6 @@ describe("Open library / Open connections (Plan 12 W4)", () => {
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("profile-page"));
   });
 
-  it("Open settings shows the SETTINGS page, not the space page (W6)", async () => {
-    const { store } = await mount();
-    fireEvent.change(input(), { target: { value: "open settings" } });
-    fireEvent.click(screen.getByRole("option", { name: /Open settings/ }));
-    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("settings-page"));
-  });
 });
 
 /** Plan 13 W2: the palette's dispatch entry — the honest shape: it dispatches the focused session's
@@ -487,12 +528,13 @@ describe("shortcut hints follow the keymap", () => {
 });
 
 /**
- * The three narrowings have to be tellable apart. A ⌘P that landed in "open a file" looked exactly
- * like a ⌘K until this landed — same placeholder, and an empty list whether the space had no checkout
- * or the query simply matched nothing. Both were found by running the real app, not by a test.
+ * The narrowed palette has to be tellable apart from ⌘K. A ⌘P that landed in "open a file" looked
+ * exactly like a ⌘K until this landed — same placeholder, and an empty list whether the space had no
+ * checkout or the query simply matched nothing. Both were found by running the real app, not by a
+ * test. (⌘P is the documents pane's search now; ⌘⇧P keeps the narrowing.)
  */
 describe("the narrowed palette says which question it is asking", () => {
-  const openIn = async (mode: "all" | "files" | "grep", over: Parameters<typeof fakeApi>[0] = {}) => {
+  const openIn = async (mode: "all" | "grep", over: Parameters<typeof fakeApi>[0] = {}) => {
     const api = fakeApi(over); const store = createAppStore(api); await store.getState().boot();
     act(() => store.getState().setPaletteOpen(true, mode));
     render(<StoreContext.Provider value={store}><CommandPalette /></StoreContext.Provider>);
@@ -500,14 +542,15 @@ describe("the narrowed palette says which question it is asking", () => {
   };
 
   it("names the mode in the placeholder", async () => {
-    await openIn("files");
-    expect(screen.getByRole("combobox")).toHaveAttribute("placeholder", "Open a file…");
+    await openIn("grep");
+    expect(screen.getByRole("combobox")).toHaveAttribute("placeholder", "Find in files…");
   });
 
   it("says a space with no checkout has nothing to search, rather than 'No matches'", async () => {
     /* THE MUTANT: fall back to "No matches". That sends someone hunting for a typo in a query that
        was never the problem — there is no checkout to match against. */
-    await openIn("files");
+    await openIn("grep");
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "parser" } });
     await waitFor(() => expect(screen.getByText(/no checkout yet/i)).toBeInTheDocument());
     expect(screen.queryByText("No matches")).toBeNull();
   });

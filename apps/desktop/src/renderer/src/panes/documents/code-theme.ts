@@ -68,13 +68,15 @@ const surface = EditorView.theme({
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": {
     fontFamily: "var(--font-mono)",
-    fontSize: "12.5px",
+    // On the code scale like every stylesheet size (`theme/text-scale.ts`), written out here because
+    // CodeMirror mints this rule at runtime where the build's rewrite never sees it.
+    fontSize: "max(11px, calc(12.5px * var(--code-text-scale, 1)))",
     lineHeight: "1.65",
     // The app's scrollbar rule in styles.css lists its scrollers by class and cannot know about one
     // CodeMirror mints at runtime, so this scroller asks for the same bar itself.
     scrollbarWidth: "thin",
   },
-  ".cm-content": { padding: "14px 0", caretColor: "var(--accent)" },
+  ".cm-content": { padding: "14px 0", caretColor: "var(--caret)" },
   ".cm-line": { padding: "0 18px 0 8px" },
 
   /* The gutter is sticky at the left edge and the code scrolls horizontally UNDER it, which is the
@@ -91,7 +93,9 @@ const surface = EditorView.theme({
   ".cm-activeLine": { backgroundColor: "var(--hover)" },
   ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--ink-2)" },
 
-  ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
+  // The primary caret is the app's (caret.ts) and these are what CodeMirror still draws itself — a
+  // second selection's cursors, and where a drag will drop — in the caret's colour.
+  ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--caret)", borderLeftWidth: "2px" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
     backgroundColor: "var(--accent-tint)",
   },

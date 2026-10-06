@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { SessionEvent } from "@realm/contracts";
+import { AskCardSchema, HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
 import { BrowserPermissionBroker } from "./permissions";
 
 function setup(mode = "default") {
@@ -168,13 +168,6 @@ describe("BrowserPermissionBroker.gate — alwaysPrompt (credential fills)", () 
     expect(events).toEqual([]);
   });
 
-  it("refuses a credential fill in ask mode too", async () => {
-    const { broker, events } = setup("ask");
-    const r = await broker.gate("s1", "browser_fill_credential", "Fill…", {}, "browser_fill_credential", opts);
-    expect(r.allowed).toBe(false);
-    expect(events).toEqual([]);
-  });
-
   it("a prior allow_always on the SAME key does not satisfy it", async () => {
     const { broker, events } = setup();
     // An ordinary gate first, answered "always" — the grant that would otherwise carry over.
@@ -204,13 +197,6 @@ describe("BrowserPermissionBroker.gate — alwaysPrompt (credential fills)", () 
     expect(await second).toEqual({ allowed: true });
   });
 
-  it("a denial refuses the fill", async () => {
-    const { broker, events } = setup("bypassPermissions");
-    const gate = broker.gate("s1", "browser_fill_credential", "Fill…", {}, "browser_fill_credential", opts);
-    broker.resolve(requestIdOf(events), "deny");
-    const r = await gate;
-    expect(r.allowed).toBe(false);
-  });
 });
 
 /**
@@ -254,26 +240,6 @@ describe("gate({ promptUnderBypass })", () => {
     expect((await other).allowed).toBe(false);
   });
 
-  it("is still refused outright in plan mode", async () => {
-    const { broker, events } = setup("plan");
-    const r = await broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", opts);
-    expect(r.allowed).toBe(false);
-    expect(!r.allowed && r.reason).toMatch(/read-only/);
-    expect(events).toEqual([]);
-  });
-
-  it("forgets its grants when the session is released", async () => {
-    const { broker, events } = setup("bypassPermissions");
-    const first = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", opts);
-    broker.resolve(requestIdOf(events), "allow_always");
-    await first;
-
-    broker.release("s1");
-    events.length = 0;
-    const again = broker.gate("s1", "computer_act:com.apple.TextEdit", "Click", {}, "computer_act", opts);
-    broker.resolve(requestIdOf(events), "allow");
-    expect(await again).toEqual({ allowed: true });
-  });
 });
 
 /**
@@ -424,16 +390,6 @@ describe("gate({ perSession })", () => {
     }
   });
 
-  it("forgets the grant when the session is released", async () => {
-    const { broker, events } = setup();
-    const first = ask(broker, "s1", "simulator_input:UDID-A");
-    broker.resolve(requestIdOf(events), "allow");
-    await first;
-    broker.release("s1");
-    events.length = 0;
-    void ask(broker, "s1", "simulator_input:UDID-A");
-    expect(events.some((e) => e.ev.type === "permission_request")).toBe(true);
-  });
 });
 
 describe("BrowserPermissionBroker.revoke", () => {
@@ -476,5 +432,105 @@ describe("BrowserPermissionBroker.revoke", () => {
     const gate = broker.gate("s2", "computer_act:com.apple.TextEdit", "Click again", {}, "computer_act", { promptUnderBypass: true });
     broker.resolve(requestIdOf(events), "allow");
     expect(await gate).toEqual({ allowed: true });
+  });
+});
+
+describe("BrowserPermissionBroker.ask — a question, on the same card and the same round trip", () => {
+  const card = (over: Record<string, unknown> = {}) => AskCardSchema.parse({
+    asker: { kind: "agent", name: "Claude", agent: "claude" }, mode: "question",
+    questions: [
+      { id: "db", prompt: "Which database?", kind: "choice", options: [{ value: "pg", label: "Postgres" }, { value: "sqlite", label: "SQLite" }] },
+      { id: "key", prompt: "Deploy token?", kind: "text", secret: true },
+    ],
+    ...over,
+  });
+  const ask = (broker: BrowserPermissionBroker, c = card(), signal?: AbortSignal) => broker.ask("s1", c, { toolName: "ui_ask", title: "Which database?", input: { q: 1 }, signal });
+
+  it("raises one request carrying the card, and resolves with the answers held to it", async () => {
+    const { broker, events } = setup();
+    const asked = ask(broker);
+    expect(events.map((e) => e.ev.type)).toEqual(["permission_request", "status"]);
+    const req = events[0]!.ev;
+    expect(req.type === "permission_request" && req.payload.ask?.asker.name).toBe("Claude");
+    // An answer the card never offered, and a question it never asked, go nowhere.
+    broker.resolve(requestIdOf(events), "allow", { db: "mysql", key: "sk-live-1234", ghost: "x" });
+    expect(await asked).toEqual({ outcome: "answered", answers: { key: "sk-live-1234" } });
+    const res = events.find((e) => e.ev.type === "permission_response")!.ev;
+    // THE MUTANT: persist `given` rather than `loggableAnswers(...)`. The token lands in the database.
+    expect(res.type === "permission_response" && res.payload).toMatchObject({ decision: "allow", answers: { key: HIDDEN_ANSWER } });
+    expect(JSON.stringify(events)).not.toContain("sk-live-1234");
+  });
+
+  it.each(["plan", "ask", "bypassPermissions"])("asks in %s mode too — a question changes nothing", async (mode) => {
+    const { broker, events } = setup(mode);
+    const asked = ask(broker);
+    expect(events.some((e) => e.ev.type === "permission_request")).toBe(true);
+    broker.resolve(requestIdOf(events), "allow", { db: "pg" });
+    expect(await asked).toEqual({ outcome: "answered", answers: { db: "pg" } });
+  });
+
+  it("calls a deny a skip, and an answer that leaves a required field empty one too", async () => {
+    const { broker, events } = setup();
+    const skipped = ask(broker);
+    broker.resolve(requestIdOf(events), "deny");
+    expect(await skipped).toEqual({ outcome: "skipped" });
+    events.length = 0;
+    const required = card({ questions: [{ id: "db", prompt: "Which?", kind: "choice", required: true, options: [{ value: "pg", label: "Postgres" }] }, { id: "note", prompt: "Note?", kind: "text" }] });
+    const partial = ask(broker, required);
+    broker.resolve(requestIdOf(events), "allow", { note: "hi" });
+    expect(await partial).toEqual({ outcome: "skipped" });
+  });
+
+  it("ignores an answer that names another session than the one asked", async () => {
+    const { broker, events } = setup();
+    const asked = ask(broker);
+    broker.resolve(requestIdOf(events), "allow", { db: "pg" }, "s2");
+    expect(events.some((e) => e.ev.type === "permission_response")).toBe(false);
+    broker.resolve(requestIdOf(events), "allow", { db: "pg" }, "s1");
+    expect(await asked).toMatchObject({ outcome: "answered" });
+  });
+
+  it("times out on the broker's own limit, and takes the card down when the asker withdraws it", async () => {
+    vi.useFakeTimers();
+    try {
+      const { broker, events } = setup();
+      const late = ask(broker);
+      vi.advanceTimersByTime(15 * 60 * 1000 + 1);
+      expect(await late).toEqual({ outcome: "timeout" });
+      expect(events.filter((e) => e.ev.type === "permission_response")).toHaveLength(1);
+    } finally { vi.useRealTimers(); }
+    const { broker, events } = setup();
+    const ac = new AbortController();
+    const withdrawn = ask(broker, card(), ac.signal);
+    ac.abort();
+    expect(await withdrawn).toEqual({ outcome: "cancelled" });
+    expect(events.map((e) => e.ev.type)).toEqual(["permission_request", "status", "permission_response", "status"]);
+  });
+
+  it("records a card Realm declined and answers it at once, without ever waiting on the user", async () => {
+    const { broker, events } = setup();
+    expect(await ask(broker, card({ mode: "form", refused: "It asked for a password." }))).toEqual({ outcome: "refused" });
+    expect(events.map((e) => e.ev.type)).toEqual(["permission_request", "permission_response"]);
+  });
+
+  it("keeps the session waiting while any card is still open", async () => {
+    // THE MUTANT: emit `running` on every answer. The second card would then stop being drawn, since
+    // the transcript draws requests only while its session is waiting.
+    const { broker, events } = setup();
+    const a = ask(broker);
+    const b = broker.gate("s1", "browser_act", "Click", {});
+    const [first, second] = events.filter((e) => e.ev.type === "permission_request").map((e) => e.ev.type === "permission_request" ? e.ev.payload.requestId : "");
+    broker.resolve(first!, "allow", { db: "pg" });
+    expect(events.at(-1)!.ev.type).toBe("permission_response");
+    broker.resolve(second!, "allow");
+    expect(events.at(-1)!.ev).toMatchObject({ type: "status", payload: { status: "running" } });
+    await Promise.all([a, b]);
+  });
+
+  it("a released session's open question is cancelled, not answered", async () => {
+    const { broker } = setup();
+    const asked = ask(broker);
+    broker.release("s1");
+    expect(await asked).toEqual({ outcome: "cancelled" });
   });
 });

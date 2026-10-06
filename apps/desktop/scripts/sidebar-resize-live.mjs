@@ -82,8 +82,10 @@ window.__live = window.__live ?? {
     const sidebar = document.querySelector(".sidebar").getBoundingClientRect();
     const main = document.querySelector(".main").getBoundingClientRect();
     const handle = document.querySelector(".sb-resize").getBoundingClientRect();
+    // The rail is the window's left edge now: the column starts after it, and collapses back under it.
+    const rail = document.querySelector(".app-rail").getBoundingClientRect();
     const round = (b) => ({ left: Math.round(b.left), right: Math.round(b.right), width: Math.round(b.width) });
-    return { sidebar: round(sidebar), main: round(main), handle: round(handle),
+    return { sidebar: round(sidebar), main: round(main), handle: round(handle), rail: round(rail),
       variable: getComputedStyle(document.querySelector(".app")).getPropertyValue("--sidebar-w").trim(),
       cursor: getComputedStyle(document.querySelector(".sb-resize")).cursor };
   },
@@ -179,7 +181,7 @@ async function main() {
   await dragTo(c, grabX, grabX + 80, y);
   const wide = await evalIn(c, `__live.metrics()`);
   check("the drag widens the column by what the pointer travelled", wide.sidebar.width === 360, wide.sidebar);
-  check("the panes give up exactly that room", wide.main.left === wide.sidebar.right && wide.main.width === VIEWPORT.width - 360,
+  check("the panes give up exactly that room", wide.main.left === wide.sidebar.right && wide.main.width === VIEWPORT.width - wide.rail.width - 360,
     { main: wide.main, window: VIEWPORT.width });
   check("the drag leaves no resize cursor behind",
     await evalIn(c, `!document.documentElement.hasAttribute("data-sidebar-resizing")`));
@@ -194,14 +196,18 @@ async function main() {
   await dragTo(c, max.sidebar.right - 4, 0, y);
   const min = await evalIn(c, `__live.metrics()`);
   check("it stops at the minimum", min.sidebar.width === 200, min.sidebar);
-  // The floor is a legibility claim, and the destinations are what it is a claim about: their labels
-  // are fixed, they are the nav proper, and none of them may be ellipsis at the narrowest the column
+  // The floor is a claim about the column's own chrome. The destinations are the rail's now and never
+  // narrow; what is left in the column with a fixed shape is its head row — the toggle, search and a
+  // new session at its far end, with the window's own back and forward (WindowLead) at the row's start
+  // — and none of it may be pushed out of the column or under the lead at the narrowest the column
   // goes. (A session TITLE clips at any width — that is the title being long, not the column being
   // narrow, and it is why the floor is not measured on one.)
-  const dests = await evalIn(c, `(() => [...document.querySelectorAll('.dest-row')].map((el) => ({
-    text: el.textContent.trim(), clipped: el.scrollWidth > el.clientWidth + 1 })))()`);
-  check("every destination label still reads at the narrowest the column goes",
-    dests.length > 0 && dests.every((d) => !d.clipped), dests);
+  const head = await evalIn(c, `(() => { const sb = document.querySelector('.sidebar').getBoundingClientRect();
+    const lead = [...document.querySelectorAll('.window-lead button')].at(-1).getBoundingClientRect();
+    const acts = [...document.querySelectorAll('.sb-header-actions button')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.getAttribute('aria-label'), left: Math.round(r.left), right: Math.round(r.right) }; });
+    return { sidebarRight: Math.round(sb.right), leadRight: Math.round(lead.right), acts }; })()`);
+  check("the head row's actions stay inside the column, clear of the window's back and forward, at the narrowest it goes",
+    head.acts.length > 0 && head.acts.every((a) => a.right <= head.sidebarRight && a.left >= head.leadRight), head);
   save("min", (await c.send("Page.captureScreenshot", { format: "png" })).data);
 
   // ── 4. A widened column still gets out of the way ───────────────────────
@@ -213,12 +219,12 @@ async function main() {
   const collapsed = await evalIn(c, `__live.metrics()`);
   // THE stale-margin bug: the collapse animation is a negative margin of the width VARIABLE. Read
   // from a stale 280 it would leave 120px of column on screen, which no unit test can see.
-  check("the widened column collapses all the way off the window", collapsed.sidebar.right <= 0, collapsed.sidebar);
-  check("and the panes take the whole window", collapsed.main.left === 0 && collapsed.main.width === VIEWPORT.width, collapsed.main);
+  check("the widened column collapses all the way back under the rail", collapsed.sidebar.right <= collapsed.rail.right, { sidebar: collapsed.sidebar, rail: collapsed.rail });
+  check("and the panes take the whole window beside the rail", collapsed.main.left === collapsed.rail.right && collapsed.main.width === VIEWPORT.width - collapsed.rail.width, collapsed.main);
   save("collapsed", (await c.send("Page.captureScreenshot", { format: "png" })).data);
 
   // ── 5. And it is still there on the next launch ─────────────────────────
-  await evalIn(c, `(() => { document.querySelector('button[aria-label^="Show sidebar"]').click(); return true; })()`);
+  await evalIn(c, `(() => { document.querySelector('.window-lead button[aria-label^="Show sidebar"]').click(); return true; })()`);
   await sleep(700);
   const restored = await evalIn(c, `__live.metrics()`);
   check("bringing it back brings back the width it had", restored.sidebar.width === 400, restored.sidebar);

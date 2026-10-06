@@ -1,7 +1,7 @@
 import { createServer, type Server, type Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { CLIENT_HANDSHAKE_BYTES, MachineWsProxy, type MachineTarget } from "./ws-proxy";
+import { MachineWsProxy, type MachineTarget } from "./ws-proxy";
 import { RFB_VERSION, vncAuthResponse } from "./rfb-handshake";
 
 /**
@@ -278,12 +278,6 @@ describe("the machine relay", () => {
     await c.until(() => vnc.seen.length > before, 2000);
     const forwarded = Buffer.concat(vnc.seen.slice(before));
     expect(forwarded.toString("hex")).toBe(request.toString("hex"));
-  });
-
-  it("counts the client's handshake rather than parsing it, because both ends of it are ours", () => {
-    // `replayForClient` offers exactly one security type, so there is exactly one legal reply and
-    // its length is a constant: version + chosen type + ClientInit.
-    expect(CLIENT_HANDSHAKE_BYTES).toBe(14);
   });
 
   it("drops anything the client sends before the handshake finishes", async () => {

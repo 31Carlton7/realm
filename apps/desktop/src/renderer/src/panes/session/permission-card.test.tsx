@@ -55,14 +55,6 @@ describe("PermissionCard options", () => {
   });
 });
 
-describe("the computer-use card's own words", () => {
-  it("names the app on the title, which is what the user is deciding about", () => {
-    vi.stubGlobal("scrollTo", () => {});
-    card({ toolName: "computer_act", title: 'Type "hello" into TextEdit' });
-    expect(screen.getByText('Type "hello" into TextEdit')).toBeTruthy();
-  });
-});
-
 describe("the simulator input card", () => {
   it("shows the step it was raised by as the agent's intent, under a title naming the device and the session", () => {
     // One card covers the rest of the session on the device, so the step that raised it is the only

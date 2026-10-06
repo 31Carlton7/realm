@@ -53,6 +53,51 @@ export function readFastSupport(raw: unknown): Record<string, boolean> {
 }
 
 /**
+ * The `settings` row holding the reasoning levels each harness said a model takes, filed the way
+ * `MODEL_FAST_SUPPORT_KEY` files its answers: `{ [fastSupportKey]: string[] }`, `[]` being a model
+ * that takes none. Claude's levels are per model and only its CLI knows them (`supportedModels()`),
+ * so one session's answer is what lets the next session's effort control offer exactly those.
+ */
+export const MODEL_EFFORTS_KEY = "models.efforts";
+
+/** The row as a map, keeping only lists of strings — settings rows are user-editable JSON. */
+export function readEffortSupport(raw: unknown): Record<string, string[]> {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw).filter((kv): kv is [string, string[]] =>
+    Array.isArray(kv[1]) && kv[1].every((l) => typeof l === "string")));
+}
+
+/**
+ * Whether Realm can ASK this agent for fast mode at all. A fact about Realm's own adapters, not about
+ * any model: Claude takes it as a flag setting at start and mid-session, Codex as the `priority` service
+ * tier on each `turn/start`, and no other adapter has a channel to say it on. WHICH models can run it is
+ * only ever the harness's answer — its `init`, the probe's catalog, `MODEL_FAST_SUPPORT_KEY` — never a
+ * line in this file.
+ */
+export const AGENT_FAST_MODE = {
+  claude: true, codex: true,
+  "acp:cursor": false, "acp:gemini": false, "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
+  "acp:qwen": false, "acp:grok": false, "acp:fx": false, "acp:deepseek": false, "acp:openhands": false, "acp:hermes": false,
+  fake: false,
+} as const satisfies Record<AgentKind, boolean>;
+
+/**
+ * Whether Realm's adapter can hand this agent a reasoning level — and so whether its effort control
+ * can mean anything. Claude takes the SDK's `effort` at start and `applyFlagSettings({effortLevel})`
+ * mid-session; Codex takes `turn/start`'s `effort`; an ACP agent takes one only through a
+ * `thought_level` option of its own session config (`session/set_config_option`). WHICH levels a model
+ * takes is the harness's answer, never this table's: Codex's catalog, Claude's `supportedModels()`, the
+ * ACP option's values. Cursor writes effort into its model ids (`effort=high`) and offers no option, so
+ * an ACP agent that advertises none shows no control.
+ */
+export const AGENT_TAKES_EFFORT = {
+  claude: true, codex: true,
+  "acp:cursor": true, "acp:gemini": true, "acp:opencode": true, "acp:copilot": true, "acp:goose": true,
+  "acp:qwen": true, "acp:grok": true, "acp:fx": true, "acp:deepseek": true, "acp:openhands": true, "acp:hermes": true,
+  fake: false,
+} as const satisfies Record<AgentKind, boolean>;
+
+/**
  * Fold a model's displayed name to a comparison key.
  *
  * Four normalisations, each earning its place against a real disagreement seen in the wild:

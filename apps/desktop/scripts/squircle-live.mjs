@@ -32,7 +32,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
+import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9338), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8904);
@@ -265,6 +265,11 @@ async function main() {
   const c = cdp(rendererTarget.webSocketDebuggerUrl);
   await c.ready;
   await c.send("Runtime.enable");
+  /* The window this opens is rarely the focused one — it comes up behind whatever is in front, and
+     nobody is at the keyboard for a long run. Unfocused, Realm goes quiet (`data-quiet`): the running
+     ring is taken away and the frame dims, which is right for the product and fatal for a check that
+     measures them. Focus is emulated so the page is measured as it is drawn in use. */
+  await c.send("Emulation.setFocusEmulationEnabled", { enabled: true });
   await c.send("Page.enable");
 
   await until(() => evalIn(c, `!!document.querySelector('.onboarding input:not([type=radio])')`), 20000, "onboarding");
@@ -284,9 +289,12 @@ async function main() {
 
   check("the painter loaded in the real bundle, so the cards are off their fallback",
     await evalIn(c, `document.documentElement.hasAttribute("data-squircle")`));
+  // The face is the card's ::after (styles.css: the lift has to be UNDER it), so that is where the
+  // painter has to be found; the card's own background is out of the way with its radius.
   check("the prompter's fill is the worklet's, and its border-radius is out of the way",
-    await evalIn(c, `(() => { const cs = getComputedStyle(document.querySelector(".composer"));
-      return cs.backgroundImage.includes("paint(rl-squircle)") && parseFloat(cs.borderTopLeftRadius) === 0; })()`));
+    await evalIn(c, `(() => { const el = document.querySelector(".composer"), cs = getComputedStyle(el);
+      return getComputedStyle(el, "::after").backgroundImage.includes("paint(rl-squircle)")
+        && cs.backgroundImage === "none" && parseFloat(cs.borderTopLeftRadius) === 0; })()`));
 
   // ── the lift the technique could have eaten ─────────────────────────────
   // A mask (the obvious way to get a superellipse) clips box-shadow away entirely. Painting the fill
@@ -343,6 +351,56 @@ async function main() {
     { rest: cornerRest.fraction, focused: cornerFocus.fraction });
   await evalIn(c, `(() => { document.querySelector(".composer-input").blur(); return true; })()`);
   await sleep(300);
+
+  // ── one face, and no second edge inside it ───────────────────────────────
+  /* The lift is cast by a layer of its own, and that layer has to sit UNDER the card's face. As a
+     negative-z child of a card that is itself a stacking context it painted OVER the face instead —
+     its fill covered all but the card's outer 2px, and its shadow fell into those 2px: a second,
+     darker edge just inside the hairline, wider at the corners, where the layer's smaller curve
+     drifted from the card's. So the fill just inside the ring has to be the fill further in, on the
+     sides the shadow falls toward. Measured in the middle of each run, clear of the chips.
+
+     The band is found from the RING, not from the box. A card laid out on a half pixel (its left at
+     380.5) snaps its ring one pixel over, and a band taken a fixed 1.25px in from the box then read
+     part of the ring itself — lighter than the face, and a failure on a card with nothing wrong.
+     So each side walks the first pixels in from its edge, takes the brightest as the ring, and
+     compares the pixel just past it with the face further in. */
+  const faceBands = (b64) => `(async () => {
+    const s = await __live.sampler(${JSON.stringify(b64)});
+    const b = document.querySelector(".composer").getBoundingClientRect();
+    const cx = (b.left + b.right) / 2, cy0 = b.top + 38, cy1 = b.top + 50;
+    /* px(i): the i-th whole pixel in from a side's edge, averaged along that side's run. */
+    const side = (px) => {
+      const run = [0, 1, 2, 3].map(px), near = run.slice(0, 3);
+      const ring = near.indexOf(Math.max(...near));
+      return { edge: +run[ring + 1].toFixed(2), within: +((px(5) + px(6)) / 2).toFixed(2) };
+    };
+    const L = Math.floor(b.left), R = Math.ceil(b.right), B = Math.ceil(b.bottom);
+    return {
+      bottom: side((i) => s.band(cx - 40, B - 1 - i, cx + 40, B - i)),
+      left: side((i) => s.band(L + i, cy0, L + i + 1, cy1)),
+      right: side((i) => s.band(R - 1 - i, cy0, R - i, cy1)),
+    };
+  })()`;
+  const oneFace = (bands) => Object.values(bands).every((p) => Math.abs(p.edge - p.within) < 1.5);
+  const face = await evalIn(c, faceBands(await shotOf(c)));
+  check("the card has one face — no darker band just inside its ring, on any side the lift falls toward",
+    oneFace(face), face);
+  // The mutant is the defect itself: the lift raised over the face again, its fill covering all but
+  // the card's outer 2px and its shadow falling into them. The same measurement has to see the band.
+  await evalIn(c, `(() => {
+    const st = document.createElement("style");
+    st.id = "lift-over-face";
+    st.textContent = ":root[data-squircle] .composer::before { z-index: 0 !important; }";
+    document.head.appendChild(st);
+    return true;
+  })()`);
+  await sleep(250);
+  const banded = await evalIn(c, faceBands(await shotOf(c)));
+  check("the mutant reproduces the second edge (lift over the face ⇒ a darker band inside the ring)",
+    !oneFace(banded), banded);
+  await evalIn(c, `(() => { document.getElementById("lift-over-face")?.remove(); return true; })()`);
+  await sleep(250);
 
   // ── the corner itself ────────────────────────────────────────────────────
   /* The silhouette is the claim, so the edge stroke comes off first: a 0.5px ring lands precisely on
@@ -555,7 +613,13 @@ async function main() {
 
 main()
   .catch((e) => { console.error("ERROR", e.message); process.exitCode = 1; })
-  .finally(() => {
+  .finally(async () => {
     electron?.kill("SIGTERM");
-    setTimeout(() => { electron?.kill("SIGKILL"); fs.rmSync(scratch, { recursive: true, force: true }); process.exit(process.exitCode ?? 0); }, 1200);
+    await sleep(1200);
+    electron?.kill("SIGKILL");
+    // The server is a second Electron that outlives the app it was spawned for, reparented to init and
+    // still holding SERVER_PORT — so the next run refused to start. Stopped by the home it served.
+    await stopDaemons(path.join(scratch, "home"));
+    fs.rmSync(scratch, { recursive: true, force: true });
+    process.exit(process.exitCode ?? 0);
   });

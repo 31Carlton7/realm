@@ -2,6 +2,7 @@ import { itemIdOfLeaf, type Item } from "@realm/contracts";
 import type { KeyContext } from "@realm/contracts";
 import type { StoreApi } from "zustand";
 import { isEditableTarget } from "../hotkeys";
+import { startAppPick } from "../app-pick/start";
 import type { AppState } from "../state/store";
 
 /**
@@ -29,7 +30,9 @@ export function keyContext(s: AppState, target: EventTarget | null): KeyContext 
      other half of it, published so a `when` clause can say "only in a terminal". */
   const terminalFocus = target instanceof HTMLElement && target.closest(".xterm") !== null;
   return {
-    overlayOpen: s.paletteOpen || s.spacesOpen || sheetOpen,
+    // The media viewer covers the window as the palette does: a pane behind it is not the one a chord
+    // should split, close or move off — and a space switched under it would be shown nowhere.
+    overlayOpen: s.paletteOpen || s.spacesOpen || sheetOpen || s.viewer !== null,
     paletteOpen: s.paletteOpen,
     spacesOpen: s.spacesOpen,
     sheetOpen,
@@ -75,9 +78,10 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
   return {
     "pane.splitRight": () => { const s = get(); s.run(() => s.splitFocused("row")); },
     "pane.splitDown": () => { const s = get(); s.run(() => s.splitFocused("col")); },
-    // Layout-only, and never the window: the item survives and can be reopened. An empty leaf is a
-    // no-op, which the ⌘W swallow in the hook makes safe rather than surprising.
-    "pane.close": () => { const s = get(); const item = focusedItem(s); if (item) s.run(() => s.closeFromLayout(item.id)); },
+    // Layout-only, and never the window: a tab leaves its strip, a pane its split, and a session
+    // alone closes nothing — the keyboard goes to its prompter (`closeIntent`). Where there is
+    // nothing to close the ⌘W swallow in the hook keeps the key from reaching Electron.
+    "pane.close": () => { const s = get(); s.run(() => s.closeInPane()); },
     "pane.toggleFocus": () => { const s = get(); s.run(() => s.toggleFocusPane()); },
     "pane.focusLeft": focusPane("left"),
     "pane.focusRight": focusPane("right"),
@@ -86,9 +90,8 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
     "pane.navBack": stepNav(-1),
     "pane.navForward": stepNav(1),
     "pane.rename": () => { const s = get(); const item = focusedItem(s); if (item) s.requestRename(item.id); },
-    "paneGroup.next": () => { const s = get(); s.run(() => s.stepPaneGroup(1)); },
-    "paneGroup.previous": () => { const s = get(); s.run(() => s.stepPaneGroup(-1)); },
-    "paneGroup.new": () => { const s = get(); s.run(() => s.newPaneGroup()); },
+    "pane.newTab": () => { const s = get(); s.run(() => s.newTab()); },
+    "pane.newTabFullView": () => { const s = get(); s.run(() => s.newTab(null, { full: true })); },
 
     "space.next": () => { const s = get(); s.run(() => s.nextSpace()); },
     "space.previous": () => { const s = get(); s.run(() => s.prevSpace()); },
@@ -102,12 +105,14 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
        means the same thing by the same name, and `openQuickChat` already no-ops when one is up. */
     "session.quickChat": () => { const s = get(); s.run(() => s.openQuickChat()); },
     "session.attachFiles": withSession((s, id) => s.run(() => s.attachFromPicker(id))),
+    // Wherever the focus is: the pick goes to the session a web pick would (`startAppPick`).
+    "session.selectInRealm": () => startAppPick(store),
     "session.dispatchDraft": withSession((s, id) => s.run(() => s.dispatchDraft(id))),
     /* The `when` clause already gates this on a running session, and the check is here as well
        because a user may bind the command with no clause at all — and "interrupt" on an idle agent
        would be a gesture that looks like it did something. */
     "session.interrupt": withSession((s, id) => { if (statusOf(s, id) === "running") s.run(() => s.interruptSession(id)); }),
-    "terminal.toggle": withSession((s, id) => s.toggleSessionDock(id, { kind: "terminal" })),
+    "terminal.toggle": withSession((s, id) => s.run(() => s.showSessionTerminal(id))),
 
     "terminal.new": () => { const s = get(); s.run(() => s.newTerminal()); },
     "browser.new": () => { const s = get(); s.run(() => s.newBrowser()); },
@@ -120,19 +125,25 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
       if (environmentId) s.run(() => s.openDiff(environmentId));
     }),
     "palette.toggle": () => { const s = get(); s.setPaletteOpen(!s.paletteOpen); },
-    /* Both open the ONE palette, narrowed. `setPaletteOpen(true, mode)` rather than a separate
-       surface: a user who lands in "find in files" and wanted "open a file" should be one keystroke
-       away, not one dismissal and one keystroke away. */
-    "palette.files": () => get().setPaletteOpen(true, "files"),
+    /* ⌘P is the documents pane's search: one place where a file is found, opened, made and added to
+       a message, rather than a palette that found a file and then opened a pane somewhere else. The
+       id keeps its old name because people's own keybindings are stored against it. From ⌘⇧P's field
+       it is still one keystroke across — the palette goes and the pane's search takes the keyboard. */
+    "palette.files": () => { const s = get(); s.run(() => s.findInDocuments()); },
     "palette.grep": () => get().setPaletteOpen(true, "grep"),
     "sidebar.toggle": () => { const s = get(); s.run(() => s.toggleSidebar()); },
     "activity.open": () => { const s = get(); s.run(() => s.openActivity()); },
+    "window.back": () => { const s = get(); s.run(() => s.stepWindow(-1)); },
+    "window.forward": () => { const s = get(); s.run(() => s.stepWindow(1)); },
+    "settings.open": () => get().openDestinationPage("settings-page"),
   };
 }
 
-/** The item in the focused leaf, or null when the leaf is empty. */
+/** The item in the focused leaf, or null when the leaf is empty. A peek's is its own row, which may
+ *  be another profile's and so in no list of this window's. */
 function focusedItem(s: AppState): Item | null {
   const id = itemIdOfLeaf(s.layout, s.focusedLeafId);
+  if (id && s.peek?.item.id === id) return s.peek.item;
   return id ? s.items.find((i) => i.id === id) ?? null : null;
 }
 

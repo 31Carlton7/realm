@@ -25,6 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9338), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8904);
@@ -105,6 +106,28 @@ const INK = (b64) => `(async () => {
   return ink;
 })()`;
 
+/** The server's own RPC, dialled with the daemon's token — how this check drives a session without
+ *  typing into a composer (see step 2). */
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
+  let id = 0;
+  const pending = new Map();
+  const ready = new Promise((res) => ws.addEventListener("open", res));
+  ws.addEventListener("message", (m) => {
+    const msg = JSON.parse(m.data);
+    if (msg.id !== undefined) pending.get(msg.id)?.(msg);
+  });
+  return {
+    ready,
+    call: (method, params) => new Promise((res, rej) => {
+      const i = String(++id);
+      pending.set(i, (msg) => (msg.ok ? res(msg.result) : rej(new Error(`${method}: ${msg.error?.message}`))));
+      ws.send(JSON.stringify({ id: i, method, params }));
+    }),
+    close: () => ws.close(),
+  };
+}
+
 async function main() {
   for (const p of [CDP_PORT, SERVER_PORT]) {
     if (!(await portFree(p))) throw new Error(`port ${p} is in use — refusing to run`);
@@ -123,7 +146,7 @@ async function main() {
     env: {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),
-      REALM_ENABLE_FAKE_AGENT: "1",
+      REALM_ENABLE_FAKE_AGENT: "1", REALM_HTML_MENUS: "1",
       REALM_PORT: String(SERVER_PORT),
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
@@ -139,6 +162,11 @@ async function main() {
   const c = cdp(rendererTarget.webSocketDebuggerUrl);
   await c.ready;
   await c.send("Runtime.enable");
+  /* The window this opens is rarely the focused one — it comes up behind whatever is in front, and
+     nobody is at the keyboard for a long run. Unfocused, Realm goes quiet (`data-quiet`): the running
+     ring is taken away and the frame dims, which is right for the product and fatal for a check that
+     measures them. Focus is emulated so the page is measured as it is drawn in use. */
+  await c.send("Emulation.setFocusEmulationEnabled", { enabled: true });
   await c.send("Page.enable");
 
   await until(() => evalIn(c, `!!document.querySelector('.onboarding input:not([type=radio])')`), 20000, "onboarding");
@@ -155,11 +183,11 @@ async function main() {
   await sleep(400);
 
   /* ── A real two-pane split, made the way a user makes one ────────────────────────────────────
-     "New session" opens into the focused leaf, which pushes the first session out of the OPEN group;
-     splitting right then leaves an empty focused leaf, and clicking the first session's SPACE row
-     opens it there. The result is a two-way row split with two OPEN rows — the layout the glyph is
-     for, reached through the same gestures rather than by writing a layout into the store. */
-  await evalIn(c, `(() => { document.querySelector('.new-row').click(); return true; })()`);
+     The header's "New session" opens into the focused leaf, which takes the first session off the
+     screen; splitting right then leaves an empty focused leaf, and clicking the first session's row
+     opens it there. The result is a two-way row split with both rows on screen — the layout the glyph
+     is for, reached through the same gestures rather than by writing a layout into the store. */
+  await evalIn(c, `(() => { document.querySelector('.sb-header button[aria-label="New session"]').click(); return true; })()`);
   await until(() => evalIn(c, `document.querySelectorAll('.item-list .item').length >= 2`), 15000, "a second session");
   // Split right. The bar collapses its actions into a ⋯ menu below a threshold width and offers them
   // inline above it, so take whichever this pane is showing rather than assuming one.
@@ -173,8 +201,8 @@ async function main() {
     if (it) it.click();
     return true; })()`);
   await until(() => evalIn(c, `document.querySelectorAll('.panehost .panel').length === 2`), 15000, "two panes");
-  // Sessions are auto-titled alike, so the first one is found by its ROLE in the sidebar — the only
-  // row in the SPACE group, i.e. the one row with no glyph — not by its text.
+  // Sessions are auto-titled alike, so the first one is found by its ROLE in the sidebar — the one
+  // row off the screen, i.e. the one with no glyph — not by its text.
   await evalIn(c, `(() => {
     const row = [...document.querySelectorAll('.item-list .item-row')].find((r) => !r.querySelector('.item-glyph'));
     row.click(); return true; })()`);
@@ -182,33 +210,47 @@ async function main() {
   await sleep(300);
 
   /* ── 1. The split glyph draws the split it is describing ─────────────────────────────────── */
+  // An SVG of the split tree, one <rect> per pane (ItemList.paneMapOf). It was a strip of <span> bars
+  // with a `data-dir`, and this section kept reading those after the glyph changed — counting zero bars,
+  // and passing the width check below on an empty list.
   const glyphs = await evalIn(c, `(() => {
     return [...document.querySelectorAll('.item-glyph')].map((g) => {
       const box = g.getBoundingClientRect();
-      const bars = [...g.querySelectorAll('span')].map((s) => {
+      const bars = [...g.querySelectorAll('rect')].map((s) => {
         const r = s.getBoundingClientRect();
-        return { w: +r.width.toFixed(2), h: +r.height.toFixed(2), on: s.hasAttribute('data-on') };
+        return { x: +r.left.toFixed(2), y: +r.top.toFixed(2), w: +r.width.toFixed(2), h: +r.height.toFixed(2), on: s.hasAttribute('data-on') };
       });
-      return { dir: g.dataset.dir, w: Math.round(box.width), h: Math.round(box.height), bars };
+      return { w: Math.round(box.width), h: Math.round(box.height), bars };
     });
   })()`);
-  check("both open rows draw a two-bar glyph on the split's own axis", glyphs.length === 2
-    && glyphs.every((g) => g.dir === "row" && g.bars.length === 2), glyphs.map((g) => ({ dir: g.dir, bars: g.bars.length })));
+  // A side-by-side split: two rects on one row, so the same top and different lefts.
+  const sideBySide = (g) => g.bars.length === 2 && Math.abs(g.bars[0].y - g.bars[1].y) < 0.5 && Math.abs(g.bars[0].x - g.bars[1].x) > 2;
+  check("both open rows draw a two-pane glyph on the split's own axis", glyphs.length === 2
+    && glyphs.every(sideBySide), glyphs.map((g) => ({ rects: g.bars.length, sideBySide: sideBySide(g) })));
   check("the two rows light different bars — the mark distinguishes the panes",
     glyphs[0]?.bars.findIndex((b) => b.on) !== glyphs[1]?.bars.findIndex((b) => b.on),
     glyphs.map((g) => g.bars.findIndex((b) => b.on)));
   // Legibility, the reason the mark grew from 10px to 12px and dropped the second axis: a bar under
   // ~4px reads as a speck. Two slots in the old 2x2 were 4.5px cells; these are 5.5px bars.
-  const thinnest = Math.min(...glyphs.flatMap((g) => g.bars.map((b) => b.w)));
-  check("every bar is at least 5px across", thinnest >= 5, { thinnest, box: glyphs[0]?.w });
+  const widths = glyphs.flatMap((g) => g.bars.map((b) => b.w));
+  const thinnest = widths.length ? Math.min(...widths) : 0;
+  check("every bar is at least 5px across", widths.length > 0 && thinnest >= 5, { thinnest, box: glyphs[0]?.w });
 
   /* ── 2. The trailing marks do not collide ────────────────────────────────────────────────── */
-  // A status has to exist for a dot to render, so drive one real turn through the scripted adapter.
-  await evalIn(c, `(() => {
-    const el = document.querySelector('.composer-input');
-    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-    set.call(el, 'hello'); el.dispatchEvent(new Event('input', { bubbles: true }));
-    document.querySelector('.composer-send').click(); return true; })()`);
+  /* A status has to exist for a dot to render, so one session has to be doing something. NOT by
+     typing into its composer: onboarding's session runs the first engine this Mac is signed in to, a
+     real and billed one, REALM_ENABLE_FAKE_AGENT notwithstanding — every run of this check used to
+     send it a message. The session is switched to the scripted agent over RPC first, and the turn is
+     one the script holds still: "ask me" parks it on a permission, a status that stays put for as long
+     as the measuring takes. Not awaited — the send answers only once the permission is decided. */
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
+  await api.ready;
+  const sessions = await until(async () => {
+    const all = await api.call("sessions.listAll", {});
+    return all.length ? all : null;
+  }, 15000, "a session to drive");
+  await api.call("sessions.setAgent", { id: sessions[0].id, agentKind: "fake" });
+  void api.call("sessions.send", { id: sessions[0].id, text: "ask me", attachments: [], mentions: [] }).catch(() => {});
   const dotSel = `.item[data-active] .item-status, .item-status`;
   await until(() => evalIn(c, `!!document.querySelector(${JSON.stringify(dotSel)})`), 20000, "a status dot");
 
@@ -227,10 +269,11 @@ async function main() {
   // The mutant: put `margin-left: auto` back on both marks, exactly as it was. Two auto margins in one
   // flex row SHARE the free space, so the dot is pushed to the middle of whatever the title left over
   // and the glyph carries on to the end — the pair is torn across the row, and where the dot lands is
-  // a function of the title's length, so no two rows agree on it.
+  // a function of the title's length, so no two rows agree on it. The marks are one group now
+  // (`.item-trail`), which is what holds them together, so the mutant dissolves the group first.
   await evalIn(c, `(() => {
     const st = document.createElement('style'); st.id = 'mutant-auto';
-    st.textContent = '.item-status, .item-glyph { margin-left: auto !important; } .item-title { flex: none !important; }';
+    st.textContent = '.item-trail { display: contents !important; } .item-status, .item-glyph { margin-left: auto !important; } .item-title { flex: none !important; }';
     document.head.appendChild(st); return true; })()`);
   await sleep(150);
   const mutantMarks = await evalIn(c, `(() => {
@@ -242,6 +285,54 @@ async function main() {
   check("the mutant reproduces the bug (both marks back on margin-left:auto ⇒ the dot floats off into the row)",
     mutantMarks.gap > 20, { ...mutantMarks, fixed: marks.gap });
   await evalIn(c, `(() => { document.getElementById('mutant-auto').remove(); return true; })()`);
+
+  /* ── 2b. The far end is one slot: the state at rest, the actions under the pointer ───────────── */
+  // The actions used to follow the row at opacity 0 and keep their width, so the title stopped ~50px
+  // short and the state sat mid-line. Measured on the row that is both running and open, which wears
+  // both marks and both actions.
+  const farEnd = (tag) => evalIn(c, `(() => {
+    const item = document.querySelector('.item:has(.item-status):has(.item-glyph)');
+    const box = (el) => { const r = el.getBoundingClientRect(); return { l: +r.left.toFixed(1), r: +r.right.toFixed(1), w: +r.width.toFixed(1) }; };
+    const trail = item.querySelector('.item-trail'), actions = item.querySelector('.item-actions');
+    return { item: box(item), title: box(item.querySelector('.item-title')),
+      trail: getComputedStyle(trail).display === 'none' ? null : box(trail), actions: box(actions),
+      actionsOpacity: getComputedStyle(actions).opacity };
+  })()`);
+  const rest = await farEnd("rest");
+  check("at rest the state sits at the row's far end and the actions take no room and show nothing",
+    rest.trail !== null && rest.item.r - rest.trail.r < 12 && rest.actionsOpacity === "0" && rest.trail.l - rest.title.r < 14, rest);
+  // The mutant: the old layout — the actions back in the flow at opacity 0, holding their width.
+  await evalIn(c, `(() => {
+    const st = document.createElement('style'); st.id = 'mutant-flow';
+    st.textContent = '.item-actions { position: static !important; translate: none !important; }';
+    document.head.appendChild(st); return true; })()`);
+  await sleep(150);
+  const oldRest = await farEnd("old");
+  check("the mutant reproduces the old row (actions in the flow ⇒ the title gives up their width at rest)",
+    // By the actions' own width, measured: a session row carries one now (it was two, and a fixed 40px).
+    rest.title.w - oldRest.title.w >= rest.actions.w - 1, { titleNow: rest.title.w, titleBefore: oldRest.title.w, actions: rest.actions.w });
+  await evalIn(c, `(() => { document.getElementById('mutant-flow').remove(); return true; })()`);
+  await sleep(150);
+  // Under a real hover: the state steps aside, the actions take its place, the title stops short of them.
+  await c.send("DOM.enable"); await c.send("CSS.enable");
+  const { root } = await c.send("DOM.getDocument", {});
+  const { nodeId } = await c.send("DOM.querySelector", { nodeId: root.nodeId, selector: ".item:has(.item-status):has(.item-glyph)" });
+  await c.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: ["hover"] });
+  await sleep(250);
+  const hover = await farEnd("hover");
+  check("under the pointer the state gives way and the actions take the same far end",
+    hover.trail === null && hover.actionsOpacity === "1" && hover.item.r - hover.actions.r < 8 && Math.abs(hover.actions.r - rest.trail.r) < 8, { rest, hover });
+  check("…and the title stops short of the actions rather than running under them",
+    hover.title.r <= hover.actions.l, { titleRight: hover.title.r, actionsLeft: hover.actions.l });
+  const rowBox = await evalIn(c, `(() => { const r = document.querySelector('.item:has(.item-status):has(.item-glyph)').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`);
+  for (const [tag, forced] of [["hover", ["hover"]], ["rest", []]]) {
+    await c.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: forced });
+    await sleep(200);
+    const shot = await c.send("Page.captureScreenshot", { format: "png", clip: { x: rowBox.x - 4, y: rowBox.y - 4, width: rowBox.w + 8, height: rowBox.h + 8, scale: 3 } });
+    const out = path.join(os.tmpdir(), `realm-sidebar-row-${tag}.png`);
+    fs.writeFileSync(out, Buffer.from(shot.data, "base64"));
+    console.log(`SCREENSHOT row-${tag} ${out}`);
+  }
 
   /* ── 3. The status ring is painted, with and without motion ──────────────────────────────── */
   const dotRect = await evalIn(c, `(() => {
@@ -313,7 +404,12 @@ async function main() {
 
 main()
   .catch((e) => { console.error("ERROR", e.message); process.exitCode = 1; })
-  .finally(() => {
+  .finally(async () => {
     electron?.kill("SIGTERM");
-    setTimeout(() => { electron?.kill("SIGKILL"); fs.rmSync(scratch, { recursive: true, force: true }); process.exit(process.exitCode ?? 0); }, 1200);
+    await sleep(1200);
+    electron?.kill("SIGKILL");
+    // The server is a second Electron that outlives the app, holding SERVER_PORT against the next run.
+    await stopDaemons(path.join(scratch, "home"));
+    fs.rmSync(scratch, { recursive: true, force: true });
+    process.exit(process.exitCode ?? 0);
   });

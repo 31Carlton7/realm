@@ -51,11 +51,11 @@ describe("the Library's skill viewer", () => {
   it("takes the page's title and gives back a way to the list, rather than opening a pane", async () => {
     await mount();
     await openSkill("mac");
-    // One h1 for the page, and it is the skill's name — not "Library" above a second heading.
+    // One h1 for the page, and it is the skill's name — not the section's above a second heading.
     expect(await screen.findByRole("heading", { name: "mac", level: 1 })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Library" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Skills", level: 1 })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to skills" }));
-    expect(await screen.findByRole("heading", { name: "Library", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Skills", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Skills" })).toBeChecked();
   });
 

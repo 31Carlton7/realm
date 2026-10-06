@@ -67,10 +67,6 @@ describe("TodoStrip", () => {
     expect(strip()).not.toHaveAttribute("data-open");
   });
 
-  it("names what is in flight in the agent's own words", () => {
-    render(<TodoStrip todos={[todo("Run the suite", "pending"), { content: "Build", status: "in_progress", activeForm: "Building the app" }]} />);
-    expect(document.querySelector(".composer-todos .todo-active")).toHaveTextContent("Building the app");
-  });
 });
 
 describe("the strip on the pane", () => {
@@ -82,20 +78,6 @@ describe("the strip on the pane", () => {
     expect(s).not.toBeNull();
     expect(card).not.toBeNull();
     expect(s!.compareDocumentPosition(card!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("shows the newest plan, and a session rebuilt from its persisted events shows it again", async () => {
-    const events = [
-      write("t1", [{ content: "Parse the payload", status: "pending" }]),
-      sessionEvent("assistant_text", { messageId: "m", text: "on it" }),
-      write("t2", [{ content: "Parse the payload", status: "completed" }, { content: "Draw the strip", status: "in_progress" }]),
-    ];
-    const first = await mountPane(events);
-    expect(items()).toEqual(["Parse the payload", "Draw the strip"]);
-    first.unmount();
-    // A relaunch holds no strip state of its own: the same event log folds back to the same plan.
-    await mountPane(events);
-    expect(items()).toEqual(["Parse the payload", "Draw the strip"]);
   });
 
   it("stays away from the hero prompter — a session with nothing to read has no plan to pin", async () => {

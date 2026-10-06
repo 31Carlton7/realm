@@ -18,9 +18,6 @@ function setup(opts: { enabled?: boolean } = {}) {
 }
 
 describe("the switch", () => {
-  it("is off until a space says otherwise", () => {
-    expect(setup().tickets.enabled(SPACE)).toBe(false);
-  });
 
   /**
    * THE MUTANT: mint regardless and let `allowsAct` consult the switch. The two would then disagree

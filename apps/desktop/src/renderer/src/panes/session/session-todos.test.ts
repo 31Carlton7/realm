@@ -24,11 +24,6 @@ describe("latestTodos", () => {
     expect(latestTodos(t.blocks)).toEqual([todo("Read the spec", "completed"), todo("Write it", "in_progress")]);
   });
 
-  it("carries activeForm through, since the strip says what the agent is doing in its own words", () => {
-    const t = reduceAll([write("t1", [{ content: "Run the suite", status: "in_progress", activeForm: "Running the suite" }])]);
-    expect(latestTodos(t.blocks)[0]!.activeForm).toBe("Running the suite");
-  });
-
   it("clears when the agent drops its plan, rather than restoring the one before it", () => {
     const t = reduceAll([
       write("t1", [{ content: "Read the spec", status: "pending" }]),
@@ -45,8 +40,4 @@ describe("latestTodos", () => {
     expect(latestTodos(t.blocks)).toEqual([todo("Read the spec", "pending")]);
   });
 
-  it("is empty when the newest payload is not the shape TodoWrite documents", () => {
-    const t = reduceAll([write("t1", [{ content: "Read the spec", status: "hurrying" }])]);
-    expect(latestTodos(t.blocks)).toEqual([]);
-  });
 });

@@ -28,6 +28,7 @@ async function mount(overrides: FakeData = {}) {
   const store = createAppStore(api);
   await store.getState().boot();
   const r = render(<StoreContext.Provider value={store}><SettingsPage item={pageItem} visible /></StoreContext.Provider>);
+  fireEvent.click(screen.getByRole("radio", { name: "Engines" }));
   return { store, api, ...r };
 }
 
@@ -47,12 +48,6 @@ describe("an engine row with an update available", () => {
     // version exists, with nothing beside it to do about it, is a dead end. The button NAMES that
     // version, because the same button also appears when nothing newer is known — a CLI with its own
     // updater always offers to go and look — and there it reads "Check for updates" instead.
-    expect(within(codexRow()).getByRole("button", { name: "Update to v0.153.4" })).toBeInTheDocument();
-  });
-
-  it("shows the exact command before the button that runs it", async () => {
-    await mount({ cliStatus: [behind] });
-    await waitFor(() => expect(within(codexRow()).getByText("npm install -g @openai/codex@0.153.4")).toBeInTheDocument());
     expect(within(codexRow()).getByRole("button", { name: "Update to v0.153.4" })).toBeInTheDocument();
   });
 

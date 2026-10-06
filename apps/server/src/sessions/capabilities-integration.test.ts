@@ -94,6 +94,8 @@ describe("the capabilities preamble reaches an ordinary session", () => {
     expect(ctx).toContain("agent_run");
     expect(ctx).toContain("browser_open");
     expect(ctx).toContain("docs_search");
+    // …and what Realm draws in its replies, which no switch turns off.
+    expect(ctx).toContain("```realm-chart");
     // The Mac-app provider is opt-in and this space never opted in, so it must stay unmentioned.
     expect(ctx).not.toContain("computer_act");
     c.close();
@@ -140,15 +142,6 @@ describe("the capabilities preamble reaches an ordinary session", () => {
   it("says nothing about simulators when nobody has asked the Mac — not knowing is not a yes", async () => {
     // An app built with no probe: the answer is "not known", and the paragraph waits for a yes.
     const { c, space, claude } = await boot();
-    await startSession(c, space.id, "claude");
-    await waitFor(() => claude.starts.length === 1);
-    expect(claude.starts[0]!.systemContext!).not.toContain("simulator_open");
-    c.close();
-  });
-
-  it("stops naming the simulator once the space switches that provider off", async () => {
-    const { c, space, claude } = await boot(true);
-    await c.call("mcp.setProviderEnabled", { spaceId: space.id, name: "realm-simulator", enabled: false });
     await startSession(c, space.id, "claude");
     await waitFor(() => claude.starts.length === 1);
     expect(claude.starts[0]!.systemContext!).not.toContain("simulator_open");

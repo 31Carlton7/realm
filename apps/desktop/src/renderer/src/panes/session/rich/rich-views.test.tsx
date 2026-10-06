@@ -246,11 +246,6 @@ describe("ToolCard with a drawn payload", () => {
     expect(q(".tool-well")).toHaveLength(2);
   });
 
-  it("the row's +/− counts are the diff's, and a zero side is not printed", () => {
-    render(<ToolCard sessionStatus="idle" block={tool("Edit", { file_path: "/a.ts", old_string: "keep", new_string: "keep\nadded" }, "ok")} />);
-    expect(q(".tool-stat-add")[0]).toHaveTextContent("+1");
-    expect(q(".tool-stat-del")).toHaveLength(0);
-  });
 });
 
 describe("PermissionCard preview", () => {

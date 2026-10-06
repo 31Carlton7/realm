@@ -37,6 +37,7 @@ describe("the Laya section", () => {
     const store = createAppStore(api);
     await store.getState().boot();
     render(<StoreContext.Provider value={store}><SettingsPage item={item("set", "s1", { kind: "settings-page", refId: PAGE_REF_IDS["settings-page"] })} visible /></StoreContext.Provider>);
+    fireEvent.click(screen.getByRole("radio", { name: "Engines" }));
     expect(await screen.findByRole("heading", { name: "Laya (local decisions)" })).toBeInTheDocument();
     await waitFor(() => expect(api.calls).toContain("layaStatus"));
   });
@@ -175,7 +176,7 @@ describe("the recordings row", () => {
   it("says where a recording is started when there is none — the device pane — and has nothing to delete", async () => {
     await mount(status({ state: "off" }, { installed: true, recorded: { recordings: 0, screens: 0, apps: [] } }));
     expect(within(row()).getByText("No screens recorded")).toBeInTheDocument();
-    expect(within(row()).getByText(/open an app on a device, choose Record for Laya in its pane's bar/)).toBeInTheDocument();
+    expect(within(row()).getByText(/open an app on a device, choose Record my use of this app under it/)).toBeInTheDocument();
     expect(within(row()).getByRole("button", { name: "Delete recordings" })).toBeDisabled();
   });
 

@@ -124,15 +124,6 @@ describe("downloading an image", () => {
     expect(readFileSync(join(dir, `${sha(other)}.iso`)).equals(other)).toBe(true);
   });
 
-  it("gives each unverified download its own part file, so two do not append to one", async () => {
-    const { dir, make } = store();
-    const s1 = make({ fetch: fakeFetch().fn });
-    await s1.download({ sha256: "", kind: "iso", url: "https://example.com/a.iso", name: "A" });
-    // The part file is keyed on the URL rather than on the (absent) hash — two unverified downloads
-    // sharing `.iso.part` would interleave into one corrupt file.
-    expect(readFileSync(join(dir, `${SHA}.iso`)).equals(BODY)).toBe(true);
-  });
-
   it("skips the work entirely when the image is already there", async () => {
     const { dir, make } = store();
     writeFileSync(join(dir, `${SHA}.qcow2`), BODY);

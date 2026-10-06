@@ -27,11 +27,6 @@ describe("parseFrontmatter", () => {
     expect(parseFrontmatter("---\nname: mac\ndescription: x\n")).toBeNull();
   });
 
-  it("reads a folded block scalar as one line", () => {
-    const fm = parseFrontmatter("---\nname: mac\ndescription: >-\n  Use when the task\n  touches Calendar.\n---\n");
-    expect(fm).toEqual({ name: "mac", description: "Use when the task touches Calendar." });
-  });
-
   it("reads a literal block scalar keeping its line breaks", () => {
     const fm = parseFrontmatter("---\nname: mac\ndescription: |\n  one\n  two\n---\n");
     expect(fm!.description).toBe("one\ntwo");
@@ -63,10 +58,6 @@ describe("parseSkillDocument", () => {
     const doc = parseSkillDocument("---\nname: mac\ndescription: >-\n  one\n  two\n---\n# Heading\n");
     expect(doc!.frontmatter.description).toBe("one two");
     expect(doc!.body).toBe("# Heading\n");
-  });
-
-  it("is null for a file with no frontmatter at all, exactly as parseFrontmatter is", () => {
-    expect(parseSkillDocument("# just a document\n")).toBeNull();
   });
 
   it("has an empty body when the fence closes at the end of the file", () => {

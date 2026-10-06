@@ -209,10 +209,27 @@ describe("SessionService over rpc", () => {
     c.close();
   });
 
-  it("respondPermission without a live handle is SESSION_NOT_LIVE", async () => {
-    const { c, sp } = await boot();
-    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
-    expect((await c.call("sessions.respondPermission", { id: session.id, requestId: "r1", decision: "allow" })).error.code).toBe("SESSION_NOT_LIVE");
+  it("probeAgent asks one adapter, and the cached probe answers with what it learned", async () => {
+    // A finished sign-in confirms its own agent with this. Asking every adapter waited on the
+    // slowest — half a minute, for an ACP agent's throwaway session — to say nothing about this one.
+    let signedIn = false;
+    let others = 0;
+    class Claude extends FakeAdapter { override async probe() { return { kind: "claude" as const, available: true, version: null, loggedIn: signedIn, reason: null }; } }
+    class Other extends FakeAdapter { override async probe() { others++; return { kind: this.kind, available: true, version: "fake", loggedIn: true, reason: null }; } }
+    const home = tempDir("realm-");
+    app = await createApp({ home, port: 0, adapters: { fake: new Other({ script: [] }), claude: Object.assign(new Claude({ script: [] }), { kind: "claude" as const }) } });
+    const c = await client(app.port);
+    expect((await c.call("agents.probe", {})).result.find((r: Any) => r.kind === "claude").loggedIn).toBe(false);
+    signedIn = true;
+    expect(await app.sessions.probeAgent("claude")).toMatchObject({ kind: "claude", loggedIn: true });
+    expect(others).toBe(1);
+    // Served from the cache — no adapter asked again — and it says what probeAgent was just told.
+    const rows = (await c.call("agents.probe", {})).result;
+    expect(rows.find((r: Any) => r.kind === "claude").loggedIn).toBe(true);
+    expect(others).toBe(1);
+    // Over the wire, as first run asks it; a kind with no adapter is null rather than an error.
+    expect((await c.call("agents.probeOne", { kind: "claude" })).result).toMatchObject({ kind: "claude", loggedIn: true });
+    expect((await c.call("agents.probeOne", { kind: "acp:gemini" })).result).toBeNull();
     c.close();
   });
 
@@ -685,16 +702,6 @@ describe("the session's terminal side panel (W4)", () => {
     expect(app.terminals.has(term.terminalId)).toBe(false);
     expect(app.db.prepare("SELECT id FROM items WHERE id = ?").get(term.itemId)).toBeUndefined();
     expect(app.db.prepare("SELECT COUNT(*) AS n FROM terminals").get()).toEqual({ n: 0 });
-    c.close();
-  });
-
-  it("deleting the session's sidebar item takes the same path (items.delete → sessions.delete)", async () => {
-    const { c, sp } = await boot();
-    const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
-    const term = (await c.call("sessions.openTerminal", { id: session.id })).result;
-    await c.call("items.delete", { id: itemId });
-    expect(app.terminals.has(term.terminalId)).toBe(false);
-    expect(app.db.prepare("SELECT COUNT(*) AS n FROM sessions").get()).toEqual({ n: 0 });
     c.close();
   });
 

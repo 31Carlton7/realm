@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  BROWSER_READ_ONLY_TOOLS, CREDENTIAL_PRESENCE_TTLS, normalizeOrigin, passkeyRpIdForPageUrl,
+  BROWSER_READ_ONLY_TOOLS, BrowserGeneratedCredentialSchema, CREDENTIAL_PRESENCE_TTLS,
+  GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
+  normalizeOrigin, passkeyRpIdForPageUrl,
 } from "./browser-agent";
 
 /**
@@ -70,6 +72,29 @@ describe("CREDENTIAL_PRESENCE_TTLS", () => {
   });
 });
 
+
+describe("BrowserGeneratedCredentialSchema", () => {
+  it("has NO origin field — the pane decides what a minted password is pinned to, not the caller", () => {
+    // If an agent could name the origin, the origin gate would be a formality on the way in: mint for
+    // the page you are standing on, then fill it. Unknown keys are stripped rather than honored.
+    const parsed = BrowserGeneratedCredentialSchema.parse({ origin: "https://evil.example", username: "ada" });
+    expect(parsed).not.toHaveProperty("origin");
+    expect(parsed).not.toHaveProperty("value");
+    expect(Object.keys(parsed).sort()).toEqual(["label", "length", "symbols", "username"]);
+  });
+
+  it("defaults to a long password with punctuation, and nothing about the account", () => {
+    expect(BrowserGeneratedCredentialSchema.parse({})).toEqual({
+      username: "", label: "", length: GENERATED_PASSWORD_LENGTH, symbols: true,
+    });
+  });
+
+  it("refuses a length outside the bounds rather than quietly clamping a weak one", () => {
+    expect(BrowserGeneratedCredentialSchema.safeParse({ length: GENERATED_PASSWORD_MIN_LENGTH - 1 }).success).toBe(false);
+    expect(BrowserGeneratedCredentialSchema.safeParse({ length: GENERATED_PASSWORD_MAX_LENGTH + 1 }).success).toBe(false);
+    expect(BrowserGeneratedCredentialSchema.safeParse({ length: 12.5 }).success).toBe(false);
+  });
+});
 
 /**
  * `passkeyRpIdForPageUrl` is the passkey half of the same gate `normalizeOrigin` is for passwords,

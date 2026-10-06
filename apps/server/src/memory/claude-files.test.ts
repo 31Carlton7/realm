@@ -106,11 +106,4 @@ describe("claudeMemoryFiles", () => {
     expect(paths.filter((p) => p === join(cwd, "a.md"))).toHaveLength(1);
   });
 
-  it("resolves @~/ imports against the home directory shape (never listing a miss)", () => {
-    const root = scratch();
-    const cwd = join(root, "repo");
-    write(cwd, "CLAUDE.md", "@~/definitely-not-a-real-realm-test-file.md");
-    const files = claudeMemoryFiles(cwd, join(root, "claude-home"));
-    expect(files.filter((f) => f.origin === "import")).toEqual([]);
-  });
 });

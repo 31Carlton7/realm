@@ -401,7 +401,7 @@ export function chordsForCommand(rules: readonly Keybinding[], command: string, 
  */
 export type ContextKey = { key: string; doc: string };
 export const CONTEXT_KEYS: readonly ContextKey[] = [
-  { key: "overlayOpen", doc: "The palette, the spaces overview or a modal sheet is up, and owns the keyboard." },
+  { key: "overlayOpen", doc: "The palette, the spaces overview, a modal sheet or the media viewer is up, and owns the keyboard." },
   { key: "paletteOpen", doc: "The command palette is open." },
   { key: "spacesOpen", doc: "The all-spaces overview is open." },
   { key: "sheetOpen", doc: "A modal sheet is open." },
@@ -437,7 +437,10 @@ const SPACE_SLOTS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "pane.splitRight", label: "Split right", group: "Panes" },
   { id: "pane.splitDown", label: "Split down", group: "Panes" },
-  { id: "pane.close", label: "Close pane", group: "Panes" },
+  /* A tab, or a pane out of a split — never a session alone, which is left from the sidebar (the
+     renderer's `closeIntent`). The label says so, because "Close pane" over a lone session would
+     promise the close the owner asked to be rid of. */
+  { id: "pane.close", label: "Close tab or split", group: "Panes" },
   { id: "pane.toggleFocus", label: "Focus pane full-screen", group: "Panes" },
   { id: "pane.focusLeft", label: "Focus the pane to the left", group: "Panes" },
   { id: "pane.focusRight", label: "Focus the pane to the right", group: "Panes" },
@@ -446,9 +449,8 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "pane.navBack", label: "Back in this pane", group: "Panes" },
   { id: "pane.navForward", label: "Forward in this pane", group: "Panes" },
   { id: "pane.rename", label: "Rename the focused pane", group: "Panes" },
-  { id: "paneGroup.next", label: "Next split", group: "Panes" },
-  { id: "paneGroup.previous", label: "Previous split", group: "Panes" },
-  { id: "paneGroup.new", label: "New split", group: "Panes" },
+  { id: "pane.newTab", label: "New tab in the side pane", group: "Panes" },
+  { id: "pane.newTabFullView", label: "New tab in full view", group: "Panes" },
 
   { id: "space.next", label: "Next space", group: "Spaces" },
   { id: "space.previous", label: "Previous space", group: "Spaces" },
@@ -460,9 +462,15 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "session.newInWorktree", label: "New session in a worktree", group: "Sessions" },
   { id: "session.quickChat", label: "Quick chat", group: "Sessions" },
   { id: "session.attachFiles", label: "Add files to this session", group: "Sessions" },
+  /* Point at a part of Realm's own window and drop it into a prompter — the web picker's sibling for
+     the app around the pages (the renderer's app-pick/). */
+  { id: "session.selectInRealm", label: "Select in Realm", group: "Sessions" },
   { id: "session.dispatchDraft", label: "Dispatch the draft", group: "Sessions" },
   { id: "session.interrupt", label: "Interrupt the running session", group: "Sessions" },
-  { id: "terminal.toggle", label: "Show/hide this session's terminal", group: "Sessions" },
+  /* Shows the terminal and, in its default place as a tab of the side pane, goes to it rather than
+     putting it away — `diff.open`'s shape, so the label says Show. The id keeps `toggle` because
+     people's own keybindings are stored against it, and the bottom dock does still toggle. */
+  { id: "terminal.toggle", label: "Show this session's terminal", group: "Sessions" },
 
   { id: "terminal.new", label: "New terminal", group: "App" },
   { id: "browser.new", label: "New browser", group: "App" },
@@ -476,6 +484,11 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "palette.grep", label: "Find in files", group: "App" },
   { id: "sidebar.toggle", label: "Show/hide the sidebar", group: "App" },
   { id: "activity.open", label: "MCP Activity", group: "App" },
+  /* The WINDOW's trail, rooms included — where you were, not what this pane showed (that is
+     `pane.navBack`). Following an agent into another room and coming back is one Go back. */
+  { id: "window.back", label: "Go back", group: "App" },
+  { id: "window.forward", label: "Go forward", group: "App" },
+  { id: "settings.open", label: "Settings", group: "App" },
 ];
 
 /**
@@ -503,9 +516,10 @@ const WHEN_IDLE = "!overlayOpen && !inputFocus";
  */
 export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
   { key: "mod+k", command: "palette.toggle", when: "!sheetOpen" },
-  /* The palette's two narrowings. Guarded on `!sheetOpen` like the palette itself, and deliberately
-     NOT on `!inputFocus`: ⌘P has to work while the palette's own search box has the keyboard, which
-     is how someone switches from "find in files" to "open a file" without reaching for the mouse.
+  /* Finding a file: ⌘P by its name, in the documents pane's own search, and ⌘⇧P by its contents, in
+     the palette. Guarded on `!sheetOpen` like the palette itself, and deliberately NOT on
+     `!inputFocus`: ⌘P has to work while the palette's search box or the prompter has the keyboard,
+     which is how someone switches from "find in files" to "open a file" without reaching for the mouse.
 
      ⌘⇧P, and NOT the ⌘⇧F other editors use for find-in-files, because ⌘⇧F is already
      `pane.toggleFocus` below. Two defaults on one chord is not a tie — the later rule wins — so
@@ -517,6 +531,9 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
   { key: "mod+shift+p", command: "palette.grep", when: "!sheetOpen" },
   { key: "mod+shift+space", command: "spaces.toggle", when: "!sheetOpen" },
   { key: "mod+b", command: "sidebar.toggle", when: WHEN_IDLE },
+  /* ⌘, is Settings in every Mac app, and works from anywhere — a text field included, since it types
+     nothing there — so the guard is the palette's: only a modal sheet holds it back. */
+  { key: "mod+,", command: "settings.open", when: "!sheetOpen" },
 
   { key: "mod+\\", command: "pane.splitRight", when: WHEN_IDLE },
   { key: "mod+shift+\\", command: "pane.splitDown", when: WHEN_IDLE },
@@ -528,9 +545,11 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
   { key: "mod+alt+down", command: "pane.focusDown", when: WHEN_IDLE },
   { key: "mod+[", command: "pane.navBack", when: WHEN_IDLE },
   { key: "mod+]", command: "pane.navForward", when: WHEN_IDLE },
-  { key: "mod+shift+[", command: "paneGroup.previous", when: WHEN_IDLE },
-  { key: "mod+shift+]", command: "paneGroup.next", when: WHEN_IDLE },
-  { key: "mod+shift+g", command: "paneGroup.new", when: WHEN_IDLE },
+  /* A side pane's new tab. ⌘⇧B is Codex's own chord for it and nothing here holds it; Codex's ⇧⌘F
+     for the full-view variant is `pane.toggleFocus` above, so that one moves to ⌥⌘B — the same
+     letter, one modifier along, which is what makes the pair read as one control. */
+  { key: "mod+shift+b", command: "pane.newTab", when: WHEN_IDLE },
+  { key: "mod+alt+b", command: "pane.newTabFullView", when: WHEN_IDLE },
 
   { key: "ctrl+tab", command: "space.next", when: WHEN_IDLE },
   { key: "ctrl+shift+tab", command: "space.previous", when: WHEN_IDLE },
@@ -540,17 +559,32 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
   { key: "mod+n", command: "session.new", when: WHEN_IDLE },
   { key: "mod+shift+n", command: "session.quickChat", when: WHEN_IDLE },
   { key: "mod+u", command: "session.attachFiles", when: "!overlayOpen && sessionFocus" },
+  /* ⌘⇧C is the inspector's own chord — Chrome's, Safari's and Firefox's "select an element" — and
+     nothing here held it. Not gated on a focused session: the part of Realm worth pointing at is as
+     often a sidebar row or a settings switch, and the pick goes to the session `sessionForPick` finds.
+     Typing is allowed (`inputFocus` is not in the clause) because the hand is in the prompter, where
+     ⌘⇧C types nothing. */
+  { key: "mod+shift+c", command: "session.selectInRealm", when: "!overlayOpen" },
   { key: "mod+j", command: "terminal.toggle", when: "!overlayOpen && sessionFocus" },
   { key: "mod+shift+enter", command: "session.dispatchDraft", when: "!overlayOpen && sessionFocus" },
   { key: "escape", command: "session.interrupt", when: "!overlayOpen && sessionRunning" },
+  /* ⌃- / ⌃⇧-, the Go back / Go forward of VS Code and Cursor on a Mac. NOT ⌘[ / ⌘], the browser
+     convention Codex uses for this: those are `pane.navBack` / `pane.navForward` above, the focused
+     pane's own trail, and taking them would rebind a shortcut people already use. Typing is allowed
+     (`inputFocus` is not in the clause) because the hand is usually in a composer when it wants to go
+     back, and ⌃- types nothing there; a terminal is left out because ⌃- is a keystroke there — readline
+     reads it as undo. */
+  { key: "ctrl+-", command: "window.back", when: "!overlayOpen && !terminalFocus" },
+  { key: "ctrl+shift+-", command: "window.forward", when: "!overlayOpen && !terminalFocus" },
 ];
 
 /**
  * Chords Realm swallows whether or not a rule fires.
  *
  * ⌘W alone, and for a reason no `when` clause can express: with no application menu of Realm's own,
- * Electron installs its default one, whose File → Close Window carries this accelerator. Realm ships
- * a menu without that item (`apps/desktop/src/main/index.ts`), so this is belt and braces — but the
+ * Electron installs its default one, whose File → Close Window carries this accelerator. Realm's menu
+ * bar shows ⌘W on Close Tab or Split and hands the keystroke itself to the page (`apps/desktop/src/main/
+ * app-menu.ts`), and nothing in it closes the window, so this is belt and braces — but the
  * asymmetry of the two failures decides it. A swallowed keystroke is a dead key, noticed and
  * recovered from in a second; a ⌘W that reaches Electron closes the window out from under a running
  * agent. When the guard refuses the action, the key is still eaten.

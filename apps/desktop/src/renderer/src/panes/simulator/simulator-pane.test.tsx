@@ -1,6 +1,6 @@
-import type { SimulatorDevice } from "@realm/contracts";
+import { findLeafOfItem, type SimulatorDevice } from "@realm/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { LayaStatus, SimulatorState } from "@realm/contracts";
 
 /** Every call the pane makes, and what it gets back. The pane talks to the server through the rpc
@@ -17,6 +17,8 @@ let settings: Record<string, unknown> = {};
 /** Which toolchain the stored row says this pane is pointed at. It decides which device art the
  *  stream is framed as, and it comes off the ROW rather than being inferred from the stream. */
 let platform: "ios" | "android" = "ios";
+/** What the device says when asked for its apps and its settings — or, set, the refusal it gives. */
+let refusal: string | null = null;
 
 vi.mock("../../rpc/client", () => ({
   rpc: () => ({
@@ -29,6 +31,8 @@ vi.mock("../../rpc/client", () => ({
       if (method === "simulators.stop") return { state: off("sim-1") };
       if (method === "simulators.ax") { calls.push({ method: "ax", params }); return { tree: AX_TREE }; }
       if (method === "simulators.act") return { ok: true, detail: "" };
+      if (method === "simulators.apps") { if (refusal) throw new Error(refusal); return { apps: [{ bundleId: "com.apple.mobilesafari", name: "Safari" }] }; }
+      if (method === "simulators.ui") { if (refusal) throw new Error(refusal); return { ui: { appearance: "dark", "reduce-motion": "on" } }; }
       if (method === "settings.get") return { value: settings[params.key] ?? null };
       if (method === "settings.set") { settings[params.key] = params.value; return { ok: true }; }
       throw new Error(`unexpected ${method}`);
@@ -37,9 +41,10 @@ vi.mock("../../rpc/client", () => ({
 }));
 
 import { SimulatorPane } from "./SimulatorPane";
-import { SimulatorPanelActions } from "./SimulatorBar";
+import { PanelBar } from "../../components/PanelBar";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item } from "../../state/store.test-fakes";
+import { fakeApi, item, session } from "../../state/store.test-fakes";
+import { exited } from "../../components/popover-exit.test-fakes";
 
 function off(id: string): SimulatorState {
   return { simulatorId: id, status: "off", udid: null, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null, physical: false };
@@ -54,6 +59,8 @@ const RUNNING: SimulatorState = {
 /** The device's input socket. jsdom has no WebSocket that connects to anything, so this stands in
  *  for one and records the frames the pane sends. */
 const sockets: FakeSocket[] = [];
+/** Whether a new socket opens: off, it stays connecting for as long as the test looks at it. */
+let socketsOpen = true;
 class FakeSocket {
   static OPEN = 1;
   readyState = 1;
@@ -62,7 +69,7 @@ class FakeSocket {
   onopen: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
-  constructor(readonly url: string) { sockets.push(this); queueMicrotask(() => this.onopen?.()); }
+  constructor(readonly url: string) { sockets.push(this); if (socketsOpen) queueMicrotask(() => this.onopen?.()); }
   send(f: Uint8Array) { this.sent.push(f); }
   close() { this.readyState = 3; this.onclose?.(); }
 }
@@ -100,8 +107,20 @@ async function mount(state: SimulatorState = off("sim-1")) {
   return { store, ...r };
 }
 
+/** The device's toolbar, over the device. */
+const toolbar = () => within(screen.getByRole("group", { name: "Device controls" }));
+/** The toolbar's overflow, opened. */
+async function openMore(): Promise<HTMLElement> {
+  fireEvent.click(toolbar().getByRole("button", { name: "More device controls" }));
+  return screen.findByRole("menu", { name: "More device controls" });
+}
+/** Its rows' names in order, a rule between groups written as "—". */
+const rowNames = (menu: HTMLElement) => [...menu.querySelectorAll('[role^="menuitem"], [role="separator"]')]
+  .map((r) => (r.getAttribute("role") === "separator" ? "—" : r.querySelector(".menu-label")?.textContent ?? r.textContent));
+const frameRow = (menu: HTMLElement) => within(menu).getByRole("menuitemcheckbox", { name: "Show device frame" });
+
 beforeEach(() => {
-  calls.length = 0; sockets.length = 0; settings = {}; platform = "ios";
+  calls.length = 0; sockets.length = 0; settings = {}; platform = "ios"; socketsOpen = true; refusal = null;
   devices = [
     { udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false },
     { udid: "UDID-2", platform: "ios", name: "iPad Pro 13-inch", runtime: "iPadOS 27.0", state: "Booted", serial: null, physical: false },
@@ -206,6 +225,20 @@ describe("choosing a device", () => {
     devices = [{ udid: "00008150-PHONE", platform: "ios", name: "Test’s iPhone", runtime: "iOS 27.2", state: "Developer Mode off", serial: null, physical: true }];
     await mount();
     expect((await screen.findByRole("button", { name: /Test’s iPhone/ })).textContent).toContain("iOS 27.2 · Developer Mode off");
+  });
+
+  it("dissolves the list's far end while more devices are under it", async () => {
+    // THE MUTANT: a list of devices that stops at a hard edge where it scrolls, the cut the owner
+    // asked every scroller in the app to lose. jsdom lays nothing out, so the scroller's metrics are stated.
+    const { container } = await mount();
+    await screen.findByRole("button", { name: /iPhone 17 Pro/ });
+    const list = container.querySelector<HTMLElement>(".sim-body")!;
+    act(() => {
+      Object.defineProperty(list, "scrollHeight", { configurable: true, value: 1400 });
+      Object.defineProperty(list, "clientHeight", { configurable: true, value: 700 });
+      list.dispatchEvent(new Event("scroll"));
+    });
+    expect(list.dataset.dissolve).toBe("end");
   });
 
   it("says what is missing when there is nothing to choose from", async () => {
@@ -334,11 +367,25 @@ describe("the device frame", () => {
     expect(art.getAttribute("alt")).toBe("");
     // Which device the art is a picture of is on the tooltip: a label saying "iPhone 15 Pro" over
     // an iPhone 17 would be a claim about the device rather than about the frame.
-    expect(screen.getByRole("radio", { name: "Frame" }).getAttribute("title")).toMatch(/iPhone/);
+    expect(frameRow(await openMore()).getAttribute("title")).toMatch(/iPhone/);
     // The stream sits INSIDE the hole rather than filling the frame.
     const glass = chassis.querySelector(".sim-glass") as HTMLElement;
     expect(parseFloat(glass.style.left)).toBeGreaterThan(0);
     expect(parseFloat(glass.style.top)).toBeGreaterThan(0);
+  });
+
+  it("fits the device into what its toolbar and the row under it leave, so the three are one column", async () => {
+    /* THE MUTANT: fit the device to the whole stage, as when its controls were rows at the pane's two
+       ends. The toolbar and the Record row then push the column past the stage, which clips a device
+       measured to fill it. jsdom has no heights, so the two rows' are stated: 40px each, in a stage
+       800 tall — an upright iPhone is fitted by its height, to the 720 the rows leave. */
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("sim-above") || this.classList.contains("sim-under") ? 40 : 0;
+    });
+    const { container } = await mount(RUNNING);
+    const chassis = await chassisOf(container);
+    await waitFor(() => expect(chassis.getAttribute("data-frame")).toBe("art"));
+    expect(parseFloat(chassis.style.height)).toBeCloseTo(720, 0);
   });
 
   it("gives a device it has no picture of the frame Realm draws, with the corners nested concentrically", async () => {
@@ -357,14 +404,6 @@ describe("the device frame", () => {
     expect(outer - bezel).toBeGreaterThan(bezel); // the display's own corner, not a rounded rectangle's
   });
 
-  it("refuses the art for a phone that is not that shape, rather than letterboxing one inside it", async () => {
-    // An iPhone SE is 16:9. In a Pro's hole it would be a letterboxed picture under a Dynamic
-    // Island — a frame claiming the device is something it is not.
-    const { container } = await mount({ ...RUNNING, screen: { width: 750, height: 1334, orientation: "portrait" } });
-    const chassis = await chassisOf(container);
-    await waitFor(() => expect(chassis.getAttribute("data-frame")).toBe("drawn"));
-  });
-
   it("frames an emulator as a Pixel, not as an iPhone", async () => {
     platform = "android";
     const { container } = await mount({ ...RUNNING, screen: { width: 1080, height: 2400, orientation: "portrait" } });
@@ -381,10 +420,11 @@ describe("the device frame", () => {
     const chassis = await chassisOf(container);
     await waitFor(() => expect(chassis.getAttribute("data-frame")).toBe("art"));
     const before = container.querySelector("img.sim-picture");
-    fireEvent.click(screen.getByRole("radio", { name: "No frame" }));
+    fireEvent.click(frameRow(await openMore()));
     await waitFor(() => expect(chassis.getAttribute("data-frame")).toBe("none"));
     expect(container.querySelector("img.sim-picture")).toBe(before);
-    fireEvent.click(screen.getByRole("radio", { name: "Frame" }));
+    await exited();
+    fireEvent.click(frameRow(await openMore()));
     await waitFor(() => expect(chassis.getAttribute("data-frame")).toBe("art"));
     expect(container.querySelector("img.sim-picture")).toBe(before);
   });
@@ -406,19 +446,10 @@ describe("the device frame", () => {
     expect(clip.endsWith('Z")')).toBe(true);
   });
 
-  it("draws no Dynamic Island — the device already sent one", async () => {
-    /* On a modern phone the island is black pixels the SYSTEM draws into the framebuffer, so it
-       arrives inside the picture. A drawn one would sit a few pixels above the real thing, which is
-       the kind of wrong that only shows up in a screenshot someone sends you. */
-    const { container } = await mount(RUNNING);
-    await chassisOf(container);
-    expect(container.querySelector(".sim-island, .sim-notch")).toBeNull();
-  });
-
   it("the frame choice outlives the pane", async () => {
     const { unmount } = await mount(RUNNING);
     await waitFor(() => expect(document.querySelector(".sim-chassis")?.getAttribute("data-frame")).toBe("art"));
-    fireEvent.click(screen.getByRole("radio", { name: "No frame" }));
+    fireEvent.click(frameRow(await openMore()));
     await waitFor(() => expect(document.querySelector(".sim-chassis")?.getAttribute("data-frame")).toBe("none"));
     const write = calls.find((c) => c.method === "settings.set");
     expect(write!.params.key).toBe("simulator.frame:sim-1");
@@ -426,7 +457,8 @@ describe("the device frame", () => {
 
     unmount();
     await mount(RUNNING);
-    await waitFor(() => expect(screen.getByRole("radio", { name: "No frame" }).getAttribute("aria-checked")).toBe("true"));
+    await waitFor(() => expect(document.querySelector(".sim-chassis")?.getAttribute("data-frame")).toBe("none"));
+    expect(frameRow(await openMore()).getAttribute("aria-checked")).toBe("false");
   });
 
   it("a frame image stored before Realm drew its own falls back to the frame, not to nothing", async () => {
@@ -435,43 +467,18 @@ describe("the device frame", () => {
     settings["simulator.frame:sim-1"] = { kind: "image", path: "/tmp/iphone.png" };
     const { container } = await mount(RUNNING);
     await waitFor(() => expect(container.querySelector(".sim-chassis")?.getAttribute("data-frame")).toBe("art"));
-    expect(screen.getByRole("radio", { name: "Frame" }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.queryByRole("radio", { name: /mockup/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /frame image/i })).toBeNull();
+    const menu = await openMore();
+    expect(frameRow(menu).getAttribute("aria-checked")).toBe("true");
+    expect(rowNames(menu).filter((n) => /mockup|frame image/i.test(n ?? ""))).toEqual([]);
   });
 
-  it("No frame takes the frame away and leaves the picture", async () => {
+  it("taking the frame off leaves the picture", async () => {
     const { container } = await mount(RUNNING);
     const chassis = await chassisOf(container);
-    fireEvent.click(screen.getByRole("radio", { name: "No frame" }));
+    fireEvent.click(frameRow(await openMore()));
     await waitFor(() => expect(chassis.getAttribute("data-frame")).toBe("none"));
     expect(chassis.querySelector("img.sim-art")).toBeNull();
     expect(container.querySelector("img.sim-picture")).not.toBeNull();
-    expect(screen.getByRole("radio", { name: "No frame" }).getAttribute("aria-checked")).toBe("true");
-  });
-
-  it("the device's own buttons are under the device, not in the pane bar", async () => {
-    // The bar had grown to ten icons. A phone's buttons belong with the phone; the bar is for what
-    // the PANE does.
-    const { container } = await mount(RUNNING);
-    const row = await waitFor(() => {
-      const el = container.querySelector(".sim-hardware");
-      if (!el) throw new Error("no hardware row");
-      return el;
-    });
-    for (const name of ["Home button", "Volume up", "Volume down", "Side button (lock)", "Rotate the device"]) {
-      expect(row.querySelector(`[aria-label="${name}"]`), name).not.toBeNull();
-    }
-  });
-
-  it("gives a phone only the buttons Realm presses on one: home and the volume — no side button, no rotation", async () => {
-    const { container } = await mount({ ...RUNNING, udid: "00008150-PHONE", physical: true });
-    const row = await waitFor(() => {
-      const el = container.querySelector(".sim-hardware");
-      if (!el) throw new Error("no hardware row");
-      return el;
-    });
-    expect([...row.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Home button", "Volume up", "Volume down"]);
   });
 });
 
@@ -530,67 +537,328 @@ describe("a phone's picture", () => {
   });
 });
 
-describe("the pane bar on a phone", () => {
-  async function bar(state: SimulatorState) {
-    const store = createAppStore(fakeApi());
-    await store.getState().boot();
-    act(() => store.getState().applySimulatorState(state));
-    return render(<StoreContext.Provider value={store}><SimulatorPanelActions item={paneItem} /></StoreContext.Provider>);
-  }
+describe("the device's toolbar", () => {
+  const PHONE = { ...RUNNING, udid: "00008150-PHONE", physical: true } as SimulatorState;
+  const pressNames = () => toolbar().getAllByRole("button").map((b) => b.getAttribute("aria-label"));
 
-  it("offers none of the simulator's own menu on a phone, and all of it on a simulator", async () => {
-    await bar({ ...RUNNING, physical: true });
-    expect(screen.queryByRole("button", { name: "Device settings" })).toBeNull();
-    // What does work on a phone stays: a screenshot, its elements, its apps, and stopping it.
-    for (const name of ["Take a screenshot", "Show the device's elements", "Apps on this device", "Stop streaming this phone"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
-    cleanup();
-    await bar(RUNNING);
-    expect(screen.getByRole("button", { name: "Device settings" })).toBeInTheDocument();
+  it("stands over the device: its state, four presses and an overflow — the Record row under it", async () => {
+    const { container } = await mount(RUNNING);
+    await waitFor(() => expect(toolbar().getByRole("status")).toHaveTextContent("Live1206×2622"));
+    expect(pressNames()).toEqual(["Home button", "Take a screenshot", "Show the device's elements", "Rotate the device", "More device controls"]);
+    // Over the device and under it, in one column — the order the stage lays out (jsdom has no layout).
+    const column = [...container.querySelector(".sim-stage")!.children].map((e) => e.className);
+    expect(column).toEqual(["sim-above", "sim-screen", "sim-under"]);
+    expect(container.querySelector(".sim-above")).toContainElement(screen.getByRole("group", { name: "Device controls" }));
+    expect(container.querySelector(".sim-under")).toContainElement(screen.getByRole("button", { name: "Record my use of this app…" }));
+  });
+
+  it("keeps the hardware, the apps, the device's settings, the frame and the stream's off switch one click away", async () => {
+    await mount(RUNNING);
+    expect(rowNames(await openMore())).toEqual([
+      "Volume up", "Volume down", "Side button (lock)", "—", "Apps…", "Device settings…", "—", "Show device frame", "—", "Stop streaming",
+    ]);
+  });
+
+  it("presses a button on the device from the overflow, down the device's own socket", async () => {
+    await mount(RUNNING);
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0));
+    fireEvent.click(within(await openMore()).getByRole("menuitem", { name: "Volume up" }));
+    // A press opens its own socket, sends one frame and closes: the toolbar holds none open.
+    await waitFor(() => expect(sockets.length).toBe(2));
+    await waitFor(() => expect(sockets[1]!.sent).toHaveLength(1));
+    expect(sockets[1]!.url).toBe(RUNNING.wsUrl);
+  });
+
+  it("opens the apps and the device's settings in place, each with the way back at its head", async () => {
+    await mount(RUNNING);
+    fireEvent.click(within(await openMore()).getByRole("menuitem", { name: "Apps…" }));
+    const menu = screen.getByRole("menu", { name: "More device controls" });
+    await waitFor(() => expect(rowNames(menu)[0]).toBe("← Apps"));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "← Apps" }));
+    await waitFor(() => expect(rowNames(menu)).toContain("Device settings…"));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Device settings…" }));
+    await waitFor(() => expect(rowNames(menu)[0]).toBe("← Device settings"));
+    // Ticked from the device's own answer, not from a copy the pane kept.
+    expect(within(menu).getByRole("menuitemcheckbox", { name: "Appearance: Dark" })).toHaveAttribute("aria-checked", "true");
+    expect(within(menu).getByRole("menuitemcheckbox", { name: "Reduce Motion" })).toHaveAttribute("aria-checked", "true");
+    // Both were read as the overflow opened, so neither opens on a list still on its way.
+    expect(calls.filter((c) => c.method === "simulators.apps")).toHaveLength(1);
+    expect(calls.filter((c) => c.method === "simulators.ui")).toHaveLength(1);
+  });
+
+  it("says inside the drill-down when the device will not answer, and raises no toast for opening the overflow", async () => {
+    /* THE MUTANT: read the two lists through the store's `run`, which toasts a failure — and then
+       opening the overflow for Volume up raises an error nobody asked about. */
+    refusal = "the simulator is not responding";
+    const { store } = await mount(RUNNING);
+    const menu = await openMore();
+    await waitFor(() => expect(calls.filter((c) => c.method === "simulators.apps")).toHaveLength(1));
+    await act(async () => {});
+    expect(store.getState().toasts).toEqual([]);
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Apps…" }));
+    await waitFor(() => expect(rowNames(menu)).toContain("The device did not list its apps: the simulator is not responding"));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "← Apps" }));
+    fireEvent.click(await within(menu).findByRole("menuitem", { name: "Device settings…" }));
+    await waitFor(() => expect(rowNames(menu)[1]).toBe("The device did not say how it is set: the simulator is not responding"));
+  });
+
+  it("gives a phone what Realm can do to one: no rotation, no side button, none of the simulator's settings", async () => {
+    await mount(PHONE);
+    await waitFor(() => expect(pressNames()).toEqual(["Home button", "Take a screenshot", "Show the device's elements", "More device controls"]));
+    expect(rowNames(await openMore())).toEqual(["Volume up", "Volume down", "—", "Apps…", "—", "Show device frame", "—", "Stop streaming this phone"]);
+  });
+
+  it("hands a narrow pane's presses to the overflow in a stated order, first and by name", async () => {
+    /* THE MUTANT: hide the buttons the toolbar has no room for and say nothing — a press nobody can
+       reach. One number decides both halves: what leaves the toolbar arrives at the head of the
+       overflow, Rotate first and Home last. 130px holds the state's dot and two presses. */
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private cb: ResizeObserverCallback) {}
+      observe() { this.cb([{ contentRect: { width: 130, height: 800 } } as ResizeObserverEntry], this as never); }
+      disconnect() {}
+    });
+    await mount(RUNNING);
+    await waitFor(() => expect(pressNames()).toEqual(["Home button", "Take a screenshot", "More device controls"]));
+    expect(screen.getByRole("group", { name: "Device controls" })).toHaveAttribute("data-status", "dot");
+    // The words a narrow toolbar stops showing are still its state's, for a screen reader.
+    expect(toolbar().getByRole("status")).toHaveTextContent("Live1206×2622");
+    expect(rowNames(await openMore()).slice(0, 3)).toEqual(["Elements", "Rotate", "—"]);
+  });
+
+  it("says it is still connecting until the device's touch and keyboard are up", async () => {
+    // A socket still opening: the picture streams, and a touch would go nowhere yet.
+    socketsOpen = false;
+    await mount(RUNNING);
+    const status = toolbar().getByRole("status");
+    expect(status).toHaveTextContent(/^Connecting/);
+    expect(status).toHaveAttribute("title", "Connecting the keyboard and touch…");
+    act(() => sockets[0]!.onopen?.());
+    expect(status).toHaveTextContent(/^Live/);
   });
 });
 
 describe("recording an app for Laya", () => {
-  async function bar(state: SimulatorState, laya?: LayaStatus) {
+  /** The whole pane, because the control lives under the device, the toolbar's counterpart. */
+  async function pane(state: SimulatorState, laya?: LayaStatus) {
+    getState = state;
     const api = fakeApi(laya ? { laya } : {});
     const store = createAppStore(api);
     await store.getState().boot();
     await store.getState().loadLaya();
-    act(() => store.getState().applySimulatorState(state));
-    render(<StoreContext.Provider value={store}><SimulatorPanelActions item={paneItem} /></StoreContext.Provider>);
+    if (state.status !== "off") act(() => store.getState().applySimulatorState(state));
+    render(<StoreContext.Provider value={store}><SimulatorPane item={paneItem} visible /></StoreContext.Provider>);
     return { api, store };
   }
   const recording = { id: "rec-1", simulatorId: "sim-2", device: "Other iPhone", apps: ["TikTok"], seen: [], screens: 3, startedAt: "2026-09-29T07:12:00.000Z", endedAt: null, lastError: null };
   const other: LayaStatus = { mode: "off", installed: false, runtime: { state: "off" }, stepsLogged: 0, dir: "/Users/u/Realm/laya", assist: { available: false, reason: "x", threshold: null, accuracy: null }, recording };
+  const record = () => screen.getByRole("button", { name: "Record my use of this app…" });
+  const recorded = (api: { calls: string[] }) => api.calls.filter((c) => c.startsWith("layaRecord:"));
 
-  it("starts from the pane bar with the app in front, and the same control stops it", async () => {
-    const { api } = await bar({ ...RUNNING, physical: true });
-    fireEvent.click(screen.getByRole("button", { name: "Record this app for Laya" }));
+  it("asks before it records: the button opens a sheet, and only its Start records", async () => {
+    const { api } = await pane({ ...RUNNING, physical: true });
+    fireEvent.click(record());
+    const sheet = await screen.findByRole("dialog", { name: "Record your use of this app" });
+    // THE MUTANT: a button that records on the click. Opening the sheet asks the server nothing.
+    expect(recorded(api)).toEqual([]);
+    fireEvent.click(within(sheet).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(record());
+    await screen.findByRole("dialog");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(recorded(api)).toEqual([]);
+
+    fireEvent.click(record());
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Start recording" }));
     // No app named: the server records the one in front, and only it.
-    await waitFor(() => expect(api.calls).toContain("layaRecord:sim-1:"));
-    const stop = await screen.findByRole("button", { name: "Stop recording Instagram for Laya" });
-    expect(screen.queryByRole("button", { name: "Record this app for Laya" })).toBeNull();
-    expect(stop).toHaveAttribute("title", expect.stringContaining("Realm reads each new screen and taps nothing."));
-    fireEvent.click(stop);
+    await waitFor(() => expect(recorded(api)).toEqual(["layaRecord:sim-1:"]));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // While it runs, the row under the device is the recording: what is kept, and the Stop that ends it.
+    const row = screen.getByRole("group", { name: "Recording Instagram for Laya" });
+    expect(row).toHaveTextContent("0 screens kept");
+    expect(screen.queryByRole("button", { name: "Record my use of this app…" })).toBeNull();
+    fireEvent.click(within(row).getByRole("button", { name: "Stop recording Instagram for Laya" }));
     await waitFor(() => expect(api.calls).toContain("layaStopRecording"));
-    expect(await screen.findByRole("button", { name: "Record this app for Laya" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Record my use of this app…" })).toBeEnabled();
+    // And the sheet does not come back on its own once the recording is over.
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("says what is kept, what is left out, where it goes, what it is for and how it ends", async () => {
+    vi.stubGlobal("realm", { home: "/Users/u/Realm" });
+    await pane(RUNNING);
+    fireEvent.click(record());
+    const sheet = await screen.findByRole("dialog", { name: "Record your use of this app" });
+    for (const fact of ["What is kept", "What is left out", "Where it goes", "What it is for", "How it ends"]) {
+      expect(within(sheet).getByText(fact)).toBeInTheDocument();
+    }
+    const text = sheet.textContent ?? "";
+    // What `laya/recorder.ts` actually does, each in words: it reads, it taps nothing, it keeps no
+    // picture and no typing, long text goes, only the app in front, where it keeps it, when it ends.
+    expect(text).toContain("Realm taps nothing");
+    expect(text).toContain("Pictures of the screen, your taps and keystrokes, anything typed into a field");
+    expect(text).toContain("over 60 characters");
+    expect(text).toContain("every app but the one in front when you start");
+    expect(within(sheet).getByText("/Users/u/Realm/laya/recordings")).toBeInTheDocument();
+    expect(text).toContain("Nothing is uploaded");
+    expect(text).toContain("2,000 screens");
+    expect(text).toContain("Settings ▸ Laya");
+  });
+
+  it("keeps a refusal in the sheet, in the server's own words, and records nothing", async () => {
+    const { api, store } = await pane(RUNNING);
+    const said = "Open the app you want Laya to learn on Test iPhone first — the home screen, or a system alert over it, is in front.";
+    api.layaRecord = async () => { throw Object.assign(new Error(said), { code: "LAYA_NO_APP" }); };
+    fireEvent.click(record());
+    const sheet = await screen.findByRole("dialog");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Start recording" }));
+    expect(await within(sheet).findByRole("alert")).toHaveTextContent(said);
+    // Still open, so opening the app on the device and pressing Start again is the whole fix.
+    expect(screen.getByRole("dialog")).toBe(sheet);
+    expect(within(sheet).getByRole("button", { name: "Start recording" })).toBeEnabled();
+    expect(store.getState().laya?.recording ?? null).toBeNull();
+    // …and not as a toast as well: the sheet already says it, where the Start is.
+    expect(store.getState().toasts).toEqual([]);
   });
 
   it("is unavailable while another device records, saying which, and keeps its Stop after the stream has gone", async () => {
-    await bar(RUNNING, other);
+    await pane(RUNNING, other);
     // THE MUTANT: a Stop on every pane. This pane's would end another phone's recording.
     expect(screen.queryByRole("button", { name: /^Stop recording/ })).toBeNull();
-    const record = screen.getByRole("button", { name: "Record this app for Laya" });
-    expect(record).toBeDisabled();
-    expect(record).toHaveAttribute("title", "Laya is already recording Other iPhone. Stop that first.");
+    expect(record()).toBeDisabled();
+    expect(record()).toHaveAttribute("title", "Laya is already recording Other iPhone. Stop that first.");
     cleanup();
     // THE MUTANT: hide the Stop with the stream. A phone that locked mid-recording could not be stopped from its pane.
-    await bar(off("sim-1"), { ...other, recording: { ...recording, simulatorId: "sim-1" } });
-    expect(screen.getByRole("button", { name: "Stop recording TikTok for Laya" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Apps on this device" })).toBeNull();
+    await pane(off("sim-1"), { ...other, recording: { ...recording, simulatorId: "sim-1", lastError: "The phone is locked." } });
+    expect(await screen.findByRole("button", { name: "Stop recording TikTok for Laya" })).toBeInTheDocument();
+    expect(screen.getByText("Not reading the device: The phone is locked.")).toBeInTheDocument();
     cleanup();
     // And no Record without a stream: there is no app in front to read.
-    await bar(off("sim-1"));
-    expect(screen.queryByRole("button", { name: "Record this app for Laya" })).toBeNull();
+    await pane(off("sim-1"));
+    await screen.findByRole("button", { name: /iPhone 17 Pro/ });
+    expect(screen.queryByRole("button", { name: "Record my use of this app…" })).toBeNull();
+  });
+
+  it("is not in the pane bar, and nor is anything else of the device's", async () => {
+    /* The bar is the pane's, and in a side pane it is the tab strip too: the device's state and its
+       eight buttons there left the tabs no width. THE MUTANT: the simulator's meta or actions back in
+       the pane registry — the live state and the screenshot in the bar again. */
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    act(() => store.getState().applySimulatorState(RUNNING));
+    const { container } = render(<StoreContext.Provider value={store}>
+      <PanelBar item={paneItem} leafId="leaf-1" onClose={() => {}} />
+    </StoreContext.Provider>);
+    const bar = container.querySelector(".panel-bar")!;
+    expect(bar.querySelector(".panel-meta")!.textContent).toBe("");
+    expect(within(bar as HTMLElement).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Rename Simulator", "Pane menu for Simulator", "Close Simulator",
+    ]);
   });
 });
 
+describe("picking an element into the prompter", () => {
+  const SHOT = "/realm/tmp/attachments/f00d-iphone-reload-button.png";
+  const lead = item("i-lead", "s1", { kind: "session", refId: "lead", title: "Lead" });
+  const other = item("i-other", "s1", { kind: "session", refId: "other", title: "Other" });
+  /** The device as a tab of the lead's side pane, and the window's picture of a pick stubbed: main's
+   *  half (app-pick.ts) is tested where it lives, and this records what it was asked for. */
+  async function picker({ owned = true } = {}) {
+    const realm = { appPick: { arm: vi.fn(), capture: vi.fn(async (_rect: unknown, _ground: unknown, name: string) => {
+      overlayWhileCaptured.push(document.documentElement.hasAttribute("data-pick-capture"));
+      return { file: { path: SHOT, mime: "image/png", name, size: 4096 }, webView: false };
+    }) } };
+    const overlayWhileCaptured: boolean[] = [];
+    vi.stubGlobal("realm", realm);
+    getState = RUNNING;
+    const store = createAppStore(fakeApi({ items: { s1: [lead, other, paneItem] }, sessions: [session("lead", "s1"), session("other", "s1")] }));
+    await store.getState().boot();
+    await store.getState().openItem("i-lead");
+    if (owned) await store.getState().openInSidePane("lead", "i1");
+    // The keyboard in ANOTHER session: a device's pick goes to the session it belongs to regardless.
+    await store.getState().openItemAt("i-other", findLeafOfItem(store.getState().layout!, "i-lead")!.id, "left");
+    act(() => store.getState().applySimulatorState(RUNNING));
+    render(<StoreContext.Provider value={store}><SimulatorPane item={paneItem} visible /></StoreContext.Provider>);
+    return { store, realm, overlayWhileCaptured };
+  }
+  const select = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Show the device's elements" }));
+    return screen.findByRole("button", { name: "Reload" });
+  };
+  /** A click as a pointer makes one: down and up over the box, then the click. The press bubbles to the
+   *  device's own surface on its way — which is where the owner's clicks went. */
+  const press = (box: HTMLElement) => {
+    const r = box.getBoundingClientRect();
+    pointer(box, "pointerdown", r.left + r.width / 2, r.top + r.height / 2);
+    pointer(box, "pointerup", r.left + r.width / 2, r.top + r.height / 2);
+    fireEvent.click(box);
+  };
+
+  it("puts a clicked element into the prompter of the session the device belongs to, as a chip with its picture", async () => {
+    // THE BUG: the click TAPPED the device and nothing reached a prompter.
+    const { store, realm, overlayWhileCaptured } = await picker();
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0));
+    const reload = await select();
+    // What a click will do, and where it goes, said before anyone makes one.
+    expect(screen.getByText("Click to add to Lead")).toBeInTheDocument();
+    // THE BUG, as a pointer meets it: the press reached the device's surface first, which tapped the
+    // phone and captured the pointer, so the box never saw its click.
+    press(reload);
+    await waitFor(() => expect(store.getState().drafts.lead).toBe("@[iPhone · Reload button] "));
+    const [chip] = store.getState().draftElements.lead!;
+    expect(chip).toEqual({ label: "iPhone · Reload button", element: {
+      role: "Button", label: "Reload", value: "", id: null, enabled: true,
+      frame: { x: 220, y: 478, width: 44, height: 44 }, screen: { width: 440, height: 956 }, units: "points",
+      simulator: { id: "sim-1", kind: "iPhone", platform: "ios", physical: false, app: "Safari", shot: SHOT },
+    } });
+    // Its picture: the element's box on screen, armed around, taken with the overlay's boxes off it.
+    const k = PICTURE_BOX.width / AX_TREE.screen.width;
+    expect(realm.appPick.capture).toHaveBeenCalledTimes(1);
+    const [rect, , name] = realm.appPick.capture.mock.calls[0]!;
+    expect(rect).toEqual({ x: PICTURE_BOX.left + 220 * k, y: PICTURE_BOX.top + 478 * k, w: 44 * k, h: 44 * k });
+    expect(name).toBe("iphone-reload-button.png");
+    expect(realm.appPick.arm.mock.calls).toEqual([[true], [false]]);
+    // …and with what Realm draws over the device off it while it was taken, and back on after.
+    expect(overlayWhileCaptured).toEqual([true]);
+    expect(document.documentElement.hasAttribute("data-pick-capture")).toBe(false);
+    expect(store.getState().pendingAttachments.lead?.map((f) => f.path)).toEqual([SHOT]);
+    // …said where it went, the overlay gone with the pick, and nothing pressed on the device.
+    expect(store.getState().toasts.map((t) => t.text)).toContain("Added iPhone · Reload button to Lead.");
+    expect(store.getState().simulatorElements["sim-1"]).toBe(false);
+    expect(screen.queryByRole("group", { name: /Pick an element/ })).toBeNull();
+    expect(sockets.every((ws) => ws.sent.length === 0)).toBe(true);
+    expect(store.getState().drafts.other ?? "").toBe("");
+  });
+
+  it("picks a disabled element too — why it is disabled is often the question", async () => {
+    const { store } = await picker();
+    await select();
+    press(screen.getByRole("button", { name: "Back (disabled)" }));
+    await waitFor(() => expect(store.getState().drafts.lead).toBe("@[iPhone · Back button] "));
+  });
+
+  it("leaves on Escape with nothing picked, and Escape never reaches the device", async () => {
+    const { store, realm } = await picker();
+    await select();
+    const surface = document.querySelector(".sim-screen") as HTMLElement;
+    surface.focus();
+    fireEvent.keyDown(surface, { key: "Escape" });
+    await waitFor(() => expect(store.getState().simulatorElements["sim-1"]).toBe(false));
+    expect(store.getState().drafts.lead ?? "").toBe("");
+    expect(realm.appPick.capture).not.toHaveBeenCalled();
+    expect(sockets.every((ws) => ws.sent.length === 0)).toBe(true);
+    // …and from nothing focused at all, the way out of the app picker too.
+    fireEvent.click(screen.getByRole("button", { name: "Show the device's elements" }));
+    await screen.findByRole("button", { name: "Reload" });
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(store.getState().simulatorElements["sim-1"]).toBe(false));
+  });
+
+  it("asks the web picker's question for a device in a pane of its own", async () => {
+    // Not a tab of any session's side pane: the session the keyboard was last in takes it.
+    const { store } = await picker({ owned: false });
+    press(await select());
+    await waitFor(() => expect(store.getState().drafts.other).toBe("@[iPhone · Reload button] "));
+  });
+});

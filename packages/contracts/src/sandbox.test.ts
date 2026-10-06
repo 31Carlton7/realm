@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { E2B_STREAM_PORT, SANDBOX_NOTES, WEBSOCKIFY_PATH, describeEndpoint, e2bEndpoint, parseMachineAddress, providerOfHost } from "./sandbox";
+import { SANDBOX_NOTES, WEBSOCKIFY_PATH, describeEndpoint, parseMachineAddress, providerOfHost } from "./sandbox";
 import { VncEndpointSchema } from "./machine";
 
 const ok = (input: string) => {
@@ -22,12 +22,6 @@ describe("what a person is likely to paste", () => {
     expect(r.endpoint).toEqual({ transport: "wss", host: "6080-i7bx2k9qp.e2b.app", port: 443, path: WEBSOCKIFY_PATH });
     expect(r.provider).toBe("e2b");
     expect(r.inferred).toContain("noVNC's own page");
-  });
-
-  it("builds an E2B endpoint from a bare sandbox id, on E2B's own port and host shape", () => {
-    // `<port>-<sandboxId>.<domain>` is `getHost()` in the E2B core SDK; 6080 is `Stream`'s default.
-    expect(e2bEndpoint("i7bx2k9qp")).toEqual({ transport: "wss", host: `${E2B_STREAM_PORT}-i7bx2k9qp.e2b.app`, port: 443, path: WEBSOCKIFY_PATH });
-    expect(E2B_STREAM_PORT).toBe(6080);
   });
 
   /* Modal's `tls_socket` is a host and a port with TLS in front of it and nothing in the shape to

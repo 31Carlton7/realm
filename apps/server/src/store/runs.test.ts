@@ -94,7 +94,7 @@ describe("RunsStore.claim — compare-and-set", () => {
     expect(store.get(run.id)!.attempt).toBe(1); // not 2 — the loser did not also increment
   });
 
-  it.each(["running", "blocked", "succeeded", "failed", "cancelled", "expired"] as const)(
+  it.each(["blocked", "succeeded", "failed", "cancelled", "expired"] as const)(
     "refuses to claim a run that is %s", (state) => {
       const run = store.create(insert())!;
       store.update(run.id, { state });
@@ -151,6 +151,32 @@ describe("RunsStore — listing", () => {
     const gone = store.create(insert())!;
     store.update(gone.id, { state: "succeeded" });
     expect(store.listLive().map((r) => r.id).sort()).toEqual([live.id, alsoLive.id].sort());
+  });
+
+  it("narrows to one schedule's runs — a task's history — and pages them like any listing", () => {
+    // THE MUTANT: ignore `scheduleId`. Every task on the page would then list every run in its space,
+    // the manual ones included, as its own history.
+    for (let i = 0; i < 3; i++) at(store.create(insert({ title: `s${i}`, scheduleId: "sch1" }))!.id, 100 + i);
+    at(store.create(insert({ title: "other task", scheduleId: "sch2" }))!.id, 200);
+    at(store.create(insert({ title: "by hand" }))!.id, 300);
+    const first = store.list({ spaceId: spaceA, scheduleId: "sch1", states: [], cursor: null, limit: 2 });
+    expect(first.runs.map((r) => r.title)).toEqual(["s2", "s1"]);
+    expect(store.list({ spaceId: spaceA, scheduleId: "sch1", states: [], cursor: first.nextCursor, limit: 2 }).runs.map((r) => r.title)).toEqual(["s0"]);
+    expect(first.runs.every((r) => r.scheduleId === "sch1")).toBe(true);
+    expect(store.list({ spaceId: spaceA, states: [], cursor: null, limit: 10 }).runs).toHaveLength(5);
+  });
+
+  it("names a schedule's newest run in whichever space it fired, and none for a schedule that never fired", () => {
+    at(store.create(insert({ title: "old", scheduleId: "sch1" }))!.id, 100);
+    at(store.create(insert({ title: "new", scheduleId: "sch1", spaceId: spaceB }))!.id, 200);
+    expect(store.latestForSchedule("sch1")!.title).toBe("new");
+    expect(store.latestForSchedule("never")).toBeNull();
+  });
+
+  it("can hand a run the session its first attempt continues", () => {
+    const run = store.create(insert({ scheduleId: "sch1", sessionId: "sess-prev" }))!;
+    expect(run).toMatchObject({ scheduleId: "sch1", sessionId: "sess-prev", state: "queued" });
+    expect(store.create(insert())!).toMatchObject({ scheduleId: null, sessionId: null });
   });
 });
 

@@ -4,6 +4,8 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerConfig } from "@realm/adapters";
+import { callableByApp, visibleToModel } from "@realm/contracts";
+import type { DrawnView } from "../apps/views";
 import type { RpcServer } from "../rpc/server";
 import type { SessionsStore } from "../store/sessions";
 import type { McpCallLogStore, McpServerRow, McpServersStore } from "../store/mcp";
@@ -13,6 +15,10 @@ import type { McpService } from "./service";
 
 const SUMMARY_MAX = 200;
 const truncate = (s: string): string => (s.length > SUMMARY_MAX ? s.slice(0, SUMMARY_MAX) : s);
+/** How long `refreshTools` waits for a session's agent to read its tool list again. Long enough for
+ *  a client that honours `tools/list_changed` to round-trip on this Mac; short enough that one that
+ *  ignores it costs a pause the first time, never a hang. */
+const RELIST_WAIT_MS = 1_500;
 
 /** Who is calling a provider tool — the gateway's own session attribution, handed through so a
  *  provider can raise `permission_request` on the RIGHT session and scope policy per space. */
@@ -109,6 +115,8 @@ export class McpGateway {
   /** Reverse index for auth: bearer token → session id. Kept in lockstep with `sessions` by `register`/
    *  `release` — never written anywhere else. */
   private readonly tokenToSession = new Map<string, string>();
+  /** Who is waiting for a session's next `tools/list` — see `refreshTools`. */
+  private readonly relistWaiters = new Map<string, Set<() => void>>();
 
   constructor(private readonly d: {
     hub: McpHub; mcp: McpService; sessions: SessionsStore; calls: McpCallLogStore; rpc: RpcServer; servers: McpServersStore;
@@ -137,6 +145,19 @@ export class McpGateway {
      *     half of that tool's depth-1 recursion guard.
      */
     sessionToolset?: (sessionId: string) => SessionToolset;
+    /**
+     * The calling session's masked answers, scrubbed from a call's record before Activity keeps it
+     * (`SessionService.scrubSecrets`). A `ui_ask` hands a secret straight back to the agent as its
+     * result, and an agent goes on to pass it to the next tool — both are calls this log would
+     * otherwise write down verbatim. Unwired, records are kept as they are.
+     */
+    redact?: (sessionId: string, text: string) => string;
+    /**
+     * Where a call that drew a view is reported (MCP Apps): the registry that pairs it with the
+     * agent's own record of the call (`apps/views.ts`). Unwired, calls draw no views — a tool's text
+     * result is all anyone sees, exactly as before.
+     */
+    views?: { drew(sessionId: string, v: DrawnView): void };
   }) {}
 
   /** The restriction for one session, `null` meaning unrestricted. One read path shared by
@@ -252,6 +273,32 @@ export class McpGateway {
     for (const entry of this.sessions.values()) {
       if (entry.spaceId === spaceId) void entry.server?.sendToolListChanged().catch(() => {});
     }
+  }
+
+  /**
+   * One session's tool list changed under it — a mention granted it computer use for an app — so
+   * tell its agent, and resolve once the agent has listed again (or `RELIST_WAIT_MS` has passed).
+   *
+   * Waited on because the change and the message that caused it arrive together: the turn that
+   * message starts must not be planned against the list from before it. A session whose agent has
+   * not connected yet resolves at once — its first list will be read fresh.
+   */
+  async refreshTools(sessionId: string, timeoutMs: number = RELIST_WAIT_MS): Promise<void> {
+    const server = this.sessions.get(sessionId)?.server;
+    if (!server) return;
+    await new Promise<void>((resolve) => {
+      const waiters = this.relistWaiters.get(sessionId) ?? new Set<() => void>();
+      this.relistWaiters.set(sessionId, waiters);
+      const done = () => {
+        clearTimeout(timer);
+        waiters.delete(done);
+        if (waiters.size === 0 && this.relistWaiters.get(sessionId) === waiters) this.relistWaiters.delete(sessionId);
+        resolve();
+      };
+      const timer = setTimeout(done, timeoutMs);
+      waiters.add(done);
+      void server.sendToolListChanged().catch(done);
+    });
   }
 
   /** The hub's own signal that a cached tool list changed (a `tools/list_changed` from upstream, or a
@@ -425,17 +472,25 @@ export class McpGateway {
         return tools.map((t): Tool => ({ ...t, name: `${p.name}__${t.name}` }));
       } catch { return []; }
     }));
-    if (Array.isArray(toolset)) return { tools: perProvider.flat() };
+    if (Array.isArray(toolset)) { this.relisted(sessionId); return { tools: perProvider.flat() }; }
     const perServer = await Promise.all(this.d.mcp.effectiveServerIds(spaceId).map(async (id): Promise<Tool[]> => {
       const row = this.d.servers.get(id);
       if (!row) return [];
       let tools: McpLiveTool[];
       try { tools = await this.d.hub.tools(id); } catch { return []; }
       const allowed = this.d.mcp.allowedTools(spaceId, id);
-      const visible = allowed ? tools.filter((t) => allowed.includes(t.name)) : tools;
+      // A tool only its view may call is never the agent's to see (MCP Apps: the host MUST leave a
+      // tool out of the agent's list when its visibility does not include the model).
+      const visible = tools.filter((t) => visibleToModel(t.ui) && (!allowed || allowed.includes(t.name)));
       return visible.map((t): Tool => ({ name: `${row.name}__${t.name}`, description: t.description, inputSchema: t.inputSchema ?? { type: "object" } }));
     }));
+    this.relisted(sessionId);
     return { tools: [...perProvider.flat(), ...perServer.flat()] };
+  }
+
+  /** A session just read its tool list: whoever `refreshTools` left waiting for that can go on. */
+  private relisted(sessionId: string): void {
+    for (const done of [...(this.relistWaiters.get(sessionId) ?? [])]) done();
   }
 
   /**
@@ -526,13 +581,31 @@ export class McpGateway {
         `mcp: "${tool}" on "${serverName}" is not enabled for this space — turn it on in Space Settings → MCP → ${serverName}.`,
         `blocked: tool not in this space's allowlist`);
     }
+    // The tool as the server listed it: whether the agent may call it at all, and whether its result
+    // is drawn in a view. Not knowing (the server would not list) is not a refusal — the call goes
+    // ahead and fails, or not, the ordinary way.
+    const live = await this.d.hub.toolOf(serverId, tool).catch(() => null);
+    if (live && !visibleToModel(live.ui)) {
+      return this.blocked(sessionId, serverId, serverName, tool, argsJson,
+        `mcp: "${tool}" on "${serverName}" is for that server's view to call, not the agent.`,
+        "blocked: a view-only tool");
+    }
     const start = Date.now();
     try {
       // Compressed HERE and not one layer down in the hub: the hub is row-keyed and session-blind,
       // and this is the seam that knows a result is on its way to an agent's context rather than,
       // say, to a live-check. Realm's own in-process providers above are deliberately not put
       // through it — they already choose and clip their own output shape.
-      const result = compressToolResult(await this.d.hub.call(serverId, tool, args));
+      const raw = await this.d.hub.call(serverId, tool, args, { sessionId });
+      const result = compressToolResult(raw);
+      // A tool with a view drew one, for a server whose views are on: the view gets the server's
+      // whole result, not the compressed one the agent reads. Its template is read now, in the
+      // background, so the view has it by the time the transcript asks.
+      const resourceUri = live?.ui?.resourceUri;
+      if (resourceUri && this.d.views && this.d.mcp.showsViews(serverId)) {
+        this.d.views.drew(sessionId, { serverId, serverName, tool, fullName, def: live.def, resourceUri, input: isObject(args) ? args : {}, result: raw });
+        void this.d.hub.uiResource(serverId, resourceUri).catch(() => {});
+      }
       // `isError: true` is a normal, successfully round-tripped MCP result — the call reached the
       // server and the SERVER reported a problem. It still counts as `ok: false` in Activity: from the
       // user's perspective a failed tool call is a failed tool call, whether the failure came back as a
@@ -554,6 +627,44 @@ export class McpGateway {
     }
   }
 
+  /**
+   * A view's own call to its server (MCP Apps `tools/call`), made once the user clicked to allow it.
+   *
+   * The same policy the agent's calls meet, asked again now rather than trusted from when the view was
+   * drawn: the server must still be on in the session's space, and the tool in its allowlist. Then the
+   * spec's own rule — the tool's visibility must include `app` — and its server is the view's own,
+   * because the view's server is the only one this is ever asked about. It lands in Activity under
+   * the session like any call, its summary saying the view made it. The result goes back to the view
+   * whole; nothing is compressed, because no agent reads it.
+   */
+  async callForView(sessionId: string, serverId: string, tool: string, args: Record<string, unknown>): Promise<CallToolResult> {
+    const session = this.d.sessions.get(sessionId);
+    const row = this.d.servers.get(serverId);
+    const argsJson = JSON.stringify(args);
+    if (!session || !row) return errorResult("mcp: this view's session or server no longer exists.");
+    if (!this.d.mcp.effectiveServerIds(session.spaceId).includes(serverId)) {
+      return this.blocked(sessionId, serverId, row.name, tool, argsJson, `mcp: "${row.name}" is turned off in this space.`, "blocked: a view's call, server off in this space");
+    }
+    const allowed = this.d.mcp.allowedTools(session.spaceId, serverId);
+    if (allowed && !allowed.includes(tool)) {
+      return this.blocked(sessionId, serverId, row.name, tool, argsJson, `mcp: "${tool}" on "${row.name}" is not enabled for this space.`, "blocked: a view's call, tool not in this space's allowlist");
+    }
+    const live = await this.d.hub.toolOf(serverId, tool).catch(() => null);
+    if (!live || !callableByApp(live.ui)) {
+      return this.blocked(sessionId, serverId, row.name, tool, argsJson, `mcp: "${row.name}" has no tool "${tool}" its view may call.`, "blocked: a view's call to a tool not open to views");
+    }
+    const start = Date.now();
+    try {
+      const result = await this.d.hub.call(serverId, tool, args, { sessionId });
+      this.record(sessionId, serverId, row.name, tool, argsJson, result.isError !== true, Date.now() - start, truncate(`From its view: ${summarize(result)}`));
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.record(sessionId, serverId, row.name, tool, argsJson, false, Date.now() - start, truncate(`From its view: ${message}`));
+      return errorResult(message);
+    }
+  }
+
   /** A policy-blocked call: logs it (ok: false, `durationMs: 0` — nothing actually reached the hub) and
    *  returns the tool error the AGENT sees. `agentMessage` is the fuller, addressed-to-a-human text (names
    *  the space setting to change); `logSummary` is the short form Activity's `resultSummary` column shows. */
@@ -563,7 +674,8 @@ export class McpGateway {
   }
 
   private record(sessionId: string, serverId: string | null, serverName: string, tool: string, argsJson: string, ok: boolean, durationMs: number, resultSummary: string): void {
-    const row = this.d.calls.append({ sessionId, serverId, serverName, tool, argsJson, resultSummary, ok, durationMs });
+    const scrub = (text: string) => this.d.redact?.(sessionId, text) ?? text;
+    const row = this.d.calls.append({ sessionId, serverId, serverName, tool, argsJson: scrub(argsJson), resultSummary: scrub(resultSummary), ok, durationMs });
     this.d.rpc.broadcast("mcp.call", row);
   }
 
@@ -629,6 +741,8 @@ function providerVisible(name: string, toolset: SessionToolset): boolean {
 }
 
 const errorResult = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
+
+const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
 const escapeHtml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

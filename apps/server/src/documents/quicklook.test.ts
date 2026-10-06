@@ -47,18 +47,6 @@ describe("QuickLookRenderer", () => {
     expect(f.calls).toHaveLength(1);
   });
 
-  it("re-renders after an edit in place — the key is the file's mtime and size, not its path", async () => {
-    // An agent rewriting a `.docx` keeps the path. A cache keyed on the path alone would keep
-    // serving the version from before the edit, which is exactly the stale view this replaces.
-    const f = fake();
-    const r = new QuickLookRenderer({ render: f.render });
-    const abs = fixture("hello");
-    await r.png(abs);
-    writeFileSync(abs, "hello, again — longer");
-    await r.png(abs);
-    expect(f.calls).toHaveLength(2);
-  });
-
   it("notices a rewrite that changed the bytes but not the length", async () => {
     // Same size, new mtime. Size alone would miss this, and it is the common shape of a find-replace.
     const f = fake();

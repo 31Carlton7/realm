@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { AGENT_META, SELECTABLE_AGENT_KINDS, SPACE_COLORS, allItems } from "@realm/contracts";
-import { Main } from "../App";
+import { AppShell, Main } from "../App";
 import { Onboarding } from "./Onboarding";
 import { StoreContext, SETTING_LAST_AGENT, createAppStore } from "../state/store";
 import { fakeApi, item, space, type FakeData } from "../state/store.test-fakes";
@@ -18,76 +18,153 @@ async function mountFresh(overrides: FakeData = {}) {
   return { api, store, ...r };
 }
 
-describe("first-run onboarding (W4)", () => {
+describe("first-run onboarding", () => {
   const radio = (label: string) => screen.getByRole("radio", { name: new RegExp(label) });
   const start = () => screen.getByRole("button", { name: "Start" });
+  const card = (name: string) => screen.getByRole("radio", { name: new RegExp(`^${name}`) }).closest(".agent-card") as HTMLElement;
+  const codexInstall = { kind: "codex" as const, installed: false, version: null, binPath: null, provenance: "unknown" as const,
+    latest: null, updateAvailable: false, action: "install" as const, command: "npm install -g @openai/codex", refusal: null };
+  const codexSignedOut = { kind: "codex" as const, available: true, version: "codex-cli 0.154.0", loggedIn: false, reason: "not logged in" };
 
-  it("lists the agents it FOUND, ready first, and folds the rest behind one line", async () => {
-    await mountFresh();
-    await waitFor(() => expect(screen.getByText("2.0.1")).toBeInTheDocument());
-    // Claude (ready) and Cursor (signed out) are found; Codex is not installed, and the ten other
-    // kinds the fake never probed read as missing too — twelve equal rows was the old screen.
-    expect(screen.getByText("Claude")).toBeInTheDocument();
-    expect(screen.getByText("Signed out")).toBeInTheDocument();
-    expect(screen.queryByText("Codex")).toBeNull();
-    const more = screen.getByRole("button", { name: /more not installed/ });
+  it("leads with Claude and Codex as cards, each saying what it needs, and folds the other agents behind one line", async () => {
+    /* A first run is a decision, not an inventory. THE mutants: thirteen equal rows again, or a card
+       that says a state without offering the thing that state needs. */
+    await mountFresh({ cliStatus: [codexInstall] });
+    await waitFor(() => expect(within(card("Claude")).getByText("Signed in")).toBeInTheDocument());
+    expect(within(card("Codex")).getByRole("button", { name: "Install Codex" })).toBeInTheDocument();
+    // The rest are one line until asked for — and every one is there when they are.
+    expect(screen.queryByText(AGENT_META["acp:cursor"].label)).toBeNull();
+    const more = screen.getByRole("button", { name: /more agents/ });
     expect(more).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(more);
-    expect(screen.getByText("Codex")).toBeInTheDocument();
-    expect(screen.getAllByText("Not installed").length).toBeGreaterThan(0);
-    for (const k of SELECTABLE_AGENT_KINDS) expect(screen.getByText(AGENT_META[k].label)).toBeInTheDocument();
+    for (const k of SELECTABLE_AGENT_KINDS) expect(screen.getAllByText(new RegExp(`^${k === "claude" ? "Claude" : k === "codex" ? "Codex" : AGENT_META[k].label}$`)).length).toBeGreaterThan(0);
+    expect(within(radio("Cursor").closest("label") as HTMLElement).getByText("Signed out")).toBeInTheDocument();
   });
 
-  it("says once that it is checking, rather than pinning 'Checking…' on every row", async () => {
+  it("says each card is checking until the probe lands, with the app's spinner on it", async () => {
     const api = fakeApi({ spaces: [], items: {} });
     api.delays["probeAgents"] = 50;
+    api.delays["probeAgent"] = 50;
     const store = createAppStore(api); await store.getState().boot();
     const { container } = render(<StoreContext.Provider value={store}><Onboarding /></StoreContext.Provider>);
-    expect(screen.getByText(/Checking which agents are installed/)).toBeInTheDocument();
-    expect(screen.queryByText("Checking…")).toBeNull();
-    // Every agent is listed plainly meanwhile — an empty list would read as "none found".
-    for (const k of SELECTABLE_AGENT_KINDS) expect(screen.getByText(AGENT_META[k].label)).toBeInTheDocument();
-
-    /* …and the sentence has the app's spinner ON it. THE mutant is the state this screen shipped in:
-       a static grey line above thirteen agents that are already drawn reads as a caption under a
-       finished list, not as a wait — the rows are there, so the only thing that can say "these are
-       provisional" is something moving. The fieldset carries `aria-busy` for the reader who cannot
-       see it move. Both must clear together when the probe lands, or the screen claims to be
-       working forever. */
-    const fieldset = () => container.querySelector("fieldset.cli-field");
-    expect(container.querySelector(".onboarding-note[data-busy] .spinner"), "no spinner on the checking line").toBeTruthy();
-    expect(fieldset()).toHaveAttribute("aria-busy", "true");
-
-    await waitFor(() => expect(screen.queryByText(/Checking which agents are installed/)).toBeNull());
-    expect(container.querySelector(".spinner"), "the spinner outlived the probe").toBeNull();
-    expect(fieldset()).not.toHaveAttribute("aria-busy");
+    expect(within(card("Claude")).getByText("Checking…")).toBeInTheDocument();
+    expect(within(card("Codex")).getByText("Checking…")).toBeInTheDocument();
+    const step = () => container.querySelector("fieldset.onboarding-step");
+    expect(step()).toHaveAttribute("aria-busy", "true");
+    // THE mutant: a spinner that outlives the answer, so the page claims to be working forever.
+    await waitFor(() => expect(screen.queryAllByText("Checking…")).toHaveLength(0));
+    expect(step()).not.toHaveAttribute("aria-busy");
   });
 
-  it("shows every agent, with a hint, when none was found at all", async () => {
-    await mountFresh({ agentProbe: [codexMissing] });
-    await waitFor(() => expect(screen.getByText(/None of these is installed yet/)).toBeInTheDocument());
-    for (const k of SELECTABLE_AGENT_KINDS) expect(screen.getByText(AGENT_META[k].label)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /more not installed/ })).toBeNull();
+  it("answers the two cards from their own probes, while the whole probe is still out", async () => {
+    /* `agents.probe` answers when every adapter has, and an ACP agent's model listing can take half a
+       minute. THE mutants: cards that wait for it, or a fold that reads every agent the lead probes
+       did not mention as "Not installed" before anyone has asked about them. */
+    const api = fakeApi({ spaces: [], items: {}, agentProbe: [claudeReady, codexMissing, cursorSignedOut] });
+    api.delays["probeAgents"] = 1500; // longer than waitFor's own second, so only the lead probes can answer in it
+    const store = createAppStore(api); await store.getState().boot();
+    const { container } = render(<StoreContext.Provider value={store}><Onboarding /></StoreContext.Provider>);
+    await waitFor(() => expect(within(card("Claude")).getByText("Signed in")).toBeInTheDocument());
+    expect(api.calls).toEqual(expect.arrayContaining(["probeAgent:claude", "probeAgent:codex"]));
+    expect(store.getState().agentsProbed).toBe(false);
+    expect(container.querySelector("fieldset.onboarding-step")).not.toHaveAttribute("aria-busy");
+    fireEvent.click(screen.getByRole("button", { name: /more agents/ }));
+    const cursor = () => radio("Cursor").closest("label") as HTMLElement;
+    expect(within(cursor()).queryByText("Not installed")).toBeNull();
+    expect(within(cursor()).queryByText("Signed out")).toBeNull();
+    // …and the fold fills in when the whole probe lands.
+    await waitFor(() => expect(within(cursor()).getByText("Signed out")).toBeInTheDocument(), { timeout: 4000 });
+  });
+
+  it("Sign in with ChatGPT runs Codex's own sign-in with no space, and the card follows it to Signed in", async () => {
+    /* THE mutants: a sign-in that needs a space first (there is none on a first run), or a card that
+       forgets the sign-in once the page is up. */
+    const { api, store } = await mountFresh({ agentProbe: [claudeReady, codexSignedOut] });
+    const signIn = await within(card("Codex")).findByRole("button", { name: "Sign in with ChatGPT" });
+    fireEvent.click(signIn);
+    await waitFor(() => expect(api.calls).toContain("agentSignInStart:codex"));
+    expect(api.calls.some((c) => c.startsWith("startSignIn:"))).toBe(false);
+    // Signing in to Codex means Codex.
+    expect(radio("Codex")).toBeChecked();
+    expect(await within(card("Codex")).findByText("Finish signing in in your browser.")).toBeInTheDocument();
+    expect(within(card("Codex")).getByRole("button", { name: "Open the page again" })).toBeInTheDocument();
+    // The CLI asks for the page's code: a field for it, and Enter sends it rather than starting.
+    act(() => store.getState().applyAgentSignIn({ id: "si-codex", kind: "codex", state: "code", url: null, detail: null }));
+    const code = within(card("Codex")).getByRole("textbox", { name: "Code from Codex's sign-in page" });
+    fireEvent.change(code, { target: { value: "ABCD-1234" } });
+    fireEvent.keyDown(code, { key: "Enter" });
+    await waitFor(() => expect(api.calls).toContain("agentSignInCode:si-codex:9"));
+    expect(api.calls.some((c) => c.startsWith("createSpace"))).toBe(false);
+    // Signed in: the card says so, and Codex is probed again at once — Codex alone.
+    api.data.agentProbe = [claudeReady, { ...codexSignedOut, loggedIn: true }];
+    const asked = api.calls.filter((c) => c === "probeAgent:codex").length;
+    act(() => store.getState().applyAgentSignIn({ id: "si-codex", kind: "codex", state: "done", url: null, detail: null }));
+    expect(within(card("Codex")).getByText("Signed in")).toBeInTheDocument();
+    await waitFor(() => expect(store.getState().agentProbe.find((r) => r.kind === "codex")?.loggedIn).toBe(true));
+    expect(api.calls.filter((c) => c === "probeAgent:codex").length).toBe(asked + 1);
+  });
+
+  it("a sign-in that did not finish says so and offers it again; Cancel stops one in flight", async () => {
+    const { api, store } = await mountFresh({ agentProbe: [claudeReady, codexSignedOut] });
+    fireEvent.click(await within(card("Codex")).findByRole("button", { name: "Sign in with ChatGPT" }));
+    fireEvent.click(await within(card("Codex")).findByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(api.calls).toContain("agentSignInCancel:si-codex"));
+    act(() => store.getState().applyAgentSignIn({ id: "si-codex", kind: "codex", state: "failed", url: null, detail: "Error: network" }));
+    expect(within(card("Codex")).getByText(/didn't finish/)).toBeInTheDocument();
+    expect(within(card("Codex")).getByRole("button", { name: "Sign in with ChatGPT" })).toBeInTheDocument();
+  });
+
+  it("Install runs the install the server offers, and the card shows it running", async () => {
+    const { api, store } = await mountFresh({ cliStatus: [codexInstall] });
+    fireEvent.click(await within(card("Codex")).findByRole("button", { name: "Install Codex" }));
+    await waitFor(() => expect(store.getState().cliJobs.codex?.state).toBe("running"));
+    expect(api.calls.some((c) => c.startsWith("runCli:codex:install") || c === "runCli:codex:install")).toBe(true);
+    expect(within(card("Codex")).getByText("Installing Codex…")).toBeInTheDocument();
+    expect(radio("Codex")).toBeChecked();
+  });
+
+  it("where the install cannot run here, says why — and points at what provides npm", async () => {
+    // THE mutant: an Install button that can only fail with `spawn npm ENOENT`.
+    await mountFresh({ cliStatus: [{ ...codexInstall, action: "none", command: null,
+      refusal: "Codex installs with npm, which comes with Node.js — and Node.js isn't on this Mac yet." }] });
+    expect(await within(card("Codex")).findByText(/Node.js isn't on this Mac yet/)).toBeInTheDocument();
+    expect(within(card("Codex")).queryByRole("button", { name: "Install Codex" })).toBeNull();
+    expect(within(card("Codex")).getByRole("button", { name: "Get Node.js" })).toBeInTheDocument();
   });
 
   it("defaults to the first agent that actually works, and persists an explicit pick to ui.lastAgentKind", async () => {
     const { api, store } = await mountFresh();
-    await waitFor(() => expect(screen.getByText("2.0.1")).toBeInTheDocument());
-    expect(radio("Claude")).toBeChecked();     // claude probes ready
-    expect(radio("Cursor")).not.toBeChecked();
-
-    fireEvent.click(screen.getByRole("button", { name: /more not installed/ }));
-    fireEvent.click(radio("Codex")); // unavailable agents stay pickable — the prompter's card explains
-    await waitFor(() => expect(store.getState().lastAgentKind).toBe("codex"));
-    expect(api.data.settings[SETTING_LAST_AGENT]).toBe("codex");
-    expect(radio("Codex")).toBeChecked();
+    await waitFor(() => expect(within(card("Claude")).getByText("Signed in")).toBeInTheDocument());
+    expect(radio("Claude")).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /more agents/ }));
+    fireEvent.click(radio("Cursor"));
+    await waitFor(() => expect(store.getState().lastAgentKind).toBe("acp:cursor"));
+    expect(api.data.settings[SETTING_LAST_AGENT]).toBe("acp:cursor");
   });
 
-  it("honours a remembered agent over the probe's first ready one", async () => {
+  it("honours a remembered agent from the fold — and opens the fold, so the pick is never hidden", async () => {
     const { store } = await mountFresh({ settings: { [SETTING_LAST_AGENT]: "acp:cursor" } });
-    await waitFor(() => expect(screen.getByText("2.0.1")).toBeInTheDocument());
-    expect(store.getState().lastAgentKind).toBe("acp:cursor");
+    await waitFor(() => expect(store.getState().lastAgentKind).toBe("acp:cursor"));
     expect(radio("Cursor")).toBeChecked();
+    expect(screen.getByRole("button", { name: /Fewer agents/ })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("says beside Start what it will do — and what the session will ask for when the agent is not ready", async () => {
+    await mountFresh({ cliStatus: [codexInstall] });
+    await waitFor(() => expect(screen.getByText("Starts a Claude session in Home.")).toBeInTheDocument());
+    fireEvent.click(radio("Codex"));
+    expect(screen.getByText("Codex isn't installed yet — install it above, or from the session.")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), { target: { value: "Versed" } });
+    fireEvent.click(radio("Claude"));
+    expect(screen.getByText("Starts a Claude session in Versed.")).toBeInTheDocument();
+  });
+
+  it("takes the whole window while it is up: no rail and no sidebar, whose buttons need a space", async () => {
+    const api = fakeApi({ spaces: [], items: {} });
+    const store = createAppStore(api); await store.getState().boot();
+    const { container } = render(<StoreContext.Provider value={store}><AppShell /></StoreContext.Provider>);
+    expect(container.querySelector(".app")).toHaveAttribute("data-first-run");
+    expect(screen.getByText("Welcome to Realm")).toBeInTheDocument();
   });
 
   it("is completable from the keyboard alone: the name field has focus, Enter creates the space", async () => {
@@ -112,7 +189,7 @@ describe("first-run onboarding (W4)", () => {
 
   it("creating the first space also commits the chosen default agent", async () => {
     const { api, store } = await mountFresh();
-    await waitFor(() => expect(screen.getByText("2.0.1")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Signed in")).toBeInTheDocument());
     fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), { target: { value: "Versed" } });
     fireEvent.click(start());
     await waitFor(() => expect(store.getState().spaces).toHaveLength(1));
@@ -120,21 +197,19 @@ describe("first-run onboarding (W4)", () => {
     expect(store.getState().spaces[0]!.profileId).toBe(store.getState().profiles[0]!.id);
   });
 
-  it("puts the agent and the space in two labelled groups, agents first in the source", async () => {
-    /* Reading order is left to right, and a grid that folds puts the columns back in SOURCE order —
-       so the agent inventory has to come first in the DOM for the stacked case to read as the same
-       screen. The mutant is ordering them the other way to make the focused field come first, which
-       looks right at one width and inverts the screen at the other. */
-    await mountFresh();
-    const groups = screen.getAllByRole("group");
-    expect(groups.map((g) => g.querySelector("legend")?.textContent)).toEqual(["Agent", "Space"]);
+  it("asks in two numbered steps, the agent first in the source", async () => {
+    /* The mutant is ordering them the other way to make the focused field come first, which reads as
+       a form with an afterthought rather than the page's order of questions. */
+    const { container } = await mountFresh();
+    const steps = [...container.querySelectorAll("fieldset.onboarding-step > legend")].map((l) => l.textContent);
+    expect(steps).toEqual(["1Choose your agent", "2Name your space"]);
   });
 
   it("carries the space's icon and colour, which the first screen used to decide silently", async () => {
     // `completeOnboarding` wrote a folder glyph and the first palette colour straight into
     // `createSpace`. The identity was always being chosen; it just was not being shown or asked.
     const { store } = await mountFresh();
-    await waitFor(() => expect(screen.getByText("2.0.1")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Signed in")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("radio", { name: `Color ${SPACE_COLORS[3]}` }));
     fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), { target: { value: "Versed" } });
     fireEvent.click(start());
@@ -169,9 +244,8 @@ describe("first-run onboarding (W4)", () => {
 
   it("the session onboarding opens uses the agent just chosen", async () => {
     const { api } = await mountFresh();
-    await waitFor(() => expect(screen.getByText("2.0.1")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: /more not installed/ }));
-    fireEvent.click(radio(AGENT_META.codex.label));
+    await waitFor(() => expect(screen.getByText("Signed in")).toBeInTheDocument());
+    fireEvent.click(radio("Codex"));
     fireEvent.click(start());
     await waitFor(() => expect(api.calls).toContain("createSession:codex"));
   });
@@ -204,6 +278,17 @@ describe("first-run onboarding (W4)", () => {
       fireEvent.click(start());
       await waitFor(() => expect(store.getState().spaces).toHaveLength(1));
       expect(api.data.projects[store.getState().spaces[0]!.id] ?? []).toEqual([]);
+    });
+
+    it("without one, says where the first space will work — under the name it will have, in the profile it goes into", async () => {
+      /* The same field the New space sheet uses, fed first run's own answers. THE mutants: the typed
+         name instead of the name the space will actually get (blank means "Home"), or a profile other
+         than the one `completeOnboarding` makes it in. */
+      const { api } = await mountFresh();
+      expect(await screen.findByText("/home/work/home")).toBeInTheDocument();
+      fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), { target: { value: "Versed" } });
+      expect(await screen.findByText("/home/work/versed")).toBeInTheDocument();
+      expect(api.calls).toContain("spaceFolderFor:p1:Versed");
     });
 
     it("a typed name beats the folder's", async () => {

@@ -3,20 +3,19 @@ import { createPortal } from "react-dom";
 import { Icon } from "@realm/ui";
 import { useApp } from "../../state/store";
 import { TerminalView } from "../TerminalPane";
-import { DOCK_W_TERMINAL, dockPinMinPane, useDockDismiss, useDockPinned, usePaneRect } from "./pane-dock";
+import { TerminalMark, terminalTitle, useTerminalPrograms } from "../../components/ProgramMark";
+import { DOCK_H_TERMINAL, dockPinMinPaneHeight, useDockDismiss, useDockPinned, usePaneRect } from "./pane-dock";
 
 /**
- * The session's terminal, on the same right-hand strip the summary and the sub-agent view use.
+ * The session's terminal docked along the pane's BOTTOM edge, where Settings ▸ General ▸ Terminals
+ * puts it on request: the layout people bring from an editor, and the one a tall, narrow pane can
+ * afford. Its default place is a tab of the session's side pane, which ⌘J and the side pane's "+"
+ * open; this dock is drawn only for the Bottom choice, and only then does the session's bar carry a
+ * toggle for it.
  *
- * It used to be an internal `PanelGroup` split with a draggable divider, which read as the pane
- * having been cut in half — a second permanent column with its own seam, for a shell most turns
- * never need. The strip already existed for exactly this shape of thing: a surface opened from the
- * pane bar, read beside the transcript, and finished with. Moving the terminal onto it means one
- * place in a pane can be occupied at a time and one set of rules governs all three (pin when the
- * pane can spare the width, float when it cannot, Escape closes).
- *
- * Wider than its neighbours (`DOCK_W_TERMINAL`), because a terminal is the one dock whose content
- * has a minimum honest width: the summary is prose that reflows, and a shell is columns that wrap.
+ * A card by the dock's rules: it pins when the pane can spare the HEIGHT, and the pane then gives up
+ * its foot, which lifts the prompter above the shell rather than under it; in a short pane it floats
+ * over the foot instead. Escape closes it.
  *
  * The pty is untouched by any of this. Closing the dock neither kills the shell nor clears its
  * scrollback — `ensureSessionTerminal` is get-or-create, so re-opening lands back in the same
@@ -30,9 +29,12 @@ export function TerminalDock({ sessionId, title, visible, anchorRef, onClose }: 
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const terminalId = useApp((s) => s.sessionTerminals[sessionId]);
+  const programOf = useTerminalPrograms(!!terminalId);
+  const shown = terminalId ? terminalTitle(title, programOf(terminalId)) : title;
   const rect = usePaneRect(anchorRef);
-  const pinned = (rect?.width ?? 0) >= dockPinMinPane(DOCK_W_TERMINAL);
-  useDockPinned(rect, pinned, "--terminal-dock-w");
+  const pinned = (rect?.height ?? 0) >= dockPinMinPaneHeight(DOCK_H_TERMINAL);
+  useDockPinned(rect, pinned, "--terminal-dock-h", "bottom");
   /* `anchorRef` is the whole pane, so it cannot be in `keepOpenIn` — every click in the transcript
      would count as inside and nothing would dismiss. The bar's toggle does not need listing either:
      it TOGGLES, so a click there closes by its own route. Same reasoning as SubagentPanel's. */
@@ -41,11 +43,12 @@ export function TerminalDock({ sessionId, title, visible, anchorRef, onClose }: 
   return createPortal(
     <div ref={ref} className="terminal-dock pane-dock" role="dialog" aria-label={`Terminal for ${title}`}
       data-pinned={pinned || undefined}
-      style={{ position: "fixed", right: rect?.right ?? 0, top: rect?.top ?? 0,
-        "--dock-pane-h": `${rect?.height ?? window.innerHeight}px` } as React.CSSProperties}>
+      style={{ position: "fixed", left: rect?.left ?? 0, right: rect?.right ?? 0, bottom: rect?.bottom ?? 0 }}>
       <header className="terminal-dock-bar">
-        <Icon name="terminal" size={14} className="terminal-dock-mark" />
-        <span className="terminal-dock-title" title={title}>{title}</span>
+        {terminalId
+          ? <TerminalMark terminalId={terminalId} size={14} className="terminal-dock-mark" />
+          : <Icon name="terminal" size={14} className="terminal-dock-mark" />}
+        <span className="terminal-dock-title" title={shown}>{shown}</span>
         {/* A ×, not the trash the sub-agent view wears: there IS something under this one that
             closing keeps. The shell goes on running with its scrollback, and the next open returns
             to it — so promising to preserve it is a promise this button can keep (design.md). */}

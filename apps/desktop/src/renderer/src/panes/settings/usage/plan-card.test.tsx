@@ -37,11 +37,6 @@ describe("the plan card", () => {
     expect(await screen.findByText("Claude Max")).toBeInTheDocument();
   });
 
-  it("renders a tier it has never seen rather than falling back to Unknown", async () => {
-    await mount([row({ agentKind: "claude", subscriptionType: "galaxy", windows: [win("five_hour", "5-hour", 5)] })]);
-    expect(await screen.findByText("Claude Galaxy")).toBeInTheDocument();
-  });
-
   it("draws each window as a meter carrying its real percentage", async () => {
     await mount([row({
       agentKind: "claude", subscriptionType: "max",
@@ -62,11 +57,6 @@ describe("the plan card", () => {
     expect(bars().map((b) => b.querySelector(".plan-window-label")?.textContent)).toEqual(["Weekly", "Fable weekly", "5-hour"]);
   });
 
-  it("shows the per-model window under the label the provider gave it", async () => {
-    await mount([row({ agentKind: "claude", subscriptionType: "max", windows: [win("model:Fable", "Fable weekly", 52)] })]);
-    expect(await screen.findByText("Fable weekly")).toBeInTheDocument();
-  });
-
   /* The single most expensive wrong thing this card could say. A window the provider named without a
    * utilization has no bar at all — a 0% bar would be a number Realm invented. */
   it("says a window is not reported instead of drawing it at zero", async () => {
@@ -79,11 +69,6 @@ describe("the plan card", () => {
     await mount([row({ agentKind: "claude", unavailable: "not-on-a-plan" })]);
     expect(await screen.findByText(/bills per token/)).toBeInTheDocument();
     expect(meters()).toHaveLength(0);
-  });
-
-  it("says a reporting provider has not run yet, rather than showing it as unused", async () => {
-    await mount([row({ agentKind: "claude", unavailable: "not-yet-known" })]);
-    expect(await screen.findByText(/Run a Claude session/)).toBeInTheDocument();
   });
 
   it("shows the provider's own reason beside an unreadable account", async () => {

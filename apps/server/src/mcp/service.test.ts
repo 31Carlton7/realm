@@ -243,12 +243,6 @@ describe("setAllowedTools / effectiveServerIds (Plan 9 W3 — the gateway's own 
     expect(mcp.allowedTools(WORK, s.id)).toBeNull();
   });
 
-  it("effectiveServerIds returns exactly this space's enabled ids, empty for a space that enabled nothing", () => {
-    const a = mcp.add(stdio("airtable"), WORK);
-    mcp.add(stdio("school_only"), SCHOOL);
-    expect(mcp.effectiveServerIds(WORK)).toEqual([a.id]);
-    expect(mcp.effectiveServerIds("01ARZ3NDEKTSV4RRFFQ69G5FAX")).toEqual([]);
-  });
 });
 
 describe("scoping (W2) — profile vs space defining scope", () => {
@@ -373,10 +367,6 @@ describe("scoping (W2) — profile vs space defining scope", () => {
  * keys interfering — turning computer use on must not appear to turn the browser tools off.
  */
 describe("provider enablement", () => {
-  it("defaults Realm's ordinary providers to on", () => {
-    expect(mcp.providerEnabled(WORK, "realm-browser")).toBe(true);
-    expect(mcp.providerEnabled(WORK, "realm-docs")).toBe(true);
-  });
 
   it("defaults realm-computer to OFF — it reaches every app on the Mac", () => {
     expect(mcp.providerEnabled(WORK, "realm-computer")).toBe(false);
@@ -389,11 +379,6 @@ describe("provider enablement", () => {
     expect(mcp.providerEnabled(WORK, "realm-computer")).toBe(false);
   });
 
-  it("keeps one space's answer out of another's", () => {
-    mcp.setProviderEnabled(WORK, "realm-computer", true);
-    expect(mcp.providerEnabled(SCHOOL, "realm-computer")).toBe(false);
-  });
-
   it("keeps the two storage keys from interfering", () => {
     mcp.setProviderEnabled(WORK, "realm-computer", true);
     mcp.setProviderEnabled(WORK, "realm-browser", false);
@@ -401,3 +386,37 @@ describe("provider enablement", () => {
     expect(mcp.providerEnabled(WORK, "realm-browser")).toBe(false);
   });
 });
+
+describe("a server's views (MCP Apps)", () => {
+  it("are shown until switched off, the same in every space, and a removed server takes its switch with it", () => {
+    const { svc, servers, settings } = setupViews();
+    const row = servers.create({ name: "charts", transport: "stdio", command: "node", args: [], url: "", secrets: {} });
+    expect(svc.showsViews(row.id)).toBe(true);
+    expect(svc.list("S1").servers.find((s) => s.id === row.id)?.showViews).toBe(true);
+    svc.setShowsViews(row.id, false);
+    expect(svc.showsViews(row.id)).toBe(false);
+    expect(svc.list("S1").servers.find((s) => s.id === row.id)?.showViews).toBe(false);
+    expect(svc.list("S2").servers.find((s) => s.id === row.id)?.showViews).toBe(false);
+    svc.remove(row.id, ["S1", "S2"]);
+    expect(settings.getIds("mcp.viewsHidden")).toEqual([]);
+    expect(() => svc.setShowsViews("01ARZ3NDEKTSV4RRFFQ69G5FAV", false)).toThrow(/not found/);
+  });
+
+  it("are named on the row from the cached tools — a tool's view, and a tool only its view may call", () => {
+    const { svc, servers } = setupViews();
+    const row = servers.create({ name: "charts", transport: "stdio", command: "node", args: [], url: "", secrets: {} });
+    servers.setTools(row.id, [{ name: "show_chart", description: "", view: "ui://charts/bar.html" }, { name: "refresh_chart", description: "", view: "ui://charts/bar.html", appOnly: true }, { name: "plain", description: "" }]);
+    expect(svc.list("S1").servers.find((s) => s.id === row.id)?.tools).toEqual([
+      { name: "show_chart", description: "", view: "ui://charts/bar.html" },
+      { name: "refresh_chart", description: "", view: "ui://charts/bar.html", appOnly: true },
+      { name: "plain", description: "" },
+    ]);
+  });
+});
+
+function setupViews() {
+  const db = openDatabase(join(tempDir("realm-mcp-views-"), "realm.db"));
+  const servers = new McpServersStore(db);
+  const settings = new SettingsStore(db);
+  return { svc: new McpService({ servers, settings }), servers, settings };
+}

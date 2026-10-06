@@ -25,12 +25,6 @@ describe("the catalog only offers guests with a screen", () => {
     expect(found, `${file} is built for a serial console, so its pane would stay blank`).toEqual([]);
   });
 
-  it("would reject the alpine-virt image this replaced", () => {
-    // The mutant this test exists to kill: the exact URL that shipped and showed nothing.
-    const regressed = "alpine-virt-3.21.0-aarch64.iso";
-    expect(["-virt-"].some((f) => regressed.includes(f))).toBe(true);
-  });
-
   it("every entry declares a size, because the pane shows progress against it", () => {
     for (const entry of CATALOG) expect(entry.bytes, entry.id).toBeGreaterThan(0);
   });

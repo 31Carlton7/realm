@@ -28,7 +28,7 @@ describe("openDocumentPath (Plan 22)", () => {
 });
 
 describe("applyDocumentOpenRequested", () => {
-  it("brings the item in beside the focused pane, quietly, for the active space only", async () => {
+  it("brings the item in beside the focused pane, quietly, for the window's own spaces only", async () => {
     const { api, store } = await booted();
     const { itemId } = await api.createDocuments("s1");
     const focusedBefore = store.getState().focusedLeafId;
@@ -53,32 +53,37 @@ describe("applyDocumentOpenRequested", () => {
 });
 
 describe("startLecture", () => {
-  it("makes a named group for today, opens the lecture file in it, and a session beside it", async () => {
+  it("puts the lecture file in the main view with a session beside it, and leaves the session it replaced in its space", async () => {
     const { api, store } = await booted();
     await store.getState().startLecture("Pipelining hazards");
-    const gs = store.getState().groups!;
-    expect(gs.groups).toHaveLength(2);
-    const active = gs.groups.find((g) => g.id === gs.activeGroupId)!;
-    expect(active.name).toMatch(/^Pipelining hazards · \d{4}-\d{2}-\d{2}$/);
     expect(api.calls).toContain("startLecture:s1:Pipelining hazards");
-    const ids = allItems(active.layout);
+    const ids = allItems(store.getState().layout!);
     const items = store.getState().items;
     const kinds = ids.map((id) => items.find((i) => i.id === id)?.kind);
-    expect(kinds.sort()).toEqual(["documents", "session"]);
-    // The original session pane stays in the Main group, untouched.
-    const main = gs.groups.find((g) => g.id !== gs.activeGroupId)!;
-    expect(allItems(main.layout)).toEqual(["i-sess"]);
+    // THE MUTANT: open the lecture beside the session instead — three panes, or the session evicted
+    // for the session only. One view, two panes: the notes and the assistant.
+    expect(kinds).toEqual(["documents", "session"]);
+    // The session it replaced is off the screen and nothing else: still an item of the space.
+    expect(ids).not.toContain("i-sess");
+    expect(items.map((i) => i.id)).toContain("i-sess");
     // Nothing is sent to the new session — a lecture starts quiet.
     expect(api.sent).toEqual([]);
     const created = store.getState().items.filter((i) => i.kind === "session" && i.id !== "i-sess");
     expect(created).toHaveLength(1);
+    expect(store.getState().sessions[created[0]!.refId]!.title).toMatch(/^Lecture assistant · Pipelining hazards$/);
   });
 
-  it("names the group after the date alone when no topic is given", async () => {
-    const { store } = await booted();
+  it("names the assistant after the date alone when no topic is given", async () => {
+    const { api, store } = await booted();
     await store.getState().startLecture("   ");
-    const gs = store.getState().groups!;
-    expect(gs.groups.find((g) => g.id === gs.activeGroupId)!.name).toMatch(/^Lecture · \d{4}-\d{2}-\d{2}$/);
+    expect(api.data.sessions.at(-1)!.title).toMatch(/^Lecture assistant · \d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("starts in the space it is told, whichever space the session in focus is from", async () => {
+    const { api, store } = await booted({ spaces: [space("s1", "p1", "EE 457"), space("s2", "p1", "CS 101")] });
+    await store.getState().startLecture("Graphs", "s2");
+    expect(api.calls).toContain("startLecture:s2:Graphs");
+    expect(api.data.sessions.at(-1)!.spaceId).toBe("s2");
   });
 });
 

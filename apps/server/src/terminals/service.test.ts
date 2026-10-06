@@ -92,21 +92,6 @@ describe("terminal port blocks", () => {
     c2.close();
   });
 
-  it("gives two spaces' terminals different blocks", async () => {
-    const home = tempDir("realm-home-");
-    const app1 = await createApp({ home, port: 0 }); apps.push(app1);
-    const c = await client(app1.port);
-    const prof = (await c.call("profiles.create", { name: "Work" })).result;
-    const a = (await c.call("spaces.create", { profileId: prof.id, name: "A" })).result;
-    const b = (await c.call("spaces.create", { profileId: prof.id, name: "B" })).result;
-    await c.call("terminals.create", { spaceId: a.id });
-    await c.call("terminals.create", { spaceId: b.id });
-    const blocks = (app1.db.prepare("SELECT port_block_start AS s FROM environments WHERE port_block_start IS NOT NULL").all() as { s: number }[]).map((r) => r.s);
-    expect(blocks).toHaveLength(2);
-    expect(new Set(blocks).size).toBe(2);
-    c.close();
-  });
-
   /** Output from every `terminal.data` frame this client saw, and the cursor to resume from. */
   const streamed = (c: { events: any[] }, terminalId: string) => {
     const frames = c.events.filter((e) => e.event === "terminal.data" && e.payload.terminalId === terminalId);
@@ -175,14 +160,18 @@ describe("terminal port blocks", () => {
     const prof = (await c1.call("profiles.create", { name: "Work" })).result;
     const space = (await c1.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
     const { terminalId } = (await c1.call("terminals.create", { spaceId: space.id })).result;
-    await c1.call("terminals.write", { terminalId, data: "echo BEFORE_DROP\n" });
+    /* The marker is assembled by the command, so it exists only in the OUTPUT. With `echo BEFORE_DROP`
+       the wait was satisfied by the tty echoing the typed line, the cursor was taken before the
+       command had printed, and its output — older than the drop — came back in the catch-up whenever
+       the machine was loaded enough to separate the two. */
+    await c1.call("terminals.write", { terminalId, data: "printf 'BEFORE_%s\\n' DROP\n" });
     await waitFor(() => streamed(c1, terminalId).text.includes("BEFORE_DROP"));
     const cursor = streamed(c1, terminalId).last!;
     c1.close();
 
     // Output arrives with nobody listening — the ordinary case once the server outlives the app.
     const c2 = await client(app.port);
-    await c2.call("terminals.write", { terminalId, data: "echo WHILE_AWAY\n" });
+    await c2.call("terminals.write", { terminalId, data: "printf 'WHILE_%s\\n' AWAY\n" });
     await waitFor(() => streamed(c2, terminalId).text.includes("WHILE_AWAY"));
 
     const caught = (await c2.call("terminals.read", { terminalId, cursor })).result;

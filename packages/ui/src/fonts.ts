@@ -17,7 +17,9 @@
  *  no such problem — its weights come from a four-token scale the whole app already reads — so the
  *  control shifts that scale and the hierarchy it draws survives intact. */
 
-export type FontRole = "ui" | "code";
+/** `content` is the face prose is read in — a transcript's messages, rendered markdown and the
+ *  documents editor — and it is the UI face until someone picks another. */
+export type FontRole = "ui" | "code" | "content";
 /**
  * `bundled`, `system`, or a family NAME.
  *
@@ -49,6 +51,15 @@ export const FONT_FACES: Record<FontRole, readonly FontFace[]> = {
     { id: "bundled", label: "JetBrains Mono", stack: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace' },
     { id: "system", label: "System default", stack: 'ui-monospace, "SF Mono", Menlo, monospace' },
   ],
+  /* `bundled` here is "the UI face", whatever that has been set to: prose read in the chrome's own
+     face is what the app has always done, so it stays the default and the role only changes
+     anything once someone chooses. The serif is the one face the other two roles have no use for and
+     prose does — New York on a Mac. */
+  content: [
+    { id: "bundled", label: "Same as UI font", stack: "var(--font-ui)" },
+    { id: "serif", label: "System serif", stack: 'ui-serif, "New York", Georgia, serif' },
+    { id: "system", label: "System default", stack: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif' },
+  ],
 };
 
 /** How much the whole UI weight scale moves. Applied as an offset rather than as absolute weights so
@@ -61,9 +72,25 @@ export const FONT_WEIGHTS: { id: FontWeight; label: string }[] = [
   { id: "regular", label: "Regular" }, { id: "medium", label: "Medium" },
 ];
 
-export type FontPref = { ui: FontId; uiWeight: FontWeight; code: FontId; leading: number };
+export type FontPref = { ui: FontId; uiWeight: FontWeight; code: FontId; content: FontId; leading: number; uiSize: number; codeSize: number };
 
-export const DEFAULT_FONTS: FontPref = { ui: "bundled", uiWeight: "regular", code: "bundled", leading: 0 };
+/**
+ * The two text sizes, in px — what the body text and inline code are set at, which every other size
+ * in the stylesheet is drawn in proportion to (`theme/text-scale.ts` in the desktop app scales each
+ * of them by size ÷ default). ⌘+ and ⌘− are page zoom and stay page zoom: zoom scales the layout with
+ * the text, these scale only the text.
+ *
+ * The ranges stop where the layout stops holding. Twelve is as small as the UI goes before its
+ * smallest labels meet the 11px floor they are held to; eighteen and sixteen are where a row's text
+ * and a chip's mono label still fit the boxes they are drawn in.
+ */
+export const UI_SIZE_RANGE = { min: 12, max: 18, default: 14 } as const;
+export const CODE_SIZE_RANGE = { min: 11, max: 16, default: 12 } as const;
+
+export const DEFAULT_FONTS: FontPref = {
+  ui: "bundled", uiWeight: "regular", code: "bundled", content: "bundled", leading: 0,
+  uiSize: UI_SIZE_RANGE.default, codeSize: CODE_SIZE_RANGE.default,
+};
 
 /**
  * Line height, as an OFFSET in hundredths — the same argument `--fw-shift` makes one block up.
@@ -84,6 +111,11 @@ export const clampLeading = (x: number): number => {
   return Math.round(held / LEADING_RANGE.step) * LEADING_RANGE.step;
 };
 
+/** A whole px inside the range, or the default for anything that is not a number — a size outside
+ *  it is a value an older build or a hand edit wrote, and the range is what the layout holds at. */
+const clampSize = (range: { min: number; max: number; default: number }, x: unknown): number =>
+  typeof x === "number" && Number.isFinite(x) ? Math.round(Math.min(range.max, Math.max(range.min, x))) : range.default;
+
 /** A family name that can go in a CSS stack without escaping games: letters, digits, spaces and the
  *  punctuation real family names use. A name outside this is dropped rather than quoted, because the
  *  one thing a font preference must never do is write a broken `font-family` and leave a window with
@@ -98,24 +130,30 @@ const isFontWeight = (x: unknown): x is FontWeight => x === "regular" || x === "
  *  window with no text in it. */
 export function parseFontPref(raw: unknown): FontPref {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return DEFAULT_FONTS;
-  const { ui, uiWeight, code, leading } = raw as Record<string, unknown>;
+  const { ui, uiWeight, code, content, leading, uiSize, codeSize } = raw as Record<string, unknown>;
   return {
     ui: isFontId(ui) ? ui : DEFAULT_FONTS.ui,
     uiWeight: isFontWeight(uiWeight) ? uiWeight : DEFAULT_FONTS.uiWeight,
     code: isFontId(code) ? code : DEFAULT_FONTS.code,
     // Field by field like the rest: a row stored before this setting existed has no `leading`, and
-    // the answer to that is the default rather than `NaN` written into a line-height.
+    // the answer to that is the default rather than `NaN` written into a line-height. The same goes
+    // for the content face and the two sizes, which are younger still.
+    content: isFontId(content) ? content : DEFAULT_FONTS.content,
     leading: typeof leading === "number" ? clampLeading(leading) : DEFAULT_FONTS.leading,
+    uiSize: clampSize(UI_SIZE_RANGE, uiSize),
+    codeSize: clampSize(CODE_SIZE_RANGE, codeSize),
   };
 }
 
-export const FONT_VARS = ["--font-ui", "--font-mono", "--fw-shift", "--lh-shift"] as const;
+export const FONT_VARS = ["--font-ui", "--font-mono", "--font-content", "--fw-shift", "--lh-shift", "--ui-text-scale", "--code-text-scale"] as const;
 
 /** The fallbacks each role lands on — the "System default" stack, which is what a family that fails
  *  to load should degrade to rather than to nothing. */
 const FALLBACK: Record<FontRole, string> = {
   ui: FONT_FACES.ui[1]!.stack,
   code: FONT_FACES.code[1]!.stack,
+  // A prose family that fails to load reads in the UI face, which is what prose was in before.
+  content: "var(--font-ui)",
 };
 
 const stack = (role: FontRole, id: FontId): string => {
@@ -134,8 +172,13 @@ export function fontVars(pref: FontPref): Record<string, string> {
   return {
     "--font-ui": stack("ui", pref.ui),
     "--font-mono": stack("code", pref.code),
+    "--font-content": stack("content", pref.content),
     "--fw-shift": String(FONT_WEIGHT_SHIFT[pref.uiWeight]),
     // Hundredths on the way in, a ratio on the way out — the stylesheet adds it to each surface's own.
     "--lh-shift": String(clampLeading(pref.leading) / 100),
+    // Px on the way in, a multiplier on the way out: every size in the stylesheet is drawn at the
+    // default, so the multiplier is the one number they all need.
+    "--ui-text-scale": String(+(clampSize(UI_SIZE_RANGE, pref.uiSize) / UI_SIZE_RANGE.default).toFixed(4)),
+    "--code-text-scale": String(+(clampSize(CODE_SIZE_RANGE, pref.codeSize) / CODE_SIZE_RANGE.default).toFixed(4)),
   };
 }

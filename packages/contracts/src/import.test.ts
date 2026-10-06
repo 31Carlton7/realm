@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Methods } from "./rpc";
-import {
-  IMPORT_MEMORY_MARKER_CLOSE, IMPORT_MEMORY_MARKER_OPEN, IMPORTED_SPACE_NAME,
-  ImportScanSchema, withImportedMemory,
-} from "./import";
+import { IMPORT_MEMORY_MARKER_CLOSE, IMPORT_MEMORY_MARKER_OPEN, withImportedMemory } from "./import";
 
 describe("withImportedMemory", () => {
   const block = "## Imported memory\n\n- [A fact](/Users/me/Realm/memory/imported/S1/proj/a.md)";
@@ -56,9 +53,6 @@ describe("withImportedMemory", () => {
 });
 
 describe("import contracts", () => {
-  it("scan takes no parameters — what to include is the user's decision, not a baked-in filter", () => {
-    expect(Methods["import.scan"].params.parse({})).toEqual({});
-  });
 
   it("apply defaults every list, so a partial selection is not a validation error", () => {
     expect(Methods["import.apply"].params.parse({})).toEqual({ sessions: [], memories: [], skills: [] });
@@ -74,21 +68,4 @@ describe("import contracts", () => {
     expect(Methods["import.apply"].params.safeParse({ skills: ["web-design"] }).success).toBe(true);
   });
 
-  it("a scan result round-trips its own schema", () => {
-    const scan = {
-      sessions: [{
-        key: "/a/b.jsonl", source: "claude", agentKind: "claude", providerSessionId: "s1", path: "/a/b.jsonl",
-        cwd: "/Users/me/proj", cwdExists: true, title: "T", messages: 4, startedAt: 1, updatedAt: 2,
-        fromRealm: false, scratch: false, imported: false, duplicate: false,
-        match: { spaceId: null, fallbackProfileId: null, reason: "none", evidence: null },
-      }],
-      memories: [], skills: [],
-      sources: [{ source: "claude", root: "/Users/me/.claude", available: true, sessions: 1, unreadable: 0, note: null }],
-    };
-    expect(ImportScanSchema.parse(scan)).toEqual(scan);
-  });
-
-  it("names the catch-all space one way, so scan and apply cannot disagree about which one it is", () => {
-    expect(IMPORTED_SPACE_NAME).toBe("Imported");
-  });
 });

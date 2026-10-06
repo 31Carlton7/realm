@@ -23,8 +23,9 @@ import captured from "@/public/product/manifest.json"
  * be the wrong evidence anyway, since these are real captures of a real space taken by
  * `capture-product.mjs` against the built app.
  *
- * Every frame here is anchored to the top and cropped at the bottom, losing the prompter band whose
- * model chip reads "Fake" — the capture harness's scripted agent, not Realm. `Claim.tsx` carries the
+ * Every frame here is anchored to the top and cropped at the bottom. The captures' chips name the
+ * models a real session runs — the harness's scripted agent stands in for Claude and Codex — but a
+ * frame is still aimed at its subject rather than at the whole window. `Claim.tsx` carries the
  * arithmetic; the short version is that the crop must come from an aspect NARROWER than the source's
  * 16/10, which the hero's old 16/9 was not by enough and the claims' old 16/10 was not at all.
  */
@@ -52,9 +53,10 @@ export default async function HomePage() {
             </h1>
 
             <p className="mt-5 max-w-[46ch] text-[16px] leading-[1.55] text-ink-2">
-              Sessions, terminals, browsers and documents sit side by side in one layout that comes
-              back the way you left it. Agents reach your tools through a gateway that keeps the
-              credentials, and can be confined to the checkout they are working in.
+              Every space in one sidebar, sessions side by side, and what their agents open — a
+              file, a browser, a terminal, a device — beside them in one panel, the way you left it.
+              Agents reach your tools through a gateway that keeps the credentials, and can be
+              confined to the checkout they are working in.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-2.5">
@@ -86,7 +88,7 @@ export default async function HomePage() {
             <div className="app-corner aspect-4/3 w-full overflow-hidden rounded-[20px] shadow-[0_0_0_1px_oklch(1_0_0/0.09),0_24px_60px_-24px_oklch(0_0_0/0.75)] sm:aspect-[15/8]">
               <Image
                 src="/product/workspace.png"
-                alt="A Realm space: the sidebar, a document open beside an agent session, and the session working through a plan."
+                alt="Realm: every space in the sidebar, a session that fixed a crash and the two files it edited, and the file its answer named open in the side panel at the line it named."
                 width={2880}
                 height={1800}
                 priority

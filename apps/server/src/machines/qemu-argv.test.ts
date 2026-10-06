@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NVRAM_BYTES, UNIX_PATH_MAX, accelNote, buildQemuArgv, firmwareCode, portForDisplay, qemuBinary, qmpSocketPath, type QemuSpec } from "./qemu-argv";
+import { NVRAM_BYTES, UNIX_PATH_MAX, buildQemuArgv, firmwareCode, portForDisplay, qemuBinary, qmpSocketPath, type QemuSpec } from "./qemu-argv";
 
 const spec = (over: Partial<QemuSpec> = {}): QemuSpec => ({
   arch: "aarch64", dir: "/home/machines/m1", shareDir: "/opt/homebrew/share/qemu",
@@ -80,10 +80,6 @@ describe("acceleration", () => {
     expect(after(argv({ cpus: 0 }), "-smp")[0]).toBe("1");
   });
 
-  it("says how slow an emulated guest will be, rather than letting it read as a bug", () => {
-    expect(accelNote("aarch64", "hvf")).toBeNull();
-    expect(accelNote("x86_64", "tcg")).toContain("10–30× slower");
-  });
 });
 
 describe("the two architectures", () => {

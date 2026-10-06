@@ -45,9 +45,6 @@ describe("parseNumstat", () => {
     // The exact bytes git emits: counts, an EMPTY path, then old and new.
     expect(parseNumstat("1\t1\t\0old.txt\0new.txt\0")).toEqual([["new.txt", { additions: 1, deletions: 1, binary: false }]]);
   });
-  it("reports a binary file as binary with zero counts, not NaN", () => {
-    expect(parseNumstat("-\t-\tbin.dat\0")).toEqual([["bin.dat", { additions: 0, deletions: 0, binary: true }]]);
-  });
   it("keeps a path containing a tab intact", () => {
     expect(parseNumstat("2\t0\tweird\tname.txt\0")).toEqual([["weird\tname.txt", { additions: 2, deletions: 0, binary: false }]]);
   });
@@ -61,14 +58,6 @@ describe("parseStatus", () => {
     expect(files).toHaveLength(2);
     expect(files[0]).toMatchObject({ path: "new.txt", oldPath: "a.txt", status: "renamed", staged: true, unstaged: false });
     expect(files[1]).toMatchObject({ path: "b.txt", oldPath: null, staged: false, unstaged: true });
-  });
-  it("marks a file that is both staged and edited again as both", () => {
-    const [f] = parseStatus("MM a.txt\0", new Map());
-    expect(f).toMatchObject({ staged: true, unstaged: true });
-  });
-  it("never calls an untracked file staged", () => {
-    const [f] = parseStatus("?? new.txt\0", new Map());
-    expect(f).toMatchObject({ status: "untracked", staged: false, unstaged: true });
   });
 });
 

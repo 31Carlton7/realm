@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
-import type { Keybinding } from "@realm/contracts";
+import { DEFAULT_KEYBINDINGS, allItems, findSidePane, type Keybinding } from "@realm/contracts";
 import { useKeybindings } from "./use-keybindings";
 import { createAppStore } from "../state/store";
 import { fakeApi, item, session, space } from "../state/store.test-fakes";
@@ -94,13 +94,24 @@ describe("useKeybindings", () => {
     /* ⌘J has to work FROM the composer — that is the only place the hand is in a session pane — and
        it types nothing there. In the old layer this was a per-binding `inInputs` flag; here it is
        just a `when` that does not mention inputFocus. */
-    const { store } = await mount(undefined, focusedSession);
+    const { api, store } = await mount(undefined, focusedSession);
     focusSessionPane(store);
     const input = document.createElement("input");
     document.body.appendChild(input);
     key({ key: "j", metaKey: true }, input);
-    await waitFor(() => expect(store.getState().sessionDock.sess1).toEqual({ kind: "terminal" }));
+    await waitFor(() => expect(made(api, "createTerminal")).toBe(true));
     input.remove();
+  });
+
+  it("opens the focused session's terminal on ⌘J as a tab of its side pane — what the side pane's Terminal does", async () => {
+    // THE MUTANT: the key still toggling the old dock while the "+" row opens a tab — two ways in, and
+    // two different terminals behind them.
+    const { api, store } = await mount(undefined, focusedSession);
+    await act(async () => { await store.getState().openItem("i1"); });
+    key({ key: "j", metaKey: true });
+    await waitFor(() => expect(findSidePane(store.getState().layout!, "i1")?.tabs).toHaveLength(1));
+    expect(api.calls).toContain("createTerminal:s1:/tmp");
+    expect(store.getState().sessionDock.sess1).toBeUndefined();
   });
 
   it("lets an overlay own the keyboard, except for the toggles that open it", async () => {
@@ -125,6 +136,24 @@ describe("useKeybindings", () => {
     expect(key({ key: "w", metaKey: true })).toBe(false);
     await tick();
     expect(store.getState().sheet).toEqual({ kind: "new-space" });
+  });
+
+  it("⌘W closes the tab the keyboard is in, and nothing at all on a session alone", async () => {
+    // THE MUTANT: the old runner, `closeFromLayout` on whatever has focus. The lone session would leave
+    // the view and a fresh one would be made to take its place — a close the session no longer has.
+    const { api, store } = await mount(undefined, focusedSession);
+    await act(async () => { await store.getState().openItem("i1"); });
+    key({ key: "w", metaKey: true });
+    await tick();
+    expect(allItems(store.getState().layout!)).toEqual(["i1"]);
+    expect(store.getState().keyboardFor?.sessionId).toBe("sess1");
+    expect(made(api, "createSession")).toBe(false);
+    // ⌘J puts the session's terminal in its side pane with the keyboard; ⌘W puts that tab away.
+    key({ key: "j", metaKey: true });
+    await waitFor(() => expect(findSidePane(store.getState().layout!, "i1")?.tabs).toHaveLength(1));
+    key({ key: "w", metaKey: true });
+    await waitFor(() => expect(findSidePane(store.getState().layout!, "i1")).toBeNull());
+    expect(allItems(store.getState().layout!)).toEqual(["i1"]);
   });
 
   it("ignores an event something closer to the target already consumed", async () => {
@@ -178,12 +207,32 @@ describe("useKeybindings", () => {
     expect(made(api, "deleteSession")).toBe(false);
   });
 
-  it("makes a split on \u2318\u21e7G, which the catalog carried with no default binding", async () => {
+  it("binds nothing to the retired split chords — the window shows one view, with no named splits", async () => {
+    // THE MUTANT: leave ⌘⇧G, ⌘⇧[ or ⌘⇧] in the shipped table. A chord with nothing behind it is a
+    // shortcut that does nothing, and one with something behind it is a second view.
     const { store } = await mount();
-    await act(async () => { await store.getState().newPaneGroup("Read"); });
-    const before = store.getState().groups!.groups.length;
-    key({ key: "G", code: "KeyG", metaKey: true, shiftKey: true });
-    await waitFor(() => expect(store.getState().groups!.groups).toHaveLength(before + 1));
+    const before = store.getState().layout;
+    for (const k of [{ key: "G", code: "KeyG" }, { key: "{", code: "BracketLeft" }, { key: "}", code: "BracketRight" }]) {
+      key({ ...k, metaKey: true, shiftKey: true });
+    }
+    await tick();
+    expect(store.getState().layout).toBe(before);
+    expect(DEFAULT_KEYBINDINGS.some((r) => r.command.startsWith("paneGroup."))).toBe(false);
+  });
+
+  it("opens a side pane tab beside the focused session on ⌘⇧B, and one in full view on ⌥⌘B", async () => {
+    // THE MUTANT: drop either runner. The chord stays in the shipped table and the catalog, so a user
+    // pressing it — or setting it in Settings — gets nothing at all.
+    const { api, store } = await mount(undefined, focusedSession);
+    // Through the store rather than `focusSessionPane`: the side pane is found through the view,
+    // which a bare layout write leaves behind.
+    await act(async () => { await store.getState().openItem("i1"); });
+    key({ key: "B", code: "KeyB", metaKey: true, shiftKey: true });
+    await waitFor(() => expect(findSidePane(store.getState().layout!, "i1")?.tabs).toHaveLength(1));
+    expect(made(api, "createBrowser")).toBe(true);
+    await act(async () => { await store.getState().openItem("i1"); });
+    key({ key: "∫", code: "KeyB", metaKey: true, altKey: true });
+    await waitFor(() => expect(store.getState().view!.zoomedLeafId).not.toBeNull());
   });
 
   it("picks up a new keymap without missing a keystroke", async () => {
@@ -208,6 +257,40 @@ describe("useKeybindings", () => {
     key({ key: "3", metaKey: true }); // Work has no third space
     await tick();
     expect(store.getState().activeSpaceId).toBe("s2");
+  });
+
+  it("goes back to where you were on ⌃-, room and all, and forward again on ⌃⇧- — from the prompter too", async () => {
+    /* `code` is what the hook reads, so the events carry it: ⌃⇧- arrives with `key` "_" on a US
+       layout, and a binding read off `key` would never fire. */
+    const { store } = await mount(undefined, {
+      spaces: [space("s1", "p1", "Versed", { layout: { type: "leaf", id: "L1", itemId: "i1" } }), space("s2", "p1", "Homework")],
+      items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "Mine" })], s2: [item("i2", "s2", { kind: "session", refId: "se2", title: "Theirs" })] },
+      sessions: [session("se1", "s1"), session("se2", "s2", { status: "waiting_permission" })],
+    });
+    await act(async () => { await store.getState().revealSession("se2", "s2"); });
+    const prompter = document.createElement("textarea");
+    document.body.appendChild(prompter);
+    key({ key: "-", code: "Minus", ctrlKey: true }, prompter);
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s1"));
+    expect(store.getState().focusedLeafId).toBe("L1");
+    key({ key: "_", code: "Minus", ctrlKey: true, shiftKey: true }, prompter);
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    prompter.remove();
+  });
+
+  it("leaves ⌃- to a terminal, where readline reads it as undo", async () => {
+    const { store } = await mount(undefined, {
+      items: { s1: [item("i1", "s1", { title: "Terminal" })], s2: [] },
+    });
+    await act(async () => { await store.getState().selectSpace("s2"); });
+    const xterm = document.createElement("div"); xterm.className = "xterm";
+    const helper = document.createElement("textarea"); xterm.appendChild(helper);
+    document.body.appendChild(xterm);
+    const ev = fireEvent.keyDown(helper, { key: "-", code: "Minus", ctrlKey: true });
+    await tick();
+    expect(ev).toBe(true); // not consumed
+    expect(store.getState().activeSpaceId).toBe("s2");
+    xterm.remove();
   });
 });
 

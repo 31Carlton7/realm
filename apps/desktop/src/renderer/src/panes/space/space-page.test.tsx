@@ -33,7 +33,9 @@ describe("SpacePage · General", () => {
     fireEvent.change(hex, { target: { value: "#123ABC" } });
     await waitFor(() => expect(store.getState().activeSpace()?.color).toBe("#123abc"));
     fireEvent.change(screen.getByRole("combobox", { name: "Profile" }), { target: { value: "p2" } });
-    await waitFor(() => expect(store.getState().activeSpace()?.profileId).toBe("p2"));
+    await waitFor(() => expect(store.getState().spaces.find((sp) => sp.id === "s1")?.profileId).toBe("p2"));
+    // A space moved to another profile leaves this window's list with it.
+    await waitFor(() => expect(store.getState().profileSpaces().map((sp) => sp.id)).not.toContain("s1"));
   });
 
   describe("an image dropped on the icon control", () => {
@@ -609,7 +611,8 @@ describe("the Memory tab (standing-instruction framing)", () => {
     const doc = screen.getByRole("textbox", { name: "Space memory document" });
     expect(doc).toHaveFocus();
     fireEvent.change(doc, { target: { value: "always run the linter" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save memory" }));
+    // The page keeps itself: leaving the field writes it.
+    fireEvent.blur(doc);
     // The named mutant: the CTA/save path writing to the wrong space's document.
     await waitFor(() => expect(api.data.memoryDocs.s1).toBe("always run the linter"));
     expect(api.data.memoryDocs.s2).toBe("another space's memory");

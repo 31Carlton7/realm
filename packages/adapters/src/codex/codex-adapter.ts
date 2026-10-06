@@ -1,4 +1,4 @@
-import { ASK_PERMISSION_MODE, sessionEvent, type SessionEvent } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, AskCardSchema, askCardFromElicitation, elicitationContent, loggableAnswers, normalizeAnswers, requiredAnswered, sessionEvent, type AskAnswers, type AskCard, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, isRpcTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { CodexConnection, type ThreadListener } from "./connection";
@@ -53,6 +53,49 @@ const APPROVAL_METHODS: Record<string, { toolName: string; title: string }> = {
   "item/commandExecution/requestApproval": { toolName: "exec_command", title: "Run this command?" },
   "item/fileChange/requestApproval": { toolName: "apply_patch", title: "Apply these edits?" },
 };
+
+/** Who asks when Codex's own `request_user_input` tool reaches the card. */
+const CODEX_ASKER = { kind: "agent", name: "Codex", agent: "codex" } as const;
+
+/**
+ * Codex's `item/tool/requestUserInput` as a card, or null when it holds nothing to answer.
+ *
+ * Shapes from `codex app-server generate-ts` (0.154.0): each question is `{id, header, question,
+ * isOther, isSecret, options: {label, description}[] | null}`, and the reply is `{answers: {[id]:
+ * {answers: string[]}}}`. An option's value IS its label, because a label is what Codex reads back;
+ * `isOther` is the field for an answer of your own, and a question with no options is that field
+ * alone. `isSecret` is masked on screen and kept out of the log like every other secret.
+ */
+export function codexUserInputCard(params: unknown): AskCard | null {
+  const raw = obj(params).questions;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const questions = raw.map((x) => {
+    const q = obj(x);
+    const options = (Array.isArray(q.options) ? q.options : []).map(obj).filter((o) => str(o.label))
+      .map((o) => ({ value: str(o.label), label: str(o.label), ...(str(o.description) ? { description: str(o.description) } : {}) }));
+    return {
+      id: str(q.id), prompt: str(q.question) || str(q.header), ...(str(q.header) ? { header: str(q.header).slice(0, 80) } : {}),
+      kind: options.length ? "choice" as const : "text" as const,
+      ...(options.length ? { options, allowOther: q.isOther === true } : {}),
+      ...(q.isSecret === true ? { secret: true } : {}),
+    };
+  });
+  const card = AskCardSchema.safeParse({ asker: CODEX_ASKER, mode: "question", questions });
+  return card.success ? card.data : null;
+}
+
+/** The answers as `ToolRequestUserInputResponse` carries them: every one a list. */
+export function codexUserInputReply(answers: AskAnswers): { answers: Record<string, { answers: string[] }> } {
+  return { answers: Object.fromEntries(Object.entries(answers).map(([id, a]) => [id, { answers: Array.isArray(a) ? a : [a] }])) };
+}
+
+/**
+ * How long Codex waits on one of Realm's tools before giving up on it. Its own default is a minute,
+ * and a Realm tool can rightly take far longer: a question waits for the user up to the broker's
+ * fifteen minutes, and `agent_wait` listens for sub-agents by default for as long. A minute more than
+ * the longest of them, so Realm's own answer — even a timeout — is the one that lands.
+ */
+export const GATEWAY_TOOL_TIMEOUT_SEC = 16 * 60;
 
 /**
  * Codex decisions Realm will send, most preferred first.
@@ -115,7 +158,7 @@ export function codexMcpConfig(servers: readonly McpServerConfig[]): Bag | undef
     s.name,
     s.transport === "stdio"
       ? { command: s.command, ...(s.args.length ? { args: s.args } : {}), ...(Object.keys(s.env).length ? { env: s.env } : {}) }
-      : { url: s.url, ...(Object.keys(s.headers).length ? { http_headers: s.headers } : {}) },
+      : { url: s.url, ...(Object.keys(s.headers).length ? { http_headers: s.headers } : {}), tool_timeout_sec: GATEWAY_TOOL_TIMEOUT_SEC },
   ] as const);
   return { mcp_servers: Object.fromEntries(entries) };
 }
@@ -227,8 +270,12 @@ export class CodexAdapter implements AgentAdapter {
       this.extraRootsSupported = true;
     }
     const models = p.available ? await this.listModels() : null;
-    // The picker's row is a name and an id; the tier is read again, by the session, off the same list.
-    return { kind: this.kind, ...p, models: models === null ? null : models.map(({ id, label }) => ({ id, label })) };
+    // The tier rides along with the row, so the prompter can offer Fast on a model before any session
+    // has asked — the catalog is the CLI's own statement, and it is already in hand here.
+    return { kind: this.kind, ...p, models: models === null ? null
+      : models.map(({ id, label, fast, fastDescription, isDefault, efforts, defaultEffort }) => ({ id, label, fastMode: fast,
+        ...(fastDescription ? { fastDescription } : {}), ...(isDefault ? { isDefault } : {}),
+        ...(efforts.length > 0 ? { efforts } : {}), ...(defaultEffort ? { defaultEffort } : {}) })) };
   }
 
   /**
@@ -358,7 +405,12 @@ export class CodexAdapter implements AgentAdapter {
     if (opts.wrap) throw new Error(CODEX_SANDBOX_REFUSAL);
     const events = new AsyncQueue<SessionEvent>();
     const mapper = createCodexMapper();
-    const pending = new Map<string, { id: JsonRpcId; decisions: unknown[] }>();
+    /** Open requests by the id the transcript knows them by. An approval answers with a decision; a
+     *  question answers with what the user gave, or with what "no answer" is on its protocol. */
+    type Pending =
+      | { kind: "approval"; id: JsonRpcId; decisions: unknown[] }
+      | { kind: "question"; id: JsonRpcId; card: AskCard; accept: (given: AskAnswers) => unknown; decline: () => unknown; cancel: () => unknown };
+    const pending = new Map<string, Pending>();
     let conn: CodexConnection | null = null;
     let threadId: string | null = null;
     let activeTurnId: string | null = null;
@@ -386,18 +438,43 @@ export class CodexAdapter implements AgentAdapter {
       await this.release();
     };
 
-    const respond = (requestId: string, decision: PermissionDecision) => {
+    /** `cancelled`: nobody answered — the turn was stopped or the session is going — which a question's
+     *  protocol may say differently from a person's "no" (MCP's `cancel` against `decline`). */
+    const respond = (requestId: string, decision: PermissionDecision, answers?: AskAnswers, cancelled = false) => {
       const p = pending.get(requestId);
       if (!p) return;
       pending.delete(requestId);
-      conn?.respond(p.id, { decision: pickCodexDecision(decision, p.decisions) });
-      events.push(sessionEvent("permission_response", { requestId, decision }));
+      if (p.kind === "question") {
+        // Held to the card it was asked with; the log keeps a mark where a masked answer was.
+        const given = decision !== "deny" && answers ? normalizeAnswers(p.card, answers) : undefined;
+        const answered = given !== undefined && Object.keys(given).length > 0 && requiredAnswered(p.card, given);
+        conn?.respond(p.id, answered ? p.accept(given) : cancelled ? p.cancel() : p.decline());
+        events.push(sessionEvent("permission_response", { requestId, decision: answered ? decision : "deny", ...(answered ? { answers: loggableAnswers(p.card, given) } : {}) }));
+      } else {
+        conn?.respond(p.id, { decision: pickCodexDecision(decision, p.decisions) });
+        events.push(sessionEvent("permission_response", { requestId, decision }));
+      }
       // Several tools can be waiting at once (parallel tool calls): the status only comes back when the last
       // one is answered. An approval only exists inside a live turn, so that status is always `running`; the
       // turn's own `turn/completed` is what settles it back to idle.
       if (pending.size === 0) events.push(sessionEvent("status", { status: "running" }));
     };
-    const denyAllPending = () => { for (const id of [...pending.keys()]) respond(id, "deny"); };
+    const denyAllPending = () => { for (const id of [...pending.keys()]) respond(id, "deny", undefined, true); };
+
+    /** Put a question to the user, or — when it is one Realm will not draw — answer it at once and
+     *  leave the declined card in the transcript, so the refusal is not silent. */
+    const ask = (id: JsonRpcId, method: string, card: AskCard, title: string, replies: Pick<Extract<Pending, { kind: "question" }>, "accept" | "decline" | "cancel">) => {
+      const requestId = String(id);
+      if (card.refused) {
+        conn?.respond(id, replies.decline());
+        events.push(sessionEvent("permission_request", { requestId, toolName: method, input: {}, title, suggestions: [], ask: card }));
+        events.push(sessionEvent("permission_response", { requestId, decision: "deny" }));
+        return;
+      }
+      if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
+      pending.set(requestId, { kind: "question", id, card, ...replies });
+      events.push(sessionEvent("permission_request", { requestId, toolName: method, input: {}, title, suggestions: [], ask: card }));
+    };
 
     /** Detaches, closes the transcript and hands the process back. Idempotent; the only path that ends a session. */
     const shutdown = async (): Promise<void> => {
@@ -431,6 +508,33 @@ export class CodexAdapter implements AgentAdapter {
       return tierAsked ? { serviceTier: null } : {};
     };
 
+    /** The reasoning effort the next turn asks for: the session's level, or null for the model's own
+     *  default. Per turn, like the tier — `turn/start`'s `effort` ("Override the reasoning effort for
+     *  this turn and subsequent turns", `TurnStartParams` in `codex app-server generate-ts` 0.154.0);
+     *  `thread/start` takes none, which is why this used to be dropped. */
+    let effort = opts.effort ?? null;
+    /** Whether a turn of THIS thread has sent a level. The override sticks to the thread, and a null
+     *  `effort` is "no override" rather than "back to the default", so returning to the default names
+     *  the model's own default — and only once something else was sent. */
+    let effortAsked = false;
+    /** What the thread's model accepts, off the catalog the probe reads: its levels and its default.
+     *  Settled after `thread/start`; null where the catalog says nothing (a build without `model/list`,
+     *  a model it does not carry). */
+    let modelEfforts: Promise<{ levels: string[]; fallback: string | null } | null> = Promise.resolve(null);
+    const effortParam = async (): Promise<{ effort?: string }> => {
+      if (effort === null && !effortAsked) return {};
+      const known = await modelEfforts;
+      const level = effort ?? known?.fallback ?? null;
+      // Only a level the catalog lists for this model. Another harness's id (Claude's `max`, kept on a
+      // session that switched agents) or a level nothing confirmed is a turn Codex may refuse.
+      if (level === null || !known?.levels.includes(level)) {
+        if (level !== null) opts.onLog?.(`[codex] effort ${level} is not one this model lists; the turn runs at the thread's own`);
+        return {};
+      }
+      effortAsked = effort !== null;
+      return { effort: level };
+    };
+
     /**
      * Ask the catalog whether the model this thread landed on lists the Fast tier, and say so once.
      *
@@ -440,9 +544,10 @@ export class CodexAdapter implements AgentAdapter {
      * without `model/list`, a model the catalog does not carry — and "not stated" is what the prompter
      * reads as "offer no switch". A build that has no such tier at all says nothing, never "no".
      */
-    const reportFastModeSupport = async (init: { providerSessionId: string; model: string; tools: string[]; cwd: string; instructionSources?: string[] }) => {
+    const reportFastModeSupport = async (init: { providerSessionId: string; model: string; tools: string[]; cwd: string; instructionSources?: string[] },
+      catalog: Promise<CodexModel[] | null>) => {
       try {
-        const rows = await this.listModels();
+        const rows = await catalog;
         if (!rows || disposed) return;
         const hit = rows.find((r) => r.id === init.model);
         if (!hit) return;
@@ -453,6 +558,15 @@ export class CodexAdapter implements AgentAdapter {
     const listener: ThreadListener = {
       onNotification: (method, params) => {
         const p = obj(params);
+        // A request Codex resolved without us — a non-blocking question that timed out on its own
+        // (`autoResolutionMs`) — is withdrawn from the transcript, not left as a card nobody can answer.
+        if (method === "serverRequest/resolved") {
+          const requestId = String(p.requestId);
+          if (pending.delete(requestId)) {
+            events.push(sessionEvent("permission_response", { requestId, decision: "deny" }));
+            if (pending.size === 0) events.push(sessionEvent("status", { status: "running" }));
+          }
+        }
         // thread/resume rejoins a turn that is already running, and its response carries no turn id — this
         // notification is the only place a rejoined session learns one.
         if (method === "turn/started") activeTurnId = str(obj(p.turn).id) || activeTurnId;
@@ -462,6 +576,32 @@ export class CodexAdapter implements AgentAdapter {
         }
       },
       onServerRequest: (id, method, params) => {
+        // Codex's own question tool, asked of the user on Realm's card.
+        if (method === "item/tool/requestUserInput") {
+          const card = codexUserInputCard(params);
+          if (!card) { conn?.respond(id, { answers: {} }); return; }
+          ask(id, method, card, card.questions[0]!.prompt, {
+            accept: (given) => codexUserInputReply(given), decline: () => ({ answers: {} }), cancel: () => ({ answers: {} }),
+          });
+          return;
+        }
+        // A server from the user's own Codex config asking through Codex (MCP elicitation, passed on).
+        // The card names the server AND the agent it came through: it is the server asking, not Codex.
+        if (method === "mcpServer/elicitation/request") {
+          const p = obj(params);
+          const asker = { kind: "server" as const, name: str(p.serverName) || "An MCP server", via: "Codex" };
+          const mode = str(p.mode);
+          // `openai/form` is a schema of OpenAI's own, which this card does not draw: declined, named.
+          const card = askCardFromElicitation(mode === "form" || mode === "url"
+            ? { mode, message: p.message, requestedSchema: p.requestedSchema, url: p.url }
+            : { mode: "unsupported", message: p.message }, asker);
+          const reply = (action: "accept" | "decline" | "cancel", content: unknown = null) => ({ action, content, _meta: null });
+          ask(id, method, card, str(p.message) || `${asker.name} asks`, {
+            accept: (given) => reply("accept", mode === "url" ? null : elicitationContent(card, given)),
+            decline: () => reply("decline"), cancel: () => reply("cancel"),
+          });
+          return;
+        }
         const approval = APPROVAL_METHODS[method];
         if (!approval) {
           // Every server request must be answered or the turn stalls forever (protocol reference §9).
@@ -476,7 +616,7 @@ export class CodexAdapter implements AgentAdapter {
           : { itemId: str(p.itemId), grantRoot: p.grantRoot ?? null };
         const decisions = Array.isArray(p.availableDecisions) ? p.availableDecisions : [];
         if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
-        pending.set(requestId, { id, decisions });
+        pending.set(requestId, { kind: "approval", id, decisions });
         events.push(sessionEvent("permission_request", { requestId, toolName: approval.toolName, input, title: str(p.reason) || approval.title, suggestions: decisions }));
       },
       onGone: (reason, wasDisposed) => {
@@ -501,8 +641,7 @@ export class CodexAdapter implements AgentAdapter {
         conn = c;
         const { approvalPolicy, sandbox } = codexPolicyFor(opts.permissionMode);
         const config = codexMcpConfig(opts.mcpServers);
-        // `opts.effort` is deliberately dropped: Codex takes reasoning effort per turn, not per thread, and
-        // Realm has no per-turn effort control yet. Claude passes it through; this asymmetry is intentional.
+        // No `effort` here: Codex takes reasoning effort per turn, and `effortParam` sends it on `turn/start`.
         const common = {
           cwd: opts.cwd,
           approvalPolicy,
@@ -584,8 +723,14 @@ export class CodexAdapter implements AgentAdapter {
         events.push(sessionEvent("init", init));
         events.push(sessionEvent("status", { status: "idle" }));
         c.attach(id, listener);
-        // Not awaited: the answer arrives whenever the catalog does, and a first send must not wait on it.
-        void reportFastModeSupport(init);
+        // Not awaited: the answer arrives whenever the catalog does, and a first send must not wait on
+        // it — except for a level, which the first `turn/start` checks against this same answer.
+        const catalog = this.listModels().catch(() => null);
+        void reportFastModeSupport(init, catalog);
+        modelEfforts = catalog.then((rows) => {
+          const m = rows?.find((r) => r.id === init.model);
+          return m && m.efforts.length > 0 ? { levels: m.efforts, fallback: m.defaultEffort } : null;
+        });
         // After the thread exists, per the protocol's own ordering, and awaited inside boot so that the
         // first send() — which awaits boot — cannot start a turn before Codex knows about the skills.
         if (opts.skills) { ownedRoot = opts.skills.root; await this.addExtraRoot(c, opts.skills.root, opts.onLog); }
@@ -648,6 +793,8 @@ export class CodexAdapter implements AgentAdapter {
             // `thread/settings/updated.threadSettings.serviceTier`, which is what the mapper reports).
             // Verified live on 0.153.4: `"priority"` is the tier the catalog names Fast; `null` clears it.
             ...serviceTierParam(),
+            // The session's reasoning effort, the same way: per turn, sticky on the thread.
+            ...(await effortParam()),
           }));
           activeTurnId = str(obj(started.turn).id) || null;
         } catch (e) {
@@ -669,8 +816,9 @@ export class CodexAdapter implements AgentAdapter {
        * effect the next time this session starts a thread.
        */
       setOptions: async (o) => {
-        // Unlike the two below, this one takes effect on the next turn: the tier rides on `turn/start`.
+        // Unlike the two below, these take effect on the next turn: the tier and the level ride on `turn/start`.
         if (o.fastMode !== undefined) fastMode = o.fastMode;
+        if (o.effort !== undefined) effort = o.effort;
         const parts = [o.model === undefined ? null : `model=${o.model}`, o.permissionMode === undefined ? null : `permissionMode=${o.permissionMode}`].filter(Boolean);
         if (parts.length === 0) return;
         opts.onLog?.(`[codex] ${parts.join(" ")} recorded; codex fixes these at thread start, so it applies the next time this session starts`);

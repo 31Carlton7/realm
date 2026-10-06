@@ -34,7 +34,7 @@ import { basename, join } from "node:path";
 import {
   BLOCKED_DOWNLOAD_TTL_MS, DOWNLOAD_DIRNAME, DOWNLOAD_GRANT_TTL_MS, DOWNLOAD_MAX_BYTES,
   normalizeOrigin,
-  type BlockedDownload, type BrowserDownloadResult, type BrowserRefusal,
+  type BlockedDownload, type BrowserDownloadResult, type BrowserRefusal, type SavedDownload,
 } from "@realm/contracts";
 import { safeAttachmentName } from "./attachments";
 
@@ -59,10 +59,43 @@ export type DownloadItemLike = {
   once(event: "done", cb: (state: string) => void): void;
 };
 
+/** Electron's `DownloadItem`, as far as `asDownloadItem` reads it — its listeners take the EVENT first. */
+export type ElectronDownloadItem = {
+  getFilename(): string;
+  getURL(): string;
+  getReceivedBytes(): number;
+  setSavePath(path: string): void;
+  cancel(): void;
+  on(event: "updated", cb: (event: unknown, state: string) => void): unknown;
+  once(event: "done", cb: (event: unknown, state: string) => void): unknown;
+};
+
+/**
+ * Electron's item, narrowed to what the governor reads.
+ *
+ * Built field by field rather than cast, and the cast is what this replaced: Electron calls a `done`
+ * listener with the event FIRST and the state second, so the governor's `(state) => …` was handed the
+ * event, `state === "completed"` was never true, and every download that landed on disk was reported
+ * as interrupted — the user's Save and the agent's `browser_download` alike.
+ */
+export function asDownloadItem(item: ElectronDownloadItem): DownloadItemLike {
+  return {
+    getFilename: () => item.getFilename(),
+    getURL: () => item.getURL(),
+    getReceivedBytes: () => item.getReceivedBytes(),
+    setSavePath: (path) => item.setSavePath(path),
+    cancel: () => item.cancel(),
+    on: (_event, cb) => { item.on("updated", () => cb()); },
+    once: (_event, cb) => { item.once("done", (_e, state) => cb(state)); },
+  };
+}
+
 export type DownloadGovernorDeps = {
   mkdirp(dir: string): void;
   exists(path: string): boolean;
   now(): number;
+  /** A download finished on disk — the pane's ⋯ menu lists it (`SavedDownloads`). */
+  onSaved?(browserId: string, saved: { name: string; path: string }): void;
 };
 
 /** `decide`'s answer. Deliberately not a boolean: the refusal code travels to the agent. */
@@ -190,6 +223,7 @@ export class DownloadGovernor {
     });
     item.once("done", (state) => {
       const name = basename(path);
+      if (state === "completed") this.d.onSaved?.(browserId, { name, path });
       this.settle(browserId, state === "completed"
         // Project-relative, so what the agent is handed is directly usable by its own file tools and
         // is never an absolute path to somewhere on the machine.
@@ -313,6 +347,41 @@ export class BlockedDownloads {
 }
 
 const strip = (e: BlockedEntry): BlockedDownload => ({ id: e.id, name: e.name, ts: e.ts });
+
+/** How many saved downloads a pane's ⋯ menu remembers. A submenu, not a downloads manager: the files
+ *  themselves are in the folder, and the Finder lists every one of them. */
+const SAVED_MAX = 8;
+
+/**
+ * What each pane has saved, newest last — the other half of the ⋯ menu's Downloads (Plan 26 W7b),
+ * beside `BlockedDownloads`. Fed by the governor's `onSaved`, so the user's own Save and an approved
+ * agent download are listed alike: both are files this pane put in the project.
+ */
+export class SavedDownloads {
+  private readonly byBrowser = new Map<string, SavedDownload[]>();
+  private seq = 0;
+
+  constructor(private readonly now: () => number) {}
+
+  note(browserId: string, saved: { name: string; path: string }): void {
+    const list = this.byBrowser.get(browserId) ?? [];
+    list.push({ id: `sd_${++this.seq}`, name: saved.name, path: saved.path, ts: this.now() });
+    while (list.length > SAVED_MAX) list.shift();
+    this.byBrowser.set(browserId, list);
+  }
+
+  list(browserId: string): SavedDownload[] {
+    return [...(this.byBrowser.get(browserId) ?? [])];
+  }
+
+  find(browserId: string, id: string): SavedDownload | null {
+    return this.byBrowser.get(browserId)?.find((s) => s.id === id) ?? null;
+  }
+
+  release(browserId: string): void {
+    this.byBrowser.delete(browserId);
+  }
+}
 
 /**
  * Fetch a previously-blocked download because the USER asked for it in the pane.

@@ -2,12 +2,13 @@ import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { artifactTypeOf, documentKindFor, extOf, type ArtifactType, type Item } from "@realm/contracts";
+import { fileDragProps, quickLookOnSpace } from "../../components/file-actions";
 import { useApp } from "../../state/store";
 import { FileCard, TYPE_ICON } from "../../components/FileCard";
 import { ScrollFades } from "../../components/ScrollFades";
 import { groupByDay } from "../library/LibraryFiles";
 import { DOCK_PIN_MIN_PANE, useDockDismiss, useDockPinned, usePaneRect } from "./pane-dock";
-import { SummaryLightbox } from "./SessionSummary";
+import { DockViews, useSummaryLive } from "./SessionSummary";
 
 /**
  * The session's files, read off the disk.
@@ -25,7 +26,8 @@ import { SummaryLightbox } from "./SessionSummary";
  *
  * Its chrome is the summary's chrome deliberately: same dock, same pin-or-float rule, same slot in
  * the store. Two panels docked to one edge, each measuring it and claiming it, is two panels drawn
- * over each other.
+ * over each other. And one way in: the session's bar has a single control for both, and the head of
+ * either panel switches to the other (`DockViews`).
  */
 
 /**
@@ -67,25 +69,19 @@ export function SessionFilesHost({ item }: { item: Item }) {
      summary resolves its own the same way, and for the same reason. */
   const barRef = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => { barRef.current = anchor.current?.closest(".panel-bar") ?? null; });
-  const [lightbox, setLightbox] = useState<string | null>(null);
   return (
     <>
       <span ref={anchor} className="panel-anchor" aria-hidden="true" />
-      {open && (
-        <FilesPanel item={item} anchorRef={anchor} barRef={barRef}
-          onClose={() => closeSessionDock(id)} onLightbox={setLightbox} />
-      )}
-      {lightbox && <SummaryLightbox path={lightbox} onClose={() => setLightbox(null)} />}
+      {open && <FilesPanel item={item} anchorRef={anchor} barRef={barRef} onClose={() => closeSessionDock(id)} />}
     </>
   );
 }
 
-function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
+function FilesPanel({ item, anchorRef, barRef, onClose }: {
   item: Item;
   anchorRef: React.RefObject<HTMLElement | null>;
   barRef: React.RefObject<HTMLElement | null>;
   onClose: () => void;
-  onLightbox: (path: string) => void;
 }) {
   const id = item.refId;
   const ref = useRef<HTMLDivElement>(null);
@@ -127,20 +123,24 @@ function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
 
   useEffect(() => { void load(dir); }, [load, dir, beat, status]);
 
-  const openSheet = useApp((s) => s.openSheet);
+  const openViewer = useApp((s) => s.openViewer);
   const openDocumentPath = useApp((s) => s.openDocumentPath);
   const run = useApp((s) => s.run);
-  /* The same three answers the summary gives, because a file must not open two ways depending on
-     which list reached it: a picture opens in the transcript's lightbox, anything the documents pane
-     can edit opens there, and everything else — a zip, a binary — opens the sheet that can hand it to
-     the Finder. */
+  /* The same answers the summary gives, because a file must not open two ways depending on which list
+     reached it: a picture opens in the media viewer — with the folder's other pictures beside it, the
+     way the Finder's space bar walks a folder — anything the documents pane can edit opens there, and
+     everything else, a zip or a binary, opens in the viewer too, which says what Realm can do with it. */
   const absOf = (row: BrowseRow) => (root ? `${root.path}/${row.path}` : row.path);
+  const isMedia = (row: BrowseRow) => !row.isDir && (typeOf(row.name) === "image" || typeOf(row.name) === "video");
   const openRow = (row: BrowseRow) => {
     if (row.isDir) { setDir(row.path); return; }
     const abs = absOf(row);
-    const type = typeOf(row.name);
-    if (type === "image" || type === "video") { onLightbox(abs); return; }
-    if (documentKindFor(abs) === "unsupported") { openSheet({ kind: "artifact", path: abs }); onClose(); return; }
+    if (isMedia(row)) {
+      const shown = (rows ?? []).filter(isMedia);
+      openViewer({ files: shown.map((r) => ({ path: absOf(r), name: r.name })), index: shown.indexOf(row), sessionId: id });
+      return;
+    }
+    if (documentKindFor(abs) === "unsupported") { openViewer({ files: [{ path: abs, name: row.name }], sessionId: id }); onClose(); return; }
     onClose();
     run(() => openDocumentPath(abs, environmentId));
   };
@@ -149,13 +149,14 @@ function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
   const days = useMemo(() => groupByDay((rows ?? []).map((r) => ({ ...r, ts: r.mtimeMs }))), [rows]);
   const grid = useApp((s) => s.filesView === "grid");
   const setFilesView = useApp((s) => s.setFilesView);
+  const summaryLive = useSummaryLive(item);
 
   return createPortal(
     <div ref={ref} className="session-files pane-dock" role="dialog" aria-label={`Files for ${item.title}`} data-pinned={pinned || undefined}
       style={{ position: "fixed", right: rect?.right ?? 0, top: rect?.top ?? 0,
         "--dock-pane-h": `${rect?.height ?? window.innerHeight}px` } as React.CSSProperties}>
       <div className="summary-panel-head">
-        <h3>Files</h3>
+        <DockViews sessionId={id} showing="files" summary={summaryLive} />
         {/* Rows or cards. One toggle rather than a List | Grid pair: the rows are the panel's
             resting state, and a lit button is what says it has been laid out another way — the
             same one fill every on-state in a bar wears. `aria-pressed` carries the state, so the
@@ -238,7 +239,8 @@ function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
                 ) : (
                   <div className="summary-rows">
                     {day.entries.map((row) => (
-                      <button key={row.path} className="summary-row" title={row.path} onClick={() => openRow(row)}>
+                      <button key={row.path} className="summary-row" title={row.path} onClick={() => openRow(row)}
+                        onKeyDown={quickLookOnSpace(absOf(row))} {...fileDragProps(absOf(row))}>
                         <Icon name={row.isDir ? "folder" : TYPE_ICON[typeOf(row.name)]} size={12} className="summary-row-glyph" />
                         <span className="summary-row-name">{row.name}</span>
                         <span className="summary-row-meta">{row.isDir ? "Folder" : fileSize(row.size)}</span>

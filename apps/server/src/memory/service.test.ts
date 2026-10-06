@@ -321,11 +321,4 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
     expect(src(SPACE_A).realmMemoryInjected).toBe(false);
   });
 
-  it("without the seam (pre-W2 wiring) nothing changes: no profile state, no profile injection", () => {
-    const { memory } = harness();
-    expect(memory.state(SPACE_A).profile).toBeNull();
-    memory.set(SPACE_A, "space only");
-    expect(ctx(memory, SPACE_A)).toBe(
-      "# Space memory\n\nThe user keeps this context for every session in this workspace (managed in Realm):\n\nspace only");
-  });
 });

@@ -4,8 +4,8 @@
  *
  * Boots the REAL app on a scratch REALM_HOME, fills the space's folder with `fs` the way an agent's
  * shell would — real 2880×1800 captures, a phone-shaped picture, a document, an archive, data, a
- * script, a sub-folder — some of it dated yesterday, then opens a session's Files panel and switches
- * it to cards.
+ * script, a sub-folder — some of it dated yesterday, then opens a session's Files panel (its Summary
+ * and files button, on a session with nothing to summarise) and switches it to cards.
  *
  * What only a real window can show, because jsdom lays nothing out:
  *   - how many columns the dock's real width holds, and what a card measures inside it;
@@ -113,7 +113,7 @@ async function openPanel(c) {
   await until(async () => {
     const open = await evalIn(c, `(() => {
       if (document.querySelector('.session-files')) return true;
-      document.querySelector('.panel-bar [aria-label^="Files for"]')?.click();
+      document.querySelector('.panel-bar [aria-label^="Summary and files for"]')?.click();
       return !!document.querySelector('.session-files');
     })()`);
     return open || null;
@@ -127,11 +127,11 @@ const MEASURE = `(() => {
   const scroller = panel.querySelector('.summary-scroll');
   const sv = scroller.getBoundingClientRect();
   const cards = [...panel.querySelectorAll('.library-tile')].map((el) => {
-    const art = el.querySelector('.library-tile-art'), name = el.querySelector('.library-tile-name');
+    const name = el.querySelector('.library-tile-name');
     const img = el.querySelector('img.library-tile-thumb'), mark = el.querySelector('.library-tile-mark');
     const box = el.getBoundingClientRect();
     return { name: name.textContent, meta: el.querySelector('.library-tile-meta')?.textContent ?? null,
-      box: r(el), art: r(art), mark: mark ? r(mark) : null, type: art.dataset.type,
+      box: r(el), mark: mark ? r(mark) : null, type: el.dataset.type,
       thumb: img ? { natural: [img.naturalWidth, img.naturalHeight], complete: img.complete } : null,
       clipped: name.scrollWidth > name.clientWidth,
       onScreen: box.bottom > sv.top && box.top < sv.bottom };
@@ -190,27 +190,21 @@ async function shootAndRead(c, name, m) {
   console.log(`SCREENSHOT ${file}`);
   // Device pixels: the window runs at 2x, and the clip's origin is the panel's.
   const px = (x, y) => [(x - m.panel.x) * 2, (y - m.panel.y) * 2];
-  // A layout that has gone wrong may have no glyph card in view; the grounds are still worth reading.
-  const glyph = m.cards.find((k) => k.onScreen && !k.thumb && k.mark);
+  // A picture tile IS its picture, so the card's own fill is read off a glyph tile: in its padding at
+  // mid-height, clear of the corner, the name above and the glyph beside.
+  const glyph = m.cards.find((k) => k.onScreen && !k.thumb && k.mark) ?? m.cards[0];
   const [first, second] = m.cards;
-  // The caption's bottom padding, mid-card: no text, no corner. The first card is a picture's, so
-  // its field is the picture and only the caption shows the card's own fill.
-  const cardAt = px(first.box.x + first.box.w / 2, first.box.y + first.box.h - 5);
-  const [ground, card, field = null, well = null] = await luminances(c, shot.data, [
+  const cardAt = px(glyph.box.x + 6, glyph.box.y + glyph.box.h / 2);
+  const [ground, card] = await luminances(c, shot.data, [
     // The panel's own ground, in the gap between the first two cards — the ground each card's edge
     // is actually read against.
     px((first.box.x + first.box.w + second.box.x) / 2, first.box.y + first.box.h / 2),
     cardAt,
-    ...(glyph ? [
-      // A glyph card's preview field, left of the well at mid-height.
-      px(glyph.art.x + 10, glyph.art.y + glyph.art.h / 2),
-      // The well itself, left of the glyph it centres.
-      px(glyph.mark.x + 8, glyph.mark.y + glyph.mark.h / 2),
-    ] : []),
   ]);
+  const field = null, well = null;
   // …and the same card under the pointer, which is a state the fill has to keep answering.
   const { root } = await c.send("DOM.getDocument", { depth: 1 });
-  const { nodeId } = await c.send("DOM.querySelector", { nodeId: root.nodeId, selector: ".session-files .library-tile" });
+  const { nodeId } = await c.send("DOM.querySelector", { nodeId: root.nodeId, selector: ".session-files .library-tile:not([data-thumb])" });
   await c.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: ["hover"] });
   await sleep(400);
   const hoverShot = await c.send("Page.captureScreenshot", { format: "png", clip });
@@ -270,7 +264,7 @@ async function main() {
     return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 20000, "composer");
   await evalIn(c, `(() => { document.querySelector('button[aria-label="New session"]')?.click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.panel-bar [aria-label^="Files for"]')`), 20000, "the Files button");
+  await until(() => evalIn(c, `!!document.querySelector('.panel-bar [aria-label^="Summary and files for"]')`), 20000, "the Files button");
   await sleep(1200);
   await openPanel(c);
 
@@ -339,8 +333,8 @@ async function main() {
   check("two cards across the dock", dark.columns === 2, { columns: dark.columns, panel: dark.panel.w, grids: dark.grids.map((g) => g.w) });
   const widths = [...new Set(dark.cards.map((k) => k.box.w))];
   check("every card is one width, and nothing scrolls sideways", widths.length === 1 && !dark.overflowX, { widths, overflowX: dark.overflowX });
-  const art = dark.cards.map((k) => +(k.art.w / k.art.h).toFixed(3));
-  check("every preview field is the Library's 4:3", art.every((a) => Math.abs(a - 4 / 3) < 0.02), [...new Set(art)]);
+  const shape = dark.cards.map((k) => +(k.box.w / k.box.h).toFixed(3));
+  check("every card is the Library's one square, picture or not", shape.every((a) => Math.abs(a - 1) < 0.02), [...new Set(shape)]);
   const row0 = dark.cards.filter((k) => k.box.y === dark.cards[0].box.y);
   const gap = row0.length === 2 ? +(row0[1].box.x - (row0[0].box.x + row0[0].box.w)).toFixed(1) : null;
   const inset = +(dark.cards[0].box.x - dark.heads[0].label.x).toFixed(1);
@@ -348,13 +342,13 @@ async function main() {
   const pictured = dark.cards.filter((k) => k.thumb);
   check("only images carry a picture", pictured.every((k) => imageNames.has(k.name)) && pictured.length > 0, pictured.map((k) => [k.name, k.thumb.natural]));
   const glyphs = dark.cards.filter((k) => !imageNames.has(k.name));
-  check("everything else wears its glyph in the well", glyphs.every((k) => !k.thumb && k.mark), glyphs.map((k) => [k.name, k.type]));
+  check("everything else wears its glyph under its name", glyphs.every((k) => !k.thumb && k.mark), glyphs.map((k) => [k.name, k.type]));
   check("a folder says so, a file says its size", dark.cards.find((k) => k.name === "renders")?.meta === "Folder"
     && dark.cards.find((k) => k.name === "handwriting-starter.zip")?.meta === "48 KB", dark.cards.map((k) => [k.name, k.meta]));
   const below = dark.cards.filter((k) => !k.onScreen && imageNames.has(k.name));
   check("a picture below the fold has not been asked for yet", below.length > 0 && below.every((k) => !k.thumb), below.map((k) => k.name));
   check("the caption holds the type floor", parseFloat(dark.nameFont) >= 11 && parseFloat(dark.metaFont) >= 11, { name: dark.nameFont, meta: dark.metaFont });
-  console.log("MEASURE dark", JSON.stringify({ panel: dark.panel, grid: dark.grids[0], card: dark.cards[0].box, art: dark.cards[0].art,
+  console.log("MEASURE dark", JSON.stringify({ panel: dark.panel, grid: dark.grids[0], card: dark.cards[0].box,
     mark: glyphs[0]?.mark, gap, inset, clippedNames: dark.cards.filter((k) => k.clipped).map((k) => k.name) }));
   const darkRead = await shootAndRead(c, "grid-dark", dark);
   console.log("PIXELS dark", JSON.stringify(darkRead));
@@ -375,12 +369,12 @@ async function main() {
 
   // ── The doors: a picture opens full window over the panel; a folder card descends ──
   await evalIn(c, `(() => { [...document.querySelectorAll('.session-files .library-tile')].find((t) => t.textContent.includes('workspace.png')).click(); return true; })()`);
-  const lightbox = await until(() => evalIn(c, `!!document.querySelector('.media-lightbox') || null`), 8000, "the lightbox").catch(() => false);
+  const lightbox = await until(() => evalIn(c, `!!document.querySelector('.media-viewer') || null`), 8000, "the lightbox").catch(() => false);
   const panelBehind = await evalIn(c, `!!document.querySelector('.session-files')`);
   check("a picture's card opens it full window, over the panel", lightbox === true && panelBehind, { lightbox, panelBehind });
   await c.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-  await until(() => evalIn(c, `!document.querySelector('.media-lightbox') || null`), 5000, "the lightbox closing");
+  await until(() => evalIn(c, `!document.querySelector('.media-viewer') || null`), 5000, "the lightbox closing");
   check("Escape puts the picture away and leaves the panel", await evalIn(c, `!!document.querySelector('.session-files')`));
   await evalIn(c, `(() => { [...document.querySelectorAll('.session-files .library-tile')].find((t) => t.textContent.includes('renders')).click(); return true; })()`);
   const inner = await until(async () => {
@@ -399,7 +393,7 @@ async function main() {
   await api.call("settings.set", { key: "ui.theme", value: "light" });
   api.close();
   await c.send("Page.reload", {});
-  await until(() => evalIn(c, `!!document.querySelector('.panel-bar [aria-label^="Files for"]')`), 30000, "the session after reload");
+  await until(() => evalIn(c, `!!document.querySelector('.panel-bar [aria-label^="Summary and files for"]')`), 30000, "the session after reload");
   await sleep(1200);
   await openPanel(c);
   await until(async () => (await evalIn(c, `document.querySelectorAll('.session-files .library-tile').length`)) >= 13 || null, 8000, "cards after reload");
@@ -424,8 +418,6 @@ async function main() {
   check("the card is a real step off the panel in both faces, light no weaker than dark",
     darkRead.cardOnGround >= 1.12 && lightRead.cardOnGround >= 1.12 && lightRead.cardOnGround >= darkRead.cardOnGround * 0.995,
     { dark: darkRead.cardOnGround, light: lightRead.cardOnGround });
-  check("the glyph's well still reads inside the card", darkRead.wellOnField >= 1.05 && lightRead.wellOnField >= 1.05,
-    { dark: darkRead.wellOnField, light: lightRead.wellOnField });
   check("and the card still answers the pointer", darkRead.hoverOnRest >= 1.05 && lightRead.hoverOnRest >= 1.05,
     { dark: darkRead.hoverOnRest, light: lightRead.hoverOnRest });
 

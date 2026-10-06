@@ -1,22 +1,36 @@
-import { newId, sessionEvent, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative } from "node:path";
+import { AGENT_META, askCardFromAskUserQuestion, loggableAnswers, newId, normalizeAnswers, sessionEvent, type AgentKind, type AgentModel, type AskAnswers, type AskCard, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import type { AgentAdapter, AgentHandle, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import { gatewayClient } from "./gateway-call";
 
 export type FakeStep =
   /** `paceMs` streams the text a word at a time, this far apart — the way a real agent's deltas
    *  arrive. Without it the whole message lands in one burst, which is all a test needs and too
    *  fast for anything that animates arrival (the prose's fade) to be seen doing it. */
   | { kind: "text"; text: string; paceMs?: number }
-  | { kind: "tool"; name: string; input: Record<string, unknown>; needsPermission?: boolean; result: string }
+  /** `apply` makes a `Write` or an `Edit` really happen, in the session's working directory: what lets
+   *  a scripted turn leave a checkout that checkpoints, diffs and the turn's edit summary can measure.
+   *  A failed edit (the text to replace is not there) settles the call as an error, as a real one would. */
+  | { kind: "tool"; name: string; input: Record<string, unknown>; needsPermission?: boolean; result: string; apply?: boolean }
   /** A plan, in either shape the `plan` event carries. Re-using a `planId` revises that plan in
    *  place, which is what the real agents do and the one plan behaviour a script must be able to
    *  reproduce. */
   | { kind: "plan"; planId: string; text?: string; steps?: { text: string; status: "pending" | "in_progress" | "completed" }[] }
   | { kind: "throw"; message: string }
+  /** One of Realm's own tools, called for REAL through the gateway this session was handed — the way
+   *  an agent's CLI calls it — and recorded as the call and its result. `tool` is the gateway's name
+   *  for it (`realm-agent__agent_start`); the transcript shows it under Claude's prefix. The one step
+   *  that reaches past the script: what answers it is the production path. */
+  | { kind: "call"; tool: string; input: Record<string, unknown> }
   /** A plan-quota reading, as `SDKRateLimitEvent` produces one on the real Claude wire. The scripted
    *  adapter is the only kind that can drive the limits path end to end in a test. */
   | { kind: "rateLimit"; payload: SessionEventPayload<"rate_limit"> };
 export type FakeScript = { on: string; emit: FakeStep[] }[];
+
+/** A scripted `AskUserQuestion` is asked the way Claude's is, by the agent that is really asking. */
+const FAKE_ASKER = { kind: "agent", name: AGENT_META.fake.label, agent: "fake" } as const;
 
 /** Scripted adapter for tests and UI development. Messages matching `on` replay the scripted steps; others echo. */
 export class FakeAdapter implements AgentAdapter {
@@ -31,12 +45,16 @@ export class FakeAdapter implements AgentAdapter {
   start(opts: StartOptions): AgentHandle {
     const q = new AsyncQueue<SessionEvent>();
     const pending = new Map<string, (d: PermissionDecision) => void>();
+    const asks = new Map<string, AskCard>();
     const delay = this.cfg.delayMs ?? 0;
     const sleep = () => new Promise((r) => setTimeout(r, delay));
     let disposed = false;
     let interrupted = false;
 
     const resumeOutcome = opts.resume ? this.cfg.resume : undefined;
+    // Made on first use, and once: the gateway keeps one MCP session per Realm session.
+    const entry = opts.mcpServers.find((m) => m.transport === "http" || m.transport === "sse");
+    const gateway = entry && entry.transport !== "stdio" ? gatewayClient({ url: entry.url, headers: entry.headers }) : null;
     q.push(sessionEvent("init", {
       // A continued resume keeps the id it was handed, as a real adapter does; anything else is a
       // fresh conversation with a fresh id.
@@ -46,10 +64,12 @@ export class FakeAdapter implements AgentAdapter {
     }));
     q.push(sessionEvent("status", { status: "idle" }));
 
-    const resolvePermission = (requestId: string, decision: PermissionDecision) => {
+    const resolvePermission = (requestId: string, decision: PermissionDecision, answers?: AskAnswers) => {
       const res = pending.get(requestId); if (!res) return;
       pending.delete(requestId);
-      q.push(sessionEvent("permission_response", { requestId, decision }));
+      const ask = asks.get(requestId); asks.delete(requestId);
+      const given = ask && answers ? normalizeAnswers(ask, answers) : undefined;
+      q.push(sessionEvent("permission_response", { requestId, decision, ...(ask && given ? { answers: loggableAnswers(ask, given) } : {}) }));
       res(decision);
     };
     const denyAllPending = () => { for (const id of [...pending.keys()]) resolvePermission(id, "deny"); };
@@ -65,6 +85,16 @@ export class FakeAdapter implements AgentAdapter {
         if (st.kind === "throw") throw new Error(st.message);
         if (st.kind === "rateLimit") { q.push(sessionEvent("rate_limit", st.payload)); continue; }
         if (st.kind === "plan") { q.push(sessionEvent("plan", { planId: st.planId, ...(st.text ? { text: st.text } : {}), ...(st.steps ? { steps: st.steps } : {}) })); continue; }
+        if (st.kind === "call") {
+          const toolUseId = newId();
+          q.push(sessionEvent("tool_call", { toolUseId, name: `mcp__realm__${st.tool}`, input: st.input, parentToolUseId: null }));
+          const answer = gateway
+            ? await gateway.call(st.tool, st.input).catch((e: unknown) => ({ text: (e as Error).message ?? String(e), isError: true }))
+            : { text: "no Realm gateway was handed to this session", isError: true };
+          if (disposed) return;
+          q.push(sessionEvent("tool_result", { toolUseId, content: answer.text, isError: answer.isError }));
+          continue;
+        }
         if (st.kind === "text") {
           const id = newId();
           if (st.paceMs === undefined) {
@@ -88,15 +118,18 @@ export class FakeAdapter implements AgentAdapter {
           q.push(sessionEvent("tool_call", { toolUseId, name: st.name, input: st.input, parentToolUseId: null }));
           if (st.needsPermission) {
             const requestId = newId();
+            const ask = st.name === "AskUserQuestion" ? askCardFromAskUserQuestion(st.input, FAKE_ASKER) : null;
+            if (ask) asks.set(requestId, ask);
             q.push(sessionEvent("status", { status: "waiting_permission" }));
-            q.push(sessionEvent("permission_request", { requestId, toolName: st.name, input: st.input, title: `Allow ${st.name}?`, suggestions: [] }));
+            q.push(sessionEvent("permission_request", { requestId, toolName: st.name, input: st.input, title: `Allow ${st.name}?`, suggestions: [], ...(ask ? { ask } : {}) }));
             const decision = await new Promise<PermissionDecision>((res) => pending.set(requestId, res));
             if (disposed) return;
             if (interrupted) break;
             q.push(sessionEvent("status", { status: "running" }));
             if (decision === "deny") { q.push(sessionEvent("assistant_text", { messageId: newId(), text: "Okay, I won't run that." })); continue; }
           }
-          q.push(sessionEvent("tool_result", { toolUseId, content: st.result, isError: false }));
+          const failed = st.apply ? applyEdit(opts.cwd, st.name, st.input) : null;
+          q.push(sessionEvent("tool_result", { toolUseId, content: failed ?? st.result, isError: failed !== null }));
         }
       }
       q.push(sessionEvent("usage", { costUsd: 0.001, inputTokens: 10, outputTokens: 10, numTurns: 1 }));
@@ -128,4 +161,43 @@ export class FakeAdapter implements AgentAdapter {
       },
     };
   }
+}
+
+/** Make a scripted `Write` or `Edit` real, under `cwd` and nowhere else. The error message, or null. */
+function applyEdit(cwd: string, name: string, input: Record<string, unknown>): string | null {
+  const named = typeof input["file_path"] === "string" ? input["file_path"] : "";
+  const path = isAbsolute(named) ? named : join(cwd, named);
+  const rel = relative(cwd, path);
+  if (!named || rel.startsWith("..") || isAbsolute(rel)) return `${named || "(no path)"} is outside the working directory`;
+  try {
+    if (name === "Write" && typeof input["content"] === "string") {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, input["content"]);
+      return null;
+    }
+    const before = input["old_string"], after = input["new_string"];
+    if (name === "Edit" && typeof before === "string" && typeof after === "string") {
+      const text = readFileSync(path, "utf8");
+      if (!text.includes(before)) return `String to replace not found in ${named}`;
+      writeFileSync(path, text.replace(before, after));
+      return null;
+    }
+    return `${name} cannot be applied`;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+
+/**
+ * The scripted adapter answering to a real agent's name — for a live check that has to show work
+ * handed ACROSS harnesses, where a sub-agent on the real Codex would be a billed turn. It probes as
+ * `kind`, reporting `models` as that harness's catalog (null: let the curated list stand, as Claude's
+ * does), and every session it starts runs the fake's own script.
+ */
+export function fakeStandIn(fake: FakeAdapter, kind: AgentKind, models: AgentModel[] | null): AgentAdapter {
+  return {
+    kind,
+    probe: async () => ({ kind, available: true, version: "fake", loggedIn: true, reason: null, models }),
+    start: (opts) => fake.start(opts),
+  };
 }

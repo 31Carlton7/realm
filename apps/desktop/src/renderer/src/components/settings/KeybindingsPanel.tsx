@@ -57,7 +57,7 @@ export function KeybindingsPanel() {
         </>
       )}
 
-      <div className="field">
+      <div className="field" data-setting="keys">
         <span>Shortcuts</span>
         <input className="search-field" type="search" placeholder={`Search ${KEY_COMMANDS.length} commands…`}
           aria-label="Search shortcuts" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -119,7 +119,7 @@ export function KeybindingsPanel() {
  */
 function CommandRow({ entry }: { entry: CommandEntry }) {
   return (
-    <li className="settings-row">
+    <li className="settings-row" data-setting={entry.known ? `key:${entry.id}` : undefined}>
       <div className="settings-row-main">
         <span className="settings-row-name">
           {entry.known ? entry.label : <code className="env-path">{entry.label}</code>}

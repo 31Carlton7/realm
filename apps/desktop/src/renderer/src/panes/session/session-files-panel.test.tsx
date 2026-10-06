@@ -60,19 +60,21 @@ async function mount(folders: Record<string, BrowseRow[]>, opts: { workspace?: b
   return { store, api, asked, attachmentThumbnail, ...view };
 }
 
-const open = () => fireEvent.click(screen.getByRole("button", { name: "Files for A session" }));
+const open = () => fireEvent.click(screen.getByRole("button", { name: "Summary and files for A session" }));
 const rowNames = () => [...document.querySelectorAll(".summary-row-name")].map((n) => n.textContent);
 const cards = () => [...document.querySelectorAll<HTMLElement>(".session-files .library-tile")];
 const cardNames = () => cards().map((c) => c.querySelector(".library-tile-name")?.textContent);
 const gridSwitch = () => screen.getByRole("button", { name: "Show as a grid" });
 
 describe("the session file browser", () => {
-  it("is offered for every session, unlike the summary", async () => {
-    /* The summary hides itself until the transcript has something in it. This one cannot: the case
-       it exists for is a file that never appears in a transcript at all — written by a script, zipped
-       by a shell line — so a button gated on the transcript would be missing exactly when it matters. */
+  it("is offered for every session, before it has anything to summarise", async () => {
+    /* The summary waits until the transcript has something in it. The files cannot: the case they
+       exist for is a file that never appears in a transcript at all — written by a script, zipped by
+       a shell line — so a button gated on the transcript would be missing exactly when it matters.
+       Their control is the summary's (one button for both), so it is the files it opens on here. */
     await mount({});
-    expect(screen.getByRole("button", { name: "Files for A session" })).toBeInTheDocument();
+    open();
+    expect(await screen.findByRole("dialog", { name: "Files for A session" })).toBeInTheDocument();
   });
 
   it("lists what is on disk, newest first, grouped by day", async () => {
@@ -138,30 +140,6 @@ describe("the session file browser", () => {
     expect(crumbs.map((c) => c.tagName)).toEqual(["BUTTON", "SPAN"]);
     fireEvent.click(crumbs[0]!);
     await waitFor(() => expect(asked.at(-1)!.dir).toBe(""));
-  });
-
-  it("opens a file the way the summary would — the documents pane, or the sheet for what it cannot edit", async () => {
-    /* One file, one door. A `.md` reached from here and the same `.md` reached from the summary must
-       not open two different ways, so both go through the same three answers. */
-    const { store } = await mount({ "": [row("notes.md"), row("bundle.zip")] });
-    open();
-    await waitFor(() => expect(rowNames()).toContain("bundle.zip"));
-    fireEvent.click(screen.getByRole("button", { name: /bundle\.zip/ }));
-    await waitFor(() => expect(store.getState().sheet).toMatchObject({ kind: "artifact" }));
-    expect((store.getState().sheet as { path: string }).path).toContain("bundle.zip");
-  });
-
-  it("opens a picture in the transcript's lightbox, over the panel rather than instead of it", async () => {
-    /* The third of the summary's three answers, and the one nothing exercised: a zip is `other`
-       whichever way its type is read, so the case above passed while every screenshot went to the
-       sheet. THE MUTANT: hand `artifactTypeOf` the whole name again. */
-    const { store } = await mount({ "": [row("shot.png")] });
-    open();
-    await waitFor(() => expect(rowNames()).toEqual(["shot.png"]));
-    fireEvent.click(screen.getByRole("button", { name: /shot\.png/ }));
-    await waitFor(() => expect(document.querySelector(".media-lightbox")).not.toBeNull());
-    expect(store.getState().sheet).toBeNull();
-    expect(document.querySelector(".session-files")).not.toBeNull();
   });
 
   it("says where it looked when there is nothing there", async () => {
@@ -242,9 +220,11 @@ describe("the session file browser, laid out as cards", () => {
     await waitFor(() => expect(attachmentThumbnail).toHaveBeenCalledWith(`${folderPath}/shot.png`, "card"));
     expect(attachmentThumbnail).toHaveBeenCalledTimes(1);
     const [shot, notes, sheet] = cards();
-    await waitFor(() => expect(shot!.querySelector(".library-tile-art[data-thumb] img.library-tile-thumb")).not.toBeNull());
-    expect(notes!.querySelector(".library-tile-art:not([data-thumb]) .library-tile-mark[data-type='document']")).not.toBeNull();
-    expect(sheet!.querySelector(".library-tile-art:not([data-thumb]) .library-tile-mark[data-type='folder']")).not.toBeNull();
+    await waitFor(() => expect(shot!.querySelector(":scope > img.library-tile-thumb")).not.toBeNull());
+    expect(shot).toHaveAttribute("data-thumb");
+    expect(notes).not.toHaveAttribute("data-thumb");
+    expect(notes!.querySelector(".library-tile-art .library-tile-mark[data-type='document']")).not.toBeNull();
+    expect(sheet!.querySelector(".library-tile-art .library-tile-mark[data-type='folder']")).not.toBeNull();
   });
 
   it("descends into a folder from its card, and walks back out by the crumbs", async () => {
@@ -265,10 +245,10 @@ describe("the session file browser, laid out as cards", () => {
   for (const view of ["list", "grid"] as const) {
     it(`opens each kind of file the one way the panel opens it — ${view}`, async () => {
       /* The layout must not decide where a file goes: a card and a row reach the same `openRow`.
-         Three kinds, three doors — the documents pane for what it can edit, the sheet for what it
-         cannot, and the transcript's lightbox for a picture, which (like the summary's) leaves the
-         panel open behind it. THE MUTANTS: give the card the Library's own door (a preview sheet for
-         everything), or read the type off the whole name, which sent a screenshot to the sheet. */
+         Three kinds, two doors — the documents pane for what it can edit, and the media viewer for a
+         picture (with the folder's other pictures beside it, leaving the panel open behind) and for
+         what the pane cannot show. THE MUTANTS: give the card the Library's own door (the viewer for
+         everything), or read the type off the whole name, which sent a screenshot down the wrong one. */
       const { store, api } = await mount({ "": [row("notes.md"), row("bundle.zip"), row("shot.png")] },
         { settings: { [SETTING_FILES_VIEW]: view } });
       const names = () => (view === "grid" ? cardNames() : rowNames());
@@ -283,19 +263,17 @@ describe("the session file browser, laid out as cards", () => {
       await ensureOpen();
 
       fireEvent.click(opener("shot.png"));
-      await waitFor(() => expect(document.querySelector(".media-lightbox")).not.toBeNull());
-      expect(store.getState().sheet).toBeNull();
+      await waitFor(() => expect(store.getState().viewer?.files.map((f) => f.path)).toEqual([expect.stringMatching(/\/shot\.png$/)]));
+      expect(store.getState().viewer!.sessionId).toBe("se1");
       expect(document.querySelector(".session-files"), "the picture opens over the panel, not instead of it").not.toBeNull();
-      // Where the key really lands: the lightbox takes focus when it opens.
-      fireEvent.keyDown(document.querySelector(".media-lightbox")!, { key: "Escape" });
-      await waitFor(() => expect(document.querySelector(".media-lightbox")).toBeNull());
+      store.getState().closeViewer();
 
       await ensureOpen();
       fireEvent.click(opener("bundle.zip"));
-      await waitFor(() => expect(store.getState().sheet).toMatchObject({ kind: "artifact" }));
-      expect((store.getState().sheet as { path: string }).path).toMatch(/\/bundle\.zip$/);
+      await waitFor(() => expect(store.getState().viewer?.files[0]?.path).toMatch(/\/bundle\.zip$/));
+      expect(store.getState().sheet).toBeNull();
 
-      store.getState().closeSheet();
+      store.getState().closeViewer();
       await ensureOpen();
       fireEvent.click(opener("notes.md"));
       await waitFor(() => expect(api.calls.some((c) => c.startsWith("openDocumentPath:") && c.endsWith("/notes.md"))).toBe(true));

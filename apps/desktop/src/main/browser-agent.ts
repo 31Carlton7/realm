@@ -6,7 +6,7 @@
  * reaches it over the browserHost bridge.
  */
 import {
-  acceptsUpload, AGENT_FRAME, mimeForPath, normalizeOrigin,
+  acceptsUpload, AGENT_FRAME, AGENT_MARK_ATTR, AGENT_MARK_FRAME, mimeForPath, normalizeOrigin,
   PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX,
   UPLOAD_CHOOSER_TIMEOUT_MS, UPLOAD_DROP_MAX_BYTES, UPLOAD_MAX_FILES,
   type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal,
@@ -490,8 +490,13 @@ export async function performAct(send: CdpSend, action: BrowserAction): Promise<
  * thing this file ever sees is the `type` closure it wrote itself.
  */
 export type CredentialFill = {
-  /** Metadata only. `origin` is the enrolled origin the live page must EXACTLY equal. */
-  credential: { id: string; origin: string };
+  /** The origin the live page must EXACTLY equal: the one an enrolled credential is pinned to, or —
+   *  for a generated fill — the one the approval card named and the store is about to pin a new row
+   *  to. Either way it is Realm's own normalized string, never the agent's and never the page's. */
+  origin: string;
+  /** Which kind of sign-in this is, and the ONLY thing it decides: the nouns in the result strings.
+   *  Every gate below is identical for the two, which is the property the feature rests on. */
+  kind: "saved" | "generated";
   reveal(type: (value: string) => Promise<void>): Promise<{ ok: true } | { ok: false; refused: BrowserRefusal }>;
 };
 
@@ -501,19 +506,28 @@ export type CredentialFill = {
  * is unconditional and stays unconditional, because it governs a `type` action carrying agent-authored
  * text. This op carries no text at all.
  *
+ * It serves both halves of the tool: filling a credential the user enrolled, and filling one the store
+ * mints during this call. The difference lives entirely behind `reveal`; every gate below runs
+ * identically for the two, and that is deliberate rather than convenient. A generated password is
+ * still a secret going into a page, so it is worth the same origin check, the same presence check and
+ * the same approval — and a second executor for the new case is how one of the three quietly goes
+ * missing from one of them.
+ *
  * The order of the three gates is load-bearing:
  *
  *   1. **Origin, from CDP, before anything else.** `Page.getNavigationHistory`'s current entry is the
  *      browser's own record of what it loaded — the same class of trustworthy identity
  *      `browser_describe` reports, and specifically NOT page text, a snapshot, a title, or anything a
- *      page can author. It must normalize to exactly the enrolled origin: no subdomain match, no
+ *      page can author. It must normalize to exactly the origin the fill names: no subdomain match, no
  *      registrable-domain fallback (see `normalizeOrigin`). A lookalike host gets `origin_mismatch`.
  *   2. **Presence, only after the origin matched.** Deliberately second. Prompting for Touch ID on a
  *      phishing page and then refusing would teach the user that the fingerprint prompt is noise to
  *      swat away; by the time a prompt appears, Realm has already established the page is the right
  *      one and the only question left is whether the human is there.
  *   3. **Type, into the ref, character by character** — the same key events `performAct`'s `type`
- *      dispatches, because a password field behind React ignores value writes.
+ *      dispatches, because a password field behind React ignores value writes. For a generated fill
+ *      the store has written the row by then, so a failure here leaves a password the user can find
+ *      in Settings rather than one only the page ever saw.
  *
  * FAIL CLOSED everywhere: an unreadable navigation history, a ref that will not focus, or a thrown
  * CDP call all refuse. No branch here falls through to typing.
@@ -523,7 +537,8 @@ export type CredentialFill = {
  * into a tool result, which goes into the model's context.
  */
 export async function performFillCredential(send: CdpSend, ref: number, fill: CredentialFill): Promise<BrowserActResult> {
-  const { credential } = fill;
+  const generated = fill.kind === "generated";
+  const noun = generated ? "new sign-in" : "saved sign-in";
   let pageOrigin: string | null;
   try {
     pageOrigin = await currentOrigin(send);
@@ -533,14 +548,17 @@ export async function performFillCredential(send: CdpSend, ref: number, fill: Cr
   if (pageOrigin === null) {
     return { ok: false, refused: "origin_mismatch", error: "could not establish the page's current origin from the browser, so nothing was filled" };
   }
-  if (pageOrigin !== credential.origin) {
+  if (pageOrigin !== fill.origin) {
     // Both origins are named because both are Realm's own normalized strings — neither is page-authored
     // text, and the user (who sees this through the tool error) needs to know which page they are on.
-    return { ok: false, refused: "origin_mismatch", error: `this pane is on ${pageOrigin}, but that saved sign-in is for ${credential.origin} — nothing was filled` };
+    // For a generated fill this is the navigation that happened between the approval and the typing:
+    // the card named an origin, the pane is somewhere else now, and nothing is minted or typed.
+    return { ok: false, refused: "origin_mismatch", error: `this pane is on ${pageOrigin}, but that ${noun} is for ${fill.origin} — nothing was filled` };
   }
 
   // Focus BEFORE presence: a ref that is already gone should fail as a stale ref, not burn a Touch ID
-  // prompt on an act that cannot land.
+  // prompt on an act that cannot land — and, for a generated fill, not mint a password for a field
+  // that was never going to receive it.
   if (!(await focusRef(send, ref))) {
     return { ok: false, error: `could not focus ref=${ref} — it may be gone; take a fresh browser_snapshot` };
   }
@@ -548,20 +566,26 @@ export async function performFillCredential(send: CdpSend, ref: number, fill: Cr
   try {
     const outcome = await fill.reveal(async (value) => { await typeCharacters(send, value); });
     if (!outcome.ok) {
-      return { ok: false, refused: outcome.refused, error: REVEAL_REFUSALS[outcome.refused] ?? "the saved sign-in was not available" };
+      return { ok: false, refused: outcome.refused, error: REVEAL_REFUSALS[outcome.refused] ?? `the ${noun} was not available` };
     }
   } catch {
     // The catch is bare ON PURPOSE. A CDP failure mid-typing can carry the characters it was
     // dispatching in its message, and that message would otherwise reach a tool result. Nothing about
     // the caught error is inspected, formatted, or forwarded.
-    return { ok: false, error: "the saved sign-in could not be typed into that field" };
+    return { ok: false, error: `the ${noun} could not be typed into that field` };
   }
-  return { ok: true, detail: `filled saved credential for ${credential.origin}` };
+  return {
+    ok: true,
+    detail: generated
+      ? `generated a password for ${fill.origin}, saved it to Realm's sign-ins, and filled it`
+      : `filled saved credential for ${fill.origin}`,
+  };
 }
 
 /** Refusal wording for the reasons the STORE decides (this module never learns more than the code). */
 const REVEAL_REFUSALS: Partial<Record<BrowserRefusal, string>> = {
   no_credential: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins",
+  no_store: "macOS is not offering Realm an encryption key right now, so Realm will not generate a password it cannot store — nothing was filled",
   no_presence: "the Touch ID / login check was cancelled or failed, so nothing was filled",
 };
 
@@ -1096,13 +1120,13 @@ export async function readPageText(send: CdpSend): Promise<string> {
  * stays presence-based (`attrs[HIGHLIGHT_ATTR] !== undefined`), which covers every value for free;
  * only the removals narrow.
  */
-export const HIGHLIGHT_ATTR = "data-realm-agent-highlight";
+export const HIGHLIGHT_ATTR = AGENT_MARK_ATTR;
 
 /** The attribute's values. `css` is the injected stylesheet, tagged so the snapshot filter excludes
  *  it for free and so neither sweep takes it — it is shared by every mark and outlives all of them. */
 export const MARK_RING = "ring";
 export const MARK_CURSOR = "cursor";
-export const MARK_FRAME = "frame";
+export const MARK_FRAME = AGENT_MARK_FRAME;
 const MARK_CSS = "css";
 
 /** How long the ring stays before fading itself out. Long enough for the eye to land where the click
@@ -1519,110 +1543,149 @@ export async function describeElement(send: CdpSend, backendNodeId: number): Pro
 /* ------------------------------------ element picking ------------------------------------ */
 
 /**
- * The USER's element picker, over CDP's `Overlay` domain.
+ * The USER's element picker: Realm's own overlay, injected into the page.
  *
- * `Overlay.setInspectMode("searchForNode")` is the mechanism behind DevTools' own inspect button, and
- * every reason to prefer it here over injecting a click listener with `Runtime.addBinding` +
- * `Page.addScriptToEvaluateOnNewDocument` is something an injected listener cannot do:
+ * It was `Overlay.setInspectMode` once — the DevTools inspector, a flat blue box with a node-info
+ * tooltip, which looks exactly like what it is. This app is not DevTools, and a person pointing at an
+ * element to talk to an agent about is doing a Realm thing; and nothing Realm draws in the window can
+ * be laid over the page (the view composites above it), so the page draws it.
  *
- *   - Chrome CONSUMES the picking click. It never reaches the page, so picking a link does not
- *     navigate and picking a submit button does not submit. An injected listener can only try to
- *     `preventDefault` in the capture phase, and loses to any page that registered its own capture
- *     listener on `window` first — which is most of the pages worth picking from.
- *   - the hit test is the browser's own, so it is right through shadow roots, cross-origin iframes
- *     and `pointer-events`, none of which `document.elementFromPoint` reports correctly from a
- *     single world.
- *   - the highlight is drawn by the overlay layer, not by page DOM. Nothing is appended to the page,
- *     so there is no second `HIGHLIGHT_ATTR` to hold in step across the snapshot filter and the
- *     pre-capture sweep, and the page can neither see nor restyle the marker saying it is inspected.
- *   - nothing is injected into an untrusted page at all, and no script has to be re-established
- *     after a navigation.
+ * It follows the pointer over `elementFromPoint` and outlines what is under it: a soft accent fill
+ * inside a fine accent line, standing a few pixels off the element and rounded concentric with the
+ * element's own corners — a pill outlines as a pill, a square card as a softly rounded one — with a
+ * small dark label above it naming the element and its size. The outline glides between elements
+ * rather than jumping, and keeps to the element while the page scrolls under it. Every press is taken
+ * in the CAPTURE phase and cancelled, so picking a link does not navigate and pressing a menu button
+ * opens nothing — the failure the whole feature would otherwise have on any real page.
  *
- * The cost is the look: this is DevTools' box-model highlight with its tag/size tooltip, not Realm's
- * action ring. For a picker that is the better trade — the tooltip names what the box IS, which is
- * the one thing someone choosing an element needs to read before they commit.
- *
- * One behaviour worth knowing, because it is invisible until it bites: inspect mode inspects the node
- * it is HOVERING, which it learns from mouse moves. A press with no move before it finds nothing
- * highlighted and falls through to the page. A hand always moves before it clicks, so this costs a
- * user nothing — but a synthetic click that skips the move is not a test of this code
- * (`element-picker-live.cjs` sends the move for exactly that reason).
- */
-/**
- * The picker's page-side half — Realm's own overlay, not Chrome's.
- *
- * `Overlay.setInspectMode` is the DevTools inspector: a flat blue box with a node-info tooltip, and
- * it looks exactly like what it is. This app is not DevTools, and a person picking an element to
- * talk to an agent about is doing a Realm thing.
- *
- * So the overlay is injected. It follows the pointer over `elementFromPoint`, draws a thick accent
- * border with an inward glow on the app's own curve, and names the element in a chip that reads like
- * every other chip in Realm. The click is taken in the CAPTURE phase and cancelled, so picking a
- * link does not navigate — the failure the whole feature would otherwise have on any real page.
+ * Drawn in a shadow root on a host element of its own name, so the page's stylesheet cannot reach it
+ * (`div { … !important }` restyles a div, not a `realm-picker`), and hidden from the accessibility tree,
+ * so an agent's snapshot taken mid-pick reads the page and not the label.
  *
  * The element is handed back by stamping a one-shot attribute on it and calling a CDP binding; main
  * turns that attribute into a `backendNodeId` (`resolvePickedNode`) and clears it. That is the whole
- * bridge: everything downstream — `describePick`, `describeElement` — is untouched and still speaks
- * in backendNodeIds.
+ * bridge: everything downstream — `describePick`, `describeElement` — still speaks in backendNodeIds.
+ *
+ * Nothing of it outlives the pick: the click, Escape, a cancel from the pane, and the page going away
+ * (`pagehide`) all take it down. A pick lets the outline answer — a beat of deeper fill and a fade —
+ * on a timer of its own, marked as leaving so a disarm arriving meanwhile lets it finish; anything
+ * else removes it at once, and every arm and disarm sweeps up a host that something left behind.
  *
  * Written as a string rather than a real module because it runs in the PAGE, whose globals are not
  * ours and whose bundler is not ours either. No backticks inside: this is embedded in a template
- * literal, and one would end it.
+ * literal, and one would end it — and a regex escape has to be written `\\s`, or the template cooks it
+ * to a bare letter.
  */
 export const PICK_BINDING = "__realmPickDone";
 export const PICK_ATTR = "data-realm-picked";
+/** The overlay's host element — its own name, which page rules aimed at a `div` do not match. */
+export const PICKER_HOST = "realm-picker";
+
+/** How far the outline stands off the element, and the least it rounds a corner by, in CSS px. */
+const PICK_OUTLINE_GAP = 3;
+const PICK_OUTLINE_MIN_RADIUS = 8;
+/** How long the outline takes to answer a pick before it goes. */
+const PICK_CONFIRM_MS = 260;
 
 const PICKER_SCRIPT = `(() => {
   if (window.__realmPicker) window.__realmPicker.stop();
+  for (const n of document.querySelectorAll(HOST_NAME)) n.remove();
   const ACCENT = ACCENT_RGB;
-  const host = document.createElement("div");
-  host.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none";
+  const GAP = GAP_PX, MIN_R = MIN_RADIUS_PX;
+  const host = document.createElement(HOST_NAME);
+  host.setAttribute("aria-hidden", "true");
+  host.style.cssText = "all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none";
+  const root = host.attachShadow({ mode: "open" });
+  const ease = "cubic-bezier(.23,1,.32,1)";
+  const glide = (p) => p + " 110ms " + ease;
+  const style = document.createElement("style");
+  style.textContent = [
+    ".box{position:absolute;left:0;top:0;box-sizing:border-box;border:1.5px solid " + ACCENT + ";"
+      + "background:color-mix(in srgb," + ACCENT + " 12%,transparent);opacity:0;"
+      + "transition:" + ["transform", "width", "height", "border-radius"].map(glide).join(",") + ",opacity 120ms ease,background-color 120ms ease}",
+    ".label{position:absolute;left:0;top:0;display:flex;gap:6px;height:20px;padding:0 7px;border-radius:6px;"
+      + "background:rgba(24,25,27,.94);color:#f5f5f6;font:600 11px/20px -apple-system,BlinkMacSystemFont,system-ui,sans-serif;"
+      + "white-space:nowrap;box-shadow:0 0 0 .5px rgba(255,255,255,.1),0 2px 8px rgba(0,0,0,.22);opacity:0;"
+      + "transition:" + glide("transform") + ",opacity 120ms ease}",
+    ".size{font-weight:450;color:rgba(245,245,246,.62);font-variant-numeric:tabular-nums}",
+    "[data-on]{opacity:1}",
+    "[data-instant]{transition:none}",
+    ".box[data-picked]{background:color-mix(in srgb," + ACCENT + " 26%,transparent);opacity:0;transition:background-color 80ms ease,opacity 160ms ease 80ms}",
+    "@media (prefers-reduced-motion:reduce){.box,.label{transition:none!important}}",
+  ].join("");
   const box = document.createElement("div");
-  /* 2px rather than the inspector's hairline, an inward glow instead of a flat fill, and the app's
-     own large corner. inset box-shadow so the glow reads as light coming off the edge of the thing
-     you are about to pick rather than as a tint laid over it. */
-  box.style.cssText = "position:absolute;box-sizing:border-box;border:2px solid " + ACCENT
-    + ";border-radius:14px;box-shadow: inset 0 0 24px -4px " + ACCENT + ", 0 0 0 9999px rgba(0,0,0,0.04);"
-    + "transition:all 90ms cubic-bezier(0.2,0,0,1);opacity:0";
-  const chip = document.createElement("div");
-  chip.style.cssText = "position:absolute;padding:3px 9px;border-radius:8px;background:" + ACCENT
-    + ";color:#fff;font:500 11px/1.4 ui-sans-serif,system-ui,sans-serif;white-space:nowrap;"
-    + "box-shadow:0 2px 10px rgba(0,0,0,0.25);opacity:0";
-  host.appendChild(box); host.appendChild(chip);
+  box.className = "box";
+  const label = document.createElement("div");
+  label.className = "label";
+  const nameEl = document.createElement("span");
+  const sizeEl = document.createElement("span");
+  sizeEl.className = "size";
+  label.append(nameEl, sizeEl);
+  root.append(style, box, label);
   document.documentElement.appendChild(host);
 
   let current = null;
+  let shown = false;
+  /* The tag, then its id or its first class: enough to tell two neighbours apart, short enough to
+     read at a glance. The selector the agent is handed is worked out properly, after the pick. */
   const name = (el) => {
-    const tag = el.tagName.toLowerCase();
-    const id = el.id ? "#" + el.id : "";
-    const cls = typeof el.className === "string" && el.className.trim()
-      ? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".") : "";
-    return (tag + id + cls).slice(0, 60);
+    const cls = typeof el.className === "string" ? el.className.trim().split(/\\s+/)[0] : "";
+    const full = el.tagName.toLowerCase() + (el.id ? "#" + el.id : cls ? "." + cls : "");
+    return full.length > 32 ? full.slice(0, 31) + "\\u2026" : full;
   };
-  const draw = (el) => {
-    current = el;
-    if (!el) { box.style.opacity = "0"; chip.style.opacity = "0"; return; }
+  const length = (v, basis) => {
+    const n = parseFloat(v);
+    return !isFinite(n) ? 0 : /%$/.test(v) ? (n * basis) / 100 : n;
+  };
+  const CORNERS = ["border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius"];
+  const place = (el, instant) => {
     const r = el.getBoundingClientRect();
-    box.style.opacity = "1"; chip.style.opacity = "1";
-    box.style.left = r.left + "px"; box.style.top = r.top + "px";
-    box.style.width = r.width + "px"; box.style.height = r.height + "px";
-    chip.textContent = name(el) + "  " + Math.round(r.width) + "x" + Math.round(r.height);
-    /* Above the element, unless there is no room — then inside its top edge. A label that runs off
-       the viewport is a label nobody can read. */
-    const above = r.top >= 26;
-    chip.style.left = Math.max(4, Math.min(r.left, window.innerWidth - chip.offsetWidth - 4)) + "px";
-    chip.style.top = (above ? r.top - 24 : r.top + 4) + "px";
+    const vw = document.documentElement.clientWidth || window.innerWidth;
+    const vh = document.documentElement.clientHeight || window.innerHeight;
+    /* Off the element by GAP, and inside the viewport: an outline round the whole page would
+       otherwise be drawn where nobody can see it. */
+    const left = Math.max(1, r.left - GAP), top = Math.max(1, r.top - GAP);
+    const right = Math.min(vw - 1, r.right + GAP), bottom = Math.min(vh - 1, r.bottom + GAP);
+    const w = Math.max(0, right - left), h = Math.max(0, bottom - top);
+    /* Concentric: the element's own corner plus the gap, and never squarer than MIN_R — or rounder
+       than half the outline's short side, past which a corner stops being one. */
+    const cs = getComputedStyle(el);
+    const short = Math.min(r.width, r.height);
+    const radii = CORNERS.map((p) => Math.min(Math.min(w, h) / 2, Math.max(MIN_R, length(cs.getPropertyValue(p).split(" ")[0], short) + GAP)) + "px");
+    if (instant) { box.setAttribute("data-instant", ""); label.setAttribute("data-instant", ""); }
+    box.style.transform = "translate(" + left + "px," + top + "px)";
+    box.style.width = w + "px";
+    box.style.height = h + "px";
+    box.style.borderRadius = radii.join(" ");
+    nameEl.textContent = name(el);
+    sizeEl.textContent = Math.round(r.width) + " \\u00d7 " + Math.round(r.height);
+    /* Above the outline; below it when there is no room above; inside its top edge when there is
+       room for neither. A label that runs off the viewport is a label nobody can read. */
+    const lw = label.offsetWidth, LH = 20, LGAP = 4;
+    let ly = top - LH - LGAP;
+    if (ly < 2) ly = bottom + LGAP + LH <= vh - 2 ? bottom + LGAP : top + LGAP;
+    const lx = Math.max(2, Math.min(left, vw - lw - 2));
+    label.style.transform = "translate(" + lx + "px," + ly + "px)";
+    box.setAttribute("data-on", "");
+    label.setAttribute("data-on", "");
+    if (instant) { void box.offsetWidth; box.removeAttribute("data-instant"); label.removeAttribute("data-instant"); }
   };
+  /* The first element after the outline was hidden is placed where it is, not slid to from wherever
+     the last one was. */
+  const show = (el) => { current = el; place(el, !shown); shown = true; };
+  const hide = () => { current = null; shown = false; box.removeAttribute("data-on"); label.removeAttribute("data-on"); };
   const onMove = (e) => {
-    host.style.display = "none";
     const el = document.elementFromPoint(e.clientX, e.clientY);
-    host.style.display = "";
-    if (el && el !== current) draw(el);
+    if (!el) hide();
+    else if (el !== current) show(el);
   };
+  const onLeave = (e) => { if (!e.relatedTarget) hide(); };
+  const follow = () => { if (current) place(current, true); };
+  const swallow = (e) => { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); };
   const onClick = (e) => {
-    if (!current) return;
-    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-    const el = current;
+    swallow(e);
+    const el = current || document.elementFromPoint(e.clientX, e.clientY);
+    if (!el) return;
     /* WHERE the click landed, and whether it landed on a STREAMED SURFACE.
        Ordinarily the picked element is the whole answer and this is redundant. It stops being
        redundant over a mirrored device: the entire screen is drawn into one <canvas>, so the element
@@ -1633,37 +1696,63 @@ const PICKER_SCRIPT = `(() => {
        Its box travels too: it is what a device point is scaled by, and only the page can measure it. */
     const stack = typeof document.elementsFromPoint === "function" ? document.elementsFromPoint(e.clientX, e.clientY) : [];
     const surfaceEl = stack.find((n) => n.tagName === "CANVAS" || n.tagName === "IMG") || null;
-    const boxEl = surfaceEl || el;
-    const box = boxEl.getBoundingClientRect();
-    const nx = box.width > 0 ? (e.clientX - box.left) / box.width : 0;
-    const ny = box.height > 0 ? (e.clientY - box.top) / box.height : 0;
-    const surface = surfaceEl ? { x: box.left, y: box.top, w: box.width, h: box.height } : null;
-    stop();
+    const frame = (surfaceEl || el).getBoundingClientRect();
+    const nx = frame.width > 0 ? (e.clientX - frame.left) / frame.width : 0;
+    const ny = frame.height > 0 ? (e.clientY - frame.top) / frame.height : 0;
+    const surface = surfaceEl ? { x: frame.left, y: frame.top, w: frame.width, h: frame.height } : null;
+    if (el !== current) show(el);
+    stop(true);
     el.setAttribute(PICK_ATTR_NAME, "1");
     window[BINDING_NAME](JSON.stringify({ x: nx, y: ny, surface }));
   };
-  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); stop(); window[BINDING_NAME](""); } };
-  function stop() {
+  const onKey = (e) => { if (e.key === "Escape") { swallow(e); stop(false); window[BINDING_NAME](""); } };
+  const onPageHide = () => stop(false);
+  const PRESSES = ["pointerdown", "mousedown", "pointerup", "mouseup", "dblclick", "auxclick", "contextmenu"];
+  function stop(picked) {
     window.removeEventListener("mousemove", onMove, true);
+    window.removeEventListener("mouseout", onLeave, true);
     window.removeEventListener("click", onClick, true);
+    for (const t of PRESSES) window.removeEventListener(t, swallow, true);
     window.removeEventListener("keydown", onKey, true);
-    host.remove();
+    window.removeEventListener("scroll", follow, true);
+    window.removeEventListener("resize", follow);
+    window.removeEventListener("pagehide", onPageHide);
     window.__realmPicker = null;
+    if (!picked) { host.remove(); return; }
+    host.setAttribute("data-leaving", "");
+    label.removeAttribute("data-on");
+    box.setAttribute("data-picked", "");
+    setTimeout(() => host.remove(), CONFIRM_MS);
   }
   window.addEventListener("mousemove", onMove, true);
+  window.addEventListener("mouseout", onLeave, true);
   window.addEventListener("click", onClick, true);
+  for (const t of PRESSES) window.addEventListener(t, swallow, true);
   window.addEventListener("keydown", onKey, true);
-  window.__realmPicker = { stop };
+  window.addEventListener("scroll", follow, true);
+  window.addEventListener("resize", follow);
+  window.addEventListener("pagehide", onPageHide);
+  window.__realmPicker = { stop: () => stop(false) };
 })()`;
 
-/** The picker script with its three page-side constants substituted in. `accent` is the user's own
- *  theme colour, so the overlay is the colour of the app it belongs to rather than a fixed blue. */
-function pickerScript(accent: string): string {
+/** The picker script with its page-side constants substituted in. `accent` is the user's own theme
+ *  colour, so the overlay is the colour of the app it belongs to rather than a fixed blue. */
+export function pickerScript(accent: string): string {
   return PICKER_SCRIPT
     .replace("ACCENT_RGB", JSON.stringify(accent))
+    .replace("GAP_PX", String(PICK_OUTLINE_GAP))
+    .replace("MIN_RADIUS_PX", String(PICK_OUTLINE_MIN_RADIUS))
+    .replace("CONFIRM_MS", String(PICK_CONFIRM_MS))
+    .replace(/HOST_NAME/g, JSON.stringify(PICKER_HOST))
     .replace(/PICK_ATTR_NAME/g, JSON.stringify(PICK_ATTR))
     .replace(/BINDING_NAME/g, JSON.stringify(PICK_BINDING));
 }
+
+/**
+ * Take the picker down: its own `stop()`, and then any host something left behind — but not one that
+ * is LEAVING, whose fade is the answer to the pick that just resolved and which removes itself.
+ */
+export const STOP_PICKER_JS = `(() => { try { if (window.__realmPicker) window.__realmPicker.stop(); for (const n of document.querySelectorAll(${JSON.stringify(`${PICKER_HOST}:not([data-leaving])`)})) n.remove(); } catch (e) {} })()`;
 
 /**
  * Arm the picker. The caller listens for `Runtime.bindingCalled` on `PICK_BINDING`; a non-empty
@@ -1700,7 +1789,7 @@ export async function resolvePickedNode(send: CdpSend): Promise<number | null> {
 export async function disarmElementPick(send: CdpSend): Promise<void> {
   // Idempotent on the page side (`stop()` removes its own listeners and its own overlay), so calling
   // this on a page that was never armed, or twice, costs nothing.
-  await send("Runtime.evaluate", { expression: "window.__realmPicker && window.__realmPicker.stop()" }).catch(() => {});
+  await send("Runtime.evaluate", { expression: STOP_PICKER_JS }).catch(() => {});
   await send("Runtime.removeBinding", { name: PICK_BINDING }).catch(() => {});
 }
 
@@ -1794,4 +1883,223 @@ export async function describePick(send: CdpSend, backendNodeId: number): Promis
     name: clip(identity.name, PICK_NAME_MAX),
     ...detail,
   };
+}
+
+/* ---------------------------------- annotate (Plan 26 W7d) ---------------------------------- */
+
+/**
+ * Annotate: the picker kept armed. Every click pins a numbered outline that STAYS on the page, and a
+ * toolbar drawn in the page counts them and offers Hide pins, Clear, Send and close. Send hands main
+ * every pinned element at once; main takes a screenshot with the pins drawn, and the pane turns the lot
+ * into ONE chip in a session's prompter.
+ *
+ * Page-side for the picker's reason: the native view composites over everything the renderer draws in
+ * its rectangle, so marks that have to sit ON the page — and a toolbar that has to stay with them —
+ * can only be drawn by the page itself. Everything it reports goes through its own binding, and
+ * everything downstream of a pin is the picker's: the stamped attribute becomes a backendNodeId, and
+ * that becomes the same `BrowserPickedElement` a single pick does.
+ *
+ * Clicks, and the presses before them, are taken in the CAPTURE phase and cancelled, so pinning a link
+ * or a button changes nothing about the page under it. The toolbar's own buttons are the one exception.
+ * No backticks inside: this is embedded in a template literal.
+ */
+export const ANNOTATE_BINDING = "__realmAnnotate";
+export const ANNOTATE_ATTR = "data-realm-annotated";
+
+const ANNOTATOR_SCRIPT = `(() => {
+  if (window.__realmAnnotator) window.__realmAnnotator.stop();
+  const ACCENT = ACCENT_RGB;
+  const MAX = MAX_PINS;
+  const report = (msg) => window[BINDING_NAME](JSON.stringify(msg));
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none";
+  const hover = document.createElement("div");
+  /* The picker's outline, in the picker's terms: a fine line over a soft fill on a rounded corner, so
+     pointing reads the same in both modes. The pins below keep their heavier line — they stay on the
+     page and go into the screenshot Send takes. */
+  hover.style.cssText = "position:absolute;box-sizing:border-box;border:1.5px solid " + ACCENT
+    + ";border-radius:8px;background:color-mix(in srgb," + ACCENT + " 12%,transparent);opacity:0;transition:opacity 90ms";
+  const layer = document.createElement("div");
+  layer.style.cssText = "position:absolute;inset:0";
+  const bar = document.createElement("div");
+  bar.setAttribute("role", "toolbar");
+  bar.setAttribute("aria-label", "Annotate");
+  bar.style.cssText = "position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:center;gap:2px;"
+    + "padding:5px;border-radius:14px;background:rgba(30,30,33,0.96);color:#f4f4f5;font:500 12px/1 -apple-system,system-ui,sans-serif;"
+    + "box-shadow:0 0 0 1px rgba(255,255,255,0.08),0 2px 6px rgba(0,0,0,0.25),0 12px 32px rgba(0,0,0,0.3);pointer-events:auto;user-select:none";
+  const count = document.createElement("span");
+  count.style.cssText = "padding:0 10px 0 8px;white-space:nowrap;font-variant-numeric:tabular-nums";
+  const button = (text, title, primary) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = text; b.title = title;
+    const rest = primary ? "background:" + ACCENT + ";color:#fff" : "background:transparent;color:#d4d4d8";
+    b.style.cssText = "all:unset;box-sizing:border-box;height:28px;padding:0 11px;border-radius:9px;white-space:nowrap;cursor:default;" + rest;
+    b.addEventListener("mouseenter", () => { if (!primary && !b.disabled) b.style.background = "rgba(255,255,255,0.1)"; });
+    b.addEventListener("mouseleave", () => { if (!primary) b.style.background = "transparent"; });
+    return b;
+  };
+  const toggle = button("Hide pins", "Hide the pins to see the page under them", false);
+  const clear = button("Clear", "Take every pin off", false);
+  const send = button("Send", "Send these to the session", true);
+  const close = button("\\u00d7", "Stop annotating (Esc)", false);
+  close.setAttribute("aria-label", "Stop annotating");
+  close.style.fontSize = "16px";
+  bar.append(count, toggle, clear, send, close);
+  host.append(hover, layer, bar);
+  document.documentElement.appendChild(host);
+
+  const pins = [];
+  let hidden = false;
+  let current = null;
+  let full = false;
+  const say = () => {
+    count.textContent = full ? "That is as many as one message carries"
+      : pins.length === 0 ? "Annotating \\u00b7 click to pin" : "Annotating \\u00b7 " + pins.length;
+    const none = pins.length === 0;
+    send.disabled = none; clear.disabled = none; toggle.disabled = none;
+    send.style.opacity = none ? "0.45" : "1"; clear.style.opacity = none ? "0.45" : "1"; toggle.style.opacity = none ? "0.45" : "1";
+  };
+  const place = (box, el) => {
+    const r = el.getBoundingClientRect();
+    box.style.left = r.left + "px"; box.style.top = r.top + "px";
+    box.style.width = r.width + "px"; box.style.height = r.height + "px";
+  };
+  const layout = () => { for (const p of pins) place(p.box, p.el); };
+  const pin = (el) => {
+    const n = pins.length + 1;
+    const box = document.createElement("div");
+    box.style.cssText = "position:absolute;box-sizing:border-box;border:2px solid " + ACCENT + ";border-radius:8px";
+    const badge = document.createElement("div");
+    badge.textContent = String(n);
+    badge.style.cssText = "position:absolute;left:-10px;top:-10px;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:10px;"
+      + "background:" + ACCENT + ";color:#fff;font:600 11px/20px -apple-system,system-ui,sans-serif;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.35)";
+    box.appendChild(badge);
+    layer.appendChild(box);
+    pins.push({ el, box });
+    place(box, el);
+    return n;
+  };
+  const inBar = (t) => t instanceof Node && bar.contains(t);
+  const aim = (e) => {
+    if (inBar(e.target)) { current = null; hover.style.opacity = "0"; return; }
+    host.style.display = "none";
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    host.style.display = "";
+    current = el;
+    if (!el || hidden) { hover.style.opacity = "0"; return; }
+    const r = el.getBoundingClientRect();
+    hover.style.opacity = "1";
+    hover.style.left = r.left + "px"; hover.style.top = r.top + "px";
+    hover.style.width = r.width + "px"; hover.style.height = r.height + "px";
+  };
+  const swallow = (e) => { if (inBar(e.target)) return; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); };
+  const onClick = (e) => {
+    if (inBar(e.target)) return;
+    swallow(e);
+    const el = current;
+    if (!el || pins.some((p) => p.el === el)) return;
+    if (pins.length >= MAX) { full = true; say(); return; }
+    const stack = typeof document.elementsFromPoint === "function" ? document.elementsFromPoint(e.clientX, e.clientY) : [];
+    const surfaceEl = stack.find((n) => n.tagName === "CANVAS" || n.tagName === "IMG") || null;
+    const box = (surfaceEl || el).getBoundingClientRect();
+    const nx = box.width > 0 ? (e.clientX - box.left) / box.width : 0;
+    const ny = box.height > 0 ? (e.clientY - box.top) / box.height : 0;
+    const surface = surfaceEl ? { x: box.left, y: box.top, w: box.width, h: box.height } : null;
+    const n = pin(el);
+    el.setAttribute(ATTR_NAME, String(n));
+    if (hidden) { hidden = false; layer.style.display = ""; toggle.textContent = "Hide pins"; }
+    say();
+    report({ type: "pin", n, x: nx, y: ny, surface });
+  };
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); report({ type: "close" }); } };
+  toggle.addEventListener("click", () => {
+    hidden = !hidden;
+    layer.style.display = hidden ? "none" : "";
+    hover.style.opacity = "0";
+    toggle.textContent = hidden ? "Show pins" : "Hide pins";
+  });
+  clear.addEventListener("click", () => {
+    for (const p of pins) { p.box.remove(); p.el.removeAttribute(ATTR_NAME); }
+    pins.length = 0; full = false; say();
+    report({ type: "clear" });
+  });
+  send.addEventListener("click", () => { if (pins.length > 0) report({ type: "send" }); });
+  close.addEventListener("click", () => report({ type: "close" }));
+  const PRESSES = ["pointerdown", "mousedown", "pointerup", "mouseup", "dblclick", "contextmenu"];
+  window.addEventListener("mousemove", aim, true);
+  window.addEventListener("click", onClick, true);
+  for (const t of PRESSES) window.addEventListener(t, swallow, true);
+  window.addEventListener("keydown", onKey, true);
+  window.addEventListener("scroll", layout, true);
+  window.addEventListener("resize", layout);
+  function stop() {
+    window.removeEventListener("mousemove", aim, true);
+    window.removeEventListener("click", onClick, true);
+    for (const t of PRESSES) window.removeEventListener(t, swallow, true);
+    window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("scroll", layout, true);
+    window.removeEventListener("resize", layout);
+    for (const p of pins) p.el.removeAttribute(ATTR_NAME);
+    host.remove();
+    window.__realmAnnotator = null;
+  }
+  /* The picture Send takes: every pin drawn where it is, and nothing else of Realm's — no toolbar, no
+     hover box. Resolves after two frames, so the capture that follows sees what this changed. */
+  function prepareShot() {
+    bar.style.display = "none"; hover.style.opacity = "0"; layer.style.display = "";
+    layout();
+    return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))));
+  }
+  say();
+  window.__realmAnnotator = { stop, prepareShot, count: () => pins.length };
+})()`;
+
+/** The annotator with its page-side constants substituted in. */
+export function annotatorScript(accent: string, maxPins: number): string {
+  return ANNOTATOR_SCRIPT
+    .replace("ACCENT_RGB", JSON.stringify(accent))
+    .replace("MAX_PINS", String(Math.max(1, Math.floor(maxPins))))
+    .replace(/ATTR_NAME/g, JSON.stringify(ANNOTATE_ATTR))
+    .replace(/BINDING_NAME/g, JSON.stringify(ANNOTATE_BINDING));
+}
+
+/** Arm annotate mode. The caller listens for `Runtime.bindingCalled` on `ANNOTATE_BINDING`. */
+export async function armAnnotate(send: CdpSend, accent: string, maxPins: number): Promise<void> {
+  await send("Runtime.enable").catch(() => {});
+  await send("Runtime.addBinding", { name: ANNOTATE_BINDING });
+  // The picker and the agent's own marks would be two more accent overlays chasing the same hand.
+  await send("Runtime.evaluate", { expression: STOP_PICKER_JS }).catch(() => {});
+  await send("Runtime.evaluate", { expression: REMOVE_AGENT_MARKS_JS }).catch(() => {});
+  await send("Runtime.evaluate", { expression: annotatorScript(accent, maxPins), returnByValue: true });
+}
+
+/**
+ * Pin `n`'s stamped element → its `backendNodeId`, clearing the stamp — `resolvePickedNode`, for one
+ * numbered pin. The pin's outline stays: the page holds the element itself, not the attribute.
+ */
+export async function resolveAnnotatedNode(send: CdpSend, n: number): Promise<number | null> {
+  if (!Number.isInteger(n) || n < 1) return null;
+  try {
+    const { root } = await send("DOM.getDocument", { depth: 0 }) as { root: { nodeId: number } };
+    const { nodeId } = await send("DOM.querySelector", { nodeId: root.nodeId, selector: `[${ANNOTATE_ATTR}="${n}"]` }) as { nodeId: number };
+    if (!nodeId) return null;
+    const { node } = await send("DOM.describeNode", { nodeId }) as { node: { backendNodeId: number } };
+    await send("DOM.removeAttribute", { nodeId, name: ANNOTATE_ATTR }).catch(() => {});
+    return node.backendNodeId > 0 ? node.backendNodeId : null;
+  } catch { return null; }
+}
+
+/** Draw every pin and nothing else of Realm's, then capture the viewport as a PNG. Null if the page
+ *  would not draw or the capture came back empty — Send still goes, without a picture. */
+export async function captureAnnotated(send: CdpSend): Promise<Uint8Array | null> {
+  await send("Runtime.evaluate", { expression: "window.__realmAnnotator ? window.__realmAnnotator.prepareShot() : true", awaitPromise: true }).catch(() => {});
+  try {
+    const shot = await send("Page.captureScreenshot", { format: "png" }) as { data?: string };
+    return shot.data ? Uint8Array.from(Buffer.from(shot.data, "base64")) : null;
+  } catch { return null; }
+}
+
+export async function disarmAnnotate(send: CdpSend): Promise<void> {
+  await send("Runtime.evaluate", { expression: "window.__realmAnnotator && window.__realmAnnotator.stop()" }).catch(() => {});
+  await send("Runtime.removeBinding", { name: ANNOTATE_BINDING }).catch(() => {});
 }

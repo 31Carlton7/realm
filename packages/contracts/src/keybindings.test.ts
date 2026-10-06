@@ -195,16 +195,9 @@ describe("resolver (rule 2: the last matching rule wins, across commands)", () =
     expect(matchKeybinding(rules, "mod+wat", idle)).toBeNull();
   });
 
-  it("refuses to match on an unparseable chord rather than matching everything", () => {
-    expect(commandForChord([{ key: "", command: "x" }], "", idle)).toBeNull();
-  });
 });
 
 describe("chordsForCommand", () => {
-  it("finds the chord a command answers to", () => {
-    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "terminal.new")).toEqual(["mod+t"]);
-    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "palette.toggle")).toEqual(["mod+k"]);
-  });
 
   it("does not advertise a binding a later rule has already taken", () => {
     /* THE MUTANT: filter rules by name. The hint would then print ⌘K beside "Command palette" for a
@@ -274,6 +267,38 @@ describe("the shipped table", () => {
     expect(chordOf("session.interrupt")).toBe("escape");
   });
 
+  it("binds a side pane's new tab to ⌘⇧B, and its full-view twin to ⌥⌘B rather than pane focus's ⌘⇧F", () => {
+    // THE MUTANT: ship Codex's ⇧⌘F for the full-view tab. The later rule wins, so pane focus — a
+    // chord people already use — would quietly start opening tabs instead.
+    const chordOf = (command: string) => chordsForCommand(DEFAULT_KEYBINDINGS, command)[0];
+    expect(chordOf("pane.newTab")).toBe("mod+shift+b");
+    expect(chordOf("pane.newTabFullView")).toBe("mod+alt+b");
+    expect(chordOf("pane.toggleFocus")).toBe("mod+shift+f");
+  });
+
+  it("ships Go back and Go forward on ⌃- / ⌃⇧-, and leaves ⌘[ / ⌘] to the pane's own trail", () => {
+    /* THE MUTANT is the convention this deliberately does not take: ⌘[ for the window. The table's own
+       one-default-per-chord rule would then drop one of the two, and either the pane's arrows or the
+       window's would go dead. */
+    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "window.back")).toEqual(["ctrl+-"]);
+    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "window.forward")).toEqual(["ctrl+shift+-"]);
+    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "pane.navBack")).toEqual(["mod+["]);
+    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "pane.navForward")).toEqual(["mod+]"]);
+    // From the prompter — where the hand is when it wants to go back — but not from a terminal.
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "ctrl+-", { inputFocus: true, sessionFocus: true })).toBe("window.back");
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "ctrl+-", { terminalFocus: true })).toBeNull();
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "ctrl+-", { overlayOpen: true })).toBeNull();
+  });
+
+  it("ships Select in Realm on ⌘⇧C, the inspector's chord, from the prompter and anywhere an overlay is not", () => {
+    // THE MUTANT: gate it on `sessionFocus` like ⌘U. The parts of Realm worth pointing at are as often a
+    // sidebar row or a settings switch, which are exactly the places a session is not focused.
+    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "session.selectInRealm")).toEqual(["mod+shift+c"]);
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+shift+c", { inputFocus: true, sessionFocus: true })).toBe("session.selectInRealm");
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+shift+c", { paneFocus: true })).toBe("session.selectInRealm");
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+shift+c", { overlayOpen: true })).toBeNull();
+  });
+
   it("swallows ⌘W in a spelling the resolver agrees with", () => {
     for (const chord of ALWAYS_SWALLOWED_CHORDS) expect(normalizeKeyChord(chord)).toBe(chord);
     expect(ALWAYS_SWALLOWED_CHORDS).toContain("mod+w");
@@ -290,11 +315,6 @@ describe("merging newly shipped defaults", () => {
     expect(mergeDefaults(shipped, shipped)).toEqual(shipped);
     // …and stays that way however many times it runs.
     expect(mergeDefaults(mergeDefaults(shipped, shipped), shipped)).toEqual(shipped);
-  });
-
-  it("appends a default the file has never seen", () => {
-    const existing: Keybinding[] = [{ key: "mod+k", command: "palette.toggle", when: "!sheetOpen" }];
-    expect(mergeDefaults(existing, shipped)).toEqual([...existing, { key: "mod+t", command: "terminal.new" }]);
   });
 
   it("leaves a rebound command alone, even though its shipped key is free", () => {

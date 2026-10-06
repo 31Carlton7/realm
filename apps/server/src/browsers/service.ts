@@ -1,9 +1,11 @@
-import { newId, type Browser } from "@realm/contracts";
+import { isFaviconDataUrl, newId, type Browser, type BrowserHistoryPage } from "@realm/contracts";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
+import { isHistoryUrl, type BrowserHistoryStore } from "../store/browser-history";
 import type { BrowsersStore } from "../store/browsers";
 import type { ItemsStore } from "../store/items";
 import type { SpacesStore } from "../store/spaces";
+import type { ProfilesStore } from "../store/profiles";
 import { NotFoundError } from "../store/rows";
 
 /**
@@ -13,7 +15,10 @@ import { NotFoundError } from "../store/rows";
  * to die whenever its pane closes. A restart restores only what this service persisted.
  */
 export class BrowserService {
-  constructor(private d: { db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore; browsers: BrowsersStore }) {}
+  /** The address each pane last failed to load, until it loads or the pane moves on. */
+  private failedAt = new Map<string, string>();
+
+  constructor(private d: { db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore; browsers: BrowsersStore; history: BrowserHistoryStore; now?: () => number }) {}
 
   open(p: { spaceId: string; url: string }): { browserId: string; itemId: string; url: string } {
     const space = this.d.spaces.get(p.spaceId); if (!space) throw new NotFoundError("space", p.spaceId);
@@ -38,19 +43,83 @@ export class BrowserService {
     return row;
   }
 
-  /** Persist last committed url/title. A title change renames the item too — the sidebar and pane
-   *  header track the page, like a browser tab. (A later manual rename is therefore overwritten by
-   *  the next navigation; a pinned name is not a W1 concern.) */
-  update(browserId: string, patch: { url?: string; title?: string }): void {
-    const row = this.d.browsers.update(browserId, patch);
+  /** Persist last committed url/title/favicon. A title change renames the item too — the sidebar and
+   *  pane header track the page, like a browser tab. (A later manual rename is therefore overwritten by
+   *  the next navigation; a pinned name is not a W1 concern.) A favicon change is the item's too: every
+   *  read of the item carries the row's icon, so the lists are told to read again.
+   *
+   *  The icon is the page's, so it never outlives the page: a new url with no favicon beside it clears
+   *  the old one rather than lending it to a page that never showed it. And one that is not a favicon
+   *  as Realm keeps them (`isFaviconDataUrl`) is kept as none. */
+  update(browserId: string, patch: { url?: string; title?: string; favicon?: string; failed?: boolean }): void {
+    const before = this.d.browsers.get(browserId);
+    const favicon = patch.favicon !== undefined ? (isFaviconDataUrl(patch.favicon) ? patch.favicon : "")
+      : patch.url !== undefined && patch.url !== before?.url ? "" : undefined;
+    const row = this.d.browsers.update(browserId, { url: patch.url, title: patch.title, favicon });
     if (!row) throw new NotFoundError("browser", browserId);
-    if (patch.title !== undefined) {
-      const item = this.d.items.findByRefId(browserId);
-      if (item && item.title !== patch.title) {
-        this.d.items.update({ id: item.id, title: patch.title || "Browser" });
-        this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId });
-      }
+    this.recordHistory(before, row, patch.failed === true);
+    const item = this.d.items.findByRefId(browserId);
+    if (!item) return;
+    let changed = false;
+    if (patch.title !== undefined && item.title !== patch.title) {
+      this.d.items.update({ id: item.id, title: patch.title || "Browser" });
+      changed = true;
     }
+    if (row.favicon !== (before?.favicon ?? "")) changed = true;
+    if (changed) this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId });
+  }
+
+  /**
+   * The address field's suggestions, from the history of the profile this space belongs to. A space
+   * that is not there has no profile and so no history — an empty list rather than a guess.
+   */
+  suggest(spaceId: string, query: string, limit: number): BrowserHistoryPage[] {
+    const space = this.d.spaces.get(spaceId);
+    return space ? this.d.history.search(space.profileId, query, limit) : [];
+  }
+
+  /** A blank tab's Recently visited, read from the same profile's history the suggestions come from. */
+  recent(spaceId: string, limit: number): BrowserHistoryPage[] {
+    const space = this.d.spaces.get(spaceId);
+    return space ? this.d.history.recent(space.profileId, limit) : [];
+  }
+
+  /** The profile a pane belongs to — its space's — and that profile's partition. NOT_FOUND for a pane,
+   *  space or profile that is gone: main then gives the pane no view at all rather than a guess. */
+  profileOf(browserId: string, profiles: Pick<ProfilesStore, "get">): { profileId: string; partition: string } {
+    const row = this.get(browserId);
+    const space = this.d.spaces.get(row.spaceId); if (!space) throw new NotFoundError("space", row.spaceId);
+    const profile = profiles.get(space.profileId); if (!profile) throw new NotFoundError("profile", space.profileId);
+    return { profileId: profile.id, partition: profile.browserPartition };
+  }
+
+  /** One profile's history goes, as its partition's cookies and cache did a moment before. Another
+   *  profile's panes have their own partition, and their own history. */
+  clearHistory(profileId: string): void {
+    this.d.history.clearProfile(profileId);
+  }
+
+  /**
+   * A visit is a pane's committed url CHANGING — which is what `update` hears, because the pane
+   * persists after every navigation settles (debounced, so a redirect chain lands once, on where it
+   * ended). The same url with a new title is the page renaming itself after load, or a single-page app
+   * retitling a view: the row is renamed and no visit is counted, or every SPA would rank first.
+   *
+   * An address that did not load is no visit, and its error page's title — the bare host — renames no
+   * row a real visit wrote. The pane remembers it, so the Reload that brings the page in counts as the
+   * visit its own url change never will: it is the same address the row already holds.
+   */
+  private recordHistory(before: Browser | null, after: Browser, failed: boolean): void {
+    if (failed) { this.failedAt.set(after.id, after.url); return; }
+    const retried = this.failedAt.get(after.id) === after.url;
+    this.failedAt.delete(after.id);
+    if (!isHistoryUrl(after.url)) return;
+    const profileId = this.d.spaces.get(after.spaceId)?.profileId;
+    if (!profileId) return;
+    if (before?.url === after.url && !retried) this.d.history.retitle(profileId, after.url, after.title);
+    else this.d.history.recordVisit(profileId, after.url, after.title, this.d.now?.() ?? Date.now());
+    // The row's icon is this page's by now — `update` cleared the last page's off it.
+    this.d.history.setFavicon(profileId, after.url, after.favicon);
   }
 
   /** Delete row + item. Throws NOT_FOUND when neither exists (double-close is a caller bug). */
@@ -58,6 +127,7 @@ export class BrowserService {
     const row = this.d.browsers.get(browserId);
     const item = this.d.items.findByRefId(browserId);
     if (!row && !item) throw new NotFoundError("browser", browserId);
+    this.failedAt.delete(browserId);
     this.d.browsers.delete(browserId);
     if (item) {
       this.d.items.delete(item.id);

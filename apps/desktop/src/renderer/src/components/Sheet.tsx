@@ -1,4 +1,5 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { useDissolve } from "./ScrollFades";
 import { createPortal } from "react-dom";
 import { centerOverComplement } from "../state/no-overlay";
 import { useBrowserRects } from "../state/store";
@@ -31,6 +32,10 @@ export function Sheet({ title, onClose, children, footer, width = 420 }: {
   width?: number;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  /* The body scrolls between the head and the foot, and dissolves at an end once there is more of it
+     there. The panel itself cannot take the mask: it would take the panel's shadow with it. */
+  const body = useRef<HTMLDivElement>(null);
+  useDissolve(body);
   const browserRects = useBrowserRects();
   const spot = centerOverComplement({ width: window.innerWidth, height: window.innerHeight }, browserRects, width);
   const style: CSSProperties = spot
@@ -41,7 +46,15 @@ export function Sheet({ title, onClose, children, footer, width = 420 }: {
     const prev = document.activeElement as HTMLElement | null;
     ((el.querySelector(".sheet-body") ?? el).querySelector<HTMLElement>(FOCUSABLE) ?? el).focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.stopPropagation(); onClose(); return; }
+      if (e.key === "Escape") {
+        /* A popup that a control in the panel has open — the icon picker, portalled out of it —
+           answers its own Escape. Both listen on window and this one was registered first, so
+           without this the key that closes the picker closed the sheet under it too: mount order,
+           not stacking order (design.md). Asked of the control, which says so whether the focus is
+           in the popup, on the control, or nowhere at all. */
+        if (el.querySelector('[aria-haspopup]:not([aria-haspopup="false"])[aria-expanded="true"]')) return;
+        e.stopPropagation(); onClose(); return;
+      }
       if (e.key !== "Tab") return;
       const nodes = Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE)); if (nodes.length === 0) return;
       const first = nodes[0]!, last = nodes[nodes.length - 1]!;
@@ -49,13 +62,20 @@ export function Sheet({ title, onClose, children, footer, width = 420 }: {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
     window.addEventListener("keydown", onKey, true);
-    return () => { window.removeEventListener("keydown", onKey, true); prev?.focus?.(); };
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      /* Focus goes back where it came from — unless something outside the sheet has the keyboard by
+         now (the session New space just opened), which a restore would take it back from. The panel
+         is already out of the DOM here, so focus it held reads as the body. */
+      const now = document.activeElement;
+      if (!now || now === document.body || el.contains(now)) prev?.focus?.();
+    };
   }, [onClose]);
   return createPortal(
     <div className="sheet-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={panel} role="dialog" aria-modal="true" aria-label={title} className="sheet" style={style} tabIndex={-1}>
         <div className="sheet-head"><h3>{title}</h3><button className="icon-btn" aria-label="Close" onClick={onClose}>✕</button></div>
-        <div className="sheet-body">{children}</div>
+        <div className="sheet-body" ref={body}>{children}</div>
         {footer && <div className="sheet-foot">{footer}</div>}
       </div>
     </div>,

@@ -1,17 +1,19 @@
-import type { BlockedDownload, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
-import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
+import { Icon, type IconName } from "@realm/ui";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { StoreApi } from "zustand";
 import type { PaneProps } from "../registry";
 import { useAppStoreMaybe, type AppState, type BrowserActionTick } from "../../state/store";
-import { cancelViewRelease, getBrowserBridges, scheduleViewRelease } from "./browser-client";
+import { announceHistoryCleared, cancelViewRelease, getBrowserBridges, onHistoryCleared, scheduleViewRelease } from "./browser-client";
+import { NewTabPage } from "./NewTabPage";
+import { BrowserConnecting, BrowserErrorPage } from "./BrowserErrorPage";
+import { PageIcon } from "../../components/PageIcon";
+import { browserMenuItems, parseBrowserMenuChoice, type BrowserMenuChoice } from "./browser-menu";
 import { sessionForPick } from "./pick-target";
 import { SETTLE_MS, isRealmItemDrag, shouldShowView } from "./view-sync";
+import { yieldViewTo } from "../../state/no-overlay";
 
-/** How long after the last main→renderer state change the url/title persist to the server. Debounced:
- *  a redirect chain writes once, and a restart restores the last committed page. */
-const PERSIST_MS = 500;
 
 const NO_ACTIONS: BrowserActionTick[] = [];
 
@@ -128,18 +130,17 @@ function usePasskeyNotice(browserId: string) {
 /**
  * The element picker's pane-side half.
  *
- * The picker is armed and disarmed here, but nothing about it is drawn here: the highlight is
- * Chrome's own overlay, inside the view, which is the only way to point at something in a rectangle
- * React cannot paint into (W2's no-overlay invariant). All this owns is the toolbar button's lit
- * state and where the result goes.
+ * The picker is armed and disarmed here, but nothing about it is drawn here: the outline is drawn by
+ * the page itself (Realm's overlay, injected by main — browser-agent.ts), which is the only way to
+ * point at something in a rectangle React cannot paint into (W2's no-overlay invariant). All this owns
+ * is the toolbar button's lit state and where the result goes.
  *
  * The result goes into a SESSION's composer, chosen structurally by `sessionForPick` — a pick that
  * lands nowhere says so rather than being quietly dropped, because the user's evidence that it
  * worked is a chip appearing in a pane they may not be looking at.
  */
-function useElementPicker(browserId: string, store: StoreApi<AppState> | null) {
+function useElementPicker(browserId: string, store: StoreApi<AppState> | null, setNote: (note: string | null, icon?: IconName) => void) {
   const [armed, setArmed] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
 
   // Only when armed: a pane that never picked has nothing to take down, and main would be answering
   // a cancel for a view it holds no pick on. Through a ref so the effect does not re-run — and so
@@ -167,7 +168,7 @@ function useElementPicker(browserId: string, store: StoreApi<AppState> | null) {
       const accent = getComputedStyle(document.documentElement).getPropertyValue("--rl-accent").trim();
       picked = await getBrowserBridges().host.pickElement(browserId, accent || undefined);
     } catch {
-      setNote("Realm could not take control of this page — is DevTools open on it?");
+      setNote("Realm could not take control of this page — is DevTools open on it?", "alert");
     } finally {
       setArmed(false);
     }
@@ -187,47 +188,220 @@ function useElementPicker(browserId: string, store: StoreApi<AppState> | null) {
       : `Added ${label} to ${target.title}.`);
   };
 
-  /*
-   * The note goes away on its own.
-   *
-   * It was a banner across the chrome with a manual dismiss, and it stayed until you closed it —
-   * which for "Added button#submit to Refactor the parser" is a receipt for something you have
-   * already watched happen. A toast is the right shape.
-   *
-   * It lives in the browser CHROME rather than floating over the pane, and that is not a
-   * compromise: a native `WebContentsView` composites over anything in its rectangle (W2's
-   * no-overlay rule), so a toast placed over the view is a toast nobody sees.
-   */
-  useEffect(() => {
-    if (!note) return;
-    const t = setTimeout(() => setNote(null), PICK_NOTE_MS);
-    return () => clearTimeout(t);
-  }, [note]);
+  return { armed, toggle };
+}
 
-  return { armed, note, toggle, clearNote: () => setNote(null) };
+/**
+ * Annotate (Plan 26 W7d): the picker kept armed. While it is on, every click in the page pins a
+ * numbered outline that stays, and the page's own toolbar — drawn inside the view, because nothing of
+ * Realm's can be drawn over it — counts them and offers Send. This side owns the button's lit state
+ * and where a Send goes: ONE chip in the same session a pick would go to (`sessionForPick`), carrying
+ * every pinned element, with the screenshot of the pins attached beside it.
+ */
+function useAnnotate(browserId: string, spaceId: string, store: StoreApi<AppState> | null, say: (text: string | null, icon?: IconName) => void) {
+  const [armed, setArmed] = useState(false);
+  const armedRef = useRef(false);
+  armedRef.current = armed;
+  // A pane closed mid-annotation takes the page's toolbar and pins down with it.
+  useEffect(() => () => { if (armedRef.current) void getBrowserBridges().host.cancelAnnotate(browserId).catch(() => {}); }, [browserId]);
+
+  const toggle = async () => {
+    const { host, server } = getBrowserBridges();
+    if (armed) {
+      setArmed(false);
+      await host.cancelAnnotate(browserId).catch(() => {});
+      return;
+    }
+    setArmed(true);
+    say(null);
+    let result: BrowserAnnotateResult = { outcome: "closed" };
+    try {
+      const accent = getComputedStyle(document.documentElement).getPropertyValue("--rl-accent").trim();
+      const dir = await server.screenshotDir(spaceId).catch(() => null);
+      result = await host.annotate(browserId, accent || undefined, dir);
+    } catch {
+      say("Realm could not take control of this page — is DevTools open on it?", "alert");
+    } finally {
+      setArmed(false);
+    }
+    if (result.outcome === "left") { say("The page changed, so its pins were cleared.", "pin"); return; }
+    if (result.outcome !== "sent") return; // closed by the user — nothing to say
+    const st = store?.getState();
+    const target = st ? sessionForPick(st.items, st.layout, st.focusedLeafId) : null;
+    if (!st || !target) { say("Nothing to send these to — open a session pane in this group first.", "pin"); return; }
+    const label = st.addAnnotationChip(target.refId, result.elements, result.shot?.name ?? null);
+    if (label === null) { say(`${target.title} is already carrying as many picked elements as one message can.`, "pin"); return; }
+    if (result.shot) st.attachPicked(target.refId, [{ path: result.shot.path, mime: "image/png", name: result.shot.name, size: result.shot.size }]);
+    say(`Added ${label} to ${target.title}.`, "pin");
+  };
+  return { armed, toggle };
+}
+
+/**
+ * The pane's receipt — for a pick, a screenshot, a cleared partition — as one of the window's toasts.
+ *
+ * It goes away on its own. It was a banner across the chrome with a manual dismiss, and it stayed
+ * until you closed it — which for "Added button#submit to Refactor the parser" is a receipt for
+ * something you have already watched happen. A toast is the right shape.
+ *
+ * It used to be a pill in the browser's CHROME, because a native `WebContentsView` composites over
+ * anything in its rectangle and a toast placed over the view is one nobody sees. The window's toasts
+ * stand clear of every view now (`placeToastStack`), so a receipt is simply one of them. One per pane:
+ * the next receipt replaces this pane's last, and `say(null)` takes it down.
+ */
+function useToast(store: StoreApi<AppState> | null) {
+  const last = useRef<string | null>(null);
+  /** The glyph names what the receipt is FOR — the picker's target, a screenshot's picture. An alert
+   *  is a warning and a check a success, which wear their tone's own. */
+  const say = useCallback((text: string | null, icon: IconName = "target") => {
+    const st = store?.getState(); if (!st) return;
+    if (last.current) st.dismissToast(last.current);
+    last.current = text === null ? null
+      : st.toast(icon === "alert" ? { tone: "warning", text } : icon === "check" ? { tone: "success", text } : { tone: "info", text, icon });
+  }, [store]);
+  return { say };
+}
+
+/**
+ * Find in page (Plan 26 W7b): a strip ABOVE the view, like the download bar, because nothing can be
+ * drawn over the page — the view's height gives up the strip's, through the same ResizeObserver.
+ *
+ * The search runs in the page (`webContents.findInPage`), so Chromium does the matching and the
+ * highlighting, and what comes back is a count. Typing starts a new search; Return and the arrows step
+ * through it. A navigation ends the search the page was answering, so the next step starts a new one
+ * rather than asking Chromium to continue a session it has already thrown away.
+ */
+function useFindInPage(browserId: string, url: string) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [result, setResult] = useState<{ active: number; matches: number } | null>(null);
+  /** Bumped by every request to open, so a second ⌘F re-focuses and re-selects a strip already up. */
+  const [focusTick, setFocusTick] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const live = useRef(false);
+  const openRef = useRef(false);
+  openRef.current = open;
+
+  useEffect(() => getBrowserBridges().host.onFound((m) => {
+    if (m.browserId !== browserId) return;
+    setResult({ active: m.activeMatchOrdinal, matches: m.matches });
+  }), [browserId]);
+
+  useEffect(() => { live.current = false; setResult(null); }, [url]);
+
+  useEffect(() => {
+    if (focusTick === 0) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [focusTick]);
+
+  // A pane closed with its strip up takes the highlight down with it.
+  useEffect(() => () => { if (openRef.current) void getBrowserBridges().host.stopFind(browserId).catch(() => {}); }, [browserId]);
+
+  const run = (q: string, step: "start" | "next" | "previous") => {
+    live.current = q !== "";
+    void getBrowserBridges().host.find(browserId, q, step).catch(() => {});
+  };
+
+  const show = () => {
+    if (!open && query !== "") run(query, "start"); // reopened on the last query, as browsers do
+    setOpen(true);
+    setFocusTick((n) => n + 1);
+  };
+  const search = (q: string) => { setQuery(q); setResult(null); run(q, "start"); };
+  const step = (dir: "next" | "previous") => {
+    if (query === "") return;
+    run(query, live.current ? dir : "start");
+  };
+  const close = () => {
+    setOpen(false);
+    setResult(null);
+    live.current = false;
+    void getBrowserBridges().host.stopFind(browserId).catch(() => {});
+  };
+  return { open, query, result, inputRef, show, search, step, close };
+}
+
+/** How long typing has to pause before the history is asked. Short enough to feel like the list is
+ *  keeping up; long enough that a word typed at speed is one query, not one per letter. */
+export const SUGGEST_DEBOUNCE_MS = 80;
+
+export type SuggestionRow = { kind: "page"; page: BrowserHistoryPage } | { kind: "search"; query: string };
+
+/** An address as a person reads it in a list: no scheme, no lone trailing slash. */
+const shortUrl = (url: string) => url.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+
+/**
+ * The address field's suggestions (Plan 26 W7c): the pages this space's profile has visited that
+ * match what is being typed, best first, then a row that searches the web for it.
+ *
+ * Asked only while the field is focused and holds text someone typed — focusing the field shows the
+ * page's own address, and that is not a question. A response that comes back after the text has moved
+ * on is dropped rather than shown against words it was not asked about.
+ */
+function useSuggestions(spaceId: string, text: string | null, focused: boolean) {
+  const [pages, setPages] = useState<BrowserHistoryPage[]>([]);
+  /** Which row ↑/↓ is on; -1 is the field itself, where Return goes to what was typed. */
+  const [highlight, setHighlight] = useState(-1);
+  const query = focused && text !== null ? text.trim() : "";
+  useEffect(() => {
+    setHighlight(-1);
+    if (query === "") { setPages([]); return; }
+    let live = true;
+    const t = setTimeout(() => {
+      void getBrowserBridges().server.suggest(spaceId, query)
+        .then((rows) => { if (live) setPages(rows); })
+        .catch(() => { if (live) setPages([]); });
+    }, SUGGEST_DEBOUNCE_MS);
+    return () => { live = false; clearTimeout(t); };
+  }, [spaceId, query]);
+  const rows: SuggestionRow[] = query === "" ? [] : [...pages.map((page) => ({ kind: "page" as const, page })), { kind: "search", query }];
+  const move = (by: 1 | -1) => setHighlight((h) => Math.max(-1, Math.min(rows.length - 1, h + by)));
+  return { rows, highlight: Math.min(highlight, rows.length - 1), setHighlight, move };
+}
+
+/**
+ * A blank tab's Recently visited (Plan 26 W6): the pages this space's profile went to last.
+ *
+ * Read each time the blank page comes on screen — a tab opened blank, or shown again after the tabs
+ * beside it have been browsing, which a side pane's hidden tab never sees happen — and not on every
+ * render: typing in the address field is not a reason to ask again. A clear empties it outright,
+ * because the list on screen names exactly the pages that were just forgotten.
+ */
+function useRecentVisits(spaceId: string, showing: boolean) {
+  const [pages, setPages] = useState<BrowserHistoryPage[]>([]);
+  useEffect(() => onHistoryCleared(() => setPages([])), []);
+  useEffect(() => {
+    if (!showing) return;
+    let live = true;
+    void getBrowserBridges().server.recent(spaceId)
+      .then((rows) => { if (live) setPages(rows); })
+      .catch(() => { /* the list stays as it was — a failed read is not an empty history */ });
+    return () => { live = false; };
+  }, [spaceId, showing]);
+  return pages;
 }
 
 /**
  * The browser pane (Plan 11 W1): DOM chrome ABOVE a native `WebContentsView` that Electron main owns.
  * The view composites over everything in its rectangle (wontfix), so every control here is an INLINE
- * toolbar button — no dropdowns, no menus, nothing that would ever need to open "over" the view.
- * That is W2's no-overlay invariant starting at home.
+ * toolbar button — no DOM dropdown, nothing of this window's that would ever need to open "over" the
+ * view. That is W2's no-overlay invariant starting at home. The one menu, ⋯, is the OS's: main draws
+ * it, above the app, where the page cannot cover it. Anything a row opens is a strip ABOVE the view.
  *
  * The div below the chrome is only a placeholder: its rect is synced to main (ResizeObserver + rAF
  * throttle), and during pane drags the view hides outright rather than visibly trailing the
  * placeholder (the research's bounds-lag mitigation; drags are on the do-NOT-animate list).
  */
-/** How long the pick receipt stays up. Long enough to read a session name, short enough that it is
- *  gone before you look for the thing it is covering. */
-export const PICK_NOTE_MS = 3200;
-
 export function BrowserPane({ item, visible, focused }: PaneProps) {
   const browserId = item.refId;
   const [state, setState] = useState<BrowserViewState | null>(null);
   /** Non-null while the address input is being edited; otherwise it shows the live url. */
   const [draft, setDraft] = useState<string | null>(null);
+  const [addressFocused, setAddressFocused] = useState(false);
   const [initialUrl, setInitialUrl] = useState<string | null>(null); // null until the row loads
   const hostRef = useRef<HTMLDivElement>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
@@ -235,25 +409,72 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   // no-overlay registration (there is nothing floating in those tests either).
   const store = useAppStoreMaybe();
 
-  /* A page open over the workspace hides every browser view — see `shouldShowView`. Read through the
-     NULLABLE store like everything else here (the unit tests render this pane with no provider, and
-     `useApp` would throw), and subscribed rather than polled so a change re-renders — which is what
-     lets the effect below push the new verdict to main. */
+  /* A page open over the workspace hides every browser view — see `shouldShowView` — and so does the
+     media viewer, which covers the whole window: a native view composites over anything the renderer
+     draws, so a view left showing would paint straight through the file being looked at. Read through
+     the NULLABLE store like everything else here (the unit tests render this pane with no provider,
+     and `useApp` would throw), and subscribed rather than polled so a change re-renders — which is
+     what lets the effect below push the new verdict to main. */
   const pageOverlay = useSyncExternalStore(
     useCallback((cb: () => void) => store?.subscribe(cb) ?? (() => {}), [store]),
-    useCallback(() => store?.getState().pageOverlay != null, [store]),
+    useCallback(() => store?.getState().pageOverlay != null || store?.getState().viewer != null, [store]),
   );
   const overlayRef = useRef(pageOverlay);
   overlayRef.current = pageOverlay;
+  /* The corner the window's toasts are holding, when they found nowhere else to stand: the view gives
+     up whatever of it falls inside its rectangle for as long as they are up (`yieldViewTo`). The rect
+     registered for the no-overlay machinery stays the WHOLE view — it is where the view stands, and
+     what the toasts measured as having no room beside it. */
+  const toastReserve = useSyncExternalStore(
+    useCallback((cb: () => void) => store?.subscribe(cb) ?? (() => {}), [store]),
+    useCallback(() => store?.getState().toastReserve ?? null, [store]),
+  );
+  const reserveRef = useRef(toastReserve);
+  reserveRef.current = toastReserve;
+  /* Whose browser this is (Plan 27 Phase 2): the space's profile, whose cookie jar the view lives in.
+     A space moved to another profile has to take its browser with it, and a view cannot change jars —
+     so the effect below asks main for the view again, and main, finding the jar changed, makes a new
+     one there rather than showing the new profile a page signed in as the old one. Null with no store. */
+  const profileId = useSyncExternalStore(
+    useCallback((cb: () => void) => store?.subscribe(cb) ?? (() => {}), [store]),
+    useCallback(() => store?.getState().spaces.find((sp) => sp.id === item.spaceId)?.profileId ?? null, [store, item.spaceId]),
+  );
   /** The live bounds-sync, published by the effect below so a visibility change can poke it. */
   const syncRef = useRef<(() => void) | null>(null);
+  /** The same effect's settle, for a tab coming back on screen: its slot replays the enter tween. */
+  const resettleRef = useRef<(() => void) | null>(null);
 
   const url = state?.url ?? initialUrl ?? "";
   const hasUrl = url !== "";
+  /** No page, and the row has said so: a new tab, which shows the new-tab page where the view would be. */
+  const blank = !hasUrl && initialUrl !== null;
+  /** The page did not load, so the pane draws its error page where the view would be. */
+  const loadError = state?.error ?? null;
+  const ready = state?.ready === true;
+  /** The view is what is on screen in the host: a page that loaded and has something to show. */
+  const showsPage = hasUrl && ready && loadError === null;
+  const recent = useRecentVisits(item.spaceId, blank && visible);
   const { actions, driving } = useAgentWatch(store, browserId);
   const downloads = useBlockedDownloads(browserId, item.spaceId);
   const passkey = usePasskeyNotice(browserId);
-  const picker = useElementPicker(browserId, store);
+  const toast = useToast(store);
+  const picker = useElementPicker(browserId, store, toast.say);
+  const annotate = useAnnotate(browserId, item.spaceId, store, toast.say);
+  const find = useFindInPage(browserId, url);
+  const suggest = useSuggestions(item.spaceId, draft, addressFocused);
+  const suggestId = `browser-suggest-${browserId}`;
+  /* The list belongs to the field, so its rows hang from the field's own edges rather than the pane's.
+     Measured, not written down: the controls left of the field are the chrome's business, and a
+     number here would drift the day one of them changes. */
+  const [suggestEdges, setSuggestEdges] = useState<{ left: number; right: number } | null>(null);
+  const listOpen = suggest.rows.length > 0;
+  useLayoutEffect(() => {
+    if (!listOpen) return;
+    const field = inputRef.current?.getBoundingClientRect();
+    const pane = paneRef.current?.getBoundingClientRect();
+    if (field && pane) setSuggestEdges({ left: Math.max(0, field.left - pane.left), right: Math.max(0, pane.right - field.right) });
+  }, [listOpen]);
+  const [menuOpen, setMenuOpen] = useState(false);
   const lastAction = actions.length > 0 ? actions[actions.length - 1]! : null;
 
   useEffect(() => {
@@ -261,14 +482,17 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     const el = hostRef.current!;
     let disposed = false;
     let created = false;
-    const flags = { dragging: false, settled: false, hasUrl: false };
+    const flags = { dragging: false, settled: false, hasUrl: false, ready: false, failed: false };
 
     const sync = () => {
       if (!created || disposed) return;
       const r = el.getBoundingClientRect();
-      host.setBounds(browserId, { x: r.x, y: r.y, width: r.width, height: r.height }, window.devicePixelRatio,
+      const bounds = yieldViewTo({ x: r.x, y: r.y, width: r.width, height: r.height }, reserveRef.current);
+      // The strip given up shows the pane's ground rather than the placeholder's page white (styles.css).
+      el.toggleAttribute("data-yielded", bounds.height < r.height);
+      host.setBounds(browserId, bounds, window.devicePixelRatio,
         shouldShowView({ paneVisible: visibleRef.current, pageOverlay: overlayRef.current,
-          dragging: flags.dragging, settled: flags.settled, hasUrl: flags.hasUrl }));
+          dragging: flags.dragging, settled: flags.settled, hasUrl: flags.hasUrl, ready: flags.ready, failed: flags.failed }));
       // W2's no-overlay registration: the rect the native view paints (or will paint — transient
       // hides like drags and the mount settle KEEP the rect registered, because the view returns to
       // exactly this rect and a surface placed "over" it during the blink would be covered the
@@ -284,24 +508,16 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; sync(); }); };
     syncRef.current = schedule;
 
-    // Persist last committed url/title, debounced; the item title tracks the page server-side.
-    let persistTimer: ReturnType<typeof setTimeout> | undefined;
-    let persisted = { url: "", title: "" };
-    const persist = (s: BrowserViewState) => {
-      if (s.loading || s.url === "" || (s.url === persisted.url && s.title === persisted.title)) return;
-      clearTimeout(persistTimer);
-      persistTimer = setTimeout(() => {
-        persisted = { url: s.url, title: s.title };
-        void server.update(browserId, persisted).catch(() => { /* row may be mid-delete */ });
-      }, PERSIST_MS);
-    };
+    // The page's address, title and icon are saved by `persistBrowserPages` (persist-pages.ts), for
+    // every browser whether or not a pane shows it — this pane only draws it.
 
     const offState = host.onState((s) => {
       if (s.id !== browserId || disposed) return;
       setState(s);
       flags.hasUrl = s.url !== "";
+      flags.ready = s.ready === true;
+      flags.failed = s.error != null;
       schedule();
-      persist(s);
     });
 
     // Pane/sidebar item drags: hide NOW (synchronously, before the drag image renders), show on end.
@@ -317,7 +533,18 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
 
     // The pane-slot enter animation (rl-settle) is moving the placeholder for the first ~150ms;
     // the view appears once the layout has actually settled, not mid-tween.
-    const settleTimer = setTimeout(() => { flags.settled = true; schedule(); }, SETTLE_MS);
+    let settleTimer = setTimeout(() => { flags.settled = true; schedule(); }, SETTLE_MS);
+    /* …and again whenever the tab comes back on screen, since its slot replays the tween from 4px
+       low. A transform moves the box without resizing it, so no observer would ever say it had
+       landed: synced mid-tween, the view stayed 4px under its pane (measured, splits-live.mjs). */
+    resettleRef.current = () => {
+      clearTimeout(settleTimer);
+      flags.settled = false;
+      sync();
+      settleTimer = setTimeout(() => { flags.settled = true; schedule(); }, SETTLE_MS);
+    };
+    const slot = el.closest(".pane-slot");
+    slot?.addEventListener("animationend", schedule);
 
     cancelViewRelease(browserId); // a remount adopts the still-live view
     void (async () => {
@@ -331,7 +558,6 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         // `||`: the live state channel may already have spoken (an adopted view emits state during
         // create) and its url is truer than a row whose debounced persist never landed.
         flags.hasUrl = flags.hasUrl || row.url !== "";
-        persisted = { url: row.url, title: row.title };
         schedule();
       } catch (e) {
         // The pane shows its DOM empty state; an unhandled rejection here would kill the whole
@@ -345,9 +571,10 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       offState();
       ro.disconnect();
       syncRef.current = null;
+      resettleRef.current = null;
+      slot?.removeEventListener("animationend", schedule);
       cancelAnimationFrame(raf);
       clearTimeout(settleTimer);
-      clearTimeout(persistTimer);
       window.removeEventListener("dragstart", onDragStart);
       window.removeEventListener("dragend", onDragEnd);
       window.removeEventListener("drop", onDragEnd);
@@ -366,7 +593,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         void host.retain(browserId);
       });
     };
-  }, [browserId, item.id, item.spaceId, store]);
+  }, [browserId, item.id, item.spaceId, store, profileId]);
 
   /**
    * Push a changed visibility verdict to main.
@@ -375,14 +602,44 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
    * (create, adopt, release) and re-running it on a visibility flip would tear the view down and
    * rebuild it. But `sync` reads both through refs, so nothing told main when either changed: opening
    * Settings over a browser left the native view painting over the page, and a pane moved into a
-   * hidden leaf would have done the same. One line, and it is the whole fix.
+   * hidden leaf would have done the same. The toasts' reserve rides the same line for the same reason:
+   * it changes the bounds without changing the pane. Shown again — a tab chosen, the side panel
+   * brought back — the pane settles before its view does, as it does when it mounts.
    */
-  useEffect(() => { syncRef.current?.(); }, [visible, pageOverlay]);
+  useEffect(() => { syncRef.current?.(); }, [pageOverlay, toastReserve]);
+  useEffect(() => { if (visible) resettleRef.current?.(); else syncRef.current?.(); }, [visible]);
 
   // An empty pane's natural target is the address bar (like a fresh browser tab).
   useEffect(() => {
     if (focused && !hasUrl && initialUrl !== null) inputRef.current?.focus();
   }, [focused, hasUrl, initialUrl]);
+
+  /*
+   * ⌘F, from either side of the glass. With the page holding the keyboard the keydown goes to the
+   * view's own renderer, and main relays it (`onFindRequest`); with the keyboard anywhere in this pane's
+   * chrome — the address field included, as in every browser — it is heard here. Only while this pane
+   * is the focused one, and only from inside it: ⌘F typed into another pane's field is that pane's.
+   */
+  const findRef = useRef(find);
+  findRef.current = find;
+  const hasPageRef = useRef(hasUrl);
+  hasPageRef.current = hasUrl;
+  useEffect(() => getBrowserBridges().host.onFindRequest((m) => {
+    if (m.browserId === browserId && hasPageRef.current) findRef.current.show();
+  }), [browserId]);
+  useEffect(() => {
+    if (!focused) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.key.toLowerCase() !== "f" || !e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return;
+      const t = e.target;
+      const inside = t === document.body || (t instanceof Node && !!paneRef.current?.contains(t));
+      if (!inside || !hasPageRef.current) return;
+      e.preventDefault();
+      findRef.current.show();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focused]);
 
   const nav = (action: "back" | "forward" | "reload" | "stop") => { void getBrowserBridges().host.nav(browserId, action); };
   /* Right-click either arrow for the trail behind it — the gesture every browser has. The menu is
@@ -395,13 +652,113 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     void getBrowserBridges().host.historyMenu(browserId, dir, { x: r.left, y: r.bottom });
   };
   const submit = async () => {
+    const row = suggest.highlight >= 0 ? suggest.rows[suggest.highlight] : undefined;
+    if (row) { await openSuggestion(row); return; }
     const input = draft ?? url;
     const loaded = await getBrowserBridges().host.navigate(browserId, input);
     if (loaded !== null) { setDraft(null); inputRef.current?.blur(); }
   };
+  /** A page goes to its address; the search row searches the typed text even when it looks like one. */
+  const openSuggestion = async (row: SuggestionRow) => {
+    const { host } = getBrowserBridges();
+    const loaded = row.kind === "page" ? await host.navigate(browserId, row.page.url) : await host.search(browserId, row.query);
+    if (loaded !== null) { setDraft(null); inputRef.current?.blur(); }
+  };
+  /** A page picked from the blank tab's Recently visited: this tab goes there. It is not a new tab. */
+  const visit = (address: string) => { void getBrowserBridges().host.navigate(browserId, address); };
+
+  /**
+   * Take a screenshot: the view's own capture, written to the space's `screenshots/` folder by main,
+   * then attached to a session's prompter — the same session a pick would go to (`sessionForPick`),
+   * for the same reason: by the time the menu answers, the focused leaf is this browser's, and "the
+   * prompter" has to be decided by where sessions sit, not by what was clicked last.
+   */
+  const takeScreenshot = async () => {
+    const { host, server } = getBrowserBridges();
+    const dir = await server.screenshotDir(item.spaceId).catch(() => null);
+    if (!dir) { toast.say("This space has no folder to save a screenshot in.", "image"); return; }
+    const shot = await host.screenshot(browserId, dir);
+    if (!shot.ok) { toast.say(shot.error, "image"); return; }
+    const st = store?.getState();
+    const target = st ? sessionForPick(st.items, st.layout, st.focusedLeafId) : null;
+    if (!st || !target) {
+      toast.say(`Saved ${shot.name} to screenshots/. Open a session pane in this group to attach it.`, "image");
+      return;
+    }
+    st.attachPicked(target.refId, [{ path: shot.path, mime: "image/png", name: shot.name, size: shot.size }]);
+    toast.say(`Added ${shot.name} to ${target.title}.`, "image");
+  };
+
+  /** One chosen row of the ⋯ menu. `menu` is what the menu was built from, so a row acts on the
+   *  entry it named even if the pane's own lists moved while the menu was up. */
+  const runMenuChoice = async (choice: BrowserMenuChoice, menu: BrowserMenuState) => {
+    const { host } = getBrowserBridges();
+    switch (choice.kind) {
+      case "find": find.show(); return;
+      case "print": await host.print(browserId); return;
+      case "zoom": await host.zoom(browserId, choice.step); return;
+      case "device": await host.setDevice(browserId, choice.preset); return;
+      case "screenshot": await takeScreenshot(); return;
+      case "save-download": {
+        const entry = menu.blocked.find((b) => b.id === choice.id);
+        if (entry) await downloads.save(entry);
+        return;
+      }
+      case "show-download": {
+        const saved = menu.saved.find((d) => d.id === choice.id);
+        // A reveal of a file that has gone does nothing in the Finder, so it says so here instead —
+        // in the words the transcript's path menu uses for the same thing.
+        if (saved && !(await host.reveal(saved.path))) toast.say(`Nothing is at ${saved.path}. It may have been moved or deleted.`, "alert");
+        return;
+      }
+      case "history": await host.goToIndex(browserId, choice.index); return;
+      case "clear-data": {
+        const { cleared, profileId } = await host.clearData(browserId);
+        if (!cleared || !profileId) return;
+        // The partition is main's; the pages it showed are the server's. Both, or the field would go on
+        // suggesting the history of a browser that has just been told to forget it — and both the
+        // PANE's profile's, which main names: another profile's browser was not the one cleared.
+        const forgot = await getBrowserBridges().server.clearHistory(profileId).then(() => true, () => false);
+        if (forgot) announceHistoryCleared();
+        toast.say("Cleared browsing data. This profile's browser panes are signed out of their sites.", "check");
+        return;
+      }
+      case "share-signin": {
+        // A COPY into the other profile's cookie jar; this pane stays signed in. The receipt says what
+        // happened, including that there was nothing to copy — a share that silently did nothing would
+        // leave someone opening the other profile and finding themselves signed out.
+        const r = await host.shareSignIn(browserId, choice.profileId);
+        if (!r.ok) toast.say(r.error, "alert");
+        else if (r.copied === 0) toast.say(`This pane has no sign-in for ${r.host}, so nothing was shared with ${r.profileName}.`, "alert");
+        else toast.say(`Shared ${r.host}'s sign-in with ${r.profileName}.`, "check");
+        return;
+      }
+      case "settings": store?.getState().openSettingsPage("signins"); return;
+    }
+  };
+
+  /* The ⋯ menu. The OS's, popped by main at this button's bottom-left — the history menu's mechanism,
+     with rows built here from facts main reads off the view as the menu opens. Window coordinates are
+     DIPs, and the renderer's rect is CSS px, so a zoomed window would otherwise drop the menu off the
+     button. */
+  const openMenu = async (e: ReactMouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const zoom = window.realm?.zoomFactor?.() ?? 1;
+    const { host } = getBrowserBridges();
+    setMenuOpen(true);
+    try {
+      const menu = await host.menuState(browserId);
+      const items = browserMenuItems({ ...menu, hasPage: hasUrl, current: state?.title?.trim() || url, device: state?.device ?? null });
+      const choice = parseBrowserMenuChoice(await host.popupMenu(items, { x: r.left * zoom, y: r.bottom * zoom }));
+      setMenuOpen(false);
+      if (choice) await runMenuChoice(choice, menu);
+    } finally {
+      setMenuOpen(false);
+    }
+  };
 
   return (
-    <div className="browser-pane">
+    <div className="browser-pane" ref={paneRef}>
       <div className="browser-chrome">
         <button className="icon-btn" aria-label="Back" title="Back — right-click for the pages behind this one"
           disabled={!state?.canGoBack} onClick={() => nav("back")} onContextMenu={historyMenu("back")}>
@@ -424,17 +781,33 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
             rectangle, so a picker that opened a panel would open it underneath the page. */}
         <button className="icon-btn browser-pick" aria-label="Pick an element" aria-pressed={picker.armed}
           title="Pick an element to send to the prompter"
-          disabled={!hasUrl} onClick={() => { void picker.toggle(); }}>
+          disabled={!showsPage && !picker.armed} onClick={() => { void picker.toggle(); }}>
           <Icon name="target" size={14} />
+        </button>
+        {/* The picker kept armed: pins stay on the page until Send, and the page's own toolbar is
+            where they are counted and sent — this button only says the mode is on, and ends it. */}
+        <button className="icon-btn browser-annotate" aria-label="Annotate" aria-pressed={annotate.armed}
+          title="Annotate: pin elements on the page, then send them together"
+          disabled={!showsPage && !annotate.armed} onClick={() => { void annotate.toggle(); }}>
+          <Icon name="pin" size={14} />
         </button>
         <form className="browser-address" data-loading={state?.loading || undefined}
           onSubmit={(e) => { e.preventDefault(); void submit(); }}>
           <input ref={inputRef} aria-label="Address" placeholder="Enter a URL"
+            role="combobox" aria-autocomplete="list" aria-expanded={suggest.rows.length > 0}
+            aria-controls={suggest.rows.length > 0 ? suggestId : undefined}
+            aria-activedescendant={suggest.highlight >= 0 ? `${suggestId}-${suggest.highlight}` : undefined}
             value={draft ?? url} spellCheck={false} autoCorrect="off" autoCapitalize="off"
             onChange={(e) => setDraft(e.target.value)}
-            onFocus={(e) => e.target.select()}
-            onBlur={() => setDraft(null)}
-            onKeyDown={(e) => { if (e.key === "Escape") { setDraft(null); e.currentTarget.blur(); } }} />
+            onFocus={(e) => { setAddressFocused(true); e.target.select(); }}
+            onBlur={() => { setAddressFocused(false); setDraft(null); }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { setDraft(null); e.currentTarget.blur(); }
+              else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && suggest.rows.length > 0) {
+                e.preventDefault();
+                suggest.move(e.key === "ArrowDown" ? 1 : -1);
+              }
+            }} />
         </form>
         {/* W4's action ticker: the last settled agent action (its permission-card wording — page
             text only ever inside the attributed framing), a quiet time, and the driving dot while
@@ -452,7 +825,68 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
             )}
           </div>
         )}
+        {/* Last in the row, where a browser keeps its menu. The menu is the OS's (see `openMenu`), so
+            nothing in this pane's DOM ever opens over the view; the button is lit while it is up. */}
+        <button className="icon-btn browser-more" aria-label="More" data-on={menuOpen || undefined}
+          title="More: find, print, zoom, screenshot, downloads, history"
+          onClick={(e) => { void openMenu(e); }}>
+          <Icon name="more" size={14} />
+        </button>
       </div>
+      {/* Under the field it belongs to and ABOVE the view, pushing the page down while it is up —
+          never a dropdown over the page, which the view would paint over (W2.3). Rows keep the
+          field's focus on press, so a click picks the row instead of blurring the list away. */}
+      {suggest.rows.length > 0 && (
+        <div className="browser-suggest" role="listbox" id={suggestId} aria-label="Suggestions"
+          style={suggestEdges ? { paddingLeft: suggestEdges.left, paddingRight: suggestEdges.right } : undefined}>
+          {suggest.rows.map((row, i) => (
+            <div key={row.kind === "page" ? row.page.url : "search"} id={`${suggestId}-${i}`} role="option"
+              aria-selected={i === suggest.highlight} className="browser-suggest-row"
+              onMouseDown={(e) => e.preventDefault()} onMouseMove={() => suggest.setHighlight(i)}
+              onClick={() => { void openSuggestion(row); }}>
+              {row.kind === "page" ? (
+                <>
+                  <PageIcon src={row.page.favicon} fallback="clock" size={12} />
+                  <span className="browser-suggest-title">{row.page.title.trim() || shortUrl(row.page.url)}</span>
+                  <span className="browser-suggest-url">{shortUrl(row.page.url)}</span>
+                </>
+              ) : (
+                <>
+                  <Icon name="search" size={12} />
+                  <span className="browser-suggest-title">Search the web for “{row.query}”</span>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {find.open && (
+        <div className="browser-notice browser-find" role="search">
+          <Icon name="search" size={12} />
+          <input ref={find.inputRef} className="browser-find-input" aria-label="Find in page" placeholder="Find in page"
+            value={find.query} spellCheck={false} autoCorrect="off" autoCapitalize="off"
+            onChange={(e) => find.search(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); find.step(e.shiftKey ? "previous" : "next"); }
+              else if (e.key === "Escape") { e.preventDefault(); find.close(); }
+            }} />
+          {/* Polite, so a count that changes on every keystroke is read when typing pauses. */}
+          <span className="browser-find-count" aria-live="polite">
+            {find.query === "" || find.result === null ? "" : find.result.matches === 0 ? "No matches" : `${find.result.active} of ${find.result.matches}`}
+          </span>
+          <button type="button" className="icon-btn" aria-label="Previous match" title="Previous match (⇧↩)"
+            disabled={find.query === ""} onClick={() => find.step("previous")}>
+            <Icon name="chevronUp" size={12} />
+          </button>
+          <button type="button" className="icon-btn" aria-label="Next match" title="Next match (↩)"
+            disabled={find.query === ""} onClick={() => find.step("next")}>
+            <Icon name="chevronDown" size={12} />
+          </button>
+          <button type="button" className="icon-btn" aria-label="Close find" title="Close (Esc)" onClick={find.close}>
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      )}
       {/* Below the chrome and ABOVE the view host, never over it: the native view composites over
           anything inside its rectangle, so a floating toast here would be invisible (W2's invariant).
           Its height comes out of the view's, which the ResizeObserver already syncs. */}
@@ -491,19 +925,15 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
           </button>
         </div>
       )}
-      {picker.note && (
-        <div className="browser-toast" role="status">
-          <Icon name="target" size={12} />
-          <span className="browser-toast-text">{picker.note}</span>
-        </div>
-      )}
-      <div className="browser-view-host" ref={hostRef}>
-        {!hasUrl && initialUrl !== null && (
-          <div className="browser-hint muted">
-            <div className="browser-hint-title">Where to?</div>
-            <div>Type a URL above — https is assumed.</div>
-          </div>
-        )}
+      {/* At a device size main narrows the view to the device's box, centred here; the ground beside it
+          is the pane's, so the box reads as a device rather than as a page with white margins. */}
+      <div className="browser-view-host" ref={hostRef} data-device={state?.device ?? undefined} data-page={showsPage || undefined}>
+        {/* A blank tab is a new tab: the tools beside the address field, in place of an empty page.
+            Only while there is no page — the native view is hidden until one loads, so this and the
+            two below are the only things that can be drawn in this rectangle at all. */}
+        {blank && <NewTabPage itemId={item.id} recent={recent} onVisit={visit} />}
+        {loadError && <BrowserErrorPage error={loadError} busy={state?.loading === true} onReload={() => nav("reload")} />}
+        {hasUrl && !loadError && !ready && state?.loading === true && <BrowserConnecting />}
       </div>
     </div>
   );

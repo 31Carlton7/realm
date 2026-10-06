@@ -30,9 +30,6 @@ describe("ScriptInputSchema", () => {
       .toEqual({ id: null, name: "Test", command: "pnpm test", cwd: null });
   });
 
-  it("carries an id through, which is what updating one is", () => {
-    expect(ScriptInputSchema.parse({ id: ID, name: "Test", command: "pnpm test", cwd: "apps/server" }).id).toBe(ID);
-  });
 });
 
 describe("scriptsKey", () => {

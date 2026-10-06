@@ -53,14 +53,27 @@ export type ThemeName = BuiltinThemeName | (string & {});
 
 /* ── how a seed becomes a palette ──────────────────────────────────────────────
  * Every constant below was MEASURED off the shipped palette in theme/tokens.css, so a derived theme
- * reproduces the shape of a ramp the design already validated instead of inventing a new one. They
- * differ per mode because the shipped ramps do: dark surfaces climb away from the ground and gain a
- * little chroma as they climb, while light surfaces mostly sink below the page and hold the paper's
- * tint. Changing a number here retunes every theme at once, which is the point — there is no
+ * reproduces the shape of a ramp the design already validated instead of inventing a new one. Both
+ * modes keep ONE depth order — the page (sidebar, wells) under the canvas, the surface (cards,
+ * floating things) over it — because a light ramp that sank its canvas below the page drew the
+ * sidebar as the brightest thing in the window and every well as a bright patch. Dark climbs away
+ * from a dark page and gains a little chroma as it climbs; light climbs from a grey page to white
+ * paper and sheds the page's tint as it goes. Changing a number here retunes every theme at once, which is the point — there is no
  * per-theme surface ladder to drift. */
 type SurfaceStep = "canvas" | "surface" | "inset" | "hover" | "hover-2" | "field" | "stripe-bg";
 
 type Ramp = {
+  /** Where the seed's `bg` sits on the ladder: `--page` is the seed moved by this. Zero in dark,
+   *  where a theme's background IS its window ground. A step below in light, where a theme's
+   *  background is its PAPER — the editor ground its text was chosen against — and the window ground
+   *  (sidebar, wells) sits a shade under it. Anchoring light on the page instead left no room above a
+   *  white background: canvas, cards and sidebar all collapsed onto white. */
+  page: { l: number; c: number };
+  /** The lightest the paper may be. A light theme's cards sit ABOVE its paper, so a white background
+   *  is taken down to this — exactly where the old sinking ramp put it — leaving the cards somewhere
+   *  to go, and the decorative wash (tokens.css, `--grain-wash-l`) the margin above every paper it
+   *  needs to only ever lighten it. A paper already under this is the seed exactly. */
+  paperMax: number;
   /** Lightness offsets from `bg`, in OKLCH L. */
   surfaces: Record<SurfaceStep, number>;
   /** Chroma offsets for the same steps, ADDED rather than multiplied. The shipped dark ramp gains
@@ -96,6 +109,8 @@ type Ramp = {
 };
 
 const DARK: Ramp = {
+  page: { l: 0, c: 0 },
+  paperMax: 1,
   surfaces: { canvas: 0.022, surface: 0.051, inset: 0.034, hover: 0.08, "hover-2": 0.109, field: 0.084, "stripe-bg": 0.017 },
   chroma: { surface: 0.002, hover: 0.002, "hover-2": 0.003, field: 0.002 },
   ink2: 0.7,
@@ -107,28 +122,34 @@ const DARK: Ramp = {
 };
 
 const LIGHT: Ramp = {
-  surfaces: { canvas: -0.024, surface: 0.015, inset: -0.006, hover: -0.015, "hover-2": -0.052, field: -0.024, "stripe-bg": -0.015 },
-  chroma: { canvas: 0.001, inset: 0.001, hover: 0.001, "hover-2": 0.002 },
-  ink2: 0.62,
-  ink3: 0.333,
+  // Codex-light: near-white neutral paper with the frame one quiet step under it. The paper cap was
+  // 0.976 and the frame 0.024 below, which on a translucent window over any wallpaper read as a grey
+  // app; Codex's canvas measures 0.985 and its sidebar 0.976. A white paper still leaves cards a step
+  // (to 1), and the floors below re-derive every ink tier against the lighter ground.
+  page: { l: -0.017, c: 0.002 },
+  paperMax: 0.986,
+  surfaces: { canvas: 0, surface: 0.028, inset: 0.013, hover: -0.014, "hover-2": -0.047, field: -0.01, "stripe-bg": -0.002 },
+  chroma: { surface: -0.002, hover: 0.001, "hover-2": 0.002, "stripe-bg": -0.002 },
+  ink2: 0.689,
+  ink3: 0.576,
   // The inversion: the chip is built off the INK, and the light text on it is the page.
   tooltip: ({ bg, ink }) => ({
     bg: step(ink, 0.025, 0.002), fg: step(bg, -0.009),
     muted: { l: 0.731, c: ink.c, h: ink.h }, border: step(ink, 0.109, 0.001),
   }),
-  accentInk: { step: 0.185, chroma: 0.91 },
+  accentInk: { step: 0.219, chroma: 0.95 },
   tint: { lightness: 0.959, chroma: 0.105 },
   chartL: { min: 0.97, max: 1 },
 };
 
 
 /** The contrast every derived colour is held to, and the roles they belong to. These are WCAG
- *  numbers, not Realm's: the shipped palette clears all of them with room (its worst pairing is
- *  --ink-2 at 5.2:1), and holding a vendored palette to Realm's headroom instead would mean
- *  repainting it into something that is no longer that palette. `ink3` is the one number taken from
- *  Realm rather than from WCAG — the shipped light `--ink-3` measures 2.43:1 on `--canvas`, so a
- *  higher floor would fail the default theme, and "no custom theme is less legible than the one that
- *  ships" is the honest claim to make about a hint tier. */
+ *  numbers, not Realm's: the shipped palette clears all of them with room — every tier, `--ink-3`
+ *  included, now clears 4.5:1 on every ground in both modes — and holding a vendored palette to
+ *  Realm's headroom instead would mean repainting it into something that is no longer that palette.
+ *  `ink3` stays low for exactly that reason: it was set when Realm's own light hint tier measured
+ *  2.43:1, which it no longer does, but a vendored palette's hint colour is that palette's, and the
+ *  ramp's exponent lifts a derived hint tier far above this floor wherever the seed allows. */
 export const CONTRAST_FLOOR = {
   /** Primary UI text on every ground it lands on. WCAG AA for body copy. */
   ink: 4.5,
@@ -196,7 +217,7 @@ const contrastScale = (level: number): number => {
  *  separates "the palette lifted Nord's red half a step so error text is readable on Nord's own
  *  surface" from "the palette invented a colour and called it Nord". A seed that needs more than
  *  this is a bug in the theme, and the contrast suite says so by name. */
-const LIFT_BUDGET = 0.12;
+export const LIFT_BUDGET = 0.12;
 
 const clamp = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x);
 /** A step along the L axis, holding hue and offsetting chroma. Lightness is clamped to the display's
@@ -209,7 +230,7 @@ const step = (base: Oklch, dl: number, dc = 0): Oklch =>
  *  runs out, in which case the best effort is returned and the contrast suite fails the theme.
  *  Hue and chroma are untouched: what a theme states is a colour's identity, and identity is the one
  *  thing a correctness fix must not quietly edit. */
-function lift(o: Oklch, ground: Oklch, floor: number, budget = LIFT_BUDGET): Oklch {
+export function lift(o: Oklch, ground: Oklch, floor: number, budget = LIFT_BUDGET): Oklch {
   const dir = luminance(o) >= luminance(ground) ? 1 : -1;
   const g = emitted(ground);
   let best = o;
@@ -267,8 +288,10 @@ export function themeVars(name: ThemeName, mode: Mode,
 export function deriveVars(seed: ThemeSeed, mode: Mode, contrastLevel: number = CONTRAST_RANGE.default): Record<string, string> {
   const r = mode === "dark" ? DARK : LIGHT;
   const spread = contrastScale(contrastLevel);
-  const bg = hexToOklch(seed.bg);
+  const seedBg = hexToOklch(seed.bg);
+  const bg = { ...seedBg, l: Math.min(seedBg.l, r.paperMax) };
   const ink = hexToOklch(seed.ink);
+  const page = step(bg, r.page.l, r.page.c);
 
   const surf = (k: SurfaceStep): Oklch => step(bg, r.surfaces[k], r.chroma[k] ?? 0);
   const surface = surf("surface");
@@ -277,7 +300,7 @@ export function deriveVars(seed: ThemeSeed, mode: Mode, contrastLevel: number = 
    *  light ramps sink. The tiers differ because the stylesheet's pairings do: `--ink-2` never lands
    *  on `--hover-2` or `--field`, and `--ink-3` never leaves the resting surfaces. */
   const worst = (steps: SurfaceStep[]): Oklch =>
-    [bg, ...steps.map(surf)].reduce((a, b) => (contrast(ink, a) <= contrast(ink, b) ? a : b));
+    [page, ...steps.map(surf)].reduce((a, b) => (contrast(ink, a) <= contrast(ink, b) ? a : b));
 
   /** A tint is the same hue as the colour it stands behind, at whatever strength that mode's grounds
    *  can actually show. */
@@ -315,7 +338,7 @@ export function deriveVars(seed: ThemeSeed, mode: Mode, contrastLevel: number = 
 
   const ink2 = inkStep(ink, worst(["canvas", "surface", "inset", "hover"]), r.ink2 * spread, CONTRAST_FLOOR.ink2);
   const ink3 = inkStep(ink, worst(["canvas", "surface", "inset"]), r.ink3 * spread, CONTRAST_FLOOR.ink3);
-  const tip = r.tooltip({ bg, ink, ink2 });
+  const tip = r.tooltip({ bg: page, ink, ink2 });
 
   /** Chrome and syntax are stated as hues and corrected as lightnesses. Every one of these lands on
    *  `--surface` — semantic text and chips on a card, code inside `.md-code` — so that is the ground
@@ -327,7 +350,7 @@ export function deriveVars(seed: ThemeSeed, mode: Mode, contrastLevel: number = 
   const comment = syn("comment");
 
   return {
-    "--page": css(bg),
+    "--page": css(page),
     "--canvas": css(surf("canvas")),
     "--surface": css(surface),
     "--inset": css(surf("inset")),
@@ -541,9 +564,9 @@ export const REALM_SEED: Record<Mode, ThemeSeed> = {
     syntax: { comment: "#6c6f75", keyword: "#3d9aff", string: "#3cbb72", number: "#f68f3c", title: "#f2f3f4", type: "#f2f3f4", attr: "#a5a8ad" },
   },
   light: {
-    bg: "#fafafb", ink: "#1f2124", accent: "#0285ff",
-    green: "#199a4d", orange: "#ef720d", red: "#e3474c",
-    syntax: { comment: "#9a9da3", keyword: "#0285ff", string: "#199a4d", number: "#ef720d", title: "#1f2124", type: "#1f2124", attr: "#62656b" },
+    bg: "#f9fafb", ink: "#1d1e21", accent: "#0c7cf4",
+    green: "#007c3a", orange: "#af4b00", red: "#c72d31",
+    syntax: { comment: "#696c72", keyword: "#0c7cf4", string: "#007c3a", number: "#af4b00", title: "#1d1e21", type: "#1d1e21", attr: "#55585e" },
   },
 };
 

@@ -20,6 +20,26 @@ const EXIT_MS = 120;
 
 const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
+/** One anchored surface while it is up. */
+type Open = { surface: RefObject<HTMLElement | null>; anchor?: RefObject<HTMLElement | null> };
+/**
+ * The anchored surfaces up now, oldest first. A surface opened from INSIDE another — the model picker
+ * from a row of Code review's instructions — is part of it while both are up: a press in it is not a
+ * press outside the first, and Escape is the newest one's. Each listens on the window, where Escape
+ * reached them in the order they mounted, so the one underneath closed first and took the one on top
+ * with it (design.md, the two overlays that both answer Escape).
+ */
+const opened: Open[] = [];
+
+/** Whether `target` is in `s`, or in a surface opened from inside it. */
+function holds(s: Open, target: Node): boolean {
+  if (s.surface.current?.contains(target)) return true;
+  return opened.slice(opened.indexOf(s) + 1).some((later) => {
+    const anchor = later.anchor?.current;
+    return !!anchor && !!s.surface.current?.contains(anchor) && holds(later, target);
+  });
+}
+
 /**
  * Placement and dismissal for a portalled surface anchored to a control — everything `Menu` and the
  * prompter's `ModelPicker` share, minus the contents and minus each one's own focus model (a menu
@@ -49,6 +69,13 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
   const [pos, setPos] = useState<PopoverPosition | null>(null);
   const [closing, setClosing] = useState(false);
   const closingRef = useRef(false);
+  const self = useRef<Open>({ surface: ref, anchor: anchorRef }).current;
+  self.anchor = anchorRef;
+  /** Off the stack: once it is on its way out, the key and the presses are the ones under it again. */
+  const leave = useCallback(() => {
+    const at = opened.indexOf(self);
+    if (at >= 0) opened.splice(at, 1);
+  }, [self]);
   // W2's no-overlay invariant, enforced in the primitive: browser view rects are avoided by every
   // anchored surface (preferred side → flip → slide along the anchor edge → complement fallback).
   // [] outside the provider, which makes placeAnchored the pre-W2 placement exactly.
@@ -61,7 +88,14 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
       // the action that dismissed it (a menu item that closes its own pane), and re-placing against
       // a missing anchor would fling the surface to the window corner mid-fade.
       if (closingRef.current) return;
-      const { width, height } = el.getBoundingClientRect();
+      /* The LAID-OUT size, not the painted one. A surface is first measured while its entrance is
+         still running — §6's scale-in from .97 — and a box read through that transform is 3% small:
+         the model picker opened 11px right of its chip and 15px down over it, and sat there until its
+         content next changed size, when it jumped to where it belonged — taking the fast-mode bolt
+         out from under the pointer that had just pressed it. jsdom lays nothing out (its offsets are
+         all 0), and there the rect is the size. */
+      const box = el.getBoundingClientRect();
+      const width = el.offsetWidth || box.width, height = el.offsetHeight || box.height;
       const a = at ? { x: at.x, y: at.y, width: 0, height: 0 } : anchorRef?.current?.getBoundingClientRect();
       if (!a) { setPos({ left: MARGIN, top: MARGIN, origin: "top left" }); return; }
       const placed = placeAnchored({
@@ -134,16 +168,19 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
     // unusable for the length of an exit nobody asked to see.
     if (!exit || reducedMotion()) { onCloseRef.current(); return; }
     closingRef.current = true;
+    leave();
     setClosing(true);
     // Focus leaves with the gesture, not with the unmount: the surface goes inert this frame, and a
     // keystroke in the gap between the two would otherwise land on <body>.
     restoreFocus();
     timer.current = setTimeout(() => onCloseRef.current(), EXIT_MS);
-  }, [exit, restoreFocus]);
+  }, [exit, restoreFocus, leave]);
 
   useLayoutEffect(() => {
     restore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    opened.push(self);
     return () => {
+      leave();
       // The parent may unmount the surface out from under a running exit (its pane closed, the
       // session switched). Dropping the timer here is what keeps that from calling `onClose` on a
       // parent that has already moved on.
@@ -157,7 +194,7 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
     const onDown = (e: PointerEvent) => {
       if (closingRef.current) { flush(); return; }
       const target = e.target as Node;
-      if (ref.current?.contains(target)) return;
+      if (holds(self, target)) return;
       // The trigger lives OUTSIDE the portal, so an anchored surface would otherwise close on its own
       // trigger's pointerdown and the following click would reopen it — flicker, focus ping-pong, and
       // no way to dismiss by clicking the control again. Leave the trigger to its own toggle.
@@ -169,12 +206,14 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
     const onKey = (e: KeyboardEvent) => {
       if (closingRef.current) { flush(); return; } // and Escape passes through: the key is the app's again
       if (e.key !== "Escape") return;
+      // A surface opened over this one takes the key first; this one answers the next.
+      if (opened[opened.length - 1] !== self) return;
       e.stopPropagation(); close();
     };
     // Deferred so the click that opened the surface doesn't immediately close it.
     const id = setTimeout(() => { window.addEventListener("pointerdown", onDown); window.addEventListener("keydown", onKey, true); }, 0);
     return () => { clearTimeout(id); window.removeEventListener("pointerdown", onDown); window.removeEventListener("keydown", onKey, true); };
-  }, [ref, close, flush, anchorRef]);
+  }, [ref, close, flush, anchorRef, self]);
 
   return { pos, closing, close };
 }

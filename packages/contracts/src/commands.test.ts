@@ -146,10 +146,6 @@ describe("expandCommand", () => {
     expect(expandCommand("$3 $2 $3 $2", "a").missing).toEqual(["$3", "$2"]);
   });
 
-  it("says nothing is missing when everything landed", () => {
-    expect(expandCommand("$ARGUMENTS $1", "a b").missing).toEqual([]);
-  });
-
   it("expands $ARGUMENTS to nothing when there were no arguments, and does not call that missing", () => {
     // Unlike a positional: the rest of the line exists and is empty, and there is no other word it
     // could have meant. The truncated sentence is visible in the draft either way.

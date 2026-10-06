@@ -10,6 +10,7 @@ import type { McpService } from "../mcp/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
 import type { ComputerAppAllowlist } from "./allowlist";
+import type { ComputerSessionGrants, GrantedApp } from "./session-grants";
 import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
 import type { LayaAssist } from "../laya/assist";
 import { plainRole } from "../laya/shadow";
@@ -61,12 +62,21 @@ import { runPath, type ExecIO, type ExecResult, type ExecStopReason, type WalkTr
  * What this model does NOT have, stated plainly: any bound on WHAT may be done to an app once the
  * app itself is approved. A grant is per application, not per action — an allowlisted TextEdit may
  * be typed into as well as clicked, and the only per-action refusals are the hard ones in layer 3.
+ *
+ * **A mention is a narrower door into layer 2.** In a space that never switched computer use on, a
+ * session the user has sent `@Messages` gets the tools for Messages and nothing else
+ * (`session-grants.ts`): listing shows only the mentioned apps, and a snapshot, act or walk naming any
+ * other is refused here, before the helper reads a pixel of it. Layers 3 to 8 apply unchanged — the
+ * mention is consent to use the app, not an approval of what is done in it.
  */
 export type ComputerAgentToolsDeps = {
   mcp: Pick<McpService, "providerEnabled">;
   bridge: Pick<BrowserHostBridge, "call">;
   broker: Pick<BrowserPermissionBroker, "gate">;
   allowlist: Pick<ComputerAppAllowlist, "allows" | "add">;
+  /** The apps each session's user mentioned — computer use for those, in a space that is otherwise
+   *  off. Absent, a space that has not switched the provider on gets nothing, as before mentions. */
+  grants?: Pick<ComputerSessionGrants, "apps">;
   /**
    * Told about every act that got past the permission gate, just before it runs — the Laya shadow
    * (`laya/shadow.ts`) in the real server, nothing in most tests. It hears the step and never answers
@@ -89,21 +99,29 @@ export function createComputerAgentProvider(d: ComputerAgentToolsDeps): RealmToo
   // refused rather than driving whatever it happens to match.
   const snapshots = new SnapshotOwners();
   const trees = new SnapshotTrees();
+  /** All of it where the space switched it on; the mentioned apps where only a mention did; nothing
+   *  otherwise. Read on every list and every call, so a grant made mid-session reaches the next one. */
+  const scopeOf = (ctx: ProviderCallContext): Scope | null => {
+    if (d.mcp.providerEnabled(ctx.spaceId, COMPUTER_PROVIDER_NAME)) return { kind: "space" };
+    const apps = d.grants?.apps(ctx.sessionId) ?? [];
+    return apps.length > 0 ? { kind: "mentioned", apps } : null;
+  };
   return {
     name: COMPUTER_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
-      if (!d.mcp.providerEnabled(ctx.spaceId, COMPUTER_PROVIDER_NAME)) return [];
+      if (!scopeOf(ctx)) return [];
       // The `target` field only while Assist can act on it — never a field whose every use is refused.
       return d.assist?.gate().available ? TOOLS.map(withComputerTarget) : TOOLS;
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
-      if (!d.mcp.providerEnabled(ctx.spaceId, COMPUTER_PROVIDER_NAME)) {
-        return err(`computer control is off for this space. The user turns it on under the space's MCP settings, next to Realm's other built-in tools — it is off by default because it reaches every app on the Mac.`);
+      const scope = scopeOf(ctx);
+      if (!scope) {
+        return err(`computer control is off for this space. The user turns it on under the space's MCP settings, next to Realm's other built-in tools — it is off by default because it reaches every app on the Mac. Mentioning an app in a message (@Messages) turns it on for that app in that session.`);
       }
       const handler = HANDLERS[tool];
       if (!handler) return err(`unknown tool "${tool}" — this provider has: ${TOOLS.map((t) => t.name).join(", ")}`);
       try {
-        return await handler({ ...d, snapshots, trees }, ctx, args ?? {});
+        return await handler({ ...d, snapshots, trees, scope }, ctx, args ?? {});
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -212,24 +230,45 @@ const DoArgs = z.object({
 
 /* ---------------------------------- handlers ---------------------------------- */
 
-type Deps = ComputerAgentToolsDeps & { snapshots: SnapshotOwners; trees: SnapshotTrees };
+/** What this session may reach: every app (the space's switch is on) or only the ones mentioned. */
+type Scope = { kind: "space" } | { kind: "mentioned"; apps: GrantedApp[] };
+type Deps = ComputerAgentToolsDeps & { snapshots: SnapshotOwners; trees: SnapshotTrees; scope: Scope };
+
+/** The refusal for an app a mention-scoped session was not given, or null when it may reach it. */
+function outOfScope(scope: Scope, bundleId: string | undefined): CallToolResult | null {
+  if (scope.kind === "space") return null;
+  if (bundleId && scope.apps.some((a) => a.bundleId === bundleId)) return null;
+  const named = scope.apps.map((a) => `${clip(a.name, 40)} (${a.bundleId})`).join(", ");
+  return err(`refused: computer use is on in this session only for the apps the user mentioned — ${named}. ${bundleId ? "That one was not mentioned" : "Name one of them by bundleId"}; if the work needs another app, ask the user to mention it with @.`);
+}
 type Handler = (d: Deps, ctx: ProviderCallContext, args: unknown) => Promise<CallToolResult>;
 
 const HANDLERS: Record<string, Handler> = {
   computer_list_apps: async (d) => {
     const result = (await d.bridge.call("computerListApps", {})) as ComputerAppsResult;
     if (!result.accessibility) return err(NO_ACCESSIBILITY);
-    if (result.apps.length === 0) return ok("No driveable applications are running.");
+    const scope = d.scope;
+    // A mention-scoped session sees the apps it was given and no others — the rest of what is
+    // running on this Mac is not this session's to know about, let alone to snapshot.
+    const apps = scope.kind === "space" ? result.apps : result.apps.filter((a) => scope.apps.some((g) => g.bundleId === a.bundleId));
+    const scoped = scope.kind === "mentioned"
+      ? `\n\nComputer use is on in this session only for the apps the user mentioned: ${scope.apps.map((a) => `${clip(a.name, 40)} (${a.bundleId})`).join(", ")}.`
+      : "";
+    if (apps.length === 0) return ok(`No driveable applications are running.${scoped}${scoped ? " Open the app (for example with `open -b <bundle id>`), then list again." : ""}`);
     // App names come from macOS's own bundle metadata rather than from a document, but they are
     // still text this process did not author — clipped, and not spoken as Realm's own words.
-    const lines = result.apps.map((a) => `${a.bundleId} — ${clip(a.name, 60)}${a.frontmost ? " (frontmost)" : ""}${a.hidden ? " (hidden)" : ""}`);
+    const lines = apps.map((a) => `${a.bundleId} — ${clip(a.name, 60)}${a.frontmost ? " (frontmost)" : ""}${a.hidden ? " (hidden)" : ""}`);
     const screen = result.screenRecording ? "" : "\n\nScreen Recording is not granted, so computer_snapshot cannot return images. The accessibility tree — which is what you act on — works without it.";
-    return ok(`Applications on this Mac:\n${lines.join("\n")}${screen}`);
+    return ok(`Applications on this Mac:\n${lines.join("\n")}${scoped}${screen}`);
   },
 
   computer_snapshot: async (d, ctx, rawArgs) => {
     const args = parseArgs(SnapshotArgs, rawArgs);
     if ("error" in args) return args.error;
+    // Before the helper is asked: a snapshot READS another app's window, so an app the user did not
+    // mention is refused unread — and "whatever is frontmost" is not a name a scoped session can use.
+    const refused = outOfScope(d.scope, args.value.bundleId);
+    if (refused) return refused;
     // No grant pre-check: the helper refuses an ungranted snapshot itself, with the same advice, and
     // it has to — it is the only side that can see the trust state at the moment of the walk. Asking
     // first would be a second round-trip to restate what the answer already carries.
@@ -274,6 +313,9 @@ const HANDLERS: Record<string, Handler> = {
     // approval covers. The helper refuses again in the last process before an event is posted — this
     // copy is about what the user is asked, not about what is finally allowed.
     if ((COMPUTER_FORBIDDEN_BUNDLE_IDS as readonly string[]).includes(app.bundleId)) return err(FORBIDDEN_REFUSAL);
+    // A snapshot taken while the space allowed every app is not a way past a narrower grant later.
+    const refused = outOfScope(d.scope, app.bundleId);
+    if (refused) return refused;
 
     /* Assist: a click the agent DESCRIBED. Resolved against the snapshot it is holding — the helper
        re-resolves the index against the live element at act time, as for any index — and BEFORE the
@@ -373,6 +415,8 @@ const HANDLERS: Record<string, Handler> = {
     if (long) return err(`"${clip(long, 40)}" is not a label — a label is a few words, ${MAX_LABEL} characters at most.`);
     // Before any snapshot or card, as for computer_act: a forbidden app reaches no prompt at all.
     if ((COMPUTER_FORBIDDEN_BUNDLE_IDS as readonly string[]).includes(a.bundleId)) return err(FORBIDDEN_REFUSAL);
+    const refused = outOfScope(d.scope, a.bundleId);
+    if (refused) return refused;
 
     // The first look names the app on the card and is the tree the walk starts from.
     const first = await look(d, ctx, a.bundleId);

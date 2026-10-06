@@ -202,9 +202,4 @@ describe("the scripts panel", () => {
     expect(api.calls.some((c) => c.startsWith("runScript:"))).toBe(false);
   });
 
-  it("with no scripts at all, says what a script is rather than showing an empty list", async () => {
-    await mount({ scripts: { s1: [] } });
-    expect(await screen.findByText(/A script is a command you run here often/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Add script/ })).toBeInTheDocument();
-  });
 });

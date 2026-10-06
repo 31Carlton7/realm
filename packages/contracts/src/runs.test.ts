@@ -60,4 +60,15 @@ describe("RunConstraintsSchema", () => {
     expect(Object.keys(RunConstraintsSchema.shape)).not.toContain("timeoutMs");
     expect(Object.keys(RunConstraintsSchema.shape)).not.toContain("maxTurns");
   });
+
+  it("takes a model's own level by its harness's name for it, and fast mode as a request", () => {
+    /* A scheduled task offers each model's own levels, as the prompter does. THE MUTANT: Claude's
+       fixed five, which refused Codex's `minimal` and every ACP agent's own ids at save. */
+    for (const effort of ["max", "minimal", "thought-high"]) expect(RunConstraintsSchema.safeParse({ effort }).success).toBe(true);
+    expect(RunConstraintsSchema.safeParse({ effort: "" }).success).toBe(false);
+    // Kept through a parse, as every row that carries constraints parses them: dropped there, the bolt
+    // a task was saved with never reached its run.
+    expect(RunConstraintsSchema.parse({ agentKind: "claude", fastMode: true })).toEqual({ agentKind: "claude", fastMode: true });
+    expect(RunConstraintsSchema.safeParse({ fastMode: "yes" }).success).toBe(false);
+  });
 });

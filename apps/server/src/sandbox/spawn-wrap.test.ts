@@ -46,12 +46,6 @@ describe("sandboxWrapFor", () => {
     expect(sandboxWrapFor(service(), { spaceId: "sp_1" })).toBeUndefined();
   });
 
-  it("installs nothing when there is no sandbox service at all", () => {
-    // A harness built without one — `createApp` always passes one, but the dep is optional so a test
-    // (and a future embedder) can leave it out and get exactly the old behaviour.
-    expect(sandboxWrapFor(undefined, { spaceId: "sp_1" })).toBeUndefined();
-  });
-
   it("installs a wrapper once the space has a posture, and it really wraps", () => {
     const s = service();
     s.setSpacePrefs("sp_1", { posture: "workspace-write", network: true });

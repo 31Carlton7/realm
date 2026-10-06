@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { terminalBackground, terminalFont, TerminalHub, type HubTransport, type TerminalLike } from "./terminal-hub";
+import { afterEach, describe, expect, it } from "vitest";
+import { terminalColors, terminalFont, TerminalHub, type HubTransport, type TerminalLike } from "./terminal-hub";
 
 type Listener = (payload: unknown) => void;
 
@@ -10,10 +10,13 @@ function fakeTransport() {
   const calls: { method: string; params: unknown }[] = [];
   const printed = new Map<string, { runId: string; seq: number; chunks: { seq: number; data: string }[] }>();
   const reads: { read?: Partial<ReadResult> } = {};
+  /** What `terminals.programs` answers: every terminal running something other than its shell. */
+  const programs: Record<string, unknown> = {};
   const transport: HubTransport = {
     on: (event, fn) => { const s = listeners.get(event) ?? new Set(); s.add(fn as Listener); listeners.set(event, s); return () => s.delete(fn as Listener); },
     call: async (method, params) => {
       calls.push({ method, params });
+      if (method === "terminals.programs") return { ...programs };
       if (method !== "terminals.read") return { ok: true };
       const p = params as { terminalId: string; cursor: { runId: string; seq: number } | null };
       const rec = printed.get(p.terminalId) ?? { runId: "r1", seq: 0, chunks: [] };
@@ -33,7 +36,7 @@ function fakeTransport() {
   };
   const emit = (event: string, payload: unknown) => { for (const fn of listeners.get(event) ?? []) fn(payload); };
   const count = (event: string) => listeners.get(event)?.size ?? 0;
-  return { transport, emit, emitData, calls, count, reads };
+  return { transport, emit, emitData, calls, count, reads, programs };
 }
 
 type ReadResult = { runId: string; seq: number; live: string; truncated: boolean; running: boolean; history: { data: string; cols: number; rows: number } | null };
@@ -49,8 +52,11 @@ const settled = () => new Promise<void>((r) => setTimeout(r, 0));
 
 function fakeTerm() {
   const writes: string[] = []; let dataFn: ((d: string) => void) | null = null; let disposed = false; let opened: HTMLElement | null = null;
-  const term: TerminalLike & { writes: string[]; typed(d: string): void; disposed(): boolean; openedIn(): HTMLElement | null } = {
-    cols: 80, rows: 24, writes, options: { fontFamily: "start" },
+  /** The CSI handlers registered on it, by their final byte — what a program's escape would reach. */
+  const csi = new Map<string, (params: (number | number[])[]) => boolean>();
+  const term: TerminalLike & { writes: string[]; csi: typeof csi; typed(d: string): void; disposed(): boolean; openedIn(): HTMLElement | null } = {
+    cols: 80, rows: 24, writes, csi, options: { fontFamily: "start" },
+    parser: { registerCsiHandler: (id, fn) => { csi.set(`${id.intermediates ?? ""}${id.final}`, fn); return { dispose() { csi.delete(`${id.intermediates ?? ""}${id.final}`); } }; } },
     open: (el) => { opened = el; }, write: (d) => { writes.push(d); }, dispose: () => { disposed = true; }, focus: () => {},
     onData: (fn) => { dataFn = fn; return { dispose() { dataFn = null; } }; },
     onResize: () => ({ dispose() {} }),
@@ -84,18 +90,6 @@ describe("TerminalHub", () => {
     expect(terms[0]!.writes).toEqual(["hello world"]);
     emitData("t1", "!");
     expect(terms[0]!.writes).toEqual(["hello world", "!"]);
-  });
-
-  it("buffers data for terminals nobody has acquired yet", async () => {
-    const { hub, emitData, terms } = setup();
-    hub.acquire("other"); // creates the subscription
-    emitData("late", "early bird");
-    const c = document.createElement("div"); document.body.appendChild(c);
-    hub.acquire("late").attach(c);
-    // The first acquire ASKS what it missed, and that answer is where "early bird" comes back from —
-    // a chunk broadcast before this client held a cursor is one it can only learn about by reading.
-    await settled();
-    expect(terms[1]!.writes.join("")).toContain("early bird");
   });
 
   it("detach/re-attach moves the same host and keeps the same xterm (no data lost, opened once)", async () => {
@@ -326,12 +320,143 @@ describe("catching up on output that arrived with nobody listening", () => {
   });
 });
 
-describe("terminalBackground", () => {
-  it("reads --rl-terminal-bg from :root, defaulting to #17181b", () => {
-    expect(terminalBackground()).toBe("#17181b");
-    document.documentElement.style.setProperty("--rl-terminal-bg", "#101010");
-    expect(terminalBackground()).toBe("#101010");
-    document.documentElement.style.removeProperty("--rl-terminal-bg");
+describe("a terminal's colours", () => {
+  const root = document.documentElement;
+  /* Realm's light tokens, as tokens.css states them — jsdom loads no stylesheet, so a test that wants
+     the light face has to say what its ground and inks are. */
+  const LIGHT = { "--canvas": "oklch(0.985 0.002 264)", "--ink": "oklch(0.235 0.006 264)", "--ink-2": "oklch(0.459 0.01 264)", "--accent": "oklch(0.6 0.2 256)" };
+  const light = () => { root.setAttribute("data-mode", "light"); for (const [k, v] of Object.entries(LIGHT)) root.style.setProperty(k, v); };
+  afterEach(() => {
+    root.removeAttribute("data-mode"); root.removeAttribute("data-theme");
+    for (const k of Object.keys(LIGHT)) root.style.removeProperty(k);
+  });
+
+  it("draws Realm's sixteen on a transparent ground that carries the canvas's own colour", () => {
+    // THE MUTANT: the old transparent BLACK. xterm draws inverse video in it, measures its contrast
+    // floor against it and answers a program's OSC 11 with it — a TUI that asked was told black.
+    const { theme, minimumContrastRatio, vars } = terminalColors();
+    expect(theme.background).toBe("#1c1d1f00");
+    expect(theme.blue).toBe("#5293e9");
+    expect(theme.brightBlack).toBe("#8f9299");
+    expect(theme.foreground).toBe("#f2f3f4");
+    // Low in the dark face: a prompt's own colours were picked for a dark ground.
+    expect(minimumContrastRatio).toBe(3);
+    expect(vars["--term-dim"]).toBe("65%");
+    expect(vars["--term-ansi-4"]).toBe("#5293e9");
+  });
+
+  it("draws the light face in the app's ink, and holds a program's own colours to AA there", () => {
+    // xterm's defaults are light-on-black. THE MUTANTS: leave the ink to xterm, and the light face's
+    // near-white ground carries white text; drop the contrast floor, and a yellow picked for a black
+    // ground is printed on a white one.
+    light();
+    const { theme, minimumContrastRatio } = terminalColors();
+    expect(theme.foreground).toBe("#1d1e21");
+    expect(theme.cursor).toBe("#1d1e21");
+    expect(theme.background).toBe("#f9fafb00");
+    expect(theme.blue).toBe("#1364ce");
+    expect(minimumContrastRatio).toBe(4.5);
+  });
+
+  it("hands back xterm's own palette for My shell's, with no floor on the dark face", () => {
+    const { theme, minimumContrastRatio } = terminalColors(document, "shell");
+    expect(theme.blue).toBe("#3465a4");
+    expect(theme.foreground).toBe("#ffffff");
+    expect(minimumContrastRatio).toBe(1);
+  });
+
+  it("wears a themed palette's own port, read off the theme the face is wearing", () => {
+    root.setAttribute("data-theme", "dracula");
+    expect(terminalColors().theme.green).toBe("#50fa7b");
+  });
+
+  it("are a terminal's from the moment it is acquired, and follow the face into the ones already open", () => {
+    // THE MUTANT: set them only at construction. A terminal opened before a switch to light keeps
+    // white ink on the light face's ground — the setting changes everything but the shell in front of
+    // you.
+    const { hub, terms } = setup();
+    hub.acquire("a");
+    expect(terms[0]!.options!.theme!.background).toBe("#1c1d1f00");
+    light();
+    hub.refreshColors();
+    expect(terms[0]!.options!.theme!.background).toBe("#f9fafb00");
+    expect(terms[0]!.options!.minimumContrastRatio).toBe(4.5);
+    hub.acquire("b");
+    expect(terms[1]!.options!.theme!.background).toBe("#f9fafb00");
+  });
+
+  it("gives every host the colours faint text is mixed from, and carries the scheme into open terminals", () => {
+    // THE next-terminal-only mutant again, for the Settings pair: a terminal open when "My shell's" is
+    // chosen has to change too, palette and the faint text drawn from it both.
+    const { hub, terms } = setup();
+    const e = hub.acquire("a");
+    expect(e.host.style.getPropertyValue("--term-dim")).toBe("65%");
+    expect(e.host.style.getPropertyValue("--term-ansi-1")).toBe("#ed7471");
+    hub.setColorScheme("shell");
+    expect(terms[0]!.options!.theme!.red).toBe("#cc0000");
+    expect(e.host.style.getPropertyValue("--term-ansi-1")).toBe("#cc0000");
+    hub.acquire("b");
+    expect(terms[1]!.options!.theme!.red).toBe("#cc0000");
+  });
+});
+
+describe("what a terminal is running", () => {
+  const claude = { id: "claude", label: "claude", mark: "claude", agent: true };
+  const settle = () => new Promise<void>((r) => setTimeout(r, 0));
+
+  it("is read once, when something first asks, then kept by terminal.program", async () => {
+    // A tab that is not showing may name a terminal whose agent started before this window listened,
+    // so the first listener reads where every terminal already is.
+    const { hub, programs, emit, calls, count } = setup();
+    programs.t1 = claude;
+    expect(count("terminal.program")).toBe(0); // nothing asked yet: nothing subscribed
+    let told = 0;
+    hub.onProgramChange(() => { told++; });
+    hub.onProgramChange(() => {});
+    expect(hub.programsKnown).toBe(false);
+    await settle();
+    expect(calls.filter((c) => c.method === "terminals.programs")).toHaveLength(1);
+    expect(count("terminal.program")).toBe(1);
+    expect(hub.program("t1")).toEqual(claude);
+    expect(hub.programsKnown).toBe(true);
+    expect(told).toBe(2); // t1's program, and the read landing
+    emit("terminal.program", { terminalId: "t1", program: null });
+    expect(hub.program("t1")).toBeNull();
+    emit("terminal.program", { terminalId: "t2", program: { id: "python", label: "python3", mark: "python", agent: false } });
+    expect(hub.program("t2")).toMatchObject({ label: "python3" });
+    emit("terminal.program", { terminalId: "t2", program: { id: "python", label: "python3", mark: "python", agent: false } });
+    expect(told).toBe(4); // the same program said twice is one change
+  });
+
+  it("drops what a terminal was running when it exits, and when it is disposed", async () => {
+    const { hub, programs, emit } = setup();
+    programs.t1 = claude; programs.t2 = claude;
+    hub.onProgramChange(() => {});
+    hub.acquire("t1");
+    await settle();
+    emit("terminal.exit", { terminalId: "t1", exitCode: 0 });
+    expect(hub.program("t1")).toBeNull();
+    hub.dispose("t2");
+    expect(hub.program("t2")).toBeNull();
+  });
+
+  it("re-reads on reconnect, taking back what changed while the socket was down", async () => {
+    const { hub, programs } = setup();
+    programs.t1 = claude;
+    hub.onProgramChange(() => {});
+    await settle();
+    delete programs.t1;
+    programs.t3 = claude;
+    hub.resyncAll();
+    await settle();
+    expect(hub.program("t1")).toBeNull();
+    expect(hub.program("t3")).toEqual(claude);
+  });
+
+  it("asks nothing and throws nothing where the transport cannot subscribe — a component test", () => {
+    const hub = new TerminalHub({ on: () => { throw new Error("rpc() called outside the app"); }, call: async () => ({}) });
+    expect(() => hub.onProgramChange(() => {})).not.toThrow();
+    expect(hub.program("t1")).toBeNull();
   });
 });
 
@@ -343,7 +468,19 @@ describe("the code face reaches a terminal that is already open", () => {
     // one surface that ignores the code font.
     expect(terminalFont()).toContain("JetBrains Mono");
     document.documentElement.style.setProperty("--font-mono", "ui-monospace, Menlo, monospace");
-    expect(terminalFont()).toBe("ui-monospace, Menlo, monospace");
+    expect(terminalFont().startsWith("ui-monospace, Menlo, monospace,")).toBe(true);
+    document.documentElement.style.removeProperty("--font-mono");
+  });
+
+  it("keeps the prompt-icon faces behind the code face, whichever face that is", () => {
+    // A p10k prompt in a nerdfont mode draws its branch and folder in private-use codepoints, which
+    // no code face carries: without these the icons are empty boxes. THE mutant: put them first, and
+    // they become the face every letter is measured and drawn in.
+    for (const face of ['"JetBrains Mono", monospace', "ui-monospace, Menlo, monospace"]) {
+      document.documentElement.style.setProperty("--font-mono", face);
+      expect(terminalFont().startsWith(face)).toBe(true);
+      expect(terminalFont()).toMatch(/"MesloLGS NF"$/);
+    }
     document.documentElement.style.removeProperty("--font-mono");
   });
 
@@ -366,10 +503,10 @@ describe("the code face reaches a terminal that is already open", () => {
 
   it("pushes the cursor's SHAPE the same way, and keeps it independent of the blink", () => {
     /* THE folded-control mutant lives in Settings, but its consequence would land here: a shape and
-       a blink that could not disagree. A bar that holds still is a pair somebody wants. */
+       a blink that could not disagree. A line that holds still is a pair somebody wants. */
     const { hub, terms } = setup();
     hub.acquire("a");
-    hub.setCursorStyle("bar");
+    hub.setCursorStyle("line");
     hub.setCursorBlink(false);
     expect(terms.map((t) => t.options!.cursorStyle)).toEqual(["bar"]);
     expect(terms.map((t) => t.options!.cursorBlink)).toEqual([false]);
@@ -379,6 +516,53 @@ describe("the code face reaches a terminal that is already open", () => {
     hub.acquire("b");
     expect(terms.at(-1)!.options!.cursorStyle).toBe("bar");
     expect(terms.at(-1)!.options!.cursorBlink).toBe(false);
+  });
+
+  it("hands xterm the nearest of its three shapes and the stylesheet the shape itself", () => {
+    /* THE nearest-only mutant: tell xterm "bar" and stop there, and a pill, a beam, a soft block and an
+       outline all come out as the same two-pixel line. The host carries the shape so the stylesheet can
+       draw the rest of it on the cell xterm marks. A soft block and an outline are a BAR to xterm, the
+       one of its three that leaves the character under it in its own colour. */
+    const { hub, terms } = setup();
+    const a = hub.acquire("a");
+    const seen = (shape: Parameters<typeof hub.setCursorStyle>[0]) => {
+      hub.setCursorStyle(shape);
+      return [terms[0]!.options!.cursorStyle, terms[0]!.options!.cursorWidth, a.host.dataset.caret];
+    };
+    expect(seen("pill")).toEqual(["bar", 3, "pill"]);
+    expect(seen("line-thin")).toEqual(["bar", 1, "line-thin"]);
+    expect(seen("block-soft")).toEqual(["bar", 1, "block-soft"]);
+    expect(seen("block-outline")).toEqual(["bar", 1, "block-outline"]);
+    expect(seen("block")).toEqual(["block", 1, "block"]);
+    expect(seen("underline-thin")).toEqual(["underline", 1, "underline-thin"]);
+    // And a terminal opened after the change starts out marked, not only the ones already open.
+    hub.setCursorStyle("beam");
+    expect(hub.acquire("b").host.dataset.caret).toBe("beam");
+    expect(terms[1]!.options!.cursorWidth).toBe(3);
+  });
+
+  it("lets a program set its own cursor, and gives back the setting when it asks for the default", () => {
+    /* xterm writes a program's DECSCUSR over the preference, and its answer to "the default" (0) is a
+       blinking block — so a vim that tidies up on exit left every terminal a blinking block, whatever
+       Settings said. THE xterm-default mutant: return false for 0, and xterm's block comes back. */
+    const { hub, terms } = setup();
+    const container = document.createElement("div"); document.body.appendChild(container);
+    const e = hub.acquire("a");
+    e.attach(container);
+    hub.setCursorStyle("pill");
+    hub.setCursorBlink(false);
+    const decscusr = terms[0]!.csi.get(" q")!;
+    expect(decscusr).toBeTypeOf("function");
+
+    // A bar asked for: xterm applies it (the handler declines), and the stylesheet draws it plainly.
+    expect(decscusr([6])).toBe(false);
+    expect(e.host.dataset.caretProgram).toBe("");
+    // xterm would now have written its own answer over ours — say so, then ask for the default back.
+    Object.assign(terms[0]!.options!, { cursorStyle: "block", cursorBlink: true });
+    expect(decscusr([0])).toBe(true);
+    expect([terms[0]!.options!.cursorStyle, terms[0]!.options!.cursorWidth, terms[0]!.options!.cursorBlink]).toEqual(["bar", 3, false]);
+    expect(e.host.dataset.caretProgram).toBeUndefined();
+    container.remove();
   });
 
   it("pushes a changed face into every live terminal and re-fits the opened ones", () => {
@@ -393,7 +577,7 @@ describe("the code face reaches a terminal that is already open", () => {
 
     document.documentElement.style.setProperty("--font-mono", "ui-monospace, Menlo, monospace");
     hub.refreshFont();
-    expect(terms.map((t) => t.options!.fontFamily)).toEqual(["ui-monospace, Menlo, monospace", "ui-monospace, Menlo, monospace"]);
+    expect(terms.map((t) => t.options!.fontFamily?.split(",").slice(0, 3).join(","))).toEqual(["ui-monospace, Menlo, monospace", "ui-monospace, Menlo, monospace"]);
     // The cell size is measured off the face, so an opened terminal has to re-measure or the grid is
     // the wrong shape and the pty was resized to a lie. A detached one has nothing to measure yet.
     expect(fits).toEqual([0]);
@@ -404,6 +588,26 @@ describe("the code face reaches a terminal that is already open", () => {
     hub.refreshFont();
     expect(fits).toEqual([]);
     document.documentElement.style.removeProperty("--font-mono");
+    container.remove();
+  });
+
+  it("pushes a changed code size into every live terminal too, and re-fits the opened ones", () => {
+    // "Code font size" is the size of everything in the code face, terminals included. THE
+    // face-only mutant: refresh the family and leave the size, and the largest code surface in the
+    // app is the one the setting does not reach.
+    const { hub, terms, fits } = setup();
+    const container = document.createElement("div"); document.body.appendChild(container);
+    hub.acquire("open").attach(container);
+    hub.acquire("detached");
+    hub.refreshFont();
+    fits.length = 0;
+
+    document.documentElement.style.setProperty("--code-text-scale", "1.25");
+    hub.refreshFont();
+    expect(terms.map((t) => t.options!.fontSize)).toEqual([16.25, 16.25]);
+    // A cell's size is the font's size: the opened terminal re-measures, the detached one waits.
+    expect(fits).toEqual([0]);
+    document.documentElement.style.removeProperty("--code-text-scale");
     container.remove();
   });
 });

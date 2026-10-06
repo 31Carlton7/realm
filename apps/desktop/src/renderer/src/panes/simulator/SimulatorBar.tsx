@@ -1,4 +1,4 @@
-import type { Item, SimulatorAct, SimulatorApp, SimulatorButton, SimulatorEvent, SimulatorOrientation, SimulatorUiState } from "@realm/contracts";
+import type { SimulatorAct, SimulatorApp, SimulatorButton, SimulatorEvent, SimulatorOrientation, SimulatorState, SimulatorUiState } from "@realm/contracts";
 import { buttonFrame, orientationFrame, SIMULATOR_CA_DEBUG, SIMULATOR_ORIENTATIONS, SIMULATOR_PERMISSIONS, SIMULATOR_UI_OPTIONS } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { useRef, useState } from "react";
@@ -6,178 +6,110 @@ import { Menu, type MenuItem } from "../../components/Menu";
 import { useApp } from "../../state/store";
 import { rpc } from "../../rpc/client";
 import { SimulatorInput } from "./sim-input";
-import { dotFor } from "../machine/MachineBar";
+import type { FrameChoice } from "./SimulatorPane";
+import { toolbarFit } from "./toolbar-fit";
 
 /**
- * The simulator pane's bar content: what the device is doing, and the presses that have nowhere else
- * to live.
+ * The device's own controls: a toolbar above the device, and an overflow for everything else.
  *
- * Home and the rest are here rather than drawn around the picture on purpose. A bezel with buttons
- * on it is a picture of a phone, and the thing under it is already a picture of a phone — the app's
- * own bar is where a pane's actions go (design.md: "pane bars stay compact and consistent across
- * pane kinds"), and it is the one place they do not cover the screen.
+ * They were the pane bar's, and in a side pane that bar is the tab strip too: "Live 1206×2622" and six
+ * buttons took the width the tabs needed, and in a narrow pane they took all of it. The bar is for what
+ * the PANE does. What the device does, and what its stream is doing, sits with the device — above it
+ * and centred on it, where a simulator's own window puts Home, Screenshot and Rotate — and the Record
+ * row is its counterpart under the device (`LayaRecord.tsx`), in the same pill.
+ *
+ * Four things a person does over and over are buttons: Home, Screenshot, the elements overlay and
+ * Rotate. Everything else is one click further, in the overflow: the volume and side buttons, the apps
+ * on the device, the Simulator's own settings, the frame, and stopping the stream. A narrow pane takes
+ * the toolbar apart in a stated order (`toolbar-fit.ts`), and whatever leaves it is the first thing in
+ * the overflow, by name.
  */
 
-export const SIMULATOR_WORDS: Record<string, string> = {
-  off: "Not streaming", booting: "Booting", serving: "Starting", running: "Live", failed: "Failed",
-};
+/** A press the toolbar can draw as a button, or hand to the overflow as a row. */
+type Press = { id: string; label: string; aria: string; title: string; icon: IconName; pressed?: boolean; onSelect: () => void };
 
-/** The state word, and the device's own resolution once there is one. */
-export function SimulatorMeta({ item }: { item: Item }) {
-  const state = useApp((s) => s.simulatorState[item.refId]);
-  const status = state?.status ?? "off";
-  return (
-    <span className="machine-bar-meta">
-      <span className="status-dot" data-status={dotFor(status === "serving" ? "booting" : status)} aria-hidden="true" />
-      <span>{SIMULATOR_WORDS[status] ?? "Not streaming"}</span>
-      {state?.screen && <span className="machine-bar-size">{state.screen.width}×{state.screen.height}</span>}
-    </span>
-  );
-}
-
-/**
- * The hardware buttons, and the switch that turns the stream off.
- *
- * Every press opens a socket, sends one frame and closes it. That is what the `serve-sim` CLI does
- * for the same commands, and it is right for this shape of thing: a button press is a whole
- * interaction, and a bar that held a connection open for a button nobody has pressed yet would be
- * holding it open for every simulator pane in the window.
- */
-export function SimulatorPanelActions({ item }: { item: Item }) {
-  const state = useApp((s) => s.simulatorState[item.refId]);
+export function SimulatorToolbar({ simulatorId, connected, width, frame, shownAs }: {
+  simulatorId: string;
+  /** The input socket is open. Until it is, the picture streams and a touch goes nowhere. */
+  connected: boolean;
+  /** The room the pane gives the toolbar, in CSS px — what `toolbarFit` budgets. */
+  width: number;
+  frame: FrameChoice;
+  /** Which device the frame is a picture of, for its row's tooltip. */
+  shownAs: string | null;
+}) {
+  const state = useApp((s) => s.simulatorState[simulatorId]);
   const run = useApp((s) => s.run);
-  const applySimulatorState = useApp((s) => s.applySimulatorState);
-  const elementsOn = useApp((s) => s.simulatorElements[item.refId] === true);
+  const elementsOn = useApp((s) => s.simulatorElements[simulatorId] === true);
   const toggleElements = useApp((s) => s.toggleSimulatorElements);
   const wsUrl = state?.wsUrl ?? null;
-  const live = state?.status === "running" && wsUrl !== null;
-  const recordingHere = useApp((s) => s.laya?.recording?.simulatorId === item.refId);
-
-  // A recording outlives the stream it reads — a phone that locked, a stream stopped — and the control
-  // that ends it stays where it was started until it is ended.
-  if (!live) return recordingHere ? <RecordToggle item={item} /> : null;
-  return (<>
-    {/* A screenshot is `simctl`'s, not the stream's: the stream is JPEG frames scaled for a pane, and
-        this is the picture people paste into a pull request — full resolution, no JPEG in the way.
-
-        It lands in the space's own `simulator/` folder and is REVEALED rather than opened in the
-        documents pane. That pane caps what it reads at 2 MB and a phone screenshot is three or four,
-        so opening one there fails with a number instead of showing a picture. In the folder it is
-        somewhere both Finder and the Library can see it, which is what a screenshot is for. */}
-    <button className="icon-btn" aria-label="Take a screenshot" title="Screenshot"
-      onClick={() => run(async () => {
-        const shot = await rpc().call("simulators.screenshot", { simulatorId: item.refId });
-        await window.realm?.files?.reveal?.(shot.absolute);
-      })}>
-      <Icon name="image" size={14} />
-    </button>
-    {/* The accessibility tree over the picture. A toggle rather than a menu item: it is a mode you
-        work in, and the thing that turns it off should be the thing that turned it on. */}
-    <button className="icon-btn" aria-label="Show the device's elements" title="Elements"
-      data-on={elementsOn || undefined} aria-pressed={elementsOn}
-      onClick={() => toggleElements(item.refId)}>
-      <Icon name="layout" size={14} />
-    </button>
-    <RecordToggle item={item} />
-    <AppsMenu item={item} physical={state?.physical === true} />
-    {/* Everything in this menu is serve-sim's, and a real phone has no serve-sim: offered only where
-        it exists (design.md), rather than as a menu of refusals. */}
-    {state?.physical !== true && <DeviceMenu item={item} />}
-    {/* Stops the STREAM, not the device — the simulator stays booted, because it is usually
-        somebody's Xcode session and a pane is not a reason to take it away. */}
-    <button className="icon-btn" aria-label={state?.physical ? "Stop streaming this phone" : "Stop streaming this simulator"}
-      title={state?.physical ? "Stop streaming — Realm's test runner comes off the phone" : "Stop streaming"}
-      onClick={() => run(async () => {
-        const r = await rpc().call("simulators.stop", { simulatorId: item.refId });
-        applySimulatorState(r.state);
-      })}>
-      <Icon name="stop" size={14} />
-    </button>
-  </>);
-}
-
-/**
- * Laya learning the app in front from the person using it (`laya/recorder.ts`). A toggle rather than a
- * menu item for the Elements toggle's reason: it is a mode you work in, and the thing that ends it
- * should be the thing that started it. The app is the one in front when it starts — which is what
- * makes it work for an App Store app on a phone, whose app list names only what Xcode installed — and
- * only that app's screens are kept. Realm taps nothing for it.
- *
- * Named by what a click does rather than pressed-or-not (design.md): Record, or Stop recording
- * Instagram. One recording at a time, so another pane's makes this one's unavailable, with the reason.
- */
-function RecordToggle({ item }: { item: Item }) {
-  const recording = useApp((s) => s.laya?.recording ?? null);
-  const recordLaya = useApp((s) => s.recordLaya);
-  const stopLayaRecording = useApp((s) => s.stopLayaRecording);
-  const run = useApp((s) => s.run);
-  if (recording?.simulatorId === item.refId) {
-    const what = recording.apps.join(", ");
-    const kept = `${recording.screens} ${recording.screens === 1 ? "screen" : "screens"}`;
-    return (
-      <button className="icon-btn" data-on aria-label={`Stop recording ${what} for Laya`}
-        title={`Recording ${what} for Laya: ${kept} kept. Realm reads each new screen and taps nothing.${recording.lastError ? ` Not reading now: ${recording.lastError}` : ""}`}
-        onClick={() => run(() => stopLayaRecording())}>
-        <Icon name="record" size={14} />
-      </button>
-    );
-  }
-  return (
-    <button className="icon-btn" aria-label="Record this app for Laya" disabled={recording !== null}
-      title={recording
-        ? `Laya is already recording ${recording.device}. Stop that first.`
-        : "Record for Laya: keep each new screen of the app in front while you use it, for Laya's next training run. Realm taps nothing."}
-      onClick={() => run(() => recordLaya(item.refId, []))}>
-      <Icon name="record" size={14} />
-    </button>
-  );
-}
-
-/**
- * The device's own hardware, in a row UNDER the device.
- *
- * They used to sit in the pane bar with everything else, and the bar's own comment argued for it: a
- * bezel with buttons on it is a picture of a phone. But the pane draws a phone now, and a phone's
- * buttons belong with the phone — the bar is for what the PANE does (take a picture of it, inspect
- * it, stop streaming) and this row is for what the DEVICE does. Ten icons in one strip was also
- * simply too many to find anything in.
- *
- * `action` is still left out: it exists only on the Pro phones and the watch, and a permanent
- * control that does nothing on most devices is chrome that lies. It lives in the device menu.
- */
-const HARDWARE = ["home", "volume-up", "volume-down", "power"] as const satisfies readonly SimulatorButton[];
-/** What Realm's test runner presses on a real phone. Not the side button — a phone Realm locked is one
- *  only its owner can unlock — and no rotation, which is the hand holding it. */
-const PHONE_HARDWARE = ["home", "volume-up", "volume-down"] as const satisfies readonly SimulatorButton[];
-
-export function SimulatorHardware({ item }: { item: Item }) {
-  const state = useApp((s) => s.simulatorState[item.refId]);
-  const wsUrl = state?.wsUrl ?? null;
   if (state?.status !== "running" || !wsUrl) return null;
+  const physical = state.physical === true;
+
   const rotate = () => {
     const current = (state.screen?.orientation ?? "portrait") as SimulatorOrientation;
     const i = SIMULATOR_ORIENTATIONS.indexOf(current);
     pressOnce(wsUrl, orientationFrame(SIMULATOR_ORIENTATIONS[(i < 0 ? 0 : i + 1) % SIMULATOR_ORIENTATIONS.length]!));
   };
-  const buttons = state.physical ? PHONE_HARDWARE : HARDWARE;
+  const presses: Press[] = [
+    { id: "home", label: "Home", aria: BUTTON_LABELS.home, title: "Home", icon: "home", onSelect: () => pressOnce(wsUrl, buttonFrame("home")) },
+    /* A screenshot is `simctl`'s, not the stream's: the stream is JPEG frames scaled for a pane, and
+       this is the picture people paste into a pull request — full resolution, no JPEG in the way.
+
+       It lands in the space's own `simulator/` folder and is REVEALED rather than opened in the
+       documents pane. That pane caps what it reads at 2 MB and a phone screenshot is three or four,
+       so opening one there fails with a number instead of showing a picture. In the folder it is
+       somewhere both Finder and the Library can see it, which is what a screenshot is for. */
+    { id: "screenshot", label: "Screenshot", aria: "Take a screenshot", title: "Screenshot", icon: "camera",
+      onSelect: () => run(async () => {
+        const shot = await rpc().call("simulators.screenshot", { simulatorId });
+        await window.realm?.files?.reveal?.(shot.absolute);
+      }) },
+    /* The accessibility tree over the picture. A toggle rather than a menu row: it is a mode you work
+       in, and the thing that turns it off should be the thing that turned it on. */
+    { id: "elements", label: "Elements", aria: "Show the device's elements", title: "Elements", icon: "select",
+      pressed: elementsOn, onSelect: () => toggleElements(simulatorId) },
+    /* One button, cycling portrait → landscape → upside down → the other landscape, because that is the
+       order a hand turns a phone in and there is nothing here worth a menu. Not on a real phone: its
+       orientation is the hand holding it. */
+    ...(physical ? [] : [{ id: "rotate", label: "Rotate", aria: "Rotate the device", title: "Rotate", icon: "rotate" as const, onSelect: rotate }]),
+  ];
+  const fit = toolbarFit(width, presses.length, connected ? "Live" : "Connecting");
+  const size = state.screen ? `${state.screen.width}×${state.screen.height}` : null;
+
   return (
-    <div className="sim-hardware" role="group" aria-label="Device buttons">
-      {buttons.map((b) => (
-        <button key={b} type="button" className="icon-btn" aria-label={BUTTON_LABELS[b]} title={BUTTON_LABELS[b]}
-          onClick={() => pressOnce(wsUrl, buttonFrame(b))}>
-          <Icon name={BUTTON_ICONS[b]} size={14} />
+    <div className="sim-toolbar" role="group" aria-label="Device controls" data-status={fit.status}>
+      {/* The stream's state, still: a live device is a resting state, and the picture beside it is
+          what moves. The dot pings only while the touch and keyboard are still connecting. */}
+      <span className="sim-toolbar-status" role="status"
+        title={connected ? ["Live", size].filter(Boolean).join(" · ") : "Connecting the keyboard and touch…"}>
+        <span className="status-dot" data-status={connected ? "connected" : "machine-booting"} aria-hidden="true" />
+        <span className="sim-toolbar-word">{connected ? "Live" : "Connecting"}</span>
+        {size && <span className="machine-bar-size">{size}</span>}
+      </span>
+      <span className="sim-toolbar-rule" aria-hidden="true" />
+      {presses.slice(0, fit.keep).map((p) => (
+        <button key={p.id} type="button" className="icon-btn" aria-label={p.aria} title={p.title}
+          aria-pressed={p.pressed} onClick={p.onSelect}>
+          <Icon name={p.icon} size={14} />
         </button>
       ))}
-      {/* One button, cycling portrait → landscape → upside down → the other landscape, because that
-          is the order a hand turns a phone in and there is nothing here worth a menu. */}
-      {!state.physical && (
-        <button type="button" className="icon-btn" aria-label="Rotate the device" title="Rotate" onClick={rotate}>
-          <Icon name="reload" size={14} />
-        </button>
-      )}
+      <MoreMenu simulatorId={simulatorId} state={state} overflow={presses.slice(fit.keep)} frame={frame} shownAs={shownAs} />
     </div>
   );
 }
+
+/**
+ * The device's hardware, as rows of the overflow.
+ *
+ * Home is a button on the toolbar; these are pressed far less, and as rows they say what they are in
+ * words — a glyph for "volume down" is a guess at best. `action` is left out: it exists only on the
+ * Pro phones and the watch, so it lives with the device's other oddities in its settings.
+ */
+const HARDWARE = ["volume-up", "volume-down", "power"] as const satisfies readonly SimulatorButton[];
+/** What Realm's test runner presses on a real phone. Not the side button — a phone Realm locked is one
+ *  only its owner can unlock — and no rotation, which is the hand holding it. */
+const PHONE_HARDWARE = ["volume-up", "volume-down"] as const satisfies readonly SimulatorButton[];
 
 const BUTTON_LABELS: Record<SimulatorButton, string> = {
   home: "Home button", power: "Side button (lock)", "volume-up": "Volume up", "volume-down": "Volume down", action: "Action button",
@@ -185,8 +117,80 @@ const BUTTON_LABELS: Record<SimulatorButton, string> = {
 /** Icons from the set the app already ships. The side button is a LOCK, which is what pressing it
  *  does to a phone — Realm has no power glyph, and a plug would be a different claim. */
 const BUTTON_ICONS: Record<SimulatorButton, IconName> = {
-  home: "home", power: "lock", "volume-up": "volumeOn", "volume-down": "volumeOff", action: "star",
+  home: "home", power: "lock", "volume-up": "volumeOn", "volume-down": "volumeLow", action: "star",
 };
+
+/**
+ * The overflow: what a narrow pane took off the toolbar, the hardware, the apps and the device's
+ * settings, the frame, and the switch that stops the stream.
+ *
+ * Apps and Device settings are menus of their own, opened in place — the row rebuilds the menu as that
+ * one, with a row back up at its head — because an OS menu cannot change under the pointer and Realm's
+ * menus carry no submenus. Both are read when the overflow opens rather than when their row is picked:
+ * an OS menu is built once, when it opens, and a list still on its way when the drill-down opened would
+ * open as one row saying so. Read quietly, too — nobody who opened this for Volume up asked for either
+ * list, so a device that will not answer says so inside the drill-down, not in a toast.
+ */
+function MoreMenu({ simulatorId, state, overflow, frame, shownAs }: {
+  simulatorId: string; state: SimulatorState; overflow: Press[]; frame: FrameChoice; shownAs: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState<"more" | "apps" | "device">("more");
+  const run = useApp((s) => s.run);
+  const applySimulatorState = useApp((s) => s.applySimulatorState);
+  const btn = useRef<HTMLButtonElement>(null);
+  const physical = state.physical === true;
+  const up = () => setView("more");
+  const apps = useAppRows(simulatorId, physical, up);
+  const device = useDeviceRows(simulatorId, state.wsUrl, up);
+
+  const rows = (): MenuItem[] => {
+    if (view === "apps") return apps.rows();
+    if (view === "device") return device.rows();
+    return [
+      ...(overflow.length > 0 ? [
+        ...overflow.map((p): MenuItem => ({ label: p.label, icon: <Icon name={p.icon} size={14} />, checked: p.pressed, onSelect: p.onSelect })),
+        { kind: "separator" as const },
+      ] : []),
+      ...(physical ? PHONE_HARDWARE : HARDWARE).map((b): MenuItem => ({
+        label: BUTTON_LABELS[b], icon: <Icon name={BUTTON_ICONS[b]} size={14} />, onSelect: () => pressOnce(state.wsUrl, buttonFrame(b)),
+      })),
+      { kind: "separator" },
+      { label: "Apps…", icon: <Icon name="grid" size={14} />, keepOpen: true, onSelect: () => setView("apps") },
+      /* Everything in this menu is serve-sim's, and a real phone has no serve-sim: offered only where
+         it exists (design.md), rather than as a menu of refusals. */
+      ...(physical ? [] : [{ label: "Device settings…", icon: <Icon name="settings" size={14} />, keepOpen: true, onSelect: () => setView("device") }]),
+      { kind: "separator" },
+      /* What the PICTURE looks like rather than anything the device does. Which device the art is a
+         picture of is on the tooltip, not the label: it is the same string on every phone in a family,
+         and "iPhone 15 Pro" over an iPhone 17 would be a claim about the device. */
+      { label: "Show device frame", checked: frame.kind === "framed",
+        title: shownAs ? `Shown in an ${shownAs}` : "Shown in a frame Realm draws",
+        onSelect: () => frame.set(frame.kind === "framed" ? "none" : "framed") },
+      { kind: "separator" },
+      /* Stops the STREAM, not the device — the simulator stays booted, because it is usually somebody's
+         Xcode session and a pane is not a reason to take it away. */
+      { label: physical ? "Stop streaming this phone" : "Stop streaming", icon: <Icon name="stop" size={14} />,
+        title: physical ? "Realm's test runner comes off the phone" : "The simulator stays booted",
+        onSelect: () => run(async () => {
+          const r = await rpc().call("simulators.stop", { simulatorId });
+          applySimulatorState(r.state);
+        }) },
+    ];
+  };
+
+  return (<>
+    <button ref={btn} type="button" className="icon-btn" aria-label="More device controls" title="More"
+      aria-haspopup="menu" aria-expanded={open}
+      onClick={() => {
+        if (open) { setOpen(false); return; }
+        setView("more"); setOpen(true); apps.load(); if (!physical) device.load();
+      }}>
+      <Icon name="more" size={14} />
+    </button>
+    {open && <Menu items={rows()} anchorRef={btn} align="right" label="More device controls" onClose={() => { setOpen(false); setView("more"); }} />}
+  </>);
+}
 
 /** What each UI option is called in the menu, and what each of its values is called. serve-sim's own
  *  kebab-case is a CLI's vocabulary; these are the words the Simulator's Features menu uses. */
@@ -217,33 +221,39 @@ const TOGGLES = ["reduce-motion", "increase-contrast", "reduce-transparency", "s
  *
  * One menu rather than a row of controls, because none of these is a thing anyone does twice a
  * minute — they are the Simulator's own Features and Settings menus, which is where a developer
- * already looks for them. The values are read from the DEVICE each time it opens: these are
- * simulator-wide, Xcode can change them from under this pane, and a menu drawn from a copy taken
- * when the pane opened would be a menu that lies about the phone in front of you.
+ * already looks for them. The values are read from the DEVICE each time the overflow opens: these are
+ * simulator-wide, Xcode can change them from under this pane, and a menu drawn from a copy taken when
+ * the pane opened would be a menu that lies about the phone in front of you.
  */
-function DeviceMenu({ item }: { item: Item }) {
-  const [open, setOpen] = useState(false);
+function useDeviceRows(simulatorId: string, wsUrl: string | null, up: () => void) {
   const [ui, setUi] = useState<SimulatorUiState | null>(null);
+  const [unread, setUnread] = useState<string | null>(null);
   const [events, setEvents] = useState<SimulatorEvent[] | null>(null);
   const run = useApp((s) => s.run);
-  const wsUrl = useApp((s) => s.simulatorState[item.refId]?.wsUrl ?? null);
-  const btn = useRef<HTMLButtonElement>(null);
 
-  const load = () => run(async () => { setUi((await rpc().call("simulators.ui", { simulatorId: item.refId })).ui); });
+  const load = () => {
+    setEvents(null);
+    setUi(null);
+    setUnread(null);
+    rpc().call("simulators.ui", { simulatorId }).then((r) => setUi(r.ui), (e: unknown) => setUnread(e instanceof Error ? e.message : String(e)));
+  };
   const set = (option: string, value: string) => run(async () => {
-    const r = await rpc().call("simulators.setUi", { simulatorId: item.refId, option, value });
+    const r = await rpc().call("simulators.setUi", { simulatorId, option, value });
     setUi(r.ui);
     // The CLI prints its own accepted set when it refuses; that sentence says more than any of ours.
     if (!r.ok && r.detail) throw new Error(r.detail);
   });
   const poke = (p: { kind: "memory-warning" } | { kind: "ca-debug"; option: (typeof SIMULATOR_CA_DEBUG)[number]; on: boolean }) =>
     run(async () => {
-      const r = await rpc().call("simulators.poke", { simulatorId: item.refId, poke: p });
+      const r = await rpc().call("simulators.poke", { simulatorId, poke: p });
       if (!r.ok && r.detail) throw new Error(r.detail);
     });
 
-  const items = (): MenuItem[] => {
-    const out: MenuItem[] = [];
+  const rows = (): MenuItem[] => {
+    const out: MenuItem[] = [{ label: "← Device settings", keepOpen: true, onSelect: up }];
+    // Its settings are the DEVICE's, read as the overflow opened: a device that did not answer leaves
+    // every row unticked, and this line says why rather than letting them read as all off.
+    if (unread !== null) out.push({ label: `The device did not say how it is set: ${unread}`, disabled: true, onSelect: () => {} });
     /* Appearance and Liquid Glass first: they change what every screenshot of this device looks
        like, which is what most people open this menu for. */
     for (const option of ["appearance", "liquid-glass", "color-filter"] as const) {
@@ -289,9 +299,9 @@ function DeviceMenu({ item }: { item: Item }) {
     });
 
     out.push({ kind: "separator" });
-    /* The Action button lives here rather than in the bar: it exists only on the Pro phones and the
-       watch, and a permanent control that does nothing on most devices is chrome that lies. In a
-       menu it is one line among the device's other oddities, which is what it is. */
+    /* The Action button lives here rather than with the other buttons: it exists only on the Pro
+       phones and the watch, and a control that does nothing on most devices is chrome that lies. In
+       this menu it is one line among the device's other oddities, which is what it is. */
     out.push({ label: "Action button", onSelect: () => pressOnce(wsUrl, buttonFrame("action")) });
     out.push({ label: "Simulate memory warning", onSelect: () => poke({ kind: "memory-warning" }) });
 
@@ -304,14 +314,14 @@ function DeviceMenu({ item }: { item: Item }) {
       onSelect: () => run(async () => {
         const text = await navigator.clipboard.readText();
         if (!text) throw new Error("This Mac's clipboard is empty.");
-        const r = await rpc().call("simulators.act", { simulatorId: item.refId, act: { kind: "paste", text } });
+        const r = await rpc().call("simulators.act", { simulatorId, act: { kind: "paste", text } });
         if (!r.ok && r.detail) throw new Error(r.detail);
       }),
     });
     out.push({
       label: "Copy the device's clipboard",
       onSelect: () => run(async () => {
-        const r = await rpc().call("simulators.act", { simulatorId: item.refId, act: { kind: "copy" } });
+        const r = await rpc().call("simulators.act", { simulatorId, act: { kind: "copy" } });
         if (!r.ok) throw new Error(r.detail || "the device would not say what is on its pasteboard");
         await navigator.clipboard.writeText(r.text ?? "");
       }),
@@ -323,7 +333,7 @@ function DeviceMenu({ item }: { item: Item }) {
         // A scheme is the whole test: `simctl openurl` takes a deep link as readily as a web page,
         // and refusing anything without one is what keeps a copied paragraph from becoming a search.
         if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) throw new Error("This Mac's clipboard does not hold a link.");
-        const r = await rpc().call("simulators.act", { simulatorId: item.refId, act: { kind: "open-url", url } });
+        const r = await rpc().call("simulators.act", { simulatorId, act: { kind: "open-url", url } });
         if (!r.ok && r.detail) throw new Error(r.detail);
       }),
     });
@@ -334,7 +344,7 @@ function DeviceMenu({ item }: { item: Item }) {
     out.push({ kind: "separator" });
     if (events === null) {
       out.push({ label: "Recent events", keepOpen: true, onSelect: () => run(async () => {
-        setEvents((await rpc().call("simulators.events", { simulatorId: item.refId, limit: 12 })).events);
+        setEvents((await rpc().call("simulators.events", { simulatorId, limit: 12 })).events);
       }) });
     } else if (events.length === 0) {
       out.push({ label: "Nothing has happened yet", disabled: true, onSelect: () => {} });
@@ -344,21 +354,14 @@ function DeviceMenu({ item }: { item: Item }) {
     return out;
   };
 
-  return (<>
-    <button ref={btn} className="icon-btn" aria-label="Device settings" title="Device settings"
-      aria-haspopup="menu" aria-expanded={open}
-      onClick={() => { setOpen(true); setEvents(null); void load(); }}>
-      <Icon name="settings" size={14} />
-    </button>
-    {open && <Menu items={items()} anchorRef={btn} align="right" onClose={() => setOpen(false)} label="Device settings" />}
-  </>);
+  return { load, rows };
 }
 
 /**
  * One frame down the device's own socket, from a control that holds no connection of its own.
  *
  * Open, send, close — what the `serve-sim` CLI does for the same commands, and right for this shape
- * of thing: a button press is a whole interaction, and a bar that held a socket open for a button
+ * of thing: a button press is a whole interaction, and a toolbar that held a socket open for a button
  * nobody has pressed yet would hold one open for every simulator pane in the window.
  */
 function pressOnce(wsUrl: string | null, frame: Uint8Array): void {
@@ -382,27 +385,30 @@ function pressOnce(wsUrl: string | null, frame: Uint8Array): void {
  * Launch, permissions and the camera all live here together because all three take the same first
  * question — WHICH app — and asking it once is the difference between a menu and a form.
  */
-function AppsMenu({ item, physical }: { item: Item; physical: boolean }) {
-  const [open, setOpen] = useState(false);
+function useAppRows(simulatorId: string, physical: boolean, up: () => void) {
   const [apps, setApps] = useState<SimulatorApp[] | null>(null);
   const [app, setApp] = useState<SimulatorApp | null>(null);
   const [permission, setPermission] = useState<string | null>(null);
+  const [unread, setUnread] = useState<string | null>(null);
   const run = useApp((s) => s.run);
   const pickFiles = useApp((s) => s.pickFiles);
-  const btn = useRef<HTMLButtonElement>(null);
 
-  const load = () => run(async () => { setApps((await rpc().call("simulators.apps", { simulatorId: item.refId })).apps); });
+  const load = () => {
+    setApps(null); setApp(null); setPermission(null); setUnread(null);
+    rpc().call("simulators.apps", { simulatorId }).then((r) => setApps(r.apps), (e: unknown) => setUnread(e instanceof Error ? e.message : String(e)));
+  };
   const act = (a: SimulatorAct) => run(async () => {
-    const r = await rpc().call("simulators.act", { simulatorId: item.refId, act: a });
+    const r = await rpc().call("simulators.act", { simulatorId, act: a });
     if (!r.ok && r.detail) throw new Error(r.detail);
   });
 
-  const items = (): MenuItem[] => {
-    if (apps === null) return [{ label: "Reading the device…", disabled: true, onSelect: () => {} }];
+  const rows = (): MenuItem[] => {
     if (app === null) {
+      const head: MenuItem[] = [{ label: "← Apps", keepOpen: true, onSelect: up }, { kind: "separator" }];
+      if (apps === null) return [...head, { label: unread === null ? "Reading the device…" : `The device did not list its apps: ${unread}`, disabled: true, onSelect: () => {} }];
       return apps.length === 0
-        ? [{ label: "No apps on this device", disabled: true, onSelect: () => {} }]
-        : apps.map((a) => ({ label: a.name, title: a.bundleId, keepOpen: true, onSelect: () => setApp(a) }));
+        ? [...head, { label: "No apps on this device", disabled: true, onSelect: () => {} }]
+        : [...head, ...apps.map((a) => ({ label: a.name, title: a.bundleId, keepOpen: true, onSelect: () => setApp(a) }))];
     }
     if (permission !== null) {
       /* Grant, revoke, reset — actions rather than a checkbox. `permissions list` answers with raw
@@ -439,7 +445,7 @@ function AppsMenu({ item, physical }: { item: Item; physical: boolean }) {
           const picked = await pickFiles();
           const path = picked[0]?.path;
           if (!path) return; // cancelled
-          const r = await rpc().call("simulators.act", { simulatorId: item.refId, act: { kind: "camera", bundleId: app.bundleId, source: { kind: "file", path } } });
+          const r = await rpc().call("simulators.act", { simulatorId, act: { kind: "camera", bundleId: app.bundleId, source: { kind: "file", path } } });
           if (!r.ok && r.detail) throw new Error(r.detail);
         }),
       },
@@ -451,12 +457,5 @@ function AppsMenu({ item, physical }: { item: Item; physical: boolean }) {
     ];
   };
 
-  return (<>
-    <button ref={btn} className="icon-btn" aria-label="Apps on this device" title="Apps"
-      aria-haspopup="menu" aria-expanded={open}
-      onClick={() => { setOpen(true); setApp(null); setPermission(null); void load(); }}>
-      <Icon name="layoutGrid" size={14} />
-    </button>
-    {open && <Menu items={items()} anchorRef={btn} align="right" onClose={() => setOpen(false)} label="Apps on this device" />}
-  </>);
+  return { load, rows };
 }

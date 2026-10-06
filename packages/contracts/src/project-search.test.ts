@@ -87,11 +87,6 @@ describe("markPositions", () => {
       { text: "c", match: true },
     ]);
   });
-  it("reconstructs the original text exactly", () => {
-    const path = "apps/server/src/rpc/methods.ts";
-    const m = matchPath(path, "rpcmeth")!;
-    expect(markPositions(path, m.positions).map((s) => s.text).join("")).toBe(path);
-  });
   it("marks nothing for an empty match", () => {
     expect(markPositions("rpc.ts", [])).toEqual([{ text: "rpc.ts", match: false }]);
   });

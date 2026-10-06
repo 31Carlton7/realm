@@ -1,6 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useRef } from "react";
 import { CommandCopy } from "../../components/CommandCopy";
+import { useDissolve } from "../../components/ScrollFades";
 import type { AgentAvailability } from "../../state/agent-availability";
 import type { CliJob } from "../../state/store";
 
@@ -44,6 +45,7 @@ export function InstallCard({ availability, onRetry, onOpenInTerminal, offer, jo
 }) {
   const { title, reason, command, state } = availability;
   const tail = useRef<HTMLPreElement>(null);
+  useDissolve(tail);
   useEffect(() => { const el = tail.current; if (el) el.scrollTop = el.scrollHeight; }, [job?.output]);
   // Window focus re-probe: the whole point of this card is that the fix can happen in another app.
   // Still true now that Realm can install one itself — Homebrew, a downloaded binary and a login all

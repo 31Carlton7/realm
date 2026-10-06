@@ -1,11 +1,13 @@
 import { z } from "zod";
 import {
-  BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserReadKindSchema, CREDENTIAL_2FA_NOTE,
-  DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, UPLOAD_MAX_FILES, formatUploadSize,
-  type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult,
-  type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserNavigateResult,
-  type BrowserReadResult, type BrowserScreenshotResult, type BrowserSnapshotResult,
-  type BrowserUploadResult, type Browser,
+  BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserGeneratedCredentialSchema, BrowserReadKindSchema,
+  CREDENTIAL_2FA_NOTE, DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, GENERATED_CREDENTIAL_NOTE,
+  GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
+  SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize, loadErrorLine, normalizeOrigin,
+  type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult,
+  type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserFillCredentialResult,
+  type BrowserNavigateResult, type BrowserReadResult, type BrowserScreenshotResult,
+  type BrowserSnapshotResult, type BrowserUploadResult, type Browser,
 } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
@@ -71,6 +73,13 @@ export type BrowserAgentToolsDeps = {
    * should show more, not less.
    */
   documents?: { rootForSpace(spaceId: string): string | null };
+  /**
+   * The profile a space belongs to (Plan 27 Phase 2). Saved sign-ins are kept per profile in main, and
+   * the credential tools name the session's profile on every call, so an agent in a Work space is
+   * offered Work's sign-ins and nothing of Personal's. Absent, or null for a space that is gone: the
+   * tools then name no profile, and main answers as for a profile with nothing saved.
+   */
+  profileOf?: (spaceId: string) => string | null;
   browserService: Pick<BrowserService, "open">;
   mcp: Pick<McpService, "providerEnabled">;
   bridge: Pick<BrowserHostBridge, "call">;
@@ -218,21 +227,34 @@ const TOOLS: Tool[] = [
   {
     name: "browser_credentials",
     description:
-      "List the sign-ins the user has saved in Realm's Settings for this machine: id, origin, username and label. Never returns passwords — Realm cannot give you one. Use an id with browser_fill_credential. Read-only.",
+      "List the sign-ins saved on this machine — the user's own, from Realm's Settings, plus any Realm generated for an earlier browser_fill_credential: id, origin, username, label. Never returns passwords — Realm cannot give you one. Use an id with browser_fill_credential. Read-only.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "browser_fill_credential",
     description:
-      "Type a saved sign-in into a field, without ever seeing it. Give the [ref=N] of the username or password field and a credentialId from browser_credentials. Realm checks the pane's current origin against the one the credential was saved for and refuses if they differ, asks the user to approve this specific fill, and requires Touch ID — every time. You never receive the value and cannot read it back. Two-factor prompts (Duo, Okta, an emailed code) are not automated: hand those to the user.",
+      "Type a password into a field without ever seeing it — either one the user saved, or a new one Realm generates for this page. Give the [ref=N] of the username or password field, plus EITHER credentialId (from browser_credentials) OR generate (to have Realm mint a strong password, save it under Settings → Sign-ins, and fill it). " +
+      "Both work the same way: Realm checks the pane's current origin, refuses if it is not the page the sign-in belongs to, asks the user to approve this specific fill, and requires Touch ID — every time. You never receive the value and cannot read it back, so generate is the way to set a password on a sign-up form: never put one in your reply for the user to copy. " +
+      "A generated fill returns its new credentialId, which you use to fill the same value again (a confirm-password field, or signing in later). Two-factor prompts (Duo, Okta, an emailed code) are not automated: hand those to the user.",
     inputSchema: {
       type: "object",
       properties: {
         browserId: { type: "string" },
         ref: { type: "number", description: "the field's ref from browser_snapshot" },
-        credentialId: { type: "string", description: "id from browser_credentials" },
+        credentialId: { type: "string", description: "id from browser_credentials — omit when generating" },
+        generate: {
+          type: "object",
+          description: "ask Realm to mint a new password for the page this pane is on, instead of filling a saved one. The origin is Realm's to decide: it comes from the pane, never from you.",
+          properties: {
+            username: { type: "string", description: "the account this password is for, shown on the approval card and in Settings" },
+            label: { type: "string", description: "a short note for the user, shown beside the sign-in in Settings" },
+            length: { type: "number", description: `how many characters (${GENERATED_PASSWORD_MIN_LENGTH}–${GENERATED_PASSWORD_MAX_LENGTH}, default ${GENERATED_PASSWORD_LENGTH}) — lower it only when the site caps the length` },
+            symbols: { type: "boolean", description: "include punctuation (default true) — turn it off only when the site rejects it" },
+          },
+          additionalProperties: false,
+        },
       },
-      required: ["browserId", "ref", "credentialId"],
+      required: ["browserId", "ref"],
       additionalProperties: false,
     },
   },
@@ -324,7 +346,12 @@ const DownloadArgs = z.object({ browserId: z.string().min(1), ref: z.number().in
 const FillCredentialArgs = z.object({
   browserId: z.string().min(1),
   ref: z.number().int().positive(),
-  credentialId: z.string().min(1),
+  credentialId: z.string().min(1).optional(),
+  generate: BrowserGeneratedCredentialSchema.optional(),
+}).refine((args) => (args.credentialId === undefined) !== (args.generate === undefined), {
+  // Exactly one, never both: the two mean different things about where the value comes from, and a
+  // call that named both would be one whose author had not decided.
+  message: "give either credentialId (to fill a saved sign-in) or generate (to have Realm mint a new password for this page) — exactly one",
 });
 const UploadArgs = z.object({
   browserId: z.string().min(1),
@@ -346,7 +373,9 @@ const HANDLERS: Record<string, Handler> = {
     if (rows.length === 0) return ok("No browser panes in this space. Use browser_open(url) to open one.");
     const lines = await Promise.all(rows.map(async (row) => {
       const live = await describeSafe(d, row.id);
-      const state = live === null ? "app not connected" : live.open ? `open, url: ${live.url || "(blank)"}` : "pane not open in the app";
+      const state = live === null ? "app not connected"
+        : live.open ? `open, url: ${live.url || "(blank)"}${live.loadError ? ` — did not load (${live.loadError.name})` : ""}`
+        : "pane not open in the app";
       return `browserId: ${row.id} — ${state}${row.url && (!live?.open) ? ` (last url: ${row.url})` : ""}`;
     }));
     return ok(`Browser panes in this space:\n${lines.join("\n")}`);
@@ -367,7 +396,7 @@ const HANDLERS: Record<string, Handler> = {
        created the pane — "Open a browser pane at https://…" printed inside that very pane, with a
        timestamp, restates the address bar an inch above it. `browser.agentOpened` already tells the
        renderer the pane exists, which is the part it cannot infer. */
-    d.rpc.broadcast("browser.agentOpened", { spaceId: ctx.spaceId, browserId: opened.browserId, itemId: opened.itemId });
+    d.rpc.broadcast("browser.agentOpened", { spaceId: ctx.spaceId, browserId: opened.browserId, itemId: opened.itemId, openedBy: ctx.sessionId });
     return ok(`Opened browser pane ${opened.browserId} at ${url}. The page renders in the app's pane; use browser_snapshot to read it once loaded.`);
   },
 
@@ -396,6 +425,7 @@ const HANDLERS: Record<string, Handler> = {
     const snap = (await d.bridge.call("snapshot", { browserId: row.value.id })) as BrowserSnapshotResult;
     // What the agent is shown is what its next act chooses from, and the page its last act left.
     if (d.observe) d.reads.remember(ctx.sessionId, row.value.id, (snap.elements ?? []).map((e) => observedOf(walkElementOf(e))));
+    if (snap.loadError) return ok(loadErrorReport(snap.loadError, snap.page?.loading === true));
     const head = `Snapshot of ${snap.url} — ${snap.elementCount} interactive element(s). Lines are "[ref=N] role \\"name\\" …"; changed-since-last-snapshot lines end with [new].`;
     return ok(`${head}\n${fenceUntrusted(`title: ${snap.title}\n${snap.text}`)}`);
   },
@@ -404,6 +434,7 @@ const HANDLERS: Record<string, Handler> = {
     const args = parseArgs(ReadArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const result = (await d.bridge.call("read", { browserId: row.value.id, kind: args.value.kind })) as BrowserReadResult;
+    if (result.loadError) return ok(loadErrorReport(result.loadError, false));
     return ok(`${args.value.kind} of browser ${row.value.id}:\n${fenceUntrusted(result.text || "(empty)")}`);
   },
 
@@ -411,7 +442,10 @@ const HANDLERS: Record<string, Handler> = {
     const args = parseArgs(BrowserIdArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const shot = (await d.bridge.call("screenshot", { browserId: row.value.id })) as BrowserScreenshotResult;
-    return { content: [{ type: "image", data: shot.data, mimeType: shot.mimeType }], isError: false };
+    const image = { type: "image" as const, data: shot.data, mimeType: shot.mimeType };
+    // The picture is of the empty document a failed load leaves, so the words go first.
+    if (shot.loadError) return { content: [{ type: "text", text: loadErrorReport(shot.loadError, false) }, image], isError: false };
+    return { content: [image], isError: false };
   },
 
   browser_act: async (d, ctx, rawArgs) => {
@@ -480,13 +514,14 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   browser_credentials: async (d, ctx) => {
-    const rows = await listCredentials(d);
+    const rows = await listCredentials(d, ctx);
     if (rows.length === 0) {
-      return ok("No saved sign-ins. The user adds them in Realm's Settings → Sign-ins; there is no way for you to create one, and no tool that could.");
+      return ok("No saved sign-ins. The user adds their own in Realm's Settings → Sign-ins, and there is no way for you to enroll a password of theirs. What you can do is have Realm make one: browser_fill_credential with `generate` mints a password for the page a pane is on, saves it here and types it, without ever telling you the value.");
     }
-    // The user's own words from Settings, not page-authored text, so no `fenceUntrusted` — but still
-    // clipped, because a long label in a tool result is a long label in the model's context.
-    const lines = rows.map((c) => `credentialId: ${c.id} — ${c.origin}${c.username ? ` · ${c.username}` : ""}${c.label ? ` · ${clip(c.label, 60)}` : ""}`);
+    // The user's own words from Settings (or, for a generated row, the ones an earlier call asked
+    // for) — not page-authored text, so no `fenceUntrusted`, but still clipped, because a long label
+    // in a tool result is a long label in the model's context.
+    const lines = rows.map((c) => `credentialId: ${c.id} — ${c.origin}${c.username ? ` · ${c.username}` : ""}${c.label ? ` · ${clip(c.label, 60)}` : ""}${c.generated ? " · generated by Realm" : ""}`);
     return ok(`Saved sign-ins (no passwords — Realm cannot show you one):\n${lines.join("\n")}\n\n${CREDENTIAL_2FA_NOTE}`);
   },
 
@@ -494,15 +529,57 @@ const HANDLERS: Record<string, Handler> = {
     const args = parseArgs(FillCredentialArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_fill_credential"); if (limited) return err(limited);
+    const live = await describeSafe(d, row.value.id);
+
+    const generate = args.value.generate;
+    if (generate) {
+      // The origin a new sign-in is pinned to is READ OFF THE PANE, never taken from the agent — see
+      // `BrowserGeneratedCredentialSchema`. It is what the card names, and Electron main checks it
+      // again against the live page before typing, so an approval cannot outlive a navigation.
+      const origin = normalizeOrigin(live?.url ?? "");
+      if (!origin) {
+        return err("refused: this pane is not on an http(s) page, so there is no site for Realm to pin a new sign-in to. Navigate to the page that asks for the password first.");
+      }
+      // `username` and `label` are the AGENT's words here, unlike a saved sign-in's, so the card
+      // attributes them rather than saying them in Realm's voice — and clips them, because a
+      // permission title is not somewhere a caller gets to write a paragraph.
+      const named = [clip(generate.username, 60), clip(generate.label, 40)].filter(Boolean).join(" · ");
+      const title =
+        `Create a new saved password for ${origin}${named ? ` — the agent labels it "${named}"` : ""} and fill it into the page on ${hostOf(live?.url)}. `
+        + GENERATED_CREDENTIAL_NOTE;
+      // The same always-prompt gate as an enrolled fill, for the same reason: a secret is entering a
+      // page. That the user has never seen this one does not make the card optional — it is the only
+      // place they learn an account is about to exist with a password only Realm will hold.
+      const gate = await d.broker.gate(
+        ctx.sessionId, "browser_fill_credential", title,
+        { browserId: row.value.id, ref: args.value.ref, origin, username: generate.username, label: generate.label, generate: true },
+        "browser_fill_credential", { alwaysPrompt: true },
+      );
+      if (!gate.allowed) return err(gate.reason);
+
+      return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
+        // The profile of the calling session's space, as the enrolled route sends: the new row joins
+        // that profile's sign-ins, and main refuses a pane whose cookie jar is another profile's.
+        const result = (await d.bridge.call("fillCredential", {
+          browserId: row.value.id, ref: args.value.ref, origin, generate, profileId: profileIdOf(d, ctx),
+        })) as BrowserFillCredentialResult;
+        // No screenshot on failure here either: the field may hold what was typed into it.
+        if (!result.ok) return err(`no password was generated or filled: ${result.error}`);
+        return ok(
+          `${result.detail}${result.credentialId ? `, as credentialId ${result.credentialId}` : ""}. `
+          + "Use that id to fill the same password again — a confirm-password field takes the same call. "
+          + "You cannot read the value and neither can the user, so do not offer to tell them what it is: it is in Realm's Settings → Sign-ins, and the site's own reset is the way back if they ever need it elsewhere.",
+        );
+      });
+    }
 
     // The card is built from the CREDENTIAL's stored metadata (the user's own words, typed in
     // Settings) and the pane's live URL — never the page's text, and never the value. If the id is
     // unknown, say so now: a prompt for a credential that does not exist teaches nothing.
-    const credential = (await listCredentials(d)).find((c) => c.id === args.value.credentialId);
+    const credential = (await listCredentials(d, ctx)).find((c) => c.id === args.value.credentialId);
     if (!credential) {
       return err("refused: no saved sign-in has that id. browser_credentials lists what exists; the user enrolls new ones in Realm's Settings → Sign-ins.");
     }
-    const live = await describeSafe(d, row.value.id);
     const title = `Fill the saved sign-in for ${credential.origin}${credential.username ? ` (${credential.username})` : ""}${credential.label ? ` — ${clip(credential.label, 40)}` : ""} into the page on ${hostOf(live?.url)}`;
     // `alwaysPrompt`: this card appears for every fill in every mode, and answering "always" to it
     // licenses nothing. See `GateOptions`.
@@ -517,7 +594,7 @@ const HANDLERS: Record<string, Handler> = {
 
     return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
       const result = (await d.bridge.call("fillCredential", {
-        browserId: row.value.id, ref: args.value.ref, credentialId: credential.id,
+        browserId: row.value.id, ref: args.value.ref, credentialId: credential.id, profileId: profileIdOf(d, ctx),
       })) as BrowserActResult;
       // No screenshot on failure, unlike `runAct`. A shot taken microseconds after a fill can contain
       // the filled field, and some sites render the value in plain text on the way to masking it.
@@ -674,7 +751,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_open", url); if (limited) return err(limited);
     const opened = d.browserService.open({ spaceId: ctx.spaceId, url });
     // Same as `browser_open` above: opening the pane IS the visible event, so it gets no tick.
-    d.rpc.broadcast("browser.agentOpened", { spaceId: ctx.spaceId, browserId: opened.browserId, itemId: opened.itemId });
+    d.rpc.broadcast("browser.agentOpened", { spaceId: ctx.spaceId, browserId: opened.browserId, itemId: opened.itemId, openedBy: ctx.sessionId });
     return ok(`Opened browser pane ${opened.browserId} at ${url}.`);
   }
   if (tool === "browser_navigate") {
@@ -895,6 +972,16 @@ export function spaceDownloadDir(projects: Pick<ProjectsStore, "list">, spaceId:
 }
 
 const downloadDir = (d: Deps, spaceId: string): string | null => spaceDownloadDir(d.projects, spaceId);
+
+/**
+ * Where a pane's screenshots land: the space's own folder, under `screenshots/`. Beside
+ * `spaceDownloadDir` so the two rules for "where does a browser pane put a file" are read together.
+ * Null for a space that is not there — never a guess at somewhere else.
+ */
+export function spaceScreenshotDir(spaces: { get(id: string): { folderPath: string } | null | undefined }, spaceId: string): string | null {
+  const folder = spaces.get(spaceId)?.folderPath;
+  return folder ? join(folder, SCREENSHOT_DIRNAME) : null;
+}
 
 const noDestination =
   "refused: this space has no project, so there is nowhere for a download to land where the user would see it. Add a project to the space first (its folder is where downloads go, and they show up in the diff pane).";
@@ -1117,14 +1204,18 @@ const textOf = (r: CallToolResult): string =>
  *  so there is nothing here to strip. An app that is not running answers with an empty list rather
  *  than a bridge error: "no sign-ins are available" is true either way, and the distinction is not
  *  one the agent could act on. */
-async function listCredentials(d: Deps): Promise<BrowserCredential[]> {
+async function listCredentials(d: Deps, ctx: ProviderCallContext): Promise<BrowserCredential[]> {
   try {
-    const result = (await d.bridge.call("credentials", {})) as { credentials?: BrowserCredential[] };
+    const result = (await d.bridge.call("credentials", { profileId: profileIdOf(d, ctx) })) as { credentials?: BrowserCredential[] };
     return Array.isArray(result?.credentials) ? result.credentials : [];
   } catch {
     return [];
   }
 }
+
+/** The calling session's profile, which is whose saved sign-ins main may offer — "" when it cannot be
+ *  said, which main answers as a profile with nothing saved rather than as anybody's. */
+const profileIdOf = (d: Deps, ctx: ProviderCallContext): string => d.profileOf?.(ctx.spaceId) ?? "";
 
 
 /** The browser must exist AND belong to the calling session's space — a browserId from another space
@@ -1197,6 +1288,20 @@ async function refuseSimulatorStream(d: Deps, ctx: ProviderCallContext, url: str
     `refused: ${url} is serve-sim's stream of the simulator ${udid}, and Realm shows simulators in a pane of its own. `
     + `Call simulator_open with udid "${udid}" instead — it opens that device beside this session and adopts this same stream, so nothing needs starting or stopping.`,
   );
+}
+
+/**
+ * A page that did not load, in Realm's own words — outside the untrusted fence, because nothing in it
+ * is the page's: the code is Chromium's and the sentence is the one the pane's error page shows
+ * (`describeLoadError`). The agent is told what is on screen in the page's place, and how to try
+ * again, because there is no element to act on and no text to read.
+ */
+function loadErrorReport(e: BrowserLoadError, loading: boolean): string {
+  const next = loading
+    ? "The pane is loading again — take another browser_snapshot once it has finished."
+    : "browser_navigate to the same address tries again.";
+  return `The page at ${e.url} did not load. ${loadErrorLine(e)}\n`
+    + `The pane shows Realm's error page in its place, so there is nothing on the page to read or act on. ${next}`;
 }
 
 function refuseOAuth(url: string): CallToolResult | null {

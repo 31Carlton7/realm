@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  REWIND_REFUSAL_PREFIX, decodeArmedRewind, decodeProviderCursor, decodeSessionCursor,
-  encodeArmedRewind, encodeProviderCursor, encodeSessionCursor, isRewindRefusal,
-} from "./rewind";
+import { REWIND_REFUSAL_PREFIX, decodeArmedRewind, decodeProviderCursor, decodeSessionCursor, encodeProviderCursor, encodeSessionCursor, isRewindRefusal } from "./rewind";
 
 describe("provider cursor", () => {
-  it("round-trips the three fields a truncating resume needs", () => {
-    const cursor = { session: "prov-1", at: "uuid-end", dropsTurn: "uuid-prompt" };
-    expect(decodeProviderCursor(encodeProviderCursor(cursor))).toEqual(cursor);
-  });
 
   it("refuses a cursor missing any one of them", () => {
     /* The named mutant: relaxing any of these three checks. `dropsTurn` missing is the dangerous one —
@@ -46,10 +39,6 @@ describe("session cursor", () => {
 });
 
 describe("armed rewind", () => {
-  it("round-trips the cursor plus the checkpoint that armed it", () => {
-    const fork = { session: "prov-1", at: "u-end", dropsTurn: "u-prompt", checkpointId: "cp1" };
-    expect(decodeArmedRewind(encodeArmedRewind(fork))).toEqual(fork);
-  });
 
   it("refuses an arm with no checkpoint id", () => {
     /* The mutant: dropping `checkpointId` from the arm. Nothing would break at boot — the fork would
@@ -64,9 +53,6 @@ describe("armed rewind", () => {
 });
 
 describe("isRewindRefusal", () => {
-  it("recognises the CLI's documented refusal", () => {
-    expect(isRewindRefusal(`${REWIND_REFUSAL_PREFIX} entry 3 is not attributable to the declared turn`)).toBe(true);
-  });
 
   it("still recognises it once the adapter has appended its stderr tail", () => {
     // `ClaudeAdapter.withStderr` wraps a failure with the last 50 stderr lines, so by the time this

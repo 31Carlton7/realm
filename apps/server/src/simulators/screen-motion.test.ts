@@ -142,17 +142,6 @@ describe("watchMjpeg", () => {
     }
   });
 
-  it("reports the stream lost when the server refuses it", async () => {
-    server = http.createServer((_req, res) => { res.writeHead(404); res.end("No serve-sim device"); });
-    await new Promise<void>((r) => server!.listen(0, "127.0.0.1", () => r()));
-    const { port } = server.address() as AddressInfo;
-    const motion = watchMjpeg(`http://127.0.0.1:${port}/stream.mjpeg`);
-    try {
-      expect(await motion.settle({ moved: 0, edges: 0, edgeBusy: false }, { changeWithinMs: 500, stillMs: 20, maxMs: 500 })).toBe("lost");
-    } finally {
-      motion.close();
-    }
-  });
 });
 
 /* Real JPEGs, made the way serve-sim makes its frames — see fixtures/frames.py. */

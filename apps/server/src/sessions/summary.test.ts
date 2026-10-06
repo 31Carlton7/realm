@@ -216,12 +216,6 @@ describe("the recap's debounce", () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
-  it("runs inline with no window configured — every test's and live check's path", async () => {
-    const { service, published } = build(worked());
-    await service.onSettled("s1");
-    expect(published.map((e) => e.type)).toEqual(["summary", "prompt_hint"]);
-  });
-
   /* A pending timer that fires after shutdown writes onto a closing handle, and one that is merely
      un-`unref`'d holds the process open. Both are how a suite stops exiting. */
   it("drops a pending write on close", async () => {

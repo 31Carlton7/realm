@@ -1,16 +1,23 @@
-import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type McpServer, type Skill } from "@realm/contracts";
-import { Icon } from "@realm/ui";
-import { useEffect, useState } from "react";
-import { useApp, type ProfilePageTab } from "../../state/store";
+import { MCP_SECRET_STORAGE_NOTE, SPACE_COLORS, type McpServer, type Profile, type Skill } from "@realm/contracts";
+import { Icon, type IconName } from "@realm/ui";
+import { useEffect, useRef, useState } from "react";
+import { useApp, type ProfilePageTab, type ProfileUsage } from "../../state/store";
 import { MoveScopeConfirm } from "../../components/scoped/ScopeGroups";
 import { McpServerForm } from "../../components/sidebar/McpSection";
+import { IconPicker } from "../../components/IconPicker";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import type { PaneProps } from "../registry";
+import { PageRail } from "../../components/page-nav";
+import { PageScroll, useDissolve } from "../../components/ScrollFades";
+import { MemoryDoc } from "../../components/settings/MemoryDoc";
 
-const PROFILE_TABS: { id: ProfilePageTab; label: string }[] = [
-  { id: "skills", label: "Skills" },
-  { id: "connections", label: "Connections" },
-  { id: "memory", label: "Memory" },
+const HEX = /^#[0-9a-f]{6}$/i;
+
+const PROFILE_TABS: { id: ProfilePageTab; label: string; icon: IconName }[] = [
+  { id: "general", label: "General", icon: "settings" },
+  { id: "skills", label: "Skills", icon: "sparkles" },
+  { id: "connections", label: "Connections", icon: "plug" },
+  { id: "memory", label: "Memory", icon: "context" },
 ];
 
 /** The one sentence every pre-scoping row carries here: these rows are governed per space, so the
@@ -36,9 +43,11 @@ export function ProfilePage({ item }: PaneProps) {
   const profile = useApp((s) => s.profiles.find((p) => p.id === space?.profileId));
   const spaces = useApp((s) => s.spaces);
   const selectSpace = useApp((s) => s.selectSpace);
-  const tab = useApp((s) => (profile ? s.profilePageTab[profile.id] : undefined) ?? "skills");
+  const tab = useApp((s) => (profile ? s.profilePageTab[profile.id] : undefined) ?? "general");
   const setProfilePageTab = useApp((s) => s.setProfilePageTab);
   const navigateInPane = useApp((s) => s.navigateInPane); // tabs are stops on the pane's trail
+  const railStrip = useRef<HTMLDivElement>(null);
+  useDissolve(railStrip, "x");
 
   const run = useApp((s) => s.run);
 
@@ -48,21 +57,20 @@ export function ProfilePage({ item }: PaneProps) {
 
   return (
     <div className="page profile-page-pane">
-      <header className="page-head">
-        <div className="page-title"><h1>{profile.name}</h1></div>
-      </header>
       <div className="page-body">
         {/* Two lists, one rail. The page's sections and the profile's spaces are both "where this
             page can take you", and as a chip strip above the head the spaces were a third band that
             read as decoration over the title rather than as navigation beside it. Separate columns
             rather than one, so the gap between them can say "different kind of thing" while the rows
             inside each keep the rail's own rhythm. */}
-        <div className="page-rail">
+        <PageRail label="Profile" back>
+        <div className="page-rail" ref={railStrip}>
           <fieldset className="page-rail-list">
             <legend className="visually-hidden">Profile page section</legend>
             {PROFILE_TABS.map((t) => (
               <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
                 <input type="radio" name={`profile-page-tab-${item.id}`} value={t.id} checked={tab === t.id} onChange={() => { setProfilePageTab(profile.id, t.id); navigateInPane(item.id, t.id); }} />
+                <Icon name={t.icon} size={16} className="page-rail-glyph" />
                 {t.label}
               </label>
             ))}
@@ -82,11 +90,124 @@ export function ProfilePage({ item }: PaneProps) {
             </nav>
           )}
         </div>
-        <div className="page-content">
+        </PageRail>
+        <PageScroll>
+          <header className="page-head">
+            <div className="page-title"><h1>{profile.name}</h1></div>
+          </header>
+          {tab === "general" && <ProfileGeneralTab profile={profile} />}
           {tab === "skills" && <ProfileSkillsTab spaceId={spaceId} profileId={profile.id} profileName={profile.name} spaceName={space.name} />}
           {tab === "connections" && <ProfileConnectionsTab spaceId={spaceId} profileId={profile.id} profileName={profile.name} spaceName={space.name} />}
           {tab === "memory" && <ProfileMemoryTab profileId={profile.id} profileName={profile.name} />}
+        </PageScroll>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The General tab (Plan 27 Phase 2): the profile's name, icon and colour, and deleting it. A profile is
+ * an identity now — its own spaces, browser cookies, saved sign-ins and passkeys — so this is where it
+ * is edited, as a space is on its own page.
+ */
+function ProfileGeneralTab({ profile }: { profile: Profile }) {
+  const renameProfile = useApp((s) => s.renameProfile);
+  const updateProfile = useApp((s) => s.updateProfile);
+  const recolourProfile = useApp((s) => s.recolourProfile);
+  const run = useApp((s) => s.run);
+  const [name, setName] = useState(profile.name);
+  const [hex, setHex] = useState(profile.color);
+  useEffect(() => { setName(profile.name); }, [profile.name]);
+  useEffect(() => { setHex(profile.color); }, [profile.color]);
+  const commitName = () => {
+    const n = name.trim();
+    if (n && n !== profile.name) run(() => renameProfile(profile.id, n));
+    else setName(profile.name);
+  };
+  const commitHex = (v: string) => {
+    const h = v.trim().toLowerCase();
+    setHex(h);
+    if (HEX.test(h) && h !== profile.color) run(() => recolourProfile(profile.id, h));
+  };
+  return (
+    <div className="form">
+      <label className="field"><span>Name</span>
+        <input aria-label="Profile name" value={name} onChange={(e) => setName(e.target.value)} onBlur={commitName}
+          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+      </label>
+      <div className="field"><span>Icon</span>
+        <IconPicker icon={profile.icon} profileId={profile.id} onPick={(icon) => run(() => updateProfile({ id: profile.id, icon }))} />
+      </div>
+      <div className="field"><span>Colour</span>
+        <div className="swatches" role="radiogroup" aria-label="Colour">
+          {SPACE_COLORS.map((c) => (
+            <button key={c} type="button" role="radio" aria-checked={profile.color === c} aria-label={`Colour ${c}`} className="swatch"
+              data-selected={profile.color === c || undefined} style={{ background: c }} onClick={() => commitHex(c)} />
+          ))}
+          <input aria-label="Custom colour" className="hex" value={hex} onChange={(e) => commitHex(e.target.value)} placeholder="#rrggbb" spellCheck={false} />
         </div>
+      </div>
+      <DeleteProfile profile={profile} />
+    </div>
+  );
+}
+
+/** "3 spaces and 12 sessions" — what the delete takes, counted, in words. */
+export function usageWords(u: ProfileUsage): string {
+  const spaces = u.spaces === 1 ? "1 space" : `${u.spaces} spaces`;
+  const sessions = u.sessions === 1 ? "1 session" : `${u.sessions} sessions`;
+  return `${spaces} and ${sessions}`;
+}
+
+/**
+ * Deleting a profile, guarded the way the thing it destroys deserves. It takes the profile's spaces and
+ * every session in them — running agents are stopped — and its browser cookies, saved sign-ins and
+ * passkeys. So the confirm says how much, in counts read from the server at the moment it opens, and
+ * asks for the profile's name to be typed: a stray click on the second button of a two-step confirm is
+ * exactly the accident this cannot afford. The last profile is never offered — every space needs one —
+ * and the button says why rather than vanishing.
+ */
+function DeleteProfile({ profile }: { profile: Profile }) {
+  const last = useApp((s) => s.profiles.length <= 1);
+  const profileUsage = useApp((s) => s.profileUsage);
+  const deleteProfile = useApp((s) => s.deleteProfile);
+  const run = useApp((s) => s.run);
+  const [usage, setUsage] = useState<ProfileUsage | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [typed, setTyped] = useState("");
+  const open = () => { setTyped(""); setUsage(null); setAsking(true); void profileUsage(profile.id).then(setUsage, () => setUsage(null)); };
+  if (last) {
+    return (
+      <div className="form-actions danger-zone">
+        <button type="button" className="btn danger" disabled>Delete profile…</button>
+        <span className="muted">This is the only profile, so it can't be deleted. Make another profile first.</span>
+      </div>
+    );
+  }
+  if (!asking) {
+    return (
+      <div className="form-actions danger-zone">
+        <button type="button" className="btn danger" onClick={open}>Delete profile…</button>
+      </div>
+    );
+  }
+  const matches = typed.trim() === profile.name;
+  return (
+    <div className="field danger-zone profile-delete" role="group" aria-label={`Delete ${profile.name}`}>
+      <p className="settings-hint">
+        {usage === null
+          ? `Deleting ${profile.name} deletes its spaces and every session in them.`
+          : `Deleting ${profile.name} deletes its ${usageWords(usage)}.`}{" "}
+        Running agents in them are stopped, and its browser sign-ins, saved sign-ins and passkeys are
+        deleted. Folders on disk are kept.
+      </p>
+      <label className="settings-input-label">Type {profile.name} to confirm
+        <input aria-label={`Type ${profile.name} to confirm`} value={typed} autoComplete="off" spellCheck={false}
+          onChange={(e) => setTyped(e.target.value)} />
+      </label>
+      <div className="form-actions">
+        <button type="button" className="btn" onClick={() => setAsking(false)}>Cancel</button>
+        <button type="button" className="btn danger" disabled={!matches} onClick={() => run(() => deleteProfile(profile.id))}>Delete {profile.name}</button>
       </div>
     </div>
   );
@@ -265,43 +386,40 @@ function ProfileServerRow({ spaceId, server, profileName, spaceName }: { spaceId
   );
 }
 
-const fmt = (n: number): string => n.toLocaleString("en-US");
-
 /**
- * The Memory tab: the profile document at its defining scope, edited in full — no banner, because
- * this page IS the scope the Library's banner editor named. The reach is still SAID (a save lands in
- * every space of the profile), just as page copy rather than a warning about being somewhere else.
- * Cap posture is MemoryPanel's: over MEMORY_DOC_MAX the save is refused with the overage named.
+ * The Memory tab: the profile document at its defining scope, edited in full — the one place it is
+ * edited at all, now that the Library's row shows what it says rather than a second editor. The
+ * reach is still SAID (a save lands in every space of the profile), as page copy rather than a
+ * warning about being somewhere else. Cap posture is MemoryDoc's: over MEMORY_DOC_MAX nothing is
+ * sent, and the overage is named.
  */
 function ProfileMemoryTab({ profileId, profileName }: { profileId: string; profileName: string }) {
   const stored = useApp((s) => s.profileMemory[profileId]);
   const refreshProfileMemory = useApp((s) => s.refreshProfileMemory);
   const saveProfileMemoryDoc = useApp((s) => s.saveProfileMemoryDoc);
   const run = useApp((s) => s.run);
-  const [draft, setDraft] = useState<string | null>(null);
   useEffect(() => { run(() => refreshProfileMemory(profileId)); }, [profileId, refreshProfileMemory, run]);
-  useEffect(() => { setDraft(null); }, [profileId]);
 
   if (!stored) return <div className="form settings-panel"><p className="env-empty">Loading…</p></div>;
-  const text = draft ?? stored.doc;
-  const over = text.length - MEMORY_DOC_MAX;
-  const dirty = draft !== null && draft !== stored.doc;
-
+  const reveal = window.realm?.files?.reveal;
+  // The same page a space's memory is (MemoryDoc), keyed by the profile so a draft never follows
+  // the page from one profile to the next. The reach is page copy, not a banner: this page IS the
+  // defining scope.
   return (
-    <div className="form settings-panel">
-      <div className="field">
-        <span>{profileName} memory</span>
-        <p className="settings-hint">Travels into every new session in every space of {profileName}, injected before each space's own memory. Stored at <code className="env-path">{stored.path}</code>.</p>
-        <textarea className="memory-doc" aria-label={`${profileName} memory document`} value={text} rows={10} spellCheck={false}
-          onChange={(e) => setDraft(e.target.value)}
+    <div className="form settings-panel memory-page">
+      <p className="page-lede">Travels into every new session in every space of {profileName}, injected before each space's own memory.</p>
+      <div className="settings-row scope-doc-row">
+        <MemoryDoc key={profileId} label={`${profileName} memory document`} doc={stored.doc}
+          onSave={(text) => saveProfileMemoryDoc(profileId, text)}
           placeholder={`Durable context for every ${profileName} space — conventions, links, standing instructions…`} />
-        <div className="memory-meta">
-          <span className="settings-hint" data-tone={over > 0 ? "danger" : undefined}>
-            {fmt(text.length)} / {fmt(MEMORY_DOC_MAX)}
-            {over > 0 && ` — over the cap by ${fmt(over)} characters. Trim it down; Realm will not truncate it.`}
-          </span>
-          <button type="button" className="btn primary" disabled={!dirty || over > 0}
-            onClick={() => run(async () => { await saveProfileMemoryDoc(profileId, text); setDraft(null); })}>Save memory</button>
+      </div>
+      <div className="settings-group">
+        <div className="settings-row memory-path-row">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Stored at</span>
+            <code className="env-path settings-row-desc">{stored.path}</code>
+          </div>
+          {reveal && <button type="button" className="btn-quiet" onClick={() => { void reveal(stored.path); }}>Show in Finder</button>}
         </div>
       </div>
     </div>

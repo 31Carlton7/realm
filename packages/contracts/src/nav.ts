@@ -1,5 +1,4 @@
 import type { Layout } from "./layout";
-import type { SpaceGroups } from "./groups";
 
 /**
  * One stop in a pane's own back/forward history.
@@ -85,21 +84,20 @@ function collectLeaves(l: Layout, into: Map<string, string | null>): void {
 /**
  * Fold the layout back into the histories — the single recording site.
  *
- * Every way a pane's occupant can change (openItem, a drag-drop, a split, a preset, an agent opening a
- * pane beside you) ends in a layout write, so reconciling there catches all of them at once instead of
+ * Every way a pane's occupant can change (openItem, a drag-drop, a split, an agent opening a pane
+ * beside you) ends in a layout write, so reconciling there catches all of them at once instead of
  * asking twenty call sites to remember to record. Two things happen:
  *
  * - a leaf whose item is not the entry it is standing on gets that item pushed as a new stop;
- * - a leaf that no longer exists in ANY of the space's groups is forgotten.
+ * - a leaf that is no longer in the window's view is forgotten.
  *
- * Groups, not just the active layout: switching groups must not erase the history of the arrangement
- * you switched away from, because switching back should find those panes as you left them. Switching
- * SPACES does forget — the new space's groups name entirely different leaves — which is the honest
- * behaviour for arrows that only ever promised to retrace this pane's trail.
+ * One view per window (Plan 27): a leaf that leaves it is gone for good — the same pane rebuilt later
+ * is a new leaf — which is the honest behaviour for arrows that only ever promised to retrace this
+ * pane's trail.
  */
-export function reconcileNav(h: PaneHistory, groups: SpaceGroups | null): PaneHistory {
+export function reconcileNav(h: PaneHistory, view: Layout | null): PaneHistory {
   const leaves = new Map<string, string | null>();
-  for (const g of groups?.groups ?? []) collectLeaves(g.layout, leaves);
+  if (view) collectLeaves(view, leaves);
   let next = h;
   const copy = () => (next === h ? (next = { ...h }) : next);
   for (const leafId of Object.keys(h)) if (!leaves.has(leafId)) delete copy()[leafId];

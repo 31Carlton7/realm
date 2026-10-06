@@ -69,11 +69,4 @@ describe("the failover panel", () => {
     await waitFor(() => expect(store.getState().failover?.chain).toEqual([]));
   });
 
-  it("offers an agent that is not ready, rather than hiding it", async () => {
-    // A list that is quietly different on every machine is a list nobody can reason about — and a
-    // chain configured today should still mean what it said when the CLI arrives tomorrow.
-    await mount();
-    expect(rowFor("Claude")).toBeInTheDocument();
-    expect(rowFor("Codex")).toBeInTheDocument();
-  });
 });

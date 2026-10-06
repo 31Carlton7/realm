@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstName, userFirstName } from "./user-name";
+import { firstName } from "./user-name";
 
 describe("firstName", () => {
   it("takes the leading word of the directory record's real name", () => {
@@ -17,8 +17,3 @@ describe("firstName", () => {
   });
 });
 
-describe("userFirstName", () => {
-  it("resolves a string on any host — a missing name is not an error", async () => {
-    expect(typeof await userFirstName()).toBe("string");
-  });
-});

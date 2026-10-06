@@ -79,6 +79,10 @@ describe("chordFromEvent", () => {
       chordFromEvent(press({ code: "KeyP", key: "P", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "Space", key: " ", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "KeyB", key: "b", metaKey: true })),
+      chordFromEvent(press({ code: "KeyB", key: "B", metaKey: true, shiftKey: true })),
+      // ⌥ rewrites the character: ⌥⌘B arrives as "∫", and only `code` still says B.
+      chordFromEvent(press({ code: "KeyB", key: "∫", metaKey: true, altKey: true })),
+      chordFromEvent(press({ code: "Comma", key: ",", metaKey: true })),
       chordFromEvent(press({ code: "Backslash", key: "\\", metaKey: true })),
       chordFromEvent(press({ code: "Backslash", key: "|", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "KeyW", key: "w", metaKey: true })),
@@ -99,9 +103,14 @@ describe("chordFromEvent", () => {
       chordFromEvent(press({ code: "KeyN", key: "n", metaKey: true })),
       chordFromEvent(press({ code: "KeyN", key: "N", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "KeyU", key: "u", metaKey: true })),
+      // Select in Realm. Shifted, the key reports a capital; `code` still says C.
+      chordFromEvent(press({ code: "KeyC", key: "C", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "KeyJ", key: "j", metaKey: true })),
       chordFromEvent(press({ code: "Enter", key: "Enter", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "Escape", key: "Escape" })),
+      // Go back / Go forward. Shifted, a US layout reports `_`, which is why the key is read off `code`.
+      chordFromEvent(press({ code: "Minus", key: "-", ctrlKey: true })),
+      chordFromEvent(press({ code: "Minus", key: "_", ctrlKey: true, shiftKey: true })),
     ]);
     for (const rule of DEFAULT_KEYBINDINGS) expect(produced, rule.command).toContain(normalizeKeyChord(rule.key));
   });

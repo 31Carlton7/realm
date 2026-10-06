@@ -1,6 +1,7 @@
 import { activityLevel, dayKey, dayRange, USAGE_CALENDAR_DAYS, type UsageDay } from "@realm/contracts";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../../state/store";
+import { useDissolve } from "../../../components/ScrollFades";
 
 const DAY_MS = 86_400_000;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -8,7 +9,26 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
  *  as much as a 12px cell can carry without the words becoming the grid. */
 const WEEKDAY_LABEL = ["", "Mon", "", "Wed", "", "Fri", ""];
 
-export type CalendarCell = { day: string; messages: number; sessions: number; level: 0 | 1 | 2 | 3 | 4 };
+/**
+ * What a cell is painted by. One grid, three readings of it:
+ *
+ * - `daily` — the day's own messages. Where the busy days were.
+ * - `weekly` — the whole week's, on every day of its column. A column is a week already, so this
+ *   is the grid read down rather than across: the heads-down weeks stand out as solid bars where a
+ *   daily reading scatters them into dots.
+ * - `cumulative` — everything sent from the first day shown up to this one. It only ever climbs, so
+ *   it reads as the year's growth: where the slope is steep is where the use was.
+ */
+export type CalendarMode = "daily" | "weekly" | "cumulative";
+const MODES: { id: CalendarMode; label: string; hint: string }[] = [
+  { id: "daily", label: "Daily", hint: "Each day by the messages sent that day" },
+  { id: "weekly", label: "Weekly", hint: "Each week by the messages sent that week" },
+  { id: "cumulative", label: "Cumulative", hint: "Each day by every message sent from the first day shown up to it" },
+];
+
+/** `messages` is always the day's own count; `value` is what the cell is painted by in the mode it
+ *  was built for, and what its label states. */
+export type CalendarCell = { day: string; messages: number; sessions: number; value: number; level: 0 | 1 | 2 | 3 | 4 };
 
 /**
  * The calendar's grid: whole weeks, oldest first, each a column of seven days starting on Sunday.
@@ -16,10 +36,12 @@ export type CalendarCell = { day: string; messages: number; sessions: number; le
  * The window is padded BACKWARD to the Sunday on or before its first day, so every column is a full
  * week and the grid has no ragged first stripe. Padding forward is deliberately not done — a column
  * of days that have not happened yet would be indistinguishable from a week the reader spent away.
+ *
+ * Levels are relative to the largest value ON THE GRID in the mode asked for: a week's total and a
+ * day's count are different quantities, and a weekly grid scaled by its busiest day would be solid.
  */
-export function calendarWeeks(days: readonly UsageDay[], now: number): CalendarCell[][] {
+export function calendarWeeks(days: readonly UsageDay[], now: number, mode: CalendarMode = "daily"): CalendarCell[][] {
   const byDay = new Map(days.map((d) => [d.day, d]));
-  const max = days.reduce((m, d) => Math.max(m, d.messages), 0);
   const start = new Date(now - (USAGE_CALENDAR_DAYS - 1) * DAY_MS);
   start.setHours(0, 0, 0, 0);
   start.setDate(start.getDate() - start.getDay()); // back to Sunday
@@ -28,10 +50,21 @@ export function calendarWeeks(days: readonly UsageDay[], now: number): CalendarC
   for (const key of keys) {
     const hit = byDay.get(key);
     const messages = hit?.messages ?? 0;
-    const cell: CalendarCell = { day: key, messages, sessions: hit?.sessions ?? 0, level: activityLevel(messages, max) };
+    const cell: CalendarCell = { day: key, messages, sessions: hit?.sessions ?? 0, value: messages, level: 0 };
     if (weeks.length === 0 || weeks[weeks.length - 1]!.length === 7) weeks.push([cell]);
     else weeks[weeks.length - 1]!.push(cell);
   }
+  if (mode === "weekly") {
+    for (const week of weeks) {
+      const total = week.reduce((n, c) => n + c.messages, 0);
+      for (const c of week) c.value = total;
+    }
+  } else if (mode === "cumulative") {
+    let sum = 0;
+    for (const c of weeks.flat()) { sum += c.messages; c.value = sum; }
+  }
+  const max = weeks.flat().reduce((m, c) => Math.max(m, c.value), 0);
+  for (const c of weeks.flat()) c.level = activityLevel(c.value, max);
   return weeks;
 }
 
@@ -54,9 +87,24 @@ export function monthLabels(weeks: readonly CalendarCell[][]): { index: number; 
 }
 
 const plural = (n: number, one: string) => `${n.toLocaleString()} ${one}${n === 1 ? "" : "s"}`;
-const readableDay = (day: string) => {
-  const [y, m, d] = day.split("-").map(Number);
-  return `${MONTHS[(m ?? 1) - 1]} ${d}, ${y}`;
+/** "Sep 3" for "2026-09-03", and with its year, "Sep 3, 2026" — how a day is named in words. */
+export const shortDay = (day: string) => {
+  const [, m, d] = day.split("-").map(Number);
+  return `${MONTHS[(m ?? 1) - 1]} ${d}`;
+};
+export const readableDay = (day: string) => `${shortDay(day)}, ${day.slice(0, 4)}`;
+
+/** A cell's words: the same number its colour stands for, said in the mode's own terms. */
+export function cellLabel(cell: CalendarCell, mode: CalendarMode, week: readonly CalendarCell[], first: string): string {
+  if (mode === "weekly") return `Week of ${readableDay(week[0]!.day)}: ${cell.value === 0 ? "no messages" : plural(cell.value, "message")}`;
+  if (mode === "cumulative") return `${readableDay(cell.day)}: ${cell.value === 0 ? "no messages yet" : `${plural(cell.value, "message")} since ${readableDay(first)}`}`;
+  return `${readableDay(cell.day)}: ${cell.value === 0 ? "no messages" : plural(cell.value, "message")}`;
+}
+
+const CAPTION: Record<CalendarMode, string> = {
+  daily: "Messages sent per day over the last year",
+  weekly: "Messages sent per week over the last year",
+  cumulative: "Messages sent so far, day by day, over the last year",
 };
 
 /**
@@ -74,15 +122,23 @@ const readableDay = (day: string) => {
  * Every cell carries its own count in a `title` and in an accessible name — the colour is a summary,
  * never the only telling, and the four steps are relative to the reader's own busiest day rather
  * than to a fixed scale (see `activityLevel`).
+ *
+ * The Daily / Weekly / Cumulative switch changes what a cell is painted by and nothing else: same
+ * grid, same window, same fetch. See `CalendarMode`.
  */
 export function ActivityCalendar() {
   const usageActiveDays = useApp((s) => s.usageActiveDays);
   const run = useApp((s) => s.run);
   const scroller = useRef<HTMLDivElement>(null);
+  /* The graph opens on this week, so it is the OLDER end that has more past it — the start dissolves,
+     the way the strip of a pane's tabs does where they run on. */
+  useDissolve(scroller, "x");
   const [days, setDays] = useState<UsageDay[] | null>(null);
   // Frozen at mount: the grid's last column is "today", and a clock read on every render would
   // re-lay the whole calendar at midnight under a reader who is looking at it.
   const [now] = useState(() => Date.now());
+  const [mode, setMode] = useState<CalendarMode>("daily");
+  const name = useId();
 
   useEffect(() => {
     let live = true;
@@ -94,7 +150,7 @@ export function ActivityCalendar() {
     return () => { live = false; };
   }, [usageActiveDays, run, now]);
 
-  const weeks = useMemo(() => calendarWeeks(days ?? [], now), [days, now]);
+  const weeks = useMemo(() => calendarWeeks(days ?? [], now, mode), [days, now, mode]);
   /* Opened at the RIGHT end, on this week. A year is wider than the pane, and a graph that started at
      last September would put the days a reader actually came for — the recent ones — off the far
      edge behind a scrollbar that is deliberately not drawn. Runs once the rows land, because before
@@ -103,6 +159,19 @@ export function ActivityCalendar() {
     const el = scroller.current;
     if (el && days !== null) el.scrollLeft = el.scrollWidth;
   }, [days, weeks]);
+  /* …and kept there when the window narrows under it. Opening at the present end was only true of
+     the width it opened at: a year that fitted, narrowed, kept scrollLeft 0 and showed last autumn.
+     Held only while the reader is AT the end — one who scrolled back to March is reading March. */
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let atEnd = true;
+    const onScroll = () => { atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1; };
+    const ro = new ResizeObserver(() => { if (atEnd) el.scrollLeft = el.scrollWidth; });
+    el.addEventListener("scroll", onScroll, { passive: true });
+    ro.observe(el);
+    return () => { ro.disconnect(); el.removeEventListener("scroll", onScroll); };
+  }, []);
   const months = useMemo(() => monthLabels(weeks), [weeks]);
   const activeDays = (days ?? []).filter((d) => d.messages > 0).length;
   const messages = (days ?? []).reduce((n, d) => n + d.messages, 0);
@@ -116,6 +185,15 @@ export function ActivityCalendar() {
           {days === null ? "Reading…" : activeDays === 0 ? "No sent messages in the last year"
             : `${plural(activeDays, "day")} · ${plural(messages, "message")} sent`}
         </span>
+        <fieldset className="seg">
+          <legend className="visually-hidden">Count by</legend>
+          {MODES.map((m) => (
+            <label key={m.id} className="seg-opt" data-selected={m.id === mode || undefined} title={m.hint}>
+              <input type="radio" name={name} value={m.id} checked={m.id === mode} onChange={() => setMode(m.id)} />
+              {m.label}
+            </label>
+          ))}
+        </fieldset>
       </header>
       <div className="cal-scroll" ref={scroller}>
         <div className="cal">
@@ -132,14 +210,14 @@ export function ActivityCalendar() {
             {/* A table, not a grid of divs: this IS tabular — weeks across, weekdays down — and the
                 row/column structure is what lets a screen reader walk it at all. */}
             <table className="cal-grid">
-              <caption className="visually-hidden">Messages sent per day over the last year</caption>
+              <caption className="visually-hidden">{CAPTION[mode]}</caption>
               <tbody>
                 {[0, 1, 2, 3, 4, 5, 6].map((weekday) => (
                   <tr key={weekday}>
                     {weeks.map((week, i) => {
                       const cell = week[weekday];
                       if (!cell) return <td key={i} className="cal-cell" data-empty="" />;
-                      const label = `${readableDay(cell.day)}: ${cell.messages === 0 ? "no messages" : plural(cell.messages, "message")}`;
+                      const label = cellLabel(cell, mode, week, weeks[0]![0]!.day);
                       return (
                         <td key={i} className="cal-cell" data-level={cell.level}
                           data-today={cell.day === today || undefined} title={label}>

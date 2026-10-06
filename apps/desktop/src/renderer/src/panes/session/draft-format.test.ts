@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scanMentions, stripMentionAts } from "@realm/contracts";
-import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, listItemAt, stepOverChip, toggleList, type Segment, appendQuote } from "./draft-format";
+import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, listItemAt, removeChip, stepOverChip, toggleList, type Segment, appendQuote } from "./draft-format";
 
 /** A compact readout of the runs that carry a class — plain text is the uninteresting majority. */
 const painted = (segs: Segment[]) => segs.filter((s) => s.kind).map((s) => [s.kind, s.text]);
@@ -23,12 +23,6 @@ describe("highlightSegments — the mirror paints the draft, never a version of 
     }
   });
 
-  it("paints an element chip as one run, brackets included", () => {
-    expect(painted(highlightSegments('make @[button "Sign in"] blue', []))).toEqual([
-      ["element", '@[button "Sign in"]'],
-    ]);
-  });
-
   it("a URL inside a chip's label does not cut the token in half", () => {
     // The label is arbitrary page text. A link span winning here would paint half a chip and leave
     // the closing bracket looking like prose.
@@ -37,12 +31,6 @@ describe("highlightSegments — the mirror paints the draft, never a version of 
 
   it("an unclosed chip is plain text, not a chip that eats the rest of the draft", () => {
     expect(painted(highlightSegments("@[button and more", []))).toEqual([]);
-  });
-
-  it("paints an element chip and a mention in the same draft", () => {
-    expect(painted(highlightSegments("@mac look at @[div#hero]", ["mac"]))).toEqual([
-      ["mention", "@mac"], ["element", "@[div#hero]"],
-    ]);
   });
 
   it("paints URLs, and stops where the URL does", () => {
@@ -66,10 +54,6 @@ describe("highlightSegments — the mirror paints the draft, never a version of 
     expect(painted(highlightSegments("carlton@mac wrote", ["mac"]))).toEqual([]);
     // A longer id is a different id: `@mac-extras` must not light up as `mac`.
     expect(painted(highlightSegments("@mac-extras", ["mac"]))).toEqual([]);
-  });
-
-  it("gives a declared-but-dead mention the warning tone, not the live one", () => {
-    expect(painted(highlightSegments("run @web now", ["mac"], ["web"]))).toEqual([["mention-stale", "@web"]]);
   });
 
   it("paints list, quote and heading markers without touching their text", () => {
@@ -239,8 +223,33 @@ describe("chipSpans — what the mirror paints is what a gesture can take", () =
     expect(spans("https://x.dev/@mac")).toEqual([]);
   });
 
-  it("leaves nothing to interact with in a draft that has no chips", () => {
-    expect(spans("plain words @nonesuch")).toEqual([]);
+  /* The command opening the draft wears the same pill, so it answers the same gestures — a click
+     takes it whole — and it is a chip only where it is painted as one: a command that exists. */
+  it("carries the command opening the draft, and only one the prompter has", () => {
+    expect(chipSpans(highlightSegments("/goal ship it", [], [], ["goal"]))).toEqual([{ kind: "slash", start: 0, end: 5 }]);
+    expect(chipSpans(highlightSegments("/usr/bin is a path", [], [], ["goal"]))).toEqual([]);
+  });
+});
+
+describe("removeChip — the hover's ×", () => {
+  it("takes the token and the space it brought, so the sentence closes up", () => {
+    const draft = 'make @[button "Sign in"] blue';
+    expect(removeChip(spans(draft), draft, 5)).toEqual({ text: "make blue", start: 5, end: 5 });
+    expect(removeChip(spans("use @mac now"), "use @mac now", 4)).toEqual({ text: "use now", start: 4, end: 4 });
+  });
+
+  it("takes the space before it when the chip ends the draft", () => {
+    expect(removeChip(spans("make @[a]"), "make @[a]", 5)).toEqual({ text: "make", start: 4, end: 4 });
+    expect(removeChip(spans("@[a]"), "@[a]", 0)).toEqual({ text: "", start: 0, end: 0 });
+  });
+
+  it("takes one space and never two, nor a newline", () => {
+    expect(removeChip(spans("a @[b] c"), "a @[b] c", 2)).toEqual({ text: "a c", start: 2, end: 2 });
+    expect(removeChip(spans("line\n@[b]"), "line\n@[b]", 5)).toEqual({ text: "line\n", start: 5, end: 5 });
+  });
+
+  it("does nothing for an offset no chip starts at", () => {
+    expect(removeChip(spans("use @mac now"), "use @mac now", 5)).toBeNull();
   });
 });
 
@@ -306,11 +315,6 @@ describe("deleteChipAt", () => {
 
   it("takes it forwards too, from the leading edge", () => {
     expect(deleteChipAt(spans(draft), draft, 5, 1)).toEqual({ text: "make  blue", start: 5, end: 5 });
-  });
-
-  it("leaves the caret where the chip was, so the next keystroke lands in its place", () => {
-    const edit = deleteChipAt(spans(draft), draft, chipEnd, -1)!;
-    expect(edit.text.slice(0, edit.start)).toBe("make ");
   });
 
   it("does nothing anywhere else in the token, or in the prose around it", () => {

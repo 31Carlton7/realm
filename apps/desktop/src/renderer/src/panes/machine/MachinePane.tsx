@@ -1,8 +1,9 @@
 import { Icon, type IconName } from "@realm/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Machine, MachineImageProgress, MachineState } from "@realm/contracts";
 import type { PaneProps } from "../registry";
 import { useApp } from "../../state/store";
+import { useDissolve } from "../../components/ScrollFades";
 import { rpc } from "../../rpc/client";
 import { getMachineHub, loadRfb } from "./machine-hub";
 import { fitFramebuffer, scaleLabel, PICTURE_RADIUS, type FitMode } from "./fit";
@@ -24,7 +25,7 @@ import { E2B_STREAM_PORT, SANDBOX_NOTES, describeEndpoint, parseMachineAddress, 
  */
 
 /** The pane's body is chosen by what is actually true, in this order. `unconfigured` is not a
- *  machine state — it is a row with no address yet, which is what the session bar's button makes. */
+ *  machine state — it is a row with no address yet, which is what the side pane's Machine makes. */
 type Body = "unconfigured" | "downloading" | "off" | "booting" | "running" | "failed";
 
 function bodyFor(machine: Machine | null, state: MachineState, downloading: boolean): Body {
@@ -76,6 +77,14 @@ export function MachinePane({ item }: PaneProps) {
         : <Screen machineId={refId} state={state} />)}
     </div>
   );
+}
+
+/** A resting body — the connect form, a download, a failure's detail — in a column of its own that
+ *  dissolves at an end once it is taller than the pane, the way the simulator's device picker does. */
+function MachineBody({ children }: { children: ReactNode }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  useDissolve(scroller);
+  return <div className="machine-body" ref={scroller}>{children}</div>;
 }
 
 /* --------------------------------- the connect flow --------------------------------- */
@@ -229,7 +238,7 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
 
   if (route === "thisMac") {
     return (
-      <div className="machine-body">
+      <MachineBody>
         <form className="machine-connect" onSubmit={(e) => { e.preventDefault(); void submitApp(); }}>
           <h2 className="machine-title">An app on this Mac</h2>
           <RoutePicker route={route} caps={caps} apps={apps} onPick={(r) => { setRoute(r); setNote(null); }} />
@@ -248,13 +257,13 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
           {note && <p className="machine-note" role="status">{note}</p>}
           <button type="submit" className="machine-primary" disabled={busy || !address}>{busy ? "Opening…" : "Show it"}</button>
         </form>
-      </div>
+      </MachineBody>
     );
   }
 
   if (route === "vm") {
     return (
-      <div className="machine-body">
+      <MachineBody>
         <form className="machine-connect" onSubmit={submitGuest}>
           <h2 className="machine-title">A Linux VM on this Mac</h2>
           <RoutePicker route={route} caps={caps} apps={apps} onPick={(r) => { setRoute(r); setNote(null); }} />
@@ -285,12 +294,12 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
           {note && <p className="machine-note" role="status">{note}</p>}
           <button type="submit" className="machine-primary" disabled={busy || !image}>{busy ? "Starting…" : "Download and install"}</button>
         </form>
-      </div>
+      </MachineBody>
     );
   }
 
   return (
-    <div className="machine-body">
+    <MachineBody>
       <form className="machine-connect" onSubmit={submit}>
         <h2 className="machine-title">Connect a machine</h2>
         {/* In the order each is likely to work for the person reading it. "Another Mac" gets its own
@@ -335,7 +344,7 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
         {note && <p className="machine-note" role="status">{note}</p>}
         <button type="submit" className="machine-primary" disabled={busy || !endpoint}>{busy ? "Connecting…" : "Connect"}</button>
       </form>
-    </div>
+    </MachineBody>
   );
 }
 
@@ -486,7 +495,7 @@ function DownloadBody({ machineId, progress }: { machineId: string; progress: Ma
   const pct = progress.total ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : null;
   const cancel = () => { void rpc().call("machines.images.cancel", { machineId }).catch(() => {}); };
   return (
-    <div className="machine-body">
+    <MachineBody>
       <div className="machine-rest">
         <h2 className="machine-title">Downloading</h2>
         {/* Tabular mono, because the left-hand number changes every frame and a proportional face
@@ -497,7 +506,7 @@ function DownloadBody({ machineId, progress }: { machineId: string; progress: Ma
         </div>
         <div className="machine-actions"><button onClick={cancel}>Cancel</button></div>
       </div>
-    </div>
+    </MachineBody>
   );
 }
 
@@ -514,21 +523,21 @@ function human(bytes: number): string {
 function OffBody({ machine }: { machine: Machine }) {
   const start = () => { void rpc().call("machines.start", { machineId: machine.id }); };
   return (
-    <div className="machine-body">
+    <MachineBody>
       <div className="machine-rest">
         <h2 className="machine-title">{machine.name}</h2>
         {/* One line of exact fact in mono — a first-run screen is a decision, not an inventory. */}
         <p className="machine-facts">{machine.endpoint?.host}:{machine.endpoint?.port}{machine.hasPassword ? " · password saved" : ""}</p>
         <button className="machine-primary" onClick={start}>Connect</button>
       </div>
-    </div>
+    </MachineBody>
   );
 }
 
 function FailedBody({ state, machineId, onEdit }: { state: MachineState; machineId: string; onEdit: () => void }) {
   const retry = () => { void rpc().call("machines.start", { machineId }); };
   return (
-    <div className="machine-body">
+    <MachineBody>
       <div className="machine-rest">
         <h2 className="machine-title">Could not connect</h2>
         <p className="machine-reason">{REASONS[state.error ?? ""] ?? "Realm could not connect to that machine."}</p>
@@ -541,7 +550,7 @@ function FailedBody({ state, machineId, onEdit }: { state: MachineState; machine
           <button onClick={onEdit}>Edit the address</button>
         </div>
       </div>
-    </div>
+    </MachineBody>
   );
 }
 

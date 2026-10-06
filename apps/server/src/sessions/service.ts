@@ -1,5 +1,5 @@
-import { realpathSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, fastSupportKey, newId, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type ElementChip, type Environment, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent } from "@realm/contracts";
+import { realpathSync, statSync } from "node:fs";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -24,7 +24,8 @@ import { capabilitiesContext } from "../mcp/capabilities";
 import type { MemoryService } from "../memory/service";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
-import type { MemorySources } from "@realm/contracts";
+import type { AppViewRef, MemorySources } from "@realm/contracts";
+import { SecretAnswers } from "./secret-answers";
 
 /**
  * One message as the prompter hands it over. `elements` are the browser-pane elements the user picked
@@ -32,9 +33,16 @@ import type { MemorySources } from "@realm/contracts";
  * appended, fenced, to the text the ADAPTER sees — the same split mentions already follow.
  */
 export type SendMessage = { text: string; attachments: { path: string; mime: string }[]; mentions?: string[]; elements?: ElementChip[]; sessionRefs?: SessionRef[];
+  /** What the message's `@[…]` chips name — files, Library items, apps (`mention-refs.ts`). Files
+   *  are attached for the adapter; apps are granted computer use for this session; all of them are
+   *  recorded on the transcript so its chips keep their marks. */
+  mentionRefs?: MentionRef[];
   /** Written by the session's own goal rather than typed. Rides to the transcript event and nowhere
    *  else: what the AGENT is handed is the same prompt either way. */
-  goal?: "continuation" | "budget" };
+  goal?: "continuation" | "budget";
+  /** A scheduled task's run, and the note the run appended to the task's instructions — the same
+   *  transcript-only ride as `goal`: the agent is handed the text, note and all. */
+  scheduled?: { task: string; note: string } };
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
@@ -73,6 +81,9 @@ export function resolveDefaultPermissionMode(kind: AgentKind, raw: unknown): str
 /** `skillsInjected` remembers whether THIS handle was started with Realm's library — the fact mention
  *  resolution gates on, because a `/realm:<name>` prepend into a session that never loaded the plugin
  *  is a command that does not exist there. */
+/** How long a steer waits for the interrupted turn to settle before sending anyway. */
+const INTERRUPT_SETTLE_TIMEOUT_MS = 10_000;
+
 type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean };
 
 /**
@@ -102,6 +113,8 @@ export class SessionService {
    * durable anywhere: `drafts` is renderer memory.
    */
   private queued = new Map<string, { prompt: QueuedPrompt; msg: SendMessage }[]>();
+  /** Called on the next settle of each session — see `interruptAndSettle`. */
+  private settleWaiters = new Map<string, Set<() => void>>();
   /**
    * The truncating resume the CURRENT handle was booted with, per session — the in-memory half of a
    * restore's armed fork.
@@ -122,7 +135,19 @@ export class SessionService {
    * holds a copy of what it just sent.
    */
   private rewindTurns = new Map<string, SendMessage>();
+  /** Sessions whose turn in flight has called a tool — the only turns whose checkout is worth asking
+   *  git about at the settle (`recordTurnChanges`). A turn of conversation changes no file. */
+  private toolTurns = new Set<string>();
+  /** A settled turn's measurement still in flight, per session. The next message waits for it: an agent
+   *  that started writing before the snapshot was taken would have its first edits counted as the last
+   *  turn's — and a steered message, which takes no checkpoint, starts the moment the settle lands. */
+  private measuring = new Map<string, Promise<void>>();
   private closing = false;
+  /** The questions open right now, by requestId, from whichever feed raised them — what an answer is
+   *  read against to learn which of it is masked. */
+  private asked = new Map<string, { sessionId: string; card: AskCard }>();
+  /** Masked answers, kept out of every event and call record (see `secret-answers.ts`). */
+  private secrets = new SecretAnswers();
   /** Set while the daemon is going quiet for a handoff. See `ensureLive` for the rule that matters. */
   private draining = false;
   constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
@@ -134,11 +159,15 @@ export class SessionService {
     sandbox?: ExecutionSandboxService;
     /** The documents service, for surfacing a file the agent wrote. Optional like every other
      *  nicety here: a server built without it simply shows nothing. */
-    documents?: { openPath(p: { spaceId: string; environmentId?: string; path: string }): Promise<unknown> };
+    documents?: { openPath(p: { spaceId: string; environmentId?: string; path: string; openedBy?: string }): Promise<unknown> };
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
-    browserPermissions?: { owns(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision): void; release(sessionId: string): void };
+    browserPermissions?: { owns(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string): void; release(sessionId: string): void };
+    /** Computer use granted by a mention, per session (`computer/session-grants.ts`): what an
+     *  `@Messages` in a delivered message writes, and what a deleted session takes with it. Optional —
+     *  a harness without it treats an app mention as text and grants nothing. */
+    computerGrants?: { grant(sessionId: string, apps: readonly { bundleId: string; name: string }[]): boolean; release(sessionId: string): void };
     /** Plan 11 W5 (+ Plan 13 W1): delegation hooks — in production one closure fanning out to BOTH
      *  delegation registries (browser-agent children and agent_run children). `parentInterrupted`
      *  cancels a session's in-flight delegated run when THAT session is interrupted; `release`
@@ -174,6 +203,14 @@ export class SessionService {
       onError(sessionId: string): void;
       onSettled(sessionId: string, opts: { interrupted: boolean }): Promise<unknown>;
     };
+    /** The views MCP servers draw for tool calls (`apps/views.ts`): told every call the agent
+     *  reports, and asked, when its result arrives, for the view that call drew. Optional — without
+     *  it a tool result is only ever its text. */
+    views?: {
+      noteCall(sessionId: string, toolUseId: string, name: string, input: Record<string, unknown>): void;
+      claim(sessionId: string, toolUseId: string): AppViewRef | null;
+      forget(sessionId: string): void;
+    };
   }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
@@ -181,6 +218,25 @@ export class SessionService {
   private probeCache = new ProbeCache(() => this.probeAll());
 
   probe(opts: { force?: boolean } = {}): Promise<ProbeResult[]> { return this.probeCache.get(opts); }
+  /** The last probe's rows, stale or not, without spending a new one — see `ProbeCache.peek`. */
+  probeCached(): { rows: ProbeResult[]; at: number } | null { const p = this.probeCache.peek(); return p && { rows: p.value, at: p.at }; }
+
+  /**
+   * One agent's probe, fresh, for a caller that needs to know about one CLI now. Every adapter's
+   * probe is another wait: an ACP agent's opens a throwaway session that can run to its 30 s timeout,
+   * and a sign-in that waited on all of them said "done" half a minute after the CLI had. What it
+   * learns replaces that agent's row in the cache — and in whatever a probe still out lands with —
+   * so the next cheap read agrees with what this caller was just told. `undefined` for an agent
+   * with no adapter.
+   */
+  async probeAgent(kind: AgentKind): Promise<ProbeResult | undefined> {
+    const adapter = this.d.adapters[kind];
+    if (!adapter) return undefined;
+    const row = await adapter.probe().catch((e: unknown): ProbeResult =>
+      ({ kind, available: false, version: null, loggedIn: null, reason: e instanceof Error ? e.message : String(e) }));
+    this.probeCache.amend((rows) => rows.map((r) => (r.kind === kind ? row : r)));
+    return row;
+  }
 
   /** One adapter's probe throwing must not hide the others; it reports as unavailable with the reason. */
   async probeAll(): Promise<ProbeResult[]> {
@@ -296,8 +352,39 @@ export class SessionService {
    * the agent's first write would record a tree that never existed").
    */
   private async steer(id: string, msg: SendMessage): Promise<void> {
-    if (steerInterrupts(this.get(id).agentKind)) await this.live.get(id)?.handle.interrupt();
+    const handle = this.live.get(id)?.handle;
+    if (handle && steerInterrupts(this.get(id).agentKind)) await this.interruptAndSettle(id, handle);
     await this.deliver(id, msg, { checkpoint: false });
+  }
+
+  /**
+   * Stop the running turn and wait for it to SETTLE, not just for the interrupt to be acknowledged.
+   *
+   * The two are not the same moment on Claude: `q.interrupt()` resolves on the control response,
+   * and the cancelled turn's `result` — and with it the `idle` — arrives after. A message pushed in
+   * between reaches the CLI while the old turn is still unwinding and is lost with it, and the late
+   * `idle` then leaves the session sitting still with the user's message unanswered. Waiting for the
+   * settle makes the new message the next turn rather than the tail of the old one.
+   *
+   * Bounded, so an adapter that never reports the settle costs a pause rather than the message.
+   */
+  private async interruptAndSettle(id: string, handle: AgentHandle): Promise<void> {
+    const status = this.d.sessions.get(id)?.status;
+    if (status !== "running" && status !== "waiting_permission") { await handle.interrupt(); return; }
+    let done!: () => void;
+    const settled = new Promise<void>((resolve) => { done = resolve; });
+    const waiters = this.settleWaiters.get(id) ?? new Set();
+    waiters.add(done);
+    this.settleWaiters.set(id, waiters);
+    const timer = setTimeout(done, INTERRUPT_SETTLE_TIMEOUT_MS);
+    try {
+      await handle.interrupt();
+      await settled;
+    } finally {
+      clearTimeout(timer);
+      waiters.delete(done);
+      if (waiters.size === 0 && this.settleWaiters.get(id) === waiters) this.settleWaiters.delete(id);
+    }
   }
 
   /**
@@ -366,6 +453,7 @@ export class SessionService {
   /** Everything a typed message earns on its way to the adapter. Reached only from `send` and from
    *  the two paths that have already chosen — a caller that came here has passed the queue gate. */
   private async deliver(id: string, msg: SendMessage, opts: { checkpoint?: boolean } = {}): Promise<void> {
+    await this.measuring.get(id);
     // Claim the environment's port block before the adapter can be spawned — `ensureLive` reads it
     // back off the row, so this is the only place the (async) allocation has to happen.
     await this.ensurePorts(id);
@@ -374,6 +462,9 @@ export class SessionService {
     // It reports its own failures and returns null — a checkpoint is a safety net, and a safety net
     // that can refuse a message is a worse failure than not having one.
     if (opts.checkpoint !== false) await this.checkpointTurn(id, msg.text);
+    // An app the message mentions is granted BEFORE the handle starts, so a session that starts on
+    // this message lists the computer tools from its first read of them.
+    await this.grantMentionedApps(id, msg);
     const handle = this.ensureLive(id);
     // A start that carried a restore's fork can be refused at fork time, before the model sees a word
     // of this message — so the message is held until that boot proves itself, and re-sent plainly if it
@@ -386,8 +477,33 @@ export class SessionService {
     this.d.failover?.turnStarted(id, msg);
     this.maybeTitleFrom(id, msg.text);
     // The transcript records what the USER wrote — `@mac` and all. Only the wire below is rewritten.
-    this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}) }));
+    // Named things ride beside the text, as the chips they were; their files are not `attachments`,
+    // which stay the files the user attached — the chip already shows a mentioned file.
+    const refs = this.mentionedRefs(msg);
+    this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}),
+      ...(msg.scheduled ? { scheduled: msg.scheduled } : {}), ...(refs.length ? { refs } : {}) }));
     await handle.send(this.resolveMentions(id, msg));
+  }
+
+  /** The refs the message really carries: a declared ref whose `@[label]` is not in the text is a
+   *  claim the sentence does not make — the same rule mentions follow. */
+  private mentionedRefs(msg: SendMessage): MentionRef[] {
+    return (msg.mentionRefs ?? []).filter((r) => msg.text.includes(elementChipToken(r.label)));
+  }
+
+  /**
+   * Computer use for the apps this message mentions, for this session (`ComputerSessionGrants`).
+   *
+   * A session already running is told its tool list changed, and the message waits — briefly — for
+   * its agent to read the new one: otherwise the turn this message starts could begin with a tool
+   * list that does not have the tools the message says it has. An agent that does not re-read on the
+   * notification costs that wait once, and sees the tools from its next start.
+   */
+  private async grantMentionedApps(id: string, msg: SendMessage): Promise<void> {
+    const apps = this.mentionedRefs(msg).filter((r): r is Extract<MentionRef, { kind: "app" }> => r.kind === "app");
+    if (apps.length === 0 || !this.d.computerGrants) return;
+    const added = this.d.computerGrants.grant(id, apps.map((a) => ({ bundleId: a.bundleId, name: a.name })));
+    if (added && this.live.has(id)) await this.d.gateway.refreshTools(id);
   }
 
   /**
@@ -427,19 +543,26 @@ export class SessionService {
    */
   private resolveMentions(id: string, msg: SendMessage): UserMessage {
     const declared = [...new Set(msg.mentions ?? [])].filter((m) => SkillIdSchema.safeParse(m).success);
-    // Both blocks ride the same way and in this order: what the user picked ON a page, then who
-    // else they pointed at. Appended to the user's own text rather than sent as a system note,
-    // because all three agent wires take one markdown string and nothing else.
-    const context = elementContext(msg.elements ?? []) + sessionRefContext(msg.sessionRefs ?? []);
-    const base = { text: msg.text + context, attachments: msg.attachments };
-    if (declared.length === 0) return base;
-    const tokens = scanMentions(msg.text, declared);
-    if (tokens.length === 0) return base;
-    const text = stripMentionAts(msg.text, tokens) + context;
     const s = this.get(id);
+    const tokens = declared.length > 0 ? scanMentions(msg.text, declared) : [];
+    const refs = this.mentionedRefs(msg);
+    // The `mac` skill's row, read only when something here needs it: an app the CLI drives is pointed
+    // at it, and an @mac that does not resolve natively is handed over by it.
+    const macCalled = tokens.some((t) => t.id === MAC_SKILL_ID);
+    const library = refs.some((r) => r.kind === "app") || macCalled || (tokens.length > 0 && AGENT_SKILL_SUPPORT[s.agentKind] === "injected")
+      ? this.d.skills.list(s.spaceId).skills : [];
+    const mac = library.find((x) => x.id === MAC_SKILL_ID && x.valid);
+    const files = this.refAttachments(refs);
+    // The blocks ride the same way and in this order: what the user picked ON a page or in Realm's
+    // window, who else they pointed at, then the files and apps they named. Appended to the user's own
+    // text rather than sent as a system note, because all three agent wires take one markdown string
+    // and nothing else. A pick in Realm's window names its picture only if it is still attached.
+    const context = elementContext(msg.elements ?? [], msg.attachments) + sessionRefContext(msg.sessionRefs ?? [])
+      + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld });
+    const attachments = [...msg.attachments, ...files.attach];
+    if (tokens.length === 0) return { text: msg.text + context, attachments };
     let skill: SkillMention | undefined;
     if (AGENT_SKILL_SUPPORT[s.agentKind] === "injected" && this.live.get(id)?.skillsInjected) {
-      const library = this.d.skills.list(s.spaceId).skills;
       for (const t of tokens) {
         const k = library.find((x) => x.id === t.id && x.enabled && x.valid);
         // The path goes out CANONICALIZED: Codex matches a skill input item against the skills it
@@ -449,7 +572,36 @@ export class SessionService {
         if (k) { skill = { id: k.id, name: k.name, path: this.canonical(k.path) }; break; }
       }
     }
-    return { text, attachments: msg.attachments, ...(skill ? { skill } : {}) };
+    // @Mac when it could not be invoked natively — switched off in this space, an agent with no way
+    // to be handed skills, or another skill took the message's one slot — is handed over by its
+    // instructions for this session instead, and the space's switch is left as it was.
+    const macNote = macCalled && skill?.id !== MAC_SKILL_ID && mac ? macSkillContext(this.canonical(mac.path)) : "";
+    return { text: stripMentionAts(msg.text, tokens) + context + macNote, attachments, ...(skill ? { skill } : {}) };
+  }
+
+  /**
+   * The mentioned files, as the adapter attaches them — so an image reaches Claude as an image and a
+   * PDF reaches it as a path, exactly as one dragged onto the prompter does.
+   *
+   * Each is looked at first, because an attachment that is gone fails the whole turn in the adapter:
+   * a file deleted between the pick and the send is left out and SAID to be missing in the block,
+   * and an image over the inlining cap goes as its path alone. A file that exists to hold a secret is
+   * never attached however it was named — the picker never offers one, and this is the copy of that
+   * rule that holds for a request the picker did not make.
+   */
+  private refAttachments(refs: readonly MentionRef[]): { attach: Attachment[]; missing: Set<string>; withheld: Set<string> } {
+    const attach: Attachment[] = [];
+    const missing = new Set<string>(), withheld = new Set<string>();
+    for (const r of refs) {
+      if (r.kind === "app") continue;
+      if (isSecretPath(r.path)) { withheld.add(r.path); continue; }
+      let st;
+      try { st = statSync(r.path); } catch { missing.add(r.path); continue; }
+      const mime = st.isDirectory() ? DIRECTORY_MIME : mimeForPath(r.path);
+      if (isImageMime(mime) && st.size > MAX_ATTACHMENT_BYTES) continue;
+      if (!attach.some((a) => a.path === r.path)) attach.push({ path: r.path, mime });
+    }
+    return { attach, missing, withheld };
   }
 
   /** Best-effort realpath. A file that cannot be resolved (racing deletion) keeps its library path —
@@ -488,7 +640,10 @@ export class SessionService {
     await this.ensurePorts(id);
     const handle = this.ensureLive(id);
     const interrupted = wasLive && opts.interruptFirst;
-    if (interrupted) await handle.interrupt();
+    if (interrupted) await this.interruptAndSettle(id, handle);
+    // After the interrupt, not before: the turn it stopped is measured from that settle, and this
+    // message's turn must not write until git has finished looking (`deliver` waits in its own place).
+    await this.measuring.get(id);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
     await handle.send({ text: msg.text, attachments: [] });
     return { interrupted };
@@ -506,16 +661,27 @@ export class SessionService {
     this.d.failover?.cancel(id);
     await this.live.get(id)?.handle.interrupt();
   }
-  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): void {
+  respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers): void {
     this.get(id);
+    // A masked answer is remembered BEFORE it goes anywhere, so the first event to quote it back — the
+    // agent's tool result, often the very next thing on the wire — already finds it scrubbed.
+    const asked = this.asked.get(requestId);
+    if (asked && asked.sessionId === id && answers && decision !== "deny") this.secrets.rememberFrom(id, asked.card, answers);
     // Browser-tool permission requests (Plan 11 W3) are raised by the SERVER, not the adapter — the
     // broker owns their requestIds and routes the answer back to the blocked tool call. Deliberately
     // BEFORE the live-handle check: the prompt blocks an MCP call inside the gateway, which stays
-    // answerable even if the adapter process died while the card sat unanswered.
-    if (this.d.browserPermissions?.owns(requestId)) { this.d.browserPermissions.resolve(requestId, decision); return; }
+    // answerable even if the adapter process died while the card sat unanswered. Questions Realm
+    // asks itself (`ui_ask`, an MCP server's elicitation) ride the same route, answers and all.
+    if (this.d.browserPermissions?.owns(requestId)) { this.d.browserPermissions.resolve(requestId, decision, answers, id); return; }
     const l = this.live.get(id);
     if (!l) throw new RpcError("SESSION_NOT_LIVE", "the agent is not running; the request is stale (send a message to resume)");
     l.handle.respondPermission(requestId, decision, answers);
+  }
+
+  /** `text` with every masked answer this session was given replaced by the mark — what the gateway
+   *  runs a call's record through before Activity keeps it. */
+  scrubSecrets(id: string, text: string): string {
+    return this.secrets.scrubText(id, text);
   }
 
   /**
@@ -539,12 +705,13 @@ export class SessionService {
     this.get(id);
     this.onEvent(id, sessionEvent("feedback", { messageId, rating }));
   }
-  async setOptions(id: string, o: { model?: string; effort?: string; permissionMode?: string; fastMode?: boolean }): Promise<Session> {
+  async setOptions(id: string, o: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<Session> {
     const s = this.d.sessions.update({ id, ...o });
     // The row moves whether or not a process is live. A session that has not started yet keeps the
     // request in the column and hands it over at `start` (ensureLive reads the row), which is what
-    // makes the switch mean the same thing before the first message as after it.
-    await this.live.get(id)?.handle.setOptions({ model: o.model, permissionMode: o.permissionMode, fastMode: o.fastMode });
+    // makes the switch mean the same thing before the first message as after it. The level goes to a
+    // live one too: Claude and Codex both take it on the next turn.
+    await this.live.get(id)?.handle.setOptions({ model: o.model, effort: o.effort, permissionMode: o.permissionMode, fastMode: o.fastMode });
     return s;
   }
 
@@ -619,6 +786,9 @@ export class SessionService {
       updated = this.d.sessions.moveToSpace(id, spaceId, env.id, null);
       const item = this.d.items.findByRefId(id);
       if (item) this.d.items.moveToSpace(item.id, spaceId);
+      // Its Agents tab is a view of this session and goes where the session goes.
+      const tab = this.d.items.findTab(id);
+      if (tab) this.d.items.moveToSpace(tab.id, spaceId);
       // The hidden terminal item and its row follow the session, or the destination would own a
       // session whose terminal the ORIGIN space's deletion would kill.
       if (term && keepTerminal) { this.d.items.moveToSpace(term.id, spaceId); this.d.terminals.moveToSpace(term.refId, spaceId); }
@@ -689,6 +859,13 @@ export class SessionService {
     this.d.gateway.release(id);
     // Same idempotence: a deleted session's pending browser prompts resolve deny, its grants die.
     this.d.browserPermissions?.release(id);
+    // …and so does the computer use its mentions granted.
+    this.d.computerGrants?.release(id);
+    // Its views are stored rows that go with it; what was still waiting for a result goes now.
+    this.d.views?.forget(id);
+    // Its masked answers have nothing left to be kept out of, and its questions nobody left to answer.
+    this.secrets.forget(id);
+    for (const [requestId, a] of this.asked) if (a.sessionId === id) this.asked.delete(requestId);
     // And its browser-agent state (W5): as a parent, its run is cancelled; as a child, its persisted
     // record and act budget are forgotten — the restriction dies with the session.
     this.d.browserAgents?.release(id);
@@ -700,11 +877,16 @@ export class SessionService {
     // still-draining pump could otherwise read after the session it describes has stopped existing.
     this.forkInFlight.delete(id);
     this.rewindTurns.delete(id);
+    this.toolTurns.delete(id);
+    this.measuring.delete(id);
     // The terminal belongs to the session: deleting the session must not leave its pty running.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
     if (term) this.closeTerminalItem(term.refId);
     const item = this.d.items.findByRefId(id);
     if (item) this.d.items.delete(item.id);
+    // …and its Agents tab, which is a view of nothing once the session is gone.
+    const tab = this.d.items.findTab(id);
+    if (tab) this.d.items.delete(tab.id);
     this.d.sessions.delete(id);
     this.d.rpc.broadcast("items.changed", { spaceId: s.spaceId });
   }
@@ -750,7 +932,7 @@ export class SessionService {
   async closeAll(): Promise<void> {
     this.closing = true;
     this.d.failover?.close();
-    for (const id of [...this.live.keys()]) { await this.stop(id); this.d.gateway.release(id); this.d.browserPermissions?.release(id); }
+    for (const id of [...this.live.keys()]) { await this.stop(id); this.d.gateway.release(id); this.d.browserPermissions?.release(id); this.d.computerGrants?.release(id); }
   }
   /**
    * Boot: no adapter survives a restart. Live statuses become idle; `ended` (an adapter that exited — after `error` on a
@@ -794,7 +976,7 @@ export class SessionService {
     const path = shouldSurfaceWrite(toolName, input);
     if (path === null) return;
     const s = this.d.sessions.get(id); if (!s) return;
-    void this.d.documents.openPath({ spaceId: s.spaceId, environmentId: s.environmentId, path })
+    void this.d.documents.openPath({ spaceId: s.spaceId, environmentId: s.environmentId, path, openedBy: id })
       .catch(() => {});
   }
 
@@ -895,6 +1077,25 @@ export class SessionService {
   }
 
   /**
+   * What a settled turn did to its checkout, put on the rail as `turn_changes` for the transcript's
+   * "Edited N files" card.
+   *
+   * After the settle and never ahead of it: git's account costs what a checkpoint does, and the turn
+   * is over for the reader the moment the settle lands. A nicety like every other `void` on this
+   * path — a checkout that has gone, a snapshot that fails, a daemon on its way down — writes nothing,
+   * and the card falls back to what the tool calls themselves said.
+   */
+  private async recordTurnChanges(id: string, checkpointId: string, settledAt: number): Promise<void> {
+    try {
+      const changes = await this.d.checkpoints?.turnChanges(checkpointId);
+      if (!changes || this.closing) return;
+      this.publishServerEvent(id, sessionEvent("turn_changes", { checkpointId, settledAt, ...changes }));
+    } catch (e) {
+      console.error(`[sessions] could not measure the turn for ${id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
    * What durable context this session's agent loads (memory.sources). The Codex report comes from THIS
    * session's own persisted `init` event and nowhere else — the store query is keyed by the session id,
    * which is what keeps one session's `instructionSources` from ever dressing up another's pane.
@@ -910,11 +1111,13 @@ export class SessionService {
     return this.d.memory.sourcesFor({ kind: s.agentKind, spaceId: s.spaceId, cwd: s.cwd, skillsInjected, reported });
   }
 
-  /** Whether any session in this environment holds a live adapter handle — what stops a restore
-   *  rewriting a working tree under a running tool call. */
+  /** Whether a session in this environment is mid-turn — what stops a restore rewriting a working tree
+   *  under a running tool call. A handle alone is not that: a session keeps its adapter between turns,
+   *  and one idle there is writing nothing. */
   isEnvironmentBusy(environmentId: string): boolean {
     for (const id of this.live.keys()) {
-      if (this.d.sessions.get(id)?.environmentId === environmentId) return true;
+      const s = this.d.sessions.get(id);
+      if (s?.environmentId === environmentId && (s.status === "running" || s.status === "waiting_permission")) return true;
     }
     return false;
   }
@@ -1133,18 +1336,28 @@ export class SessionService {
   }
 
   /**
-   * Remember what the harness just said about fast mode, for the model this session ASKED for, so
-   * the next session on it can offer the switch before its first message (`MODEL_FAST_SUPPORT_KEY`).
+   * Remember what the harness just said about fast mode, so the next session on any model it answered
+   * for can offer the switch before its first message (`MODEL_FAST_SUPPORT_KEY`).
    *
-   * Keyed by the row's model — the request — and not by the id the harness resolved it to: a
-   * prompter that has not started a session knows only what it is going to ask for. Written only
-   * when the answer changed, so a session's every restated handshake costs a read and no write.
+   * Two sources, the broad one first: the harness's answer for every model it listed
+   * (`fastModeModels`, keyed by the id a session would pin), then this session's own answer, filed under
+   * the model the session ASKED for — not the id the harness resolved it to, because a prompter that
+   * has not started a session knows only what it is going to ask for. Written only when an answer
+   * changed, so a session's every restated handshake costs a read and no write.
    */
-  private noteFastSupport(s: Session, can: boolean): void {
-    const key = fastSupportKey(s.agentKind, s.model);
+  private noteFastSupport(s: Session, init: SessionEventPayload<"init">): void {
+    const answers: Record<string, boolean> = {};
+    for (const [model, can] of Object.entries(init.fastModeModels ?? {})) answers[fastSupportKey(s.agentKind, model || null)] = can;
+    if (init.supportsFastMode !== undefined) answers[fastSupportKey(s.agentKind, s.model)] = init.supportsFastMode;
     const held = readFastSupport(this.d.settings.get(MODEL_FAST_SUPPORT_KEY));
-    if (held[key] === can) return;
-    this.d.settings.set(MODEL_FAST_SUPPORT_KEY, { ...held, [key]: can });
+    if (!Object.entries(answers).every(([key, can]) => held[key] === can)) this.d.settings.set(MODEL_FAST_SUPPORT_KEY, { ...held, ...answers });
+    // The levels each model takes, filed the same way and for the same reader: a session that has not
+    // started, whose effort control should offer what its model accepts (`MODEL_EFFORTS_KEY`).
+    const levels = Object.fromEntries(Object.entries(init.effortModels ?? {}).map(([model, l]) => [fastSupportKey(s.agentKind, model || null), l]));
+    if (Object.keys(levels).length === 0) return;
+    const kept = readEffortSupport(this.d.settings.get(MODEL_EFFORTS_KEY));
+    if (Object.entries(levels).every(([key, l]) => kept[key]?.join() === l.join())) return;
+    this.d.settings.set(MODEL_EFFORTS_KEY, { ...kept, ...levels });
   }
 
   /**
@@ -1179,17 +1392,36 @@ export class SessionService {
     this.d.rpc.broadcast("session.event", { ...stored, ephemeral: false });
   }
 
-  private onEvent(id: string, ev: SessionEvent): void {
+  /**
+   * A tool call the agent reports is remembered, and its result comes back carrying the view the call
+   * drew (MCP Apps), when it drew one. The agent's harness reports only the text; the gateway is what
+   * saw the server answer with a view, and `views` is where the two meet (see `AppViews`).
+   */
+  private withView(id: string, ev: SessionEvent): SessionEvent {
+    if (!this.d.views) return ev;
+    if (ev.type === "tool_call") { this.d.views.noteCall(id, ev.payload.toolUseId, ev.payload.name, ev.payload.input); return ev; }
+    if (ev.type !== "tool_result" || ev.payload.view) return ev;
+    const view = this.d.views.claim(id, ev.payload.toolUseId);
+    return view ? { ...ev, payload: { ...ev.payload, view } } : ev;
+  }
+
+  private onEvent(id: string, raw: SessionEvent): void {
     if (this.closing) return; // shutdown: the row keeps its last real status; markStaleOnBoot resets it
     const before = this.d.sessions.get(id);
     if (!before) return; // deleted underneath a still-draining pump
+    // First, before anything reads it: a masked answer quoted back by the agent never reaches the log,
+    // the feed or another window. A no-op for every session that was never asked a secret. Then the
+    // view a call drew, if it drew one, rides on its result from here on.
+    const ev = this.withView(id, this.secrets.scrub(id, raw));
+    if (ev.type === "permission_request" && ev.payload.ask) this.asked.set(ev.payload.requestId, { sessionId: id, card: ev.payload.ask });
+    else if (ev.type === "permission_response") this.asked.delete(ev.payload.requestId);
     // BEFORE the status update below, so the hook sees the row's PREVIOUS status — a settle is a
     // transition, and only this side of the update still knows both ends of it.
     this.d.notifications?.handleSessionEvent(before, ev);
     if (ev.type === "init") {
       this.noteContextReset(before, ev.payload);
       this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
-      if (ev.payload.supportsFastMode !== undefined) this.noteFastSupport(before, ev.payload.supportsFastMode);
+      if (ev.payload.supportsFastMode !== undefined || ev.payload.fastModeModels || ev.payload.effortModels) this.noteFastSupport(before, ev.payload);
     }
     // A refused truncating resume is claimed here FIRST, and deliberately kept away from failover: the
     // refusal is deterministic, so every retry mechanism in the building would re-send a request that
@@ -1217,6 +1449,7 @@ export class SessionService {
      * edit across twenty files must not open twenty tabs, and a `.ts` does not belong behind a
      * rich-text editor. */
     if (ev.type === "tool_call") this.surfaceWrittenDocument(id, ev.payload.name, ev.payload.input);
+    if (ev.type === "tool_call") this.toolTurns.add(id);
     // Not persisted and not this session's: the reading describes the ACCOUNT behind every session on
     // this agent, so it is folded into per-kind state and never into the transcript.
     if (ev.type === "rate_limit") this.d.planLimits?.apply(before.agentKind, ev.payload);
@@ -1226,6 +1459,11 @@ export class SessionService {
     if (ev.type === "status") {
       this.d.sessions.update({ id, status: ev.payload.status });
       this.d.rpc.broadcast("session.status", { sessionId: id, status: ev.payload.status });
+      // The end of a turn, from any live status — the same moment the transcript banks its run line.
+      // Read here, ahead of `noteTurnCursor` below, which claims the checkpoint for its own purposes.
+      const settled = (before.status === "running" || before.status === "waiting_permission")
+        && ev.payload.status !== "running" && ev.payload.status !== "waiting_permission";
+      const fronting = settled ? this.d.checkpoints?.frontingCheckpoint(id) ?? null : null;
       // A SETTLE, not any status: the transition out of a live state is the moment the transcript
       // stops moving, and it is the only one worth summarizing. Fired after the events of the turn
       // are persisted below on their own passes — the summary reads the log, so it must not run
@@ -1236,6 +1474,7 @@ export class SessionService {
         // (the next turn has not begun). Synchronous and first, ahead of every `void` below — one of
         // those starts the next turn, and a cursor read after that would describe the wrong one.
         this.noteTurnCursor(id, before);
+        this.d.checkpoints?.endTurn(id);
         void this.d.summaries?.onSettled(id);
         /* The turn that was blocking the queue just ended — unless the USER ended it, in which case
          * the queue stays parked. Stop has to mean stop: a queued message that started a fresh turn
@@ -1252,6 +1491,14 @@ export class SessionService {
            reason above — this runs inside the adapter pump, and a continuation's own first events
            must not be waited for from inside it. */
         void this.d.goals?.onSettled(id, { interrupted: ev.payload.interrupted === true }).catch(() => {});
+      }
+      if (ev.payload.status === "idle" || ev.payload.status === "ended" || ev.payload.status === "error") {
+        for (const settle of this.settleWaiters.get(id) ?? []) settle();
+      }
+      if (settled && this.toolTurns.delete(id) && fronting) {
+        const measured: Promise<void> = this.recordTurnChanges(id, fronting, ev.ts)
+          .finally(() => { if (this.measuring.get(id) === measured) this.measuring.delete(id); });
+        this.measuring.set(id, measured);
       }
     }
     if (PERSISTED_EVENT_TYPES.includes(ev.type)) {

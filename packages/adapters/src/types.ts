@@ -1,4 +1,4 @@
-import type { AgentKind, AgentModel, SessionEvent } from "@realm/contracts";
+import type { AgentKind, AgentModel, AskAnswers, SessionEvent } from "@realm/contracts";
 
 /**
  * One MCP server on its way to an agent.
@@ -43,9 +43,9 @@ export type StartOptions = {
   model?: string | null;
   effort?: string | null;
   permissionMode?: string;
-  /** The session has ASKED for fast mode. Only `claude` acts on it; every other adapter ignores it,
-   *  and none of them is obliged to report back — the honest answer for an engine with no such
-   *  concept is silence, which the prompter reads as "no switch to offer". */
+  /** The session has ASKED for fast mode. `claude` and `codex` act on it (`AGENT_FAST_MODE`); every
+   *  other adapter ignores it, and none of them is obliged to report back — the honest answer for an
+   *  engine with no such concept is silence, which the prompter reads as "no switch to offer". */
   fastMode?: boolean;
   systemContext?: string;
   /** Since Plan 9 W3, `apps/server` always sends exactly ONE entry: the gateway's own `http` endpoint —
@@ -104,11 +104,14 @@ export interface AgentHandle {
   readonly events: AsyncIterable<SessionEvent>;
   /** Resolves once the message has been accepted (attachments read and enqueued); errors are reported as `error` events. */
   send(message: UserMessage): Promise<void>;
-  /** `answers` is carried only by question-shaped tools (AskUserQuestion); adapters that have no
-   *  question surface ignore it and answer the plain allow/deny they always did. */
-  respondPermission(requestId: string, decision: PermissionDecision, answers?: Record<string, string>): void;
+  /** `answers` is carried only by a question (`permission_request.ask`): question id -> what was chosen
+   *  or typed. An adapter that raised no question ignores it and answers the plain allow/deny it
+   *  always did. */
+  respondPermission(requestId: string, decision: PermissionDecision, answers?: AskAnswers): void;
   interrupt(): Promise<void>;
-  setOptions(opts: { model?: string; permissionMode?: string; fastMode?: boolean }): Promise<void>;
+  /** `effort: null` is "the model's own default" — a level the session no longer asks for, not one
+   *  left unsaid. */
+  setOptions(opts: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -119,7 +122,10 @@ export interface AgentHandle {
  * and an unavailable CLI obviously can't be asked. Never an invented list: ids here are ids the
  * provider itself handed over, verbatim.
  */
-export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; models?: AgentModel[] | null };
+export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; models?: AgentModel[] | null;
+  /** An agent's reasoning levels where they are a session setting (an ACP `thought_level` option), with
+   *  the one it starts on. Absent where the agent offers none, or was not asked. */
+  efforts?: { id: string; label: string }[]; defaultEffort?: string | null };
 
 export interface AgentAdapter {
   readonly kind: AgentKind;

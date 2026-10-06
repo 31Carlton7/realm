@@ -12,7 +12,14 @@ export const HexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i, "expected #rrg
 
 export const ProfileSchema = z.object({
   id: IdSchema, name: z.string().min(1), icon: z.string(), color: z.string(),
-  sortOrder: z.number().int(), ...Timestamps,
+  sortOrder: z.number().int(),
+  /** The Electron session partition this profile's browser panes use — its own cookie jar, site data
+   *  and cache. Fixed when the profile is made and never edited: the first profile of a home keeps
+   *  `persist:browser`, the jar every pane shared before profiles were separate, so the sign-ins made
+   *  then survive; every other profile has `persist:browser-<id>`. Reordering profiles must not move
+   *  anybody's cookies, which is why this is stored rather than derived from the order. */
+  browserPartition: z.string(),
+  ...Timestamps,
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
@@ -60,8 +67,14 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  `machine` (Plan 25 W3) sits beside `browser` because it is its sibling: a live remote surface with
  *  a durable row behind it, whose `refId` is a `machines` row id. Deliberately NOT the reserved
  *  `simulator`, which `Icon.tsx` maps to a phone and which `device-ax.ts` speaks about specifically.
- *  A machine is not a phone. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page", "schedules-page", "agents-page"]);
+ *  A machine is not a phone.
+ *  `agents` (v2) is a session's Agents tab — its sub-agents and the composer that hands work out. Its
+ *  `refId` is the SESSION's id, because the tab is a view of that one session; the session's own
+ *  item is still the one `findByRefId` answers for the id (`ItemsStore` skips this kind), so nothing
+ *  that looks a session's item up can be handed its tab instead.
+ *  `app-view` (v2) is a view an MCP server drew for one tool call (MCP Apps), opened as a tab of its
+ *  session's side pane. Its `refId` is the VIEW's id — an `app_views` row, which names the session. */
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "code-review-page", "settings-page", "profile-page", "schedules-page", "you-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**
@@ -78,7 +91,6 @@ export type ItemKind = z.infer<typeof ItemKindSchema>;
 export const PAGE_REF_IDS = {
   "library-page": "00000000000000000000000001",
   "connections-page": "00000000000000000000000002",
-  "notifications-page": "00000000000000000000000003",
   "settings-page": "00000000000000000000000004",
   // Plan 14 W2. The page shows the VANTAGE space's profile — the profile is derived live from
   // `item.spaceId`, never stored in the item, so a space moved between profiles moves its page's
@@ -87,9 +99,16 @@ export const PAGE_REF_IDS = {
   // Scheduled tasks. Space-scoped like the rest: a schedule names the space its runs are created in,
   // so the page's vantage is the space its item lives in.
   "schedules-page": "00000000000000000000000006",
-  /** Every agent across every space, by what it needs from you. The page a manager of several
-   *  sessions keeps open: what is waiting on a permission, what is working, what has finished. */
-  "agents-page": "00000000000000000000000007",
+  // …07 was a page since removed. Not reused: a home from before pages were overlays may still hold
+  // rows carrying it, and a sentinel is only a sentinel while it names one page.
+  /** The person, not a space or a profile: your name and picture, the figures every session adds
+   *  up to, and the rhythm of the days you used Realm. Read from every space, so the vantage space
+   *  an overlay carries is only where it was opened from. */
+  "you-page": "00000000000000000000000008",
+  /** Pull requests on GitHub, through the person's own `gh` (v2) — the rail's place where
+   *  Notifications was. Its own sentinel rather than the retired page's …003: a row an older build
+   *  left under that id is pruned as a page item, and must not come back as this one. */
+  "code-review-page": "00000000000000000000000009",
 } as const;
 export type DestinationPageKind = keyof typeof PAGE_REF_IDS;
 
@@ -106,20 +125,58 @@ export const ItemSchema = z.object({
    * destination page or a session-owned terminal means nothing), but nothing in the column is
    * session-specific, so widening it is a UI change alone.
    */
-  archived: z.boolean(), refId: IdSchema, ...Timestamps,
+  archived: z.boolean(), refId: IdSchema,
+  /** A browser's page icon (`isFaviconDataUrl`), read from its `browsers` row, so every place that
+   *  draws the item — a tab, a sidebar row, a pane bar — can draw the page's own mark. Absent for
+   *  every other kind, and for a browser whose page has offered none: both draw the kind's glyph. */
+  favicon: z.string().optional(),
+  ...Timestamps,
 });
 export type Item = z.infer<typeof ItemSchema>;
 
 /**
+ * The largest favicon Realm keeps, in bytes. A favicon is a 16 or 32px picture: twenty popular sites
+ * measured from 549 bytes (x.com) to 31KB (Notion's five-size ICO). Bounded at all because it rides on
+ * every item list the sidebar draws, and an "icon" past this is a full-size image no tab has a use for.
+ */
+export const FAVICON_MAX_BYTES = 32 * 1024;
+/** What a favicon may be: the formats main recognises by their own bytes (browser-host.ts). */
+export const FAVICON_TYPES = ["image/png", "image/x-icon", "image/gif", "image/jpeg", "image/webp", "image/svg+xml"] as const;
+
+/**
+ * Is this a favicon as Realm keeps one: the picture itself, base64 in a `data:` URL of one of
+ * `FAVICON_TYPES`, no bigger than `FAVICON_MAX_BYTES`. Never the address it came from — main fetched it
+ * on the pane's own session, so drawing it makes no request from the window (whose CSP admits no
+ * remote image), and a restored tab draws it before its page has loaded again.
+ */
+export function isFaviconDataUrl(s: string): boolean {
+  const m = /^data:([a-z/+.-]+);base64,([A-Za-z0-9+/]*={0,2})$/.exec(s);
+  if (!m || m[2] === "" || !(FAVICON_TYPES as readonly string[]).includes(m[1]!)) return false;
+  return m[2]!.length <= Math.ceil(FAVICON_MAX_BYTES / 3) * 4;
+}
+
+/**
  * A browser pane's persisted half (Plan 11 W1). The row carries only what a restart needs — the last
- * committed `url` and page `title`; the live `WebContentsView` (history, session state beyond the
- * `persist:browser` partition's own disk cache) belongs to Electron main and dies with the pane.
+ * committed `url`, its page `title` and its `favicon` (`isFaviconDataUrl`, '' when none is known); the
+ * live `WebContentsView` (history, session state beyond the `persist:browser` partition's own disk
+ * cache) belongs to Electron main and dies with the pane.
  * `url: ""` = never navigated (the pane opens on its empty state, not about:blank).
  */
 export const BrowserSchema = z.object({
-  id: IdSchema, spaceId: IdSchema, url: z.string(), title: z.string(), ...Timestamps,
+  id: IdSchema, spaceId: IdSchema, url: z.string(), title: z.string(), favicon: z.string(), ...Timestamps,
 });
 export type Browser = z.infer<typeof BrowserSchema>;
+
+/**
+ * A page a profile's browser panes have shown (Plan 26 W7c) — what the address field suggests. Per
+ * profile and keyed on the address, so `visits` is how often and `lastVisitAt` how recently: the two
+ * things a suggestion is ranked by, in that order. `favicon` is the icon the page last showed, as the
+ * `browsers` row keeps one ('' when none was seen).
+ */
+export const BrowserHistoryPageSchema = z.object({
+  url: z.string(), title: z.string(), visits: z.number().int().positive(), lastVisitAt: z.number().int(), favicon: z.string(),
+});
+export type BrowserHistoryPage = z.infer<typeof BrowserHistoryPageSchema>;
 
 /**
  * A document workspace's persisted half (Plan 17 W1) — the tab strip, so a restart reopens what was

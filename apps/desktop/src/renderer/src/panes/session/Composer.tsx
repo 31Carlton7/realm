@@ -1,5 +1,5 @@
-import { LINK_SERVICE_META, elementChipToken, scanElementChips, type LinkChip , type SessionRef } from "@realm/contracts";
-import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -7,17 +7,17 @@ import { useFileDrop } from "../../components/use-file-drop";
 import { useItemDrop } from "../../components/use-item-drop";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
-import { MentionPicker, filterMentionSkills, mentionQueryAt } from "./MentionPicker";
+import { MentionPicker, mentionOptionId, mentionQueryAt } from "./MentionPicker";
+import { fileMark, labelCandidatesFor, mentionOptions, mentionRows, refFor, useMentionAnswers, type MentionRow, type MentionSources } from "./mention-sources";
 import { SlashPicker } from "./SlashPicker";
 import { filterSlashCommands, slashCallIn, slashQueryAt, type SlashCommand } from "./slash-commands";
-import { modelIdOn, modelRows } from "./model-rows";
+import { effortOptions, fastModeAvailability, fastModeTip, modelRows, type EffortControl, type FastMode } from "./model-catalog";
 import { SkillPicker } from "./SkillPicker";
-import { ModelPicker, formatEffort, type FastMode, type OverflowGroup } from "./ModelPicker";
+import { ModelPicker, type OverflowGroup } from "./ModelPicker";
 import { heroGreeting } from "./greeting";
-import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
+import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, removeChip, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
 import { whenLabel } from "../schedules/SchedulesPage";
-import { DelegatedRuns } from "./DelegatedRuns";
 import { TodoStrip } from "./TodoStrip";
 import { SessionUsage } from "./SessionUsage";
 import type { Usage } from "./transcript-model";
@@ -35,6 +35,12 @@ const EMPTY_USAGE: Usage = { costUsd: 0, inputTokens: 0, outputTokens: 0, numTur
 const NO_COMMANDS: SlashCommand[] = [];
 /** Stable empty default, for the same reason. */
 const NO_GREETINGS: readonly string[] = [];
+const NO_FAST_SUPPORT: Record<string, boolean> = {};
+const NO_EFFORT_SUPPORT: Record<string, string[]> = {};
+const NO_ICONS: Readonly<Record<string, string | null>> = {};
+/** "Messages", "Messages and Mail", "Messages, Mail and Notes". */
+const listNames = (names: readonly string[]): string =>
+  names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
 /** Branch + diff chips (W3): still the one way IN to the diff pane. The cwd and environment chips
  *  that used to lead this group are retired outright (prompter rework): the folder and the checkout
@@ -61,12 +67,22 @@ function GitChip({ gitInfo, onOpenDiff }: { gitInfo: GitInfo | null; onOpenDiff:
 /** Borderless ghost chip that opens an upward Menu (§4 control row). With nothing to pick it is not a
  *  control at all but a label — an agent whose CLI owns model choice still deserves its model named,
  *  and a disabled button would leave the tab order and be announced as unavailable. */
-function ChipMenu({ ariaLabel, title, label, icon, items, warning }: { ariaLabel: string; title?: string; label: ReactNode; icon?: string; items: MenuItem[]; warning?: boolean }) {
+function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, warning, caret = true }: { ariaLabel: string; title?: string; label: ReactNode; icon?: string;
+  /** The glyph's rung: 12 beside the under-strip's 11px labels, 14 on the control row, where it sits
+   *  beside the model chip's own 14px mark. */
+  iconSize?: number;
+  /** A colour for the glyph alone — the space chip wears its space's (Plan 27). */
+  tint?: string; items: MenuItem[]; warning?: boolean;
+  /** The chevron. Off for a control whose mark already says what it opens onto — see the permission
+   *  control, which is a glyph and a word the way Codex's is. */
+  caret?: boolean }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   // A sibling of chip-label, never inside it: chip-label truncates with an ellipsis, which needs a
   // plain inline box — an icon nested in there gets no gap and sits off the text's centre line.
-  const glyph = icon ? <Icon name={icon} size={12} className="chip-brand" /> : null;
+  const glyph = icon ? (tint
+    ? <span className="chip-brand chip-tint" style={{ color: tint }}><Icon name={icon} size={iconSize} /></span>
+    : <Icon name={icon} size={iconSize} className="chip-brand" />) : null;
   if (items.length === 0) {
     return <span className="ghost-chip" data-static title={title ?? ariaLabel} data-warning={warning || undefined}>{glyph}<span className="chip-label">{label}</span></span>;
   }
@@ -78,7 +94,7 @@ function ChipMenu({ ariaLabel, title, label, icon, items, warning }: { ariaLabel
         data-warning={warning || undefined} onClick={() => setOpen((v) => !v)}>
         {glyph}
         <span className="chip-label">{label}</span>
-        <Icon name="chevronDown" size={12} className="chip-caret" />
+        {caret && <Icon name="chevronDown" size={12} className="chip-caret" />}
       </button>
       {open && <Menu items={items} onClose={() => setOpen(false)} anchorRef={btn} placement="up" label={ariaLabel} />}
     </>
@@ -174,6 +190,8 @@ function QueueRow({ kind, queued, onRelease, onDrop }: { kind: AgentKind; queued
  */
 /** Stable, so a Composer with no references does not get a new array on every render. */
 const NO_SESSION_REFS: readonly SessionRef[] = [];
+const NO_REFS: readonly MentionRef[] = [];
+const NO_SPACES: readonly { id: string; name: string }[] = [];
 
 function SessionRefRow({ refs, onRemove }: { refs: readonly SessionRef[]; onRemove: (sessionId: string) => void }) {
   if (refs.length === 0) return null;
@@ -200,7 +218,7 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
           <li key={a.path} className="composer-attach-item">
             <AttachmentTile path={a.path} mime={a.mime} name={a.name} disposition={attachmentDisposition(kind, a.mime)}
               detail={`${formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}
-              onRemove={() => onRemove(a.path)} />
+              onRemove={() => onRemove(a.path)} siblings={attachments} />
           </li>
         ))}
       </ul>
@@ -219,10 +237,27 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
 }
 
 const permissionLabel = (id: string) => PERMISSION_MODES.find((m) => m.id === id)?.label ?? id;
+/** Each rung's mark, worn by the control and by the rung's own row in its menu, so the row you pick is
+ *  the glyph the control then shows. A stored id this table does not know is drawn as `default`'s
+ *  asking shield — the label beside it still prints whatever the id was. */
+const PERMISSION_ICON: Record<(typeof PERMISSION_MODES)[number]["id"], IconName> = {
+  default: "shieldQuestion", acceptEdits: "shieldCheck", bypassPermissions: "shieldAlert",
+};
+const permissionIcon = (id: string): IconName => PERMISSION_ICON[id as keyof typeof PERMISSION_ICON] ?? "shieldQuestion";
 const MODE_LABEL: Record<SessionMode, string> = { build: "Build", plan: "Plan", ask: "Ask" };
 /** `search` for Ask, not the session bubble: the mode is reading and searching, and the bubble is
  *  already what a session row is. */
 const MODE_ICON: Record<SessionMode, IconName> = { build: "tool", plan: "plan", ask: "search" };
+/** A mode's glyph in the "+" menu, in the tone the card wears for it — Plan's and Ask's tints are the
+ *  mode's ambient signal, and the row naming the mode is the one place it should match them. */
+const ModeMark = ({ mode }: { mode: SessionMode }) => <span className="mode-mark" data-mode={mode}><Icon name={MODE_ICON[mode]} size={16} /></span>;
+/** Each mode's line in the "+" menu: what it lets the agent do, in the fewest words that still
+ *  separate the three. The row's title carries the per-agent detail (`modeMeaning`). */
+const MODE_DETAIL: Record<SessionMode, string> = {
+  build: "Edit files and run commands",
+  plan: "Propose an approach, change nothing",
+  ask: "Answer questions, change nothing",
+};
 
 /** An environment's display name (under-strip selector, Plan 12 W1): the space's own name for the
  *  primary (the folder IS the space), the branch for a worktree, the folder's basename otherwise. */
@@ -248,33 +283,42 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
 }
 
 /**
- * The "+" menu (Plan 12 W1): the plus stops being a bare file-picker trigger and becomes the row's
- * add-anything menu — files (⌘U, bound in hotkeys.ts; the label here is purely visual), a folder,
- * skills, and the space's connectors.
+ * The "+" menu: everything that can be added to this message or set on this session, in one list
+ * drawn as Codex draws its own — sections under a quiet head, and each row a glyph, a name and a line
+ * saying what it does.
  *
- * Skills opens the `SkillPicker` (W-discovery) rather than priming the `@`-mention popover as it first
- * did. Priming could only ever offer skills that were ALREADY on, which on a machine with a hundred
- * installed made the one menu item named "Skills" the one place that could not show them.
+ * In-app rather than the OS's (`Menu`'s `inApp`): an OS menu row has no second voice, and the rows
+ * here are the ones that need one — "Folder…" means linking a folder to the space, not attaching it,
+ * and Plan and Ask are only worth choosing between when the row says what each withholds. What the
+ * OS menu gave is kept by the drawn one: arrows, Home/End, Return, Escape, focus going back to the
+ * "+", and placement clear of a browser pane's native view, which composites over anything drawn.
  *
- * The Connectors "submenu" is the same Menu swapped in place (`keepOpen` + a keyed remount so the
- * upward placement re-measures for the new height) — the two-step idiom the menu machinery already
- * carries, not a hover-submenu invented for one item. No Plugins item: Realm has no plugin system,
- * and the plan refuses menu parity over honesty.
+ * Three sections. **Add** is what goes with the message or into the space: files (⌘U, bound in
+ * hotkeys.ts — the hint here is visual), a folder, a part of Realm itself (Select in Realm, the
+ * in-app element picker — app-pick/), skills, and a goal, which arms the box with `/goal` rather
+ * than opening anything. Skills opens the `SkillPicker`, which lists every skill on
+ * the machine; priming the `@` popover could only ever offer the ones already on.
  *
- * **Mode** rides the same idiom. It used to be a chip in the control row, paired with the permission
- * chip inside a `.chip-group` that drew the two as one segmented control. Two things were wrong with
- * that: the row is where the things you change PER MESSAGE live, and the mode is a property of the
- * session that most turns never touch; and grouping it with permissions implied the two were one
- * decision, when Plan and Ask actually REPLACE the permission axis rather than sit beside it. The
- * row keeps the permission chip alone, which is also what un-groups its corners.
+ * **Mode** is the session's Build / Plan / Ask, as rows to pick rather than a submenu to step into:
+ * the OS menu needed the step because it could not change under the pointer, and this one can. The
+ * rows are only the modes this agent can be put INTO (the Composer filters them), each titled with
+ * what that mode means for this agent; a session whose agent offers none still shows its one mode,
+ * because a session always has one and this is where Build — which the card does not tint — is read.
  *
- * The row carries the current mode as its value, because removing the chip removed the only place
- * the mode was written down. The card's own tint still says it for Plan and Ask; Build is untinted,
- * and this is where Build is legible.
+ * **Connectors** lists the space's enabled servers with the hub's last known health — a row read,
+ * never a probe — each leading to the space's Connections page, where acting on one lives. No
+ * Plugins section: Realm has no plugin system, and parity with Codex's menu is not a reason to
+ * invent one.
  */
-function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, connectors, onOpened, onManageConnections,
-  mode, modeItems, modeTitle, modePending, canChooseMode, btnRef }: {
+function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkills, onGoal, connectors, onOpened, onManageConnections, modeRows, btnRef, compact = false }: {
   onAttachPick: () => void; onAddFolder: () => void;
+  /** Point at a part of Realm and add it to this message, and the chord that does it too — the
+   *  person's own, so a rebinding in Settings ▸ Keys is the hint here. Absent, there is no row. */
+  selectInRealm?: { onSelect: () => void; kbd?: string };
+  /** The compact prompter's: what goes with this message, and nothing about where or how the session
+   *  runs — a folder linked to the space, a mode, the space's connectors are all chips this prompter
+   *  does not carry, and their rows here would be controls that do nothing. */
+  compact?: boolean;
   /** Open the skill picker. Offered only when `canSkills` — an item that would silently do nothing
    *  (a Cursor session, a machine with no skills anywhere) is never grown. */
   onSkills: () => void; canSkills: boolean;
@@ -286,19 +330,9 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, conn
   /** Fired on open — the store re-reads its cache (a row read, never a probe). */
   onOpened: () => void;
   onManageConnections: () => void;
-  /** The session's mode, and the rows that change it — built by the Composer (`modeItems`) so the
-   *  per-agent filtering that decides whether Plan or Ask is even offered stays in one place. */
-  mode: SessionMode;
-  modeItems: MenuItem[];
-  modeTitle: string;
-  /** The agent is live but has not named its modes yet (ACP kinds answer at handshake). Distinguished
-   *  from "offers none" because they read the same on a disabled row and mean opposite things: one is
-   *  a wait, the other is an answer. */
-  modePending: boolean;
-  /** Whether this agent offers any mode to choose. False collapses the row to a static value: a
-   *  session whose agent has named no modes still has one, and hiding it would leave the mode with
-   *  nowhere at all to be read. */
-  canChooseMode: boolean;
+  /** The Mode section's rows, built by the Composer, which owns the per-agent filtering that decides
+   *  whether Plan or Ask is offered at all — and the single static row for an agent that offers none. */
+  modeRows: MenuItem[];
   /** The plus button itself, so the Composer can anchor the skill picker on it. Shared rather than
    *  wrapped: the control row's left group is asserted by DOM order, and a wrapper element would be a
    *  new child of it. */
@@ -307,80 +341,46 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, conn
   const ownBtn = useRef<HTMLButtonElement>(null);
   const btn = btnRef ?? ownBtn;
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<"root" | "connectors" | "mode">("root");
   const enabled = (connectors ?? []).filter((s) => s.enabled);
-  const modeRow = (
-    <span className="plus-submenu-label">
-      Mode
-      <span className="plus-submenu-value" data-mode={mode}>
-        <Icon name={MODE_ICON[mode]} size={12} />{MODE_LABEL[mode]}
-      </span>
-      {canChooseMode && <Icon name="chevronRight" size={12} className="plus-submenu-caret" />}
-    </span>
+  const items: MenuItem[] = [
+    { kind: "header", label: "Add" },
+    { label: "Files…", icon: <Icon name="attach" size={16} />, detail: "Attach to this message", kbd: "⌘U", onSelect: onAttachPick },
+    ...(compact ? [] : [{ label: "Folder…", icon: <Icon name="folder" size={16} />, detail: "Link a folder to this space", onSelect: onAddFolder } as MenuItem]),
+    /* Not an agent's to press: a pick is the person pointing (`startAppPick`, which refuses its keys). */
+    ...(selectInRealm ? [{ label: "Select in Realm", icon: <Icon name="select" size={16} />, detail: "Point at a part of the app", kbd: selectInRealm.kbd, noAgent: "element picker", onSelect: selectInRealm.onSelect } as MenuItem] : []),
+    ...(canSkills ? [{ label: "Skills", icon: <Icon name="sparkles" size={16} />, detail: "Turn one on, or mention it", onSelect: onSkills } as MenuItem] : []),
+    /* A goal arms the box instead of opening anything — the objective is the argument, and there is
+       nothing to pick from — which is the same gesture `/goal` already is, reached by someone who
+       does not know the command exists. */
+    ...(onGoal ? [{ label: "Goal…", icon: <Icon name="target" size={16} />, detail: "Keep working toward an objective", onSelect: onGoal } as MenuItem] : []),
+  ];
+  if (!compact) items.push(
+    { kind: "header", label: "Mode" },
+    ...modeRows,
+    { kind: "header", label: "Connectors" },
+    ...enabled.map((s): MenuItem => {
+      const st = connectorState(s);
+      return {
+        label: <span className="connector-row">{s.name}</span>,
+        icon: <span className="connector-dot" data-tone={st.tone} />,
+        detail: st.note ?? "connected",
+        title: `${s.name} — ${st.note ?? "connected"}. Opens this space's connections.`,
+        onSelect: onManageConnections,
+      };
+    }),
+    { label: "Manage connections…", icon: <Icon name="plug" size={16} />, onSelect: onManageConnections,
+      detail: connectors === null ? "Loading…" : enabled.length === 0 ? "None enabled in this space" : undefined },
   );
-  const modeRowTitle = canChooseMode ? modeTitle : modePending ? "Waiting for the agent's modes" : modeTitle;
-  const rootItems: MenuItem[] = [
-    { label: "Add files…", kbd: "⌘U", onSelect: onAttachPick },
-    { label: "Add folder…", onSelect: onAddFolder },
-    ...(canSkills ? [{ label: "Skills", onSelect: onSkills } as MenuItem] : []),
-    { kind: "separator" },
-    /* A goal sits with Mode rather than with the files above it: both are properties of the SESSION
-       rather than of this message. It arms the box instead of opening anything — the objective is
-       the argument, and there is nothing to pick from — which is the same gesture `/goal` already
-       is, reached by someone who does not know the command exists. */
-    ...(onGoal ? [{ label: "Set a goal…", onSelect: onGoal } as MenuItem] : []),
-    // Static when the agent offers nothing to switch to — the value is still worth reading, and a
-    // row that opened onto a list of one would be a control whose only outcome is the state it is in.
-    canChooseMode
-      ? { label: modeRow, title: modeRowTitle, keepOpen: true, onSelect: () => setView("mode") }
-      : { label: modeRow, title: modeRowTitle, disabled: true, onSelect: () => {} },
-    { label: <span className="plus-submenu-label">Connectors<Icon name="chevronRight" size={12} className="plus-submenu-caret" /></span>, keepOpen: true, onSelect: () => setView("connectors") },
-  ];
-  const modeViewItems: MenuItem[] = [
-    { label: <span className="plus-submenu-label"><Icon name="chevronLeft" size={12} className="plus-submenu-caret" />Mode</span>, keepOpen: true, onSelect: () => setView("root") },
-    { kind: "separator" },
-    ...modeItems,
-  ];
-  const connectorItems: MenuItem[] = [
-    { label: <span className="plus-submenu-label"><Icon name="chevronLeft" size={12} className="plus-submenu-caret" />Connectors</span>, keepOpen: true, onSelect: () => setView("root") },
-    { kind: "separator" },
-    ...(connectors === null
-      ? [{ label: "Loading…", disabled: true, onSelect: () => {} } as MenuItem]
-      : enabled.length === 0
-        ? [{ label: "No connectors enabled in this space", disabled: true, onSelect: () => {} } as MenuItem]
-        : enabled.map((s): MenuItem => {
-            const st = connectorState(s);
-            return {
-              label: (
-                <span className="connector-row">
-                  <span className="connector-dot" data-tone={st.tone} />
-                  <span className="chip-label">{s.name}</span>
-                  {st.note && <span className="connector-note">{st.note}</span>}
-                </span>
-              ),
-              // Informational: the row states health; acting on a server lives in settings.
-              disabled: true, title: `${s.name} — ${st.note ?? "connected"}`, onSelect: () => {},
-            };
-          })),
-    { kind: "separator" },
-    { label: "Manage connections…", onSelect: onManageConnections },
-  ];
   return (
     <>
       {/* Toggle, mirroring ChipMenu: the Menu ignores pointerdown on its own anchor, so closing by a
           second click is this handler's job. Enter/Space come for free on a real button. */}
       <button ref={btn} type="button" className="icon-btn composer-attach" aria-label="Add"
-        title="Add files, folders, skills and connectors" aria-haspopup="menu" aria-expanded={open}
-        onClick={() => { if (!open) { setView("root"); onOpened(); } setOpen(!open); }}>
+        title={compact ? "Add files" : "Add files, a folder, skills or a goal, and set the mode"} aria-haspopup="menu" aria-expanded={open}
+        onClick={() => { if (!open) onOpened(); setOpen(!open); }}>
         <Icon name="add" size={16} />
       </button>
-      {/* key={view}: the in-place swap changes the menu's height, and the upward placement was
-          measured at mount — remounting re-measures instead of overlapping the anchor. */}
-      {open && <Menu key={view}
-        items={view === "root" ? rootItems : view === "mode" ? modeViewItems : connectorItems}
-        onClose={() => setOpen(false)}
-        anchorRef={btn} placement="up"
-        label={view === "root" ? "Add" : view === "mode" ? "Mode" : "Connectors"} />}
+      {open && <Menu items={items} onClose={() => setOpen(false)} anchorRef={btn} placement="up" label="Add" inApp className="plus-menu" />}
     </>
   );
 }
@@ -390,7 +390,7 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, conn
  *  around the card so the hero→docked move is one element transitioning transform, §6: 320ms).
  *  Docked pins it to the pane bottom on the transcript's 680px rails.
  *
- *  Enter sends by default (Shift+Enter inserts a newline); Settings ▸ App can switch that to
+ *  Enter sends by default (Shift+Enter inserts a newline); Settings ▸ General can switch that to
  *  ⌘/Ctrl+Enter-to-send, Enter-inserts-a-newline instead — ⌘/Ctrl+Enter always sends either way.
  *  The draft text is owned by the store (keyed by
  *  session id, A-M9) so a suggestion chip can fill it without sending — and layout reshapes never
@@ -419,7 +419,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, supportsFastMode, links, onLinkPaste, quote = null, compact = false }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -431,6 +431,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    * model, attachments, and send.
    */
   compact?: boolean;
+  /** What the empty box says. The media viewer's prompter names the file it is asking about. */
+  placeholder?: string;
   /**
    * A passage the reader selected in the transcript, waiting to be quoted into the draft.
    *
@@ -484,6 +486,15 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   modelInfo: Record<string, ModelInfo>;
   onToggleModelFavorite: (key: string) => void;
   hero: boolean; spaceName: string;
+  /** The space's colour, as the face on screen can carry it, for the space chip's glyph (Plan 27). */
+  spaceTint?: string;
+  /**
+   * The place the hero greeting names, and where it leads: the space's page. `name` is the space's own
+   * name when the session runs in the space's folder, and the checkout's folder name when it runs
+   * somewhere else — a worktree, a linked project — because that is the place it is working in. Absent,
+   * the greeting names `spaceName` and links nowhere.
+   */
+  place?: { name: string; title: string; onOpen: () => void };
   /** The person's first name, for the hero greeting. "" (the default) means the greeting keeps to
    *  the space — never a "Good evening, " with nothing after the comma. */
   userName?: string;
@@ -511,7 +522,13 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   /** Selecting an existing environment / "New worktree…". Only reachable while the selector is a menu
    *  (no events yet — the same guard as the agent switch; the server enforces it regardless). */
   onSelectEnvironment?: (environmentId: string) => void;
+  /** Absent where the space is a plain folder: it has no worktrees, so the menu offers none. */
   onNewWorktree?: () => void;
+  /** The profile's other spaces, for the chip's "Move to …" rows (Plan 27). A new session goes to the
+   *  space of the session in focus; this is where that guess is corrected, on the same before-the-
+   *  first-message terms as the checkout — and the server's guard is the enforcement, as there. */
+  otherSpaces?: readonly { id: string; name: string }[];
+  onMoveToSpace?: (spaceId: string) => void;
   /** The "+" menu's Connectors source: the space's servers as last fetched, or null = never fetched. */
   connectors?: McpServer[] | null;
   /** The "+" menu opened — refresh the connectors cache (a row read, never a probe). */
@@ -520,7 +537,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   onAddFolder?: () => void;
   /** The "+" menu's Manage connections — the space settings' Connections tab. */
   onManageConnections?: () => void;
-  /** Which key sends the draft (Settings ▸ App). Default "enter": plain Enter sends. "cmdEnter":
+  /** Which key sends the draft (Settings ▸ General). Default "enter": plain Enter sends. "cmdEnter":
    *  only ⌘/Ctrl+Enter sends, plain Enter inserts a newline. */
   submitKey?: SubmitKey;
   /** Whether the easter eggs are on. Passed straight to the model picker. */
@@ -542,16 +559,27 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   /** Hero-greeting lines from an unlocked friend pack. Drawn only with the eggs on, like everything
    *  else a pack brings — the switch is the consent boundary and a pack is not a way around it. */
   packGreetings?: readonly string[];
-  /** Whether the harness has said THIS session's model can run fast mode — its own `init`, or before
-   *  it has one, what the last session on the same model heard (`MODEL_FAST_SUPPORT_KEY`). Undefined
-   *  is "not stated", and the picker offers no switch — never a disabled one, because there is
-   *  nothing the user could do about a capability nobody has claimed. */
-  supportsFastMode?: boolean;
+  /** This session's own handshake, where it has one — its model and what the harness said about
+   *  that model's fast mode. */
+  sessionInit?: { model: string; supportsFastMode?: boolean; efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
+  /** What harnesses have said about fast mode, per agent and model (`MODEL_FAST_SUPPORT_KEY`) — how
+   *  a session that has not started can offer the switch on the harness's word. */
+  fastSupport?: Record<string, boolean>;
+  /** The reasoning levels harnesses have said each model takes (`MODEL_EFFORTS_KEY`). */
+  effortSupport?: Record<string, string[]>;
   /** The draft's link chips (store `draftLinks`): what a `@[label]` token in the text stands for,
    *  so the mirror can wear the app's mark on it. */
   links?: readonly LinkChip[];
   /** A pasted URL Realm can name becomes a chip through this; null means "paste it as text". */
   onLinkPaste?: (url: string) => LinkChip | null;
+  /** Everything the `@` list reads beyond the skills: the checkout's files, the Library, the apps on
+   *  this Mac and @Mac (`mention-sources.ts`). Absent, `@` offers the skills alone, as it always did. */
+  mentions?: MentionSources & { addRef(ref: UnlabelledRef, candidates: readonly string[]): string };
+  /** The draft's named files and apps (store `draftRefs`): what an `@[label]` token stands for, so the
+   *  mirror can wear the right mark on it. */
+  refs?: readonly MentionRef[];
+  /** The + menu's Select in Realm (app-pick/): put the in-app element picker up for this prompter. */
+  selectInRealm?: { onSelect: () => void; kbd?: string };
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
@@ -638,8 +666,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // The greeting is picked once per session (and re-picked only if the space is renamed or the name
   // arrives late from boot): the time of day is read at that moment, so an open hero never rewrites
   // itself mid-sentence at 6pm.
-  const greeting = useMemo(() => heroGreeting({ spaceName, userName, seed: session.id, extra: eggs ? packGreetings : [] }),
-    [spaceName, userName, session.id, eggs, packGreetings]);
+  const placeName = place?.name ?? spaceName;
+  const greeting = useMemo(() => heroGreeting({ spaceName: placeName, userName, seed: session.id, extra: eggs ? packGreetings : [] }),
+    [placeName, userName, session.id, eggs, packGreetings]);
 
   // ── Rich text (highlight mirror) ───────────────────────────────────────
   // The textarea keeps every character; what it does NOT keep is its own colour. Its text is painted
@@ -652,10 +681,21 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     const el = ta.current, m = hl.current;
     if (el && m) { m.scrollTop = el.scrollTop; m.scrollLeft = el.scrollLeft; }
   };
-  const liveMentionIds = useMemo(() => mentionSkills.map((s) => s.id), [mentionSkills]);
+  /* @Mac colours as a mention wherever the space has the skill, on or off and whatever the agent —
+     it is handed over by its instructions where it cannot be invoked (`macSkillContext`). */
+  const macSkill = mentions ? mentions.mac : mentionSkills.find((s) => s.id === MAC_SKILL_ID) ?? null;
+  const liveMentionIds = useMemo(() => {
+    const ids = mentionSkills.map((s) => s.id);
+    return macSkill && !ids.includes(MAC_SKILL_ID) ? [...ids, MAC_SKILL_ID] : ids;
+  }, [mentionSkills, macSkill]);
   /** Which `@[label]` tokens are LINK chips, by label — the mirror wears the app's mark on those. */
   const linkByLabel = useMemo(() => new Map((links ?? []).map((l) => [l.label, l])), [links]);
   const linkOf = (tokenText: string): LinkChip | null => { const c = scanElementChips(tokenText)[0]; return c ? linkByLabel.get(c.label) ?? null : null; };
+  /** Which `@[label]` tokens name a file, a Library item or an app — the mirror wears its mark. */
+  const refByLabel = useMemo(() => new Map(refs.map((r) => [r.label, r])), [refs]);
+  const refOf = (tokenText: string): MentionRef | null => { const c = scanElementChips(tokenText)[0]; return c ? refByLabel.get(c.label) ?? null : null; };
+  /** An app chip whose app macOS will not let Realm drive — said by its tone, and by the note below. */
+  const appBlocked = mentions?.accessibility === false;
   // Coloured as a mention only if `scanMentions` resolves it — the same call the server re-runs on the
   // sent text. Stale ids get the warning tone the note below the card already explains.
   /* The command ids the mirror may colour — the same list the picker offers, so a run and the popover
@@ -670,25 +710,48 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const chips = useMemo(() => chipSpans(segments), [segments]);
   /** Where each painted run begins, so a chip span can carry its own draft offset as an attribute. */
   const segStarts = useMemo(() => { const out: number[] = []; let at = 0; for (const s of segments) { out.push(at); at += s.text.length; } return out; }, [segments]);
-  /** The chip under the pointer, by start offset. */
-  const [hotChip, setHotChip] = useState<number | null>(null);
+  /**
+   * The chip under the pointer, by start offset — and, for a chip that wears a mark, where its × goes.
+   *
+   * The × is the chip's own mark turned into a button: it takes the mark's place rather than a slot
+   * of its own, because a run may not grow a pixel (draft-format.ts) and the mark is the one place in
+   * the token that is not text. Positioned in the editor's own box, over the textarea, since the
+   * mirror under it takes no pointer events.
+   */
+  const [hotChip, setHotChip] = useState<{ start: number; kind: string; name: string; remove: { left: number; top: number } | null } | null>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   /* Hover is the one chip gesture with no selection behind it to read, so it is the one place the
      composer needs real geometry — and it takes it from the mirror's own runs rather than from a
      caret-from-point API, which would have to guess which layer the point belongs to. Nothing else
-     changes: the runs are measured, never hit-tested, so the mirror keeps taking no pointer events. */
+     changes: the runs are measured, never hit-tested, so the mirror keeps taking no pointer events.
+     The pill reaches a couple of pixels past its glyphs (`--chip-spread`), so the hit does too. */
   const onHoverChip = (e: ReactMouseEvent<HTMLTextAreaElement>) => {
     const m = hl.current;
-    let hit: number | null = null;
+    let hit: HTMLElement | null = null;
     if (m && chips.length > 0) {
       for (const el of m.querySelectorAll<HTMLElement>("[data-chip]")) {
         // A run that wraps has one box per line; the pointer is in the chip if it is in any of them.
         for (const r of el.getClientRects()) {
-          if (e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom) { hit = Number(el.dataset.chip); break; }
+          if (e.clientX >= r.left - 2 && e.clientX < r.right + 2 && e.clientY >= r.top && e.clientY < r.bottom) { hit = el; break; }
         }
-        if (hit !== null) break;
+        if (hit) break;
       }
     }
-    if (hit !== hotChip) setHotChip(hit);
+    const start = hit ? Number(hit.dataset.chip) : null;
+    if (start === (hotChip?.start ?? null)) return;
+    if (!hit || start === null) { setHotChip(null); return; }
+    const mark = hit.querySelector(".chip-mark")?.getBoundingClientRect();
+    const box = editorRef.current?.getBoundingClientRect();
+    setHotChip({
+      start, kind: hit.className.replace(/^ch-/, ""), name: hit.dataset.name ?? hit.textContent ?? "",
+      // 16px button, centred on the 12px mark it replaces.
+      remove: mark && box ? { left: mark.left - box.left - 2, top: mark.top - box.top - 2 } : null,
+    });
+  };
+  /** Leaving the textarea for the × it is showing is not leaving the chip. */
+  const leaveChip = (e: ReactMouseEvent) => {
+    if (e.relatedTarget instanceof Element && e.relatedTarget.closest(".chip-remove, .composer-input")) return;
+    setHotChip(null);
   };
 
   /**
@@ -747,6 +810,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // stored — the draft is the only source of truth, so a pane remount that restores the draft
   // restores the mention with it.
   const [caret, setCaret] = useState(0);
+  /** The other end of the selection, tracked beside the caret for one question: is the selection
+   *  exactly one chip? Then the chip draws its own selected state and the textarea's square
+   *  selection steps aside — the "square highlight" a clicked chip used to wear. */
+  const [selEnd, setSelEnd] = useState(0);
+  const selectedChip = selEnd > caret ? chips.find((c) => c.start === caret && c.end === selEnd) ?? null : null;
   const [mentionActive, setMentionActive] = useState(0);
   // The "+ → Skills" picker. Anchored on the plus itself, so it opens over the button the user pressed.
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
@@ -758,13 +826,26 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    *  three lines selected, or the next ⌘⇧8 would undo only the line the caret collapsed onto. */
   const pendingSel = useRef<{ start: number; end: number } | null>(null);
   const mentionToken = useMemo(
-    () => (mentionSkills.length > 0 ? mentionQueryAt(draft, Math.min(caret, draft.length)) : null),
-    [mentionSkills.length, draft, caret],
+    () => (mentionSkills.length > 0 || mentions ? mentionQueryAt(draft, Math.min(caret, draft.length)) : null),
+    [mentionSkills.length, mentions, draft, caret],
   );
-  const mentionMatches = useMemo(
-    () => (mentionToken ? filterMentionSkills(mentionSkills, mentionToken.query) : []),
-    [mentionSkills, mentionToken],
-  );
+  // The two kinds that are asked over the wire — the checkout's files, the Library — for the query
+  // being typed; everything else is ranked here, from what the pane already holds.
+  const answers = useMentionAnswers(mentions, mentionToken ? mentionToken.query : null);
+  const mentionMatches = useMemo((): MentionRow[] => {
+    if (!mentionToken) return [];
+    const options = mentionOptions({ mac: macSkill, skills: mentionSkills, files: answers.files, cwd: mentions?.cwd ?? session.cwd,
+      library: answers.library, apps: mentions?.apps ?? [] });
+    return mentionRows(options, mentionToken.query, { accessibility: mentions?.accessibility ?? null });
+  }, [mentionToken, macSkill, mentionSkills, answers, mentions, session.cwd]);
+  /* The icons the list and the draft's chips are about to draw, fetched once each. Keyed on the
+     paths' string so a re-render with the same rows asks for nothing. */
+  const iconPaths = useMemo(() => [...new Set([
+    ...mentionMatches.flatMap((r) => (r.kind === "app" ? [r.app.path] : [])),
+    ...refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])),
+  ])].join("\n"), [mentionMatches, refs]);
+  const ensureIcons = mentions?.ensureIcons;
+  useEffect(() => { if (iconPaths) ensureIcons?.(iconPaths.split("\n")); }, [iconPaths, ensureIcons]);
   const mentionOpen = mentionToken !== null && mentionMatches.length > 0 && mentionDismissed !== mentionToken.start;
   // Leaving the token (or deleting it) clears the dismissal, so a fresh `@` in the same spot reopens.
   useEffect(() => { if (mentionToken === null && mentionDismissed !== null) setMentionDismissed(null); }, [mentionToken, mentionDismissed]);
@@ -774,6 +855,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     const el = ta.current;
     if (el) { el.focus(); el.setSelectionRange(sel.start, sel.end); }
     setCaret(sel.start);
+    setSelEnd(sel.end);
   }, [draft]);
   /* A passage quoted out of the transcript.
      The counter is what makes one arrival one insertion, and `applied` is what keeps it that way:
@@ -789,11 +871,21 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     onDraftChange(edit.text);
     pendingSel.current = { start: edit.start, end: edit.end };
   }, [quote, draft, onDraftChange]);
-  /** Insert `@id ` over the WHOLE token (start..end, not start..caret — `@ma|c` must not leave a
-   *  stray `c`). The trailing space is the canonical delimiter the send-time scan expects. */
-  const pickMention = (s: Skill) => {
+  /** Insert the picked row's token over the WHOLE token typed (start..end, not start..caret — `@ma|c`
+   *  must not leave a stray `c`): `@id ` for a skill and for @Mac, `@[label] ` for a file, a Library
+   *  item or an app, whose entry the store keeps beside the text. The trailing space is the canonical
+   *  delimiter the send-time scan expects. */
+  const pickMention = (row: MentionRow) => {
     if (!mentionToken) return;
-    const insert = `@${s.id} `;
+    let token: string;
+    if (row.kind === "skill") token = `@${row.skill.id}`;
+    else if (row.kind === "mac") token = `@${MAC_SKILL_ID}`;
+    else {
+      const ref = refFor(row);
+      if (!ref || !mentions) return;
+      token = elementChipToken(mentions.addRef(ref, labelCandidatesFor(row)));
+    }
+    const insert = `${token} `;
     onDraftChange(draft.slice(0, mentionToken.start) + insert + draft.slice(mentionToken.end));
     const pos = mentionToken.start + insert.length;
     pendingSel.current = { start: pos, end: pos };
@@ -880,11 +972,18 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const envIcon = currentEnv?.kind === "worktree" ? "branch" : "folder";
   // Menu only while the session has no events — ChipMenu with no items degrades to a caret-less label,
   // exactly the after-first-message rule. Same guard the agent switch reads; the server enforces it
-  // regardless, so this is the honest affordance, not the enforcement.
-  const envItems: MenuItem[] = !canSwitchAgent ? [] : [
+  // regardless, so this is the honest affordance, not the enforcement. A plain folder's session with
+  // nowhere to move to has nothing to choose at all, and gets the label too rather than a menu whose
+  // one row is the checkout it is already in.
+  const choosable = environments.length > 1 || onNewWorktree !== undefined || otherSpaces.length > 0;
+  const envItems: MenuItem[] = !canSwitchAgent || !choosable ? [] : [
     ...environments.map((e): MenuItem => ({ label: environmentLabel(e, spaceName), checked: e.id === session.environmentId, onSelect: () => onSelectEnvironment?.(e.id) })),
-    ...(environments.length > 0 ? [{ kind: "separator" } as MenuItem] : []),
-    { label: "New worktree…", onSelect: () => onNewWorktree?.() },
+    ...(onNewWorktree ? [
+      ...(environments.length > 0 ? [{ kind: "separator" } as MenuItem] : []),
+      { label: "New worktree…", onSelect: onNewWorktree },
+    ] : []),
+    ...(otherSpaces.length > 0 ? [{ kind: "separator" } as MenuItem] : []),
+    ...otherSpaces.map((sp): MenuItem => ({ label: `Move to ${sp.name}`, onSelect: () => onMoveToSpace?.(sp.id) })),
   ];
 
   // Attachment-only messages (Plan 14 W5): a send needs text OR at least one attachment this agent
@@ -944,6 +1043,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     if (!chip) return;
     el.setSelectionRange(chip.start, chip.end);
     setCaret(chip.start);
+    setSelEnd(chip.end);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -964,7 +1064,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
       && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
       const to = stepOverChip(chips, e.currentTarget.selectionStart ?? 0, e.key === "ArrowRight" ? 1 : -1);
-      if (to !== null) { e.preventDefault(); e.currentTarget.setSelectionRange(to, to); setCaret(to); return; }
+      if (to !== null) { e.preventDefault(); e.currentTarget.setSelectionRange(to, to); setCaret(to); setSelEnd(to); return; }
     }
     // ⌘⇧8 bulleted / ⌘⇧7 numbered — the shortcuts these have everywhere else. Keyed off `code`, not
     // `key`: with Shift down the digit row reports "*" and "&", and those differ by layout.
@@ -1016,40 +1116,30 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
       const edit = el.selectionStart === el.selectionEnd ? continueList(draft, el.selectionStart) : null;
       if (edit) { e.preventDefault(); applyEdit(edit); return; }
     }
-    // Plain Enter (Settings ▸ App, default "enter"): the picker above already claimed Enter when
+    // Plain Enter (Settings ▸ General, default "enter"): the picker above already claimed Enter when
     // open, so this never fights mention-picking. Shift+Enter stays a newline in both modes.
     if (submitKey === "enter" && e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
-  // Effort's one home is the model picker (prompter rework): the standalone chip is retired, the
-  // chip's gray suffix names the level, and this list is the picker's permanent Effort section.
-  // Deliberately narrow (no `MenuItem[]`): OverflowGroup's item shape, which has no separator arm.
-  const effortItems = EFFORT_LEVELS.map((l) => ({ label: formatEffort(l), checked: session.effort === l, effort: l, onSelect: () => onOptions({ effort: l }) }));
-  /* The switch and the truth, kept apart. `on` is what the session asked for and lives in its row;
-     `state`/`reason` are what the last finished turn reported and live on the usage sample — see the
-     `usage` event's own note for why those can differ, routinely. Built only when the harness has
-     said the model can run it at all. */
-  const fast: FastMode | undefined = supportsFastMode
-    ? { on: session.fastMode, state: usage.fastMode ?? null, reason: usage.fastModeReason ?? null,
-        requested: usage.fastModeRequested ?? null, onChange: (on) => onOptions({ fastMode: on }) }
-    : undefined;
   // Only the modes this agent can actually be put INTO. Build is always offered — it is the absence
   // of the other two, not a capability — and a menu row for a mode nothing would enforce is the lie
-  // the per-kind tables exist to prevent.
-  const modeItems: MenuItem[] = SESSION_MODES
-    .filter((m) => (m.id === "plan" ? canPlan : m.id === "ask" ? canAsk : true))
-    .map((m) => ({ label: m.label, checked: m.id === mode, onSelect: () => onMode(m.id) }));
+  // the per-kind tables exist to prevent. Each read-only row is titled with what that mode means for
+  // THIS agent, which is exactly what the user needs before choosing it.
+  const modeTitleFor = (m: SessionMode) => m === "build" ? MODE_DETAIL.build : modeMeaning(m, kind, m === "ask" ? acpAsk : acpPlan);
+  const offeredModes = SESSION_MODES.filter((m) => (m.id === "plan" ? canPlan : m.id === "ask" ? canAsk : true));
+  /* A session whose agent has named no modes still has one, so the section keeps a row for it — a
+     static value, not a list of one to pick. While an ACP agent has not answered yet it says it is
+     waiting, which is a different fact from "offers none": one is a wait, the other an answer. */
+  const modeRows: MenuItem[] = canPlan || canAsk
+    ? offeredModes.map((m) => ({ label: m.label, icon: <ModeMark mode={m.id} />, detail: MODE_DETAIL[m.id],
+        title: modeTitleFor(m.id), checked: m.id === mode, onSelect: () => onMode(m.id) }))
+    : [{ label: MODE_LABEL[mode], icon: <ModeMark mode={mode} />, checked: true, disabled: true, onSelect: () => {},
+        detail: acpModesPending ? "Waiting for the agent's modes" : "The one mode this agent offers",
+        title: acpModesPending ? "Waiting for the agent's modes" : modeTitleFor(mode) }];
 
-  // While IN a read-only mode the title says what that mode is doing; from Build it says what each
-  // offered mode WOULD do, because Build is where the choice is made and the per-agent guarantee is
-  // exactly what the user needs before making it.
-  const modeTitle = `Mode: ${MODE_LABEL[mode]}. ` + (mode === "build"
-    ? [canPlan ? modeMeaning("plan", kind, acpPlan) : null, canAsk ? modeMeaning("ask", kind, acpAsk) : null].filter(Boolean).join(". ")
-    : modeMeaning(mode, kind, mode === "ask" ? acpAsk : acpPlan));
-
-  // Built HERE rather than inside ModelPicker so the harness chip and the model list are the same
-  // rows: the chip resolves a switch through `modelIdOn`, and two independent `modelRows` calls
-  // could disagree about which harness a model resolved to.
+  // Built HERE rather than inside ModelPicker so the chip, the list, the effort levels and the
+  // fast-mode answer all read the same rows: two independent `modelRows` calls could disagree about
+  // which harness a model resolved to.
   const rows = useMemo(
     () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, favorites: modelFavorites }),
     [kind, session.model, agentProbe, canSwitchAgent, modelFavorites]);
@@ -1063,6 +1153,23 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     return (selected && modelInfo[selected.key]?.context) ?? null;
   }, [rows, modelInfo]);
 
+  // Effort's one home is the model picker's foot, and only where the harness receives a level: the
+  // levels this model takes, as its own harness names them, and its default. A level the session set
+  // under another model is not one this model takes, and the track shows what runs instead.
+  const levels = effortOptions({ kind, model: session.model, agentProbe, info: modelInfo[rows.find((r) => r.selected)?.key ?? ""],
+    remembered: effortSupport, init: sessionInit });
+  const effort: EffortControl | undefined = levels.levels.length === 0 ? undefined
+    : { ...levels, value: session.effort, onChange: (id) => onOptions({ effort: id }) };
+  /* The switch and the truth, kept apart. `on` is what the session asked for and lives in its row;
+     `state`/`reason` are what the last finished turn reported and live on the usage sample — see the
+     `usage` event's own note for why those can differ, routinely. `availability` is what can be
+     said before either: absent only where Realm has no way to ask this harness at all. */
+  const fastAvailability = fastModeAvailability({ kind, model: session.model, init: sessionInit, agentProbe, remembered: fastSupport, rows });
+  const fast: FastMode | undefined = fastAvailability.state === "none" ? undefined
+    : { on: session.fastMode, state: usage.fastMode ?? null, reason: usage.fastModeReason ?? null,
+        requested: usage.fastModeRequested ?? null, onChange: (on) => onOptions({ fastMode: on }), availability: fastAvailability,
+        tip: fastModeTip(kind, session.model, agentProbe) };
+
   /* One builder, two targets. In Build the picker writes the LIVE permission; in Plan or Ask it
      writes the park — the value returning to Build will restore — because that is the only real,
      settable thing behind the label there. The bypass confirm is on both paths deliberately: a
@@ -1070,7 +1177,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
      a gate you can walk around by being in the right mode is not a gate. */
   const buildPermissionItems = (current: string, apply: (id: string) => void) =>
     PERMISSION_MODES.map((m) => ({
-      label: m.label, checked: current === m.id,
+      label: m.label, checked: current === m.id, icon: <Icon name={permissionIcon(m.id)} size={14} />,
       onSelect: () => {
         if (m.id === "bypassPermissions" && current !== "bypassPermissions") { setConfirmBypass(true); return; }
         setConfirmBypass(false);
@@ -1111,8 +1218,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   return (
     <div className="composer-dock">
       {hero && (
-        /* Click the emphasised word — your name, or the space's — and the line nods back. Nothing
-           announces it, nothing reaches it by keyboard, and nothing depends on it having happened.
+        /* The place the line names is a link to the space's page: a real button, so the keyboard
+           reaches it, drawn as a link in prose. Click the person's name instead and the line nods
+           back — the one flourish left, which nothing announces, nothing reaches by keyboard, and
+           nothing depends on having happened.
            The mark goes on the element and comes off when the animation ends, so there is no state,
            no timer and nothing to clean up. Taking it off and putting it straight back would replay
            nothing — the browser only sees the value it holds at the end of the frame — so the read
@@ -1132,7 +1241,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               anonymous flex item would have its leading and trailing spaces collapsed away —
               "working on in" would sit flush against the space's name. */}
           <span>
-            {greeting.map((part, i) => (part.em ? <em key={i}>{part.text}</em> : <Fragment key={i}>{part.text}</Fragment>))}
+            {greeting.map((part, i) => (part.place && place
+              ? <button key={i} type="button" className="hero-greeting-place" title={place.title} onClick={place.onOpen}>{part.text}</button>
+              : part.em ? <em key={i}>{part.text}</em> : <Fragment key={i}>{part.text}</Fragment>))}
           </span>
         </div>
       )}
@@ -1144,7 +1255,6 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           Inside the dock, so the hero→docked move carries them and none is left behind
           mid-transition. In flow, so they grow UPWARD into the transcript rather than pushing the
           prompter's own controls off the bottom edge they sit on. */}
-      {!compact && <DelegatedRuns sessionId={session.id} />}
       {/* Above the plan, because a goal outranks it: the plan is how this turn is going, the goal is
           why there is a turn at all. */}
       {!compact && goal}
@@ -1184,10 +1294,23 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             <span className="attach-note-files">{staleMentions.map((m) => `@${m}`).join(", ")}</span>
           </p>
         )}
+        {/* An app in the draft that macOS will not let Realm drive. The mention still grants computer
+            use, and the agent would be refused at its first look — the one moment that is worth
+            knowing before send, which is now. The chip wears the warning tone for the same reason. */}
+        {appBlocked && refs.some((r) => r.kind === "app") && (
+          <p className="composer-attach-note composer-mention-note" data-disposition="ignored">
+            <Icon name="alert" size={12} className="attach-note-glyph" />
+            {/* The apps by name, in the sentence: an app's name is a name, not an identifier to set
+                in mono after a colon. */}
+            <span>Computer use cannot drive {listNames(refs.flatMap((r) => (r.kind === "app" ? [r.name] : [])))} until macOS gives Realm Accessibility — grant it in Settings ▸ Computer use.</span>
+          </p>
+        )}
         {/* The mirror and the textarea are one control in two layers, so they share a positioned box.
-            aria-hidden on the mirror: it is a duplicate of text the textarea already exposes. */}
-        <div className="composer-editor">
-          <div ref={hl} className="composer-highlight" aria-hidden="true">
+            aria-hidden on the mirror: it is a duplicate of text the textarea already exposes. It is
+            also where the app's caret reads its place (`data-caret-mirror`, caret.ts): laid out glyph
+            for glyph like the textarea, a Range over the character beside the caret IS the caret. */}
+        <div ref={editorRef} className="composer-editor">
+          <div ref={hl} className="composer-highlight" aria-hidden="true" data-caret-mirror>
             {segments.map((s, i) => {
               if (!s.kind) return s.text;
               const link = s.kind === "element" ? linkOf(s.text) : null;
@@ -1195,16 +1318,37 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                  `@`, a picked element's `@[`, a link's `@[` with the app's own mark — and the
                  delimiters go transparent. The token keeps every character, so the mirror stays the
                  width of the textarea's text under it (the rule draft-format.ts states), and the
-                 eye sees an icon, a name and nothing else: no fill, no box. */
-              const icon = link ? LINK_SERVICE_META[link.service].icon : s.kind === "element" ? "target" : s.kind === "mention" ? "sparkles" : null;
-              const open = s.kind === "mention" ? 1 : 2; // `@` or `@[`
+                 eye sees a pill holding an icon and a name. The sigils are what give the pill its
+                 inside room: a run may not carry padding, but `@[` and `]` are glyph widths of their
+                 own, and the mark hangs in the first of them. A command keeps its `/` — that IS the
+                 mark of a command, and it is part of what was typed. */
+              /* A named file wears its type, an app its own icon (the pointer of computer use until the
+                 icon has arrived), and @mac the Apple mark — the special row, special in the text too. */
+              const ref = s.kind === "element" && !link ? refOf(s.text) : null;
+              const appIcon = ref?.kind === "app" ? mentions?.appIcons[ref.path] : null;
+              const icon = link ? LINK_SERVICE_META[link.service].icon
+                : ref ? (ref.kind === "app" ? "pointer" : fileMark(ref.path))
+                : s.kind === "element" ? "target"
+                : s.kind === "mention" || s.kind === "mention-stale" ? (s.text === `@${MAC_SKILL_ID}` ? "apple" : "sparkles") : null;
+              const bracketed = s.kind === "element"; // `@[…]`, where a mention is a bare `@`
+              const open = bracketed ? 2 : 1;
+              const at = segStarts[i]!;
+              const chip = isChipKind(s.kind);
               return (
-                <span key={i} className={`ch-${s.kind}`} data-service={link?.service}
-                  data-chip={isChipKind(s.kind) ? segStarts[i] : undefined}
-                  data-hot={(isChipKind(s.kind) && segStarts[i] === hotChip) || undefined}
+                <span key={i} className={`ch-${s.kind}`} data-service={link?.service} data-ref={ref?.kind}
+                  data-warn={(ref?.kind === "app" && appBlocked) || undefined}
+                  data-chip={chip ? at : undefined}
+                  data-name={chip && icon ? (bracketed ? s.text.slice(open, -1) : s.text.slice(open)) : undefined}
+                  data-hot={(chip && at === hotChip?.start) || undefined}
+                  data-selected={(chip && at === selectedChip?.start) || undefined}
                   title={link ? `${LINK_SERVICE_META[link.service].label} · ${link.url}` : undefined}>
                   {icon
-                    ? <><span className="chip-sigil">{s.text.slice(0, open)}<Icon name={icon} size={s.kind === "mention" ? 12 : 14} className="chip-mark" /></span>{s.kind === "mention" ? s.text.slice(open) : s.text.slice(open, -1)}{s.kind !== "mention" && <span className="chip-sigil">]</span>}</>
+                    /* The sigil and the name's first glyph are held on one line (`.chip-lead`): the
+                       mark is an out-of-flow box, and the line breaker may break after one where the
+                       textarea, reading one word, never would. */
+                    ? <><span className="chip-lead"><span className="chip-sigil">{s.text.slice(0, open)}{appIcon
+                        ? <img src={appIcon} alt="" className="chip-mark chip-app" draggable={false} />
+                        : <Icon name={icon} size={12} className="chip-mark" />}</span>{s.text.slice(open, open + 1)}</span>{bracketed ? s.text.slice(open + 1, -1) : s.text.slice(open + 1)}{bracketed && <span className="chip-sigil">]</span>}</>
                     : s.text}
                 </span>
               );
@@ -1224,22 +1368,35 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               <span className="visually-hidden">Press Tab to fill in this suggested prompt.</span>
             </div>
           )}
-          <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : "Ask anything"} rows={1}
-            value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMentionActive(0); setSlashActive(0); setHotChip(null); }}
-            onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
-            onClick={onClickChip} onMouseMove={onHoverChip} onMouseLeave={() => setHotChip(null)}
-            onKeyDown={onKeyDown} onPaste={onPaste} onScroll={syncScroll}
+          <textarea ref={ta} className="composer-input" aria-label="Message" placeholder={hint ? "" : placeholder} rows={1}
+            value={draft} onChange={(e) => { onDraftChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setSelEnd(e.target.selectionEnd ?? e.target.value.length); setMentionActive(0); setSlashActive(0); setHotChip(null); }}
+            onSelect={(e) => { setCaret(e.currentTarget.selectionStart ?? 0); setSelEnd(e.currentTarget.selectionEnd ?? 0); }}
+            onClick={onClickChip} onMouseMove={onHoverChip} onMouseLeave={leaveChip}
+            onKeyDown={onKeyDown} onPaste={onPaste} onScroll={() => { syncScroll(); setHotChip(null); }}
+            data-chip-selected={selectedChip ? "" : undefined}
             aria-describedby={hint ? hintId : undefined}
             aria-controls={slashOpen ? "slash-list" : mentionOpen ? "mention-list" : undefined}
             aria-activedescendant={slashOpen ? `slash-${slashMatches[slashCur]!.id}`
-              : mentionOpen ? `mention-${mentionMatches[mentionCur]!.id}` : undefined} />
+              : mentionOpen ? mentionOptionId(mentionMatches[mentionCur]!.key) : undefined} />
+          {/* The hovered chip's × — its mark, turned into a button for as long as the pointer is on
+              the chip. Out of the tab order: it exists only under a pointer, and the keyboard already
+              has the chip whole (a click or an arrow selects it, ⌫ takes an element chip in one). */}
+          {hotChip?.remove && (
+            <button type="button" className="chip-remove" data-kind={hotChip.kind} tabIndex={-1} aria-label={`Remove ${hotChip.name}`} title="Remove"
+              style={{ left: hotChip.remove.left, top: hotChip.remove.top }}
+              onMouseDown={(e) => e.preventDefault() /* the textarea keeps its focus and its caret */}
+              onMouseLeave={leaveChip}
+              onClick={() => { const edit = removeChip(chips, draft, hotChip.start); setHotChip(null); if (edit) applyEdit(edit); }}>
+              <Icon name="close" size={12} />
+            </button>
+          )}
         </div>
         {slashOpen && (
           <SlashPicker commands={slashMatches} activeIndex={slashCur} anchorRef={ta}
             onPick={pickSlash} onHover={setSlashActive} onClose={() => setSlashDismissed(true)} />
         )}
         {mentionOpen && (
-          <MentionPicker skills={mentionMatches} activeIndex={mentionCur} anchorRef={ta}
+          <MentionPicker rows={mentionMatches} activeIndex={mentionCur} anchorRef={ta} appIcons={mentions?.appIcons ?? NO_ICONS}
             onPick={pickMention} onHover={setMentionActive}
             onClose={() => setMentionDismissed(mentionToken.start)} />
         )}
@@ -1256,13 +1413,12 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           <div className="composer-opts" ref={optsRef} data-collapsed={collapsed || undefined}>
             {/* The "+" opens the add menu now (Plan 12 W1) — its Add files… reaches the SAME picker
                 through the same handler the bare attach button used to call directly. */}
-            <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()}
+            <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()} selectInRealm={selectInRealm}
               onSkills={() => setSkillPickerOpen(true)} canSkills={allSkills.length > 0}
               onGoal={slashCommands.some((c) => c.id === "goal") ? armGoal : null}
               connectors={connectors} onOpened={() => onConnectorsOpened?.()}
               onManageConnections={() => onManageConnections?.()}
-              mode={mode} modeItems={modeItems} modeTitle={modeTitle} modePending={acpModesPending}
-              canChooseMode={canPlan || canAsk} btnRef={plusRef} />
+              modeRows={modeRows} btnRef={plusRef} compact={compact} />
             {/* Left group order (prompter rework): "+" · permission · mode · branch. The permission
                 and mode chips sit against the attach button; the git chip trails them. */}
             {/* In Plan and in Ask the permission mode is not in effect — Claude's `plan` replaces it
@@ -1276,12 +1432,16 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 reason this pair was drawn as a segmented control — a group of one is nine seam rules
                 that can never fire, and it left the permission chip wearing a squared corner and a
                 hairline ring that no other chip in the row has. */}
+            {/* A glyph and a word, as Codex draws it: no fill and no chevron at rest, a hover fill like
+                every chip on this row. Full access keeps its tone on the two of them and nowhere else
+                — the red wash it used to sit on read as a second warning about one setting. */}
             {canSetPermissionMode && !compact && (
               inReadOnly
-                ? <ChipMenu ariaLabel="Permission mode" warning={parked === "bypassPermissions"}
+                ? <ChipMenu ariaLabel="Permission mode" warning={parked === "bypassPermissions"} icon={permissionIcon(parked)} iconSize={14} caret={false}
                     title={`${MODE_LABEL[mode]} is read-only — this is what returning to Build will restore`}
                     label={permissionLabel(parked)} items={parkedItems} />
                 : !collapsed && <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
+                    icon={permissionIcon(session.permissionMode)} iconSize={14} caret={false}
                     label={permissionLabel(session.permissionMode)} items={permissionItems} />
             )}
             {confirmBypass && (
@@ -1296,13 +1456,12 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             )}
           </div>
           <div className="composer-actions">
-            {/* ONE chip, not two. The harness menu that used to sit here is gone: a harness is only
-                ever chosen FOR a model, so that choice moved inside the picker as the highlighted
-                model's "Run it through" pills, where the consequence of each route is on screen
-                beside it. The chip still wears the harness's mark, so nothing it said is lost. */}
-            <ModelPicker kind={kind} model={session.model} effort={session.effort} rows={rows} info={modelInfo}
+            {/* ONE chip, not two. A harness is only ever chosen FOR a model, so that choice lives on
+                the model's own row in the picker, where there is one. The chip still wears the
+                harness's mark, so nothing a harness chip said is lost. */}
+            <ModelPicker kind={kind} model={session.model} effort={effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
-              onPick={onPickModel} effortItems={effortItems} overflow={overflow} fast={fast} eggs={eggs} />
+              onPick={onPickModel} overflow={overflow} fast={fast} eggs={eggs} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's
@@ -1333,7 +1492,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             <span className="chip-label">{machineName}</span>
           </span>
         )}
-        <ChipMenu ariaLabel="Workspace" icon={envIcon} label={envLabel} items={envItems}
+        <ChipMenu ariaLabel="Workspace" icon={envIcon} tint={spaceTint} label={envLabel} items={envItems}
           title={canSwitchAgent ? `Workspace: ${envLabel}` : `Workspace: ${envLabel} — a session's checkout can only change before its first message`} />
         {/* The branch group is NOT here any more — it has the over-strip above the card (see there
             for why). What is left is standing context: the machine, the workspace, and the meter.
