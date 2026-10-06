@@ -50,7 +50,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       data-page-nav={page !== null || undefined}>
       <div className="sidebar-slide">
         <SidebarHeader />
-        {page !== null && pageNav && <PageNavColumn label={page.label} back={page.back} setSlot={pageNav.setSlot} />}
+        {page !== null && pageNav && <PageNavColumn label={page.label} back={page.back} title={page.title} setSlot={pageNav.setSlot} />}
         <div className="sb-list" hidden={page !== null || undefined}>
           {/* The profile is what the column lists, so it heads the column — outside the scroller, where
               it holds still while the spaces move under it. */}
@@ -87,9 +87,12 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
  * the column's own way out for a page opened from a menu — the page's bar draws no close, and nothing
  * on the rail is lit — because a sidebar that changed what it lists needs to say, where it changed,
  * how to change it back. It stands where the profile does, at the head of what the column lists.
- * Escape goes back from every page, with or without it.
+ * Escape goes back from every page, with or without it. A page the rail opened is headed by its name
+ * instead, where its sections bring no head of their own (`PageRail`'s `title`).
  */
-function PageNavColumn({ label, back, setSlot }: { label: string; back: boolean; setSlot: (el: HTMLElement | null) => void }) {
+function PageNavColumn({ label, back, title, setSlot }: {
+  label: string; back: boolean; title: string | null; setSlot: (el: HTMLElement | null) => void;
+}) {
   const close = useApp((s) => s.closePageOverlay);
   /* The slot scrolls when a page's rail is longer than the column, and dissolves like the spaces it
      stands in for. The page finds it through the same ref, handed over before the first paint. */
@@ -105,6 +108,10 @@ function PageNavColumn({ label, back, setSlot }: { label: string; back: boolean;
           </button>
         </div>
       )}
+      {/* Outside the slot's scroller, as Scheduled's and Code review's heads are outside theirs, so the
+          name holds still over the sections. An h2: the page's one h1 is its own head, which names the
+          section it shows. */}
+      {title !== null && <div className="sb-page-head"><h2 className="sb-page-title">{title}</h2></div>}
       <div className="sb-page-nav" ref={nav} />
     </div>
   );

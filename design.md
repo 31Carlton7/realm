@@ -89,6 +89,11 @@ Treat a Realm screen as a field of work, not a stack of cards.
 
 - Give each view one dominant working object.
 - Align pane bars, toolbars, lists, editors, and sidebars to shared edges and baselines.
+- A head in a corner is spaced by its ink, not its box. A line box carries leading above the caps: a
+  column's title 6px under the rim had its caps 14px down beside a first glyph 25px in, and read as
+  cramped (the owner, 10-06). Every column's first row — the profile, a Back, a page's name — is one
+  row at one depth, set where a name's caps stand as far down as its first glyph stands in, so going
+  from Home to a page moves nothing.
 - A row whose items compete for width needs a stated yielding ORDER, not proportional shrinking.
   Decide which item is user data of unbounded length, give that one the slack and take it back
   first, and reserve the fixed width of everything beside it explicitly. Left to the layout, the
@@ -852,8 +857,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   and nothing else (the owner, 10-05): a × at the bar's far end was one more way out, away from the
   ones used to arrive. The same goes for the Back: it heads the column only where a MENU opened the
   page — Settings, a profile's or a space's settings — because nothing on the rail is lit to put that
-  page away. A page the rail opened has the rail for that, and its column's first row stands where the
-  profile does (the owner, 10-05: "I think it might only be necessary to keep it on the settings page").
+  page away. A page the rail opened has the rail for that (the owner, 10-05: "I think it might only be
+  necessary to keep it on the settings page"), and its column is headed by the page's name instead, the
+  Library's as Scheduled's and Code review's are, where a Back or the profile would stand (10-06).
 - Closing a pane should never imply deleting the object behind it. That rule is about objects that
   outlive their pane — a session's transcript, a diff's checkout — and a session goes further: it has
   no close at all (the owner, 10-05). It is reached from the sidebar and left the same way, and a ×

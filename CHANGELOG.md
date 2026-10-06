@@ -182,7 +182,10 @@ gone; ⌘[ and ⌘] still walk the focused pane's history.
 the spaces beside it, so while it is up the sidebar is away and the page takes the width right of
 the rail; a page with a column of its own — Settings, the Library, Scheduled tasks, Code review —
 puts it in the sidebar's column instead of drawing a second sidebar beside the first, with a Back
-at its head only on the settings pages, which are opened from a menu rather than the rail.
+at its head only on the settings pages, which are opened from a menu rather than the rail, and the
+page's name at the head of the others. Every column's first row — the profile, a Back, a page's
+name — stands at one depth under the column's top, with as much room above a name as beside it, so
+going from Home to a page moves nothing.
 Either change lands in the frame the page opens in — only ⌘B or the toggle draws the sidebar moving
 — and leaving gives the sidebar back as it was. A page's bar is its name and nothing
 else: there is no close button, because Home, the lit rail button, a session in the sidebar, the
