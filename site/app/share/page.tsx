@@ -1,8 +1,8 @@
 import type { Metadata } from "next"
-import Image from "next/image"
 
 import { DimensionField } from "@/components/dimension/DimensionField"
 import { Wordmark } from "@/components/Wordmark"
+import { sceneFile, WINDOW } from "@/lib/frames"
 
 export const metadata: Metadata = {
   title: "Share image",
@@ -34,7 +34,7 @@ export default function SharePage() {
         data-dim="portal"
         className="app-corner absolute inset-x-14 top-[392px] aspect-[1.6] overflow-hidden rounded-[20px] bg-page shadow-[0_0_0_1px_oklch(1_0_0/0.09)]"
       >
-        <Image src="/product/workspace.png" alt="" width={2880} height={1800} priority className="h-auto w-full" />
+        <img src={sceneFile("workspace", 1440)} alt="" width={WINDOW.width * 2} height={WINDOW.height * 2} className="h-auto w-full" />
       </div>
     </main>
   )

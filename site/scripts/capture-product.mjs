@@ -20,10 +20,14 @@
  * Every capture asserts its own subject before it is written (see `shot`), so a scene that lands on
  * the wrong screen fails instead of photographing it. Scenes are independent and each is wrapped: a
  * selector that has moved loses one image and prints why, rather than ending the run. The full-window
- * scenes are written to `public/product/<scene>.png` and listed in `public/product/manifest.json`; the
+ * scenes are written to `public/product/<scene>-<width>.webp` and listed in `public/product/manifest.json`; the
  * site renders the intersection of that and the copy in `content/features.ts`, so a scene that breaks
  * drops out of the carousel instead of shipping a hole. The crops the changelog figures use go to
  * `public/product/details/`, and are imported by the entries that show them.
+ *
+ * The window is shot at three times its density, into `site/.captures/` (kept out of git), and
+ * `encode-product.mjs` writes the files the site serves from those: lossless WebP, each scene at the
+ * window's 1× and as shot, each landing claim its own cut at full density. See lib/frames.ts for why.
  */
 import { execFileSync, spawn } from "node:child_process"
 import { connect } from "node:net"
@@ -32,9 +36,13 @@ import os from "node:os"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { CAPTURE_DENSITY, WINDOW } from "../lib/frames.ts"
+import { encode, rawDir } from "./encode-product.mjs"
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const outputDir = path.join(repoRoot, "site/public/product")
-const detailDir = path.join(outputDir, "details")
+const sceneRawDir = path.join(rawDir, "scenes")
+const detailRawDir = path.join(rawDir, "details")
 const cdpPort = Number(process.env.REALM_CAPTURE_CDP_PORT ?? 9350)
 const serverPort = Number(process.env.REALM_CAPTURE_SERVER_PORT ?? 8917)
 const scratchRoot = process.env.REALM_CAPTURE_SCRATCH ?? os.tmpdir()
@@ -45,8 +53,8 @@ const home = path.join(scratch, "home")
 const chrome = process.env.REALM_CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** The window the captures are framed at, drawn at 2× — the carousel shows them near full width. */
-const VIEWPORT = { width: 1440, height: 900 }
+/** The window the captures are framed at, drawn at CAPTURE_DENSITY — a claim zooms into part of it. */
+const VIEWPORT = WINDOW
 /**
  * `--color-page` from `site/app/globals.css`. The window is made of translucent material that is not
  * in the DOM, so a capture composites its grounds over nothing; each one is laid on the page colour
@@ -54,15 +62,108 @@ const VIEWPORT = { width: 1440, height: 900 }
  */
 const PAGE = "#17181a"
 
+/**
+ * What `web/lib/orgs.ts` holds above the function the fix edits: the rest of an ordinary orgs module.
+ * Its length is not free — the scripted answer names "line 83", so `getOrgMembership` has to start on
+ * line 81, and `seedWebApp` checks that it does.
+ */
+const ORG_HELPERS = `export type Role = "owner" | "admin" | "member" | "viewer";
+
+const RANK: Record<Role, number> = { owner: 3, admin: 2, member: 1, viewer: 0 };
+
+/** Whether \`role\` carries at least the rights of \`needed\`. */
+export function hasRole(role: Role, needed: Role) {
+  return RANK[role] >= RANK[needed];
+}
+
+/** The URL segment for an organization: lower case, words joined by hyphens. */
+export function orgSlug(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export async function getOrg(orgId: string) {
+  const rows = await db.select().from(organization).where(eq(organization.id, orgId));
+  return rows[0] ?? null;
+}
+
+export async function getOrgBySlug(slug: string) {
+  const rows = await db.select().from(organization).where(eq(organization.slug, slug));
+  return rows[0] ?? null;
+}
+
+export async function listOrgsForUser(userId: string) {
+  return db
+    .select({ id: organization.id, name: organization.name, slug: organization.slug, role: organizationMember.role })
+    .from(organizationMember)
+    .innerJoin(organization, eq(organization.id, organizationMember.organizationId))
+    .where(eq(organizationMember.userId, userId))
+    .orderBy(organization.name);
+}
+
+export async function countMembers(orgId: string) {
+  const rows = await db
+    .select({ id: organizationMember.id })
+    .from(organizationMember)
+    .where(eq(organizationMember.organizationId, orgId));
+  return rows.length;
+}
+
+export async function renameOrg(orgId: string, name: string) {
+  await db
+    .update(organization)
+    .set({ name, slug: orgSlug(name), updatedAt: new Date() })
+    .where(eq(organization.id, orgId));
+}
+
+/** Rows written before invites existed carry no invite columns at all. */
+function withInviteDefaults(row: { invitedBy?: string | null; invitedAt?: Date | null }) {
+  row.invitedBy ??= null;
+  row.invitedAt ??= null;
+  return row;
+}
+
+export async function removeMember(orgId: string, userId: string) {
+  await db
+    .delete(organizationMember)
+    .where(and(eq(organizationMember.organizationId, orgId), eq(organizationMember.userId, userId)));
+}
+
+/** What a member list shows beside a name. */
+export function roleLabel(role: Role) {
+  return role === "owner" ? "Owner" : role === "admin" ? "Admin" : role === "member" ? "Member" : "Viewer";
+}
+
+export async function canAccessProject(orgId: string, userId: string, projectOrgId: string) {
+  if (orgId !== projectOrgId) return false;
+  const membership = await getOrgMembership(orgId, userId);
+  return membership !== null && hasRole(membership.role, "viewer");
+}
+`
+
 /** The checkout the transcript scenes edit: the two files `fix the org access` expects to find. */
 function seedWebApp(dir) {
   const lib = path.join(dir, "web/lib"), compaction = path.join(dir, "web/lib/agent/chat-runtime/compaction")
   fs.mkdirSync(compaction, { recursive: true })
-  const slugs = Array.from({ length: 19 }, (_, i) => `export function orgSlug${i}(name: string) {\n  return name.toLowerCase().replace(/\\s+/g, "-") + "-${i}";\n}\n`).join("\n")
-  const labels = Array.from({ length: 6 }, (_, i) => `export const orgLabel${i} = "Org ${i}";\n`).join("")
-  fs.writeFileSync(path.join(lib, "orgs.ts"), `import { and, eq } from "drizzle-orm";\nimport { db } from "./db";\nimport { organizationMember } from "./schema";\n\n${slugs}\nexport async function getOrgMembership(orgId: string, userId: string) {\n  const rows = await db.select().from(organizationMember)\n    .where(and(eq(organizationMember.organizationId, orgId), eq(organizationMember.userId, userId)));\n  return rows[0] ?? null;\n}\n\n${labels}`)
-  const chunks = Array.from({ length: 16 }, (_, i) => `export const chunkName${i} = "chunk-${i}";\n`).join("")
-  fs.writeFileSync(path.join(compaction, "auto-compact.ts"), `${chunks}\nexport function shouldCompact(tokens: number, limit: number) {\n  return tokens > limit * 0.8;\n}\n`)
+  const head = `import { and, eq } from "drizzle-orm";\nimport { db } from "./db";\nimport { organization, organizationMember } from "./schema";\n\n`
+  const pad = 80 - (head + ORG_HELPERS).split("\n").length
+  if (pad < 0) throw new Error(`orgs.ts's helpers run ${-pad} lines past line 80`)
+  const orgs = `${head}${ORG_HELPERS}${"\n".repeat(pad + 1)}export async function getOrgMembership(orgId: string, userId: string) {\n  const rows = await db.select().from(organizationMember)\n    .where(and(eq(organizationMember.organizationId, orgId), eq(organizationMember.userId, userId)));\n  return rows[0] ?? null;\n}\n`
+  if (orgs.split("\n").findIndex((line) => line.startsWith("export async function getOrgMembership")) !== 80) throw new Error("getOrgMembership is not on line 81 of orgs.ts")
+  fs.writeFileSync(path.join(lib, "orgs.ts"), orgs)
+  const settings = [
+    "/** How full a context may get before the runtime compacts it, as a share of the model's limit. */",
+    "export const COMPACT_AT = 0.8;",
+    "/** The turns kept verbatim at the end of a compacted context. */",
+    "export const KEEP_RECENT_TURNS = 6;",
+    "/** Tool results longer than this are summarized rather than kept whole. */",
+    "export const MAX_TOOL_RESULT_CHARS = 4_000;",
+    "",
+  ].join("\n")
+  fs.writeFileSync(path.join(compaction, "auto-compact.ts"), `${settings}\nexport function shouldCompact(tokens: number, limit: number) {\n  return tokens > limit * COMPACT_AT;\n}\n`)
   fs.writeFileSync(path.join(dir, "README.md"), "# Dashboard\n\nThe customer dashboard: orgs, projects and their members.\n")
   commitAll(dir, "Seed the dashboard")
 }
@@ -540,9 +641,9 @@ function makeContext(page, rpc) {
     }
     await evaluate(`(() => { document.documentElement.style.background = ${JSON.stringify(PAGE)}; return true; })()`)
     try {
-      // A clip's scale multiplies the 2× the window is drawn at, so 1 keeps a crop at the scenes' density.
+      // A clip's scale multiplies the density the window is drawn at, so 1 keeps a crop at the scenes'.
       const result = await page.send("Page.captureScreenshot", { format: "png", ...(clip ? { clip: { ...clip, scale: 1 } } : {}) })
-      const dir = clip ? detailDir : outputDir
+      const dir = clip ? detailRawDir : sceneRawDir
       fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(path.join(dir, `${name}.png`), Buffer.from(result.data, "base64"))
     } finally {
@@ -1173,7 +1274,7 @@ async function main() {
     await page.ready
     await page.send("Runtime.enable")
     await page.send("Page.enable")
-    await page.send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 2, mobile: false })
+    await page.send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: CAPTURE_DENSITY, mobile: false })
     // A window that is not in front greys its accent and goes quiet. Focus is emulated and the two
     // marks held off, so what is captured is the app as the person at the Mac sees it.
     await page.send("Emulation.setFocusEmulationEnabled", { enabled: true })
@@ -1305,14 +1406,15 @@ async function main() {
   /**
    * The manifest is a UNION, not a replacement.
    *
-   * A slug listed here means "there is a usable `<slug>.png` on disk", which is what the site reads
+   * A slug listed here means "there is a usable `<slug>-4320.webp` on disk", which is what the site reads
    * it for. A scene that fails now leaves the previous file untouched — `shot` refuses to write
    * unless the screen proves it is the subject — so dropping the slug would delete a working slide
    * from the site to record a fact about this run instead. A slug whose file is gone is dropped.
    */
+  await encode({ only })
   const manifestPath = path.join(outputDir, "manifest.json")
   const previous = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, "utf8")) : []
-  const kept = previous.filter((slug) => fs.existsSync(path.join(outputDir, `${slug}.png`)))
+  const kept = previous.filter((slug) => fs.existsSync(path.join(outputDir, `${slug}-4320.webp`)))
   const manifest = [...new Set([...kept, ...captured])]
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
   page.close()

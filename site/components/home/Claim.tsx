@@ -1,17 +1,7 @@
-import Image from "next/image"
 import type { CSSProperties } from "react"
 
-import type { Claim, Focus } from "@/content/home"
-
-/** Every scene is shot at the whole 1440x900 window and written out at 2x. */
-const SHOT = { width: 2880, height: 1800 }
-
-/**
- * The frames the capture is shown through — 15/8 letterboxes the source's 16/10, 4/3 is taller than
- * it. Neither matches it, which is the point: a box set to the source's own aspect crops nothing and
- * looks exactly like a crop in the markup.
- */
-const FRAME = { narrow: 4 / 3, wide: 15 / 8 }
+import type { Claim } from "@/content/home"
+import { claimFile, cropPixels, FRAME, liftOf } from "@/lib/frames"
 
 /**
  * A claim with no region named takes the whole capture, top-anchored.
@@ -22,32 +12,6 @@ const FRAME = { narrow: 4 / 3, wide: 15 / 8 }
  * Codex's names, so the chip names a real model; still, read the rendered frame, not the number.
  */
 const WHOLE = { x: 0.5, y: 0, span: 1 }
-
-/**
- * How far up the capture is pulled so the focal point lands in the middle of a frame of this shape.
- *
- * The image is laid at `100/span` of the frame's width and then pulled back by the focal point's own
- * fraction of itself — `translate` resolves percentages against the element, not its container, so
- * the width and the horizontal pull are one pair of numbers for both frames. Only this one differs,
- * because a 4/3 frame takes more of the capture's height at that width than a 15/8 frame does.
- */
-function lift(focus: Focus, frame: number): string {
-  const visible = ((SHOT.width / SHOT.height) * focus.span) / frame
-  return `${-hold(focus.y, visible) * 100}%`
-}
-
-/**
- * Hold the frame inside the capture.
- *
- * The subject of a claim is not always near the middle — the activity list is a strip down the far
- * left — and centring a point that close to an edge would pull the page's own background into frame
- * beside it. A point nearer the edge than half a frame stops half a frame in, so the crop slides up
- * against the edge and stays full.
- */
-function hold(point: number, visible: number): number {
-  if (visible >= 1) return 0.5
-  return Math.min(Math.max(point, visible / 2), 1 - visible / 2)
-}
 
 /**
  * One claim and the product view that is evidence for it.
@@ -82,6 +46,7 @@ export function ClaimSection({ claim, index }: { claim: Claim; index: number }) 
    * and reads it smaller, with the taller 4/3 frame giving back the height the 15/8 one spends.
    */
   const focus = claim.focus ?? WHOLE
+  const crop = cropPixels(focus)
 
   return (
     <section
@@ -104,21 +69,24 @@ export function ClaimSection({ claim, index }: { claim: Claim; index: number }) 
           data-dim="window"
           className="app-corner relative aspect-4/3 w-full overflow-hidden rounded-[20px] bg-page shadow-[0_0_0_1px_oklch(1_0_0/0.09)] sm:aspect-[15/8] [html[data-dim-field=off]_&]:shadow-[0_0_0_1px_oklch(1_0_0/0.12),0_0_70px_-20px_oklch(0.68_0.173_253.301/0.45)]"
         >
-          <Image
-            src={`/product/${claim.capture}.png`}
+          {/* The claim's own cut of the window (lib/frames.ts), at three times the window's density,
+              so the frame never shows fewer than two picture pixels per CSS pixel. It is written
+              lossless, because a lossy encoder smears exactly what a screenshot is made of: the
+              edges of small text. A plain img, since Next's optimiser would re-encode it lossy. */}
+          <img
+            src={claimFile(claim.id)}
             alt={claim.caption ?? claim.title}
-            width={SHOT.width}
-            height={SHOT.height}
-            sizes="(max-width: 640px) 150vw, (max-width: 1024px) 160vw, 100vw"
+            width={crop.width}
+            height={crop.height}
+            loading="lazy"
+            decoding="async"
             style={
               {
-                "--span": `${100 / focus.span}%`,
-                "--x": `${-hold(focus.x, focus.span) * 100}%`,
-                "--y": lift(focus, FRAME.narrow),
-                "--y-wide": lift(focus, FRAME.wide),
+                "--y": `${-liftOf(focus, FRAME.narrow) * 100}%`,
+                "--y-wide": `${-liftOf(focus, FRAME.wide) * 100}%`,
               } as CSSProperties
             }
-            className="absolute top-1/2 left-1/2 h-auto w-[var(--span)] max-w-none translate-x-[var(--x)] translate-y-[var(--y)] sm:translate-y-[var(--y-wide)]"
+            className="absolute top-1/2 left-0 h-auto w-full max-w-none translate-y-[var(--y)] sm:translate-y-[var(--y-wide)]"
           />
         </div>
         {claim.caption ? (

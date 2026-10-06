@@ -1,4 +1,3 @@
-import Image from "next/image"
 import { Fragment } from "react"
 
 import { DimensionField } from "@/components/dimension/DimensionField"
@@ -10,6 +9,7 @@ import { SixFaces } from "@/components/home/SixFaces"
 import { AppleIcon, GitHubIcon } from "@/components/icons"
 import { SiteHeader } from "@/components/SiteHeader"
 import { claims, delegation, facets, facetsCoda, facetsMany } from "@/content/home"
+import { sceneFile, sceneSrcSet, WINDOW } from "@/lib/frames"
 import { macDownload } from "@/lib/release"
 import { site } from "@/lib/site"
 import captured from "@/public/product/manifest.json"
@@ -66,9 +66,9 @@ export default async function HomePage() {
 
             <div className="mt-7 flex flex-col gap-7 lg:mt-9 lg:flex-row lg:items-end lg:justify-between lg:gap-16">
               <p className="max-w-[54ch] text-[17px] leading-[1.55] text-ink-2">
-                Bring any coding agent. Every space in Realm is a realm of its own — a checkout, the
-                agents working in it, and the terminals, browsers, documents and tools they use — side
-                by side on your Mac, and still there tomorrow.
+                Bring the coding agent you already use. Each space in Realm holds a checkout, the agents
+                working on it, and the terminals, browsers and documents they open. Every space sits in
+                one sidebar on your Mac, and it&rsquo;s all still there tomorrow.
               </p>
 
               <div className="flex shrink-0 flex-col items-start gap-3 lg:items-end">
@@ -105,13 +105,17 @@ export default async function HomePage() {
               data-dim="portal"
               className="app-corner relative aspect-4/3 w-full overflow-hidden rounded-[20px] bg-page shadow-[0_0_0_1px_oklch(1_0_0/0.09)] sm:aspect-[15/8] [html[data-dim-field=off]_&]:shadow-[0_0_0_1px_oklch(1_0_0/0.12),0_0_90px_-18px_oklch(0.68_0.173_253.301/0.55)]"
             >
-              <Image
-                src="/product/workspace.png"
+              {/* Lossless, at the window's 1× and 3× (lib/frames.ts): Next's optimiser would re-encode it
+                  lossy, which is what softened the text in every capture the site used to show. */}
+              <img
+                src={sceneFile("workspace", 4320)}
+                srcSet={sceneSrcSet("workspace")}
+                sizes="(max-width: 640px) calc(180vw - 5.4rem), (max-width: 82rem) calc(100vw - 5rem), 77rem"
                 alt="Realm: every space in the sidebar, a session that fixed a crash and the two files it edited, and the file its answer named open in the side panel at the line it named."
-                width={2880}
-                height={1800}
-                priority
-                sizes="(max-width: 640px) 180vw, (max-width: 1024px) 100vw, 82rem"
+                width={WINDOW.width * 2}
+                height={WINDOW.height * 2}
+                fetchPriority="high"
+                decoding="async"
                 className="h-auto w-[180%] max-w-none sm:w-full"
               />
             </div>

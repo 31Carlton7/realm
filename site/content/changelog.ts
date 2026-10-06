@@ -1,16 +1,16 @@
 import type { Entry } from "@/lib/changelog"
-import appIcons from "@/public/product/details/app-icons.png"
-import chart from "@/public/product/details/chart.png"
-import editedFiles from "@/public/product/details/edited-files.png"
-import modelPicker from "@/public/product/details/model-picker.png"
-import questionCard from "@/public/product/details/question-card.png"
-import reviewFindings from "@/public/product/details/review-findings.png"
-import sidebar from "@/public/product/details/sidebar.png"
-import subAgents from "@/public/product/details/sub-agents.png"
-import track from "@/public/product/details/track.png"
-import library from "@/public/product/library.png"
-import schedules from "@/public/product/schedules.png"
-import splits from "@/public/product/splits.png"
+import appIcons from "@/public/product/details/app-icons.webp"
+import chart from "@/public/product/details/chart.webp"
+import editedFiles from "@/public/product/details/edited-files.webp"
+import modelPicker from "@/public/product/details/model-picker.webp"
+import questionCard from "@/public/product/details/question-card.webp"
+import reviewFindings from "@/public/product/details/review-findings.webp"
+import sidebar from "@/public/product/details/sidebar.webp"
+import subAgents from "@/public/product/details/sub-agents.webp"
+import track from "@/public/product/details/track.webp"
+import library from "@/public/product/library-4320.webp"
+import schedules from "@/public/product/schedules-4320.webp"
+import splits from "@/public/product/splits-4320.webp"
 
 /**
  * Every notable change to Realm, newest first.
@@ -27,105 +27,105 @@ export const entries: Entry[] = [
     version: "v2.0.0",
     area: "Release",
     summary:
-      "Every space in one sidebar, as many panes as the window has room for beside one side panel, a model picker with effort and fast mode at its foot, one card for every agent's questions, and pull requests reviewed in Realm. It was going to be 1.6, and grew.",
+      "Every space in one sidebar, as many panes as fit next to one side panel, a model picker with effort and fast mode built in, one card for every agent's questions, and pull requests reviewed inside Realm. This was supposed to be 1.6, and it grew.",
     body: [
-      { kind: "p", text: "This release was going to be 1.6, and before it shipped it grew into a redesign of the prompter, the model picker, the transcript and the window around them — so it is 2.0. What 1.6 was to bring is all here, as it now stands." },
+      { kind: "p", text: "This release was going to be 1.6. Before it shipped, it turned into a redesign of the prompter, the model picker, the transcript and the window around them, so it's 2.0. Everything 1.6 was supposed to bring is in here too." },
       { kind: "ul", items: [
-        "**Every space is in the sidebar at once**, a section each, under Needs you: every session waiting on a permission or a question, from every space and profile, answerable from the row.",
-        "**The window is one view**: as many panes as there is room for, from any space, beside one full-height side panel where whatever an agent opens arrives as a tab.",
-        "**The model picker is one short list**, with the effort level and fast mode at its foot — and a light in the track at XHigh and Max.",
-        "**Every agent's questions come on one card**, and a reply can carry a chart, a diagram or a comparison.",
-        "**A session can hand work to other models**, asked in words or from its Agents tab.",
+        "**Every space is in the sidebar at once**, each in its own section, under Needs you: every session waiting on a permission or a question, from every space and profile, and you can answer from the row.",
+        "**The window is one view**: as many panes as there's room for, from any space, next to one full-height side panel where anything an agent opens shows up as a tab.",
+        "**The model picker is one short list**, with the effort level and fast mode at the bottom. The track lights up at XHigh and Max.",
+        "**Every agent's questions come on one card**, and a reply can include a chart, a diagram or a comparison.",
+        "**A session can hand work to other models**, either when you ask in words or from its Agents tab.",
         "**Pull requests are read and reviewed in Realm**, through your own `gh`, and nothing reaches GitHub until you submit.",
-        "**Scheduled tasks have a page of their own**, and every run is a real session.",
+        "**Scheduled tasks have their own page**, and every run is a real session.",
         "**The Library sorts by kind and takes your own files**, and Memory saves itself.",
         "**Realm has a new mark**: a cube lying on its side with a lit doorway in its dark wall.",
-        "The Agents page and the Notifications page are gone. Code review has the Notifications page's place on the rail.",
+        "The Agents page and the Notifications page are gone. Code review took the Notifications page's spot on the rail.",
       ] },
       { kind: "h", text: "Working with an agent" },
-      { kind: "p", text: "**The prompter is quieter, and every chip in it is one shape.** What you type is set a rung up from the text around it, because it is what the card is for. A picked element, a link, a skill and a command such as `/goal` are each one rounded pill in its own tone, with a mark and a name, and under the pointer the mark becomes the chip's ×. The permission control is a shield and a word — one that asks, one with a tick for Accept edits, and one with a warning mark, in red, for Full access. The + opens a menu drawn by Realm rather than macOS, because its rows say what they do: Add, Mode, and Connectors." },
-      { kind: "p", text: "**@ names anything the agent can use.** One list: the files in the session's checkout, the Library, skills, the apps on this Mac, and @Mac, which drives Calendar, Reminders, Contacts and the Mac's other apps. A mentioned file goes to the agent as an attached one would. A mentioned app gets computer use for that app, in that session, and nothing more: its first action still asks, the session's mode still holds, and nothing outlives the session." },
-      { kind: "p", text: "**Point at a part of Realm, and the agent gets it.** Select in Realm, in the + menu or on ⌘⇧C, does for the app what the browser pane's picker does for a page. A click drops the part it outlines into the prompter as a chip, with a picture of it attached, written for an agent working on Realm: what the part is and says, the component that draws it, and a selector made of the app's own class names." },
-      { kind: "p", text: "**The model picker is one short list, with effort and fast mode at its foot.** The chip says who will answer — the harness's mark, the model, its effort, and a bolt when fast mode is on. Behind it is one compact list, grouped by the harness a click runs a model through, with a search at the top and, under the list, what the highlighted model is for, its context and its price. The foot is the effort card: the level by name, a track with a dot for each level that model takes, a reset once you have moved it, and the bolt." },
-      { kind: "figure", image: modelPicker, alt: "The model picker open under its chip: Claude's models with Opus 5.5 ticked and its row showing the harnesses that run it, Codex's below, a strip naming what Opus 5.5 is for, its context and its price, and the effort card at Max with the track lit and the fast-mode bolt on.", caption: "Opus 5.5 picked, what it is for and what it costs under the list, and the effort track at Max — lit — with fast mode on." },
-      { kind: "p", text: "The level now reaches the agent — on every Codex turn, mid-session for Claude, and through an ACP agent's own thought level where it has one — and fast mode asked for before a session's first message really runs fast; until now it never reached Claude. Picking a model no longer closes the picker, so its level and fast mode are set in the same visit. A level of XHigh or Max lights the track the way this site draws its light, streams running into a white core at the knob, hotter at Max." },
-      { kind: "p", text: "**A session can hand work to other models.** Ask in words — \"have GPT-6 Luna build this\" — and the session's agent starts a sub-agent on that model; a model is found by its name, whichever harness runs it. Or open the session's Agents tab: its sub-agents, each with its model, its task, where it stands and its report, and under them Build with, where you pick models and say what to build. It sends an ordinary message in your name, so the session's agent still divides the work, waits for the reports and tells you what each did, in the transcript beside your ask — where each sub-agent is a quiet line of its own, \"Subagent finished · Write the tests\", rather than folded into a \"Worked for 8s\"." },
-      { kind: "figure", image: subAgents, alt: "The Agents tab's two sub-agents: GPT-6 Luna on Codex, needing you to allow Bash, and Claude Fable 5.1 on Claude, done, with its report.", caption: "Two sub-agents on two harnesses: one stopped on a permission, one finished, with its report." },
-      { kind: "p", text: "**Every agent's questions come on one card.** A question looks the same whichever agent or server asks it, and says who is asking first — \"Codex asks\", \"Linear's MCP server asks\" — because the same question means something different from each. What it offers comes from Realm, never from the asker: options, with pictures as tiles; several at once; text, masked when it is a secret; a model for each step of a plan, from the catalog; a file, a branch, a date or a time. 1 to 9 pick an option, Return takes the highlighted row and Escape skips. Codex's questions used to arrive as nothing at all; they reach the card now, and Gemini, Cursor, the other ACP agents and a Connection's MCP server in the middle of a call can ask too." },
-      { kind: "figure", image: questionCard, alt: "A question card headed Claude asks, Design: which look the settings page should take, with three pictures as numbered options — Calm, Bold and Dense — and keys to navigate, select and skip.", caption: "The options are pictures from the space's own folder, drawn by Realm; 1 to 3 pick one." },
-      { kind: "p", text: "**The transcript says when, and what each turn changed.** A finished turn is dated — a clock time today, Yesterday 7:38 PM, then the date — where it used to show a bare time that read the same a minute or a week later, and a turn that failed says Failed after 4s. A file the agent names that is really in its checkout becomes a link, opening beside the session at the line it named. A turn that changed files ends with an Edited 3 files card: each file with its counts as git measured them when the turn settled, Review, which opens that turn's diff in the side panel, and Undo, offered only where a checkpoint takes back exactly that turn and nothing after it." },
-      { kind: "figure", image: editedFiles, alt: "The end of a turn: the answer with its file names as links, then a card reading Edited 2 files, +20 −3, listing web/lib/orgs.ts and auto-compact.ts with their counts, beside Undo and Review.", caption: "A turn's card: the two files it edited, with the counts git measured when the turn settled, Review and Undo." },
-      { kind: "p", text: "**A track down every transcript's edge, and turns you can keep.** A session pane has a tick down its left edge for each prompt, placed where the prompt sits in the log, with a dot on any turn that changed files. Point at a tick and a card says what was asked, how the answer began, when, and what the turn edited; a click goes there. The bookmark in the card's corner, or S on the track, saves the turn, ⌥↑ and ⌥↓ step between saved turns, and Library ▸ Saved lists every turn saved in the profile." },
+      { kind: "p", text: "**The prompter is quieter, and every chip in it has the same shape.** What you type is set one size up from the text around it, since that's what the card is for. A picked element, a link, a skill and a command like `/goal` are each a rounded pill in its own tone, with an icon and a name. Hover over one and the icon turns into the chip's ×. The permission control is a shield and a word. Ask each time is the plain shield, Accept edits has a tick, and Full access has a warning mark in red. The + opens a menu that Realm draws itself instead of a macOS one, because its rows say what they do: Add, Mode, and Connectors." },
+      { kind: "p", text: "**@ can name anything the agent can use.** It's one list: the files in the session's checkout, the Library, skills, the apps on this Mac, and @Mac, which drives Calendar, Reminders, Contacts and the Mac's other apps. A file you mention goes to the agent the same way an attached file does. An app you mention gets computer use for that app, in that session, and nothing more. Its first action still asks, the session's mode still applies, and none of it lasts past the session." },
+      { kind: "p", text: "**Point at part of Realm and the agent gets it.** Select in Realm (in the + menu, or ⌘⇧C) does for the app what the browser pane's picker does for a web page. Click a part and it drops into the prompter as a chip with a picture of it attached. The chip is written for an agent working on Realm itself: what the part is and what it says, the component that draws it, and a selector built from the app's own class names." },
+      { kind: "p", text: "**The model picker is one short list, with effort and fast mode at the bottom.** The chip tells you who will answer: the harness's mark, the model, its effort, and a bolt when fast mode is on. Open it and you get one compact list, grouped by the harness that runs each model, with a search box at the top. Below the list is what the highlighted model is good for, its context size and its price. At the bottom is the effort card: the level by name, a track with a dot for each level that model supports, a reset once you've moved it, and the bolt." },
+      { kind: "figure", image: modelPicker, alt: "The model picker open under its chip: Claude's models with Opus 5.5 ticked and its row showing the harnesses that run it, Codex's below, a strip naming what Opus 5.5 is for, its context and its price, and the effort card at Max with the track lit and the fast-mode bolt on.", caption: "Opus 5.5 picked, what it's for and what it costs under the list, and the effort track at Max (lit) with fast mode on." },
+      { kind: "p", text: "The effort level now actually reaches the agent: on every Codex turn, mid-session for Claude, and through an ACP agent's own thought level where it has one. Fast mode set before a session's first message really does run fast now. Until this release it never reached Claude at all. Picking a model no longer closes the picker, so you can set its level and fast mode in the same visit. At XHigh or Max the track lights up the way this site draws light, with streams running into a white core at the knob, hotter at Max." },
+      { kind: "p", text: "**A session can hand work to other models.** Ask in words (\"have GPT-6 Luna build this\") and the session's agent starts a sub-agent on that model. Models are found by name, whichever harness runs them. Or open the session's Agents tab. It lists the session's sub-agents with each one's model, its task, where it stands and its report, and under them is Build with, where you pick models and say what to build. That sends a normal message in your name, so the session's agent still splits up the work, waits for the reports and tells you what each one did, right next to your ask. In the transcript each sub-agent gets a quiet line of its own, like \"Subagent finished · Write the tests\", instead of being folded into a \"Worked for 8s\"." },
+      { kind: "figure", image: subAgents, alt: "The Agents tab's two sub-agents: GPT-6 Luna on Codex, needing you to allow Bash, and Claude Fable 5.1 on Claude, done, with its report.", caption: "Two sub-agents on two harnesses. One stopped on a permission, the other finished with its report." },
+      { kind: "p", text: "**Every agent's questions come on one card.** A question looks the same no matter which agent or server asks it, and it says who's asking first (\"Codex asks\", \"Linear's MCP server asks\") because the same question means something different from each of them. The ways to answer are Realm's, not the asker's: options, with pictures as tiles; several at once; text, masked when it's a secret; a model for each step of a plan, from the catalog; a file, a branch, a date or a time. Press 1 to 9 to pick an option, Return for the highlighted row, and Escape to skip. Codex's questions used to never show up at all. They reach the card now, and Gemini, Cursor, the other ACP agents and a Connection's MCP server in the middle of a call can ask too." },
+      { kind: "figure", image: questionCard, alt: "A question card headed Claude asks, Design: which look the settings page should take, with three pictures as numbered options (Calm, Bold and Dense) and keys to navigate, select and skip.", caption: "The options are pictures from the space's own folder, drawn by Realm. Press 1 to 3 to pick one." },
+      { kind: "p", text: "**The transcript says when each turn happened and what it changed.** A finished turn is dated: a clock time today, then Yesterday 7:38 PM, then the date. It used to show a bare time that looked the same a minute later or a week later. A turn that failed says Failed after 4s. When the agent names a file that's really in its checkout, the name becomes a link that opens next to the session at the line it named. A turn that changed files ends with an Edited 3 files card, listing each file with its line counts from git at the moment the turn settled. Review opens that turn's diff in the side panel, and Undo shows up only when a checkpoint can take back exactly that turn and nothing after it." },
+      { kind: "figure", image: editedFiles, alt: "The end of a turn: the answer with its file names as links, then a card reading Edited 2 files, +20 −3, listing web/lib/orgs.ts and auto-compact.ts with their counts, beside Undo and Review.", caption: "A turn's card: the two files it edited, with the counts git measured when the turn settled, plus Review and Undo." },
+      { kind: "p", text: "**A track down the edge of every transcript, and turns you can keep.** A session pane has a tick down its left edge for each prompt, placed where that prompt sits in the log, with a dot on any turn that changed files. Hover over a tick and a card shows what was asked, how the answer started, when it happened and what the turn edited. Click and you jump there. The bookmark in the card's corner (or S on the track) saves the turn, ⌥↑ and ⌥↓ step between saved turns, and Library ▸ Saved lists every saved turn in the profile." },
       { kind: "figure", image: track, alt: "The ticks down a session pane's left edge, and the card for the last one: the prompt, the start of its answer, the time and Edited 2 files, with a bookmark in its corner.", caption: "The card for a tick: what was asked, how the answer began, when, and what the turn edited." },
-      { kind: "p", text: "**A reply can carry a chart, a diagram or a comparison.** An agent can write a Mermaid diagram, a `realm-chart` — columns, bars, lines or a sparkline — or a `realm-compare` of up to six options as fenced code, and the transcript draws it once the fence closes, in Realm's own palette, with the values a click away and the source a click further. A body that does not parse stays code, with the reason. Nothing in a block fetches anything, and in a narrow column a comparison becomes a card per option." },
-      { kind: "figure", image: chart, alt: "A stacked column chart titled Renderer bundle by release, in kilobytes, with app code and libraries for ten releases from 1.0 to 2.0 b3, each column labelled with its total.", caption: "A `realm-chart` an agent wrote, drawn in Realm's palette once its fence closed." },
-      { kind: "p", text: "**A Connection can show its own views, and they act only on your click.** An MCP server that ships views, as the MCP Apps extension describes them, has them drawn under the tool call that made one or as a tab beside the session, each in a sandboxed frame on an origin of its own. What a view asks to do — run one of its server's tools, write a message for the agent, open a page — waits on a card Realm draws outside the frame, where the view can neither reach nor imitate it, and only your click answers." },
+      { kind: "p", text: "**A reply can include a chart, a diagram or a comparison.** An agent can write a Mermaid diagram, a `realm-chart` (columns, bars, lines or a sparkline) or a `realm-compare` of up to six options as a fenced code block. Once the block closes, the transcript draws it in Realm's own palette, with the values one click away and the source one more. If the body doesn't parse, it stays code and tells you why. Nothing in a block fetches anything, and in a narrow column a comparison turns into one card per option." },
+      { kind: "figure", image: chart, alt: "A stacked column chart titled Renderer bundle by release, in kilobytes, with app code and libraries for ten releases from 1.0 to 2.0 b3, each column labelled with its total.", caption: "A `realm-chart` an agent wrote, drawn in Realm's palette once the block closed." },
+      { kind: "p", text: "**A Connection can show its own views, and they only act when you click.** If an MCP server ships views, as the MCP Apps extension describes them, Realm draws them under the tool call that made one or as a tab next to the session. Each one sits in a sandboxed frame on its own origin. Anything a view asks to do (run one of its server's tools, write a message for the agent, open a page) waits on a card that Realm draws outside the frame, where the view can't reach it or fake it, and only your click answers." },
       { kind: "h", text: "The window" },
-      { kind: "p", text: "**Every space is in the sidebar at once.** A space used to be a room: you stood in one, the sidebar listed what was in it, and an agent waiting in another space was a badge on a strip and a walk away. Now each space of the profile is a section of one list, under a Spaces caption — its name in its colour, a tally of what is waiting and working in it, and its sessions, what needs you first. A section folds and remembers that it did, its + starts a session there, and its ⋯ reaches the space's folder, connections, memory and settings. Pinned gathers the pins from every space, and the activity button lists the same sessions by when they last moved. Since you no longer go anywhere to be in a space, a session's bar says where it works, Space › Session, in the space's colour." },
-      { kind: "figure", image: sidebar, alt: "The sidebar: Needs you lists two questions and a sub-agent's permission, one of them from the Client work profile, above the Spaces caption, and under it the Realm, Dashboard, Site and School spaces, each with its tally and its sessions.", caption: "Needs you over every space: two questions, one from another profile, and a sub-agent's permission, then each space with what is waiting and working in it." },
-      { kind: "p", text: "**The window shows one view, not a layout per space.** As many panes as you make, split right or down and nested the way you split them, from whichever spaces their sessions are in — and moving between them loads nothing, because every space is already loaded. The only limit is room: a pane is never drawn narrower than 280 points or shorter than 300, the least a session's prompter and transcript work at, so where another pane would go below that, Split right and Split down are unavailable and say what would make room. A session is on screen once. ⌘-click a session to open it beside the one you are in; ⌘\\ and ⌘⇧\\ split. Named splits went with the rooms, and the view, and where the keyboard was in it, survive a relaunch." },
-      { kind: "p", text: "**What an agent opens arrives as a tab in the side panel.** A browser, a device, a document or a terminal an agent opens is a tab of the one side panel at the window's right edge, rather than a new column beside whatever had focus — which is how a fan-out of six agents once filled a window with eight columns too narrow to read. The panel is the full height of the window and half the room right of the sidebar until you drag its edge, and it narrows before any pane goes below its floor. Its strip holds the tabs of every session on screen, each session's run in the order its pane is read. Every browser tab stays live behind the one showing, and the + after the tabs opens a blank tab whose page lists the session's tools — Documents, Terminal, Agents, Simulator and Machine." },
-      { kind: "figure", image: splits, alt: "Two session panes side by side, from the Dashboard and Realm spaces, with the sidebar folded away, and the side panel at the right holding both sessions' tabs with the lead's Agents tab in front.", caption: "Two sessions from two spaces, and one side panel holding both sessions' tabs, a hairline between the runs." },
-      { kind: "p", text: "**A rail holds the app's pages, and Home takes you back to the work.** Library, Connections, Scheduled tasks and Code review are a narrow column of icons at the window's edge, under Home, and the column stays when ⌘B folds the sidebar away. Home is not a page: it puts away whatever page is up and lands on the session that was in front, so it is never lit and carries no count. At the rail's foot are the Stop of a Laya recording while one runs, a disc when a newer Realm is out, and your avatar. A page with a column of its own — Settings, the Library, Scheduled tasks, Code review — puts it in the sidebar's column instead of drawing a second sidebar beside the first, headed by the page's name, and every column's first row stands at one depth, so going from Home to a page moves nothing." },
-      { kind: "p", text: "**What needs you is one list, and you can answer from it.** Needs you, at the top of the sidebar, gathers every session waiting on a permission or a question — longest first, then failures you have not read — from every space and every profile, and it is drawn only while something waits. A waiting row unfolds that session's own card: Allow, Allow always or Deny, or the question and its fields. The cards are the transcript's own, so an answer given anywhere clears it everywhere." },
-      { kind: "p", text: "**A session's bar is about the session, and a session has no close.** The bar carried seven glyphs for the tools a session opens beside itself. It now carries the session's place and name, the count of agents it has working, its status, one button for what it made, and its menu. A session is left from the sidebar, the way it was reached, and ⌘W closes what the keyboard is in: a tab leaves the side panel, and a pane leaves the split it shares." },
-      { kind: "p", text: "**New space asks what the space is, and lands you in it.** The sheet leads with the name, with the space's icon beside it — a symbol, an emoji, one generated or one uploaded — and its colours under it, then one card of the rest: a folder, the profile, and the memory every session there reads before it starts. Create starts a session in the space with the keyboard in its prompter, and a failure keeps everything you typed." },
-      { kind: "p", text: "**First run gets you to a signed-in agent with no terminal.** It was thirteen equal radio rows beside a form, and a row that said \"Not installed\" or \"Signed out\" handed a newcomer a problem with no way to solve it. Now it is one page: Choose your agent, with Claude and Codex as cards that do what their state needs right there — Install, Sign in with Claude, Sign in with ChatGPT, a field for the code the sign-in page shows — then Name your space, and Start. Claude needs no install, since Realm already carries Claude Code." },
+      { kind: "p", text: "**Every space is in the sidebar at once.** A space used to be a room. You stood in one, the sidebar listed what was in it, and an agent waiting in another space was a badge on a strip and a few clicks away. Now each space in the profile is a section of one list, under a Spaces caption, with its name in its colour, a count of what's waiting and working, and its sessions, the ones that need you first. A section folds and remembers that it's folded, its + starts a session there, and its ⋯ gets you to the space's folder, connections, memory and settings. Pinned collects the pins from every space, and the activity button lists the same sessions by when they last moved. Since you no longer go anywhere to be in a space, a session's bar says where it works, Space › Session, in the space's colour." },
+      { kind: "figure", image: sidebar, alt: "The sidebar: Needs you lists two questions and a sub-agent's permission, one of them from the Client work profile, above the Spaces caption, and under it the Realm, Dashboard, Site and School spaces, each with its tally and its sessions.", caption: "Needs you across every space: two questions (one from another profile) and a sub-agent's permission, then each space with what's waiting and working in it." },
+      { kind: "p", text: "**The window shows one view instead of a layout per space.** Make as many panes as you want, split right or down and nested however you split them, with sessions from any space. Moving between them loads nothing, because every space is already loaded. The only limit is room. A pane is never drawn narrower than 280 points or shorter than 300, the smallest a session's prompter and transcript work at, so when another pane would go below that, Split right and Split down are turned off and tell you what would make room. A session is only on screen once. ⌘-click a session to open it next to the one you're in, and ⌘\\ and ⌘⇧\\ split. Named splits went away with the rooms. The view, and where the keyboard was in it, survive a relaunch." },
+      { kind: "p", text: "**What an agent opens shows up as a tab in the side panel.** A browser, a device, a document or a terminal that an agent opens becomes a tab in the one side panel at the right edge of the window. It used to open as a new column next to whatever had focus, which is how a fan-out of six agents once filled a window with eight columns too narrow to read. The panel is the full height of the window and takes half the room to the right of the sidebar until you drag its edge, and it narrows before any pane drops below its minimum. Its strip holds the tabs of every session on screen, grouped by session in the order you read the panes. Every browser tab stays live behind the one that's showing, and the + after the tabs opens a blank tab listing the session's tools: Documents, Terminal, Agents, Simulator and Machine." },
+      { kind: "figure", image: splits, alt: "Two session panes side by side, from the Dashboard and Realm spaces, with the sidebar folded away, and the side panel at the right holding both sessions' tabs with the lead's Agents tab in front.", caption: "Two sessions from two spaces, and one side panel holding both sessions' tabs, with a hairline between each session's group." },
+      { kind: "p", text: "**A rail holds the app's pages, and Home takes you back to work.** Library, Connections, Scheduled tasks and Code review are a narrow column of icons at the edge of the window, under Home, and the column stays when ⌘B folds the sidebar away. Home isn't a page. It puts away whatever page is up and lands on the session that was in front, so it's never lit and never shows a count. At the bottom of the rail are the Stop button for a Laya recording while one runs, a disc when a newer Realm is out, and your avatar. A page with its own column (Settings, the Library, Scheduled tasks, Code review) puts that column where the sidebar is instead of drawing a second sidebar next to the first. It's headed by the page's name, and every column's first row sits at the same height, so going from Home to a page doesn't shift anything." },
+      { kind: "p", text: "**Everything that needs you is in one list, and you can answer from it.** Needs you, at the top of the sidebar, collects every session waiting on a permission or a question (longest wait first, then failures you haven't read) from every space and every profile. It only shows up while something is waiting. A waiting row unfolds that session's own card: Allow, Allow always or Deny, or the question and its fields. These are the same cards the transcript shows, so answering in one place clears it everywhere." },
+      { kind: "p", text: "**A session's bar is about the session, and sessions don't have a close button.** The bar used to carry seven icons for the tools a session can open next to itself. Now it shows where the session is and its name, how many agents it has working, its status, one button for what it made, and its menu. You leave a session from the sidebar, the same way you got to it, and ⌘W closes whatever the keyboard is in: a tab leaves the side panel, and a pane leaves its split." },
+      { kind: "p", text: "**New space asks what the space is for, then drops you into it.** The sheet starts with the name, with the space's icon next to it (a symbol, an emoji, a generated one or one you upload) and its colours underneath. Then one card holds the rest: a folder, the profile, and the memory every session there reads before it starts. Create starts a session in the new space with the keyboard already in its prompter, and if something fails, everything you typed is still there." },
+      { kind: "p", text: "**First run gets you to a signed-in agent without a terminal.** It used to be thirteen identical radio rows next to a form, and a row that said \"Not installed\" or \"Signed out\" handed a newcomer a problem with no way to solve it. Now it's one page. Choose your agent shows Claude and Codex as cards that do whatever their state needs right there: Install, Sign in with Claude, Sign in with ChatGPT, or a field for the code the sign-in page shows. Then name your space, and press Start. Claude doesn't need an install, since Realm already ships with Claude Code." },
       { kind: "h", text: "Look and feel" },
-      { kind: "p", text: "**Notices are toasts, and tooltips come at once.** A failed action or a refused file was a red bar across the top of the window that stayed until you closed it. It is a toast at the window's foot now: it says its piece and leaves, waits while the pointer or the keyboard is on it, and moves along the foot clear of a browser pane. What needs a decision — a permission, a sign-in, a server that has gone — is not a toast, and stays until it is answered. A tooltip is the app's own quiet label, shown a fifth of a second after the pointer arrives, where the system's took a second and a half." },
-      { kind: "p", text: "**The cursor is yours to choose.** Settings ▸ Appearance ▸ Cursor sets the caret everywhere text is typed — the prompter, every field, the code editor — from nine shapes and seven animations, with whether it glides to each new position and whether it takes the accent. In 1.5 the prompter's caret could not be held still, because it was the platform's; Realm draws it now, on the platform's own pixel. A terminal's cursor takes any of those shapes as a setting of its own." },
-      { kind: "p", text: "**Everything that scrolls fades at its ends, nothing sticks, and everything you can click points.** Every list, page, popover, sheet and strip of tabs dissolves where it has more to show, except what is read to the last character — code, a diff, a command — and the editors. A page's head scrolls away with the page instead of staying pinned over it. The pointing hand is over everything a click acts on, from one rule, which is a deliberate step away from the Mac's arrow over controls." },
-      { kind: "p", text: "**Realm behaves like a Mac app, not a page in one.** A button darkens when pressed instead of shrinking, and lets go if you drag off it, and dragging across the interface no longer selects it like text. Menus are the system's own, able to open over a browser pane; popovers and sheets move on a spring; lists rubber-band under the trackpad but never under a mouse wheel; and a window that is not in front greys its accent. There is a real menu bar whose rows show your own keybindings, and ⌘R can no longer reload the app out from under a running agent." },
-      { kind: "p", text: "**Light mode is light.** On a Mac set to Dark, Realm's light mode came out a muddy grey: nothing told macOS the window had an appearance of its own, so the material behind it stayed dark and the light ground was laid over that. Realm now tells macOS which theme it is in, and the light palette steps the way the dark one does, lets far less of the desktop through, and sets its quiet text dark enough to read." },
-      { kind: "p", text: "**Realm has a new mark, a new icon, and eight more for the Dock.** The mark is a cube lying on its side with a lit doorway in its dark wall: a space, and the way into it. The icon wears it in white and greys on a graphite body, on the very shape macOS gives every app icon, so macOS shows it full size instead of shrinking it onto a grey plate as it did the last one. Settings ▸ Appearance ▸ App icon offers eight alternates drawn the same way — indigo, clay, frost, smoke, sticker, ocean, ember and mint — and a pick goes on the Dock at once." },
-      { kind: "figure", image: appIcons, alt: "Settings, Appearance, App icon: nine icons, each the cube with a lit doorway — Graphite, selected, then Indigo, Clay, Frost, Smoke, Sticker, Ocean, Ember and Mint.", caption: "The standard icon, Graphite, and the eight the Dock can wear instead." },
-      { kind: "p", text: "**Type sits on one scale, and icons are drawn at the weight of their text.** Six text sizes had grown inside a 2.5px band and were used interchangeably; every size is a rung of one ladder now. Icons come from a rounder set and are drawn heavier at small sizes, the way a Mac draws small symbols, so a 12px glyph is no longer a hairline beside its label, and labels set in tracked capitals are sentence case." },
+      { kind: "p", text: "**Notices are toasts now, and tooltips show up right away.** A failed action or a refused file used to put a red bar across the top of the window that stayed until you closed it. Now it's a toast at the bottom of the window. It says what it has to say and leaves, waits while the pointer or the keyboard is on it, and slides along the bottom so it stays clear of a browser pane. Anything that needs a decision (a permission, a sign-in, a server that went away) isn't a toast, and it stays until you answer it. Tooltips are the app's own quiet labels now, and they show up a fifth of a second after the pointer arrives instead of the second and a half the system's took." },
+      { kind: "p", text: "**You can pick your cursor.** Settings ▸ Appearance ▸ Cursor sets the caret everywhere you type, including the prompter, every field and the code editor. There are nine shapes and seven animations, plus whether it glides to each new position and whether it uses the accent colour. In 1.5 the prompter's caret couldn't be held still, because it was the platform's. Realm draws it now, exactly where the platform's caret would be. A terminal's cursor can take any of those shapes too, as a separate setting." },
+      { kind: "p", text: "**Everything that scrolls fades at its edges, nothing sticks, and everything clickable shows a pointer.** Every list, page, popover, sheet and strip of tabs fades out where there's more to see. The exceptions are things you read to the last character (code, a diff, a command) and the editors. A page's header scrolls away with the page instead of staying pinned on top of it. The pointing hand shows over everything a click does something to, from one rule. That's a deliberate break from the Mac's habit of showing an arrow over controls." },
+      { kind: "p", text: "**Realm behaves like a Mac app now, not a web page in a window.** A button darkens when you press it instead of shrinking, and lets go if you drag off it, and dragging across the interface no longer selects it like text. Menus are the system's own, so they can open over a browser pane. Popovers and sheets move on a spring. Lists rubber-band with the trackpad but never with a mouse wheel, and a window that isn't in front greys out its accent. There's a real menu bar whose items show your own keybindings, and ⌘R can't reload the app out from under a running agent anymore." },
+      { kind: "p", text: "**Light mode is actually light.** On a Mac set to Dark, Realm's light mode came out a muddy grey. Nothing told macOS that the window had its own appearance, so the material behind it stayed dark and the light background was laid on top. Realm now tells macOS which theme it's in. The light palette also steps the way the dark one does, lets much less of the desktop through, and makes its quiet text dark enough to read." },
+      { kind: "p", text: "**Realm has a new mark, a new icon, and eight more for the Dock.** The mark is a cube lying on its side with a lit doorway in its dark wall: a space, and the way into it. The icon wears it in white and greys on a graphite body, using the exact shape macOS gives every app icon, so macOS shows it full size instead of shrinking it onto a grey plate like it did with the last one. Settings ▸ Appearance ▸ App icon has eight alternates drawn the same way (indigo, clay, frost, smoke, sticker, ocean, ember and mint), and your pick goes on the Dock immediately." },
+      { kind: "figure", image: appIcons, alt: "Settings, Appearance, App icon: nine icons, each the cube with a lit doorway. Graphite is selected, then Indigo, Clay, Frost, Smoke, Sticker, Ocean, Ember and Mint.", caption: "The standard icon, Graphite, and the eight the Dock can wear instead." },
+      { kind: "p", text: "**Text sizes sit on one scale, and icons are drawn at the weight of their text.** Six text sizes had crept into a 2.5px range and were used interchangeably. Now every size is a step on one ladder. Icons come from a rounder set and are drawn heavier at small sizes, the way a Mac draws small symbols, so a 12px icon isn't a hairline next to its label anymore. Labels that were set in spaced-out capitals are sentence case now." },
       { kind: "h", text: "Pages" },
-      { kind: "p", text: "**Pull requests are read and reviewed in Realm.** Code review, on the rail, lists GitHub pull requests through your own `gh`, so Realm holds no GitHub token and sees what gh sees. Its column lists Authored by me, Needs my review and Needs my team's review, with any you pin at the top. A request opens on its Summary — its description, whether it can merge, who has reviewed, its checks — and its Changes, side by side or in one column, beside a file tree. Review with runs a reviewer over the diff at the model, level and speed you choose in the prompter's own picker, held to read-only, and leaves its findings on the page, each review naming the level it ran at. None of them, nor any line comment of yours, reaches GitHub until you press Submit review and choose Comment, Approve or Request changes." },
-      { kind: "figure", image: reviewFindings, alt: "A review by Fable 5.1 of the tokenizer pull request: a summary of two risks, then three findings, on src/tokenizer.ts line 14, src/parser.ts line 31, and README.md line 400, which is not in the diff.", caption: "A reviewer's findings, one on a line the diff does not show. Until Submit review, none of it reaches GitHub." },
-      { kind: "p", text: "**Scheduled tasks have a page of their own, and every run is a session.** A column holds New task, your upcoming tasks with the model each runs on, their runs under them — each new run unread until you read it — and suggestions to start from. Beside it a run is its real session, the transcript and a prompter to carry it on, with the task's card at the top right: when it repeats and runs next, a run it missed while the Mac slept, and Run now, Pause, Edit and Delete. A task repeats hourly, daily, on weekdays, weekly, monthly or by a cron expression, or runs once, and a run lands under its task instead of opening a pane beside whatever you were doing." },
-      { kind: "figure", image: schedules, alt: "The Scheduled tasks page: a column of three tasks, each with when it runs next and its model, and suggestions under them; beside it a run of Weekly numbers open as its transcript, with charts, and the task's card at the top right.", caption: "Three tasks, each on its own model, and a run open as its own session beside the task's card." },
-      { kind: "p", text: "**The Library sorts by kind, takes your own files, and Memory saves itself.** The Library's files open on tabs — All, Images, Documents, Code, Data — beside a filter for where a file was made and by whom, a choice of tiles or rows, and a search. Every file is one square tile, a picture filling its own. Add, or a drop anywhere on the page, brings files of yours in, as Realm's own copy; Remove from Library takes one back out, with Undo. Memory was a textarea with a Save button. It is the document itself now, at reading size, with Write and Preview, and a pause in typing saves it." },
-      { kind: "figure", image: library, alt: "The Library's Files page: tabs for All, Images, Documents, Code and Data, a filter, tiles or rows, a search and Add, over square tiles — pictures filling theirs, other files their name and glyph, the ones you added marked Added.", caption: "Tabs by kind, every file one square tile, and the files you brought in marked Added." },
-      { kind: "p", text: "**Settings is grouped by what you came for, and you can read it.** The pages sit under You, Engines, Browser, Computer and Data, and a search finds any row and opens its page on that control. Rows are cards, with labels at reading size and descriptions dark enough to read — the old hints measured 3.5:1 on the dark ground. Appearance gains UI and code text sizes that change the type without zooming the layout, a content font for messages and documents, Reduce motion as System, On or Off, and separate translucency for the sidebar and the panes." },
-      { kind: "p", text: "**A page about you.** Your avatar at the foot of the rail opens it: tokens over all time, your busiest day, the longest an agent worked on one turn, your current and longest streaks, the activity calendar by day, by week or as a running total, and the models, efforts, skills and tools you use most. A figure no engine can report is left off, with the reason, rather than shown as a zero." },
+      { kind: "p", text: "**Pull requests are read and reviewed in Realm.** Code review, on the rail, lists your GitHub pull requests through your own `gh`, so Realm holds no GitHub token and sees exactly what gh sees. Its column has Authored by me, Needs my review and Needs my team's review, with any you pin at the top. A pull request opens on its Summary (its description, whether it can merge, who has reviewed it, its checks) and its Changes, side by side or in one column, next to a file tree. Review with runs a reviewer over the diff at the model, level and speed you pick in the prompter's own picker, in read-only mode, and leaves its findings on the page. Each review notes the level it ran at. None of the findings, and none of your line comments, reach GitHub until you press Submit review and pick Comment, Approve or Request changes." },
+      { kind: "figure", image: reviewFindings, alt: "A review by Fable 5.1 of the tokenizer pull request: a summary of two risks, then three findings, on src/tokenizer.ts line 14, src/parser.ts line 31, and README.md line 400, which is not in the diff.", caption: "A reviewer's findings, one of them on a line the diff doesn't show. None of it reaches GitHub until Submit review." },
+      { kind: "p", text: "**Scheduled tasks have their own page, and every run is a session.** A column holds New task, your upcoming tasks with the model each one runs on, their runs underneath (each new run stays unread until you open it), and some suggestions to start from. Next to it, a run is its real session, with the transcript and a prompter to keep going. The task's card sits at the top right: when it repeats and when it runs next, any run it missed while the Mac was asleep, and Run now, Pause, Edit and Delete. A task can repeat hourly, daily, on weekdays, weekly, monthly or on a cron expression, or run once. A run lands under its task instead of opening a pane next to whatever you were doing." },
+      { kind: "figure", image: schedules, alt: "The Scheduled tasks page: a column of three tasks, each with when it runs next and its model, and suggestions under them; beside it a run of Weekly numbers open as its transcript, with charts, and the task's card at the top right.", caption: "Three tasks, each on its own model, and a run open as its own session next to the task's card." },
+      { kind: "p", text: "**The Library sorts by kind and takes your own files, and Memory saves itself.** The Library's files have tabs (All, Images, Documents, Code, Data) next to a filter for where a file came from and who made it, a choice of tiles or rows, and a search. Every file is one square tile, and a picture fills its whole tile. Add, or dropping files anywhere on the page, brings your own files in as Realm's own copy. Remove from Library takes one back out, and you can undo it. Memory used to be a text box with a Save button. Now it's the document itself, at reading size, with Write and Preview, and it saves when you pause typing." },
+      { kind: "figure", image: library, alt: "The Library's Files page: tabs for All, Images, Documents, Code and Data, a filter, tiles or rows, a search and Add, over square tiles. Pictures fill theirs, other files show their name and icon, and the ones you added are marked Added.", caption: "Tabs by kind, every file a square tile, and the files you brought in marked Added." },
+      { kind: "p", text: "**Settings is grouped by what you came for, and you can actually read it.** The pages sit under You, Engines, Browser, Computer and Data, and a search finds any row and opens its page right at that control. Rows are cards now, with labels at reading size and descriptions dark enough to read. The old hints measured 3.5:1 on the dark background. Appearance adds UI and code text sizes that change the type without zooming the layout, a content font for messages and documents, Reduce motion as System, On or Off, and separate translucency for the sidebar and the panes." },
+      { kind: "p", text: "**A page about you.** Your avatar at the bottom of the rail opens it. It shows your tokens over all time, your busiest day, the longest an agent has worked on one turn, your current and longest streaks, an activity calendar by day, by week or as a running total, and the models, efforts, skills and tools you use most. If no engine can report a number, it's left off with the reason instead of showing a zero." },
       { kind: "h", text: "Files, browsers, terminals and devices" },
-      { kind: "p", text: "**The Documents pane opens on your files.** With nothing open it said \"Nothing open yet\" over an empty pane. It opens on a home now — what this session has made and been given, then the Library's files — under one search that also finds the checkout's own files by name, and ⌘P puts the keyboard in that search from anywhere. New makes a document, a spreadsheet, a presentation, a LaTeX paper, a study guide or a code file, named with its extension and opened in the code editor." },
-      { kind: "p", text: "**One viewer for every file, with the prompter under it.** A picture in a message, a chip in the prompter, a tile in the Library and a session's files all open the same viewer, and the session's prompter is docked under it: a question asked there is a turn of the session the file came from, carrying the file. Mark up draws on a picture, and the next question carries a copy with the marks in its pixels, so the agent sees what was circled rather than reading where." },
-      { kind: "p", text: "**A file in Realm does what a file in the Finder does.** In the Library, the Documents pane's home or a session's file list, Space shows it in Quick Look and Return opens it; it drags out into another app as the real file; and its menu offers Quick Look and the Share menu." },
-      { kind: "p", text: "**A terminal's tab says what is running in it.** A terminal's tab, its pane bar and its dock wear the mark of what is in the foreground — an agent's own mark in its maker's colour, a tool's glyph for node, python, vim and the rest, or the shell's — and name the program before the folder: \"claude · realm\". Only an agent wears colour there. Terminals draw in Realm's own sixteen colours, tuned to each theme, and a powerlevel10k prompt keeps its colours and its icons." },
-      { kind: "p", text: "**A page that did not load says so.** Typing localhost:3000 with nothing listening left a blank white pane. The pane now draws a page in its place — \"This site can't be reached\", the reason, what to try, the error code and Reload — and an agent driving the pane is told the same thing in words, where it used to read an empty page." },
-      { kind: "p", text: "**The browser pane has a browser's controls.** Each tab wears its site's own icon. The ⋯ at the end of the toolbar opens Find in page, Print, Zoom, Take a screenshot, downloads, history and Clear browsing data. Device size lays the page out at an iPhone's, an iPad's or a desktop's width; the address field suggests pages you have visited; and Annotate pins several elements of a page, numbered, and sends them to the session as one chip." },
-      { kind: "p", text: "**Agents get the simulator pane, and hands to use it with.** The simulator tools hand an agent the device pane itself: list devices, open one beside the session, take a screenshot, read the elements, install, launch and open a URL — and tap, swipe, type and press the hardware buttons, on iOS simulators and Android emulators. A walk takes a whole path of labels in one call, `[\"General\", \"About\"]`, finds each on the live screen, presses it and answers with where it ended up. It stops rather than guesses, and before any step that buys, deletes, sends, signs out or types a secret." },
-      { kind: "p", text: "**A real iPhone, over the cable.** A connected iPhone or iPad appears in the device pane's picker. Picking it has Realm build a small test runner, sign it with your own Apple Development identity and run it on the phone, and the agents' device tools then work on it as they do on a simulator, over a live picture. Because a phone is somebody's phone the rules are stricter: its cards are asked even under Full access, a locked phone is refused, the side button is never pressed, and every touch is checked under the finger just before it lands." },
-      { kind: "p", text: "**Laya, a decision model that runs on your Mac, watches agents work.** Settings ▸ Engines ▸ Laya installs it when you ask — about 1 GB of PyTorch and 0.8 GB of weights, on Apple silicon. In Shadow it is asked about every step an agent takes in a Mac app, on a device or on a web page, and its answers are logged beside what really happened; nothing it says reaches the agent, a permission card or the transcript. Assist, where Laya picks the element an agent names in words, unlocks only for a checkpoint that is right 95% of the time on steps it never trained on. None is yet, so Assist stays locked and says by how much." },
+      { kind: "p", text: "**The Documents pane opens on your files.** With nothing open it used to say \"Nothing open yet\" over an empty pane. Now it opens on a home page: what this session has made and been given, then the Library's files, under one search that also finds files in the checkout by name. ⌘P jumps to that search from anywhere. New makes a document, a spreadsheet, a presentation, a LaTeX paper, a study guide or a code file, named with its extension and opened in the code editor." },
+      { kind: "p", text: "**One viewer for every file, with the prompter under it.** A picture in a message, a chip in the prompter, a tile in the Library and a session's files all open the same viewer, with the session's prompter docked underneath. A question you ask there becomes a turn in the session the file came from, with the file attached. Mark up lets you draw on a picture, and your next question carries a copy with the marks in its pixels, so the agent sees what you circled instead of reading a description of where." },
+      { kind: "p", text: "**A file in Realm does what a file in the Finder does.** In the Library, the Documents pane's home or a session's file list, Space shows a file in Quick Look and Return opens it. You can drag it out into another app as the real file, and its menu has Quick Look and the Share menu." },
+      { kind: "p", text: "**A terminal's tab says what's running in it.** A terminal's tab, its pane bar and its dock show the icon of whatever is in the foreground: an agent's own mark in its maker's colour, a tool's icon for node, python, vim and the rest, or the shell's. They name the program before the folder, like \"claude · realm\". Only agents get colour there. Terminals use Realm's own sixteen colours, tuned for each theme, and a powerlevel10k prompt keeps its colours and icons." },
+      { kind: "p", text: "**A page that didn't load says so.** Typing localhost:3000 with nothing listening used to leave a blank white pane. Now the pane shows a page instead (\"This site can't be reached\", the reason, what to try, the error code and Reload), and an agent driving the pane gets told the same thing in words, where it used to read an empty page." },
+      { kind: "p", text: "**The browser pane has a browser's controls.** Each tab shows its site's own icon. The ⋯ at the end of the toolbar opens Find in page, Print, Zoom, Take a screenshot, downloads, history and Clear browsing data. Device size lays the page out at an iPhone's, an iPad's or a desktop's width, the address field suggests pages you've visited, and Annotate lets you pin several elements on a page, numbered, and send them to the session as one chip." },
+      { kind: "p", text: "**Agents get the simulator pane, and hands to use it with.** The simulator tools give an agent the device pane itself. It can list devices, open one next to the session, take a screenshot, read the elements, install, launch and open a URL, and it can tap, swipe, type and press the hardware buttons, on iOS simulators and Android emulators. A walk takes a whole path of labels in one call, like `[\"General\", \"About\"]`, finds each one on the live screen, presses it and reports where it ended up. It stops instead of guessing, and it stops before any step that buys, deletes, sends, signs out or types a secret." },
+      { kind: "p", text: "**A real iPhone, over the cable.** A connected iPhone or iPad shows up in the device pane's picker. Pick it and Realm builds a small test runner, signs it with your own Apple Development identity and runs it on the phone. After that, the agents' device tools work on it the same way they do on a simulator, over a live picture. Since a phone is somebody's actual phone, the rules are stricter: its cards ask even under Full access, a locked phone is refused, the side button is never pressed, and every touch is checked under the finger right before it lands." },
+      { kind: "p", text: "**Laya, a decision model that runs on your Mac, watches agents work.** Settings ▸ Engines ▸ Laya installs it when you ask. That's about 1 GB of PyTorch and 0.8 GB of weights, on Apple silicon. In Shadow mode it's asked about every step an agent takes in a Mac app, on a device or on a web page, and its answers are logged next to what actually happened. Nothing it says reaches the agent, a permission card or the transcript. Assist mode, where Laya picks the element an agent describes in words, only unlocks for a checkpoint that's right 95% of the time on steps it never trained on. None is yet, so Assist stays locked and tells you how far off it is." },
       { kind: "h", text: "Profiles and sign-ins" },
-      { kind: "p", text: "**Profiles keep their sign-ins to themselves.** Every browser pane in every profile shared one cookie jar, so Work was signed in to whatever Personal was, and an agent in a Work space was offered Personal's saved passwords. Each profile now has its own cookie jar, saved sign-ins, passkeys and browsing history. Where you do want to share, a saved sign-in or passkey has Share with, and profiles can be made, renamed, recoloured and deleted in the app." },
-      { kind: "p", text: "**An agent can make a password for a sign-up, and nobody sees it.** Asked to create an account, an agent had nowhere to put a password but the chat. Now it can ask Realm to make one: Realm generates it on this Mac, saves it to the profile's sign-ins and types it into the page, after a card that names the site and after Touch ID. The agent is never told the value." },
-      { kind: "p", text: "**A profile can have a window of its own.** The profile switcher, or the command palette, opens a profile in a window of its own, or brings forward the one already showing it, so Work and Personal can sit side by side." },
-      { kind: "h", text: "What is gone" },
+      { kind: "p", text: "**Profiles keep their sign-ins to themselves.** Every browser pane in every profile used to share one cookie jar, so Work was signed in to whatever Personal was, and an agent in a Work space was offered Personal's saved passwords. Now each profile has its own cookies, saved sign-ins, passkeys and browsing history. When you do want to share, a saved sign-in or passkey has Share with, and you can make, rename, recolour and delete profiles in the app." },
+      { kind: "p", text: "**An agent can make a password for a sign-up, and nobody sees it.** When you asked an agent to create an account, it had nowhere to put a password except the chat. Now it can ask Realm to make one. Realm generates it on this Mac, saves it to the profile's sign-ins and types it into the page, after a card that names the site and after Touch ID. The agent never learns the value." },
+      { kind: "p", text: "**A profile can have its own window.** The profile switcher, or the command palette, opens a profile in its own window or brings forward the one already showing it, so Work and Personal can sit side by side." },
+      { kind: "h", text: "What's gone" },
       { kind: "ul", items: [
-        "The Agents page — its List, Wall and Office, and the Start agents… sheet. What it ranked is on each session's own row, under Needs you and on the Dock's badge, and work for several agents is asked of a session, in words or from its Agents tab.",
-        "The Notifications page and its bell. Notifications still reach macOS and count on the Dock, the iMessage and Slack relay still sends, and Settings ▸ Notifications still chooses what counts; Code review has the page's place on the rail.",
-        "The red bar across the top of the window, for toasts.",
-        "The lightbox and the file preview sheet, for the media viewer.",
-        "The ⌘P file palette, for the Documents pane's own search.",
-        "The close button on a page's bar, for Home, the rail, the sidebar and Escape.",
+        "The Agents page, with its List, Wall and Office, and the Start agents… sheet. What it ranked now shows on each session's own row, under Needs you and on the Dock badge. To put several agents on something, you ask a session, in words or from its Agents tab.",
+        "The Notifications page and its bell. Notifications still reach macOS and count on the Dock, the iMessage and Slack relay still sends, and Settings ▸ Notifications still decides what counts. Code review took the page's spot on the rail.",
+        "The red bar across the top of the window, replaced by toasts.",
+        "The lightbox and the file preview sheet, replaced by the media viewer.",
+        "The ⌘P file palette, replaced by the Documents pane's own search.",
+        "The close button on a page's bar, replaced by Home, the rail, the sidebar and Escape.",
       ] },
       { kind: "h", text: "Smaller changes and fixes" },
       { kind: "ul", items: [
-        "Claude's weekly and five-hour limits read right. Both readings were taken as if they were already a percent and milliseconds, so an 86% week showed as \"Weekly limit at 1%\", resetting on a day in January 1970.",
-        "The question and plan cards are as off-limits to an agent driving the window as the permission card was, and so are Build with and Implement with…, which start paid work in your name.",
-        "A masked answer reaches the agent that asked and nothing else: the log, every window, the Activity record and an exported session keep a mark in its place.",
-        "A space whose folder is not a git repository simply has no worktrees, instead of saying so in a red bar across the window.",
-        "Scrolling a long transcript no longer redraws all of it on every frame, and an answer fades in as it streams instead of stamping on in chunks.",
+        "Claude's weekly and five-hour limits read correctly now. Both readings were treated as if they were already a percentage and milliseconds, so an 86% week showed as \"Weekly limit at 1%\", resetting on a day in January 1970.",
+        "The question and plan cards are as off-limits to an agent driving the window as the permission card already was, and so are Build with and Implement with…, which start paid work in your name.",
+        "A masked answer reaches the agent that asked and nothing else. The log, every window, the Activity record and an exported session keep a placeholder instead.",
+        "A space whose folder isn't a git repository just has no worktrees, instead of announcing it in a red bar across the window.",
+        "Scrolling a long transcript no longer redraws the whole thing on every frame, and an answer fades in as it streams instead of appearing in chunks.",
         "Realm's own tools can run past Codex's one-minute limit on a tool call.",
-        "Send now on a queued message waits for the Claude turn it stops to settle, instead of landing in that turn and being lost with it.",
-        "A sidebar row with news wears the unread ring, which until now could never appear, and opening the session clears it.",
-        "Skills in `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills` and `~/.cursor/skills` are found now; the scan had been looking inside Realm's own folder.",
-        "A theme with a hue, Rosé Pine or Nord, colours the sidebar as well as the panes.",
-        "Panes are a touch more see-through by default, at 84%: measured, the thinnest at which body text still clears WCAG AA on every theme, over a white desktop or a black one.",
-        "`pnpm app:update` signs the build with your Developer ID, so macOS keeps its Accessibility, Screen Recording and Automation grants from one install to the next.",
+        "Send now on a queued message waits for the Claude turn it interrupts to settle, instead of landing inside that turn and getting lost with it.",
+        "A sidebar row with news shows the unread ring, which until now could never appear, and opening the session clears it.",
+        "Skills in `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills` and `~/.cursor/skills` are found now. The scan had been looking inside Realm's own folder.",
+        "A theme with a hue, like Rosé Pine or Nord, colours the sidebar as well as the panes.",
+        "Panes are a little more see-through by default, at 84%. That's the most see-through they can be with body text still passing WCAG AA on every theme, measured over a white desktop and a black one.",
+        "`pnpm app:update` signs the build with your Developer ID, so macOS keeps its Accessibility, Screen Recording and Automation permissions from one install to the next.",
       ] },
     ],
   },
@@ -136,43 +136,43 @@ export const entries: Entry[] = [
     version: "v1.5.0",
     area: "Release",
     summary:
-      "Realm can use itself — a terminal an agent reads as the screen it shows, and Realm's own interface as elements — plus an Agents page that is a room as well as a list, a cursor with its own controls, and Claude Opus 5.5.",
+      "Realm can use itself: an agent can read a terminal as the screen it shows and read Realm's own interface as elements. Plus an Agents page that's a room as well as a list, a cursor with its own controls, and Claude Opus 5.5.",
     body: [
       { kind: "h", text: "Realm can use itself" },
-      { kind: "p", text: "A session in a space can now open a terminal pane and read what it is actually displaying — the rendered screen, so a full-screen program's repaints resolve instead of replaying as escape codes — and it can read Realm's own interface as elements and click in it." },
-      { kind: "p", text: "The terminal provider is on by default and the interface one is off, and the asymmetry is the point. Every harness already has a shell tool, so a terminal that talks back adds a capability rather than a second way to run commands; reaching the window you are reading in is a different kind of thing to hand out." },
-      { kind: "p", text: "A sign-in is the case that pays for all of it. `claude auth login` under a non-interactive shell hangs forever, because there is nothing on the other end to answer the code it prints. Here it runs, and Realm can read the URL, open the consent page, and stop at the one act that grants a durable capability — which stays yours unless you say otherwise, per space." },
-      { kind: "h", text: "The Agents page is a room, not only a list" },
-      { kind: "p", text: "Three views over the same agents, because \"what is everything doing\" and \"what did that one just say\" are different questions and a list only answers the second. The wall is tiles with state on their faces; the office is a drawn room with a figure per agent in a seat, redrawn from a sentence you type at it. Ordering comes from what actually moved, which is also what the new **Sort spaces by activity** switch reads." },
-      { kind: "note", text: "The Agents page was taken out again in **v2.0.0**: what it ranked is on each session's own row now, under Needs you and on the Dock's badge." },
+      { kind: "p", text: "A session in a space can now open a terminal pane and read what it's actually showing. It reads the rendered screen, so a full-screen program's redraws come through as what you'd see instead of a stream of escape codes. It can also read Realm's own interface as elements and click around in it." },
+      { kind: "p", text: "The terminal tool is on by default and the interface one is off, and that's on purpose. Every harness already has a shell tool, so a terminal that talks back adds something new instead of a second way to run commands. Reaching into the window you're reading is a different kind of thing to hand out." },
+      { kind: "p", text: "Signing in is the case that makes all of this worth it. `claude auth login` in a non-interactive shell hangs forever, because nothing on the other end can answer the code it prints. In Realm it runs, and Realm can read the URL, open the consent page, and stop at the one step that grants a lasting capability. That step stays yours unless you say otherwise, per space." },
+      { kind: "h", text: "The Agents page is a room, not just a list" },
+      { kind: "p", text: "There are three views over the same agents, because \"what is everything doing\" and \"what did that one just say\" are different questions, and a list only answers the second. The wall is tiles with each agent's state on its face. The office is a drawn room with a figure for each agent in a seat, and you can redraw it by typing a sentence at it. The order comes from what actually moved, which is also what the new **Sort spaces by activity** switch uses." },
+      { kind: "note", text: "The Agents page was removed again in **v2.0.0**. What it ranked now shows on each session's own row, under Needs you and on the Dock badge." },
       { kind: "h", text: "Two things are called what they are" },
-      { kind: "p", text: "The sidebar's catch-all section said \"Space\" — a container's name sitting under \"Open\", which names what its rows are — and now says Sessions. And a pane group is a split: the strip above the panes, the sidebar's button, the palette's row, the ⌘⇧[ and ⌘⇧] labels and the names new ones are given all say so. The strip also stopped crowding the traffic lights." },
-      { kind: "h", text: "The cursor has the controls it should have had" },
-      { kind: "p", text: "A terminal's cursor gets a shape — block, bar or underline — as its own setting rather than a mode of the blink, because a bar that holds still and a block that pulses are both pairs people ask for. The code editor's caret gets its own blink switch, separate from the terminal's, the same split VS Code makes." },
-      { kind: "p", text: "The prompter's caret still cannot be told either way: it is the platform's, and Chromium exposes no way to hold it still until `caret-animation` lands. The switch says so rather than quietly covering half of what it names." },
+      { kind: "p", text: "The sidebar's catch-all section said \"Space\", which is the name of a container, sitting under \"Open\", which names what the rows are. It says Sessions now. And a pane group is called a split: the strip above the panes, the sidebar's button, the palette's row, the ⌘⇧[ and ⌘⇧] labels and the names new ones get all say so. The strip also stopped crowding the traffic lights." },
+      { kind: "h", text: "The cursor gets the controls it should have had" },
+      { kind: "p", text: "A terminal's cursor gets a shape (block, bar or underline) as its own setting instead of being tied to whether it blinks, because people ask for both a bar that holds still and a block that pulses. The code editor's caret gets its own blink switch, separate from the terminal's, the same split VS Code makes." },
+      { kind: "p", text: "The prompter's caret still can't be set either way. It belongs to the platform, and Chromium has no way to hold it still until `caret-animation` lands. The switch says so, instead of quietly covering only half of what its name promises." },
       { kind: "h", text: "Claude Opus 5.5" },
-      { kind: "p", text: "Claude Opus 5.5 is in the model picker. Adding a Claude model is not just a row — the bundled CLI has to know the id, or the API answers with a 400 and the session quietly runs something else. That rule had been written in three comments and enforced by none of them, and it had already gone wrong once. It is a test now: every model Realm offers is checked against the binary that will be asked to run it." },
+      { kind: "p", text: "Claude Opus 5.5 is in the model picker. Adding a Claude model is more than adding a row. The bundled CLI has to know the model's id, or the API answers with a 400 and the session quietly runs something else. That rule was written down in three comments and enforced by none of them, and it had already gone wrong once. Now it's a test: every model Realm offers is checked against the binary that will be asked to run it." },
       { kind: "h", text: "Reading and writing" },
       { kind: "ul", items: [
-        "Line height is adjustable, as an offset rather than a value. Prose is 1.6, markdown 1.55 and a code block 1.65, and one slider moves all of them from their own starting point — a control that set a single number would flatten the distances that are the reason a code block breathes more than a paragraph.",
-        "A Quick Look render and a guide come back to where you were reading. A PDF still does not, and cannot: Chromium renders it in a nested viewer that runs no script of ours.",
-        "An answer's own passage can be quoted back instead of described.",
-        "The prompter's pickers show a scrollbar while they scroll and not the rest of the time.",
+        "Line height is adjustable, as an offset instead of a value. Prose is 1.6, markdown 1.55 and a code block 1.65, and one slider moves all of them from their own starting points. A control that set one number would flatten the differences that let a code block breathe more than a paragraph.",
+        "A Quick Look render and a guide reopen where you were reading. A PDF still doesn't, and can't: Chromium renders it in a nested viewer that runs none of our code.",
+        "You can quote a passage of an answer back to the agent instead of describing it.",
+        "The prompter's pickers show a scrollbar while they're scrolling and hide it the rest of the time.",
       ] },
       { kind: "h", text: "Getting rid of things" },
       { kind: "ul", items: [
-        "\"Really delete?\" is optional, in Settings ▸ App ▸ Deleting. On unless you say otherwise, and read so that an unset preference keeps asking.",
-        "Sidebar rows that are not sessions have a trash of their own. Archiving is a session's answer to being finished; a terminal or a documents pane had no way out but a right-click.",
-        "Downloads no longer refuse a file because of its extension. The boundary that matters is the grant, not whether someone has heard of `.parquet`.",
+        "\"Really delete?\" is optional, in Settings ▸ App ▸ Deleting. It's on unless you turn it off, and a setting that was never touched keeps asking.",
+        "Sidebar rows that aren't sessions get their own trash button. Archiving is how a session gets put away when it's done, but a terminal or a documents pane had no way out except a right-click.",
+        "Downloads no longer refuse a file because of its extension. What matters is the permission you granted, not whether anyone has heard of `.parquet`.",
       ] },
       { kind: "h", text: "Elsewhere" },
       { kind: "ul", items: [
-        "A schedule can name a single moment — \"in two weeks, open the PR\" — instead of being written as a cron expression that fires once in 2031 and is forgotten.",
-        "A signed-out session says what to do about it, with the command to run, instead of showing the raw failure. It only says so after re-checking, because the credentials file cannot answer \"signed out\" on macOS and a remedy offered on a guess is worse than none.",
-        "A passkey works in a browser pane. Electron ships the WebAuthn API without an authenticator behind it, so Realm is the authenticator: the key is held encrypted and reaches the page for the length of one request you approved with Touch ID.",
-        "Right-click either arrow in a browser pane for the pages behind or ahead of it.",
-        "⌘⇧N opens Quick Chat; ⌘⇧G makes a split. Both were reachable only by mouse.",
-        "A profile's spaces moved into that page's rail, beside Skills, Connections and Memory, instead of sitting over the title as a strip of chips.",
+        "A schedule can name a single moment, like \"in two weeks, open the PR\", instead of being written as a cron expression that fires once in 2031 and gets forgotten.",
+        "A signed-out session tells you what to do about it, with the command to run, instead of showing the raw failure. It only says so after checking again, because on macOS the credentials file can't answer \"signed out\" by itself, and a fix offered on a guess is worse than none.",
+        "Passkeys work in a browser pane. Electron ships the WebAuthn API without an authenticator behind it, so Realm is the authenticator. The key is stored encrypted and only reaches the page for the one request you approved with Touch ID.",
+        "Right-click either arrow in a browser pane to see the pages behind or ahead of it.",
+        "⌘⇧N opens Quick Chat and ⌘⇧G makes a split. Both used to be mouse-only.",
+        "A profile's spaces moved into that page's rail, next to Skills, Connections and Memory, instead of sitting over the title as a row of chips.",
       ] },
     ],
   },
@@ -185,7 +185,7 @@ export const entries: Entry[] = [
     summary:
       "A packaging fix for v1.4.0, which could not start, and a release that now boots the server it just packaged before the tag exists.",
     body: [
-      { kind: "p", text: "The terminal renderer that v1.4.0 introduced pulls in a CommonJS library, and the server bundler leaves anything declared as a dependency for the runtime to resolve — so the shipped server carried an import Node refuses at load, and died the moment the app spawned it. v1.4.0 was withdrawn; everything in it is in this release." },
+      { kind: "p", text: "The terminal renderer that v1.4.0 introduced pulls in a CommonJS library, and the server bundler leaves anything declared as a dependency for the runtime to resolve. So the shipped server carried an import Node refuses at load, and died the moment the app spawned it. v1.4.0 was withdrawn; everything in it is in this release." },
       { kind: "h", text: "Nothing caught it, and that is the more interesting half" },
       { kind: "p", text: "The test suite passed, because the test runner resolves that import through its own transform. Type checking passed, because the types were never wrong. The build passed, because compiling a bundle does not run it. The first execution of that line was going to be on someone's machine." },
       { kind: "p", text: "`pnpm release` now boots the server it just packaged, on a scratch home, and requires it to report ready before the version commit and the tag exist. It closes the class rather than the instance: any import that resolves while compiling and explodes while loading now fails the release instead of shipping." }
@@ -200,21 +200,21 @@ export const entries: Entry[] = [
     summary:
       "A terminal an agent can read and answer, sign-in as a button rather than a command printed at you, Realm's own interface as a tool, and a space strip that sorts by what is happening.",
     body: [
-      { kind: "note", text: "Withdrawn — this build could not start. Everything below it shipped in **v1.4.1**." },
+      { kind: "note", text: "Withdrawn: this build could not start. Everything below it shipped in **v1.4.1**." },
       { kind: "h", text: "Realm can use a terminal" },
-      { kind: "p", text: "An agent gets `terminal_open`, `terminal_write`, `terminal_read` and `terminal_wait` over a real terminal pane in the space — visible in the sidebar, yours to take over by typing into it. This is not a second shell tool: every harness already has one, and for running a command and reading its output that one is better. This is for what a non-interactive shell structurally cannot do — a program that keeps a terminal and asks questions. `claude auth login` under `bash -c` hangs, because there is nothing on the other end to answer it." },
-      { kind: "p", text: "What made it possible was reading, not access. A terminal's scrollback is a raw tail, and every agent CLI worth signing into draws its login as a full-screen TUI: stripping the escape codes gives you everything the program typed **and untyped**, in order, which reads as gibberish that looks like content. Realm now renders those bytes into the screen a person would be looking at — on demand, per read, so a pty nobody is reading costs what it always did. Soft-wrapped rows come back rejoined, because a sign-in URL is two hundred characters, splits across three rows at any width, and one spliced back together wrong is a failure with nothing on screen to explain it." },
+      { kind: "p", text: "An agent gets `terminal_open`, `terminal_write`, `terminal_read` and `terminal_wait` over a real terminal pane in the space. The pane shows in the sidebar, and it is yours to take over by typing into it. This is not a second shell tool: every harness already has one, and for running a command and reading its output that one is better. This is for what a non-interactive shell structurally cannot do: a program that keeps a terminal and asks questions. `claude auth login` under `bash -c` hangs, because there is nothing on the other end to answer it." },
+      { kind: "p", text: "What made it possible was reading, not access. A terminal's scrollback is a raw tail, and every agent CLI worth signing into draws its login as a full-screen TUI: stripping the escape codes gives you everything the program typed **and untyped**, in order, which reads as gibberish that looks like content. Realm now renders those bytes into the screen a person would be looking at. It does this on demand, per read, so a pty nobody is reading costs what it always did. Soft-wrapped rows come back rejoined, because a sign-in URL is two hundred characters, splits across three rows at any width, and one spliced back together wrong is a failure with nothing on screen to explain it." },
       { kind: "h", text: "Signing an agent in is a button now" },
-      { kind: "p", text: "When a CLI is signed out, the card that used to print a command at you offers **Sign in**: Realm opens a terminal, runs that CLI's own login command, reads the URL it prints and opens the consent page in a pane beside it. It stops there. Approving a sign-in grants a durable capability, so that click is yours — and Realm's browser tools refuse it, in every permission mode. A space can hand that last step over in Connections ▸ **Finishing sign-ins**, and even then the permission is narrow: the one page Realm opened, from a login it started itself, for five minutes. Off by default." },
+      { kind: "p", text: "When a CLI is signed out, the card that used to print a command at you offers **Sign in**: Realm opens a terminal, runs that CLI's own login command, reads the URL it prints and opens the consent page in a pane beside it. It stops there. Approving a sign-in grants a durable capability, so that click is yours. Realm's browser tools refuse it, in every permission mode. A space can hand that last step over in Connections ▸ **Finishing sign-ins**, and even then the permission is narrow: the one page Realm opened, from a login it started itself, for five minutes. Off by default." },
       { kind: "h", text: "An agent can be refused a consent screen it is already looking at" },
       { kind: "p", text: "Realm has always refused to navigate an agent to an OAuth authorization page. It turned out that never covered the act the rule exists to prevent: a pane that reached one by a redirect, a link, or your own address bar could be clicked freely, in every mode. Acting on a pane now asks where that pane actually is. This release makes that guard stronger than it was, and the sign-in flow above is the one deliberate, provenanced exception to it." },
       { kind: "h", text: "Realm's own interface, for an agent that needs to see it" },
-      { kind: "p", text: "`app_snapshot` reads the window you are looking at as elements; `app_act` clicks, types and scrolls in it. It is for seeing what is on your screen and checking that something really renders — not for doing what Realm already has a tool or a setting for, which is direct where a click is a guess about layout. It ships **off**, per space: every other Realm toolset reaches a pane Realm made for it, and this one reaches the window you read and answer questions in." },
+      { kind: "p", text: "`app_snapshot` reads the window you are looking at as elements; `app_act` clicks, types and scrolls in it. It is for seeing what is on your screen and checking that something really renders. Anything Realm already has a tool or a setting for should go through that instead, since those are direct and a click is a guess about layout. It ships **off**, per space: every other Realm toolset reaches a pane Realm made for it, and this one reaches the window you read and answer questions in." },
       { kind: "p", text: "Two buttons in that window are refused outright, in every mode: the permission card and the permission-mode confirmation. An agent that could press those could approve the request it is blocked on, and no permission model survives that. The surfaces declare themselves in the markup, checked against the live screen at the moment of the click." },
       { kind: "h", text: "You can see it happening" },
       { kind: "p", text: "The accent frame and pointer that mark a browser pane as agent-driven now appear on Realm's own panes too, drawn from one table of numbers both halves read, so the two faces of that signal cannot drift apart. A terminal being typed into wears the frame and a driving dot on its sidebar row." },
       { kind: "h", text: "Sort spaces by activity" },
-      { kind: "p", text: "Settings ▸ App ▸ Sidebar orders the space strip by what is happening — a space with a question waiting first, then whichever moved most recently — leaving the order you dragged untouched underneath, so turning it off puts the strip back exactly as you left it. Dragging is off while it is on, and the page says so: a drop into a spot the next status change would move away from is a drop that did nothing." }
+      { kind: "p", text: "Settings ▸ App ▸ Sidebar orders the space strip by what is happening: a space with a question waiting comes first, then whichever moved most recently. The order you dragged stays untouched underneath, so turning it off puts the strip back exactly as you left it. Dragging is off while it is on, and the page says so: a drop into a spot the next status change would move away from is a drop that did nothing." }
     ],
   },
   {
@@ -227,21 +227,21 @@ export const entries: Entry[] = [
       "A keymap that is a file you own, your own slash commands and a space's scripts, source files in an editor with search across the checkout, a restore that takes the conversation with it, and a macOS sandbox for agents and terminals.",
     body: [
       { kind: "h", text: "The keymap is a file" },
-      { kind: "p", text: "`~/Realm/keybindings.json` holds rules of `{key, command, when}`, where `when` is a boolean expression over what the window is doing — `!overlayOpen && sessionFocus`. The last matching rule wins, which is how a rule you write beats a default Realm ships. Defaults are seeded the first time it is read, and newly shipped ones merge in later unless a rule of yours already claims that command or that key. Everything that prints a shortcut reads the same list the handler reads, so a rebind moves the hint with it instead of leaving a lie in the palette." },
-      { kind: "p", text: "Settings ▸ Keys lists all 43 commands with their current chord, marks a rule a later rule has already defeated, and says plainly when your file could not be parsed — Realm runs its defaults and leaves the file exactly as you left it." },
+      { kind: "p", text: "`~/Realm/keybindings.json` holds rules of `{key, command, when}`, where `when` is a boolean expression over what the window is doing, like `!overlayOpen && sessionFocus`. The last matching rule wins, which is how a rule you write beats a default Realm ships. Defaults are seeded the first time it is read, and newly shipped ones merge in later unless a rule of yours already claims that command or that key. Everything that prints a shortcut reads the same list the handler reads, so a rebind moves the hint with it instead of leaving a lie in the palette." },
+      { kind: "p", text: "Settings ▸ Keys lists all 43 commands with their current chord, marks a rule a later rule has already defeated, and says plainly when your file could not be parsed. In that case Realm runs its defaults and leaves the file exactly as you left it." },
       { kind: "h", text: "Your own slash commands, and scripts a space owns" },
       { kind: "p", text: "A command is a markdown file with front matter, found in the space folder's `commands/`, in `~/Realm/commands/`, and read-only from `~/.claude/commands/`. `$ARGUMENTS` and `$1`…`$9` expand into the draft, and a placeholder nothing was typed for is left standing rather than quietly emptied." },
-      { kind: "p", text: "A script is a named shell line — `pnpm test` — that runs in a real terminal and is addressable as `script.<id>.run`, so a key can be bound to it." },
+      { kind: "p", text: "A script is a named shell line, like `pnpm test`, that runs in a real terminal and is addressable as `script.<id>.run`, so a key can be bound to it." },
       { kind: "h", text: "Source files open in an editor" },
       { kind: "p", text: "CodeMirror 6 in the documents pane, in the app's own theme, with find, undo and a file-changed-on-disk prompt that asks rather than picking a winner. Markdown still opens in the rich editor." },
-      { kind: "p", text: "⌘P finds a file by name across the checkout and ⌘⇧P searches its contents through `git grep` — which honours `.gitignore` and still finds the file written ten seconds ago and never committed. A space with no checkout says so instead of showing an empty list." },
+      { kind: "p", text: "⌘P finds a file by name across the checkout and ⌘⇧P searches its contents through `git grep`, which honours `.gitignore` and still finds the file written ten seconds ago and never committed. A space with no checkout says so instead of showing an empty list." },
       { kind: "h", text: "A restore can take the conversation with it" },
-      { kind: "p", text: "Restoring a checkpoint put the files back and left the agent remembering having written them. For Claude sessions it now rewinds both: the transcript is cut back to that point and the provider conversation is resumed truncated at the same turn, so the agent carries on with no memory of the turns after it. Every other agent says so rather than implying otherwise — \"Files only — the agent keeps its memory of these turns.\"" },
+      { kind: "p", text: "Restoring a checkpoint put the files back and left the agent remembering having written them. For Claude sessions it now rewinds both: the transcript is cut back to that point and the provider conversation is resumed truncated at the same turn, so the agent carries on with no memory of the turns after it. Every other agent says so rather than implying otherwise: \"Files only — the agent keeps its memory of these turns.\"" },
       { kind: "h", text: "Agents and terminals can be sandboxed" },
       { kind: "p", text: "A macOS Seatbelt policy applied when Realm starts an agent CLI or a shell: this space's checkouts and the toolchain caches are writable, `$HOME` is not, and `~/.ssh`, `~/.aws` and `~/Library/Keychains` cannot be read at all. It confines the process and everything that process starts." },
-      { kind: "p", text: "It ships **off**, per space and on purpose: the writable-root list has not met enough real toolchains yet, and one shared `codex app-server` cannot hold two spaces' policies — so a Codex session in a sandboxed space refuses to start rather than running unprotected. Seatbelt is not a container, and the settings page says so." },
+      { kind: "p", text: "It ships **off**, per space and on purpose: the writable-root list has not met enough real toolchains yet, and one shared `codex app-server` cannot hold two spaces' policies. So a Codex session in a sandboxed space refuses to start rather than running unprotected. Seatbelt is not a container, and the settings page says so." },
       { kind: "h", text: "The activity lens lists your chats" },
-      { kind: "p", text: "Every one, across the profile's spaces, grouped by the day it was last worked on, each row carrying the space, the folder and the branch — the facts that tell two chats called \"Fix the login form\" apart." },
+      { kind: "p", text: "Every one, across the profile's spaces, grouped by the day it was last worked on. Each row carries the space, the folder and the branch, which are the facts that tell two chats called \"Fix the login form\" apart." },
       { kind: "h", text: "Machines" },
       { kind: "p", text: "A pane that shows a screen somewhere else and lets an agent drive it: a second Mac over Screen Sharing, a cloud sandbox, or a Linux guest Realm boots here. Four transports are recognised from whatever address a provider hands out, the password stays on this side of the relay, and the agent's pointer is drawn as a pointer so you can watch it work." },
       { kind: "h", text: "realm-server outlives the app" },
@@ -262,15 +262,15 @@ export const entries: Entry[] = [
       "Pane dividers that stay put under a browser view, pane-group tabs you can reorder, first run in two columns, and a quieter set of surfaces.",
     body: [
       { kind: "h", text: "Dividers that stay put" },
-      { kind: "p", text: "The line between two panes was disappearing and coming back when you nudged it. A browser pane is a native view that composites above the window's own drawing, and its bounds rounded each edge independently — so a pane whose left edge landed a fraction of a pixel short covered the divider beside it and could not be drawn over in return. Even splits were where it bit: halves round outward-safe, thirds and sixths do not. The view is now inset to the pixel grid and can never reach outside its own box." },
+      { kind: "p", text: "The line between two panes was disappearing and coming back when you nudged it. A browser pane is a native view that composites above the window's own drawing, and its bounds rounded each edge independently. So a pane whose left edge landed a fraction of a pixel short covered the divider beside it and could not be drawn over in return. Even splits were where it bit: halves round outward-safe, thirds and sixths do not. The view is now inset to the pixel grid and can never reach outside its own box." },
       { kind: "h", text: "Reorderable pane-group tabs" },
       { kind: "p", text: "Drag a tab along the strip to reorder it, or move it with ⌥← and ⌥→. The drop indicator is a rule in the gap between tabs, distinct from dropping a pane onto a tab, which still moves that pane into the group." },
       { kind: "h", text: "First run, in two columns" },
-      { kind: "p", text: "The agents on the left, the space on the right. Stacked, the one field anybody types sat below a dozen radios; side by side each half is scannable on its own. The space's icon and colour are on that form now — first run was already choosing them, it just never showed you." },
+      { kind: "p", text: "The agents on the left, the space on the right. Stacked, the one field anybody types sat below a dozen radios; side by side each half is scannable on its own. The space's icon and colour are on that form now. First run was already choosing them, it just never showed you." },
       { kind: "h", text: "Quieter surfaces" },
       { kind: "p", text: "The prompter's lift is cast from its curve rather than its box, so the shadow follows the corner instead of squaring it off. The space strip's fill dissolves into the material behind it, and the under-strip takes the card's ring and as much of its rounding as it can hold." },
       { kind: "h", text: "Fixed" },
-      { kind: "p", text: "`pnpm app:icons` finds and clears the stale bundle registrations that were putting an old app icon on notification banners — every packaged build left in a worktree claims the same bundle identifier, and macOS can resolve a notification's icon to any of them." }
+      { kind: "p", text: "`pnpm app:icons` finds and clears the stale bundle registrations that were putting an old app icon on notification banners. Every packaged build left in a worktree claims the same bundle identifier, and macOS can resolve a notification's icon to any of them." }
     ],
   },
   {
@@ -283,15 +283,15 @@ export const entries: Entry[] = [
       "An Agents page that reads every session at once, one-click connectors to the apps a space works in, notifications that reach your phone, and ligatures on at last.",
     body: [
       { kind: "h", text: "Agents" },
-      { kind: "p", text: "A page that reads every session the way a manager would: grouped by what they need from you — Needs you, Working, Failed, then Ready and Ended folded away — rather than by the space they happen to live in." },
+      { kind: "p", text: "A page that reads every session the way a manager would. Sessions are grouped by what they need from you (Needs you, Working, Failed, then Ready and Ended folded away) rather than by the space they happen to live in." },
       { kind: "h", text: "Connectors" },
-      { kind: "p", text: "The apps a space works in, connected in one click: each a vendor's own remote MCP server over OAuth, so there is nothing to install and no token to paste. Connecting one makes an ordinary server row, with the same tools policy and activity log as any other. Pasted links from those apps become chips that say what they point at — a Slack permalink reads as a thread instead of ninety characters of nothing." },
+      { kind: "p", text: "The apps a space works in, connected in one click: each a vendor's own remote MCP server over OAuth, so there is nothing to install and no token to paste. Connecting one makes an ordinary server row, with the same tools policy and activity log as any other. Pasted links from those apps become chips that say what they point at. A Slack permalink reads as a thread instead of ninety characters of nothing." },
       { kind: "h", text: "Notifications reach your phone" },
-      { kind: "p", text: "A relay beside the desktop notifications sends the three things worth interrupting for — a permission, a blocked run, a finished turn — to iMessage or a Slack webhook." },
+      { kind: "p", text: "A relay beside the desktop notifications sends the three things worth interrupting for (a permission, a blocked run, a finished turn) to iMessage or a Slack webhook." },
       { kind: "h", text: "Ligatures" },
       { kind: "p", text: "JetBrains Mono draws =>, !== and >= as single glyphs everywhere Realm shows code. They had been off for a reason nothing said out loud: Chromium disables every ligature on text with letter-spacing, and the app's -0.1px tracking applied to code as well as prose. Monospace wants no tracking anyway." },
       { kind: "h", text: "The model picker" },
-      { kind: "p", text: "The strip above the list used to filter by who made the model. It now names the list's own separators — Claude, Codex, Cursor, Grok, DeepSeek — with each harness's mark, and takes you to one. Nothing is hidden by pressing it, so nothing has to be put back. Effort and permission labels moved above their controls, which stops \"Ask each time\" from wrapping onto two lines, and the list's edges dissolve properly: the fades had never once painted." },
+      { kind: "p", text: "The strip above the list used to filter by who made the model. It now names the list's own separators (Claude, Codex, Cursor, Grok, DeepSeek) with each harness's mark, and takes you to one. Nothing is hidden by pressing it, so nothing has to be put back. Effort and permission labels moved above their controls, which stops \"Ask each time\" from wrapping onto two lines, and the list's edges dissolve properly: the fades had never once painted." },
       { kind: "h", text: "Dropped icons are compressed" },
       { kind: "p", text: "A photo dropped on the space-icon picker was sent at full size and refused by the upload cap; only the file dialog had ever compressed. Both paths now do." },
       { kind: "h", text: "Smaller things" },
@@ -311,21 +311,21 @@ export const entries: Entry[] = [
       { kind: "h", text: "Documents" },
       { kind: "p", text: "Word, Excel, Keynote, PDF and Markdown files open in a pane of their own, beside the session rather than on top of it. A tab is marked unsaved while you type, and a file changed on disk under an open editor asks rather than picking a winner. The pane scrolls, and tables look like tables." },
       { kind: "h", text: "The Library" },
-      { kind: "p", text: "It holds the files now, not just the skills. A card carries a real thumbnail where the picture is the file, and clicking any card opens one preview — the render, the path, the size, and a button back to the session that produced it, switching space when it lives in another one. Save a copy, Reveal in Finder, Copy path, Expand and Open all route through the same predicate a session summary uses, so a file cannot open two different ways depending on which list reached it. The skills page was restructured alongside it, and no longer rejects a file it has just written itself." },
+      { kind: "p", text: "It holds the files now, not just the skills. A card carries a real thumbnail where the picture is the file, and clicking any card opens one preview. It shows the render, the path, the size, and a button back to the session that produced it, which switches space when that session lives in another one. Save a copy, Reveal in Finder, Copy path, Expand and Open all route through the same predicate a session summary uses, so a file cannot open two different ways depending on which list reached it. The skills page was restructured alongside it, and no longer rejects a file it has just written itself." },
       { kind: "h", text: "Scheduled tasks" },
-      { kind: "p", text: "A clock in front of the runs — work that fires on its own schedule, with a search field and four counted chips over the list. Beside it, a year of the days Realm was used, drawn as a grid." },
+      { kind: "p", text: "A clock in front of the runs: work that fires on its own schedule, with a search field and four counted chips over the list. Beside it, a year of the days Realm was used, drawn as a grid." },
       { kind: "h", text: "Delegation" },
       { kind: "p", text: "The dock lists the sub-agents the harness is running, not just the ones Realm made. Background `Agent`/`Task` calls return in under a second and then work for minutes, so ten of them used to look exactly like ten finished calls; Realm now reads the harness's own task protocol and shows them for as long as they run." },
       { kind: "h", text: "What a session knows" },
-      { kind: "p", text: "Every session is now told, at start, what Realm's own tools are for — and only the ones it actually has. A space that switched the browser off is never handed a paragraph about driving one, and each block says when not to reach for the tools, so nothing gets delegated that would have been a one-line edit." },
+      { kind: "p", text: "Every session is now told at start what Realm's own tools are for, covering only the ones it actually has. A space that switched the browser off is never handed a paragraph about driving one, and each block says when not to reach for the tools, so nothing gets delegated that would have been a one-line edit." },
       { kind: "h", text: "Plan mode" },
       { kind: "p", text: "Plan mode looks like planning, and a plan has somewhere to go when it is finished. The permission and mode chips are drawn as one control, and Full access no longer borrows Plan's colour." },
       { kind: "h", text: "Prompter" },
-      { kind: "p", text: "The prompter takes `/` commands, starting with Export session, and a turn's summary now lands in the transcript instead of covering the thing you type into — so what a turn produced is still readable tomorrow." },
+      { kind: "p", text: "The prompter takes `/` commands, starting with Export session, and a turn's summary now lands in the transcript instead of covering the thing you type into, so what a turn produced is still readable tomorrow." },
       { kind: "h", text: "Simulators" },
       { kind: "p", text: "A control inside an Apple Simulator streamed into a browser pane can be picked. The device screen is one canvas as far as the DOM is concerned, so Realm resolves the click against the device's own accessibility tree and says plainly, in the prompt, that `browser_act` cannot address it." },
       { kind: "h", text: "A new app icon" },
-      { kind: "p", text: "The old one was a shader that read as a smudge at 32px. This is a drawn mark — two interlocking bays on the app's own near-black, each face lit by the way it points: a white top, grey sides, a near-black base — taken from one SVG to every native size, so the menu bar and the dock come off the same geometry." },
+      { kind: "p", text: "The old one was a shader that read as a smudge at 32px. This is a drawn mark: two interlocking bays on the app's own near-black, each face lit by the way it points (a white top, grey sides, a near-black base). It is taken from one SVG to every native size, so the menu bar and the dock come off the same geometry." },
       { kind: "h", text: "Design" },
       { kind: "p", text: "Fast mode, OpenHands as an agent, ⌘K on the app's own curve, real app icons on the permissions page, per-CLI self-update, and a pass over every control: buttons and fields on the squircle rather than snapping square on hover, hairlines and blurs softened, settings and connections rebuilt as cards, list edges dissolved, the sidebar actually translucent, and nothing set below 11px anywhere in the renderer." },
       { kind: "h", text: "Site" },
@@ -364,7 +364,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "Settings had accumulated three list idioms across its tabs — hairline rows here, background pills there, cards in the newest pages. They now share one, so a row in Permissions and a row in Connections read as the same kind of object.",
+        text: "Settings had accumulated three list idioms across its tabs: hairline rows here, background pills there, cards in the newest pages. They now share one, so a row in Permissions and a row in Connections read as the same kind of object.",
       },
       {
         kind: "p",
@@ -372,7 +372,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "note",
-        text: "Never put a backdrop blur over a translucent window surface: a filter blurs the window's own transparency, and the band reads as a dark smudge. Dissolve a scrolling edge on such a surface by masking the scroller instead — a mask paints nothing.",
+        text: "Never put a backdrop blur over a translucent window surface: a filter blurs the window's own transparency, and the band reads as a dark smudge. Dissolve a scrolling edge on such a surface by masking the scroller instead. A mask paints nothing.",
       },
     ],
   },
@@ -386,7 +386,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "Realm's shape language is a ladder — 2px for ticks and rails, 6px for chips, 8px for controls, 12px for cards and rows, 16px for sheets, and the composer's superellipse for panels the eye rests in. Buttons across the renderer had drifted off it one at a time, each for a locally reasonable reason. They are back on it.",
+        text: "Realm's shape language is a ladder: 2px for ticks and rails, 6px for chips, 8px for controls, 12px for cards and rows, 16px for sheets, and the composer's superellipse for panels the eye rests in. Buttons across the renderer had drifted off it one at a time, each for a locally reasonable reason. They are back on it.",
       },
       {
         kind: "p",
@@ -408,7 +408,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "A machine with a full skills library has them arriving from several places at once — the user's own directory, a project, Realm's bundled set — and a single flat list gave no way to tell which was which. The page now groups by source, so the answer to \"why is this agent behaving like that\" is one scroll rather than a search.",
+        text: "A machine with a full skills library has them arriving from several places at once (the user's own directory, a project, Realm's bundled set), and a single flat list gave no way to tell which was which. The page now groups by source, so the answer to \"why is this agent behaving like that\" is one scroll rather than a search.",
       },
       {
         kind: "p",
@@ -474,7 +474,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Connections were a list of rows carrying three lines each, which is a list of cards written as rows. They are now cards, in a grid, and the rules between them came off — a card's fill already separates it from its neighbour, and a rule says so a second time.",
+        text: "Connections were a list of rows carrying three lines each, which is a list of cards written as rows. They are now cards, in a grid, and the rules between them came off. A card's fill already separates it from its neighbour, and a rule says so a second time.",
       },
       {
         kind: "p",
@@ -492,7 +492,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "A session that has run for an hour has its evidence spread across a few hundred messages. The facts a person actually wants — what changed on disk, what was read, what was proposed and whether it was accepted — are recoverable from the transcript but not readable from it.",
+        text: "A session that has run for an hour has its evidence spread across a few hundred messages. The facts a person actually wants (what changed on disk, what was read, what was proposed and whether it was accepted) are recoverable from the transcript but not readable from it.",
       },
       {
         kind: "p",
@@ -514,7 +514,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "Usage already had spend and activity charts by model and by day. What it did not have was the shape of a year — the weeks that were heavy, the weeks that were not, and where the current one sits against them.",
+        text: "Usage already had spend and activity charts by model and by day. What it did not have was the shape of a year: the weeks that were heavy, the weeks that were not, and where the current one sits against them.",
       },
       {
         kind: "p",
@@ -562,7 +562,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Export session is the first. It writes the transcript out in a form you can read outside Realm — which is the request that had been arriving most often, and the one hardest to satisfy by hand.",
+        text: "Export session is the first. It writes the transcript out in a form you can read outside Realm. That is the request that had been arriving most often, and the one hardest to satisfy by hand.",
       },
       {
         kind: "note",
@@ -606,7 +606,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Word, Excel, PowerPoint and Keynote files now open in a document pane. They sit in the pane grammar everything else uses — splittable, persisted across relaunch, and addressable by an agent through realm-docs.",
+        text: "Word, Excel, PowerPoint and Keynote files now open in a document pane. They sit in the pane grammar everything else uses: splittable, persisted across relaunch, and addressable by an agent through realm-docs.",
       },
       {
         kind: "p",
@@ -624,7 +624,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "Agents talk in paths. Every answer of any length names files, and every one of those names was inert text — the shortest route to the file it identified was to select it, copy it, and paste it somewhere that could act on it.",
+        text: "Agents talk in paths. Every answer of any length names files, and every one of those names was inert text. The shortest route to the file it identified was to select it, copy it, and paste it somewhere that could act on it.",
       },
       {
         kind: "p",
@@ -642,7 +642,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "Sessions get chosen before their scope is known. Work that started as a question in one space turns into a change that belongs in another, on another branch, with another model — and until now the only way to move it was to start again and re-explain.",
+        text: "Sessions get chosen before their scope is known. Work that started as a question in one space turns into a change that belongs in another, on another branch, with another model. Until now the only way to move it was to start again and re-explain.",
       },
       {
         kind: "p",
@@ -702,12 +702,12 @@ export const entries: Entry[] = [
       { kind: "h", text: "Prompter" },
       {
         kind: "p",
-        text: "The note under the attachment chips no longer narrates a handoff the agent completes itself — Codex getting a path, Cursor getting a link — for any provider. Only a file the agent will silently drop still earns a warning; the rest stays on the chip's tooltip. The strip under the card now sits evenly, ten pixels above and below its chips instead of two and twelve, and its bottom corners draw at the card's own squircle.",
+        text: "The note under the attachment chips no longer narrates a handoff the agent completes itself (Codex getting a path, Cursor getting a link) for any provider. Only a file the agent will silently drop still earns a warning; the rest stays on the chip's tooltip. The strip under the card now sits evenly, ten pixels above and below its chips instead of two and twelve, and its bottom corners draw at the card's own squircle.",
       },
       { kind: "h", text: "Model picker" },
       {
         kind: "p",
-        text: "The provider strip says the model family — Claude, GPT, Gemini, Grok, Kimi, GLM — beside its mark, matching the list's own separators, instead of the maker's corporate name. Kimi and Z.ai marks are new; a maker Realm has no mark for keeps its name and gets none invented.",
+        text: "The provider strip says the model family (Claude, GPT, Gemini, Grok, Kimi, GLM) beside its mark, matching the list's own separators, instead of the maker's corporate name. Kimi and Z.ai marks are new; a maker Realm has no mark for keeps its name and gets none invented.",
       },
       { kind: "h", text: "Sidebar" },
       {
@@ -733,7 +733,7 @@ export const entries: Entry[] = [
       { kind: "h", text: "Computer use" },
       {
         kind: "p",
-        text: "Realm can drive other macOS applications through the Accessibility APIs, via a Swift helper and a `realm-computer` tool provider. It is off until a space turns it on, refuses a list of applications no mode can lift (Realm itself, System Settings, password prompts, terminals), and raises a permission card per application that `bypassPermissions` does not skip — approving TextEdit never licenses Mail. A menu-bar indicator shows when an agent is driving, because at that moment Realm is by definition not the frontmost app.",
+        text: "Realm can drive other macOS applications through the Accessibility APIs, via a Swift helper and a `realm-computer` tool provider. It is off until a space turns it on, refuses a list of applications no mode can lift (Realm itself, System Settings, password prompts, terminals), and raises a permission card per application that `bypassPermissions` does not skip. Approving TextEdit never licenses Mail. A menu-bar indicator shows when an agent is driving, because at that moment Realm is by definition not the frontmost app.",
       },
       { kind: "h", text: "Theming" },
       {
@@ -743,7 +743,7 @@ export const entries: Entry[] = [
       { kind: "h", text: "Plan and Ask modes" },
       {
         kind: "p",
-        text: "Plans from Claude, Codex and ACP now render as a first-class card instead of being discarded. Ask is a read-only mode enforced by each backend rather than requested politely — and it is not offered where it cannot be enforced.",
+        text: "Plans from Claude, Codex and ACP now render as a first-class card instead of being discarded. Ask is a read-only mode enforced by each backend rather than requested politely, and it is not offered where it cannot be enforced.",
       },
       { kind: "h", text: "Sub-agents" },
       {
@@ -753,17 +753,17 @@ export const entries: Entry[] = [
       { kind: "h", text: "Browser" },
       {
         kind: "p",
-        text: "Panes survive a space switch — the view is retained, unthrottled and still drivable, bounded by an LRU budget. Elements can be picked from a page and sent to the prompter as a chip.",
+        text: "Panes survive a space switch. The view is retained, unthrottled and still drivable, bounded by an LRU budget. Elements can be picked from a page and sent to the prompter as a chip.",
       },
       { kind: "h", text: "Interface" },
       {
         kind: "p",
-        text: "A genuine superellipse on the floating cards, drawn by a paint worklet because `corner-shape` is inert on this runtime. A motion ladder, trackless scrollbars, far fewer dividers, centred page content, an icon ladder, a plan strip above the prompter, and response actions — copy, retry, feedback and sources — on finished answers. Two sound cues, off-window only.",
+        text: "A genuine superellipse on the floating cards, drawn by a paint worklet because `corner-shape` is inert on this runtime. A motion ladder, trackless scrollbars, far fewer dividers, centred page content, an icon ladder, a plan strip above the prompter, and response actions (copy, retry, feedback and sources) on finished answers. Two sound cues, off-window only.",
       },
       { kind: "h", text: "Tooling" },
       {
         kind: "p",
-        text: "Agent CLIs and model catalogues are checked for updates on launch, read-only, with install and update one visible click away — and Realm refuses to update a CLI a different package manager installed.",
+        text: "Agent CLIs and model catalogues are checked for updates on launch, read-only, with install and update one visible click away. Realm refuses to update a CLI that a different package manager installed.",
       },
       { kind: "h", text: "Fixed" },
       {
@@ -792,7 +792,7 @@ export const entries: Entry[] = [
         kind: "ul",
         items: [
           "**Copy** takes the message as written, not as rendered.",
-          "**Ask again** re-sends the question that produced it. It is not dressed up as a regenerate — the model gets the question a second time, and the transcript says so.",
+          "**Ask again** re-sends the question that produced it. It is not dressed up as a regenerate: the model gets the question a second time, and the transcript says so.",
           "**Feedback** records what the reader made of an answer in the log the answer already lives in, rather than in a separate store nobody reads.",
           "**Sources** cites the pages an answer was built from, and only those.",
         ],
@@ -817,7 +817,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Those two make a sound. Nothing else does, and neither does either of them while Realm is the window you are looking at — a cue for something already on screen is noise.",
+        text: "Those two make a sound. Nothing else does, and neither does either of them while Realm is the window you are looking at. A cue for something already on screen is noise.",
       },
       {
         kind: "p",
@@ -839,7 +839,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Each CLI's install route is now data rather than prose in a README. Realm learns where an installed copy actually came from — Homebrew, npm, a downloaded binary — checks the registry for a newer version on launch, and acts on none of it.",
+        text: "Each CLI's install route is now data rather than prose in a README. Realm learns where an installed copy actually came from (Homebrew, npm, a downloaded binary), checks the registry for a newer version on launch, and acts on none of it.",
       },
       {
         kind: "p",
@@ -857,7 +857,7 @@ export const entries: Entry[] = [
     date: "2026-09-05",
     area: "Interface",
     summary:
-      "The calm surfaces carry a faint field of the current theme's accent — and only the surfaces a person passes through, never the ones they sit on all day.",
+      "The calm surfaces carry a faint field of the current theme's accent. Only the surfaces a person passes through get it, never the ones they sit on all day.",
     body: [
       {
         kind: "p",
@@ -865,11 +865,11 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Where it goes is the decision that mattered. A decorative colour wash belongs on a surface someone passes through — first run, a feed, an empty state. A page of controls someone sits on all day stays plain. Both sets are pinned by test, including the pages that are deliberately undecorated.",
+        text: "Where it goes is the decision that mattered. A decorative colour wash belongs on a surface someone passes through: first run, a feed, an empty state. A page of controls someone sits on all day stays plain. Both sets are pinned by test, including the pages that are deliberately undecorated.",
       },
       {
         kind: "p",
-        text: "Every ink tier is held above its contrast floor on all seventeen faces with the wash applied, and the check measures the rendered pixels rather than the stylesheet — the wash only exists once something composites it.",
+        text: "Every ink tier is held above its contrast floor on all seventeen faces with the wash applied, and the check measures the rendered pixels rather than the stylesheet. The wash only exists once something composites it.",
       },
     ],
   },
@@ -905,7 +905,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "A Swift helper reads and drives other applications through the Accessibility APIs; a `realm-computer` tool provider exposes that to a session. Both grants macOS requires — Accessibility and Screen Recording — are requested from Settings, with the reason strings that appear in the system dialogs written for Realm rather than for a generic app.",
+        text: "A Swift helper reads and drives other applications through the Accessibility APIs; a `realm-computer` tool provider exposes that to a session. Both grants macOS requires (Accessibility and Screen Recording) are requested from Settings, with the reason strings that appear in the system dialogs written for Realm rather than for a generic app.",
       },
       { kind: "h", text: "What it refuses" },
       {
@@ -915,7 +915,7 @@ export const entries: Entry[] = [
       { kind: "h", text: "What it asks" },
       {
         kind: "p",
-        text: "Permission is per application, and a space remembers which ones it has allowed — visible in Settings, and revocable there. Approving TextEdit never licenses Mail.",
+        text: "Permission is per application, and a space remembers which ones it has allowed. You can see them in Settings and revoke them there. Approving TextEdit never licenses Mail.",
       },
       {
         kind: "p",
@@ -944,7 +944,7 @@ export const entries: Entry[] = [
         kind: "ul",
         items: [
           "A palette for light and a palette for dark, chosen separately.",
-          "Ground, ink and accent moved per palette — through the derivation, so a moved background brings its whole surface ladder with it.",
+          "Ground, ink and accent moved per palette. The move went through the derivation, so a moved background brings its whole surface ladder with it.",
           "How far the ink ramp spreads, as a contrast control.",
           "UI and code faces, offered only where the app can actually deliver them, and reaching open terminals too.",
           "Sidebar translucency as a switch and an amount, over one number.",
@@ -974,7 +974,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Ask is read-only. The distinction that matters is that it is enforced by the backend rather than asked for in a system prompt — and where a backend cannot enforce it, Realm does not offer it.",
+        text: "Ask is read-only. It is enforced by the backend rather than asked for in a system prompt, and where a backend cannot enforce it, Realm does not offer it.",
       },
       {
         kind: "note",
@@ -1000,7 +1000,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Beside the transcript, a dock lists the agents this session is waiting on. A delegation stays alive independently of whoever is watching it, and the registry is refetched when the socket comes back — a reconnect used to lose the list.",
+        text: "Beside the transcript, a dock lists the agents this session is waiting on. A delegation stays alive independently of whoever is watching it, and the registry is refetched when the socket comes back. A reconnect used to lose the list.",
       },
     ],
   },
@@ -1018,7 +1018,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "A view now outlives its pane. It stays retained, unthrottled and drivable across the switch, bounded by an LRU budget so a day of browsing does not accumulate without limit — and a browser an agent is currently working in is kept out of the eviction queue entirely.",
+        text: "A view now outlives its pane. It stays retained, unthrottled and drivable across the switch, bounded by an LRU budget so a day of browsing does not accumulate without limit. A browser an agent is currently working in is kept out of the eviction queue entirely.",
       },
       {
         kind: "p",
@@ -1032,7 +1032,7 @@ export const entries: Entry[] = [
     date: "2026-09-04",
     area: "Browser",
     summary:
-      "Point at an element inside a browser pane and it arrives in the prompter as a chip — a reference the agent can act on, not a screenshot and a description.",
+      "Point at an element inside a browser pane and it arrives in the prompter as a chip, which the agent can act on as a reference instead of a screenshot and a description.",
     body: [
       {
         kind: "p",
@@ -1040,7 +1040,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Picked elements arrive in the prompter as chips, alongside skills and files. A chip is one thing to the caret — one backspace removes it, it does not fracture mid-word, and it says under the pointer that it is a thing to click. The prompter takes eight; the ninth is refused in the composer rather than on the wire, where the refusal would arrive too late to explain.",
+        text: "Picked elements arrive in the prompter as chips, alongside skills and files. A chip is one thing to the caret: one backspace removes it, it does not fracture mid-word, and it says under the pointer that it is a thing to click. The prompter takes eight; the ninth is refused in the composer rather than on the wire, where the refusal would arrive too late to explain.",
       },
       {
         kind: "p",
@@ -1070,11 +1070,11 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Where the signature goes, the hairline ring comes off — a ring traced around a large radius is the one thing that reliably makes the radius read as a mistake rather than a decision. The prompter's lift is cast from the painted curve rather than from its bounding box, which is what had made the shadow look detached.",
+        text: "Where the signature goes, the hairline ring comes off. A ring traced around a large radius is the one thing that reliably makes the radius read as a mistake rather than a decision. The prompter's lift is cast from the painted curve rather than from its bounding box, which is what had made the shadow look detached.",
       },
       {
         kind: "p",
-        text: "It belongs on a panel the eye rests in: the composer, a fenced code block, a commit card, an install card. Not on a routine list row, a menu, or a chip — anything whose job is to be counted rather than read.",
+        text: "It belongs on a panel the eye rests in: the composer, a fenced code block, a commit card, an install card. It does not belong on a routine list row, a menu, a chip, or anything else whose job is to be counted rather than read.",
       },
     ],
   },
@@ -1092,7 +1092,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Popovers exit the way they entered, reversed and shorter. The archived shelf unfolds rather than snapping open. An icon button has one way to change its state — opacity, a blur from 4px to 0, and a scale from 0.25 to 1, with no bounce.",
+        text: "Popovers exit the way they entered, reversed and shorter. The archived shelf unfolds rather than snapping open. An icon button has one way to change its state: opacity, a blur from 4px to 0, and a scale from 0.25 to 1, with no bounce.",
       },
       {
         kind: "p",
@@ -1126,13 +1126,13 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "The sidebar list dissolves at the bottom instead of being cut off, and light mode was given the colours its ramps could not reach — a light theme is an equal mode, not an inverted dark screenshot.",
+        text: "The sidebar list dissolves at the bottom instead of being cut off, and light mode was given the colours its ramps could not reach. A light theme is an equal mode instead of an inverted dark screenshot.",
       },
     ],
   },
   {
     slug: "v0-5-1",
-    title: "Realm v0.5.1 — signed and notarized",
+    title: "Realm v0.5.1: signed and notarized",
     date: "2026-09-03",
     version: "v0.5.1",
     area: "Release",
@@ -1217,7 +1217,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "Delegation was sequential and one level deep. Both limits were arbitrary — a session that needs three files read has no reason to read them one after another.",
+        text: "Delegation was sequential and one level deep. Both limits were arbitrary: a session that needs three files read has no reason to read them one after another.",
       },
       {
         kind: "p",
@@ -1235,7 +1235,7 @@ export const entries: Entry[] = [
     date: "2026-09-03",
     area: "Agents",
     summary:
-      "Tool calls render as what they were — a read, a write, a search, a command — with maths and code set properly, and a run's duration stated in its own words.",
+      "Tool calls render as what they were (a read, a write, a search, a command), with maths and code set properly, and a run's duration stated in its own words.",
     body: [
       {
         kind: "p",
@@ -1247,7 +1247,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "A finished run says how long it took in ordinary language. The raw detail is still reachable — it just stops competing with the result.",
+        text: "A finished run says how long it took in ordinary language. The raw detail is still reachable. It just stops competing with the result.",
       },
     ],
   },
@@ -1265,7 +1265,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Tab fills it in. Anything else dismisses it. It never sends on its own — a composer that submits something you did not write is a composer you stop trusting.",
+        text: "Tab fills it in. Anything else dismisses it. It never sends on its own. You would stop trusting a composer that submits something you did not write.",
       },
     ],
   },
@@ -1285,7 +1285,7 @@ export const entries: Entry[] = [
       {
         kind: "ul",
         items: [
-          "Study guides render as a self-contained interactive page — quizzes, step-throughs, flashcards, KaTeX maths, per-topic progress.",
+          "Study guides render as a self-contained interactive page: quizzes, step-throughs, flashcards, KaTeX maths, per-topic progress.",
           "PDFs preview in a pane rather than opening elsewhere.",
           "Lecture sheets are dated Markdown files under `lectures/`, written during class and cleaned up after it.",
           "Plynn imports bring an existing set of course material in.",
@@ -1294,7 +1294,7 @@ export const entries: Entry[] = [
       { kind: "h", text: "For the agent" },
       {
         kind: "p",
-        text: "The `realm-docs` tools let a session search and open the same folder, so a study guide can be built from the lecture notes without anything being pasted into a prompt. Two bundled skills — study-guide and lecture-notes — use them, and neither invents what a lecture said.",
+        text: "The `realm-docs` tools let a session search and open the same folder, so a study guide can be built from the lecture notes without anything being pasted into a prompt. Two bundled skills (study-guide and lecture-notes) use them, and neither invents what a lecture said.",
       },
     ],
   },
@@ -1327,7 +1327,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "v0.4.0 is the release where the parallel branches stopped being parallel. Ten of them merged, and a further pass was needed to make them compose — the failures that only appear once two features share a store are not visible on either branch.",
+        text: "v0.4.0 is the release where the parallel branches stopped being parallel. Ten of them merged, and a further pass was needed to make them compose. The failures that only appear once two features share a store are not visible on either branch.",
       },
       {
         kind: "ul",
@@ -1359,7 +1359,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "A document is created before it is named — the naming dialogue in front of an empty file is a question nobody can answer yet — and renamed in place afterwards.",
+        text: "A document is created before it is named, and renamed in place afterwards. The naming dialogue in front of an empty file is a question nobody can answer yet.",
       },
       {
         kind: "p",
@@ -1377,7 +1377,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "Skills were already on disk, spread across the directories each CLI uses. The discovery service reads all of them and reports scope — user, project, or system — so it is clear which copy of a name is in play.",
+        text: "Skills were already on disk, spread across the directories each CLI uses. The discovery service reads all of them and reports scope (user, project, or system), so it is clear which copy of a name is in play.",
       },
       {
         kind: "p",
@@ -1395,7 +1395,7 @@ export const entries: Entry[] = [
     date: "2026-09-01",
     area: "Platform",
     summary:
-      "Existing work in Claude Code, Codex and the ACP agents can be brought into Realm — the fullest copy of each thread, deduplicated, with its real title.",
+      "Existing work in Claude Code, Codex and the ACP agents can be brought into Realm. Each thread comes in as its fullest copy, deduplicated, with its real title.",
     body: [
       {
         kind: "p",
@@ -1413,7 +1413,7 @@ export const entries: Entry[] = [
     date: "2026-09-01",
     area: "Agents",
     summary:
-      "A run is a goal that survives its own failures — it owns the session, records each attempt, and can be resumed rather than restarted.",
+      "A run is a goal that survives its own failures. It owns the session, records each attempt, and can be resumed rather than restarted.",
     body: [
       {
         kind: "p",
@@ -1465,7 +1465,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Focus fills the space with one pane and restores the arrangement when you leave. Splitting equalises every pane in that split — three sessions side by side are three equal columns, not 50/25/25 — and double-clicking a divider restores a split to its original sizes.",
+        text: "Focus fills the space with one pane and restores the arrangement when you leave. Splitting equalises every pane in that split, so three sessions side by side are three equal columns, not 50/25/25. Double-clicking a divider restores a split to its original sizes.",
       },
     ],
   },
@@ -1483,7 +1483,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Both now come from `configOptions`, and changes are written back on the same channel — which is what made the mode chip in the prompter mean anything for these agents. Gemini is offered again as a result.",
+        text: "Both now come from `configOptions`, and changes are written back on the same channel. That is what made the mode chip in the prompter mean anything for these agents. Gemini is offered again as a result.",
       },
     ],
   },
@@ -1558,7 +1558,7 @@ export const entries: Entry[] = [
   },
   {
     slug: "v0-1-0",
-    title: "Realm v0.1.0 — the first installable build",
+    title: "Realm v0.1.0: the first installable build",
     date: "2026-09-01",
     version: "v0.1.0",
     area: "Release",
@@ -1573,7 +1573,7 @@ export const entries: Entry[] = [
         kind: "ul",
         items: [
           "The Universe shell: scoped tools, pages, notifications and settings.",
-          "The MCP gateway — agents reach servers only through Realm.",
+          "The MCP gateway: agents reach servers only through Realm.",
           "The browser pane, and browser agents.",
           "Orchestration: Realm as the coordinator between sessions.",
           "Global search, and session forks.",
@@ -1598,7 +1598,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Realm runs the gateway. Servers are configured once, connected once, and every agent reaches them through Realm — so the agent never receives the token, and there is one call log rather than four.",
+        text: "Realm runs the gateway. Servers are configured once, connected once, and every agent reaches them through Realm, so the agent never receives the token and there is one call log rather than four.",
       },
       { kind: "h", text: "How it is exposed" },
       {
@@ -1629,7 +1629,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "Browser agents drive it through the same tool surface a person drives it with — navigate, snapshot, act by reference, read, screenshot — so what the agent did is reconstructable afterwards.",
+        text: "Browser agents drive it through the same tool surface a person drives it with (navigate, snapshot, act by reference, read, screenshot), so what the agent did is reconstructable afterwards.",
       },
     ],
   },
@@ -1647,7 +1647,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "The diff pane is where the result gets read. Diffs use colour plus signs, line structure and labels — colour alone never carries add or delete state — and they take the full useful width rather than a centred column.",
+        text: "The diff pane is where the result gets read. Diffs use colour plus signs, line structure and labels (colour alone never carries add or delete state), and they take the full useful width rather than a centred column.",
       },
       {
         kind: "p",
@@ -1669,11 +1669,11 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "A drop lands anywhere on the session pane rather than on a target you have to find. Each attachment is drawn as what it is — an image, a PDF, a spreadsheet — instead of the same glyph repeated, and a tile opens the file it is a picture of.",
+        text: "A drop lands anywhere on the session pane rather than on a target you have to find. Each attachment is drawn as what it is (an image, a PDF, a spreadsheet) instead of the same glyph repeated, and a tile opens the file it is a picture of.",
       },
       {
         kind: "note",
-        text: "Where a provider will silently drop a file, the composer says so before you send. Where the agent handles it itself, it says nothing — a note that appears every time is a note nobody reads by the third session.",
+        text: "Where a provider will silently drop a file, the composer says so before you send. Where the agent handles it itself, it says nothing. By the third session, nobody reads a note that appears every time.",
       },
     ],
   },
@@ -1687,7 +1687,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "The mark is layered spaces with the front room lit — the product's own mental model rather than an abstract glyph.",
+        text: "The mark is layered spaces with the front room lit. It is the product's own mental model rather than an abstract glyph.",
       },
       {
         kind: "p",
@@ -1705,7 +1705,7 @@ export const entries: Entry[] = [
     date: "2026-08-28",
     area: "Interface",
     summary:
-      "The composer became the prompter — one surface carrying model, mode, workspace and context — and starting a session stopped being a form.",
+      "The composer became the prompter: one surface carrying model, mode, workspace and context. Starting a session stopped being a form.",
     body: [
       {
         kind: "p",
@@ -1713,7 +1713,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "The prompter collects everything that changes what the next send means — provider, model, mode, workspace, connectors — beside the thing you type, rather than in a settings sheet two clicks away.",
+        text: "The prompter collects everything that changes what the next send means (provider, model, mode, workspace, connectors) beside the thing you type, rather than in a settings sheet two clicks away.",
       },
       {
         kind: "p",
@@ -1735,7 +1735,7 @@ export const entries: Entry[] = [
       },
       {
         kind: "p",
-        text: "The command palette covers all spaces, orders by recency, starts one-shot sessions, and searches honestly — it does not claim a match it cannot open. Menus became keyboard-first, and hotkeys learned to keep out of the way of a focused terminal.",
+        text: "The command palette covers all spaces, orders by recency, starts one-shot sessions, and searches honestly: it does not claim a match it cannot open. Menus became keyboard-first, and hotkeys learned to keep out of the way of a focused terminal.",
       },
       {
         kind: "p",
@@ -1753,7 +1753,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "The shell had been built on glass and vibrancy. It was replaced with a flat three-step material — frame, panel, raised — because translucency was carrying decoration rather than depth, and depth is what a pane grid needs.",
+        text: "The shell had been built on glass and vibrancy. It was replaced with a flat three-step material (frame, panel, raised) because translucency was carrying decoration rather than depth, and depth is what a pane grid needs.",
       },
       {
         kind: "p",
@@ -1775,7 +1775,7 @@ export const entries: Entry[] = [
     body: [
       {
         kind: "p",
-        text: "One stdio transport is shared by both families. Above it sit pure mappers — Codex app-server notifications to session events, ACP `session/update` to the same — which is what lets the transcript be written once rather than three times.",
+        text: "One stdio transport is shared by both families. Above it sit pure mappers (Codex app-server notifications to session events, ACP `session/update` to the same). They are what lets the transcript be written once rather than three times.",
       },
       {
         kind: "p",
@@ -1797,7 +1797,7 @@ export const entries: Entry[] = [
     date: "2026-08-17",
     area: "Agents",
     summary:
-      "Spaces got colour, ordering and a swipeable strip driven by real trackpad phases — and Realm ran its first agent session, on the Claude adapter.",
+      "Spaces got colour, ordering and a swipeable strip driven by real trackpad phases. Realm also ran its first agent session, on the Claude adapter.",
     body: [
       {
         kind: "p",
@@ -1828,10 +1828,10 @@ export const entries: Entry[] = [
       {
         kind: "ul",
         items: [
-          "**contracts** — ids, entity schemas, layout-tree operations and an RPC envelope with method and event registries. Everything else is typed against this.",
-          "**realm-server** — a `node:sqlite` database with append-only migrations, stores for profiles, spaces, projects and items, a WebSocket RPC server with broadcast, and a node-pty terminal manager.",
-          "**desktop** — an Electron shell that spawns the server, a typed WebSocket client, a split-tree pane host, and terminal panes on xterm.",
-          "**ui** — the icon wrapper and the palette-from-colour theme engine.",
+          "**contracts**: ids, entity schemas, layout-tree operations and an RPC envelope with method and event registries. Everything else is typed against this.",
+          "**realm-server**: a `node:sqlite` database with append-only migrations, stores for profiles, spaces, projects and items, a WebSocket RPC server with broadcast, and a node-pty terminal manager.",
+          "**desktop**: an Electron shell that spawns the server, a typed WebSocket client, a split-tree pane host, and terminal panes on xterm.",
+          "**ui**: the icon wrapper and the palette-from-colour theme engine.",
         ],
       },
       {

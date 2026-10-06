@@ -143,9 +143,11 @@ presence here comes from the visible workspace, not from mood. A mark contained 
 also not a place to run a shader: it draws a smudge, and the static vector reads.
 
 It came back below the first viewport, at the scale of a section and with a job: it is what a realm
-is made of. The mark is drawn on an equilateral lattice — horizontal edges 8.899 units apart, slanted
-ones at 60° and 120°, its centre a node — so its six faces are six cells of that lattice, and the
-section assembles it face by face beside the six things a realm holds, one sentence per face. The
+is made of. The mark is a cube drawn on an equilateral lattice — edges 20 units long, slanted ones at
+60° and 120°, its near corner, the centre, a node — and it has six faces: the top, the two walls, and
+the doorway's floor, jamb and lit back. The section assembles it face by face on that lattice beside
+the six things a realm holds, one sentence per face, the walls first and the agent last, as the lit
+doorway. The
 geometry is the approved vector's, not invented around it; when it is lit, it is lit as glass by the
 rule under Source of truth. Then the view pulls back and the realm is one cell in a hive of them,
 because hexagons tile — the page's way of saying "one for every project" with the mark's own shape.

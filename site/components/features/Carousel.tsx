@@ -1,13 +1,10 @@
 "use client"
 
-import Image from "next/image"
 import { useCallback, useEffect, useState } from "react"
 
 import { ArrowIcon } from "@/components/icons"
 import type { Feature } from "@/content/features"
-
-/** The capture's viewport. Every scene is shot at this size, at 2× device pixels. */
-const SHOT = { width: 2880, height: 1800 }
+import { sceneFile, sceneSrcSet, WINDOW } from "@/lib/frames"
 
 /**
  * The features page: one screen, one screenshot at a time.
@@ -55,13 +52,17 @@ export function Carousel({ features }: { features: Feature[] }) {
                 position === index ? "opacity-100" : "opacity-0"
               }`}
             >
-              <Image
-                src={`/product/${feature.slug}.png`}
-                alt={`Realm: ${feature.title}`}
-                width={SHOT.width}
-                height={SHOT.height}
-                priority={position === 0}
+              {/* Written lossless at the window's 1× and 3× (lib/frames.ts) and served as written: a
+                  lossy re-encode is what softens a screenshot's small text. */}
+              <img
+                src={sceneFile(feature.slug, 4320)}
+                srcSet={sceneSrcSet(feature.slug)}
                 sizes="(max-width: 640px) 100vw, 90vw"
+                alt={`Realm: ${feature.title}`}
+                width={WINDOW.width * 2}
+                height={WINDOW.height * 2}
+                fetchPriority={position === index ? "high" : "low"}
+                decoding="async"
                 className="app-corner h-auto w-auto max-h-full max-w-full rounded-[20px] shadow-[0_0_0_1px_oklch(1_0_0/0.09),0_24px_60px_-24px_oklch(0_0_0/0.75)]"
               />
             </div>
