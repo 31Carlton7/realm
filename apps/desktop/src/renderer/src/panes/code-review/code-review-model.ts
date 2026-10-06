@@ -1,10 +1,13 @@
 import {
   AGENT_SUPPORTS_PLAN_MODE, parsePrRef, prKey, prName,
-  type AgentKind, type CheckState, type Finding, type PrDetail, type PrPage, type PrRef, type PrSection, type PrSummary, type ReviewerState,
-  type ReviewEvent, type ReviewSide, type SubmitReview,
+  type AgentKind, type CheckState, type Finding, type ModelInfo, type PrDetail, type PrPage, type PrRef, type PrSection, type PrSummary, type ReviewerPick,
+  type ReviewerState, type ReviewEvent, type ReviewSide, type SubmitReview,
 } from "@realm/contracts";
 import type { AgentProbe } from "../../state/store";
-import { modelRows, type ModelRow } from "../session/model-catalog";
+import {
+  effortOptions, fastModeAvailability, fastModeTip, formatEffort, levelToRun, modelRows,
+  type EffortOptions, type FastAvailability, type ModelRow,
+} from "../session/model-catalog";
 
 /**
  * The Code Review page's model, as plain functions over plain data: what the column's lists are
@@ -111,6 +114,43 @@ export function reviewerRows({ kind, model, agentProbe, favorites }: {
     .filter((r) => r.kind === "fake").map((r) => ({ ...r, selected: false }));
   return [...rows, ...scripted];
 }
+
+/** What the reviewer could run on and how, read as the prompter reads it for a session: the
+ *  reviewers' rows, the levels the picked model takes and its default, and what is known about its
+ *  fast mode before anything has run. */
+export type ReviewerCatalog = { rows: ModelRow[]; levels: EffortOptions; fast: FastAvailability; tip: string };
+
+export function reviewerCatalog({ pick, agentProbe, favorites, info, effortSupport, fastSupport }: {
+  pick: Pick<ReviewerPick, "agentKind" | "model">; agentProbe: AgentProbe[]; favorites: readonly string[];
+  /** The model catalog, the levels Claude Code has named per model and its fast-mode answers, as the
+   *  store mirrors them. */
+  info: Record<string, ModelInfo>; effortSupport: Record<string, string[]>; fastSupport: Record<string, boolean>;
+}): ReviewerCatalog {
+  const { agentKind: kind, model } = pick;
+  const rows = reviewerRows({ kind, model, agentProbe, favorites });
+  const levels = effortOptions({ kind, model, agentProbe, info: info[rows.find((r) => r.selected)?.key ?? ""], remembered: effortSupport });
+  return { rows, levels, fast: fastModeAvailability({ kind, model, agentProbe, remembered: fastSupport, rows }), tip: fastModeTip(kind, model, agentProbe) };
+}
+
+/**
+ * How a review started from the pick runs, which is what Review with… says: the level held, where the
+ * model takes it — one set under another model gives way to the model's own default, as the card
+ * shows it — and fast mode where it is asked for, of a harness that can be asked, on a model nothing
+ * has said cannot run it. Nothing has run on the pick yet, so there is no report to say otherwise.
+ */
+export function reviewRun(pick: ReviewerPick, c: ReviewerCatalog): { effort: string | null; fastMode: boolean } {
+  return {
+    effort: levelToRun(pick.agentKind, pick.effort, c.levels.levels.map((l) => l.id)),
+    fastMode: pick.fastMode && c.fast.state !== "none" && c.fast.state !== "unavailable",
+  };
+}
+
+/** A level by the name the card gives it, or as Realm prints one where the card has no name for it. */
+export const levelName = (effort: string, levels: EffortOptions["levels"]): string => levels.find((l) => l.id === effort)?.label ?? formatEffort(effort);
+
+/** The reviewer in a sentence, for a tooltip: "Opus 5.5", "Opus 5.5 at XHigh effort in fast mode". */
+export const reviewerPhrase = (label: string, level: string | null, fast = false): string =>
+  `${label}${level ? ` at ${level} effort` : ""}${fast ? " in fast mode" : ""}`;
 
 /** Why Review with… cannot start a review now, as its tooltip says it — or null when it can. */
 export function reviewBlocked(detail: Pick<PrDetail, "changedFiles"> | null, hasPlace: boolean, running: boolean): string | null {

@@ -1,10 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  AGENT_META, AGENT_SUPPORTS_PLAN_MODE, PLAN_PERMISSION_MODE, PR_PAGE_SIZE, PR_PINS_MAX, PrReviewSchema, PrSummarySchema, REVIEW_INSTRUCTIONS_MAX,
-  prKey, prName, prPinsKey, prReviewKey, prThreadKey, reviewInstructionsKey, sameRepo,
+  AGENT_META, AGENT_SUPPORTS_PLAN_MODE, PLAN_PERMISSION_MODE, PR_PAGE_SIZE, PR_PINS_MAX, PrReviewSchema, PrSummarySchema, REVIEW_INSTRUCTIONS_MAX, ReviewerPickSchema,
+  prKey, prName, prPinsKey, prReviewKey, prThreadKey, reviewInstructionsKey, reviewerPickKey, sameRepo,
   type AgentKind, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrPlace, type PrRef, type PrReview,
-  type PrSection, type PrSummary, type ReviewInstructions, type SubmitReview, type SubmittedReview,
+  type PrSection, type PrSummary, type ReviewInstructions, type ReviewerPick, type SubmitReview, type SubmittedReview,
 } from "@realm/contracts";
 import type { DelegationEngine } from "../delegation/engine";
 import { clip } from "../mcp/tool-result";
@@ -47,6 +47,14 @@ const LINES_HELD = 64;
 /** A reviewer reads the diff and writes one message; fifteen minutes is a large change read slowly. */
 const REVIEW_TIMEOUTS = { budgetMs: 900_000, pollMs: 250 };
 const reviewerKey = (sessionId: string): string => `codeReview.reviewer:${sessionId}`;
+
+/** Only an agent Realm can hold to read-only reviews here: an ACP agent's adapter ignores the
+ *  permission mode, so "plan" on it would be a label with nothing behind it (the reviewer recipe's
+ *  rule, delegation/review.ts). */
+function requireReadOnly(kind: AgentKind): void {
+  if (AGENT_SUPPORTS_PLAN_MODE[kind]) return;
+  throw new RpcError("REVIEWER_NOT_READ_ONLY", `${AGENT_META[kind].label} cannot be held to read-only, so it cannot review here. Pick a Claude or Codex model.`);
+}
 
 class Held<V> {
   private readonly m = new Map<string, { at: number; v: V }>();
@@ -258,6 +266,21 @@ export class CodeReviewService {
     return { text };
   }
 
+  /** The reviewer the profile reviews with, or null until one has been picked. */
+  reviewerPick(profileId: string): ReviewerPick | null {
+    const parsed = ReviewerPickSchema.safeParse(this.d.settings.get(reviewerPickKey(profileId)));
+    return parsed.success ? parsed.data : null;
+  }
+
+  /** Kept as picked, level and all. Only an agent `review` would run is kept: a pick it refuses
+   *  would name a reviewer on the button that cannot review. */
+  setReviewerPick(profileId: string, pick: ReviewerPick): ReviewerPick {
+    if (!this.d.profiles.get(profileId)) throw new NotFoundError("profile", profileId);
+    requireReadOnly(pick.agentKind);
+    this.d.settings.set(reviewerPickKey(profileId), pick);
+    return pick;
+  }
+
   pins(profileId: string): PrSummary[] {
     const raw = this.d.settings.get(prPinsKey(profileId));
     return (Array.isArray(raw) ? raw : []).flatMap((p) => { const r = PrSummarySchema.safeParse(p); return r.success ? [r.data] : []; });
@@ -427,19 +450,14 @@ export class CodeReviewService {
   }
 
   /**
-   * Review with… — a reviewer session on the chosen model, read-only (plan mode), over the request's
-   * diff and under the profile's instructions. Returns as soon as the session exists; the findings
-   * arrive as `codeReview.reviewChanged`.
-   *
-   * Only an agent Realm can hold to read-only reviews here: an ACP agent's adapter ignores the
-   * permission mode, so "plan" on it would be a label with nothing behind it (the reviewer recipe's
-   * rule, delegation/review.ts).
+   * Review with… — a reviewer session on the chosen model, read-only (plan mode, `requireReadOnly`),
+   * over the request's diff and under the profile's instructions, at the level and speed the menu's
+   * card set. Returns as soon as the session exists; the findings arrive as `codeReview.reviewChanged`.
    */
-  async review(input: { ref: PrRef; profileId: string; spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null }): Promise<PrReview> {
+  async review(input: { ref: PrRef; profileId: string; spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null;
+    fastMode?: boolean }): Promise<PrReview> {
     const key = prKey(input.ref);
-    if (!AGENT_SUPPORTS_PLAN_MODE[input.agentKind]) {
-      throw new RpcError("REVIEWER_NOT_READ_ONLY", `${AGENT_META[input.agentKind].label} cannot be held to read-only, so it cannot review here. Pick a Claude or Codex model.`);
-    }
+    requireReadOnly(input.agentKind);
     if (this.active.has(key)) throw new RpcError("REVIEW_IN_FLIGHT", "A review of this pull request is already running. Wait for its findings.");
     const detail = await this.detail(input.ref);
     const set = await this.fileSet(input.ref, detail.headSha);
@@ -457,7 +475,7 @@ export class CodeReviewService {
     this.active.set(key, session.id);
     const started: PrReview = {
       ref: detail.ref, headSha: detail.headSha, sessionId: session.id, spaceId: input.spaceId,
-      agentKind: input.agentKind, model: input.model, state: "running", summary: "", findings: [],
+      agentKind: input.agentKind, model: input.model, effort: input.effort, state: "running", summary: "", findings: [],
       startedAt: this.now(), finishedAt: null,
     };
     this.publish(started);
@@ -466,6 +484,9 @@ export class CodeReviewService {
     const t = this.d.timeouts ?? REVIEW_TIMEOUTS;
     void (async () => {
       try {
+        // Fast mode is a column the session is made without, set as `ask` sets it: before the send
+        // starts the agent, which reads the row, so the review is a fast one from its first token.
+        if (input.fastMode) await this.d.sessions.setOptions(session.id, { fastMode: true });
         await this.d.sessions.send(session.id, { text: prompt, attachments: [] });
         const settled = await this.d.engine.drain(session.id, session.lastEventSeq, run, this.now() + t.budgetMs, t.pollMs);
         const read = settled.finalText ? readReview(settled.finalText, anchorsOf(set.raw)) : { summary: "", findings: [] };

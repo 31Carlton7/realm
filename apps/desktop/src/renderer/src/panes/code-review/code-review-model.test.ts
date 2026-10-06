@@ -3,7 +3,7 @@ import type { Finding, PrDetail, PrFile, PrSummary } from "@realm/contracts";
 import type { AgentProbe } from "../../state/store";
 import {
   EMPTY_DRAFT, age, ago, appendPage, canSubmit, checksFact, dropComment, isKept, isOwnRequest, keepFinding, keepSummary, mergeFact,
-  postsLine, readQuery, reviewBlocked, reviewPayload, reviewerRows,
+  postsLine, readQuery, reviewBlocked, reviewPayload, reviewRun, reviewerCatalog, reviewerRows,
 } from "./code-review-model";
 import { fileTree, filterFiles, treeRows } from "./file-tree";
 
@@ -97,6 +97,22 @@ describe("the reviewer", () => {
     // THE MUTANT: a request with nothing in its diff sent to a reviewer anyway.
     expect(reviewBlocked({ changedFiles: 0 }, true, false)).toBe("This pull request changes no files, so there is nothing to review");
     expect(reviewBlocked({ changedFiles: 3 }, false, false)).toBe("There is no space to run the review in yet");
+  });
+
+  it("starts a review at what the body says: the level where the model takes it, fast mode where nothing has said it cannot run", () => {
+    const catalog = (kind: AgentProbe["kind"], model: string | null) => reviewerCatalog({ pick: { agentKind: kind, model }, agentProbe: probe, favorites: [], info: {},
+      effortSupport: { "claude:claude-sonnet-5": ["low", "medium", "high"] }, fastSupport: { "claude:claude-haiku-4-5": false } });
+    const opus = { agentKind: "claude" as const, model: "claude-opus-5-5", effort: "max", fastMode: true };
+    expect(reviewRun(opus, catalog("claude", "claude-opus-5-5"))).toEqual({ effort: "max", fastMode: true });
+    // Max was set under another model, and Sonnet 5 does not take it: its own default runs, as the
+    // card shows. THE MUTANT: the held level sent anyway.
+    expect(reviewRun({ ...opus, model: "claude-sonnet-5" }, catalog("claude", "claude-sonnet-5")).effort).toBeNull();
+    // Haiku is known not to run fast mode, so the bolt is not worn and the request not made.
+    expect(reviewRun({ ...opus, model: "claude-haiku-4-5" }, catalog("claude", "claude-haiku-4-5")).fastMode).toBe(false);
+    // The scripted agent takes neither.
+    expect(reviewRun({ ...opus, agentKind: "fake", model: null }, catalog("fake", null))).toEqual({ effort: null, fastMode: false });
+    // Codex before its catalog names a model's levels keeps the level held rather than drop it on a guess.
+    expect(reviewRun({ agentKind: "codex", model: "gpt-6-luna", effort: "xhigh", fastMode: false }, catalog("codex", "gpt-6-luna")).effort).toBe("xhigh");
   });
 });
 

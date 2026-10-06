@@ -8,7 +8,7 @@ import {
   REVIEWER_STATE_LABEL, age, ago, checksFact, isKept, keepFinding, keepSummary, mergeFact, prMarkdown, type Fact, type ReviewDraft,
 } from "./code-review-model";
 import { Monogram } from "./PrColumn";
-import { useReviewerLabel } from "./ReviewTools";
+import { ReviewerName, useReviewerName } from "./ReviewTools";
 
 /** A request's state as a pill: its mark and its word, the one place on the page a status is a pill. */
 export function StatePill({ detail }: { detail: Pick<PrDetail, "state" | "draft"> }) {
@@ -135,7 +135,7 @@ function ReviewPanel({ review, draft, setDraft, onShow }: {
   review: PrReview; draft: ReviewDraft; setDraft: (d: ReviewDraft | ((d: ReviewDraft) => ReviewDraft)) => void;
   onShow: (path: string, line: number, side: "LEFT" | "RIGHT") => void;
 }) {
-  const label = useReviewerLabel(review.agentKind, review.model);
+  const by = useReviewerName(review.agentKind, review.model, review.effort);
   const revealSession = useApp((s) => s.revealSession);
   const closePageOverlay = useApp((s) => s.closePageOverlay);
   const run = useApp((s) => s.run);
@@ -147,7 +147,8 @@ function ReviewPanel({ review, draft, setDraft, onShow }: {
     <section className="cr-review" aria-label="Review" data-state={review.state}>
       <div className="cr-review-head">
         <Icon name={AGENT_META[review.agentKind].icon} size={14} colored />
-        <span className="cr-review-title">{running ? `${label} is reviewing…` : `Review by ${label}`}</span>
+        {/* Named as the chip names it, the level it was started at a shade quieter after the model. */}
+        <span className="cr-review-title">{running ? <><ReviewerName {...by} /> is reviewing…</> : <>Review by <ReviewerName {...by} /></>}</span>
         {!running && review.finishedAt && <span className="cr-quiet">{ago(review.finishedAt)}</span>}
         <span className="cr-bar-spacer" />
         <button type="button" className="btn-quiet" onClick={openSession} title="Its whole trace, in the session it ran in">Open session</button>

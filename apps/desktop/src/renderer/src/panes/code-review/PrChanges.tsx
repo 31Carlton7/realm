@@ -13,11 +13,11 @@ import { dropComment, isKept, keepFinding, type DraftComment, type ReviewDraft }
 import { codeReview } from "./code-review-api";
 import { fileTree, filterFiles, treeRows } from "./file-tree";
 import { atHead, heldFiles, heldLines, heldPatches, patchId } from "./held";
-import { useReviewerLabel } from "./ReviewTools";
+import { ReviewerName, useReviewerName } from "./ReviewTools";
 
 type SetDraft = (d: ReviewDraft | ((d: ReviewDraft) => ReviewDraft)) => void;
-/** Who wrote a finding: the reviewer's harness, for its mark, and its model's name. */
-type Reviewer = { kind: AgentKind; label: string };
+/** Who wrote a finding: the reviewer's harness, for its mark, its model's name and the level it ran at. */
+type Reviewer = { kind: AgentKind; label: string; level: string | null };
 
 /** The status as one letter, the way the diff pane and `git status` write it. */
 const LETTER: Record<PrFile["status"], string> = { added: "A", modified: "M", deleted: "D", renamed: "R", copied: "C", changed: "T" };
@@ -115,8 +115,8 @@ export function PrChanges({ detail, review, draft, setDraft, split, tree, jump }
     for (const f of review?.findings ?? []) if (f.anchored) by.set(f.path, [...(by.get(f.path) ?? []), f]);
     return by;
   }, [review]);
-  const reviewerLabel = useReviewerLabel(review?.agentKind ?? FALLBACK_AGENT, review?.model ?? null);
-  const reviewer = useMemo<Reviewer | null>(() => (review ? { kind: review.agentKind, label: reviewerLabel } : null), [review, reviewerLabel]);
+  const { label: reviewerLabel, level: reviewerLevel } = useReviewerName(review?.agentKind ?? FALLBACK_AGENT, review?.model ?? null, review?.effort ?? null);
+  const reviewer = useMemo<Reviewer | null>(() => (review ? { kind: review.agentKind, label: reviewerLabel, level: reviewerLevel } : null), [review, reviewerLabel, reviewerLevel]);
 
   if (error) return <div className="cr-empty"><h2 className="cr-empty-title">The changes could not be read</h2><p className="cr-empty-line">{error}</p></div>;
   if (!files) return <div className="cr-empty"><p className="cr-empty-line">Reading the changed files…</p></div>;
@@ -311,7 +311,7 @@ function FileDiffBlock({ file, detail, headSha, split, hidden, patch, measure, f
 function FindingNote({ f, by, kept, onKeep, onDrop }: { f: Finding; by: Reviewer | null; kept: boolean; onKeep: () => void; onDrop: () => void }) {
   return (
     <div className="cr-note" data-kept={kept || undefined}>
-      {by && <p className="cr-note-by"><Icon name={AGENT_META[by.kind].icon} size={12} colored />{by.label}</p>}
+      {by && <p className="cr-note-by"><Icon name={AGENT_META[by.kind].icon} size={12} colored /><span><ReviewerName label={by.label} level={by.level} /></span></p>}
       <div className="cr-note-body" data-agent-output><Markdown text={f.body} /></div>
       <div className="cr-note-actions">
         {kept

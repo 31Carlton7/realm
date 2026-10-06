@@ -7586,6 +7586,11 @@ select { appearance: none; padding-right: 22px;
 .cr-review-with { position: relative; flex: none; display: inline-flex; }
 .cr-review-run { max-width: 260px; padding-right: calc(var(--btn-h) + 10px); }
 .cr-review-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The level in the prompter chip's grammar, a shade quieter after the model's name — on the body, over
+   a review and over each finding — and the bolt for fast mode asked for in the same grey: both are
+   "how", not "who". */
+.cr-level { color: var(--rl-text-faint); }
+.cr-review-fast { margin-left: 4px; vertical-align: -1px; color: var(--rl-text-faint); }
 .cr-review-with > .cr-review-run:disabled { opacity: 1; }
 .cr-review-run:disabled > * { opacity: .45; }
 .cr-review-run:disabled[aria-busy="true"] > * { opacity: .7; }

@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type FakeScript } from "@realm/adapters";
-import { PLAN_PERMISSION_MODE, REVIEW_INSTRUCTIONS_MAX, type PrReview } from "@realm/contracts";
+import { PLAN_PERMISSION_MODE, REVIEW_INSTRUCTIONS_MAX, prReviewKey, type PrReview } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { ProjectsStore } from "../store/projects";
@@ -205,6 +205,40 @@ describe("review instructions — one set per profile, kept as typed", () => {
   });
 });
 
+describe("the reviewer a profile reviews with — kept as picked, beside its instructions", () => {
+  const pick = { agentKind: "claude", model: "claude-opus-5-5", effort: "xhigh", fastMode: true };
+
+  it("starts unpicked, keeps the model, its level and fast mode as set, and keeps profiles apart", async () => {
+    const { rpc, profileId } = await boot();
+    const other = new ProfilesStore(app!.db).create({ name: "School", icon: "x", color: "#000" });
+    expect(await rpc.call("codeReview.reviewerPick", { profileId })).toEqual({ pick: null });
+    expect(await rpc.call("codeReview.setReviewerPick", { profileId, pick })).toEqual(pick);
+    expect(await rpc.call("codeReview.reviewerPick", { profileId })).toEqual({ pick });
+    expect(await rpc.call("codeReview.reviewerPick", { profileId: other.id })).toEqual({ pick: null });
+    // A pick that names no level or speed is the model's own.
+    await rpc.call("codeReview.setReviewerPick", { profileId, pick: { agentKind: "codex", model: null } });
+    expect(await rpc.call("codeReview.reviewerPick", { profileId })).toEqual({ pick: { agentKind: "codex", model: null, effort: null, fastMode: false } });
+  });
+
+  it("refuses an agent it cannot hold to read-only, and a profile that does not exist", async () => {
+    // THE MUTANT: a Cursor pick kept, so the button names a reviewer whose every press is refused.
+    const { rpc, profileId } = await boot();
+    await rpc.call("codeReview.setReviewerPick", { profileId, pick });
+    await expect(rpc.call("codeReview.setReviewerPick", { profileId, pick: { ...pick, agentKind: "acp:cursor" } })).rejects.toMatchObject({ code: "REVIEWER_NOT_READ_ONLY" });
+    await expect(rpc.call("codeReview.setReviewerPick", { profileId: "01HQ0000000000000000000000", pick })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await rpc.call("codeReview.reviewerPick", { profileId })).toEqual({ pick });
+  });
+
+  it("is still the profile's for the next server over the same home", async () => {
+    const home = tempDir("realm-cr-pick-");
+    const first = await boot(FIXTURE, home);
+    await first.rpc.call("codeReview.setReviewerPick", { profileId: first.profileId, pick });
+    await app!.close(); app = undefined;
+    const second = await boot(FIXTURE, home);
+    expect(await second.rpc.call("codeReview.reviewerPick", { profileId: first.profileId })).toEqual({ pick });
+  });
+});
+
 describe("pins", () => {
   it("keeps the newest pin first, one per request, and lets one go by its address", async () => {
     const { rpc, profileId } = await boot();
@@ -255,6 +289,33 @@ describe("Review with… — a read-only reviewer whose findings are only findin
       { id: "f1", path: "src/a.ts", line: 2, side: "RIGHT", body: "Use the constant.", anchored: true },
       { id: "f2", path: "src/a.ts", line: 9, side: "RIGHT", body: "This line is not in the diff.", anchored: false },
     ]);
+  });
+
+  it("starts the reviewer at the level and speed the menu's card set, and keeps the level with its run", async () => {
+    // THE MUTANTS: fast mode left off the row the first send starts the agent from, or the level
+    // dropped from the review the page names the reviewer by.
+    const { rpc, profileId, space } = await boot();
+    const started: PrReview = await rpc.call("codeReview.review", { ref, profileId, spaceId: space.id, agentKind: "fake", effort: "xhigh", fastMode: true });
+    expect(started.effort).toBe("xhigh");
+    expect(app!.sessions.get(started.sessionId)).toMatchObject({ effort: "xhigh", fastMode: true, permissionMode: PLAN_PERMISSION_MODE });
+    await waitFor(settled(rpc));
+    expect((await rpc.call("codeReview.reviewGet", { ref })).review).toMatchObject({ state: "done", effort: "xhigh" });
+  });
+
+  it("starts one asked for nothing at the model's own level and speed", async () => {
+    const { rpc, profileId, space } = await boot();
+    const started: PrReview = await rpc.call("codeReview.review", { ref, profileId, spaceId: space.id, agentKind: "fake" });
+    expect(started.effort).toBeNull();
+    expect(app!.sessions.get(started.sessionId)).toMatchObject({ effort: null, fastMode: false });
+  });
+
+  it("still shows a review kept before levels were recorded, as one at the model's own default", async () => {
+    // THE MUTANT: the new field required, so every review kept by an earlier build reads as none at all.
+    const { rpc } = await boot();
+    const kept = { ref, headSha: HEAD, sessionId: "01HQ000000000000000000SES1", spaceId: "01HQ000000000000000000SPC1", agentKind: "claude", model: null,
+      state: "done", summary: "Mostly right.", findings: [], startedAt: 1, finishedAt: 2 };
+    await rpc.call("settings.set", { key: prReviewKey(ref), value: kept });
+    expect((await rpc.call("codeReview.reviewGet", { ref })).review).toEqual({ ...kept, effort: null });
   });
 
   it("refuses an agent it cannot hold to read-only, and a second review while one runs", async () => {

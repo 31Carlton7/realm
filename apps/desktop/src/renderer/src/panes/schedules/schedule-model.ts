@@ -1,7 +1,8 @@
 import {
-  AGENT_FAST_MODE, AGENT_TAKES_EFFORT, cadenceOf, cronOf, describeSchedule, isOnce, momentInputValue, nextFireOf, onceExpr, parseMoment, parseOnce,
+  AGENT_FAST_MODE, cadenceOf, cronOf, describeSchedule, isOnce, momentInputValue, nextFireOf, onceExpr, parseMoment, parseOnce,
   type AgentKind, type Cadence, type Repeat, type Run, type RunConstraints, type Schedule, type Session,
 } from "@realm/contracts";
+import { levelToRun } from "../session/model-catalog";
 
 /**
  * The Scheduled page's reading of schedules and their runs, as pure functions — what a row says, what
@@ -274,15 +275,14 @@ export const draftValid = (d: Draft, now = Date.now()): boolean =>
  * through `runs`' vocabulary — a skill subset, a worktree — is kept rather than dropped by an edit that
  * never showed it.
  *
- * Only what the chosen model's harness can be asked is written. A level is one of `levels`, the
- * model's own as the card drew them — a level set under another model is not what runs, the card
- * showed the model's default instead, and the default is what is saved. Where Realm does not know the
- * model's levels yet (Codex before its probe has answered), the level the task holds is kept rather
- * than dropped on a guess. Fast mode goes only where Realm can ask the harness for it.
+ * Only what the chosen model's harness can be asked is written. The level is the one a run starts at
+ * (`levelToRun`) from `levels`, the model's own as the card drew them: one set under another model is
+ * saved as the default the card showed instead. Fast mode goes only where Realm can ask the harness
+ * for it.
  */
 export function constraintsOf(d: Draft, before: RunConstraints | null, levels: readonly string[] = []): RunConstraints {
   const { model: _m, effort: _e, fastMode: _f, permissionMode: _p, ...kept } = before ?? {};
-  const effort = d.effort !== null && AGENT_TAKES_EFFORT[d.agentKind] && (levels.length === 0 || levels.includes(d.effort)) ? d.effort : null;
+  const effort = levelToRun(d.agentKind, d.effort, levels);
   return {
     ...kept, agentKind: d.agentKind,
     ...(d.model ? { model: d.model } : {}),

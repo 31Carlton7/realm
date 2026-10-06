@@ -226,6 +226,22 @@ export const ReviewInstructionsSchema = z.object({ text: z.string() });
 export type ReviewInstructions = z.infer<typeof ReviewInstructionsSchema>;
 export const reviewInstructionsKey = (profileId: string): string => `codeReview.instructions:${profileId}`;
 
+/**
+ * The reviewer a profile reviews with, beside its instructions: the agent and model Review with…
+ * names, and the level and fast mode the picker's card sets for it. Kept as each is chosen — there is
+ * no Save for a pick — and handed to every review the profile starts.
+ */
+export const ReviewerPickSchema = z.object({
+  agentKind: AgentKindSchema,
+  model: z.string().nullable(),
+  /** Null is the model's own default, as on a session. A level the model now on does not take is
+   *  kept, as a session's row keeps it, and comes back with a model that does. */
+  effort: z.string().nullable().default(null),
+  fastMode: z.boolean().default(false),
+});
+export type ReviewerPick = z.infer<typeof ReviewerPickSchema>;
+export const reviewerPickKey = (profileId: string): string => `codeReview.reviewerPick:${profileId}`;
+
 /** What "Add example" offers, one a press: the kinds of thing people tell a reviewer. */
 export const REVIEW_INSTRUCTION_EXAMPLES: readonly string[] = [
   "I care most about the data model. Tell me where we might be overcomplicating things.",
@@ -267,6 +283,9 @@ export const PrReviewSchema = z.object({
   spaceId: IdSchema,
   agentKind: AgentKindSchema,
   model: z.string().nullable(),
+  /** The level the reviewer was started at; null for the model's own default — and for every review
+   *  kept before levels were recorded. */
+  effort: z.string().nullable().default(null),
   state: PrReviewStateSchema,
   /** The reviewer's account of the change, for the person (and, if they keep it, for the author). */
   summary: z.string(),
