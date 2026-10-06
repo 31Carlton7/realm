@@ -38,24 +38,44 @@ export type Claim = {
 
 export const claims: Claim[] = [
   {
+    id: "spaces",
+    title: "Every space, in one sidebar.",
+    body:
+      "Each space of a profile is a section of one list: its name in its colour, what is waiting and working in it, and its sessions. Above them, Needs you gathers every session waiting on a permission or a question — from every space and every profile — and a row unfolds that session's own card, so you can answer without going to it. Moving between spaces loads nothing, because every space is already loaded.",
+    capture: "sidebar",
+    /* The column, with enough of the session beside it to say what the column is next to. */
+    focus: { x: 0.2, y: 0.36, span: 0.5 },
+    caption: "Three sessions waiting on you — two questions and a sub-agent's permission, one from another profile — above every space's sessions.",
+  },
+  {
     id: "transcript",
     title: "A transcript you can read.",
     body:
-      "A turn is not a wall of log. Tool calls fold into rows you can open, a plan renders as a plan, a diff as a diff, and sub-agents nest under the call that spawned them. What the agent did stays legible weeks later, which is the difference between a record and a receipt.",
+      "A turn is not a wall of log. Tool calls fold into rows you can open, a plan renders as a plan, a reply can carry a chart, a diagram or a comparison, and a turn that changed files ends with a card: each file with its counts as git measured them, Review for that turn's diff, and Undo where a checkpoint takes back exactly that turn. A tick down the pane's edge marks every prompt, so a long log has a map.",
     capture: "session",
-    /* The reply, the plan it wrote and the tool row it left, clear of the sidebar. */
-    focus: { x: 0.6, y: 0.36, span: 0.64 },
-    caption: "One turn: the reply, the plan it wrote, and the calls it made, each openable.",
+    /* The answer and its card, clear of the composer at the foot. */
+    focus: { x: 0.5, y: 0.42, span: 0.62 },
+    caption: "One turn: the answer, the files it named as links, and the two it edited, with Review and Undo.",
   },
   {
     id: "agents",
     title: "Bring the agent you already use.",
     body:
-      "Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code and Grok all run here, most of them through one Agent Client Protocol adapter. Each keeps its own login, its own models and its own permission modes. Realm never asks for an API key and never handles a provider's sign-in — you install each CLI and log in to it yourself.",
+      "Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code and Grok all run here, most of them through one Agent Client Protocol adapter. Each keeps its own login, its own models and its own permission modes; the picker lists them by the harness a click runs them through, with each model's own effort levels and fast mode at its foot. Realm never asks for an API key — signing in runs the agent's own login, and approving it is your click.",
     capture: "models",
-    /* The whole picker. The frame that showed the window entire cut its bottom off. */
-    focus: { x: 0.62, y: 0.71, span: 0.66 },
-    caption: "Every model the installed agents advertise, in one picker, grouped by the harness that offers it.",
+    /* The whole picker, from its search to the effort track. */
+    focus: { x: 0.68, y: 0.66, span: 0.62 },
+    caption: "Every installed agent's models in one list: Opus 5.5 picked, at Max, with fast mode on.",
+  },
+  {
+    id: "delegation",
+    title: "Hand work to other models.",
+    body:
+      "Ask in words — have GPT-6 Luna build this — or pick models in a session's Agents tab and say what to build. The session's own agent splits the work, starts a sub-agent on each model through whichever harness runs it, waits for the reports and says what each one did. Each sub-agent is a line of its own in the transcript, a click from its own.",
+    capture: "delegation",
+    /* The lead's lines and the Agents tab beside them. */
+    focus: { x: 0.62, y: 0.4, span: 0.7 },
+    caption: "Two sub-agents on two harnesses: one finished with its report, one waiting on a permission.",
   },
   {
     id: "gateway",
@@ -63,9 +83,19 @@ export const claims: Claim[] = [
     body:
       "Linear, Notion, Slack, GitHub, Jira, Figma and Sentry connect in a click, signed in through the app itself. They belong to the space rather than to an agent, so every session in it reaches them through one Realm endpoint — and the agent is handed the tools, not the credential: it calls Realm, and Realm calls the server. Every proxied call is logged, with its arguments and what came back. Your own MCP servers go in the same place. An OAuth connection is encrypted under a key in the macOS Keychain; a key you paste into a custom server is not, and the app says so at the field where you type it.",
     capture: "connections",
-    /* The six connector cards, close enough to read what each one grants. */
-    focus: { x: 0.6, y: 0.34, span: 0.68 },
+    /* The connector cards, close enough to read what each one grants. */
+    focus: { x: 0.5, y: 0.36, span: 0.62 },
     caption: "Connecting an app to a space. One click each, and every session in the space can use them.",
+  },
+  {
+    id: "review",
+    title: "Review pull requests without handing over GitHub.",
+    body:
+      "Code review lists your pull requests through your own gh, so Realm holds no GitHub token and sees exactly what gh sees. A request opens on its summary and its changes; a reviewer runs over the diff, held to read-only, on the model and level you choose, and leaves its findings on the page. None of them, nor any comment of yours, reaches GitHub until you press Submit review.",
+    capture: "review",
+    /* The request and the reviewer's findings, clear of the column. */
+    focus: { x: 0.55, y: 0.38, span: 0.62 },
+    caption: "A request's summary with three findings from a reviewer, one on a line its diff does not show.",
   },
   {
     id: "sandbox",
@@ -74,28 +104,18 @@ export const claims: Claim[] = [
       "A space can put its agents and terminals behind a macOS Seatbelt policy: its checkouts and the toolchain caches writable, the files in your home that make something run later readable but not changeable, and credential folders unreadable. It confines the process and everything that process starts. Seatbelt is not a container and the network stays open — this limits what a session can damage or read, not what it can send. It ships off, per space, because a writable-root list that has not met your toolchain yet is a list that can break a build.",
     capture: "sandbox",
     /* The three posture cards, not the settings page they sit on. */
-    focus: { x: 0.7, y: 0.515, span: 0.6 },
+    focus: { x: 0.6, y: 0.45, span: 0.6 },
     caption: "The three postures a space can take, on the one it ships with.",
   },
   {
     id: "durable",
     title: "Work that outlives the window.",
     body:
-      "realm-server keeps running when you close the window, so a long turn finishes whether or not you are watching. Runs can be scheduled, every turn is bracketed by a workspace checkpoint, and restoring one puts the files back — and, for Claude, rewinds the conversation with them.",
+      "realm-server keeps running when you close the window, so a long turn finishes whether or not you are watching. A task can run on a clock — each run a real session you can read and carry on — every turn is bracketed by a workspace checkpoint, and restoring one puts the files back and, for Claude, rewinds the conversation with them.",
     capture: "schedules",
-    /* The two schedule rows. The lower half of this scene is empty canvas. */
-    focus: { x: 0.63, y: 0.26, span: 0.64 },
-    caption: "Two schedules in one space: what each one asks for, when it next runs, and the switch that pauses it.",
-  },
-  {
-    id: "recall",
-    title: "Find anything you have done.",
-    body:
-      "One search reaches transcripts, open items, skills and memory across a whole profile. The sidebar keeps every chat you have, across spaces, grouped by the day you last worked on it and labelled with the space it belongs to — plus the folder and the branch on the rows where those say something the space name does not.",
-    capture: "activity",
-    /* The sidebar list, which is the subject here and a narrow strip of the capture. */
-    focus: { x: 0.1, y: 0.54, span: 0.63 },
-    caption: "Every chat in the profile, by the day it was last worked on.",
+    /* The column of tasks and the run beside it. */
+    focus: { x: 0.42, y: 0.36, span: 0.66 },
+    caption: "Three tasks, each on its own model, and a run open as its own session beside the task's card.",
   },
 ]
 
@@ -108,7 +128,7 @@ export type Question = { q: string; a: string }
 export const faq: Question[] = [
   {
     q: "Which agents can I run?",
-    a: "Claude Code and Codex have their own adapters; Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code, Grok and others speak the Agent Client Protocol and share one. You install each CLI and sign in to it yourself — Realm probes for what is on the machine and tells you the exact install or login command for what is not.",
+    a: "Claude Code and Codex have their own adapters; Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code, Grok and others speak the Agent Client Protocol and share one. Claude needs no install, because Realm carries Claude Code; Codex installs and signs in from first run; the rest you install yourself, and Realm probes for what is on the machine and tells you the exact install or login command for what is not.",
   },
   {
     q: "Do I need an API key?",

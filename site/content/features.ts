@@ -91,7 +91,7 @@ export const features: Feature[] = [
     slug: "terminal",
     title: "A terminal's tab says what is running in it",
     blurb:
-      "The tab names the program in the foreground before the folder, and wears its mark — git here, or vim, node, or an agent's own. Terminals draw in Realm's own sixteen colours, tuned to each theme.",
+      "The tab names the program in the foreground before the folder, and wears its mark — vim here, or git, node, or an agent's own. Terminals draw in Realm's own sixteen colours, tuned to each theme.",
   },
   {
     slug: "memory",

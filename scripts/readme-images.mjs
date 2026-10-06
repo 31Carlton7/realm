@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url"
 const PAGE = "#17181a"
 
 /** Only what the README actually shows — this is not a second copy of the whole manifest. */
-const SHOWN = ["workspace", "models", "connections", "sandbox"]
+const SHOWN = ["workspace", "sidebar", "models", "connections", "sandbox"]
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..")
 const from = join(root, "site/public/product")

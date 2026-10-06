@@ -423,9 +423,16 @@ function makeContext(page, rpc) {
     await sleep(600)
   }
 
-  /** The side panel shown or put away — the button at the window's top right does the same. */
+  /**
+   * The side panel put away, or brought back — the button at the window's top right does the same.
+   *
+   * Decided by what is on screen, and only ever undoing a put-away: pressed while the session in
+   * front has nothing in the panel, the button opens a blank tab onto the tools' page, and a blank
+   * tab is not what any scene here is about.
+   */
   const sidePanel = async (shown) => {
-    await evaluate(`(() => { const s = __capture.store(); if (s.getState().sidePanesHidden === ${shown}) s.getState().toggleSidePanes(); return true; })()`)
+    await evaluate(`(() => { const s = __capture.store().getState(); const visible = !!document.querySelector('.view-panel:not([hidden])');
+      if (${shown} ? s.sidePanesHidden : visible) s.toggleSidePanes(); return true; })()`)
     await sleep(500)
   }
 
@@ -561,7 +568,7 @@ const TITLES = {
 const BUILD_BRIEF = [
   "Build this with sub-agents, one per task below. Start each with agent_start and set constraints.model to the model named for it. Start every one before you wait on any, collect their reports with agent_wait, and then tell me what each one did and anything left to do.",
   "",
-  "- GPT-6 Luna: The switch in Settings ▸ Appearance, and its tests",
+  "- GPT-6 Luna: The toggle in Settings ▸ App, and its tests",
   "- Claude Fable 5.1: Storing the choice, with a migration",
   "",
   "The work:",
@@ -699,13 +706,13 @@ const scenes = [
       const expect = `!!document.querySelector('.session-pane .edit-summary') && document.querySelector('.session-pane .edit-summary-title')?.textContent.startsWith('Edited 2 files') && !!document.querySelector('.sidebar[data-collapsed]')`
       await shot("session", expect)
       // The track's card, for the changelog: what was asked, how the answer began, what the turn edited.
-      const tick = await evaluate(`(() => { const ticks = [...document.querySelectorAll('.panehost .panel[data-focused] .scroll-track .track-tick')]; const t = ticks.at(-1);
+      const tick = await evaluate(`(() => { const ticks = [...document.querySelectorAll('.view-main .panel .scroll-track .track-tick')]; const t = ticks.at(-1);
         if (!t) return null; const r = t.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`)
       if (tick) {
         await mouse("mouseMoved", tick[0], tick[1])
         await sleep(900)
         const card = await boxOf([".track-card[data-open]"], 0)
-        if (card) await shot("track", `!!document.querySelector('.track-card[data-open]')`, { clip: { x: Math.max(0, Math.round(tick[0]) - 60), y: Math.max(0, card.y - 70), width: Math.min(760, card.x + card.width + 40 - Math.max(0, Math.round(tick[0]) - 60)), height: Math.min(VIEWPORT.height, card.height + 140) } })
+        if (card) await shot("track", `!!document.querySelector('.track-card[data-open]')`, { clip: { x: Math.max(0, Math.round(tick[0]) - 60), y: Math.max(0, card.y - 70), width: Math.min(760, card.x + card.width + 24 - Math.max(0, Math.round(tick[0]) - 60)), height: Math.min(VIEWPORT.height, card.height + 140) } })
       }
       await park()
       await press("b", { code: "KeyB", vk: 66, meta: true })
@@ -788,8 +795,9 @@ const scenes = [
       await park()
       const expect = `document.querySelectorAll('.view-panel:not([hidden]) .subagent').length === 2 && [...document.querySelectorAll('.delegation-line .tool-row')].some((r) => r.textContent.startsWith('Subagent finished'))`
       await shot("delegation", expect)
+      // The cards and the count over them.
       const box = await boxOf([".view-panel:not([hidden]) .subagent"], 20)
-      if (box) await shot("sub-agents", expect, { clip: box })
+      if (box) await shot("sub-agents", expect, { clip: { ...box, y: Math.max(0, box.y - 40), height: box.height + 40 } })
     },
   },
   {
@@ -814,8 +822,8 @@ const scenes = [
     },
   },
   {
-    // A terminal's tab says what is running in it. A clean shell (no rc files, a bare prompt), so the
-    // capture shows git, not anybody's dotfiles.
+    // A terminal's tab says what is running in it: vim, in the session's own terminal, on the file the
+    // turn edited. The shell is a clean one (the run's own ZDOTDIR), so nobody's dotfiles are in it.
     name: "terminal",
     async run({ evaluate, openSession, sidePanel, press, park, shot, rpc, until, sleep }) {
       await openSession(TITLES.fix)
@@ -827,16 +835,16 @@ const scenes = [
       await until(() => evaluate(`!!document.querySelector('.view-panel:not([hidden]) .xterm')`), 20_000, "the session's terminal")
       const terminal = (await rpc.call("items.listAll", {})).filter((item) => item.kind === "terminal").at(-1)
       if (!terminal) throw new Error("No terminal item to write to")
-      // `LESS=R` without git's usual F, so the pager stays up with the diff in it and git stays the
-      // program in front — which is what the tab names.
-      await rpc.call("terminals.write", { terminalId: terminal.refId, data: " exec env -i HOME=\"$HOME\" PATH=/usr/bin:/bin:/usr/sbin:/sbin TERM=xterm-256color LANG=en_US.UTF-8 LESS=R PS1='%1~ %# ' /bin/zsh -f\r" })
-      await sleep(1200)
-      await rpc.call("terminals.write", { terminalId: terminal.refId, data: "clear; git -c color.ui=always diff --stat -p web/lib/orgs.ts\r" })
-      await until(async () => (await rpc.call("terminals.programs", {}).catch(() => ({})))[terminal.refId]?.id === "git", 15_000, "git in the foreground")
+      // No vimrc and no viminfo, so nothing of anybody's is read or written; the function the turn
+      // rewrote at the top of the screen. TypeScript's syntax is slow enough to trip vim's default
+      // redraw budget on a busy machine, which switches highlighting off halfway down the file and
+      // says so across the foot of the screen — hence the longer one.
+      await rpc.call("terminals.write", { terminalId: terminal.refId, data: "clear; vim -u NONE -i NONE -N -n --cmd 'set redrawtime=10000 bg=dark' --cmd 'filetype on' --cmd 'syntax on' -c 'set number laststatus=2 ruler linebreak breakindent' +81 -c 'normal! zt' web/lib/orgs.ts\r" })
+      await until(async () => (await rpc.call("terminals.programs", {}).catch(() => ({})))[terminal.refId]?.id === "editor", 15_000, "vim in the foreground")
       await sleep(1500)
       await park()
-      await shot("terminal", `!!document.querySelector('.view-panel:not([hidden]) .xterm') && [...document.querySelectorAll('.view-panel:not([hidden]) [role=tab]')].some((t) => t.textContent.includes('git'))`)
-      await rpc.call("terminals.write", { terminalId: terminal.refId, data: "q" }).catch(() => null)
+      await shot("terminal", `!!document.querySelector('.view-panel:not([hidden]) .xterm') && [...document.querySelectorAll('.view-panel:not([hidden]) [role=tab]')].some((t) => t.textContent.includes('vim'))`)
+      await rpc.call("terminals.write", { terminalId: terminal.refId, data: "\x1b:qa!\r" }).catch(() => null)
     },
   },
   {
@@ -970,18 +978,14 @@ const scenes = [
   {
     // Settings ▸ Appearance, at the app icons: the new icon and the eight the Dock can wear instead.
     name: "appearance",
-    async run({ evaluate, settings, reveal, park, shot, sleep }) {
+    async run({ settings, reveal, park, shot, boxOf, sleep }) {
       await settings("Appearance")
-      await evaluate(`(() => { const h = [...document.querySelectorAll('.settings-page-pane *')].find((e) => e.childElementCount === 0 && e.textContent.trim() === 'App icon');
-        h?.setAttribute('data-capture', 'app-icon'); return !!h; })()`)
-      await reveal('[data-capture="app-icon"]', "start", -40)
+      await reveal('.settings-page-pane [data-setting="app-icon"]', "start", -60)
       await sleep(300)
       await park()
-      const expect = `!!document.querySelector('.settings-page-pane') && [...document.querySelectorAll('.settings-page-pane img')].filter((i) => i.complete && i.naturalWidth > 0).length >= 9`
+      const expect = `!!document.querySelector('.settings-page-pane [data-setting="app-icon"]') && [...document.querySelectorAll('.settings-page-pane [data-setting="app-icon"] img')].filter((i) => i.complete && i.naturalWidth > 0).length >= 9`
       await shot("appearance", expect)
-      const icons = await evaluate(`(() => { const h = [...document.querySelectorAll('.settings-page-pane *')].find((e) => e.childElementCount === 0 && e.textContent.trim() === 'App icon');
-        const card = h?.closest('.settings-group, .settings-list, .settings-card, section'); if (!card) return null; const r = card.getBoundingClientRect();
-        return { x: Math.round(r.x - 16), y: Math.round(Math.max(0, r.y - 16)), width: Math.round(r.width + 32), height: Math.round(Math.min(innerHeight - Math.max(0, r.y - 16), r.height + 32)) }; })()`)
+      const icons = await boxOf(['.settings-page-pane [data-setting="app-icon"]'], 20)
       if (icons) await shot("app-icons", expect, { clip: icons })
     },
   },
@@ -1122,11 +1126,21 @@ async function main() {
         )
       : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron")
 
+  // The terminals' shell is a clean zsh: its dotfiles are this run's, so the captures show nobody's
+  // prompt and nothing typed into them reaches anybody's history.
+  const zdot = path.join(scratch, "zsh")
+  fs.mkdirSync(zdot, { recursive: true })
+  fs.writeFileSync(path.join(zdot, ".zshrc"), "PS1='%1~ %# '\nunset HISTFILE\n")
+
   // The window opens behind whatever has the person's attention, and Chromium stops laying out a
-  // covered window; these keep it drawing.
-  electron = spawn(electronBinary, [wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"], {
+  // covered window; the first three switches keep it drawing. The last renders in sRGB whatever
+  // display the window lands on: left to the display, a capture carries that display's own profile,
+  // and the same scene came out vivid from one screen and washed out from the Mac's P3 panel.
+  electron = spawn(electronBinary, [wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--force-color-profile=srgb"], {
     env: {
       ...process.env,
+      SHELL: "/bin/zsh",
+      ZDOTDIR: zdot,
       REALM_HOME: home,
       REALM_ENABLE_FAKE_AGENT: "1",
       REALM_FAKE_STANDS_IN: "claude,codex",
@@ -1165,13 +1179,64 @@ async function main() {
     clear(); if (!window.__captureAwake) { window.__captureAwake = new MutationObserver(clear); window.__captureAwake.observe(r, { attributes: true, attributeFilter: ["data-window-inactive", "data-quiet"] }); } return true; })()`
 
   let page = await attach()
-  let ctx = makeContext(page, null)
+  const token = await until(
+    () => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(home, "daemon.json"), "utf8")).token ?? null
+      } catch {
+        return null
+      }
+    },
+    20_000,
+    "realm-server's token",
+  )
+  const rpc = connectRpc(serverPort, token)
+  await rpc.ready
+  liveRpc = rpc
+  let ctx = makeContext(page, rpc)
   const only = (process.env.REALM_CAPTURE_ONLY ?? "").split(",").map((n) => n.trim()).filter(Boolean)
   const captured = []
+
+  // The person's name and the machine's are the developer's; the site is not the place to publish
+  // either. The store's copies go first — the greeting and the rail read them — and an observer
+  // keeps the rest scrubbed: the composer's understrip redraws on its own and brings a name back,
+  // and a path through the scratch home reads as Realm's own folder. Installed again after the
+  // reload below, which takes both with it.
+  const system = await rpc.call("system.info", {}).catch(() => null)
+  const swaps = [
+    [home, "~/Realm"],
+    [os.homedir(), "~"],
+    ...(system?.machineName ? [[system.machineName, "MacBook Pro"]] : []),
+  ]
+  const scrub = async () => {
+    await until(() => ctx.evaluate(`!!__capture.store()`), 10_000, "the app's store")
+    await ctx.evaluate(`(() => { __capture.store().setState({ userName: "", machineName: "MacBook Pro" }); return true; })()`)
+    await ctx.evaluate(`(() => {
+      const swaps = ${JSON.stringify(swaps)};
+      const swap = (text) => swaps.reduce((t, [from, to]) => (t.includes(from) ? t.split(from).join(to) : t), text);
+      const scrub = () => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const next = swap(node.nodeValue);
+          if (next !== node.nodeValue) node.nodeValue = next;
+        }
+        for (const element of document.querySelectorAll('[title]')) {
+          const title = element.getAttribute('title');
+          const next = swap(title);
+          if (next !== title) element.setAttribute('title', next);
+        }
+      };
+      window.__realmScrub = scrub;
+      new MutationObserver(scrub).observe(document.body, { subtree: true, childList: true, characterData: true });
+      scrub();
+      return true;
+    })()`)
+  }
 
   // ---- first run: the one page, before there is a space -------------------------------------
   await until(() => ctx.evaluate(`!!document.querySelector('.onboarding input:not([type=radio])')`), 40_000, "onboarding")
   await ctx.evaluate(awake)
+  await scrub()
   if (!only.length || only.includes("onboarding")) {
     try {
       // The cards are probed ahead of the agents behind the fold; a capture of "Checking…" is not first run.
@@ -1194,22 +1259,6 @@ async function main() {
   })()`)
   await until(() => ctx.evaluate(`!!document.querySelector('.composer')`), 30_000, "the first session")
 
-  const token = await until(
-    () => {
-      try {
-        return JSON.parse(fs.readFileSync(path.join(home, "daemon.json"), "utf8")).token ?? null
-      } catch {
-        return null
-      }
-    },
-    20_000,
-    "realm-server's token",
-  )
-  const rpc = connectRpc(serverPort, token)
-  await rpc.ready
-  liveRpc = rpc
-  ctx = makeContext(page, rpc)
-
   // ---- stage ---------------------------------------------------------------------------------
   // Dark, whatever this Mac is set to: the site is dark, and every capture is laid on its page.
   await rpc.call("settings.set", { key: "ui.theme", value: "dark" })
@@ -1229,39 +1278,7 @@ async function main() {
   ctx = makeContext(page, rpc)
   await until(() => ctx.evaluate(`!!document.querySelector('.composer')`).catch(() => false), 30_000, "the window after its reload")
   await ctx.evaluate(awake)
-
-  // The person's name and the machine's are the developer's; the site is not the place to publish
-  // either. The store's copies go first — the greeting and the rail read them — and an observer
-  // keeps the rest scrubbed: the composer's understrip redraws on its own and brings a name back,
-  // and a path through the scratch home reads as Realm's own folder.
-  const system = await rpc.call("system.info", {}).catch(() => null)
-  await until(() => ctx.evaluate(`!!__capture.store()`), 10_000, "the app's store")
-  await ctx.evaluate(`(() => { __capture.store().setState({ userName: "", machineName: "MacBook Pro" }); return true; })()`)
-  const swaps = [
-    [home, "~/Realm"],
-    [os.homedir(), "~"],
-    ...(system?.machineName ? [[system.machineName, "MacBook Pro"]] : []),
-  ]
-  await ctx.evaluate(`(() => {
-    const swaps = ${JSON.stringify(swaps)};
-    const swap = (text) => swaps.reduce((t, [from, to]) => (t.includes(from) ? t.split(from).join(to) : t), text);
-    const scrub = () => {
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const next = swap(node.nodeValue);
-        if (next !== node.nodeValue) node.nodeValue = next;
-      }
-      for (const element of document.querySelectorAll('[title]')) {
-        const title = element.getAttribute('title');
-        const next = swap(title);
-        if (next !== title) element.setAttribute('title', next);
-      }
-    };
-    window.__realmScrub = scrub;
-    new MutationObserver(scrub).observe(document.body, { subtree: true, childList: true, characterData: true });
-    scrub();
-    return true;
-  })()`)
+  await scrub()
 
   // ---- run the scenes ------------------------------------------------------------------------
   /* REALM_CAPTURE_ONLY=sidebar,models runs a subset — a diagnostic tool, not a way to refresh one

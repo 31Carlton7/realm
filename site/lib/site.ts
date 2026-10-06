@@ -8,7 +8,7 @@ export const site = {
   domain: "realm.computer",
   tagline: "One workspace for every coding agent, on your Mac.",
   description:
-    "Realm gives every coding agent a space on your Mac: split panes for sessions, terminals, browsers and documents, a shared context pool, and one MCP gateway that keeps your credentials out of the agent.",
+    "Realm gives every coding agent a space on your Mac: every space in one sidebar, sessions side by side with what their agents open, and one MCP gateway that keeps your credentials out of the agent.",
   repo: process.env.NEXT_PUBLIC_REPO_URL ?? "https://github.com/31Carlton7/realm",
   x: "https://x.com/31Carlton7",
 } as const

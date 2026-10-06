@@ -66,6 +66,8 @@ const child = spawn(
     "--use-angle=metal",
     "--hide-scrollbars",
     "--force-device-scale-factor=1",
+    // sRGB whatever the display: the card is read on other people's screens.
+    "--force-color-profile=srgb",
     // The still frame: the loop never starts, so the shot is the field at time zero every run.
     "--force-prefers-reduced-motion",
     "--virtual-time-budget=12000",

@@ -12,11 +12,11 @@ macOS · Apple silicon · in active development
 
 </div>
 
-![A Realm space: the sidebar on the left, a release brief open in the documents pane, and an agent session working through a plan in the pane beside it.](docs/images/workspace.png)
+![Realm 2.0: every space in the sidebar under Needs you, a session that fixed a crash with the card for the two files it edited, and the file its answer named open in the side panel at the line it named.](docs/images/workspace.png)
 
-*One space: the sidebar, a release brief open in the documents pane, and a session working through a plan beside it.*
+*Every space in the sidebar, a session and the two files its turn edited, and the file its answer named, open beside it at the line it named.*
 
-Local-first agent control plane for macOS — profiles → spaces, split panes for agents / terminals / browser / simulator / artifacts, a context pool, and an MCP gateway. See `docs/superpowers/specs/2026-08-17-realm-v1-design.md`.
+Local-first agent control plane for macOS — profiles → spaces, every space in one sidebar, split panes for sessions beside one side panel for terminals / browsers / devices / documents, a context pool, and an MCP gateway. See `docs/superpowers/specs/2026-08-17-realm-v1-design.md`.
 
 ## Dev
 - Node ≥ 22.13, pnpm 10, macOS.
@@ -42,8 +42,8 @@ why that matters and how to verify the WebGPU hero shader headlessly.
     Cursor still answers with the old shape, OpenCode answers with only the new one, Copilot sends both.
     `acpSessionConfig` (in `@realm/contracts`) normalizes both and carries the id to write back through —
     reading one channel and writing on the other is a silent no-op.
-- Offline / UI work: `REALM_ENABLE_FAKE_AGENT=1 pnpm dev` registers a scripted **Fake agent** (echoes what you send) next to Claude in New → Session….
-- **MCP gateway** — third-party MCP servers are configured in a space's settings, not per-agent: every session gets one Realm gateway endpoint, and credentials or OAuth tokens never reach the agent CLI. Every proxied tool call shows up in the Activity view (space settings → Activity, or "MCP Activity" in the command palette).
+- Offline / UI work: `REALM_ENABLE_FAKE_AGENT=1 pnpm dev` registers a scripted **Fake agent** (echoes what you send) in the model picker.
+- **MCP gateway** — third-party MCP servers are configured in a space's settings, not per-agent: every session gets one Realm gateway endpoint, and credentials or OAuth tokens never reach the agent CLI. Every proxied tool call shows up in the Activity view (Connections ▸ Activity, or "MCP Activity" in the command palette).
 
 ## Code graphs (Graphify)
 
@@ -208,17 +208,24 @@ These are the site's frames with Realm's page colour painted in behind them — 
 translucent material, so a capture laid straight onto GitHub's white theme washes its sidebar out.
 `node scripts/readme-images.mjs` repaints them after a re-capture.
 
+**Every space, in one sidebar.** Each space is a section of one list, and Needs you heads it with
+every session waiting on a permission or a question, from every space and every profile.
+
+![The sidebar: Needs you lists two questions and a sub-agent's permission, one from another profile, above the Realm, Dashboard, Site and School spaces and their sessions.](docs/images/sidebar.png)
+
+*Three sessions waiting on you, above every space's sessions.*
+
 **Bring the agent you already use.** Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot,
 goose, Qwen Code and Grok all run here, each keeping its own login, models and permission modes.
 
-![The model picker open, listing every model the installed agents advertise, grouped by harness, with per-model pricing, context window and effort range beside the selected one.](docs/images/models.png)
+![The model picker open on a new session: Claude's and Codex's models grouped by harness, Opus 5.5 picked with its description, context and price, and the effort track at Max, lit, with fast mode on.](docs/images/models.png)
 
-*Every model the installed agents advertise, in one picker, grouped by the harness that offers it.*
+*Every installed agent's models in one list: Opus 5.5 picked, at Max, with fast mode on.*
 
 **Your tools, without your credentials.** Connections belong to the space rather than to an agent,
 so a session is handed the tools and never the token — it calls Realm, and Realm calls the server.
 
-![The Connections page of a space, showing Linear, Notion, Slack, GitHub, Jira & Confluence and Figma as cards, each with what it grants and a Connect button.](docs/images/connections.png)
+![The Connections page, showing Linear, Notion, Slack, GitHub, Jira & Confluence, Figma and Sentry as cards, each with what it grants and a Connect button.](docs/images/connections.png)
 
 *Connecting an app to a space. One click each, and every session in the space can use them.*
 
