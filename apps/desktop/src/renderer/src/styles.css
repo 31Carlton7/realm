@@ -645,9 +645,11 @@ kbd { font: 11px var(--font-mono); }
    assume the light face mirrors the dark), set by measurement to the depth the panes' shade had once
    the owner found the first cut a touch heavy (10-04): summed across the strip, because at depths
    this small the shade lands in whole 8-bit steps, and on the solid grounds Reduce transparency gives,
-   where a capture is what the screen shows. The dark rail is a step lighter than the panes it was
-   matched on, so the same depth takes less black there. */
-:root { --seam-shade: oklch(0 0 0 / 0.045); --seam-w: 8px; }
+   where a capture is what the screen shows. There the dark rail is a step lighter than the panes it was
+   matched on and took 0.045; but over the owner's own translucent rail (their 10-05 capture) 0.045
+   comes out about a sixth lighter than the panes' shade did, so dark takes 0.053 — the depth they
+   saw, on the window they see it on. */
+:root { --seam-shade: oklch(0 0 0 / 0.053); --seam-w: 8px; }
 :root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.009); }
 .sidebar-shade { position: fixed; z-index: 3; pointer-events: none;
   top: var(--frame-top); bottom: 0; left: var(--rail-w); width: calc(var(--sidebar-w) * var(--sidebar-open));
