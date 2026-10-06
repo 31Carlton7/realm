@@ -1,5 +1,5 @@
 import { Icon, type IconName } from "@realm/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type Skill, runnableCommands, type UserCommand, type TurnChanges } from "@realm/contracts";
 
 /** A stable empty list for the commands selector. A fresh `[]` in the selector is a new reference on
@@ -260,8 +260,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const readTo = entry?.lastSeq ?? 0;
   useEffect(() => { if (focused && readTo > 0) void run(() => markSessionSeen(id)); }, [focused, readTo, id, markSessionSeen, run]);
   // Store-owned, keyed by session id (A-M9): layout reshapes/remounts never lose typed text, and a
-  // suggestion chip in the empty state can fill the draft without sending it.
-  const draft = useApp((s) => s.drafts[id] ?? "");
+  // suggestion chip in the empty state can fill the draft without sending it. The pane only WRITES it;
+  // the composer reads it (`DraftedComposer`), so a keystroke re-renders the composer and not this.
   const setDraft = useApp((s) => s.setDraft);
   /* `session` is not proven until the early return below, and a hook cannot move past it — hence the
      optional chain. The store refreshes this list when a session opens; the pane only reads it. */
@@ -644,8 +644,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onInstall={() => run(() => runCliAction(session.agentKind, "install"))}
             onSignIn={() => run(() => startSignIn(session.agentKind, session.spaceId, session.id))}
             onDismissJob={() => dismissCliJob(session.agentKind)} />
-        : <Composer session={session} status={status} gitInfo={gitInfo} todos={todos} quote={quote}
-            onOpenDiff={() => run(() => openDiff(session.environmentId))} draft={draft} onDraftChange={(t) => setDraft(id, t)}
+        : <DraftedComposer session={session} status={status} gitInfo={gitInfo} todos={todos} quote={quote}
+            onOpenDiff={() => run(() => openDiff(session.environmentId))}
             attachments={attachments}
             onAttachPick={() => run(() => attachFromPicker(id))}
             onAttachFiles={(files) => run(() => attachFiles(id, files))}
@@ -746,4 +746,20 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
 /** The drawer's empty-state hint names where the shell opened — the session's cwd, by basename. */
 function terminalTitle(cwd: string): string {
   return cwd.replace(/\/+$/, "").split("/").pop() || cwd;
+}
+
+/**
+ * The composer, reading its own draft.
+ *
+ * The draft used to be read by the session pane and handed down, so every keystroke re-rendered the
+ * PANE — and with it the whole transcript, whose messages re-parsed their Markdown each time. On a
+ * session with a few thousand turns that was most of a frame per character (measured: 176 ms median
+ * per keystroke on a 3,000-row transcript). Read here, a keystroke re-renders the composer alone.
+ */
+function DraftedComposer(props: Omit<ComponentProps<typeof Composer>, "draft" | "onDraftChange">) {
+  const id = props.session.id;
+  const draft = useApp((s) => s.drafts[id] ?? "");
+  const setDraft = useApp((s) => s.setDraft);
+  const onDraftChange = useCallback((text: string) => setDraft(id, text), [setDraft, id]);
+  return <Composer {...props} draft={draft} onDraftChange={onDraftChange} />;
 }

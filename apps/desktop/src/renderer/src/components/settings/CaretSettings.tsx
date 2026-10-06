@@ -11,6 +11,9 @@ import { useApp } from "../../state/store";
  * being typed in, the caret stands in it anyway (`data-caret-preview`), so a shape picked from the
  * tiles or an animation from the menu is seen at once, without having to put the keyboard back.
  */
+
+/** The animations Low power swaps for the plain blink (styles.css), because each repaints every frame. */
+const EASED_CARETS: ReadonlySet<string> = new Set(["smooth", "phase", "expand", "pulse"]);
 export function CaretSettings() {
   const caret = useApp((s) => s.caret);
   const setCaret = useApp((s) => s.setCaret);
@@ -39,9 +42,9 @@ export function CaretSettings() {
             <span className="settings-row-name">{CARET_COPY.animation.label}</span>
             {/* Said only when it is true: the menu still shows what was chosen, and the window is
                 showing something else. */}
-            {(reduced || lowPower) && (
-              <span className="settings-row-detail">{reduced ? "Reduce motion is on, so every cursor holds still." : "Low power is on, so every cursor holds still."}</span>
-            )}
+            {reduced
+              ? <span className="settings-row-detail">Reduce motion is on, so every cursor holds still.</span>
+              : lowPower && EASED_CARETS.has(caret.animation) && <span className="settings-row-detail">Low power is on, so the cursor blinks instead.</span>}
           </div>
           <select aria-label="Cursor animation" value={caret.animation}
             onChange={(e) => run(() => setCaret({ animation: e.target.value as CaretAnimation }))}>

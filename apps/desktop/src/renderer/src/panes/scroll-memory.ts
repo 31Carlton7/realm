@@ -33,7 +33,10 @@ export const NEAR_END_PX = 80;
 /** A scroller's position, plus whether that position was the end — which is not derivable from the
  *  offset alone once the content has grown, and is the difference between putting a reader back
  *  where they were and following new messages down for them. */
-export type ScrollMark = { top: number; atEnd: boolean };
+export type ScrollMark = { top: number; atEnd: boolean;
+  /** Where a long transcript's drawn window started (Transcript's `start`), so an offset is put back
+   *  into the same column it was measured in. Absent for every other scroller. */
+  from?: number };
 
 /** How long a restore keeps trying to land before it gives up. A scroller can exist before its
  *  content does, and one assignment to an empty box is silently clamped to 0 — so the offset is
