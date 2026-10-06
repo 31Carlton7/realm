@@ -392,7 +392,8 @@ describe("removing files from the Library", () => {
     const theirs = (await files.add({ profileId: other.id, paths: [put("theirs.md", "theirs")] })).added[0]!;
     const desktop = put("taxes.pdf", "%PDF-taxes");
     const dir = libraryDir(home, profile.id);
-    const walked = join(dir, "..", other.id, "theirs.md");
+    // Written out, not `join`ed: `join` would resolve the `..` before the row ever held it.
+    const walked = `${dir}/../${other.id}/theirs.md`;
     const insert = db.prepare("INSERT INTO library_files (id, profile_id, path, name, ext, size, digest, ts) VALUES (?, ?, ?, ?, ?, 1, ?, ?)");
     insert.run("Fdesk", profile.id, desktop, "taxes.pdf", "pdf", "d1", 2);
     insert.run("Fwalk", profile.id, walked, "theirs.md", "md", "d2", 1);
