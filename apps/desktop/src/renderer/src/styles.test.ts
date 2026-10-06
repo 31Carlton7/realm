@@ -1234,6 +1234,16 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".sidebar[data-collapsed] *").join(" ")).toContain("-webkit-app-region: initial");
   });
 
+  it("the sidebar's lists scroll wherever the pointer is over them, not only over a row", () => {
+    /* The column is a window-drag region, and over a drag region macOS takes the wheel for the window:
+       the sessions list scrolled only with the pointer on a row (a button, which opts out) — not over
+       the gaps, a section's head or the empty foot of the list (the owner, 10-06, on video). CDP's
+       wheel events go straight into the page and never meet the OS's regions, so no live check can
+       see this; the rule is held here. THE mutant: the scroller left to inherit the column's `drag`. */
+    expect(bodiesFor(".space-body").join(" ")).toContain("-webkit-app-region: no-drag");
+    expect(bodiesFor(".sb-page-nav").join(" ")).toContain("-webkit-app-region: no-drag");
+  });
+
   it("the rail is as narrow as its icons, an even margin round each, and the lights run on across the top row", () => {
     /* The owner, 10-04: the rail was wider than it should be, with more room either side of its icons
        than between them. It is Codex's now: 36px buttons with the same 8px beside them as between and
