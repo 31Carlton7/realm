@@ -1,0 +1,11 @@
+{
+  "name": "@realm/remote",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": { "build": "tsc -p tsconfig.json --noEmit", "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "//": "Plan 28's shared half: Noise, the frame format and the mobile.v1 schemas, used by the Mac's gateway and by the test phone. node:crypto only — see PROTOCOL.md for why the cipher is AES-GCM.",
+  "dependencies": { "zod": "^3.24.0" }
+}
