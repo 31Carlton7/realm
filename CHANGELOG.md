@@ -1,5 +1,28 @@
 # Changelog
 
+## v2.0.1 — 2026-10-06
+
+### Faster in long sessions
+
+**Typing keeps up in a long session.** In a session a few thousand turns long, every key you typed
+re-drew the whole transcript and re-read every message in it — about a sixth of a second per
+character, measured on a real home. A keystroke now redraws the prompter alone: a median of 24 ms in
+the same session, close to what a new one measures.
+
+**Scrolling stays smooth while an agent is answering.** A long transcript now draws its most recent
+part, and earlier turns load as you scroll up to them, or from Show earlier messages at the top. A
+reply streaming into a session thousands of turns long used to hold the window for up to half a
+second at a time; in the same session it now drops a frame or two. The part you are reading stays
+put while more arrives below it, a saved prompt opened from the Library is drawn before Realm takes
+you to it, and coming back to a session puts you where you were.
+
+### The cursor
+
+**The cursor blinks in Low power.** Low power held every cursor still, so with it on there was no
+blinking cursor anywhere in the app. It now keeps the plain blink, which changes twice a second, and
+only the smooth, phase, expand and pulse animations give way to it — they redraw on every frame,
+which is what Low power is there to stop. Reduce motion still holds the cursor still.
+
 ## v2.0.0 — 2026-10-06
 
 This release was going to be 1.6, and before it shipped it grew into a redesign of the prompter, the

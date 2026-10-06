@@ -152,4 +152,13 @@ describe("Cursor", () => {
     await appearance({ settings: { "ui.caret": { animation: "smooth" } } });
     expect(screen.queryByText(/holds still/)).toBeNull();
   });
+
+  it("under Low power says an eased cursor blinks instead, and says nothing for a cursor that already blinks", async () => {
+    await appearance({ settings: { "ui.caret": { animation: "pulse" }, "ui.lowPower": true } });
+    expect(screen.getByText("Low power is on, so the cursor blinks instead.")).toBeInTheDocument();
+    expect(screen.queryByText(/holds still/)).toBeNull();
+    cleanup();
+    await appearance({ settings: { "ui.caret": { animation: "blink" }, "ui.lowPower": true } });
+    expect(screen.queryByText(/blinks instead/)).toBeNull();
+  });
 });

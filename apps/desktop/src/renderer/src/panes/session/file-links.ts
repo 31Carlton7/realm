@@ -202,11 +202,27 @@ export function upgradeFileRef(el: HTMLElement, path: string, root: string): voi
  * matched against. The tool calls say what the agent touched; a turn's measured changes add what a
  * shell command or a sub-agent wrote, which no call names.
  */
+/** `normalizePath` results, by the joined path. The transcript asks for the touched set on every event
+ *  — each streamed word — and a session thousands of calls long re-normalised every path it had
+ *  ever named each time; the answer for a given string never changes. Bounded, since a window lives
+ *  for days. */
+const normalized = new Map<string, string | null>();
+const NORMALIZED_MAX = 50_000;
+function normalizedPath(joined: string): string | null {
+  let abs = normalized.get(joined);
+  if (abs === undefined) {
+    if (normalized.size >= NORMALIZED_MAX) normalized.clear();
+    abs = normalizePath(joined) || null;
+    normalized.set(joined, abs);
+  }
+  return abs;
+}
+
 export function touchedFiles(blocks: readonly Block[], changes: Readonly<Record<number, TurnChanges>> | undefined, cwd: string): Set<string> {
   const out = new Set<string>();
   const add = (p: unknown, base = cwd) => {
     if (typeof p !== "string" || p === "") return;
-    const abs = normalizePath(p.startsWith("/") ? p : `${base}/${p}`);
+    const abs = normalizedPath(p.startsWith("/") ? p : `${base}/${p}`);
     if (abs) out.add(abs);
   };
   for (const b of blocks) {

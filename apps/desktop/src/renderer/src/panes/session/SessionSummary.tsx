@@ -55,8 +55,14 @@ export function useSummaryLive(item: Item): boolean {
   const id = item.refId;
   const blocks = useApp((s) => s.transcripts[id]?.t.blocks ?? NO_BLOCKS);
   const cost = useApp((s) => s.transcripts[id]?.t.usage.costUsd ?? 0);
-  const summary = useMemo(() => summarize(blocks), [blocks]);
-  return !isEmptySummary(summary) || cost > 0;
+  /* Once a session has something to report it always will — a transcript only grows — so the fold is
+     not run again after the first yes, nor at all while spend already answers the question. It was
+     run on every event (each streamed word) over the whole transcript, for a bar's yes or no. */
+  const known = useRef<{ id: string; live: boolean }>({ id, live: false });
+  if (known.current.id !== id) known.current = { id, live: false };
+  const live = useMemo(() => known.current.live || (cost <= 0 && !isEmptySummary(summarize(blocks))), [blocks, cost]);
+  if (live) known.current.live = true;
+  return live || cost > 0;
 }
 
 /**

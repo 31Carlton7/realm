@@ -760,9 +760,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   applied by changing what the window reports for `prefers-reduced-motion`, so a surface that honours
   the media query honours both, and nothing should ask about motion any other way.
 - Motion that says where something IS holds still at its shown end, never paused mid-cycle. The
-  caret blinks because someone chose a blink, and under Reduce motion or Low power it goes solid
+  caret blinks because someone chose a blink, and under Reduce motion it goes solid
   (`data-caret-still`) rather than freezing where it stood: a blink paused at nothing is a field with
-  no caret. Drawn in place of the platform's, it stands on the platform's pixel — measured against it
+  no caret. Low power is not Reduce motion: it stops what repaints every frame, so an eased caret falls
+  back to the plain blink — which changes twice a second — and the blink stays. A caret that never
+  blinks is one a person has to search for, and macOS keeps blinking its own in Low Power Mode. Drawn in place of the platform's, it stands on the platform's pixel — measured against it
   at the same offsets, both painted one colour (`caret-live.mjs`) — and steps aside wherever the
   platform's own does: a selection, a window not in front, an input method composing.
 - Playful motion is the one exception to the rule above it, and it is fenced. It ships only behind

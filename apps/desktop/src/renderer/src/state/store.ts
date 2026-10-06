@@ -6210,12 +6210,17 @@ await get().refreshCustomThemes().catch(() => {});
         const elements = keepLiveChips(text, get().draftElements[sessionId] ?? []);
         const links = keepLiveLinks(text, get().draftLinks[sessionId] ?? []);
         const refs = keepLiveRefs(text, get().draftRefs[sessionId] ?? []);
+        /* The previous list whenever the edit left it as it was — which is nearly every keystroke. A
+           fresh array of the same chips is a new value to every subscriber, and the session pane
+           subscribes to three of these: each character re-rendered the pane and its whole transcript. */
+        const same = <T,>(prev: readonly T[] | undefined, next: T[]): T[] =>
+          prev !== undefined && prev.length === next.length && prev.every((x, i) => x === next[i]) ? prev as T[] : next;
         set({
           drafts: { ...get().drafts, [sessionId]: text },
-          draftMentions: { ...get().draftMentions, [sessionId]: mentions },
-          draftElements: { ...get().draftElements, [sessionId]: elements },
-          draftLinks: { ...get().draftLinks, [sessionId]: links },
-          draftRefs: { ...get().draftRefs, [sessionId]: refs },
+          draftMentions: { ...get().draftMentions, [sessionId]: same(prev, mentions) },
+          draftElements: { ...get().draftElements, [sessionId]: same(get().draftElements[sessionId], elements) },
+          draftLinks: { ...get().draftLinks, [sessionId]: same(get().draftLinks[sessionId], links) },
+          draftRefs: { ...get().draftRefs, [sessionId]: same(get().draftRefs[sessionId], refs) },
         });
       },
       addLinkChip(sessionId, url) {

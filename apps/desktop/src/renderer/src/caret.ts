@@ -397,7 +397,11 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
   }
 
   const apply = () => {
-    still = (motion?.matches ?? false) || root.getAttribute("data-quiet") === "always";
+    // Reduce motion alone holds the caret still. Low power keeps the blink and stops the rest — in the
+    // stylesheet, which swaps any continuous animation for the plain blink under `data-quiet="always"`.
+    // A caret that does not blink is one a person has to search for, and a step blink costs two
+    // frames a second; the eased ones cost every frame, which is what Low power is there to stop.
+    still = motion?.matches ?? false;
     root.setAttribute("data-caret", prefs.shape);
     root.setAttribute("data-caret-animation", prefs.animation);
     root.setAttribute("data-caret-colour", prefs.colour);

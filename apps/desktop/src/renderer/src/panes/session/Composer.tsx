@@ -27,6 +27,11 @@ import type { Todo } from "./rich/tool-view";
 // styles.css — the textarea autogrows to this and scrolls past it, and the two numbers disagreeing
 // is a prompter that grows past its own cap and then jumps back.
 export const MAX_ROWS_PX = 186;
+/** What decides a field's wrapped height, copied onto the sizer (see `measure`). */
+const SIZER_PROPS = ["font-family", "font-size", "font-weight", "font-style", "font-variant", "font-feature-settings",
+  "line-height", "letter-spacing", "word-spacing", "text-transform", "text-indent", "tab-size", "white-space", "word-break",
+  "overflow-wrap", "padding-top", "padding-bottom", "padding-left", "padding-right", "border-top-width", "border-bottom-width",
+  "border-left-width", "border-right-width", "border-style", "box-sizing"] as const;
 
 /** Stable default for the `usage` prop — a fresh object per render would make the under-strip's ring
  *  re-render on every keystroke for no change. No `contextTokens`, so it draws no ring at all. */
@@ -757,17 +762,47 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   /**
    * Size the box to its content.
    *
-   * Collapsing to 0 first is what makes it SHRINK as well as grow: `scrollHeight` on a box that is
-   * already tall enough reports the box, not the text. The written value is compared before it is
-   * applied so this is idempotent — which is what lets the observer below call it without cycling.
+   * Measured on a SIZER — an unseen copy of the field, same width and type, standing outside the
+   * layout — rather than by collapsing the field itself to 0 and reading it back. Collapsing the real
+   * box changed the height of everything beside it in the pane's column, so each keystroke laid out
+   * the whole transcript twice; on a session a few thousand turns long that was most of a frame per
+   * character. The sizer is fixed-position and contained, so measuring it lays out nothing else, and
+   * the field's own height is written only when it changes — which most keystrokes do not.
    */
-  const measure = useCallback(() => {
+  const sizer = useRef<HTMLTextAreaElement | null>(null);
+  /** Whether the sizer still wears the field's type and width. Copying it reads the field's computed
+   *  style, which is a style pass over whatever is dirty — so it is done when the field's width or
+   *  font can have changed (mount, a resize, the webfont landing), never per keystroke. */
+  const sizerFresh = useRef(false);
+  useEffect(() => {
+    // The type preferences are written on :root (applyTheme), and a font-size change moves the
+    // field's line height without moving its width — so any write there re-copies.
+    const stale = new MutationObserver(() => { sizerFresh.current = false; });
+    stale.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "data-mode", "data-theme"] });
+    return () => { stale.disconnect(); sizer.current?.remove(); sizer.current = null; };
+  }, []);
+  const measure = useCallback((restyle = false) => {
     const el = ta.current; if (!el) return;
-    const prev = el.style.height;
-    el.style.height = "0px";
-    const next = `${Math.min(MAX_ROWS_PX, el.scrollHeight)}px`;
+    let probe = sizer.current;
+    if (!probe) {
+      probe = document.createElement("textarea");
+      probe.setAttribute("aria-hidden", "true");
+      probe.tabIndex = -1;
+      probe.className = "composer-sizer";
+      document.body.append(probe);
+      sizer.current = probe;
+    }
+    if (restyle || !sizerFresh.current) {
+      const cs = getComputedStyle(el);
+      for (const prop of SIZER_PROPS) probe.style.setProperty(prop, cs.getPropertyValue(prop));
+      probe.style.width = `${el.getBoundingClientRect().width}px`;
+      sizerFresh.current = true;
+    }
+    probe.value = el.value;
+    const next = `${Math.min(MAX_ROWS_PX, probe.scrollHeight)}px`;
+    if (el.style.height === next) return;
     el.style.height = next;
-    if (next !== prev) syncScroll(); // growing past max-height starts scrolling; the mirror follows in the same frame
+    syncScroll(); // growing past max-height starts scrolling; the mirror follows in the same frame
   }, [syncScroll]);
 
   useLayoutEffect(() => { measure(); }, [draft, measure]);
@@ -792,13 +827,13 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const lastWidth = useRef(0);
   useEffect(() => {
     const el = ta.current; if (!el) return;
-    void (document as Document & { fonts?: FontFaceSet }).fonts?.ready.then(measure).catch(() => {});
+    void (document as Document & { fonts?: FontFaceSet }).fonts?.ready.then(() => measure(true)).catch(() => {});
     if (typeof ResizeObserver === "undefined") return; // jsdom
     const ro = new ResizeObserver(([entry]) => {
       const w = entry?.contentRect.width ?? 0;
       if (w === lastWidth.current) return;
       lastWidth.current = w;
-      measure();
+      measure(true);
     });
     ro.observe(el);
     return () => ro.disconnect();

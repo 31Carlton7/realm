@@ -180,15 +180,14 @@ describe("reduced motion and low power", () => {
     expect(hidden(input)).toBe(true);
   });
 
-  it("holds still under Low power, not merely while the window is in the background", () => {
+  it("keeps blinking under Low power — only Reduce motion holds the caret still", () => {
+    /* THE regression this replaces: Low power held every caret still, so on a laptop with it on the
+       caret never blinked anywhere in the app. The eased animations still give way under it (the
+       stylesheet's `data-quiet="always"` rule); the blink does not. */
     reduced(false);
     install();
-    root.setAttribute("data-quiet", "unfocused");
-    return Promise.resolve().then(() => {
-      expect(root.hasAttribute("data-caret-still")).toBe(false);
-      root.setAttribute("data-quiet", "always");
-      return Promise.resolve();
-    }).then(() => expect(root.hasAttribute("data-caret-still")).toBe(true));
+    root.setAttribute("data-quiet", "always");
+    return Promise.resolve().then(() => expect(root.hasAttribute("data-caret-still")).toBe(false));
   });
 });
 

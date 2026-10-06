@@ -210,7 +210,12 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, ar
    *  text — a control that cannot do anything is worse than none. */
   onPath?: (path: string, at: HTMLElement) => void;
 }) {
-  const html = useMemo(() => (onPath ? renderMarkdownWithPaths(text, cite) : renderMarkdown(text, cite)), [text, cite, onPath]);
+  /* Keyed on WHETHER there is a path handler, not on which one: it only picks the renderer, and the
+     caller's handler is usually an inline arrow, new on every render. Keyed on its identity, every
+     message in the transcript re-parsed and re-sanitised its Markdown whenever the pane re-rendered —
+     each keystroke, each streamed event. The handler itself is read at click time, below. */
+  const withPaths = onPath !== undefined;
+  const html = useMemo(() => (withPaths ? renderMarkdownWithPaths(text, cite) : renderMarkdown(text, cite)), [text, cite, withPaths]);
   const body = useRef<HTMLDivElement>(null);
   const media = useMediaPortals(body, html);
   const blocks = useUiBlockPortals(body, html);
