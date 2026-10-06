@@ -202,12 +202,12 @@ export function LibraryFiles({ spaceId, head, ref }: { spaceId: string;
   /* Delete on the file in focus hands the keyboard to the file after it, or before it at the end, as
      the Finder does — once the list without it has come back. */
   const focusNext = useRef<string | null>(null);
-  const files = useRef<HTMLDivElement>(null);
+  const column = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const id = focusNext.current;
     if (id === null || !entries.some((e) => e.id === id)) return;
     focusNext.current = null;
-    files.current?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(id)}"] > :is(.library-tile, .library-row)`)?.focus();
+    column.current?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(id)}"] > :is(.library-tile, .library-row)`)?.focus();
   }, [entries]);
   const remove = (e: LibraryEntry) => run(async () => {
     if (!profileId) return;
@@ -284,7 +284,7 @@ export function LibraryFiles({ spaceId, head, ref }: { spaceId: string;
   ];
 
   return (
-    <div className="library-files" ref={files}>
+    <div className="library-files" ref={column}>
       <PageScroll wide>
         {head}
         <div className="library-toolbar">
