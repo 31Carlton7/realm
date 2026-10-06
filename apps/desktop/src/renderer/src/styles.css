@@ -528,8 +528,8 @@ kbd { font: 11px var(--font-mono); }
 .sb-header { flex: none; height: var(--frame-top); display: flex; align-items: center; padding: 0 10px 0 12px;
   clip-path: inset(0 0 0 calc(var(--lead-nav-end) - var(--rail-w) + var(--sidebar-w) * (1 - var(--sidebar-open)))); }
 /* The column's first row: the profile whose spaces it lists — or, while a page's sections have the
-   column, the Back that gives the spaces back (`.sb-page-head`), or the page's own first row where it
-   has no Back (`.sb-page-nav:first-child`). On the list's 16px inset, so the mark
+   column, the Back that gives the spaces back (`.sb-page-head`), or where it has no Back the page's
+   name, set lower as a title is (`--col-head-top`, below). On the list's 16px inset, so the mark
    sits over the rows' marks; under the rim and outside the scroller, so it holds still while the list
    moves under it. It moved down out of the head row when the rail narrowed to Codex's width: the
    lights now cross into that row, and it could not hold them, the profile, back and forward, the
@@ -552,8 +552,8 @@ kbd { font: 11px var(--font-mono); }
    row anatomy — 32px rows, text 8px in from the column's 16px, nothing lit under a passing pointer,
    the active fill once chosen, the column's own group labels — so it reads as the same sidebar listing
    something else. Where the profile switcher was, a page opened from a menu puts a Back (Settings, a
-   profile's or a space's settings) and a page the rail opened puts its own first row, since the rail's
-   lit button and Home put it away (the owner, 10-05). The spaces stay mounted, hidden. */
+   profile's or a space's settings) and a page the rail opened puts its name, since the rail's lit
+   button and Home put it away (the owner, 10-05). The spaces stay mounted, hidden. */
 .sb-list[hidden] { display: none; }
 /* The slot scrolls a rail longer than the column, and dissolves on the list's own depths. */
 .sb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; --fade-h: 44px; --fade-top-h: 12px; }
@@ -563,14 +563,11 @@ kbd { font: 11px var(--font-mono); }
 .sb-page-back:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* `no-drag` for the whole slot: the column is a window-drag region, and a rail's rows are LABELS,
    which the button-and-input opt-out above does not reach — a click on one would move the window. */
-/* The first thing in it — the search, or a section — the step under Back that the spaces list's head
-   takes under the profile (`.space-body`), so the column's first rows sit alike in both. */
+/* The first thing in it — the search, or a section — the step under Back, or under the page's name,
+   that the spaces list's head takes under the profile (`.space-body`), so the column's first rows sit
+   alike in all of them. */
 .sb-page-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 4px 16px 16px; overflow-y: auto;
   -webkit-app-region: no-drag; }
-/* …and with no Back over it, its first thing stands where Back and the profile do, 6px under the rim:
-   at the step under Back it crowded the rim, and below a band left where Back was it would sit a row
-   lower than the first row of every other column. */
-.sb-page-nav:first-child { padding-top: 6px; }
 .sb-page-nav .page-rail { width: auto; align-self: stretch; }
 .sb-page-nav .page-rail:has(.page-rail-list), .sb-page-nav .settings-rail-lists { gap: 4px; }
 .sb-page-nav .page-rail .settings-tab { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 5px 8px;
@@ -590,10 +587,21 @@ kbd { font: 11px var(--font-mono); }
 .sb-page-nav:has(> :is(.sched-col, .cr-col)) { padding: 0; overflow: hidden; }
 .sb-page-nav > :is(.sched-col, .cr-col) { flex: 1; width: auto; background: none; border-right: 0; }
 .sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-body, .cr-col-body) { --fade-h: 44px; --fade-top-h: 12px; }
-/* Its head is the column's first row, in the band Back and the profile stand in — 6px under the rim,
-   a 30px row — so "Scheduled" is on the line "Personal" is on, and what follows starts where the
-   spaces list does. In the page it keeps the page's own top. */
-.sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-head, .cr-col-head) { padding-block: 6px 0; min-height: 36px; }
+/* A page the rail opened is headed by its name — the Library's drawn by the column (`.sb-page-title`,
+   Sidebar.tsx), Scheduled's and Code review's by their own columns with a search or a ⋯ beside it — in
+   one type and one row. The row stands as far under the rim as the name's first glyph stands in from
+   the column's edge, measured on the ink rather than the boxes (`page-heads-live.mjs`): 6px under the
+   rim, the caps — 4.5px into a 24px line centred in a 30px row — were 13.5px down against 25px in, and
+   the head read as cramped against the top (the owner, 10-06: "so it looks more even"). 6px and the
+   11.5px they were short is 25 each way. With no control of its own the row keeps the control's slot,
+   so every name is on one line and what follows starts on one, a step under it. Standing in the page,
+   with the sidebar folded away, a column keeps its own bottom and takes the same top. The Back and the
+   profile are controls in the first row, not titles, and stay where they are. */
+:root { --col-head-top: 17.5px; }
+.sb-page-head:has(> .sb-page-title), .sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-head, .cr-col-head) {
+  padding: var(--col-head-top) 12px 0 24px; min-height: calc(var(--col-head-top) + 30px); }
+.sched-col-title, .cr-col-title, .sb-page-title { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 24px;
+  font-weight: var(--fw-title); color: var(--rl-text-bright); }
 /* The list's head (SidebarLens): what the list is showing, in the column's section-label voice — the
    sentence-case caption "Pinned" and the day headings wear — and at its far end the switch to the other
    reading, a plain icon button lit while the activity is up. A caption row rather than a control row:
@@ -7408,9 +7416,8 @@ select { appearance: none; padding-right: 22px;
 .schedules-page { flex-direction: row; }
 .sched-col { flex: none; width: 272px; min-height: 0; display: flex; flex-direction: column;
   background: var(--rl-frame); border-right: var(--hairline-w) solid var(--rl-line); }
-.sched-col-head { flex: none; display: flex; align-items: center; gap: 4px; padding: 16px 12px 6px 24px; }
-.sched-col-title { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title);
-  color: var(--rl-text-bright); }
+/* Its title is set with every column's, and stands as far under the top (`--col-head-top`, above). */
+.sched-col-head { flex: none; display: flex; align-items: center; gap: 4px; padding: var(--col-head-top) 12px 6px 24px; }
 .sched-col-search { flex: none; padding: 4px 16px 6px; }
 .sched-col-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column;
   padding: 4px 16px 24px; --fade-top-h: 12px; --fade-h: 34px; }
@@ -7519,8 +7526,7 @@ select { appearance: none; padding-right: 22px;
 .code-review-page { flex-direction: row; --cr-ask-room: 156px; --cr-tree-w: 272px; }
 .cr-col { flex: none; width: 300px; min-height: 0; display: flex; flex-direction: column;
   background: var(--rl-frame); border-right: var(--hairline-w) solid var(--rl-line); }
-.cr-col-head { flex: none; display: flex; align-items: center; gap: 4px; padding: 16px 12px 6px 24px; }
-.cr-col-title { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.cr-col-head { flex: none; display: flex; align-items: center; gap: 4px; padding: var(--col-head-top) 12px 6px 24px; }
 .cr-col-search { position: relative; flex: none; padding: 4px 16px 6px; }
 .cr-col-search .search-field, .cr-tree-filter .search-field { width: 100%; padding-left: 30px; }
 .cr-col-search-mark { position: absolute; left: 26px; top: 50%; transform: translateY(-50%); color: var(--rl-text-faint); pointer-events: none; }

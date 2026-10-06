@@ -1430,27 +1430,43 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     }
   });
 
-  it("a page's column with no Back starts its first row where Back and the profile stand", () => {
-    /* The owner, 10-05: the Back over the Scheduled, Library and Code review columns is unnecessary. Out
-       of the column, the page's own first row takes its place: 6px under the rim, as the profile and
-       Back are, and the Scheduled and Code review heads a row of the profile's height there, so their
-       titles are on the line "Personal" is on and what follows starts where the spaces list does.
-       THE MUTANTS: the step under Back left as the first row's inset (4px, crowding the rim), or a
-       head keeping the 16px it takes in the page (a band under the rim). */
+  it("a page's title heads its column as far under the rim as it stands in from the column's edge, on one token", () => {
+    /* The owner, 10-06, of the Library's column and the titles over Scheduled's and Code review's: "make
+       sure we have the title of the page for the library here … and increase the top padding … so it
+       looks more even". Measured on the ink (page-heads-live.mjs), a title 6px under the rim had its caps
+       13.5px down and its first glyph 25px in; the row now starts 6px + the 11.5px it was short. Every
+       column's title takes that one top — the Library's, drawn by the column, and the two that bring
+       their own head, in the sidebar's slot and standing in the page — in one type, in a row that keeps
+       its trailing control's slot. The Back and the profile are first-row controls and stay 6px under.
+       THE MUTANTS: the token back at the profile's 6px (the cramped head), a head with a literal top of
+       its own (a column off the others' line), a row that drops the control's slot (the Library's name
+       a line higher than the others'), the Library's title in a type of its own, or the Back moved down
+       with the titles (Home → Settings jumping its first row). */
     const px = (body: string, re: RegExp) => Number(re.exec(body)?.[1]);
+    const root = RULES.filter((r) => r.selectors.includes(":root") && r.body.includes("--col-head-top")).map((r) => r.body).join(" ");
+    expect(root).toContain("--col-head-top: 17.5px");
     const inset = px(bodiesFor(".sb-title").join(" "), /padding-top: (\d+)px/);
     expect(inset).toBe(6);
     expect(bodiesFor(".sb-page-head").join(" ")).toContain(`padding: ${inset}px 16px 0`);
     const row = px(bodiesFor(".sb-profile").join(" "), /height: (\d+)px/);
     expect(px(bodiesFor(".sb-page-back").join(" "), /height: (\d+)px/)).toBe(row);
-    // Under a Back, the step the spaces list takes under the profile; with none, Back's own place.
-    expect(px(bodiesFor(".sb-page-nav").join(" "), /padding: (\d+)px 16px 16px/)).toBe(px(bodiesFor(".space-body").join(" "), /padding-top: (\d+)px/));
-    expect(bodiesFor(".sb-page-nav:first-child").join(" ")).toContain(`padding-top: ${inset}px`);
-    const head = bodiesFor(".sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-head, .cr-col-head)").join(" ");
-    expect(head).toContain(`padding-block: ${inset}px 0`);
-    expect(head).toContain(`min-height: ${inset + row}px`);
-    // In the page, with the sidebar folded away, each head keeps the page's own top.
-    for (const sel of [".sched-col-head", ".cr-col-head"]) expect(bodiesFor(sel).join(" "), sel).toContain("padding: 16px 12px 6px 24px");
+    // The title's first glyph where every row's glyph starts: the list's inset and a row's own.
+    const side = px(bodiesFor(".sb-page-nav").join(" "), /padding: \d+px (\d+)px 16px/) + px(bodiesFor(".sb-page-nav .page-rail .settings-tab").join(" "), /padding: \d+px (\d+)px/);
+    for (const sel of [".sb-page-head:has(> .sb-page-title)", ".sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-head, .cr-col-head)"]) {
+      const head = bodiesFor(sel).join(" ");
+      expect(head, sel).toContain(`padding: var(--col-head-top) 12px 0 ${side}px`);
+      expect(head, sel).toContain(`min-height: calc(var(--col-head-top) + ${row}px)`);
+    }
+    // Standing in the page, with the sidebar folded away, each keeps its own bottom and takes the same top.
+    for (const sel of [".sched-col-head", ".cr-col-head"]) expect(bodiesFor(sel).join(" "), sel).toContain(`padding: var(--col-head-top) 12px 6px ${side}px`);
+    // Nothing else in the stylesheet writes a head's top for itself.
+    expect(RULES.filter((r) => r.selectors.some((s) => /(sched|cr)-col-head|sb-page-title/.test(s)) && /padding(-top|-block)?: \d/.test(r.body)).map((r) => r.selectors.join(", "))).toEqual([]);
+    // One type for the three titles, from one rule.
+    const type = RULES.filter((r) => r.selectors.includes(".sb-page-title"));
+    expect(type).toHaveLength(1);
+    expect(type[0]!.selectors).toEqual(expect.arrayContaining([".sched-col-title", ".cr-col-title", ".sb-page-title"]));
+    for (const want of ["font-size: 18px", "line-height: 24px", "font-weight: var(--fw-title)", "color: var(--rl-text-bright)"]) expect(type[0]!.body, want).toContain(want);
+    for (const sel of [".sched-col-title", ".cr-col-title"]) expect(bodiesFor(sel), sel).toEqual([type[0]!.body]);
   });
 
   it("the window never scrolls: the shell is clipped at its own edges, without becoming a scroller", () => {
