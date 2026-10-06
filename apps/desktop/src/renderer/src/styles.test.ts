@@ -1199,6 +1199,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // because the drawing's size is the diagram's and not the stylesheet's; the rule that shrinks it
       // to four fifths and then scrolls is arithmetic on that one number.
       "--diagram-w",
+      // How much of its list a model picker held after a pick keeps (ModelPicker.tsx's `floor`), and
+      // the room it leaves under the last row (`slack`): both read off the laid-out list at the pick.
+      // Used with 0px fallbacks, so a held picker that never receives them is merely unpadded.
+      "--mp-floor", "--mp-slack",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);

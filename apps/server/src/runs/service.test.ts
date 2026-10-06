@@ -97,6 +97,20 @@ describe("durable runs — the happy path", () => {
     expect(ctx).toMatch(/CAPTCHA|bot check/);
   });
 
+  it("starts its session at the level and the speed it asks for, and asks no speed it was not given", async () => {
+    /* THE MUTANTS: fast mode dropped on its way to the session — a scheduled task's bolt that never
+       reached its run — or asked of every run, whether it said so or not. */
+    const { spaceId, fake } = await boot();
+    const { run } = create(spaceId, { constraints: { effort: "minimal", fastMode: true } });
+    await settled(run.id);
+    expect(app.sessions.get(runOf(run.id).sessionId!)).toMatchObject({ effort: "minimal", fastMode: true });
+    expect(fake.seen.at(-1)).toMatchObject({ effort: "minimal", fastMode: true });
+    const plain = create(spaceId).run;
+    await settled(plain.id);
+    expect(app.sessions.get(runOf(plain.id).sessionId!)).toMatchObject({ effort: null, fastMode: false });
+    expect(fake.seen.at(-1)).toMatchObject({ fastMode: false });
+  });
+
   it("writes one terminal run_done row naming the run", async () => {
     const { spaceId } = await boot();
     const { run } = create(spaceId);

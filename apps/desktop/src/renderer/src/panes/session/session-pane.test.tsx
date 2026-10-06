@@ -936,7 +936,8 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
       fireEvent.click(within(perms).getByRole("button", { name: "Accept edits" }));
       await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
       await exited();
-      expect(screen.queryByRole("dialog", { name: "Model picker" })).toBeNull(); // picking closes the menu
+      // A setting on the picker's card like the rest: choosing it leaves the picker open.
+      expect(screen.getByRole("dialog", { name: "Model picker" })).not.toHaveAttribute("data-closing");
     });
 
     it("bypassPermissions from the collapsed menu still goes through the inline confirm (U-M7)", async () => {
@@ -1513,8 +1514,7 @@ describe("prompter model picker", () => {
       openPicker();
       fireEvent.click(screen.getByRole("option", { name: /gpt-5.3-codex/ }));
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("gpt-5.3-codex[reasoning=medium,fast=false]"));
-      await exited();
-      openPicker();
+      // Still open after the pick: the next one is made in the same visit.
       // "Auto" is a REAL id in Cursor's catalog (set_model accepts `default[]`, rejects `auto`):
       // picking it transmits that id — it is never rewritten to null or to a literal "auto".
       fireEvent.click(screen.getAllByRole("option", { name: /Auto/ })[0]!);

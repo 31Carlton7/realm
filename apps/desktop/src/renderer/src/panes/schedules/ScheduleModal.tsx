@@ -1,13 +1,12 @@
 import { Icon } from "@realm/ui";
 import { useState } from "react";
-import { EFFORT_LEVELS, REPEATS, type Repeat, type Schedule, type Space } from "@realm/contracts";
+import { REPEATS, type Repeat, type Schedule, type Space } from "@realm/contracts";
 import { Sheet } from "../../components/Sheet";
 import { FALLBACK_AGENT, useApp } from "../../state/store";
-import { formatEffort } from "../session/ModelPicker";
-import { ScheduleModelSelect } from "./ScheduleModelSelect";
+import { ScheduleRunPicker, useRunCatalog } from "./ScheduleRunPicker";
 import {
   clockLabel, constraintsOf, draftOf, draftValid, exprOf, firstRun, minuteOptions, ordinal, timeOptions, whenPhrase,
-  type Draft, type Effort,
+  type Draft,
 } from "./schedule-model";
 
 /** What the modal opens on: a task to edit, or a draft to create from (blank, or a suggestion's). */
@@ -22,7 +21,9 @@ const WEEK = [1, 2, 3, 4, 5, 6, 0].map((d) => ({ day: d, label: ["Sunday", "Mond
 /**
  * Schedule a task — Codex's modal, field for field: a name, the instructions, a card for WHEN (repeat
  * or not, how often, what time), and Advanced for HOW (a new session per run or one conversation
- * continued, archiving successes, and the space, main model and effort it runs on).
+ * continued, archiving successes, the space, and the model it runs on). The model is the prompter's
+ * own chip and picker, so its row also holds what Codex's Effort row did — the model's own levels —
+ * and fast mode and the permission the runs start in.
  *
  * The instructions are sent as written, because they are standing orders to an agent that will never
  * see this modal — and they may name other models for the work they hand out, which is the run's
@@ -44,6 +45,7 @@ export function ScheduleModal({ open, spaces, onClose, onSaved }: {
   const [advanced, setAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const patch = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
+  const catalog = useRunCatalog(d.agentKind, d.model);
 
   const first = firstRun(d);
   const valid = draftValid(d);
@@ -51,7 +53,8 @@ export function ScheduleModal({ open, spaces, onClose, onSaved }: {
     if (!valid || saving) return;
     // The goal goes as typed — whitespace and all — because it is somebody's standing instructions.
     const body = {
-      title: d.title.trim(), goal: d.goal, cron: exprOf(d)!, constraints: constraintsOf(d, editing?.constraints ?? null),
+      title: d.title.trim(), goal: d.goal, cron: exprOf(d)!,
+      constraints: constraintsOf(d, editing?.constraints ?? null, catalog.levels.levels.map((l) => l.id)),
       newSessionPerRun: d.newSessionPerRun, archiveSucceeded: d.archiveSucceeded,
     };
     setSaving(true);
@@ -177,16 +180,11 @@ export function ScheduleModal({ open, spaces, onClose, onSaved }: {
                 {spaces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </li>
-            <li className="settings-row">
+            {/* Model and Effort are one row now: the chip names both, and its picker sets the level
+                among the model's own, not a fixed five. */}
+            <li className="settings-row sched-model-row">
               <span className="settings-row-main"><span className="settings-row-name">Model</span></span>
-              <ScheduleModelSelect kind={d.agentKind} model={d.model} onChange={(agentKind, model) => patch({ agentKind, model })} />
-            </li>
-            <li className="settings-row">
-              <span className="settings-row-main"><span className="settings-row-name">Effort</span></span>
-              <select className="sched-select" aria-label="Effort" value={d.effort ?? ""} onChange={(e) => patch({ effort: (e.target.value || null) as Effort | null })}>
-                <option value="">Default</option>
-                {EFFORT_LEVELS.map((l) => <option key={l} value={l}>{formatEffort(l)}</option>)}
-              </select>
+              <ScheduleRunPicker draft={d} catalog={catalog} onChange={patch} />
             </li>
           </ul>
         )}

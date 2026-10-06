@@ -6,8 +6,8 @@ import { ScrollFades } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import {
-  agentRowHint, billingLead, chipLabel, effortCurrent, fastModeHint, fastModeShown, fastModeTitle, fastModeUntried, filterRows, flatten,
-  formatEffort, groupRows, isHarnessDefault, modelAbout, modelIdOn, modelLabel, type EffortControl, type FastMode, type ModelRow,
+  agentRowHint, billingLead, chipLabel, chipTitle, effortCurrent, fastModeHint, fastModeShown, fastModeTitle, fastModeUntried, filterRows, flatten,
+  formatEffort, groupRows, holdRows, isHarnessDefault, modelAbout, modelIdOn, modelLabel, type EffortControl, type FastMode, type ModelRow,
 } from "./model-catalog";
 
 export { formatEffort };
@@ -15,6 +15,10 @@ export { formatEffort };
 /** How many favourites get a ⌘-digit shortcut. Nine because ⌘0 is not a tenth — it is a different
  *  key users read as "zero", and a tenth badge nobody can press is worse than no badge. */
 const MAX_SHORTCUTS = 9;
+
+/** The most of the list a box held after a pick insists on keeping (`ModelPopover`'s `floor`): three
+ *  rows and the list's own padding, which is enough to see the row just pressed and its neighbours. */
+const LIST_FLOOR = 32 * 3 + 22;
 
 /** Controls the prompter's control row could not fit: when its left group overflows, the permission
  *  chip collapses into this popover as a labelled group instead of wrapping the row. Items mirror the
@@ -95,6 +99,8 @@ function useChipSweep(ref: RefObject<HTMLButtonElement | null>, effort: string |
  * - **How it runs, on the same surface.** Effort and fast mode are the popover's foot — Codex's own
  *   card: the bolt, the level by name, a reset to the model's default, a track with a dot per level —
  *   adjusted without leaving it, and each drawn only where the harness will actually receive it.
+ * - **Open until you leave it.** A pick changes the model and leaves the card to set its level and its
+ *   speed in the same visit; a click outside, the chip again, or Escape put the picker away.
  */
 export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, overflow, fast, eggs = false }: {
   kind: AgentKind;
@@ -130,19 +136,32 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
       {/* The mark is the HARNESS's, in colour: the one fact the model's own name cannot carry, and the
           only place a session says which CLI is running it. */}
       <button ref={btn} type="button" className="ghost-chip model-chip" aria-label="Model"
-        title={`${fullName} through ${AGENT_META[kind].label}${level ? ` · ${level} effort` : ""}${bolt ? " · fast mode" : ""}`}
+        title={chipTitle(fullName, kind, level, bolt)}
         aria-haspopup="dialog" aria-expanded={open}
         onClick={() => setOpen((v) => !v)}>
-        <Icon name={AGENT_META[kind].icon} size={14} colored className="chip-brand" />
-        <span className="chip-label">{label}</span>
-        {level && <span className="chip-effort">{level}</span>}
-        {/* The bolt Codex's own chip wears for its Fast tier: the speed asked for, on a model nothing
-            has said cannot serve it. */}
-        {bolt && <Icon name="zap" size={12} className="chip-fast" />}
+        <ModelChipText kind={kind} label={label} level={level} fast={bolt} />
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
       {open && <ModelPopover kind={kind} name={label} rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
         onToggleFavorite={onToggleFavorite} effort={effort} overflow={overflow} fast={fast} eggs={eggs} />}
+    </>
+  );
+}
+
+/**
+ * What the model chip says, in its own words: the harness's mark, the model, the level in force and
+ * the bolt. Anything else that names how work will run reads the same way — a scheduled task's card
+ * and its row in the column — because they are the same four facts about the same session to come.
+ */
+export function ModelChipText({ kind, label, level, fast }: { kind: AgentKind; label: string; level: string | null; fast: boolean }) {
+  return (
+    <>
+      <Icon name={AGENT_META[kind].icon} size={14} colored className="chip-brand" />
+      <span className="chip-label">{label}</span>
+      {level && <span className="chip-effort">{level}</span>}
+      {/* The bolt Codex's own chip wears for its Fast tier: the speed asked for, on a model nothing
+          has said cannot serve it. */}
+      {fast && <Icon name="zap" size={12} className="chip-fast" />}
     </>
   );
 }
@@ -163,7 +182,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Right-aligned, opening upward from the chip, which sits at the right end of the control row.
-  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, placement: "up", align: "right", onClose, exit: true });
+  const { pos, closing } = useAnchoredPopover({ ref, anchorRef, placement: "up", align: "right", onClose, exit: true });
   /* No taller than the roomier side of the chip, less the placement's margins. A brand-new session's
      prompter sits mid-window, where neither side held the whole list, and the picker either landed on
      the chip that opened it or ran off the bottom of the window. Capped, the list — the one part
@@ -177,14 +196,39 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
   /** The highlighted row by id, starting on the current model. Anchored to the ROW rather than an
    *  index: ⌥↩ re-sorts a starred row into Favourites from under the highlight. */
   const [activeKey, setActiveKey] = useState<string | null>(() => rows.find((r) => r.selected)?.id ?? null);
-  /** The harness chosen for a row with more than one, where the user changed it with ←/→. Keyed by
-   *  row, so re-routing one model never re-routes the next one looked at. */
+  /** The harness chosen for a row with more than one, where the user changed it with ←/→ or picked it
+   *  through one. Keyed by row, so re-routing one model never re-routes the next one looked at. */
   const [routes, setRoutes] = useState<Record<string, AgentKind>>({});
+  /* The list and the harness it leads with, as they were when the picker opened (`holdRows`): a pick
+     that moves the session to another harness must not re-sort the list under the pointer. */
+  const [opened] = useState(() => ({ rows, kind }));
+  const held = useMemo(() => holdRows(rows, opened.rows), [rows, opened]);
+  /** The box's height from the first pick on. The new model's card can be another size — more levels,
+   *  none, no bolt — and the popover hangs from its chip, so a card that changed height moved
+   *  everything above it, the row just pressed included. Held, the list takes up the difference: it is
+   *  the one part that scrolls. A search lets go, because a shorter list is a smaller box. */
+  const [height, setHeight] = useState<number | null>(null);
+  /** How much of the list a held box keeps, so a card that grew cannot squeeze it to nothing: past
+   *  that, the box grows by what the card still needs rather than clip it. */
+  const [floor, setFloor] = useState(0);
+  /** Room under the list's last row, for a list scrolled near its end when a card smaller than the one
+   *  it replaces gives the list the difference: with nothing more to show, the browser pulls the
+   *  scroll back and every row comes down under the pointer. */
+  const [slack, setSlack] = useState(0);
+  /** A model has just been picked here: until the highlight moves or the search changes, ←/→ in the
+   *  search field step that model's level, which is what the keyboard reaches for next. */
+  const [tuning, setTuning] = useState(false);
+  const search = useRef<HTMLInputElement>(null);
+  const wrap = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   useAutoHideScrollbar(list);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (height !== null && el && el.scrollHeight > height) setHeight(el.scrollHeight);
+  });
 
-  const queried = useMemo(() => filterRows(rows, query), [rows, query]);
-  const groups = useMemo(() => groupRows(queried, { query, kind }), [queried, query, kind]);
+  const queried = useMemo(() => filterRows(held, query), [held, query]);
+  const groups = useMemo(() => groupRows(queried, { query, kind: opened.kind }), [queried, query, opened.kind]);
   const shown = useMemo(() => flatten(groups), [groups]);
   /** Matches this session can no longer switch to — left out of the list, and said so. */
   const locked = queried.filter((r) => r.blockedReason).length;
@@ -211,23 +255,48 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
     row.scrollIntoView?.({ block: "nearest" });
   }, [activeRow, pos]);
 
+  /* A pick changes the model and leaves the picker open, so the card under the list can set how the
+     new model runs in the same visit (the owner, 10-05). */
   const pick = (row: ModelRow | undefined, harness?: AgentKind) => {
     if (!row || row.blockedReason) return;
     const target = harness && row.harnesses.includes(harness) ? harness : row.kind;
+    const box = ref.current?.offsetHeight ?? 0;
+    if (height === null && box > 0) {
+      setHeight(box);
+      setFloor(Math.min(wrap.current?.offsetHeight ?? 0, LIST_FLOOR));
+    }
+    // The most the list can be given is the whole of the card now under it.
+    const foot = ref.current?.querySelector<HTMLElement>(".mp-foot")?.offsetHeight ?? 0;
+    const l = list.current;
+    if (l && foot > 0) setSlack((was) => was + Math.max(0, foot - (l.scrollHeight - l.clientHeight - l.scrollTop)));
+    setRoutes((rs) => ({ ...rs, [row.id]: target }));
+    setActiveKey(row.id);
+    setTuning(true);
     // `modelIdOn` re-reads the id for THAT harness rather than re-sending the resolved one: a foreign
     // id is rejected on the wire.
     onPick(target, modelIdOn(row, target) ?? null);
-    close();
+    // The keyboard stays in the search with its words selected, so the next one typed starts afresh
+    // and the list stays as it is until then.
+    search.current?.focus();
+    search.current?.select();
   };
-  const move = (by: number) => setActiveKey(shown[Math.min(shown.length - 1, Math.max(0, cur + by))]?.id ?? null);
+  const move = (by: number) => {
+    setTuning(false);
+    setActiveKey(shown[Math.min(shown.length - 1, Math.max(0, cur + by))]?.id ?? null);
+  };
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
     else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
     else if (e.key === "PageDown") { e.preventDefault(); move(8); }
     else if (e.key === "PageUp") { e.preventDefault(); move(-8); }
-    // ←/→ walk the highlighted model's harnesses, where it has more than one; anywhere else they are
-    // the search field's own caret keys.
+    // Right after a pick, ←/→ step the picked model's level, as they do on the track.
+    else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && tuning && effort && effort.levels.length > 1) {
+      e.preventDefault();
+      stepLevel(effort, e.key === "ArrowRight" ? 1 : -1);
+    }
+    // Otherwise they walk the highlighted model's harnesses, where it has more than one; anywhere
+    // else they are the search field's own caret keys.
     else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && activeRow && waysOf(activeRow).length > 1) {
       e.preventDefault();
       const ways = waysOf(activeRow);
@@ -248,16 +317,17 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
   return createPortal(
     <div ref={ref} className="model-picker" aria-label="Model picker" role="dialog"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: room ?? undefined,
-        visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom right" }}
-      data-closing={closing || undefined} data-eggs={eggs || undefined} inert={closing}>
+        height: height ?? undefined, "--mp-floor": `${floor}px`, "--mp-slack": `${slack}px`,
+        visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom right" } as CSSProperties}
+      data-held={height !== null || undefined} data-closing={closing || undefined} data-eggs={eggs || undefined} inert={closing}>
       <div className="mp-search">
         <Icon name="search" size={14} />
         {/* Autofocused because the picker opens for typing — the command palette's bargain. */}
-        <input autoFocus type="text" value={query} placeholder="Search models" aria-label="Search models"
+        <input ref={search} autoFocus type="text" value={query} placeholder="Search models" aria-label="Search models"
           role="combobox" aria-expanded aria-controls="mp-list" aria-activedescendant={activeRow ? `mp-${activeRow.id}` : undefined}
-          onChange={(e) => { setQuery(e.target.value); setActiveKey(null); }} onKeyDown={onKeyDown} />
+          onChange={(e) => { setQuery(e.target.value); setActiveKey(null); setTuning(false); setHeight(null); }} onKeyDown={onKeyDown} />
       </div>
-      <div className="mp-list-wrap">
+      <div ref={wrap} className="mp-list-wrap">
         <ScrollFades scroller={list} />
         <div ref={list} className="mp-list" id="mp-list" role="listbox" aria-label="Models">
           {groups.map((g) => (
@@ -275,6 +345,9 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
                     aria-label={[g.byHarness ? AGENT_META[r.kind].label : r.label, hint, r.note].filter(Boolean).join(", ")}
                     data-active={active || undefined}
                     onMouseEnter={() => setActiveKey(r.id)}
+                    // A press keeps the keyboard in the search field, star and routes included: the
+                    // picker outlives the click, and the keys it answers next are the field's.
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pick(r, routeOf(r))}>
                     <Icon name={r.icon} size={16} colored className="mp-row-mark" />
                     <span className="mp-row-name">{title}</span>
@@ -325,11 +398,10 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
       {activeRow && <About row={activeRow} route={routeOf(activeRow)} info={info} />}
       {hasFoot && (
         <div className="mp-foot">
-          {/* Effort and fast mode stay put when changed: they are settings on the surface you are
-              looking at, and the knob moving is the answer. Only a model closes the picker. */}
+          {/* Nothing on this surface closes it: the model, the level, fast mode and a folded chip's
+              choice are settings on the card you are looking at, and each answers in place. */}
           {runs && <RunCard effort={effort} fast={fast} model={name} />}
-          {/* A folded chip's menu still closes on a pick, as the chip's own menu does. */}
-          {(overflow ?? []).map((g) => <Segments key={g.label} label={g.label} items={g.items} onPicked={close} />)}
+          {(overflow ?? []).map((g) => <Segments key={g.label} label={g.label} items={g.items} />)}
         </div>
       )}
     </div>,
@@ -362,18 +434,32 @@ function About({ row, route, info }: { row: ModelRow; route: AgentKind; info: Re
   );
 }
 
-function Segments({ label, items, onPicked }: { label: string; items: OverflowGroup["items"]; onPicked?: () => void }) {
+function Segments({ label, items }: { label: string; items: OverflowGroup["items"] }) {
   return (
     <div className="mp-seg-group" role="group" aria-label={label}>
       <span className="mp-seg-label">{label}</span>
       <div className="mp-seg">
         {items.map((it, i) => (
-          <button key={i} type="button" className="mp-seg-opt" aria-pressed={!!it.checked}
-            onClick={() => { it.onSelect(); onPicked?.(); }}>{it.label}</button>
+          <button key={i} type="button" className="mp-seg-opt" aria-pressed={!!it.checked} onClick={it.onSelect}>{it.label}</button>
         ))}
       </div>
     </div>
   );
+}
+
+/** Put the level at the `i`th of the model's own, held to the ends of the list. A pointer event
+ *  without a position (a synthetic one) names no dot, and changes nothing. */
+function setLevel(effort: EffortControl, i: number) {
+  if (!Number.isFinite(i)) return;
+  const level = effort.levels[Math.max(0, Math.min(effort.levels.length - 1, i))]!;
+  if (level.id !== effort.value) effort.onChange(level.id);
+}
+
+/** One level up or down from the one in force; from a level nobody chose and the harness never named,
+ *  the lightest is the first step. */
+function stepLevel(effort: EffortControl, by: number) {
+  const { index } = effortCurrent(effort);
+  setLevel(effort, index < 0 ? 0 : index + by);
 }
 
 /**
@@ -459,12 +545,7 @@ function EffortTrack({ effort, glint = 0 }: { effort: EffortControl; glint?: num
   const heavy = cur.chosen && !!cur.choice && HEAVY_EFFORTS.has(cur.choice.id);
   const ref = useRef<HTMLDivElement>(null);
   const span = levels.length - 1;
-  const set = (i: number) => {
-    // A pointer event without a position (a synthetic one) names no dot.
-    if (!Number.isFinite(i)) return;
-    const level = levels[Math.max(0, Math.min(span, i))]!;
-    if (level.id !== effort.value) effort.onChange(level.id);
-  };
+  const set = (i: number) => setLevel(effort, i);
   // The dot nearest the pointer, along the run between the first and the last.
   const nearest = (clientX: number) => {
     const r = ref.current!.getBoundingClientRect();
@@ -473,7 +554,7 @@ function EffortTrack({ effort, glint = 0 }: { effort: EffortControl; glint?: num
   };
   const onKeyDown = (e: KeyboardEvent) => {
     const step = e.key === "ArrowRight" || e.key === "ArrowUp" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 0;
-    if (step !== 0) { e.preventDefault(); set(cur.index < 0 ? 0 : cur.index + step); }
+    if (step !== 0) { e.preventDefault(); stepLevel(effort, step); }
     else if (e.key === "Home") { e.preventDefault(); set(0); }
     else if (e.key === "End") { e.preventDefault(); set(span); }
   };
