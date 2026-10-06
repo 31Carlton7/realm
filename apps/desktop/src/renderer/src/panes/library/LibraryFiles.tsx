@@ -1,10 +1,11 @@
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref } from "react";
-import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, type ArtifactType, type LibraryAddResult, type LibraryEntry } from "@realm/contracts";
-import { useApp } from "../../state/store";
+import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, LIBRARY_QUERY_MAX, type ArtifactKind, type ArtifactType, type LibraryAddResult, type LibraryEntry } from "@realm/contracts";
+import { useApp, type FilesView } from "../../state/store";
 import { folderOffer, folderOfferText, nameList, offerCount } from "../../state/library-add";
 import { FileCard, FileRow } from "../../components/FileCard";
 import { Menu, type MenuItem } from "../../components/Menu";
+import { fileMenuItems, isMenuKey, removeOnDelete } from "../../components/file-menu";
 import { PageScroll } from "../../components/ScrollFades";
 
 type Scope = "space" | "all";
@@ -112,6 +113,10 @@ export type LibraryFilesHandle = { drop(files: File[]): void };
  * the toolbar's Add, or files dropped anywhere on the page. Realm keeps a copy of each under the
  * profile (`library.add`), and they are listed as any other file is, with "Added" where the others
  * name a session. A dropped folder is a question, not a copy: the page asks before its files come in.
+ *
+ * And they go back OUT (the owner, 10-05: "a way to remove files once added"): from a file's menu, its
+ * ⋯, or Delete on the file in focus — only the person's own, since a session's files are its work —
+ * with no question first, because the toast it ends in carries the Undo (`removeLibraryFiles`).
  */
 export function LibraryFiles({ spaceId, head, ref }: { spaceId: string;
   /** The page's head, drawn first in this column and scrolling away with it, the toolbar under it. */
@@ -125,6 +130,7 @@ export function LibraryFiles({ spaceId, head, ref }: { spaceId: string;
   const setLibraryView = useApp((s) => s.setLibraryView);
   const openViewer = useApp((s) => s.openViewer);
   const addLibraryFiles = useApp((s) => s.addLibraryFiles);
+  const removeLibraryFiles = useApp((s) => s.removeLibraryFiles);
   const pickFiles = useApp((s) => s.pickFiles);
   const pathForFile = useApp((s) => s.pathForFile);
   const toast = useApp((s) => s.toast);
@@ -171,19 +177,46 @@ export function LibraryFiles({ spaceId, head, ref }: { spaceId: string;
     query, limit: LIBRARY_PAGE_SIZE, before,
   }), [scope, spaceId, profileId, kind, type, query]);
 
-  // First page, and every re-query a filter, the search box or an add causes.
+  /* First page, and every re-query a filter, the search box or a change to the Library causes. A new
+     narrowing starts at the top; the Library changing under the same one — an add, a removal, its
+     undo — asks again for as much as was showing, so a file taken out of the third page leaves the
+     page where it was rather than cut back to the first sixty. */
+  const showing = useRef(0);
+  showing.current = entries.length;
+  const narrowedBy = useRef(params);
   useEffect(() => {
     const gen = ++generation.current;
+    const limit = narrowedBy.current === params ? Math.min(LIBRARY_QUERY_MAX, Math.max(LIBRARY_PAGE_SIZE, showing.current)) : LIBRARY_PAGE_SIZE;
+    narrowedBy.current = params;
     setLoading(true);
     run(async () => {
-      const page = await libraryArtifacts(params(null));
+      const page = await libraryArtifacts({ ...params(null), limit });
       if (generation.current !== gen) return;
       setEntries(page.entries);
       setTotal(page.total);
-      setDone(page.entries.length < LIBRARY_PAGE_SIZE);
+      setDone(page.entries.length < limit);
       setLoading(false);
     });
   }, [params, revision, libraryArtifacts, run]);
+
+  /* Delete on the file in focus hands the keyboard to the file after it, or before it at the end, as
+     the Finder does — once the list without it has come back. */
+  const focusNext = useRef<string | null>(null);
+  const column = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const id = focusNext.current;
+    if (id === null || !entries.some((e) => e.id === id)) return;
+    focusNext.current = null;
+    column.current?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(id)}"] > :is(.library-tile, .library-row)`)?.focus();
+  }, [entries]);
+  const remove = (e: LibraryEntry) => run(async () => {
+    if (!profileId) return;
+    const held = document.activeElement instanceof HTMLElement && document.activeElement.closest(`[data-entry="${CSS.escape(e.id)}"]`) !== null;
+    const at = entries.indexOf(e);
+    const next = entries.slice(at + 1).find((x) => x.path !== e.path) ?? entries.slice(0, at).reverse().find((x) => x.path !== e.path);
+    const r = await removeLibraryFiles(profileId, [e.path]);
+    if (held && next && r?.removal) focusNext.current = next.id;
+  });
 
   const more = useCallback(() => {
     const last = entries.at(-1);
@@ -251,7 +284,7 @@ export function LibraryFiles({ spaceId, head, ref }: { spaceId: string;
   ];
 
   return (
-    <div className="library-files">
+    <div className="library-files" ref={column}>
       <PageScroll wide>
         {head}
         <div className="library-toolbar">
@@ -334,27 +367,12 @@ export function LibraryFiles({ spaceId, head, ref }: { spaceId: string;
         {groups.map((g) => (
           <section key={`${g.label}-${g.entries[0]!.id}`} className="library-day">
             <h2 className="library-day-label">{g.label}</h2>
-            {view === "grid" ? (
-              <ul className="library-grid" onKeyDown={walkGrid}>
-                {g.entries.map((e) => (
-                  <li key={e.id}>
-                    <FileCard path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} onOpen={() => preview(e)}>
-                      <Provenance entry={e} />
-                    </FileCard>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <ul className="library-rows">
-                {g.entries.map((e) => (
-                  <li key={e.id}>
-                    <FileRow path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} time={timeOf(e.ts)} onOpen={() => preview(e)}>
-                      <Provenance entry={e} />
-                    </FileRow>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ul className={view === "grid" ? "library-grid" : "library-rows"} onKeyDown={view === "grid" ? walkGrid : undefined}>
+              {g.entries.map((e) => (
+                <LibraryFile key={e.id} entry={e} view={view} onOpen={() => preview(e)}
+                  onRemove={e.kind === "added" ? () => remove(e) : null} />
+              ))}
+            </ul>
           </section>
         ))}
 
@@ -363,6 +381,53 @@ export function LibraryFiles({ spaceId, head, ref }: { spaceId: string;
         {!done && <div ref={sentinel} className="library-more">{loading ? "Loading…" : ""}</div>}
       </PageScroll>
     </div>
+  );
+}
+
+/**
+ * One file of the page, as a tile or a row, and its menu: on a right-click, on the ⋯ that comes up
+ * under the pointer or the focus — the grammar the Library's Skills rows use — and on Shift-F10. A file
+ * the person added also goes on Delete, and its menu ends in the row that removes it; a session's file
+ * has neither, because it is not the Library's to let go of.
+ */
+function LibraryFile({ entry, view, onOpen, onRemove }: {
+  entry: LibraryEntry;
+  view: FilesView;
+  onOpen: () => void;
+  onRemove: (() => void) | null;
+}) {
+  const more = useRef<HTMLButtonElement>(null);
+  /** Open at the pointer that right-clicked, or under the ⋯. */
+  const [menu, setMenu] = useState<{ x: number; y: number } | "more" | null>(null);
+  const type = artifactTypeOf(entry.ext);
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLLIElement>) => {
+    // The file's own keys, not its ⋯'s: a key pressed on a control is that control's.
+    if (e.target !== e.currentTarget.firstElementChild) return;
+    if (isMenuKey(e)) { e.preventDefault(); setMenu("more"); return; }
+    removeOnDelete(onRemove)(e);
+  };
+  return (
+    <li data-entry={entry.id} className="library-file" onKeyDown={onKeyDown}
+      onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}>
+      {view === "grid" ? (
+        <FileCard path={entry.path} name={entry.name} type={type} title={entry.path} onOpen={onOpen}>
+          <Provenance entry={entry} />
+        </FileCard>
+      ) : (
+        <FileRow path={entry.path} name={entry.name} type={type} title={entry.path} time={timeOf(entry.ts)} onOpen={onOpen}>
+          <Provenance entry={entry} />
+        </FileRow>
+      )}
+      <button ref={more} type="button" className="icon-btn library-file-more" aria-label={`More for ${entry.name}`} title="More"
+        aria-haspopup="menu" aria-expanded={menu !== null} onClick={() => setMenu("more")}>
+        <Icon name="more" size={14} />
+      </button>
+      {menu !== null && (
+        <Menu label={entry.name} onClose={() => setMenu(null)}
+          {...(menu === "more" ? { anchorRef: more, align: "right" as const } : { at: menu })}
+          items={fileMenuItems({ path: entry.path, onOpen, shareFrom: () => (menu === "more" ? more.current : menu), ...(onRemove ? { onRemove } : {}) })} />
+      )}
+    </li>
   );
 }
 

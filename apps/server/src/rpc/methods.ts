@@ -649,6 +649,9 @@ export function registerMethods(d: Deps): void {
   reg("library.saved", (p) => d.savedTurns.list(p.profileId, p.limit));
   // Files a person adds to the Library: copied in under the profile, and listed beside the index.
   reg("library.add", (p) => d.libraryFiles.add(p));
+  // …and taken out again: only what was added, and only Realm's copy, held a while for the undo.
+  reg("library.remove", (p) => d.libraryFiles.remove(p));
+  reg("library.restore", (p) => d.libraryFiles.restore(p));
 
   // Import from the agent CLIs' own stores. `scan` is a pure read — it opens ~/.claude, ~/.codex and
   // ~/.cursor read-only and answers; nothing is created by looking. `apply` is the only writer, and

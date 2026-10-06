@@ -6,6 +6,7 @@ import { useApp } from "../../state/store";
 import { VIEWER_SLOT, ownerOf, type FileProvenance, type ViewerState } from "../../state/viewer";
 import { Menu, type MenuItem } from "../Menu";
 import { canQuickLook, canShare, quickLook, shareFile } from "../file-actions";
+import { removeFromLibraryItem } from "../file-menu";
 import { useFileDrop } from "../use-file-drop";
 import { ViewerChat } from "./ViewerChat";
 import { ViewerStage, typingIn } from "./ViewerStage";
@@ -172,7 +173,9 @@ function useFacts(path: string, beat: number): Facts | undefined {
  * The file's name and what Realm can do with it: open it in the documents pane, reveal it in the
  * Finder, save a copy, and the rest behind ⋯ — each drawn only where it would work. A file that is no
  * longer on disk gets none of them, only the way out: three buttons that fail in turn are a worse way
- * to learn it is gone than the sentence on the stage.
+ * to learn it is gone than the sentence on the stage. A file the person added to the Library ends
+ * its ⋯ the way its tile's menu does, with the row that takes it back out; the viewer then goes on to
+ * the next file it holds.
  */
 function ViewerHead({ viewer, facts, onClose }: { viewer: ViewerState; facts: Facts | undefined; onClose: () => void }) {
   const file = viewer.files[viewer.index]!;
@@ -180,6 +183,9 @@ function ViewerHead({ viewer, facts, onClose }: { viewer: ViewerState; facts: Fa
   const sessions = useApp((s) => s.sessions);
   const sessionSpace = useApp((s) => s.sessionSpace);
   const openDocumentPath = useApp((s) => s.openDocumentPath);
+  const removeLibraryFiles = useApp((s) => s.removeLibraryFiles);
+  // An added file is its profile's, and the viewer is seen from the space whose page opened it.
+  const profileId = useApp((s) => s.spaces.find((x) => x.id === viewer.spaceId)?.profileId ?? s.activeProfileId);
   const run = useApp((s) => s.run);
   const ownerId = ownerOf(viewer, file, (id) => sessions[id] !== undefined || id in sessionSpace);
   const environmentId = ownerId ? sessions[ownerId]?.environmentId ?? null : null;
@@ -201,6 +207,9 @@ function ViewerHead({ viewer, facts, onClose }: { viewer: ViewerState; facts: Fa
     // Beside the pane, not instead of it: "open it in the app I edit pictures in" is its own request.
     ...(toOs && inPane ? [{ label: "Open with the default app", onSelect: toApp } as MenuItem] : []),
     { label: "Copy path", onSelect: () => { void navigator.clipboard?.writeText?.(file.path); } },
+    ...(file.from?.kind === "added" && profileId
+      ? [{ kind: "separator" } as MenuItem, removeFromLibraryItem(() => run(async () => { await removeLibraryFiles(profileId, [file.path]); }))]
+      : []),
   ];
 
   return (

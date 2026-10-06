@@ -3030,6 +3030,11 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
   overflow-wrap: anywhere; text-wrap: pretty; -webkit-user-select: text; user-select: text; cursor: text; }
 /* Off its own line box at the top, so a 28px target does not make a one-line toast taller. */
 .toast-close { flex: none; margin: -5px 0; color: var(--rl-text-faint); }
+/* The one thing a toast can do, an Undo: a word in the link's ink at the toast's own size, on the
+   close's 28px off the line box, so offering it never makes the toast taller. Two classes, because the
+   quiet button's own size and ink are set further down and would otherwise win. */
+.toast .toast-action { --btn-h: 28px; flex: none; margin: -5px -2px; padding: 0 8px; font-size: 13px; font-weight: var(--fw-label); color: var(--rl-accent); }
+.toast .toast-action:hover:not(:disabled) { color: var(--rl-accent); }
 /* Tucked behind, a toast is its top edge and nothing more: three notices' words a few pixels apart
    would be one illegible one. */
 .toasts:not([data-expanded]) .toast:not([data-front]) .toast-body { opacity: 0; }
@@ -7928,6 +7933,18 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .library-row-mark > img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
 .library-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 .library-row-time { font-size: 12.5px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* A file's ⋯ — its menu — under the pointer or the focus and otherwise out of the way, the grammar the
+   Skills rows use; it arrives at once and fades on the way out. On a tile it stands in the corner on
+   the surface a menu is drawn on, under the object's own shadow, so it reads over a picture as well as
+   over a name. On a row it comes up in the time's column, and the time steps aside for it. */
+.library-file { position: relative; }
+.library-file-more { position: absolute; z-index: 1; opacity: 0; transition: opacity var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+.library-file:is(:hover, :focus-within) > .library-file-more, .library-file-more[aria-expanded="true"] { opacity: 1; transition-duration: 0s; }
+.library-grid .library-file-more { top: 8px; right: 8px; background: var(--surface); box-shadow: var(--rl-object-shadow); }
+.library-grid .library-file-more:hover { background: var(--hover); }
+.library-rows .library-file-more { top: 50%; right: 8px; translate: 0 -50%; }
+.library-rows .library-file:is(:hover, :focus-within) .library-row-time,
+.library-rows .library-file:has(> .library-file-more[aria-expanded="true"]) .library-row-time { visibility: hidden; }
 /* The pager's sentinel. It has to have height, or an IntersectionObserver on a zero-height box at
    the end of a grid never fires. */
 .library-more { min-height: 40px; display: grid; place-items: center; font-size: 12.5px; color: var(--rl-text-dim); }

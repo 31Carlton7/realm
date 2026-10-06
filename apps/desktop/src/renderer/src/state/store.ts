@@ -25,8 +25,10 @@ import { createContext, useCallback, useContext, useMemo, useSyncExternalStore }
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
 import { pushToast, type Toast, type ToastInput } from "./toasts";
 import { libraryAddNotices } from "./library-add";
+import { libraryRemoveNotice, libraryRestoreNotice } from "./library-remove";
+import { forgetThumbnails } from "../components/use-thumbnail";
 import { closeIntent } from "./close-intent";
-import type { LibraryAddInput, LibraryAddResult } from "@realm/contracts";
+import type { LibraryAddInput, LibraryAddResult, LibraryRemoveInput, LibraryRemoveResult, LibraryRestoreInput, LibraryRestoreResult } from "@realm/contracts";
 import { getMachineHub } from "../panes/machine/machine-hub";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, clampPaneAlpha, paneAlphaFromGround,
@@ -172,6 +174,10 @@ export type Api = {
   libraryArtifacts(query: LibraryQuery): Promise<{ entries: LibraryEntry[]; total: number }>;
   /** `library.add` — copy files into a profile's Library by path (the picker's, a drop's). */
   addLibraryFiles(input: LibraryAddInput): Promise<LibraryAddResult>;
+  /** `library.remove` — take files a person added back out of a profile's Library, by path. */
+  removeLibraryFiles(input: LibraryRemoveInput): Promise<LibraryRemoveResult>;
+  /** `library.restore` — undo a removal, while the server still holds its copies. */
+  restoreLibraryFiles(input: LibraryRestoreInput): Promise<LibraryRestoreResult>;
   listProjects(spaceId: string): Promise<Project[]>;
   /** Every checkout the space knows about: its primary, plus any worktree Realm made (W2). */
   listEnvironments(spaceId: string): Promise<Environment[]>;
@@ -1012,8 +1018,9 @@ export type AppState = {
   filesView: FilesView;
   /** The Library's grid or rows (`SETTING_LIBRARY_VIEW`); tiles unless the person chose rows. */
   libraryView: FilesView;
-  /** Bumped each time this window adds files to the Library. A list of the Library's files already on
-   *  screen — the page's own, the documents pane's home under it — asks again when it moves. */
+  /** Bumped each time this window adds files to the Library, takes them out, or puts them back. A list
+   *  of the Library's files already on screen — the page's own, the documents pane's home under it —
+   *  asks again when it moves. */
   libraryRevision: number;
   /**
    * The space strip sorts by activity instead of the order you last dragged it into.
@@ -1762,6 +1769,11 @@ export type AppState = {
    *  toasts (`libraryAddNotices`). A folder comes back described, for the page to offer, unless
    *  `folders` asks for its files. */
   addLibraryFiles(profileId: string, paths: readonly string[], opts?: { folders?: boolean }): Promise<LibraryAddResult | null>;
+  /** Take files the person added out of a profile's Library, by path — a file's menu, the viewer's, or
+   *  Delete on the file in focus — and say so in a toast whose Undo puts every one back. What went with
+   *  them goes too, and comes back with them: their chips in this window's prompters, their places in
+   *  the viewer, their pictures. Paths that are not added files are left alone by the server. */
+  removeLibraryFiles(profileId: string, paths: readonly string[]): Promise<LibraryRemoveResult | null>;
   /** The `@` list's Files: the session's checkout ranked against a query. Not cached here either — the
    *  server keeps the listing, and the answer belongs to the keystroke that asked. */
   mentionFiles(sessionId: string, query: string): Promise<ProjectFilesResult>;
@@ -4217,12 +4229,82 @@ await get().refreshCustomThemes().catch(() => {});
         if (paths.length === 0) return null;
         try {
           const result = await api.addLibraryFiles({ profileId, paths: [...paths], folders: opts.folders ?? false });
+          // A copy made where a removed one was is a new file at an old path: what the window holds for
+          // the path is about the file that went — a sent message's tile showing it as gone, say.
+          forgetThumbnails(result.added.map((e) => e.path));
           for (const notice of libraryAddNotices(result)) get().toast(notice);
           return result;
         } finally {
           // Even an add that stopped part way may have copied files in before it did.
           set({ libraryRevision: get().libraryRevision + 1 });
         }
+      },
+      async removeLibraryFiles(profileId, paths) {
+        if (paths.length === 0) return null;
+        const result = await api.removeLibraryFiles({ profileId, paths: [...paths] });
+        const removal = result.removal;
+        if (removal === null) return result;
+        const gone = new Set(result.removed.map((e) => e.path));
+        /* A chip naming a file that is gone would fail the next send — an attachment that is not there
+           fails the whole turn — so it comes off every prompter that has it, and goes back on with the
+           undo, where it was in its row. */
+        const chips: { slot: string; index: number; chip: PickedAttachment }[] = [];
+        const pending: Record<string, PickedAttachment[]> = {};
+        for (const [slot, list] of Object.entries(get().pendingAttachments)) {
+          list.forEach((chip, index) => { if (gone.has(chip.path)) chips.push({ slot, index, chip }); });
+          pending[slot] = list.some((a) => gone.has(a.path)) ? list.filter((a) => !gone.has(a.path)) : list;
+        }
+        /* The viewer on one of them moves on to the next file it holds, or closes holding none: a look
+           at a file that is no longer anywhere could only say so. */
+        const was = get().viewer;
+        const taken = was ? was.files.flatMap((file, index) => (gone.has(file.path) ? [{ file, index }] : [])) : [];
+        let viewer = was;
+        if (was && taken.length > 0) {
+          const files = was.files.filter((f) => !gone.has(f.path));
+          const shown = was.files[was.index]!;
+          const index = gone.has(shown.path)
+            ? Math.min(was.files.slice(0, was.index).filter((f) => !gone.has(f.path)).length, files.length - 1)
+            : files.indexOf(shown);
+          viewer = files.length === 0 ? null : { ...was, files, index, ...(gone.has(shown.path) ? { detached: null, marking: null } : {}) };
+        }
+        forgetThumbnails(gone);
+        set({ pendingAttachments: pending, viewer, libraryRevision: get().libraryRevision + 1 });
+        if (viewer && viewer !== was) holdViewerSession();
+
+        const undo = async () => {
+          const back = await api.restoreLibraryFiles({ removal });
+          /* Only a file back at its own path takes its chip and its place again: one put back beside a
+             file added since under its name is a different path, and the old path names the other file. */
+          const here = new Set(back.restored.map((e) => e.path));
+          const now = { ...get().pendingAttachments };
+          for (const { slot, index, chip } of chips) {
+            const list = now[slot] ?? [];
+            if (!here.has(chip.path) || list.some((a) => a.path === chip.path)) continue;
+            now[slot] = [...list.slice(0, index), chip, ...list.slice(index)];
+          }
+          const cur = get().viewer;
+          let look = cur;
+          if (cur && was && cur.look === was.look) {
+            let files = cur.files;
+            for (const { file, index } of taken) {
+              if (here.has(file.path) && !files.some((f) => f.path === file.path)) files = [...files.slice(0, index), file, ...files.slice(index)];
+            }
+            // The file the removal took off the stage goes back on it.
+            const shown = was.files[was.index]!;
+            const index = gone.has(shown.path) && here.has(shown.path) ? files.findIndex((f) => f.path === shown.path) : files.indexOf(cur.files[cur.index]!);
+            look = { ...cur, files, index };
+          }
+          forgetThumbnails(gone);
+          set({ pendingAttachments: now, viewer: look, libraryRevision: get().libraryRevision + 1 });
+          if (look !== cur) holdViewerSession();
+          const said = libraryRestoreNotice(back);
+          if (said) get().toast({ tone: "info", text: said });
+        };
+        get().toast({
+          tone: "info", text: libraryRemoveNotice(result, new Set(chips.map((c) => c.slot)).size),
+          action: { label: "Undo", run: () => get().run(undo) },
+        });
+        return result;
       },
       mentionFiles: (sessionId, query) => api.mentionFiles(sessionId, query),
       async searchDeep(query) {

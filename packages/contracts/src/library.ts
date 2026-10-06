@@ -70,6 +70,8 @@ export type LibraryEntry = z.infer<typeof LibraryEntrySchema>;
 /** One page. Large enough that a first screen of a Drive-style grid is one round trip at any
  *  reasonable window size, small enough that the query stays an index range scan. */
 export const LIBRARY_PAGE_SIZE = 60;
+/** The most rows one read may ask for: what a page already showing several pages asks again, at most. */
+export const LIBRARY_QUERY_MAX = 200;
 
 export const LibraryQuerySchema = z.object({
   /** Null spans every space in the profile, which is what "across all sessions" means. */
@@ -95,7 +97,7 @@ export const LibraryQuerySchema = z.object({
    *  to also match the eleven directories above it. */
   query: z.string().default(""),
   /** Newest first by default — the same order every other list of session output takes. */
-  limit: z.number().int().positive().max(200).default(LIBRARY_PAGE_SIZE),
+  limit: z.number().int().positive().max(LIBRARY_QUERY_MAX).default(LIBRARY_PAGE_SIZE),
   /** Keyset, not offset: `(ts, id)` strictly below this. An OFFSET page over a table that grows at
    *  the head silently repeats and skips rows while the user is scrolling it. */
   before: z.object({ ts: z.number(), id: z.string() }).nullable().default(null),
@@ -155,6 +157,45 @@ export const LibraryAddResultSchema = z.object({
   })),
 });
 export type LibraryAddResult = z.infer<typeof LibraryAddResultSchema>;
+
+/**
+ * Taking files back out of the Library (`library.remove`): a file's menu, its ⋯, the viewer's menu, or
+ * Delete on the file in focus.
+ *
+ * Only a file the person ADDED can be removed, because only that is the Library's own: Realm's copy is
+ * deleted, and the file it was copied from is never touched — it never was the Library's. A file a
+ * session made or was given is the session's work and its transcript's, and stays. Named by path,
+ * which every surface that shows a file knows; a path that is not one of the profile's added files is
+ * left alone, so a request can never reach anything else.
+ */
+export const LibraryRemoveSchema = z.object({
+  profileId: IdSchema,
+  paths: z.array(z.string().min(1)).min(1).max(LIBRARY_ADD_MAX),
+});
+export type LibraryRemoveInput = z.input<typeof LibraryRemoveSchema>;
+
+export const LibraryRemoveResultSchema = z.object({
+  /** What left the Library, as it listed them. */
+  removed: z.array(LibraryEntrySchema),
+  /** The sent messages that carried one of the removed copies. Each keeps its words and the file's
+   *  name, and loses the file; the Library's listing of it as attached goes with the copy. */
+  messages: z.number().int(),
+  /** The removal, for its undo (`library.restore`); null when nothing was removed. */
+  removal: z.string().nullable(),
+});
+export type LibraryRemoveResult = z.infer<typeof LibraryRemoveResultSchema>;
+
+/** Undoing a removal (`library.restore`): the toast's Undo, while the server still holds the copies. */
+export const LibraryRestoreSchema = z.object({ removal: z.string().min(1) });
+export type LibraryRestoreInput = z.input<typeof LibraryRestoreSchema>;
+
+export const LibraryRestoreResultSchema = z.object({
+  /** Back in the Library, each where it was in the list. */
+  restored: z.array(LibraryEntrySchema),
+  /** Copies put back under another name, because a file added since took theirs — never over it. */
+  renamed: z.array(z.object({ from: z.string(), to: z.string() })),
+});
+export type LibraryRestoreResult = z.infer<typeof LibraryRestoreResultSchema>;
 
 /** The extension a name ends in, lowercased and dotless. `""` for a name with none — never null, so
  *  the column has one type and the filter has one comparison. */

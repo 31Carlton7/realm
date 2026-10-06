@@ -195,6 +195,12 @@ function ToastCard({ toast, index, count, y, scale, height, paused, onHeight, on
       <div ref={body} className="toast-body">
         <span className="toast-icon"><Icon name={toast.icon ?? TONE_ICON[toast.tone]} size={16} /></span>
         <p className="toast-text">{toast.text}</p>
+        {/* Taken, it is done with: the toast goes as the thing it offered happens. */}
+        {toast.action && (
+          <button type="button" className="btn-quiet toast-action" onClick={() => { toast.action!.run(); leave(); }}>
+            {toast.action.label}
+          </button>
+        )}
         <button type="button" className="icon-btn toast-close" aria-label="Dismiss" title="Dismiss" onClick={leave}>
           <Icon name="close" size={12} />
         </button>
