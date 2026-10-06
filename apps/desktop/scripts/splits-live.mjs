@@ -373,6 +373,10 @@ async function main() {
   r = await report();
   const lefts = r.panes.map((p) => Math.round(p.box.l));
   check("one pane beside a stack of three, each at least its floor", r.panes.length === 4 && new Set(lefts).size === 2 && lefts.filter((x) => x === lefts[1]).length === 3 && floorsHeld(r), r.panes.map((p) => [p.title, p.box.l, p.box.t, p.box.h]));
+  // A short pane's greeting gives way rather than riding up under its bar.
+  const greetings = await evalIn(c, `[...document.querySelectorAll('.view-main .panel')].map((p) => { const g = p.querySelector('.hero-greeting'); const bar = p.querySelector(':scope > .panel-bar');
+    return { shown: !!g && getComputedStyle(g).display !== 'none', top: g ? Math.round(g.getBoundingClientRect().top) : null, barBottom: Math.round(bar.getBoundingClientRect().bottom) }; })`);
+  check("no greeting runs up under a pane's bar", greetings.every((g) => !g.shown || g.top >= g.barBottom), greetings);
   await shot("6-one-beside-a-stack-of-three");
   for (const k of ["charlie", "delta"]) await S(`await s.closeInPane(__live.leafOf(${JSON.stringify(sessions[k].itemId)}))`);
   await settle(600);
@@ -389,7 +393,9 @@ async function main() {
   await settle(800);
   r = await report();
   note("after the drag", r);
-  check("dragging the edge 160 left widens the panel by 160", near(r.panel.box.w, before + 160, 1.5), { before, after: r.panel.box.w });
+  // As far as the drag went, or as far as two panes at their floor allow — whichever comes first.
+  const most = r.host.w - (2 * PANE_MIN.width + 1) - 1;
+  check("dragging the edge left widens the panel, up to where the panes keep their floor", near(r.panel.box.w, Math.min(before + 160, most), 1.5) && r.panes.every((p) => p.box.w >= PANE_MIN.width - 0.5), { before, after: r.panel.box.w, most });
   check("…and the share is the window's to remember", r.share !== null && near(r.share * r.host.w, r.panel.box.w, 1.5), { share: r.share });
   await viewOnPane("red", "5-dragged");
   await shot("7-edge-dragged");
@@ -431,10 +437,15 @@ async function main() {
   await settle(800);
   r = await report();
   check("lit there, it gives the panes back and puts the panel away", r.panes.length === 2 && r.zoomed === null && r.hidden === true, { zoomed: r.zoomed, hidden: r.hidden });
-  await S(`s.focusLeaf(__live.leafOf(${JSON.stringify(sessions.bravo.itemId)})); await s.splitFocused("row")`);
-  await settle(500);
-  const toast = await evalIn(c, `__live.st().toasts.at(-1)?.text ?? null`);
-  check("a split with no room is refused, and the toast says why", /No room for another pane beside it/.test(toast ?? ""), toast);
+  // Put away, the panel's room is the panes': split until the room says no.
+  let toast = null;
+  for (let i = 0; i < 4 && !toast; i++) {
+    await S(`s.focusLeaf(__live.leafOf(${JSON.stringify(sessions.bravo.itemId)})); await s.splitFocused("row")`);
+    await settle(400);
+    toast = await evalIn(c, `__live.st().toasts.at(-1)?.text ?? null`);
+  }
+  r = await report();
+  check("splits go on while there is room, then one is refused and the toast says why", /No room for another pane beside it/.test(toast ?? "") && floorsHeld(r) && r.panes.length === Math.floor((r.host.w + 1) / (PANE_MIN.width + 1)), { toast, panes: r.panes.map((p) => p.box.w), host: r.host.w });
   await shot("11-split-refused-toast");
   await S(`s.setPaletteOpen(true)`);
   await settle(400);
@@ -469,7 +480,7 @@ async function main() {
   await evalIn(c, `(() => { const o = [...document.querySelectorAll('.view-main .panel')].find((p) => p.dataset.item === ${JSON.stringify(sessions.bravo.itemId)}).querySelector('.drop-overlay');
     o.dispatchEvent(new DragEvent('dragover', { dataTransfer: globalThis.__liveDt, bubbles: true, cancelable: true, clientX: ${overlay ? overlay.r - 10 : 0}, clientY: ${overlay ? (overlay.t + overlay.b) / 2 : 0} })); return true; })()`);
   await settle(300);
-  const zone = await evalIn(c, `(() => { const z = document.querySelector('.drop-zone[data-hot]'); return z ? { edge: z.dataset.edge, refused: z.hasAttribute('data-refused'), why: z.textContent } : null; })()`);
+  const zone = await evalIn(c, `(() => { const z = document.querySelector('.drop-zone[data-hot]'); return z ? { edge: z.dataset.edge, refused: z.hasAttribute('data-refused'), why: z.parentElement.querySelector('.drop-zone-why')?.textContent ?? '' } : null; })()`);
   check("a drop edge with no room lights as refused, and says why", zone?.edge === "right" && zone.refused && /No room/.test(zone.why), zone);
   await shot("14-refused-drop-edge");
   await evalIn(c, `(() => { window.dispatchEvent(new DragEvent('dragend', { bubbles: true })); return true; })()`);

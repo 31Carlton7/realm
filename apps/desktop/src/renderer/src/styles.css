@@ -2216,11 +2216,14 @@ button.panel-title:hover { background: var(--rl-hover); }
 .drop-zone { position: absolute; background: color-mix(in srgb, var(--rl-accent) 18%, transparent);
   border: 1.5px dashed var(--rl-accent); border-radius: var(--r-ctl); opacity: 0; }
 .drop-zone[data-hot] { opacity: 1; }
-/* An edge a split has no room for lights in the quiet ink, with the reason in it: a drop there is
-   refused, and the zone says what would make room before the drop does. */
-.drop-zone[data-refused] { display: grid; place-items: center; padding: 8px;
-  background: color-mix(in srgb, var(--rl-text-faint) 14%, transparent); border-color: var(--rl-text-faint); }
-.drop-zone-why { max-width: 32ch; font-size: 12px; line-height: 16px; text-align: center; text-wrap: balance; color: var(--rl-text-bright); }
+/* An edge a split has no room for lights in the quiet ink, and the pane says why across its middle:
+   a drop there is refused, and what would make room is read before the drop, not after it. */
+.drop-zone[data-refused] { background: color-mix(in srgb, var(--rl-text-faint) 14%, transparent); border-color: var(--rl-text-faint); }
+/* It is about what is under the pointer, so it wears the tooltip's skin (`.tooltip`). */
+.drop-zone-why { position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: max-content; max-width: min(280px, calc(100% - 32px));
+  padding: 4px 8px; pointer-events: none; border-radius: var(--r-chip); background: var(--tooltip-bg); color: var(--tooltip-fg);
+  box-shadow: 0 0 0 var(--hairline-w) var(--tooltip-border), var(--shadow-card-lift);
+  font: var(--fw-medium) 12px/16px var(--font-ui); text-align: center; text-wrap: balance; }
 .drop-zone[data-edge="left"] { inset: 6px auto 6px 6px; width: 32%; }
 .drop-zone[data-edge="right"] { inset: 6px 6px 6px auto; width: 32%; }
 .drop-zone[data-edge="top"] { inset: 6px 6px auto 6px; height: 32%; }
@@ -4725,6 +4728,11 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    and a space named without spaces in it would push the line out past both edges of the pane rather
    than wrap. With the floor lifted, `overflow-wrap` can do its job on the one word that needs it. */
 .hero-greeting > span { min-width: 0; text-align: center; text-wrap: balance; overflow-wrap: break-word; }
+/* A short pane — a row of a stack — holds the card at the lift's floor, 60px under its top, and two
+   lines of greeting over that ran up past the pane's top and under its bar (measured, splits-live:
+   a third of a 1000px window). The card is the next action and the greeting is the one thing here
+   that is not, so it is the greeting that gives way. 380 is where the floor starts to win. */
+@container (max-height: 380px) { .session-pane[data-composer="hero"] .hero-greeting { display: none; } }
 .hero-greeting em { font-style: normal; }
 /* The place the greeting names, as a link to the space's page: a link in prose — the accent and the
    line's own type, no underline until the pointer is on it (design.md). A button, so the keyboard

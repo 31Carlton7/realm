@@ -527,6 +527,30 @@ describe("PaneHost's side panel", () => {
     expect(props.onFocus).toHaveBeenLastCalledWith("L1");
   });
 
+  it("lights an edge a split has no room for as refused, says why across the pane, and takes no drop there", () => {
+    // THE MUTANT: light the edge as an ordinary zone. The drop would land, and the toast would say no.
+    const why = "No room for another pane beside it: each needs to be 280 points wide. Widen the window or close a pane.";
+    const { props } = renderHost({ splitRefusal: (_leaf, dir) => (dir === "row" ? why : null) });
+    fireDrag(window, "dragstart", dt("B"));
+    const overlay = panel("L1").querySelector(".drop-overlay")!;
+    stubRect(overlay, { width: 400, height: 300 });
+    fireDrag(overlay, "dragover", dt("B"), { clientX: 390, clientY: 150 });
+    expect(overlay.querySelector('.drop-zone[data-edge="right"]')).toHaveAttribute("data-refused");
+    expect(within(overlay as HTMLElement).getByRole("status")).toHaveTextContent(why);
+    fireDrag(overlay, "drop", dt("B"), { clientX: 390, clientY: 150 });
+    expect(props.onDropItem).not.toHaveBeenCalled();
+    // Down has room: lit as ever, and the drop lands. (A drop ends the drag, so the overlay is new.)
+    fireDrag(window, "dragstart", dt("B"));
+    const again = panel("L1").querySelector(".drop-overlay")!;
+    stubRect(again, { width: 400, height: 300 });
+    fireDrag(again, "dragover", dt("B"), { clientX: 200, clientY: 290 });
+    expect(again.querySelector('.drop-zone[data-edge="bottom"]')).toHaveAttribute("data-hot");
+    expect(again.querySelector('.drop-zone[data-edge="bottom"]')).not.toHaveAttribute("data-refused");
+    expect(again.querySelector(".drop-zone-why")).toBeNull();
+    fireDrag(again, "drop", dt("B"), { clientX: 200, clientY: 290 });
+    expect(props.onDropItem).toHaveBeenCalledExactlyOnceWith("B", "L1", "bottom");
+  });
+
   it("offers no split and no edge drops of its own — a drop on it is a tab", () => {
     renderHost({ layout: withPanel });
     fireDrag(window, "dragstart", dt("B"));

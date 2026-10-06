@@ -135,14 +135,11 @@ function DropOverlay({ leafId, edges, refusal, onDropItem, onDropNewSession }: {
           if (id) onDropItem?.(id, leafId, edge);
         }
       }}>
-      {(edges ? EDGES : (["center"] as const)).map((edge) => {
-        const refused = hot === edge ? why(edge) : null;
-        return (
-          <div key={edge} className="drop-zone" data-edge={edge} data-hot={hot === edge || undefined} data-refused={refused ? true : undefined}>
-            {refused && <span className="drop-zone-why">{refused}</span>}
-          </div>
-        );
-      })}
+      {(edges ? EDGES : (["center"] as const)).map((edge) => (
+        <div key={edge} className="drop-zone" data-edge={edge} data-hot={hot === edge || undefined} data-refused={hot === edge && why(edge) ? true : undefined} />
+      ))}
+      {/* Across the pane rather than in the zone, which is a third of it and would stack the words. */}
+      {hot && why(hot) && <div className="drop-zone-why" role="status">{why(hot)}</div>}
     </div>
   );
 }
