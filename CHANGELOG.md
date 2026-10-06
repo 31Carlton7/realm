@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.0.2 — 2026-10-06
+
+**An open Realm notices a new version.** Realm looked for updates once, when it opened, so a Realm
+left open for days never heard of a release, and the update button at the foot of the rail, above
+your profile, could not appear until it was quit and reopened. It now looks again every few hours
+while it runs, and when you come back to its window after an hour or more. The button appears as soon
+as a new version starts downloading, and a click restarts into it once it is ready.
+
 ## v2.0.1 — 2026-10-06
 
 ### Faster in long sessions

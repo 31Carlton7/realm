@@ -61,9 +61,32 @@ export type UpdaterLike = {
   quitAndInstall(): void;
 };
 
+/**
+ * When an open Realm looks again. It used to check once, at launch — so a Realm left open for days
+ * (which is how it is used) never heard of a release, and the rail's update button could not appear
+ * until someone thought to quit it. Now it looks every few hours while it runs, and again when its
+ * window comes forward after an hour or more: the moment the button can be seen. Both go through
+ * `checkIfStale`, so neither stacks a check on one that has just run.
+ */
+export const CHECK_EVERY_MS = 4 * 60 * 60 * 1000;
+/** How often the open app asks whether `CHECK_EVERY_MS` has passed. Hourly, so a Mac that slept
+ *  through a tick is at most an hour late rather than another four. */
+export const CHECK_TICK_MS = 60 * 60 * 1000;
+export const CHECK_ON_FOCUS_AFTER_MS = 60 * 60 * 1000;
+
+export function scheduleUpdateChecks(u: { checkIfStale(maxAgeMs: number): Promise<unknown> }, hooks: {
+  every: (fn: () => void, ms: number) => unknown;
+  onFocus: (fn: () => void) => unknown;
+}): void {
+  hooks.every(() => { void u.checkIfStale(CHECK_EVERY_MS); }, CHECK_TICK_MS);
+  hooks.onFocus(() => { void u.checkIfStale(CHECK_ON_FOCUS_AFTER_MS); });
+}
+
 export class RealmUpdater {
   private state: UpdateState;
   private updater: UpdaterLike | null = null;
+  /** When the last real check started (0: never). What `checkIfStale` measures against. */
+  private lastCheckAt = 0;
   constructor(private readonly d: {
     version: string;
     decision: UpdaterDecision;
@@ -72,6 +95,8 @@ export class RealmUpdater {
     /** Every change of state, as `status()` would answer it — what main pushes to the windows, so a
      *  download's progress reaches the rail without the renderer polling for it. */
     onChange?: (status: UpdateStatus) => void;
+    /** The clock, for tests. */
+    now?: () => number;
   }) {
     this.state = d.decision.enabled ? { kind: "idle" } : { kind: "disabled", reason: d.decision.reason };
   }
@@ -93,6 +118,7 @@ export class RealmUpdater {
     // electron-updater's download over again.
     if (this.state.kind === "checking" || this.state.kind === "downloading" || this.state.kind === "downloaded") return this.status();
     this.set({ kind: "checking" });
+    this.lastCheckAt = this.d.now?.() ?? Date.now();
     try {
       const u = await this.ensure();
       const res = await u.checkForUpdates();
@@ -108,6 +134,14 @@ export class RealmUpdater {
       this.set({ kind: "error", message: e instanceof Error ? e.message : String(e) });
     }
     return this.status();
+  }
+
+  /** A check, unless one started less than `maxAgeMs` ago. Everything `check` refuses it refuses too:
+   *  a gated build, a check in flight, a download under way or done. */
+  async checkIfStale(maxAgeMs: number): Promise<UpdateStatus> {
+    const now = this.d.now?.() ?? Date.now();
+    if (this.lastCheckAt > 0 && now - this.lastCheckAt < maxAgeMs) return this.status();
+    return this.check();
   }
 
   /** Start the download again, only from `available` — the one state where a version is known and
