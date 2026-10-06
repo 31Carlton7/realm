@@ -515,8 +515,11 @@ async function main() {
       return { region: 'none' }; })()`);
   r = await report();
   const strip = await evalIn(c, `(() => { const tabs = [...document.querySelectorAll('.view-panel .pane-tab')]; const add = document.querySelector('.view-panel .pane-tabs-add');
-    return { lastTab: __live.box(tabs.at(-1)), add: __live.box(add), bar: __live.box(document.querySelector('.view-panel .panel-bar')) }; })()`);
-  const emptyX = (strip.add.r + (strip.bar.r - 60)) / 2;
+    const first = document.querySelector('.view-panel .panel-bar .panel-actions > *');
+    return { lastTab: __live.box(tabs.at(-1)), add: __live.box(add), actions: __live.box(first) ?? __live.box(document.querySelector('.view-panel .panel-bar')) }; })()`);
+  // Between the "+" and the bar's first own control: the strip's slack, which holds nothing.
+  const emptyX = (strip.add.r + strip.actions.l) / 2;
+  note("strip slack", { from: strip.add.r, to: strip.actions.l });
   const regions = {
     empty: await regionAt(emptyX, 20), tab: await regionAt(center(strip.lastTab).x, 20), add: await regionAt(center(strip.add).x, 20),
     edge: await regionAt(r.edge.l + 0.5, 20), body: await regionAt(center(r.panel.body).x, center(r.panel.body).y),
