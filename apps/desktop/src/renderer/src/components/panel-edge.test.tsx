@@ -41,7 +41,7 @@ describe("the side panel's edge", () => {
     expect(onResize).toHaveBeenLastCalledWith(PANEL_MIN_WIDTH / 1200, { commit: true });
   });
 
-  it("an arrow at either end stays there", () => {
+  it("an arrow at the panes' end stays there", () => {
     const max = 1200 - 281 - PANE_DIVIDER;
     const wide = edge({ width: max });
     fireEvent.keyDown(wide.sep, { key: "ArrowLeft" });
