@@ -182,7 +182,10 @@ gone; ⌘[ and ⌘] still walk the focused pane's history.
 the spaces beside it, so while it is up the sidebar is away and the page takes the width right of
 the rail; a page with a column of its own — Settings, the Library, Scheduled tasks, Code review —
 puts it in the sidebar's column instead of drawing a second sidebar beside the first, with a Back
-at its head only on the settings pages, which are opened from a menu rather than the rail.
+at its head only on the settings pages, which are opened from a menu rather than the rail, and the
+page's name at the head of the others. Every column's first row — the profile, a Back, a page's
+name — stands at one depth under the column's top, with as much room above a name as beside it, so
+going from Home to a page moves nothing.
 Either change lands in the frame the page opens in — only ⌘B or the toggle draws the sidebar moving
 — and leaving gives the sidebar back as it was. A page's bar is its name and nothing
 else: there is no close button, because Home, the lit rail button, a session in the sidebar, the
@@ -344,9 +347,11 @@ command typed in for you to run. Its column takes a search or a pasted pull requ
 Authored by me, Needs my review and Needs my team's review, with any you pin at the top. A request
 opens on Summary — its description, whether it can merge, who has reviewed, its checks — and
 Changes, side by side or in one column, beside a file tree. Review with — one button, the model's
-mark and name, and a chevron to the reviewer's instructions and its model, every model under its
-mark — runs a reviewer over the diff on the model you choose, held to read-only, under instructions
-the profile keeps, and leaves its findings on the page; none of them, nor any line comment of yours,
+mark and name, with its level and a bolt for fast mode once you set them, and a chevron to the
+reviewer's instructions and its model, chosen in the prompter's own picker and its card — runs a
+reviewer over the diff at the model, level and speed you choose, held to read-only, under
+instructions the profile keeps along with its reviewer, and leaves its findings on the page, each
+review naming the level it ran at; none of them, nor any line comment of yours,
 reaches GitHub until you press Submit review and choose Comment, Approve or Request changes, with a
 comment, which posts it as you. Ask about this pull request, at its foot, puts a question to the
 request's own session in a space you choose, one whose checkout is the request's repository first,

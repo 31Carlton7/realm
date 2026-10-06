@@ -10,7 +10,8 @@ import { sidebarHidden } from "../state/selectors";
  * over the panes, that rail stood beside the sidebar as a second column of navigation — two sidebars,
  * the one on the left about somewhere else. So while such a page is up, its rail takes the sidebar's
  * column instead, the way a Mac app's settings or Codex's take the whole sidebar over — under a Back
- * that puts the spaces back only where nothing else on screen does (`back`, below).
+ * that puts the spaces back only where nothing else on screen does, or else under the page's name
+ * (`back` and `title`, below).
  *
  * The rail is MOVED, not copied: it is portalled into a slot the sidebar draws, so the page keeps
  * owning everything about it — which section is selected, what the settings search holds — and the
@@ -23,12 +24,12 @@ import { sidebarHidden } from "../state/selectors";
  * nothing moves at all.
  */
 type PageNavHost = {
-  /** The page whose rail has the sidebar — its name, and whether the column heads it with a Back — or
-   *  null while the sidebar is its own. */
-  claimed: { label: string; back: boolean } | null;
+  /** The page whose rail has the sidebar — its name, whether the column heads it with a Back, and the
+   *  title it heads it with otherwise — or null while the sidebar is its own. */
+  claimed: { label: string; back: boolean; title: string | null } | null;
   /** Where that rail is drawn: the sidebar's slot, once it has mounted. */
   slot: HTMLElement | null;
-  claim(label: string, back: boolean): () => void;
+  claim(label: string, back: boolean, title: string | null): () => void;
   setSlot(el: HTMLElement | null): void;
 };
 
@@ -38,8 +39,8 @@ const OverlayContext = createContext(false);
 export function PageNavProvider({ children }: { children: ReactNode }) {
   const [claimed, setClaimed] = useState<PageNavHost["claimed"]>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
-  const claim = useCallback((label: string, back: boolean) => {
-    setClaimed({ label, back });
+  const claim = useCallback((label: string, back: boolean, title: string | null) => {
+    setClaimed({ label, back, title });
     return () => setClaimed((now) => (now?.label === label ? null : now));
   }, []);
   const host = useMemo(() => ({ claimed, slot, claim, setSlot }), [claimed, slot, claim]);
@@ -65,8 +66,15 @@ export function usePageNavHost(): PageNavHost | null {
  * how to give the spaces back. A page the rail opened is put away from the rail, by its lit button or
  * Home beside it, and a Back over its column was a third way out (the owner, 10-05: "I think it might
  * only be necessary to keep it on the settings page").
+ *
+ * `title` heads the column with the page's name instead, for a page the rail opened whose sections
+ * bring no head of their own — the Library's (the owner, 10-06: "make sure we have the title of the
+ * page for the library here"). Scheduled's and Code review's columns draw their own, with a search or
+ * a ⋯ beside it; the column draws this one in the same type and the same row.
  */
-export function PageRail({ label, inline = true, back = false, children }: { label: string; inline?: boolean; back?: boolean; children: ReactNode }) {
+export function PageRail({ label, inline = true, back = false, title, children }: {
+  label: string; inline?: boolean; back?: boolean; title?: string; children: ReactNode;
+}) {
   const host = useContext(HostContext);
   const inOverlay = useContext(OverlayContext);
   const collapsed = useApp(sidebarHidden);
@@ -74,7 +82,7 @@ export function PageRail({ label, inline = true, back = false, children }: { lab
   const claim = host?.claim;
   // A layout effect, so the column changes hands before the first paint: the rail is never seen in
   // the page for a frame and then jumping across.
-  useLayoutEffect(() => (moves && claim ? claim(label, back) : undefined), [moves, claim, label, back]);
+  useLayoutEffect(() => (moves && claim ? claim(label, back, title ?? null) : undefined), [moves, claim, label, back, title]);
   if (!moves || !host) return inline ? <>{children}</> : null;
   return host.slot ? createPortal(children, host.slot) : null;
 }

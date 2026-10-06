@@ -3,35 +3,54 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
   AGENT_META, REVIEW_INSTRUCTIONS_MAX, REVIEW_INSTRUCTION_EXAMPLES,
-  prName, type AgentKind, type PrDetail, type PrPlace, type PrRef, type PrReview,
+  prName, type AgentKind, type PrDetail, type PrPlace, type PrRef, type PrReview, type ReviewerPick,
 } from "@realm/contracts";
 import { useDissolve } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { FALLBACK_AGENT, useApp } from "../../state/store";
-import { chipLabel, modelRows, type ModelRow } from "../session/model-catalog";
+import { chipLabel, formatEffort, modelRows, type EffortControl, type FastMode, type ModelRow } from "../session/model-catalog";
 import { ModelPicker } from "../session/ModelPicker";
 import {
-  EMPTY_DRAFT, REVIEW_EVENTS, canReview, canSubmit, isOwnRequest, postsLine, reviewBlocked, reviewPayload, reviewerRows, type ReviewDraft,
+  EMPTY_DRAFT, REVIEW_EVENTS, canReview, canSubmit, isOwnRequest, postsLine, reviewBlocked, reviewPayload, reviewRun, reviewerCatalog, reviewerPhrase,
+  type ReviewDraft,
 } from "./code-review-model";
 import { codeReview } from "./code-review-api";
-import { reviewerPick } from "./held";
+import { heldReviewer, useHeldReviewer } from "./held";
 
-type Pick = { kind: AgentKind; model: string | null };
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-/** A model's name as the picker's chip writes it — "Fable 5.1", "GPT-5.6" — which is how it reads
- *  beside its harness's mark: the mark already says Claude, so the name does not. */
-export function useReviewerLabel(kind: AgentKind, model: string | null): string {
+/** A reviewer as the page names it: its model's name as the picker's chip writes it — "Fable 5.1",
+ *  "GPT-5.6", which is how it reads beside its harness's mark: the mark already says Claude, so the
+ *  name does not — and the level it was started at, where one was asked for. */
+export function useReviewerName(kind: AgentKind, model: string | null, effort: string | null): { label: string; level: string | null } {
   const agentProbe = useApp((s) => s.agentProbe);
-  return useMemo(() => chipLabel(kind, model, modelRows({ kind, model, agentProbe, canSwitchAgent: false })), [kind, model, agentProbe]);
+  const label = useMemo(() => chipLabel(kind, model, modelRows({ kind, model, agentProbe, canSwitchAgent: false })), [kind, model, agentProbe]);
+  return { label, level: effort ? formatEffort(effort) : null };
 }
+
+/** The reviewer in the chip's own words: the model, and the level a shade quieter after it. */
+export function ReviewerName({ label, level }: { label: string; level: string | null }) {
+  return <>{label}{level && <> <span className="cr-level">{level}</span></>}</>;
+}
+
+/** The reviewer a profile starts with, before one is picked: the agent last used where it can review,
+ *  on its own default model, level and speed. */
+const firstReviewer = (lastAgentKind: AgentKind | null): ReviewerPick =>
+  ({ agentKind: lastAgentKind && canReview(lastAgentKind) ? lastAgentKind : FALLBACK_AGENT, model: null, effort: null, fastMode: false });
 
 /**
  * Review with… — ONE control with a second target on it, the shape Codex gives its own: the
- * harness's mark and the model's name, which start a read-only reviewer over this request's diff
- * under the saved instructions, and a chevron after the name that opens how to review — the model,
- * each with its harness's mark, and those instructions. The findings land on the page; none of them
- * is posted unless the person adds it to their review and presses Submit.
+ * harness's mark and the model's name — with the level and the bolt where one is asked for, as the
+ * prompter's chip says them — which start a read-only reviewer over this request's diff under the
+ * saved instructions, and a chevron after the name that opens how to review: the model, each with its
+ * harness's mark, its level and fast mode on the picker's own card, and those instructions. The
+ * findings land on the page; none of them is posted unless the person adds it to their review and
+ * presses Submit.
+ *
+ * The pick is the profile's, as its instructions are, and kept as it is made (`codeReview.reviewerPick`):
+ * the model, the level and fast mode come back in the next window. What a review is started at is what
+ * the body says (`reviewRun`), so a level set under another model is not sent to one that does not
+ * take it — the card shows that model's default in its place, as the prompter's does.
  *
  * The chevron is the group's second stop for Tab, and it stays live while the body cannot run — a
  * review in flight, a request still being read — because what it sets is for the next review, and
@@ -44,34 +63,74 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
   const lastAgentKind = useApp((s) => s.lastAgentKind);
   const agentProbe = useApp((s) => s.agentProbe);
   const favorites = useApp((s) => s.modelFavorites);
+  const info = useApp((s) => s.modelInfo);
+  const effortSupport = useApp((s) => s.effortSupport);
+  const fastSupport = useApp((s) => s.fastSupport);
+  const refreshFastSupport = useApp((s) => s.refreshFastSupport);
+  const refreshModelCatalog = useApp((s) => s.refreshModelCatalog);
   const run = useApp((s) => s.run);
-  const [pick, setPickState] = useState<Pick>(() => reviewerPick.current
-    ?? { kind: lastAgentKind && canReview(lastAgentKind) ? lastAgentKind : FALLBACK_AGENT, model: null });
-  const setPick = (p: Pick) => { reviewerPick.current = p; setPickState(p); };
-  const rows = useMemo(() => reviewerRows({ ...pick, agentProbe, favorites }), [pick, agentProbe, favorites]);
-  const label = chipLabel(pick.kind, pick.model, rows);
+  const [held, hold] = useHeldReviewer(profileId);
+  const pick = held ?? firstReviewer(lastAgentKind);
+  // The levels each model takes and what is known of its fast mode, which the body names before the
+  // menu is ever opened — loaded as a session pane loads them, for a page that may be opened first.
+  useEffect(() => {
+    run(() => refreshFastSupport());
+    run(() => refreshModelCatalog());
+  }, [run, refreshFastSupport, refreshModelCatalog]);
+  // The profile's reviewer, where this window holds none for it yet. A pick made while the answer was
+  // on its way is newer, and stays.
+  useEffect(() => {
+    let live = true;
+    if (!heldReviewer(profileId)) {
+      codeReview.reviewerPick(profileId).then((r) => { if (live && r.pick && !heldReviewer(profileId)) hold(r.pick); }, () => {});
+    }
+    return () => { live = false; };
+  }, [profileId, hold]);
+  const { agentKind: kind, model } = pick;
+  const catalog = useMemo(() => reviewerCatalog({ pick: { agentKind: kind, model }, agentProbe, favorites, info, effortSupport, fastSupport }),
+    [kind, model, agentProbe, favorites, info, effortSupport, fastSupport]);
+  /* A change is the profile's at once: there is no Save for a pick. Laid over the pick as it is now
+     rather than as this render saw it, so a level set straight after a model lands on that model. */
+  const choose = (patch: Partial<ReviewerPick>) => {
+    const next = { ...(heldReviewer(profileId) ?? firstReviewer(lastAgentKind)), ...patch };
+    hold(next);
+    run(() => codeReview.setReviewerPick(profileId, next));
+  };
+  const effort: EffortControl | undefined = catalog.levels.levels.length === 0 ? undefined
+    : { ...catalog.levels, value: pick.effort, onChange: (id) => choose({ effort: id }) };
+  // Nothing has run on the pick, so nothing has reported: the bolt is the request, and the review checks it.
+  const fast: FastMode | undefined = catalog.fast.state === "none" ? undefined
+    : { on: pick.fastMode, state: null, reason: null, requested: null, onChange: (on) => choose({ fastMode: on }), availability: catalog.fast, tip: catalog.tip };
+  const runs = reviewRun(pick, catalog);
+  const label = chipLabel(kind, model, catalog.rows);
+  const level = runs.effort ? formatEffort(runs.effort) : null;
   const [open, setOpen] = useState(false);
   const more = useRef<HTMLButtonElement>(null);
   const running = review?.state === "running";
-  const reviewer = useReviewerLabel(review?.agentKind ?? pick.kind, review?.model ?? null);
+  const reviewer = useReviewerName(review?.agentKind ?? kind, review?.model ?? null, review?.effort ?? null);
   const blocked = reviewBlocked(detail, place !== null, running);
   const start = () => run(async () => {
     if (!detail || !place) return;
-    onStarted(await codeReview.review({ ref: pr, profileId, spaceId: place.spaceId, projectId: place.projectId, agentKind: pick.kind, model: pick.model }));
+    onStarted(await codeReview.review({ ref: pr, profileId, spaceId: place.spaceId, projectId: place.projectId, agentKind: kind, model, ...runs }));
   });
   return (
     <span className="cr-review-with" role="group" aria-label="Review with a model">
       <button type="button" className="btn cr-review-run" disabled={blocked !== null} aria-busy={running || undefined} onClick={start}
-        title={running ? `${reviewer} is reviewing this pull request` : blocked ?? `A read-only ${label} reads the diff and leaves findings for you — nothing is posted`}>
-        <Icon name={AGENT_META[running && review ? review.agentKind : pick.kind].icon} size={14} colored />
-        {/* The verb and the model apart, so a narrow bar can keep the verb (styles.css). */}
-        <span className="cr-review-label">{running ? "Reviewing…" : <>Review<span className="cr-review-model"> with {label}</span></>}</span>
+        title={running ? `${reviewerPhrase(reviewer.label, reviewer.level)} is reviewing this pull request`
+          : blocked ?? `A read-only ${reviewerPhrase(label, level, runs.fastMode)} reads the diff and leaves findings for you — nothing is posted`}>
+        <Icon name={AGENT_META[running && review ? review.agentKind : kind].icon} size={14} colored />
+        {/* The verb and the model apart, so a narrow bar can keep the verb (styles.css); the level and
+            the bolt are part of the model's name, and go with it. */}
+        <span className="cr-review-label">{running ? "Reviewing…" : (
+          <>Review<span className="cr-review-model"> with <ReviewerName label={label} level={level} />
+            {runs.fastMode && <><Icon name="zap" size={12} className="cr-review-fast" /><span className="visually-hidden"> in fast mode</span></>}</span></>
+        )}</span>
       </button>
       <button ref={more} type="button" className="icon-btn cr-review-more" aria-label="Review instructions" title="How to review — the model and your instructions"
         aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="chevronDown" size={12} /></button>
       {open && (
-        <InstructionsPopover anchorRef={more} profileId={profileId} pick={pick} rows={rows} onPick={setPick} onClose={() => setOpen(false)}
-          blocked={blocked} onRun={start} />
+        <InstructionsPopover anchorRef={more} profileId={profileId} pick={pick} rows={catalog.rows} effort={effort} fast={fast}
+          onPick={(agentKind, picked) => choose({ agentKind, model: picked })} onClose={() => setOpen(false)} blocked={blocked} onRun={start} />
       )}
     </span>
   );
@@ -82,8 +141,11 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
  * which every review in the profile follows. Add example offers what people tell a reviewer, one a
  * press, appended where the person can edit it. Save and run does both in that order.
  */
-function InstructionsPopover({ anchorRef, profileId, pick, rows, onPick, onClose, blocked, onRun }: {
-  anchorRef: RefObject<HTMLButtonElement | null>; profileId: string; pick: Pick; rows: ModelRow[]; onPick: (p: Pick) => void; onClose: () => void;
+function InstructionsPopover({ anchorRef, profileId, pick, rows, effort, fast, onPick, onClose, blocked, onRun }: {
+  anchorRef: RefObject<HTMLButtonElement | null>; profileId: string; pick: ReviewerPick; rows: ModelRow[];
+  /** The picked model's level and fast mode as its card sets them, or absent where its harness takes neither. */
+  effort?: EffortControl; fast?: FastMode;
+  onPick: (kind: AgentKind, model: string | null) => void; onClose: () => void;
   /** Why the review cannot start now, or null when Save and run may run it. */
   blocked: string | null; onRun: () => void;
 }) {
@@ -92,9 +154,14 @@ function InstructionsPopover({ anchorRef, profileId, pick, rows, onPick, onClose
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, align: "right", onClose, returnFocusRef: anchorRef, exit: true });
   const run = useApp((s) => s.run);
   const modelInfo = useApp((s) => s.modelInfo);
+  const eggs = useApp((s) => s.easterEggs);
   const probeAgents = useApp((s) => s.probeAgents);
+  const refreshModelFavorites = useApp((s) => s.refreshModelFavorites);
   const toggleModelFavorite = useApp((s) => s.toggleModelFavorite);
-  useEffect(() => { run(() => probeAgents()); }, [probeAgents, run]);
+  useEffect(() => {
+    run(() => probeAgents());
+    run(() => refreshModelFavorites());
+  }, [probeAgents, refreshModelFavorites, run]);
   const [text, setText] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [nth, setNth] = useState(0);
@@ -121,9 +188,11 @@ function InstructionsPopover({ anchorRef, profileId, pick, rows, onPick, onClose
       <div className="cr-pop-row">
         <span>Review with</span>
         {/* The prompter's own picker: each model under its harness's mark, with its search and its
-            keys. Opened from in here it is part of this popover while it is up (use-anchored-popover). */}
-        <ModelPicker kind={pick.kind} model={pick.model} rows={rows} info={modelInfo}
-          onToggleFavorite={(key) => run(() => toggleModelFavorite(key))} onPick={(kind, model) => onPick({ kind, model })} />
+            keys, and the card under the list for the level and fast mode — a pick leaves it open, so
+            a model and how it runs are set in one visit. Opened from in here it is part of this
+            popover while it is up (use-anchored-popover). */}
+        <ModelPicker kind={pick.agentKind} model={pick.model} effort={effort} fast={fast} rows={rows} info={modelInfo} eggs={eggs}
+          onToggleFavorite={(key) => run(() => toggleModelFavorite(key))} onPick={onPick} />
       </div>
       <textarea ref={field} className="cr-field" rows={5} aria-label="Review instructions" disabled={text === null}
         placeholder="For example: I care most about the data model. Tell me where we might be overcomplicating things."

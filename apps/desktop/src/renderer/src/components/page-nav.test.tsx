@@ -47,14 +47,35 @@ describe("a page's rail in the sidebar's place", () => {
     await waitFor(() => expect(side.getByRole("radio", { name: "Files" })).toBeInTheDocument());
     expect(side.getByRole("radio", { name: "Skills" })).toBeInTheDocument();
     expect(sidebar().querySelector(".sb-list")).toHaveAttribute("hidden");
-    // The rail opened it and the rail puts it away, so the sections themselves stand where the profile
-    // does, at the head of what the column lists — and the profile goes with the spaces it names.
+    // The rail opened it and the rail puts it away, so where the profile stood the column says whose
+    // sections these are, and they follow — and the profile goes with the spaces it names.
     expect(side.queryByRole("button", { name: "Back" })).toBeNull();
-    expect(sidebar().querySelector(".sb-page > .sb-page-nav:first-child")).not.toBeNull();
+    expect(sidebar().querySelector(".sb-page > .sb-page-head:first-child + .sb-page-nav")).not.toBeNull();
     expect(side.queryByRole("button", { name: /^Profile:/ })).toBeNull();
     expect(side.queryByRole("button", { name: "New space" })).toBeNull();
     expect(page().querySelector(".page-rail")).toBeNull();
     expect(within(page() as HTMLElement).queryByRole("radio", { name: "Files" })).toBeNull();
+  });
+
+  it("heads the Library's column with the page's name, outside the slot's scroller, and leaves the page's head the section's", async () => {
+    /* The owner, 10-06: "Can you make sure we have the title of the page for the library here?" — the
+       column opened straight on Files, where Scheduled's and Code review's open on their names. It is
+       the column's head, outside the slot that scrolls, so it holds still over the sections as theirs
+       do over their lists; and the page's own head still names the section, so the two never say the
+       same word. THE MUTANTS: no title; the title drawn into the slot (scrolling away with the rows);
+       the page's head saying "Library" again, or a second h1 beside it. */
+    const { store } = await mount();
+    await open(store, "library-page");
+    const title = await within(sidebar()).findByRole("heading", { name: "Library" });
+    const head = title.closest(".sb-page-head")!;
+    expect(head.parentElement).toBe(sidebar().querySelector(".sb-page"));
+    expect(head.nextElementSibling).toBe(sidebar().querySelector(".sb-page-nav"));
+    expect(title.closest(".sb-page-nav")).toBeNull();
+    expect(within(head as HTMLElement).queryByRole("button")).toBeNull();
+    // The page's one h1 is its own head, naming the section; the column's name is the level under it.
+    expect(title.tagName).toBe("H2");
+    expect(within(page() as HTMLElement).getByRole("heading", { level: 1 })).toHaveTextContent("Files");
+    expect(within(page() as HTMLElement).queryByRole("heading", { name: "Library" })).toBeNull();
   });
 
   it("is still the page's rail: a section picked in the sidebar is the section the page shows", async () => {
@@ -73,21 +94,25 @@ describe("a page's rail in the sidebar's place", () => {
        code review page—are unnecessary. I think it might only be necessary to keep it on the settings
        page." A page the rail opened is put away from the rail, by its lit button or Home beside it; a
        page opened from a menu has nothing lit, and its column says how to give the spaces back. (Code
-       review's column, which waits on gh, is held to it in its own test.) THE MUTANTS: a Back over
-       every column again, or over none — Settings changing the sidebar with no way back there. */
+       review's column, which waits on gh, is held to it in its own test.) A page the rail opened is
+       headed by its name instead — drawn by the column for the Library, brought by Scheduled's own
+       column — and never both. THE MUTANTS: a Back over every column again, or over none — Settings
+       changing the sidebar with no way back there — or the column's title over a Back, or over a column
+       that brings its own (two "Scheduled"s). */
     const { store } = await mount();
     const spaceId = store.getState().activeSpaceId!;
-    const pages: [name: string, show: () => void, back: boolean][] = [
-      ["Settings", () => store.getState().openDestinationPage("settings-page"), true],
-      ["Profile", () => store.getState().openProfilePage(), true],
-      ["Overview", () => store.getState().openSpacePage(spaceId), true],
-      ["Library", () => store.getState().openDestinationPage("library-page"), false],
-      ["Scheduled tasks", () => store.getState().openDestinationPage("schedules-page"), false],
+    const pages: [name: string, show: () => void, back: boolean, title: string | null][] = [
+      ["Settings", () => store.getState().openDestinationPage("settings-page"), true, null],
+      ["Profile", () => store.getState().openProfilePage(), true, null],
+      ["Overview", () => store.getState().openSpacePage(spaceId), true, null],
+      ["Library", () => store.getState().openDestinationPage("library-page"), false, "Library"],
+      ["Scheduled tasks", () => store.getState().openDestinationPage("schedules-page"), false, null],
     ];
-    for (const [name, show, back] of pages) {
+    for (const [name, show, back, title] of pages) {
       act(() => show());
       await waitFor(() => expect(sidebar().querySelector(".sb-page"), name).not.toBeNull());
       expect(within(sidebar()).queryAllByRole("button", { name: "Back" }).length, name).toBe(back ? 1 : 0);
+      expect(sidebar().querySelector(".sb-page-title")?.textContent ?? null, name).toBe(title);
       act(() => { store.getState().closePageOverlay(); });
       await waitFor(() => expect(sidebar().querySelector(".sb-page"), name).toBeNull());
     }
@@ -120,6 +145,8 @@ describe("a page's rail in the sidebar's place", () => {
     await open(store, "library-page");
     await waitFor(() => expect(within(page() as HTMLElement).getByRole("radio", { name: "Files" })).toBeInTheDocument());
     expect(sidebar().querySelector(".sb-page")).toBeNull();
+    // The column's name goes with the column: the page's bar already says Library.
+    expect(within(page() as HTMLElement).queryByRole("heading", { name: "Library" })).toBeNull();
   });
 
   it("moves Settings' search with its pages, and what it finds is listed in the page", async () => {
@@ -140,6 +167,7 @@ describe("a page's rail in the sidebar's place", () => {
     act(() => { store.getState().setLibrarySkill(spaceId, "sk1"); });
     const skills = await within(sidebar()).findByRole("radio", { name: "Skills" });
     expect(skills).toBeChecked();
+    expect(within(sidebar()).getByRole("heading", { name: "Library" })).toBeInTheDocument();
     expect(page().querySelector(".page-rail:not(.skill-toc)")).toBeNull();
     fireEvent.click(within(sidebar()).getByRole("radio", { name: "Files" }));
     await waitFor(() => expect(store.getState().librarySkill[spaceId] ?? null).toBeNull());

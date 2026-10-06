@@ -121,12 +121,14 @@ export function LibraryPage({ item }: PaneProps) {
         <>
           {/* Reading a skill, the Library's sections stay in the sidebar, so the column does not change
               under it; in the page there is only the skill, with its own way back beside its name. */}
-          <PageRail label="Library" inline={false}>{rail}</PageRail>
+          <PageRail label="Library" title="Library" inline={false}>{rail}</PageRail>
           <SkillViewer spaceId={spaceId} id={openSkill} onBack={closeSkill} head={head} />
         </>
       ) : (
       <div className="page-body">
-        <PageRail label="Library">{rail}</PageRail>
+        {/* In the sidebar's column, under the page's name, as Scheduled's and Code review's columns are
+            under theirs; the head beside it names the section, so the two never say the same word. */}
+        <PageRail label="Library" title="Library">{rail}</PageRail>
         {/* Files brings its own scroller, because its toolbar rides in it under the head; the others
             are reading columns. Both ends dissolve, but only when there is something under them — and
             only over the column: a band on the body would be drawn over the rail above it. */}

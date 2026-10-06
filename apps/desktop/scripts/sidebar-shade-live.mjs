@@ -12,8 +12,9 @@
  * every page whose column takes the sidebar's place, and on frames of the fold held mid-motion.
  *
  * It also lays the columns side by side: where each one's first row sits under the head row — the
- * Home sidebar's profile, Settings' Back, the Library's first section, the Scheduled and Code review
- * titles — and which have a Back (Settings and a profile's or a space's settings) and which do not.
+ * Home sidebar's profile, the Backs and the Library's, Scheduled's and Code review's names, all one
+ * row at one depth — and which have a Back (Settings and a profile's or a space's settings) and which
+ * do not. How even a name stands in its corner is page-heads-live.mjs's.
  *
  * Nothing is billed: the onboarding session is switched to the scripted agent before anything could
  * reach it and nothing is typed into a prompter; `gh` is the fixture's (REALM_GH_BIN), so nothing
@@ -381,9 +382,9 @@ const PAGES = [
   { name: "Settings", back: true, open: `(async () => { document.querySelector('.app-rail .rail-foot button[aria-haspopup="menu"]').click();
       await new Promise((r) => setTimeout(r, 300)); __shade.menuRow('Settings').click(); return true; })()`,
     ready: `!!document.querySelector('.sb-page-nav .settings-rail')` },
-  { name: "Library", back: false, open: `__shade.railBtn('Library').click()`, ready: `!!document.querySelector('.sb-page-nav .page-rail .settings-tab')` },
-  { name: "Scheduled", back: false, open: `__shade.railBtn('Scheduled tasks').click()`, ready: `!!document.querySelector('.sb-page-nav .sched-col-head')` },
-  { name: "Code review", back: false, open: `__shade.railBtn('Code review').click()`, ready: `!!document.querySelector('.sb-page-nav .cr-col:not([aria-hidden]) .cr-col-head')` },
+  { name: "Library", back: false, title: true, open: `__shade.railBtn('Library').click()`, ready: `!!document.querySelector('.sb-page-nav .page-rail .settings-tab')` },
+  { name: "Scheduled", back: false, title: true, open: `__shade.railBtn('Scheduled tasks').click()`, ready: `!!document.querySelector('.sb-page-nav .sched-col-head')` },
+  { name: "Code review", back: false, title: true, open: `__shade.railBtn('Code review').click()`, ready: `!!document.querySelector('.sb-page-nav .cr-col:not([aria-hidden]) .cr-col-head')` },
   { name: "Profile", back: true, open: `(async () => { document.querySelector('.sb-profile').click();
       await new Promise((r) => setTimeout(r, 300)); __shade.menuRow('Profile settings').click(); return true; })()`,
     ready: `document.querySelector('.page-overlay')?.getAttribute('aria-label') === 'Profile' && !!document.querySelector('.sb-page-nav .settings-tab')` },
@@ -391,21 +392,24 @@ const PAGES = [
     ready: `document.querySelector('.page-overlay')?.getAttribute('aria-label') === 'Overview' && !!document.querySelector('.sb-page-nav .settings-tab')` },
 ];
 
-/** Where a column's first row sits: its box, and the middle of its text. */
+/** Where a column's first row sits: its box, and the middle of its text. A page's name is read off its
+ *  head's row, the column's own (the Library's) or the one its column brings. */
 const FIRST_ROW = `(() => {
   const col = document.getElementById('app-sidebar');
   const back = col.querySelector('.sb-page-back');
   const nav = col.querySelector('.sb-page-nav');
   const profile = col.querySelector('.sb-list:not([hidden]) .sb-profile');
-  const first = profile ?? back ?? nav?.querySelector('.sched-col-head, .cr-col-head, .settings-search, .page-rail .settings-tab');
-  const text = profile ? profile.querySelector('.sb-profile-name') : back ?? first?.querySelector('.sched-col-title, .cr-col-title') ?? first;
-  const next = back ? nav?.querySelector('.settings-search, .page-rail .settings-tab') : (first?.matches('.sched-col-head, .cr-col-head') ? nav.querySelector('.sched-new, .cr-col-body > *') : null);
+  const title = col.querySelector('.sb-page-title') ?? nav?.querySelector('.sched-col-title, .cr-col:not([aria-hidden]) .cr-col-title');
+  const first = profile ?? back ?? title?.parentElement ?? nav?.querySelector('.settings-search, .page-rail .settings-tab');
+  const text = profile ? profile.querySelector('.sb-profile-name') : back ?? title ?? first;
+  const next = back ? nav?.querySelector('.settings-search, .page-rail .settings-tab') : title ? nav.querySelector('.page-rail .settings-tab, .sched-new, .cr-col-search') : null;
   // A head's row is its content box, its padding being the inset this measures; any other row's box
   // is its fill.
   const row = __shade.box(first);
-  if (row && first.matches('.sched-col-head, .cr-col-head')) row.t += parseFloat(getComputedStyle(first).paddingTop);
-  return { back: !!back, row, text: __shade.textMid(text), next: __shade.box(next),
-    rim: Math.round(col.querySelector('.sb-header').getBoundingClientRect().bottom) };
+  if (row && title) row.t += parseFloat(getComputedStyle(first).paddingTop);
+  return { back: !!back, title: !!title, row, text: __shade.textMid(text), next: __shade.box(next),
+    rim: Math.round(col.querySelector('.sb-header').getBoundingClientRect().bottom),
+    depth: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--col-head-top')) };
 })()`;
 
 async function measureFace(c, mode) {
@@ -444,6 +448,11 @@ async function measureFace(c, mode) {
   /* ── The pages whose column takes the sidebar's place ───────────────────────────────────────── */
   const homeRow = await evalIn(c, FIRST_ROW);
   note(`${mode} Home's first row`, homeRow);
+  /* Every column's first row stands one depth under the rim — the profile here, a Back or a page's
+     name on the pages below — so going from Home to a page moves nothing (the owner, 10-06: "add some
+     top padding to the profile switcher and where the back button is"). */
+  check(`${mode} Home: its profile stands the column's first-row depth under the rim`, Math.abs(homeRow.row.t - homeRow.rim - homeRow.depth) <= 0.5,
+    { gap: +(homeRow.row.t - homeRow.rim).toFixed(2), depth: homeRow.depth });
   const parts = [{ name: "Home", data: await shot(c, `${mode}-column-home`, { x: 0, y: 0, width: 330, height: 200 }) }];
   for (const p of PAGES) {
     await evalIn(c, p.open);
@@ -453,9 +462,11 @@ async function measureFace(c, mode) {
     const row = await evalIn(c, FIRST_ROW);
     note(`${mode} ${p.name}'s first row`, row);
     check(`${mode} ${p.name}: ${p.back ? "keeps its Back" : "has no Back"}`, row.back === p.back, { back: row.back });
+    if (p.title) check(`${mode} ${p.name}: its name heads the column`, row.title, { title: row.title });
     const off = row.text.mid - homeRow.text.mid;
     check(`${mode} ${p.name}: its first row's text is on the Home sidebar's first row's line`, Math.abs(off) <= 1, { text: row.text, home: homeRow.text.mid });
-    check(`${mode} ${p.name}: …neither cramped under the rim nor a band below it`, row.row.t - row.rim >= 4 && row.row.t - row.rim <= 8, { gap: +(row.row.t - row.rim).toFixed(2) });
+    check(`${mode} ${p.name}: …its row at the depth every column's first row stands at`, Math.abs(row.row.t - row.rim - row.depth) <= 0.5,
+      { gap: +(row.row.t - row.rim).toFixed(2), depth: row.depth });
     const s = await seams(c);
     check(`${mode} ${p.name}: the column's shade is on the rail's edge, at the Home depth`, Math.abs(s.rail.outside - homeSeams.rail.outside) <= 0.6,
       { summed: s.rail.outside, home: homeSeams.rail.outside });
