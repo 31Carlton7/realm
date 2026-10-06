@@ -4492,4 +4492,17 @@ describe("the drawn caret (caret.ts)", () => {
     expect(bodiesFor(":root[data-caret-still] .caret-layer .caret").join(" ")).toMatch(/animation: none;.*transition: none/);
     expect(bodiesFor(":root[data-caret-still] .terminal-host .xterm-cursor").join(" ")).toContain("animation: none !important");
   });
+
+  it("under Low power swaps every eased caret for the plain blink, and keeps the blink", () => {
+    /* Low power held every caret still, so with it on the caret never blinked anywhere. The eased
+       animations repaint every frame and do give way; the step blink is two frames a second and stays.
+       THE mutants: dropping `pulse` from the list (it was the one in use when this was found), or
+       swapping to `none` instead of the blink. */
+    const rule = RULES.find((r) => r.selectors.some((sel) => sel.startsWith(':root[data-quiet="always"]:is(') && sel.includes("caret-animation")));
+    expect(rule, "the Low power caret rule").toBeDefined();
+    for (const a of ["smooth", "phase", "expand", "pulse"]) expect(rule!.selectors.join(" ")).toContain(`[data-caret-animation="${a}"]`);
+    expect(rule!.selectors.join(" ")).not.toContain('[data-caret-animation="blink"]');
+    expect(rule!.body).toContain("--caret-motion: rl-caret-blink var(--caret-tempo) step-end infinite");
+    expect(rule!.body).toContain("--caret-block: rl-caret-block-blink var(--caret-tempo) step-end infinite");
+  });
 });

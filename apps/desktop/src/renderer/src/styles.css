@@ -2840,8 +2840,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    a little over twice it, slow enough to read as rest rather than as a signal. A loop period is a
    tempo, not the duration of a change, so it is a property here and not a rung of the motion ladder.
    A glide IS a change, on the drag rung — quick enough that typing never waits on it. Reduce motion
-   and Low power hold every caret still (`data-caret-still`); a window nobody is typing in shows no
-   drawn caret at all, as it shows none of the platform's. */
+   holds every caret still (`data-caret-still`); Low power keeps the plain blink and stops the rest
+   (below); a window nobody is typing in shows no drawn caret at all, as it shows none of the platform's. */
 :root { --caret: var(--rl-accent); --caret-ink: var(--rl-accent-contrast); --caret-tempo: 1s;
   --caret-motion: none; --caret-motion-x: none; --caret-block: none; }
 :root[data-caret-colour="text"] { --caret: var(--rl-text-bright); --caret-ink: var(--rl-panel); }
@@ -2861,6 +2861,12 @@ button.panel-title:hover { background: var(--rl-hover); }
    someone reading what they wrote has already found it. */
 :root[data-caret-animation="rest"] { --caret-motion: rl-caret-blink var(--caret-tempo) step-end 10;
   --caret-motion-x: var(--caret-motion); --caret-block: rl-caret-block-blink var(--caret-tempo) step-end 10; }
+/* Low power: the eased animations repaint every frame for as long as a field has the keyboard, so they
+   give way to the plain step blink, which changes twice a second. The blink itself stays — it is how a
+   person finds where they are typing, and macOS keeps blinking its own in Low Power Mode. */
+:root[data-quiet="always"]:is([data-caret-animation="smooth"], [data-caret-animation="phase"], [data-caret-animation="expand"], [data-caret-animation="pulse"]) {
+  --caret-motion: rl-caret-blink var(--caret-tempo) step-end infinite; --caret-motion-x: var(--caret-motion);
+  --caret-block: rl-caret-block-blink var(--caret-tempo) step-end infinite; }
 @keyframes rl-caret-blink { 50% { opacity: 0; } }
 @keyframes rl-caret-smooth { 0%, 30% { opacity: 1; } 55%, 70% { opacity: 0; } }
 @keyframes rl-caret-phase { 0%, 10% { opacity: 1; } 45%, 55% { opacity: 0; } 90% { opacity: 1; } }
@@ -9575,3 +9581,14 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .app-icon-opt img { width: 56px; height: 56px; }
 .app-icon-name { font-size: 12px; color: var(--rl-text-dim); }
 .app-icon-opt[data-selected] .app-icon-name { color: var(--rl-text-bright); }
+
+/* The composer's sizer (Composer.tsx `measure`): an unseen copy of the field that its height is read
+   from. Fixed and fully contained (strict: a relayout boundary), so measuring it lays out nothing else on the page; height 0 so its
+   scrollHeight is the text's. */
+.composer-sizer { position: fixed; left: -10000px; top: 0; height: 0 !important; min-height: 0 !important; max-height: none !important;
+  overflow: hidden; visibility: hidden; pointer-events: none; resize: none; contain: strict; }
+
+/* A long transcript draws its newest part (Transcript's window); this opens onto the rest. It also
+   loads on its own as the reader scrolls up toward it, so it is the keyboard's way in and a marker of
+   where the drawn part begins, not a button anyone has to find. */
+.transcript-earlier { display: block; margin: 4px auto 20px; }

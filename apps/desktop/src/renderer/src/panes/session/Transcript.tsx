@@ -34,6 +34,31 @@ import { samePrompts, trackPrompts, type TrackPrompt } from "./scroll-track";
 
 /** Permission cards share the blocks' key space; the prefix keeps a requestId from colliding with one. */
 const permKey = (requestId: string) => `perm:${requestId}`;
+
+/**
+ * How much of a long transcript is drawn: the newest WINDOW_BLOCKS blocks, and EARLIER_BLOCKS more
+ * each time the reader goes further back.
+ *
+ * Every block on screen is work on every event — each streamed word re-renders the column, and the
+ * per-message passes (sources, the enter tracker, the scroll track) walk what is drawn. A session a
+ * few weeks long is tens of thousands of blocks: drawn whole, the column was ~70,000 nodes, opening it
+ * took four seconds, and a reply streaming into it held frames for 400ms at a time. A window keeps
+ * that cost the size of the window, whatever the length of the session. Earlier turns come back as the
+ * reader scrolls up to them, the way a chat app loads its history.
+ */
+export const WINDOW_BLOCKS = 400;
+export const EARLIER_BLOCKS = 400;
+/** How far before the cut the window may reach to open on a prompt rather than mid-answer. */
+const SNAP_BLOCKS = 200;
+
+/** Where the drawn part of a transcript starts, aiming for `want` blocks: on the prompt just before
+ *  the cut when there is one within reach, so the window opens on a question rather than mid-answer. */
+export function windowStart(blocks: readonly Block[], want = WINDOW_BLOCKS, end = blocks.length): number {
+  if (end <= want) return 0;
+  const cut = end - want;
+  for (let i = cut; i >= Math.max(0, cut - SNAP_BLOCKS); i--) if (blocks[i]!.kind === "user") return i;
+  return cut;
+}
 /** A turn's edit card, keyed off the run line it sits above. */
 const editKey = (runKey: string) => `edit:${runKey}`;
 /** A turn's measured changes, listed the way its card lists them (in the order the turn edited
@@ -318,6 +343,16 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
      main), so the column is short at mount and an offset written into it is silently clamped. */
   const restore = useRef(mark && !mark.atEnd ? mark.top : null);
   const restoring = mark !== null && !mark.atEnd;
+  /* The window's start (`windowStart`). Null follows the newest blocks: a reader at the bottom of a
+     live session has the oldest rows drop away above them as new ones arrive. A number holds it — set
+     the moment the reader scrolls up, so what they are reading never moves, and moved back each time
+     they reach for more. A remount puts back the window the remembered offset was measured in. */
+  const [floor, setFloor] = useState<number | null>(() => (mark && !mark.atEnd ? mark.from ?? null : null));
+  const auto = windowStart(transcript.blocks);
+  const start = floor === null ? auto : Math.min(floor, auto);
+  const startRef = useRef(start);
+  startRef.current = start;
+  const shown = useMemo(() => (start === 0 ? transcript.blocks : transcript.blocks.slice(start)), [transcript.blocks, start]);
   const [pill, setPill] = useState(false);
   const count = transcript.blocks.length;
   const lastText = transcript.blocks.at(-1);
@@ -350,13 +385,14 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   // one list at the bottom would credit the newest message with everything ever read.
   const sourcesByKey = useMemo(() => {
     const out = new Map<string, Source[]>();
-    transcript.blocks.forEach((b, i) => {
-      if (b.kind !== "assistant" || b.streaming) return;
+    for (let i = start; i < transcript.blocks.length; i++) {
+      const b = transcript.blocks[i]!;
+      if (b.kind !== "assistant" || b.streaming) continue;
       const found = sourcesFor(transcript.blocks, i);
       if (found.length > 0) out.set(blockKey(b, i), found);
-    });
+    }
     return out;
-  }, [transcript.blocks]);
+  }, [transcript.blocks, start]);
   // §6: 180ms enter, new items only. Everything on screen at mount is seeded as already-seen, so
   // re-rendering, scrolling, or coming back to this session never replays an entrance.
   /* Each settled turn's edits, and every turn as Undo weighs it (turn-edits.ts). The card is its own
@@ -364,11 +400,16 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   const edits = useMemo(() => (turnEditing
     ? turnEdits(transcript.blocks, { changes: transcript.changes, checkpoints: turnEditing.checkpoints, sessionId: turnEditing.sessionId, cwd, root: checkout?.root ?? null })
     : null), [transcript.blocks, transcript.changes, turnEditing, cwd, checkout?.root]);
+  /* What the window has just drawn further back is history, not news: it is told to the tracker as
+     seen so it does not play the entrance new blocks get. */
+  const drawnFrom = useRef(start);
+  const quiet = start < drawnFrom.current ? transcript.blocks.slice(start, drawnFrom.current).map((b, j) => blockKey(b, start + j)) : undefined;
+  drawnFrom.current = Math.min(drawnFrom.current, start);
   const isEntering = useEnterTracker([
-    ...transcript.blocks.map(blockKey),
+    ...shown.map((b, j) => blockKey(b, start + j)),
     ...permissions.map((p) => permKey(p.requestId)),
     ...[...(edits?.cards.keys() ?? [])].map(editKey),
-  ]);
+  ], quiet);
   /* The scroll track's prompts, and which of them changed files — counted off the Edited cards this
      log draws, and off git's measurements where it draws none, so a tick marked as an edit is always
      a turn with a card or a measurement behind it. Kept as the SAME list while it says the same thing:
@@ -383,8 +424,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
       const measured = transcript.changes?.[b.ts];
       return measured && measured.files.length > 0 ? measured.totalFiles : 0;
     }, new Set(saved));
-    return samePrompts(promptsRef.current, next) ? promptsRef.current : (promptsRef.current = next);
-  }, [track, transcript.blocks, transcript.changes, edits, saved]);
+    // Only the prompts the window draws: a tick is placed on its row, and a row that is not drawn has
+    // nowhere to be measured.
+    const drawn = start === 0 ? next : next.filter((p) => Number(p.key.slice(p.key.indexOf(":") + 1)) >= start);
+    return samePrompts(promptsRef.current, drawn) ? promptsRef.current : (promptsRef.current = drawn);
+  }, [track, transcript.blocks, transcript.changes, edits, saved, start]);
 
   /* The ONE place the pin is written, so the pin and the remembered mark can never disagree — and
      so a programmatic jump is remembered too. Only `onScroll` would otherwise record anything, and
@@ -392,7 +436,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
      be put back halfway up a log they had already asked to be at the bottom of. */
   const pin = (m: ScrollMark) => {
     atBottom.current = m.atEnd;
-    if (scrollKey) rememberScroll(scrollKey, m);
+    if (scrollKey) rememberScroll(scrollKey, { ...m, from: startRef.current });
   };
   /** Follow the content down, and record that this is where the reader chose to be. */
   const stick = (el: HTMLElement) => { el.scrollTop = el.scrollHeight; pin({ top: el.scrollTop, atEnd: true }); };
@@ -401,7 +445,43 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
     const el = ref.current; if (!el) return;
     pin(markOf(el));
     if (atBottom.current) setPill(false);
+    // Leaving the bottom holds the window where it is, so the rows being read stay put while more
+    // arrive below them.
+    else if (floor === null && startRef.current > 0) setFloor(startRef.current);
   };
+  /* Draw further back, keeping the reader's view where it is: the column grows ABOVE them, so the
+     distance to the bottom is what is held, not the offset from the top. */
+  const holdFromEnd = useRef<number | null>(null);
+  const showEarlier = useCallback(() => {
+    const el = ref.current, from = startRef.current;
+    if (from === 0) return;
+    if (el) holdFromEnd.current = el.scrollHeight - el.scrollTop;
+    setFloor(windowStart(transcript.blocks, EARLIER_BLOCKS, from));
+  }, [transcript.blocks]);
+  useLayoutEffect(() => {
+    const el = ref.current, held = holdFromEnd.current;
+    if (!el || held === null) return;
+    holdFromEnd.current = null;
+    el.scrollTop = el.scrollHeight - held;
+  }, [start]);
+  /* Reaching the top of what is drawn draws more, before the reader gets there: the sentinel is the
+     "Show earlier" control itself, watched with a margin of most of a screen. */
+  const earlierRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const el = earlierRef.current, root = ref.current;
+    if (!el || !root || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting) && !atBottom.current) showEarlier(); },
+      { root, rootMargin: "600px 0px 0px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [showEarlier, start]);
+  /* A prompt asked for by its seq (a saved turn opened from the Library) has to be drawn before the
+     track can go to it. */
+  useLayoutEffect(() => {
+    if (!reveal) return;
+    const at = transcript.blocks.findIndex((b) => b.kind === "user" && b.seq === reveal.seq);
+    if (at >= 0 && at < startRef.current) setFloor(at);
+  }, [reveal?.n]);
   const scrollToBottom = () => { const el = ref.current; if (el) stick(el); else atBottom.current = true; setPill(false); };
   /* A prompt picked on the scroll track. The reader has chosen where to be, so it is recorded as their
      own scroll would be — and recorded FIRST: a smooth scroll reports itself a frame at a time, and a
@@ -506,7 +586,10 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         <LeadSessionContext.Provider value={sessionId}>
         <div className="transcript-col">
         <ToolCwd.Provider value={cwd}>
-        {groupTranscript(transcript.blocks).map((it) => {
+        {start > 0 && (
+          <button ref={earlierRef} type="button" className="btn-quiet transcript-earlier" onClick={showEarlier}>Show earlier messages</button>
+        )}
+        {groupTranscript(shown, start).map((it) => {
           if (it.kind === "group")
             // The group container itself never animates in: when a run crosses the grouping
             // threshold the cards it swallows are already on screen, and wrapping them in a fresh
