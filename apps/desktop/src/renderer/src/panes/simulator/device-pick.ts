@@ -1,5 +1,5 @@
 import {
-  deviceElementName, findLeafOfItem, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX,
+  deviceElementName, ownerOfTab, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX,
   type DevicePickedElement, type Item, type Layout, type SimulatorAxElement, type SimulatorAxTree, type SimulatorPlatform, type SimulatorScreen,
 } from "@realm/contracts";
 import { sessionForPick } from "../browser/pick-target";
@@ -50,14 +50,14 @@ export function devicePictureName(kind: string, el: Pick<SimulatorAxElement, "ro
 
 /**
  * Which session's prompter a device pick lands in: the session the device belongs to. A device opened
- * from a session is a tab of that session's side pane, and its owner is the answer — it is the session
+ * from a session is that session's tab of the side panel, and its owner is the answer — it is the session
  * the person is working on this device with, whichever pane last had the keyboard. A device the person
  * moved out into a pane of their own belongs to nobody in particular, and asks the web picker's
  * question instead (`sessionForPick`).
  */
 export function sessionForDevice(items: readonly Item[], layout: Layout | null, focusedLeafId: string | null, deviceItemId: string): Item | null {
   if (!layout) return null;
-  const leaf = findLeafOfItem(layout, deviceItemId);
-  const owner = leaf?.tabs && leaf.owner ? items.find((i) => i.id === leaf.owner && i.kind === "session") : undefined;
+  const whose = ownerOfTab(layout, deviceItemId);
+  const owner = whose ? items.find((i) => i.id === whose && i.kind === "session") : undefined;
   return owner ?? sessionForPick(items, layout, focusedLeafId);
 }

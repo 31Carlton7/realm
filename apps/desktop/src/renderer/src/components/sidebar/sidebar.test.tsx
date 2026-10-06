@@ -307,11 +307,11 @@ describe("a session's row", () => {
     expect(onCells(glyph(/^Beta/))).toEqual([1]);
   });
 
-  it("pictures the window as it is drawn: none for a session filling it, its side pane put away or not there", async () => {
+  it("pictures the split as it is drawn: none for a session filling its place, the side panel out or not", async () => {
     /* The owner, 10-05: a session filling the window — its side pane put away by the toggle at the top
        right, nothing else split — wore a half-lit glyph, for the side pane the window was not drawing.
-       THE MUTANTS: the glyph read off the stored tree (half-lit while the side pane is away), or no
-       glyph for a side pane that IS on screen (the real split). */
+       The panel is the window's now, not a pane of the split, so it is in no glyph at all.
+       THE MUTANTS: the glyph drawing the panel (half-lit beside a browser), or none for a real split. */
     const { store } = await mount(home({ items: {
       s1: [item("i-term", "s1", { kind: "terminal", title: "Terminal" }), sessionItem("a", "s1", "Alpha"), sessionItem("x", "s1", "Beta")],
       s2: [sessionItem("b", "s2", "Wants a yes")],
@@ -320,17 +320,16 @@ describe("a session's row", () => {
     await act(async () => { await store.getState().openItem("i-a"); });
     expect(glyph(/^Alpha/), "one pane filling the window").toBeNull();
     await act(async () => { await store.getState().openInSidePane("a", "i-term"); });
-    expect(onCells(glyph(/^Alpha/)!), "beside its side pane: the left of two").toEqual([0]);
-    expect(glyph(/^Alpha/)!.querySelectorAll("rect")).toHaveLength(2);
-    await act(async () => { await store.getState().toggleSidePanes(); });
-    expect(store.getState().sidePanesHidden).toBe(true);
-    expect(glyph(/^Alpha/), "its side pane put away").toBeNull();
-    // A real split stays one, the side pane's room given back to the session it served.
+    expect(glyph(/^Alpha/), "beside the side panel: still the one pane of the split").toBeNull();
+    // A real split is one, with the panel out or put away alike.
     await act(async () => { await store.getState().openItemBeside("i-x"); });
     expect(onCells(glyph(/^Alpha/)!)).toEqual([0]);
     expect(onCells(glyph(/^Beta/)!)).toEqual([1]);
     expect(glyph(/^Alpha/)!.querySelectorAll("rect")).toHaveLength(2);
-    // Filling the window by pane focus (⌘⇧F) is one pane on screen too, and the other is not there.
+    await act(async () => { await store.getState().toggleSidePanes(); });
+    expect(store.getState().sidePanesHidden).toBe(true);
+    expect(glyph(/^Alpha/)!.querySelectorAll("rect")).toHaveLength(2);
+    // Filling their place by pane focus (⌘⇧F) is one pane on screen too, and the other is not there.
     await act(async () => { await store.getState().focusPaneFull(findLeafOfItem(store.getState().layout!, "i-a")!.id); });
     expect(glyph(/^Alpha/)).toBeNull();
     expect(glyph(/^Beta/)).toBeNull();
@@ -564,39 +563,31 @@ describe("paneMapOf — the arrangement itself, not a category of arrangement", 
   });
 });
 
-describe("layoutOnScreen — the tree as the window draws it", () => {
+describe("layoutOnScreen — the split as the window draws it", () => {
   const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
-  const side = (id: string, owner: string, tabs: string[]): Layout => ({ type: "leaf", id, itemId: tabs[0]!, tabs, owner });
+  const panel = (id: string, owner: string, tabs: string[]): Layout => ({ type: "leaf", id, itemId: tabs[0]!, tabs, owners: Object.fromEntries(tabs.map((t) => [t, owner])) });
   const split = (id: string, dir: "row" | "col", children: Layout[], sizes?: number[]): Layout =>
     ({ type: "split", id, dir, sizes: sizes ?? children.map(() => 100 / children.length), children });
   const ids = (l: Layout | null): unknown => (!l ? null : l.type === "leaf" ? l.id : { [l.dir]: l.children.map(ids), sizes: l.sizes });
 
-  it("is the stored tree while the side panes are out and nothing fills the window", () => {
-    const l = split("C", "row", [leaf("A", "a"), side("S", "a", ["t"])], [60, 40]);
-    expect(layoutOnScreen(l)).toBe(l);
-    expect(layoutOnScreen(l, { sidePanesHidden: false, zoomedLeafId: null })).toBe(l);
+  it("is the main panes, never the side panel: a session beside the panel alone wears no glyph", () => {
+    // THE MUTANT: picture the panel as a pane. A session with a browser open beside it would wear a
+    // half-lit glyph for a pane it is not split with (the owner, 10-05).
+    const one = split("R", "row", [leaf("A", "a"), panel("P", "a", ["t"])], [50, 50]);
+    expect(ids(layoutOnScreen(one))).toBe("A");
+    expect(paneMapOf(layoutOnScreen(one)!, "a")).toBeNull();
+    const two = split("R", "row", [split("M", "row", [leaf("A", "a"), leaf("B", "b")], [30, 70]), panel("P", "a", ["t"])]);
+    expect(ids(layoutOnScreen(two))).toEqual({ row: ["A", "B"], sizes: [30, 70] });
+    const plain = split("M", "col", [leaf("A", "a"), leaf("B", "b")]);
+    expect(layoutOnScreen(plain)).toBe(plain);
   });
 
-  it("gives a put-away side pane's room to the pane it served, in every column", () => {
-    // One session with its side pane: the session alone, which is no arrangement at all.
-    expect(ids(layoutOnScreen(split("C", "row", [leaf("A", "a"), side("S", "a", ["t"])], [60, 40]), { sidePanesHidden: true }))).toBe("A");
-    expect(paneMapOf(layoutOnScreen(split("C", "row", [leaf("A", "a"), side("S", "a", ["t"])]), { sidePanesHidden: true })!, "a")).toBeNull();
-    // Two columns, each with its own: the two sessions at the columns' own shares.
-    const two = split("V", "row", [split("C1", "row", [leaf("A", "a"), side("S1", "a", ["t"])]), split("C2", "row", [leaf("B", "b"), side("S2", "b", ["u"])])], [30, 70]);
-    expect(ids(layoutOnScreen(two, { sidePanesHidden: true }))).toEqual({ row: ["A", "B"], sizes: [30, 70] });
-    // Stacked, the same.
-    const stacked = split("V", "col", [split("C1", "row", [leaf("A", "a"), side("S1", "a", ["t"])]), leaf("B", "b")]);
-    expect(ids(layoutOnScreen(stacked, { sidePanesHidden: true }))).toEqual({ col: ["A", "B"], sizes: [50, 50] });
-    // A split that keeps more than one pane keeps their shares, without the one put away.
-    expect(ids(layoutOnScreen(split("R", "row", [leaf("A", "a"), side("S", "a", ["t"]), leaf("B", "b")], [20, 50, 30]), { sidePanesHidden: true })))
-      .toEqual({ row: ["A", "B"], sizes: [20, 30] });
-  });
-
-  it("is the one pane that fills the window under pane focus — side pane or not, put away or not", () => {
-    const l = split("V", "row", [split("C1", "row", [leaf("A", "a"), side("S1", "a", ["t"])]), leaf("B", "b")]);
+  it("is the one pane that fills their place under pane focus, and nothing while the panel fills the window", () => {
+    const l = split("R", "row", [split("M", "row", [leaf("A", "a"), leaf("B", "b")]), panel("P", "a", ["t"])]);
     expect(ids(layoutOnScreen(l, { zoomedLeafId: "B" }))).toBe("B");
-    expect(ids(layoutOnScreen(l, { zoomedLeafId: "S1", sidePanesHidden: true }))).toBe("S1");
+    expect(layoutOnScreen(l, { zoomedLeafId: "P" })).toBeNull();
     // A zoom the tree no longer holds is no zoom.
-    expect(layoutOnScreen(l, { zoomedLeafId: "gone" })).toBe(l);
+    expect(ids(layoutOnScreen(l, { zoomedLeafId: "gone" }))).toEqual({ row: ["A", "B"], sizes: [50, 50] });
   });
 });
+

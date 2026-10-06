@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@realm/ui";
 import {
-  documentExtension, documentKindFor, documentStem, findLeafOfItem, freeFileName, refineDocumentKind,
+  documentExtension, documentKindFor, documentStem, freeFileName, ownerOfTab, refineDocumentKind,
   type DocumentEntry, type DocumentKind, type DocumentWorkspace,
 } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
@@ -88,10 +88,10 @@ export function DocumentsPane({ item }: PaneProps) {
   const [searchAsk, setSearchAsk] = useState(0);
   /** A line asked for from outside (`openDocumentPath(…, { line })`), for the code editor to go to. */
   const [reveal, setReveal] = useState<{ path: string; line: number } | null>(null);
-  /* The session this pane serves: the owner of the side pane it is a tab of. A documents pane of its
+  /* The session this pane serves: the one whose tab of the side panel it is. A documents pane of its
      own serves nobody — its home lists no session and offers nothing to add a file to. */
   const sessionId = useApp((s) => {
-    const owner = s.layout ? findLeafOfItem(s.layout, item.id)?.owner : undefined;
+    const owner = s.layout ? ownerOfTab(s.layout, item.id) : null;
     const it = owner ? s.items.find((i) => i.id === owner) : undefined;
     return it?.kind === "session" ? it.refId : null;
   });

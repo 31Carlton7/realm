@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { DEFAULT_KEYBINDINGS, chordsForCommand, displayKeyChord, findLeafOfItem } from "@realm/contracts";
+import { DEFAULT_KEYBINDINGS, chordsForCommand, displayKeyChord, ownerOfTab } from "@realm/contracts";
 import { useCallback, useRef, useSyncExternalStore } from "react";
 import { useAppStoreMaybe, type AppState, type NewTabTool } from "../../state/store";
 import { PageIcon } from "../../components/PageIcon";
@@ -14,9 +14,9 @@ export type RecentVisit = { url: string; title: string; favicon?: string };
    a "Files" row beside it opened the same search somewhere else. */
 const CHORD: Partial<Record<NewTabTool, string>> = { documents: "palette.files" };
 
-/** Whether this blank tab is in a session's side pane — the only place its sub-agents can open. */
+/** Whether this blank tab is a session's tab of the side panel — the only place its sub-agents can open. */
 const servesSession = (s: AppState, itemId: string): boolean => {
-  const owner = s.layout ? findLeafOfItem(s.layout, itemId)?.owner : undefined;
+  const owner = s.layout ? ownerOfTab(s.layout, itemId) : null;
   return !!owner && s.items.some((i) => i.id === owner && i.kind === "session");
 };
 

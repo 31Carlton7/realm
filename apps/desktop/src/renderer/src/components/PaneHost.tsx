@@ -1,23 +1,40 @@
-import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type JSX } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type DragEvent as ReactDragEvent, type JSX } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
-import { VIEW_MAX_PANES, findLeaf, firstLeaf, primaryLeaves, type Item, type Layout, type LayoutLeaf, type LayoutSplit } from "@realm/contracts";
+import { clampPanelShare, findLeaf, firstLeaf, minRoomOf, primaryLeaves, tabOwner, type Item, type Layout, type LayoutLeaf, type LayoutSplit, type Room } from "@realm/contracts";
 import type { DropEdge } from "../state/store";
+import type { PanelPlace } from "../state/view-room";
 import { Icon } from "@realm/ui";
 import { PanelBar } from "./PanelBar";
+import { PanelEdge } from "./PanelEdge";
+import { OwnerCueContext } from "./owner-cue";
 import { PaneFor } from "../panes/registry";
 import { closeIntent } from "../state/close-intent";
 import { isRealmPaneDrag, REALM_ITEM_TYPE, REALM_NEW_SESSION_TYPE } from "./drag-types";
 
 export type PaneHostProps = {
   layout: Layout; items: Item[]; focusedLeafId: string | null;
-  /** The view's FOCUSED pane (⌘⇧F). When set — and still present in `layout` — only that
-   *  leaf renders, filling the host. The tree itself is untouched: this is a view state, and clearing
-   *  it puts every pane back exactly where it was. A stale id renders the ordinary split. */
+  /** The view's FOCUSED pane (⌘⇧F). When set — and still present in `layout` — that pane fills the
+   *  main panes' place (the panel stays beside it), or, for the panel, the panel fills the host. The
+   *  tree itself is untouched: this is a view state, and clearing it puts every pane back exactly
+   *  where it was. A stale id renders the ordinary split. */
   zoomedLeafId?: string | null;
-  /** Every side pane put away (the toggle at the window's top right): still mounted — a browser's
-   *  page, a terminal's scrollback and an agent's hold on them stay — but not drawn, and the panes
-   *  they serve take their width. */
+  /** Where the side panel stands (state/view-room.ts): beside the main panes at a width, put away by
+   *  the toggle, stepping aside for want of room, filling the host, or not there. Absent, it is read
+   *  off `sidePanesHidden` and drawn beside the panes at its share. Put away or aside it stays
+   *  MOUNTED — a browser's page, a terminal's scrollback and an agent's hold on them stay — and is not
+   *  drawn, and the main panes take its width. */
+  panelPlace?: PanelPlace;
+  /** The panel put away (the toggle at the window's top right), for a host given no `panelPlace`. */
   sidePanesHidden?: boolean;
+  /** The panel's share of the host, for the frame before the host has measured itself. */
+  panelShare?: number;
+  /** The host measured itself: the room the main panes and the panel share. */
+  onRoom?: (room: Room) => void;
+  /** The panel's edge dragged (or reset) to `share` of the host. */
+  onResizePanel?: (share: number, opts: { commit?: boolean }) => void;
+  /** Why splitting `leafId` along `dir` is not offered, or null when it is — the sentence its menu row
+   *  and its drop zones wear. Absent: every split is. */
+  splitRefusal?: (leafId: string, dir: "row" | "col") => string | null;
   onFocus: (leafId: string) => void;
   /** Called when the user asks a pane to fill the host (the panel bar's focus button / menu). */
   onZoom?: (leafId: string) => void;
@@ -71,8 +88,8 @@ function zoneAtEvent(e: ReactDragEvent<HTMLElement>): DropEdge {
   return zoneAt(e.clientX - rect.left, e.clientY - rect.top, rect);
 }
 
-/** The leaf at the window's top right, whose bar the side pane's toggle sits over: the last child of
- *  a row and the first of a column, all the way down. A side pane that is put away is not there. */
+/** The leaf at the top right of `n`: the last child of a row and the first of a column, all the way
+ *  down — the one whose bar the side panel's toggle sits over when the panel is not drawn. */
 export function topRightLeaf(n: Layout, sidesHidden = false): LayoutLeaf | null {
   if (n.type === "leaf") return sidesHidden && n.tabs ? null : n;
   for (const c of n.dir === "row" ? [...n.children].reverse() : n.children) {
@@ -82,30 +99,50 @@ export function topRightLeaf(n: Layout, sidesHidden = false): LayoutLeaf | null 
   return null;
 }
 
-/** Per-leaf drop-zone overlay. Its `hot` state is local so two panels never highlight together. */
-function DropOverlay({ leafId, onDropItem, onDropNewSession }: {
+/** The panel when the layout is in the view's shape: the second child of a row at the root. */
+function rootPanelOf(l: Layout): LayoutLeaf | null {
+  if (l.type !== "split" || l.dir !== "row" || l.children.length !== 2) return null;
+  const last = l.children[1]!;
+  return last.type === "leaf" && last.tabs ? last : null;
+}
+
+/** Per-leaf drop-zone overlay. Its `hot` state is local so two panels never highlight together. An
+ *  edge a split would not fit in lights as refused, and says why on the zone; the panel offers its
+ *  middle only, since a drop there is a tab. */
+function DropOverlay({ leafId, edges, refusal, onDropItem, onDropNewSession }: {
   leafId: string;
+  edges: boolean;
+  refusal?: (dir: "row" | "col") => string | null;
   onDropItem?: (itemId: string, leafId: string, edge: DropEdge) => void;
   onDropNewSession?: (leafId: string, edge: DropEdge) => void;
 }) {
   const [hot, setHot] = useState<DropEdge | null>(null);
+  const zone = (e: ReactDragEvent<HTMLElement>): DropEdge => (edges ? zoneAtEvent(e) : "center");
+  const why = (edge: DropEdge) => (edge === "center" ? null : refusal?.(edge === "top" || edge === "bottom" ? "col" : "row") ?? null);
   return (
     <div className="drop-overlay"
-      onDragOver={(e) => { if (isRealmPaneDrag(e)) { e.preventDefault(); setHot(zoneAtEvent(e)); } }}
+      onDragOver={(e) => { if (isRealmPaneDrag(e)) { e.preventDefault(); setHot(zone(e)); } }}
       onDragLeave={() => setHot(null)}
       onDrop={(e) => {
         e.preventDefault();
-        const edge = zoneAtEvent(e);
+        const edge = zone(e);
+        setHot(null);
+        // A refused edge takes no drop: the zone already says why, and the store would only say it again.
+        if (why(edge)) return;
         if (Array.from(e.dataTransfer.types).includes(REALM_NEW_SESSION_TYPE)) onDropNewSession?.(leafId, edge);
         else {
           const id = e.dataTransfer.getData(REALM_ITEM_TYPE);
           if (id) onDropItem?.(id, leafId, edge);
         }
-        setHot(null);
       }}>
-      {EDGES.map((edge) => (
-        <div key={edge} className="drop-zone" data-edge={edge} data-hot={hot === edge || undefined} />
-      ))}
+      {(edges ? EDGES : (["center"] as const)).map((edge) => {
+        const refused = hot === edge ? why(edge) : null;
+        return (
+          <div key={edge} className="drop-zone" data-edge={edge} data-hot={hot === edge || undefined} data-refused={refused ? true : undefined}>
+            {refused && <span className="drop-zone-why">{refused}</span>}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -113,6 +150,8 @@ function DropOverlay({ leafId, onDropItem, onDropNewSession }: {
 export function PaneHost(p: PaneHostProps) {
   const byId = new Map(p.items.map((i) => [i.id, i]));
   const [dragging, setDragging] = useState(false);
+  const host = useRef<HTMLDivElement>(null);
+  const column = useRef<HTMLDivElement>(null);
 
   // Window-level, not per-panel: a drag can start over the sidebar (a different subtree) and must light
   // up every panel's overlay at once; it ends on dragend (cancelled) or drop (completed) anywhere.
@@ -130,45 +169,116 @@ export function PaneHost(p: PaneHostProps) {
     };
   }, []);
 
-  // A focused pane renders ALONE — not a `display:none` on its siblings, which would keep every other
-  // pane mounted and (for terminals and browser views) fighting for size behind the one on screen.
-  const zoomed = p.zoomedLeafId ? findLeaf(p.layout, p.zoomedLeafId) : null;
-  const root = zoomed ?? p.layout;
+  /* The host's own box is the room: the window less the rail and the sidebar, whatever they are doing.
+     Observed rather than computed from the window, because the sidebar slides and drags. */
+  const onRoom = p.onRoom;
+  const [room, setRoom] = useState<Room | null>(null);
+  useLayoutEffect(() => {
+    const el = host.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const report = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return;
+      const next = { width: Math.round(r.width), height: Math.round(r.height) };
+      setRoom((cur) => (cur && cur.width === next.width && cur.height === next.height ? cur : next));
+      onRoom?.(next);
+    };
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onRoom]);
+
+  const layout = p.layout;
+  const panel = rootPanelOf(layout);
+  const main = panel ? (layout as LayoutSplit).children[0]! : layout;
+  // A focused pane renders ALONE in its place — not a `display:none` on its siblings, which would keep
+  // every other pane mounted and (for terminals and browser views) fighting for size behind it.
+  const zoomed = p.zoomedLeafId ? findLeaf(layout, p.zoomedLeafId) : null;
+  const place: PanelPlace = !panel ? { kind: "none" }
+    : p.panelPlace ?? (zoomed?.id === panel.id ? { kind: "full" } : p.sidePanesHidden ? { kind: "away" } : { kind: "beside", width: 0 });
+  const panelDrawn = place.kind === "beside" || place.kind === "full";
+  const shownMain = place.kind === "full" ? null : zoomed && !zoomed.tabs ? zoomed : main;
   // The leaf at the host's top-left, which is the first one depth-first for both split directions.
   // With the sidebar collapsed its bar is what sits under the macOS traffic lights, and it is the
   // only pane that has to leave room for them — a fact about where a pane IS, which CSS cannot ask.
-  const firstLeafId = firstLeaf(root).id;
-  // …and the one at its top right, which leaves room for the side pane's toggle the same way.
-  const sidesHidden = !!p.sidePanesHidden;
-  const topRightId = topRightLeaf(root, sidesHidden)?.id;
-  /* A view with ONE leaf looks identical focused and unfocused, so its bar takes no focus toggle —
-     a control whose entire effect is invisible is the dead chrome the pane bar bans, and it would be
-     on screen for the app's most common shape (one pane, full width). Still offered while a zoom is
-     live, because closing a sibling can leave a focused solo pane and a toggle that vanished would
-     strand it lit-with-no-off. */
-  const canFocus = p.layout.type !== "leaf" || !!zoomed;
-  /* The window shows one view of at most two panes (Plan 27), so a split it would refuse is not
-     offered: a control whose only outcome is nothing happening is dead chrome. */
-  const canSplit = primaryLeaves(p.layout).length < VIEW_MAX_PANES;
+  const firstLeafId = firstLeaf(shownMain ?? panel!).id;
+  // …and the one at its top right, which leaves room for the side panel's toggle the same way: the
+  // panel's own bar while it is drawn, else the main panes' top right.
+  const topRightId = panelDrawn ? panel!.id : shownMain ? topRightLeaf(shownMain, true)?.id : undefined;
+  const mainCount = primaryLeaves(main).length;
+  /* A pane alone in the main panes' place looks the same focused and unfocused, so its bar takes no
+     focus toggle — a control whose entire effect is invisible is the dead chrome the pane bar bans.
+     Still offered while a zoom is live, because closing a sibling can leave a focused solo pane and a
+     toggle that vanished would strand it lit-with-no-off. The panel always has one: its full view
+     takes the main panes' place too. */
+  const canFocus = (leaf: LayoutLeaf) => !!leaf.tabs || mainCount > 1 || !!zoomed;
   /* A session's bar has no close; while it shares the window its menu can take it out of the split.
-     Not under pane focus, where the other pane is out of sight and the row would remove the one on
-     screen to show a pane nobody was looking at — ⌘W still does it, as it closes whatever has focus. */
-  const unsplits = (leafId: string) => !zoomed && closeIntent(p.layout, leafId, (id) => byId.get(id))?.kind === "unsplit";
-  return <div className="panehost" data-zoomed={zoomed ? true : undefined}>{renderNode(root)}</div>;
+     Not under pane focus, where the other panes are out of sight and the row would remove the one on
+     screen to show panes nobody was looking at — ⌘W still does it, as it closes whatever has focus. */
+  const unsplits = (leafId: string) => !zoomed && closeIntent(layout, leafId, (id) => byId.get(id))?.kind === "unsplit";
+
+  /* The owner cue. While several sessions' tabs share the strip, the pane whose session owns the tab
+     the keyboard is in wears the mark, and a tab under the pointer marks its own session's pane. */
+  const owners = panel?.tabs ? new Set(panel.tabs.map((t) => tabOwner(panel, t))) : new Set<string | undefined>();
+  const shared = owners.size > 1;
+  const activeOwner = shared && panel && p.focusedLeafId === panel.id && panel.itemId ? tabOwner(panel, panel.itemId) : undefined;
+  const cue = useCallback((owner: string | null) => {
+    const el = host.current; if (!el) return;
+    for (const n of el.querySelectorAll("[data-owner-hover]")) n.removeAttribute("data-owner-hover");
+    if (!owner) return;
+    for (const n of el.querySelectorAll<HTMLElement>(".panel[data-item]")) if (n.dataset.item === owner) n.setAttribute("data-owner-hover", "");
+  }, []);
+
+  const roomWidth = room?.width ?? 0;
+  const need = shownMain ? minRoomOf(shownMain).width : 0;
+  const panelStyle = place.kind === "beside"
+    ? (place.width > 0 ? { width: place.width } : { width: `${clampPanelShare(p.panelShare) * 100}%` })
+    : undefined;
+  return (
+    <OwnerCueContext.Provider value={cue}>
+      <div className="panehost" ref={host} data-zoomed={zoomed ? true : undefined} data-panel={panel ? place.kind : undefined}>
+        {shownMain && <div key="main" className="view-main">{renderNode(shownMain)}</div>}
+        {panel && place.kind === "beside" && (
+          <PanelEdge key="edge" width={place.width} roomWidth={roomWidth} need={need} column={column} onResize={p.onResizePanel ?? (() => {})} />
+        )}
+        {panel && (
+          <div key="panel" id="side-panel" ref={column} className="view-panel" data-full={place.kind === "full" || undefined}
+            hidden={!panelDrawn || undefined} style={panelStyle}>
+            {renderNode(panel)}
+          </div>
+        )}
+      </div>
+    </OwnerCueContext.Provider>
+  );
 
   function renderNode(n: Layout): JSX.Element {
     if (n.type === "leaf") {
       const item = n.itemId ? byId.get(n.itemId) ?? null : null;
       const tabs = n.tabs ? n.tabs.map((id) => byId.get(id)).filter((t): t is Item => !!t) : undefined;
+      const isPanel = n.id === panel?.id;
+      // Shown: a tab of a panel that is not drawn is mounted (its view kept) and not visible.
+      const live = !isPanel || panelDrawn;
+      const refusal = !n.tabs && p.splitRefusal ? (dir: "row" | "col") => p.splitRefusal!(n.id, dir) : undefined;
       return (
-        <div className="panel" data-leaf-id={n.id} data-focused={n.id === p.focusedLeafId || undefined}
+        <div className="panel" data-leaf-id={n.id} data-item={n.itemId ?? undefined} data-focused={n.id === p.focusedLeafId || undefined}
           data-tabbed={tabs ? true : undefined}
           data-first-leaf={n.id === firstLeafId || undefined} data-top-right={n.id === topRightId || undefined}
-          data-empty={!item || undefined} onPointerDownCapture={() => p.onFocus(n.id)}>
-          {item && <PanelBar item={item} leafId={n.id} tabs={tabs} onSplit={canSplit ? (dir) => p.onSplit(n.id, dir) : undefined} onClose={() => p.onClose(item.id)}
+          data-owner-active={!n.tabs && n.itemId !== null && n.itemId === activeOwner ? true : undefined}
+          data-empty={!item || undefined}
+          onPointerDownCapture={(e) => {
+            // A tab chosen from the panel's strip shows without taking the keyboard from the prompter
+            // that has it; a click into the tab itself is what moves it.
+            if (isPanel && (e.target as Element).closest(".panel-bar")) return;
+            p.onFocus(n.id);
+          }}>
+          {item && <PanelBar item={item} leafId={n.id} tabs={tabs} owners={isPanel && shared ? n.owners : undefined}
+            onSplit={n.tabs ? undefined : (dir) => p.onSplit(n.id, dir)}
+            splitRefusal={refusal}
+            onClose={() => p.onClose(item.id)}
             onUnsplit={p.onUnsplit && unsplits(n.id) ? () => p.onUnsplit!(n.id) : undefined}
             zoomed={n.id === p.zoomedLeafId}
-            onZoom={canFocus && p.onZoom ? () => p.onZoom!(n.id) : undefined} onUnzoom={canFocus ? p.onUnzoom : undefined} />}
+            onZoom={canFocus(n) && p.onZoom ? () => p.onZoom!(n.id) : undefined} onUnzoom={canFocus(n) ? p.onUnzoom : undefined} />}
           {/* An empty pane gets a bar of its own — a title-less strip whose only control is the trash
               that drops the box. It had no bar at all, which left ⌘W as the one way to be rid of it
               and no way to discover that: the pane said "open something from the sidebar" and gave
@@ -200,26 +310,26 @@ export function PaneHost(p: PaneHostProps) {
                 blocks, …) never leaks from the old item to the new one — and lets .panel-body .pane-slot's
                 rl-settle animation (styles.css) naturally replay on every swap. */}
             {item && !tabs && <div key={item.id} className="pane-slot"><PaneFor item={item} visible focused={n.id === p.focusedLeafId} /></div>}
-            {/* A side pane mounts the tab showing, and every BROWSER tab behind it, hidden. A browser's
+            {/* The panel mounts the tab showing, and every BROWSER tab behind it, hidden. A browser's
                 view exists only while a pane holds it or main retains it, and main retains three: a
                 tab never mounted is a page an agent cannot drive ("the pane is not open in the
                 app"), and one unmounted is a view the fourth retain evicts. Mounted with
                 `visible={false}`, the view is hidden and kept — what a column per browser bought,
                 without the columns. Every other kind mounts only while it is the tab showing. */}
-            {/* Put away (`sidePanesHidden`), the strip stays mounted and shows nothing: a browser's view
+            {/* Put away or stepping aside, the strip stays mounted and shows nothing: a browser's view
                 is hidden and kept rather than given up. */}
             {item && tabs && tabs.filter((t) => t.id === item.id || t.kind === "browser").map((t) => (
               <div key={t.id} className="pane-slot" hidden={t.id !== item.id || undefined}>
-                <PaneFor item={t} visible={t.id === item.id && !sidesHidden} focused={t.id === item.id && n.id === p.focusedLeafId} />
+                <PaneFor item={t} visible={t.id === item.id && live} focused={t.id === item.id && n.id === p.focusedLeafId} />
               </div>
             ))}
           </div>
-          {dragging && <DropOverlay leafId={n.id} onDropItem={p.onDropItem} onDropNewSession={p.onDropNewSession} />}
+          {dragging && <DropOverlay leafId={n.id} edges={!n.tabs} refusal={refusal} onDropItem={p.onDropItem} onDropNewSession={p.onDropNewSession} />}
         </div>
       );
     }
     return (
-      <SplitGroup node={n} onResize={p.onResize} onEqualize={p.onEqualize} hidden={n.children.map((c) => sidesHidden && c.type === "leaf" && !!c.tabs)}>
+      <SplitGroup node={n} onResize={p.onResize} onEqualize={p.onEqualize}>
         {n.children.map((c) => <Fragment key={c.id}>{renderNode(c)}</Fragment>)}
       </SplitGroup>
     );
@@ -233,13 +343,10 @@ export function PaneHost(p: PaneHostProps) {
  * imperatively (setLayout — instant, resize is on the do-NOT-animate list). The onLayout echo
  * round-trips through resizeSplit, whose sameSizes guard stops the loop.
  */
-function SplitGroup({ node, onResize, onEqualize, hidden, children }: {
+function SplitGroup({ node, onResize, onEqualize, children }: {
   node: LayoutSplit; onResize?: (splitId: string, sizes: number[]) => void;
   onEqualize?: (splitId: string) => void;
-  /** Children not drawn — a side pane put away — with the divider before each. Still in the group,
-   *  so the group's sizes hold and the pane comes back at the width it had; the visible panel's flex
-   *  share is then the whole row's. */
-  hidden?: boolean[]; children: JSX.Element[];
+  children: JSX.Element[];
 }) {
   const ref = useRef<ImperativePanelGroupHandle>(null);
   const sizes = node.sizes;
@@ -258,10 +365,8 @@ function SplitGroup({ node, onResize, onEqualize, hidden, children }: {
               divider is enough to undo any amount of dragging. It goes through the STORE, not
               setLayout: the sizes effect above is what pushes the result into the group, and the
               store no-ops on an already-equal split, so an undragged divider ignores the gesture. */}
-          {i > 0 && <PanelResizeHandle className="resize-handle" style={hidden?.[i] ? { display: "none" } : undefined}
-            onDoubleClick={() => onEqualize?.(node.id)} />}
-          <Panel id={c.id} order={i} defaultSize={node.sizes[i] ?? 100 / node.children.length} minSize={10}
-            style={hidden?.[i] ? { display: "none" } : undefined}>{children[i]}</Panel>
+          {i > 0 && <PanelResizeHandle className="resize-handle" onDoubleClick={() => onEqualize?.(node.id)} />}
+          <Panel id={c.id} order={i} defaultSize={node.sizes[i] ?? 100 / node.children.length} minSize={10}>{children[i]}</Panel>
         </Fragment>
       ))}
     </PanelGroup>

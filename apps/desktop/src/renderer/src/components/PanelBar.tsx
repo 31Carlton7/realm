@@ -18,15 +18,20 @@ import { useOpenSpacePage, useSpaceTint } from "./sidebar/use-sidebar-model";
  *  sidebar, the way it was reached (`closeIntent`). Split/close/focus stay leaf-scoped callbacks (the
  *  host owns focus semantics); rename/delete are item-scoped and go straight to the store, like the
  *  sidebar's context menu. */
-export function PanelBar({ item, leafId, tabs, onSplit, onClose, onUnsplit, zoomed = false, onZoom, onUnzoom }: {
+export function PanelBar({ item, leafId, tabs, owners, onSplit, splitRefusal, onClose, onUnsplit, zoomed = false, onZoom, onUnzoom }: {
   item: Item;
-  /** A side pane's tabs, `item` the one showing. The strip takes the title's place, and each tab's
+  /** The side panel's tabs, `item` the one showing. The strip takes the title's place, and each tab's
    *  own close stands in for the bar's last control. */
   tabs?: Item[];
+  /** Whose each tab is, while several sessions' tabs share the strip — the owner cue's data. */
+  owners?: Record<string, string>;
   /** The leaf this bar heads — the key its back/forward trail is kept under. */
   leafId: string;
-  /** Absent when the view already shows two panes: a split it would refuse is not offered. */
+  /** Absent on the panel, which is never split: it is the window's, not a pane of the split. */
   onSplit?: (dir: "row" | "col") => void; onClose: () => void;
+  /** Why a split from here is not offered — no room for another pane at its floor — or null when it
+   *  is. The rows stay, unavailable, with the sentence as their title. */
+  splitRefusal?: (dir: "row" | "col") => string | null;
   /** Present while this session shares the window with something: the one row that takes it out of
    *  the split, which is what ⌘W does here too. */
   onUnsplit?: () => void;
@@ -75,6 +80,9 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, onUnsplit, zoom
   const Meta = paneMeta[item.kind];
   const Actions = paneActions[item.kind];
   const closeMenu = () => { setMenuOpen(false); setConfirmingDelete(false); };
+  // Asked while the bar renders, which is every time the room or the split changes.
+  const whyRow = onSplit ? splitRefusal?.("row") ?? null : null;
+  const whyCol = onSplit ? splitRefusal?.("col") ?? null : null;
   const deletesOnClose = DELETES_ON_CLOSE.has(item.kind);
   /* A session that is a pane of its own has no close, in the bar or the menu (the owner, 10-05). Its
      transcript outlives every pane, and it is left from the sidebar as it was reached. */
@@ -128,7 +136,7 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, onUnsplit, zoom
       ) : <span className="panel-icon"><ItemIcon item={item} size={14} /></span>)}
       {(renaming || renameArmed)
         ? <span className="panel-rename"><RenameInput item={item} onDone={() => { setRenaming(false); if (renameArmed) requestRename(null); }} /></span>
-        : tabs ? <PaneTabs leafId={leafId} tabs={tabs} activeId={item.id} onRename={() => setRenaming(true)} />
+        : tabs ? <PaneTabs leafId={leafId} tabs={tabs} activeId={item.id} owners={owners} onRename={() => setRenaming(true)} />
         : (
           <button className="panel-title" title="Click to rename" aria-label={`Rename ${item.title}`}
             onClick={() => setRenaming(true)}>{shownTitle}</button>
@@ -145,10 +153,10 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, onUnsplit, zoom
             {focusToggle}
             {onSplit && (
               <>
-                <button className="icon-btn" aria-label={`Split ${item.title} right`} title="Split right (⌘\)"
-                  onClick={() => onSplit("row")}><Icon name="splitRight" size={14} /></button>
-                <button className="icon-btn" aria-label={`Split ${item.title} down`} title="Split down (⌘⇧\)"
-                  onClick={() => onSplit("col")}><Icon name="splitDown" size={14} /></button>
+                <button className="icon-btn" aria-label={`Split ${item.title} right`} title={whyRow ?? "Split right (⌘\\)"}
+                  disabled={!!whyRow} onClick={() => onSplit("row")}><Icon name="splitRight" size={14} /></button>
+                <button className="icon-btn" aria-label={`Split ${item.title} down`} title={whyCol ?? "Split down (⌘⇧\\)"}
+                  disabled={!!whyCol} onClick={() => onSplit("col")}><Icon name="splitDown" size={14} /></button>
               </>
             )}
           </>
@@ -189,9 +197,11 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, onUnsplit, zoom
             ...kindItems,
             { kind: "separator" as const },
           ]),
+          /* Unavailable rather than gone when there is no room: the sentence says what would make
+             room, which a row that silently vanished never could. */
           ...(onSplit ? [
-            { label: "Split right", icon: <Icon name="splitRight" size={14} />, kbd: "⌘\\", onSelect: () => onSplit("row") },
-            { label: "Split down", icon: <Icon name="splitDown" size={14} />, kbd: "⌘⇧\\", onSelect: () => onSplit("col") },
+            { label: "Split right", icon: <Icon name="splitRight" size={14} />, kbd: "⌘\\", disabled: !!whyRow, title: whyRow ?? undefined, onSelect: () => onSplit("row") },
+            { label: "Split down", icon: <Icon name="splitDown" size={14} />, kbd: "⌘⇧\\", disabled: !!whyCol, title: whyCol ?? undefined, onSelect: () => onSplit("col") },
           ] : []),
           /* The bar no longer carries a focus glyph, so this row is the whole control: the word, the
              shortcut, and a name that flips with the state rather than a pressed flag beside it. */
