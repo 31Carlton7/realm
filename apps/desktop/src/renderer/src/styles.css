@@ -529,9 +529,8 @@ kbd { font: 11px var(--font-mono); }
   clip-path: inset(0 0 0 calc(var(--lead-nav-end) - var(--rail-w) + var(--sidebar-w) * (1 - var(--sidebar-open)))); }
 /* The column's first row: the profile whose spaces it lists — or, while a page's sections have the
    column, the Back that gives the spaces back (`.sb-page-head`), or where it has no Back the page's
-   name (below). On the list's 16px inset, so the mark
-   sits over the rows' marks; under the rim and outside the scroller, so it holds still while the list
-   moves under it. It moved down out of the head row when the rail narrowed to Codex's width: the
+   name (below). On the list's 16px inset, so the mark sits over the rows' marks; under the rim and
+   outside the scroller, so it holds still while the list moves under it. It moved down out of the head row when the rail narrowed to Codex's width: the
    lights now cross into that row, and it could not hold them, the profile, back and forward, the
    toggle and two actions at the sidebar's own width. The profile's name is the one thing in the row of
    unbounded length, and it has the row to itself.
@@ -540,8 +539,8 @@ kbd { font: 11px var(--font-mono); }
    starts on one. The depth is the titles': a name's caps stand as far under the rim as its first glyph
    stands in from the column's edge, measured on the ink rather than the boxes (`page-heads-live.mjs`).
    6px put the caps 14px down against 25px in, and every head read as cramped against the top (the
-   owner, 10-06: "so it looks more even … add some top padding to the profile switcher and where the
-   back button is"). The caps start 8px into the row, so 17px puts them 25px down. */
+   owner, 10-06: "so it looks more even", and then "add some top padding to the profile switcher and
+   where the back button is"). The caps start 8px into the row, so 17px puts them 25px down. */
 :root { --col-head-top: 17px; }
 .sb-title { flex: none; display: flex; align-items: center; padding-top: var(--col-head-top); }
 .sb-profile { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
@@ -598,8 +597,8 @@ kbd { font: 11px var(--font-mono); }
 /* A page the rail opened is headed by its name — the Library's drawn by the column (`.sb-page-title`,
    Sidebar.tsx), Scheduled's and Code review's by their own columns with a search or a ⋯ beside it — in
    one type, on the column's first row (`--col-head-top`, above). Its line is that row's 30px, so the
-   name centres where the profile and a Back do whether or not a control stands beside it, and in the
-   page, with the sidebar folded away, as in the sidebar; there a column keeps its own bottom. */
+   name centres where the profile and a Back do, with or without a control beside it — and at the same
+   place in the page, with the sidebar folded away, where a column keeps its own bottom. */
 .sb-page-head:has(> .sb-page-title), .sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-head, .cr-col-head) {
   padding: var(--col-head-top) 12px 0 24px; }
 .sched-col-title, .cr-col-title, .sb-page-title { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 30px;
@@ -7418,7 +7417,7 @@ select { appearance: none; padding-right: 22px;
 .schedules-page { flex-direction: row; }
 .sched-col { flex: none; width: 272px; min-height: 0; display: flex; flex-direction: column;
   background: var(--rl-frame); border-right: var(--hairline-w) solid var(--rl-line); }
-/* Its title is set with every column's, and stands as far under the top (`--col-head-top`, above). */
+/* Its title is set with every column's, at the column's first-row depth (`--col-head-top`, above). */
 .sched-col-head { flex: none; display: flex; align-items: center; gap: 4px; padding: var(--col-head-top) 12px 6px 24px; }
 .sched-col-search { flex: none; padding: 4px 16px 6px; }
 .sched-col-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column;

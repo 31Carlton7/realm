@@ -7,10 +7,14 @@
  * the column's edge. Evenness is a fact about INK, which a stylesheet cannot state — a title's line box
  * carries its own leading above the caps — so this measures pixels: for the head of each column (the
  * Home sidebar's profile, the Library's, Scheduled's and Code review's titles, Settings' Back) the
- * first row of ink under the rim and the first column of ink in from the column's left edge, in both
- * faces, and lays the five columns side by side. Then it shrinks the window to its floor and below and
- * asks of each column whether what stands under its head — New task and the suggestions, Code review's
- * search and lists, the Library's sections, Settings' pages — is still whole or can be scrolled to.
+ * first row of ink under the rim and the first column of ink in from the column's left edge — a title
+ * read off its first glyph, a capital, so the top is its caps' — in both faces, with where each depth
+ * of `--col-head-top` would put a title's caps, and lays the five columns side by side. Every column's
+ * first row is held to one depth and one line, so going from Home to a page moves nothing (the owner,
+ * later that day: "add some top padding to the profile switcher and where the back button is"). Then
+ * it shrinks the window to its floor and below and asks of each column whether what stands under its
+ * head — New task and the suggestions, Code review's search and lists, the Library's sections,
+ * Settings' pages — is still whole or can be scrolled to.
  *
  * Nothing is billed: the onboarding session is switched to the scripted agent before anything could
  * reach it, nothing is typed into a prompter, and the one task is the scripted agent's on a date months
