@@ -23,8 +23,9 @@ import captured from "@/public/product/manifest.json"
  * be the wrong evidence anyway, since these are real captures of a real space taken by
  * `capture-product.mjs` against the built app.
  *
- * Every frame here is anchored to the top and cropped at the bottom, losing the prompter band whose
- * model chip reads "Fake" — the capture harness's scripted agent, not Realm. `Claim.tsx` carries the
+ * Every frame here is anchored to the top and cropped at the bottom. The captures' chips name the
+ * models a real session runs — the harness's scripted agent stands in for Claude and Codex — but a
+ * frame is still aimed at its subject rather than at the whole window. `Claim.tsx` carries the
  * arithmetic; the short version is that the crop must come from an aspect NARROWER than the source's
  * 16/10, which the hero's old 16/9 was not by enough and the claims' old 16/10 was not at all.
  */

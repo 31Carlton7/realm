@@ -712,7 +712,10 @@ const scenes = [
         await mouse("mouseMoved", tick[0], tick[1])
         await sleep(900)
         const card = await boxOf([".track-card[data-open]"], 0)
-        if (card) await shot("track", `!!document.querySelector('.track-card[data-open]')`, { clip: { x: Math.max(0, Math.round(tick[0]) - 60), y: Math.max(0, card.y - 70), width: Math.min(760, card.x + card.width + 24 - Math.max(0, Math.round(tick[0]) - 60)), height: Math.min(VIEWPORT.height, card.height + 140) } })
+        // The card and its tick, close: the card floats over the transcript, and any more room round
+        // it is lines of the answer cut off at the crop's edge.
+        const left = Math.max(0, Math.round(tick[0]) - 36)
+        if (card) await shot("track", `!!document.querySelector('.track-card[data-open]')`, { clip: { x: left, y: Math.max(0, card.y - 24), width: card.x + card.width + 10 - left, height: card.height + 48 } })
       }
       await park()
       await press("b", { code: "KeyB", vk: 66, meta: true })
@@ -765,18 +768,16 @@ const scenes = [
   {
     // A reply that carries a chart, a diagram and a comparison, drawn once their fences closed.
     name: "blocks",
-    async run({ evaluate, openSession, sidePanel, reveal, park, shot, boxOf, sleep }) {
+    async run({ openSession, sidePanel, reveal, park, shot, boxOf }) {
       await openSession(TITLES.charts)
       await sidePanel(false)
       await reveal('.session-pane .ui-block[data-kind="chart"]', "start", -110)
       await park()
       const expect = `!!document.querySelector('.session-pane .ui-block[data-kind="chart"] svg') && !!document.querySelector('.session-pane .ui-block[data-kind="diagram"] svg')`
       await shot("blocks", expect)
-      const chart = await boxOf(['.session-pane .ui-block[data-kind="chart"]'], 20)
+      // Close to the block: the next paragraph starts a line under it.
+      const chart = await boxOf(['.session-pane .ui-block[data-kind="chart"]'], 8)
       if (chart) await shot("chart", expect, { clip: chart })
-      await reveal('.session-pane .ui-block[data-kind="compare"]', "center")
-      const compare = await boxOf(['.session-pane .ui-block[data-kind="compare"]'], 20)
-      if (compare) await shot("compare", `!!document.querySelector('.session-pane .ui-block[data-kind="compare"]')`, { clip: compare })
       await sidePanel(true)
     },
   },
@@ -986,8 +987,10 @@ const scenes = [
       await park()
       const expect = `!!document.querySelector('.settings-page-pane [data-setting="app-icon"]') && [...document.querySelectorAll('.settings-page-pane [data-setting="app-icon"] img')].filter((i) => i.complete && i.naturalWidth > 0).length >= 9`
       await shot("appearance", expect)
+      // From the row's own top, which is the hairline under the row before it: above that is the
+      // last of the Theme row.
       const icons = await boxOf(['.settings-page-pane [data-setting="app-icon"]'], 20)
-      if (icons) await shot("app-icons", expect, { clip: icons })
+      if (icons) await shot("app-icons", expect, { clip: { ...icons, y: icons.y + 21, height: icons.height - 21 } })
     },
   },
   {

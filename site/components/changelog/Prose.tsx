@@ -41,10 +41,17 @@ function block(item: Block, key: number): ReactNode {
     case "note":
       return <blockquote key={key}>{inline(item.text)}</blockquote>
     case "figure":
-      // The reading column is 46rem at most, and a phone is the whole width less its inset.
+      // Laid out at its natural size, which is half its pixels — every capture is drawn at 2× — and
+      // never wider than the reading column, so a narrow crop is not blown up to fill it.
       return (
         <figure key={key}>
-          <Image src={item.image} alt={item.alt} sizes="(max-width: 46rem) 100vw, 46rem" />
+          <Image
+            src={item.image}
+            alt={item.alt}
+            width={item.image.width / 2}
+            height={item.image.height / 2}
+            sizes={`(max-width: 46rem) 100vw, ${Math.min(item.image.width / 2, 656)}px`}
+          />
           <figcaption>{inline(item.caption)}</figcaption>
         </figure>
       )
