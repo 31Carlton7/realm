@@ -296,6 +296,8 @@ fn glassMark(local: vec2f, unit: f32, t: f32, activity: f32, seed: f32) -> vec4f
     var glass = mix(PAGE, INK, 0.07 + shade * 0.1);
     glass += through * (0.6 + shade * 0.45) * activity;
     glass = mix(glass, INK, rim * 0.55) + ACCENT_INK * rim * 0.2;
+    // The doorway's back is lit from inside, as brightly as the realm's agents are busy.
+    if (i == ${LIT}) { glass = mix(glass, INK, 0.62 * activity) + ACCENT_INK * 0.12 * activity; }
     color = mix(color, glass, inside);
     cover = max(cover, inside);
   }
@@ -369,6 +371,8 @@ fn facesSolid(p: vec2f, t: f32) -> vec4f {
     var glass = mix(PAGE, INK, 0.07 + shade * 0.1);
     glass += through * (0.6 + shade * 0.45);
     glass = mix(glass, INK, rim * 0.55) + ACCENT_INK * rim * 0.2;
+    // The doorway's back stays lit through the glass: the light the mark is named for.
+    if (i == ${LIT}) { glass = mix(glass, INK, 0.62) + ACCENT_INK * 0.12; }
     face = mix(face, glass, complete);
     let alpha = inside * smoothstep(0.0, 0.3, e);
     color = mix(color, face, alpha);

@@ -1,1 +1,1 @@
-Realm, with the words: Give your agents a world to work in. Below them, a Realm space rises through a lit portal: the sidebar, a document, and an agent session.
+Realm, with the words: Give your agents a world to work in. Below them, a Realm window in a lit portal: every space in the sidebar, a session that fixed a crash, and the file it named open beside it.
