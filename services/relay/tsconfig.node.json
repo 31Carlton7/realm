@@ -1,0 +1,9 @@
+{
+  // The local relay (src/node.ts), the Node-side tests and the vitest config. See tsconfig.json.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["src/node.ts", "src/core.ts", "src/apns.ts", "src/crypto.ts", "test/node", "test/shared", "vitest.config.ts"]
+}

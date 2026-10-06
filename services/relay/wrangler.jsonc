@@ -1,0 +1,37 @@
+// Plan 28's relay. One Durable Object per Mac (MacRoom, keyed by macId) joins that Mac's socket to its
+// phones' sockets; PROTOCOL.md §3 and §7 are its whole job.
+//
+// Secrets are not in this file. Set them per environment before the first push can work:
+//   wrangler secret put APNS_KEY_ID [--env staging]
+//   wrangler secret put APNS_KEY_P8 [--env staging]
+// Without them every push answers `apns-not-configured`; nothing else depends on them.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "realm-relay",
+  "main": "src/index.ts",
+  // At or before 2026-08-15: the newest date the workerd inside @cloudflare/vitest-pool-workers knows,
+  // so the tests run the same runtime rules as `wrangler dev` and the deployed Worker.
+  "compatibility_date": "2026-08-01",
+  "durable_objects": {
+    "bindings": [{ "name": "MAC_ROOM", "class_name": "MacRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MacRoom"] }],
+  "vars": {
+    "APNS_TEAM_ID": "FY9QB79VAP",
+    "APNS_TOPIC": "co.charmtechnologies.realm.ios"
+  },
+  "env": {
+    // Bindings and vars are not inherited by an environment, so staging repeats them.
+    "staging": {
+      "name": "realm-relay-staging",
+      "durable_objects": {
+        "bindings": [{ "name": "MAC_ROOM", "class_name": "MacRoom" }]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MacRoom"] }],
+      "vars": {
+        "APNS_TEAM_ID": "FY9QB79VAP",
+        "APNS_TOPIC": "co.charmtechnologies.realm.ios"
+      }
+    }
+  }
+}

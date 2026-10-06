@@ -1,0 +1,14 @@
+{
+  // The Worker, its Durable Object and the tests that run inside workerd. Workers types and Node types
+  // declare the same globals differently, so the Node host and its tests are a second project
+  // (tsconfig.node.json); the core, APNs and crypto modules are checked by both, which is what keeps
+  // them free of either runtime.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"],
+    "noEmit": true
+  },
+  "include": ["src", "test/worker", "test/shared"],
+  "exclude": ["src/node.ts"]
+}
