@@ -63,7 +63,7 @@ export function ProfilePage({ item }: PaneProps) {
             read as decoration over the title rather than as navigation beside it. Separate columns
             rather than one, so the gap between them can say "different kind of thing" while the rows
             inside each keep the rail's own rhythm. */}
-        <PageRail label="Profile">
+        <PageRail label="Profile" back>
         <div className="page-rail" ref={railStrip}>
           <fieldset className="page-rail-list">
             <legend className="visually-hidden">Profile page section</legend>

@@ -199,6 +199,14 @@ Rules:
   the rung lighter than both sides of it, as Codex's is (chrome 60, sheet 47, rim 65, measured).
   A corner over a translucent ground is a hole in that ground with the chrome laid in it — tinting
   over the ground instead composites twice and reads a shade darker than the rail beside it.
+- The sidebar's column stands a hair above the chrome: a very light shade off its LEFT edge, over the
+  rail (the owner, 10-05: "on the outside of it… a little bit elevated"), and none on the panes' edge.
+  A shadow belongs to what stands up and keeps to its shape: round the corner it runs out before the
+  rim turns along the top, never a band drawn up into the corner; it stops at the head row, chrome
+  that neither casts one nor takes one; and it is the column's own width through a fold, so it goes
+  with the column's last pixels instead of standing beside nothing. Moved to another ground, a shade
+  keeps its depth in levels, not its alpha — the dark rail is lighter than the panes, so the same
+  depth takes less black there — measured on solid grounds, where a capture is what the screen shows.
 - A group of settings is a card in Codex's grammar: a step ABOVE the ground it stands on, under a rim
   the rung lighter than both sides, its rows divided by hairlines inset from both ends (Codex,
   measured: page 41, card 47, rim 57; its file tiles go further, 16 levels up, because a tile is an
@@ -779,16 +787,19 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - The sidebar answers where the user is and what else is available. Keep primary destinations,
   spaces, open items, and contextual actions visually separate.
 - One column of navigation at a time. A page with sections of its own — Settings, the Library, a
-  profile's or a space's page — draws them IN the sidebar's column while it is up, under a Back that
-  closes the page, rather than as a rail beside the sidebar: two side-by-side lists of places, the
-  left one about somewhere else, read as two sidebars. The sections wear the column's own row
-  anatomy, so it is the same sidebar listing something else, and the page they leave behind is a
-  centred column. Where there is no column to take — the sidebar collapsed — the rail stays in the
-  page, where it can still be reached (`components/page-nav.tsx`).
+  profile's or a space's page — draws them IN the sidebar's column while it is up, rather than as a
+  rail beside the sidebar: two side-by-side lists of places, the left one about somewhere else, read
+  as two sidebars. The sections wear the column's own row anatomy, so it is the same sidebar listing
+  something else, and the page they leave behind is a centred column. Where there is no column to
+  take — the sidebar collapsed — the rail stays in the page, where it can still be reached
+  (`components/page-nav.tsx`).
 - A destination page is left the way it was reached — Home or the lit rail button, a session in the
   sidebar, the column's Back — or with Escape, which goes back to where you were. Its bar is its name
   and nothing else (the owner, 10-05): a × at the bar's far end was one more way out, away from the
-  ones used to arrive.
+  ones used to arrive. The same goes for the Back: it heads the column only where a MENU opened the
+  page — Settings, a profile's or a space's settings — because nothing on the rail is lit to put that
+  page away. A page the rail opened has the rail for that, and its column's first row stands where the
+  profile does (the owner, 10-05: "I think it might only be necessary to keep it on the settings page").
 - Closing a pane should never imply deleting the object behind it. That rule is about objects that
   outlive their pane — a session's transcript, a diff's checkout — and a session goes further: it has
   no close at all (the owner, 10-05). It is reached from the sidebar and left the same way, and a ×

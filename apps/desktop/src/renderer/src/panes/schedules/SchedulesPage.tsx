@@ -30,7 +30,7 @@ const NO_RUNS: Run[] = [];
  * Scheduled tasks, in Codex's layout: the page's own column — Scheduled, New task, the Upcoming
  * tasks with their runs, and Suggested — and beside it whatever is selected. The column is the
  * sidebar's while the page is up (`PageRail`): the same ground, corner, edge and width as every other
- * page's sections, under the column's Back; with the sidebar folded away it stands in the page.
+ * page's sections, its head where the profile stands; with the sidebar folded away it stands in the page.
  *
  * A run is its session, drawn by the real session pane (the transcript and the prompter, to read the
  * run and carry it on) with the task's card at its top right; a task with no runs yet is its card and

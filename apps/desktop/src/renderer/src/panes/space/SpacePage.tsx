@@ -630,7 +630,7 @@ export function SpacePage({ item }: PaneProps) {
       <div className="page-body">
         {/* The sheet's native-radio tab idiom, stood upright: arrow keys move, one tab stop. Over the
             panes it takes the sidebar's column (page-nav.tsx). */}
-        <PageRail label="Overview">
+        <PageRail label="Overview" back>
         <fieldset className="page-rail" ref={railStrip}>
           <legend className="visually-hidden">Space page section</legend>
           {PAGE_TABS.map((t) => (
