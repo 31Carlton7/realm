@@ -514,6 +514,19 @@ describe("PaneHost's side panel", () => {
     expect(container.querySelector(".view-panel")).not.toHaveAttribute("hidden");
   });
 
+  it("a press in its bar leaves the keyboard where it is; a press in the tab itself moves it there", () => {
+    // THE MUTANT: focus the panel on any press in it. Choosing a tab would take the keyboard from the
+    // prompter being typed in.
+    const { props } = renderHost({ layout: withPanel, focusedLeafId: "L1" });
+    fireEvent.pointerDown(within(panel("S1")).getByRole("tab", { name: "Tab A" }));
+    expect(props.onFocus).not.toHaveBeenCalled();
+    fireEvent.pointerDown(panel("S1").querySelector(".panel-body")!);
+    expect(props.onFocus).toHaveBeenCalledExactlyOnceWith("S1");
+    // A main pane's bar still takes it: a pane is focused by pressing anywhere in it.
+    fireEvent.pointerDown(panel("L1").querySelector(".panel-bar")!);
+    expect(props.onFocus).toHaveBeenLastCalledWith("L1");
+  });
+
   it("offers no split and no edge drops of its own — a drop on it is a tab", () => {
     renderHost({ layout: withPanel });
     fireDrag(window, "dragstart", dt("B"));
