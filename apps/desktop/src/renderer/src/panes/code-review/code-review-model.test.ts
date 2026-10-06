@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Finding, PrDetail, PrFile, PrSummary } from "@realm/contracts";
+import type { AgentProbe } from "../../state/store";
 import {
-  EMPTY_DRAFT, age, appendPage, canSubmit, checksFact, dropComment, isKept, isOwnRequest, keepFinding, keepSummary, mergeFact,
-  postsLine, readQuery, reviewPayload,
+  EMPTY_DRAFT, age, ago, appendPage, canSubmit, checksFact, dropComment, isKept, isOwnRequest, keepFinding, keepSummary, mergeFact,
+  postsLine, readQuery, reviewBlocked, reviewPayload, reviewerRows,
 } from "./code-review-model";
 import { fileTree, filterFiles, treeRows } from "./file-tree";
 
@@ -16,6 +17,12 @@ describe("the column", () => {
     const now = Date.UTC(2026, 9, 5);
     expect([0, 59_000, 5 * 60_000, 3 * 3_600_000, 2 * 86_400_000, 150 * 86_400_000, 800 * 86_400_000].map((d) => age(now - d, now)))
       .toEqual(["now", "now", "5m", "3h", "2d", "5mo", "2y"]);
+  });
+
+  it("says how long ago as a phrase, and a moment ago as just now", () => {
+    // THE MUTANT: "now ago" — the review panel's head said it for every run that had just finished.
+    const now = Date.UTC(2026, 9, 5);
+    expect([30_000, 5 * 60_000, 2 * 86_400_000].map((d) => ago(now - d, now))).toEqual(["just now", "5m ago", "2d ago"]);
   });
 
   it("reads a pasted link as an address and anything else as words", () => {
@@ -55,6 +62,41 @@ describe("the request's facts", () => {
     expect(isOwnRequest({ author: "Carlton" } as PrDetail, "carlton")).toBe(true);
     expect(isOwnRequest({ author: "mara" } as PrDetail, "carlton")).toBe(false);
     expect(isOwnRequest({ author: null } as PrDetail, "carlton")).toBe(false);
+  });
+});
+
+describe("the reviewer", () => {
+  const probed = (kind: AgentProbe["kind"], models?: { id: string; label: string }[]): AgentProbe =>
+    ({ kind, available: true, version: "1", loggedIn: true, reason: null, ...(models ? { models } : {}) });
+  const luna = { id: "gpt-6-luna", label: "GPT-6 Luna" };
+  const probe = [probed("codex", [luna]), probed("acp:cursor", [luna, { id: "composer-2", label: "Composer 2" }]), probed("fake")];
+
+  it("is offered only what a read-only reviewer can run, by the routes that can run it", () => {
+    const rows = reviewerRows({ kind: "claude", model: null, agentProbe: probe, favorites: [] });
+    // Claude's models, Codex's and the scripted agent's — never one only Cursor runs, which `review`
+    // would refuse. THE MUTANT: the rows unfiltered.
+    expect(new Set(rows.map((r) => r.kind))).toEqual(new Set(["claude", "codex", "fake"]));
+    expect(rows.some((r) => r.label === "Composer 2")).toBe(false);
+    // GPT-6 Luna runs through Codex and through Cursor; a reviewer is offered Codex alone, so the
+    // picker's row draws no Cursor route beside it. THE MUTANT: routes left as modelRows gave them.
+    expect(rows.find((r) => r.label === "GPT-6 Luna")).toMatchObject({ kind: "codex", harnesses: ["codex"], alternates: [] });
+    // The pick is the one row ticked; the scripted agent's, added after, never is.
+    expect(rows.filter((r) => r.selected).map((r) => r.label)).toEqual(["Claude Fable 5.1"]);
+  });
+
+  it("lists the scripted agent once, and only where this Realm runs one", () => {
+    expect(reviewerRows({ kind: "claude", model: null, agentProbe: probe.slice(0, 2), favorites: [] }).some((r) => r.kind === "fake")).toBe(false);
+    const own = reviewerRows({ kind: "fake", model: null, agentProbe: probe, favorites: [] });
+    expect(own.filter((r) => r.kind === "fake").map((r) => [r.label, r.selected])).toEqual([["Fake", true]]);
+  });
+
+  it("says why a review cannot start now, or nothing when it can", () => {
+    expect(reviewBlocked({ changedFiles: 3 }, true, false)).toBeNull();
+    expect(reviewBlocked({ changedFiles: 3 }, true, true)).toBe("A review of this pull request is running — its findings land here when it is done");
+    expect(reviewBlocked(null, true, false)).toBe("Nothing to review until the pull request has been read");
+    // THE MUTANT: a request with nothing in its diff sent to a reviewer anyway.
+    expect(reviewBlocked({ changedFiles: 0 }, true, false)).toBe("This pull request changes no files, so there is nothing to review");
+    expect(reviewBlocked({ changedFiles: 3 }, false, false)).toBe("There is no space to run the review in yet");
   });
 });
 

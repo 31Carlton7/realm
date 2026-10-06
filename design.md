@@ -488,6 +488,14 @@ acronym that is uppercase anyway (a file extension on a tile).
   capped at 1.5px.
 - A disabled control is still a control. Greying the label is the state; losing the shape is a
   different claim. A primary whose fill matches the sheet under it keeps the plain button's ring.
+- An action with its options is ONE control with a second target on it, as Codex draws Review with
+  Codex: the body is the button — its fill, ring and curve — and a chevron sits in its far end past a
+  hairline seam, a small control whose own disc is all that lights under the pointer. Two halves each
+  round on one side are not drawable (the painter has no per-corner input); a target laid on one
+  surface is. A body that cannot act greys its words and keeps its shape, because the chevron on it
+  still works, and stays live while the body waits: what it sets is for the next run. Narrow, the
+  body keeps its verb — a mark, a name and a chevron is the picker's chip, and a press on it would
+  start what a chip only chooses.
 - Align asymmetric icons optically. A mathematically centered arrow or play mark can still look wrong.
 - A press is a fill, not a size. AppKit buttons darken on the mouse-down frame and never shrink;
   the shrink is a touch idiom, where a finger hides the control and scale is the only feedback left
@@ -643,7 +651,10 @@ acronym that is uppercase anyway (a file extension on a tile).
   listen on the window. The one underneath was registered first and wins, so `stopPropagation` from
   the top surface cannot save it: expanding a picture out of a sheet closed the sheet too. A full
   window overlay should REPLACE what it covers rather than sit on it — the thing underneath is
-  invisible anyway, and unmounting it is what takes its key handler with it.
+  invisible anyway, and unmounting it is what takes its key handler with it. Anchored popovers cannot
+  replace what they open from — the picker opened from a popover's row sits on a popover still in
+  use — so the popover hook keeps them in a stack: one opened from inside another is part of it, a
+  press in it is not a press outside, and Escape is the newest one's (`use-anchored-popover.ts`).
 - Escape is a way out, so it must never also be an answer. In the transcript a request card takes
   Escape as Deny or Skip, and that is the card's whole surface; carried onto a page or popover whose
   Escape means "leave", the same key denied a request the person had only looked at. A surface that
