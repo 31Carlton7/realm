@@ -36,7 +36,7 @@ class Socket {
   closed: { code: number; reason: string } | null = null;
 
   private constructor(url: string) {
-    this.ws = new WebSocket(url);
+    this.ws = new WebSocket(url, { perMessageDeflate: false });
     this.ws.binaryType = "nodebuffer";
     this.ws.on("message", (data: Buffer, binary: boolean) => {
       const m = { data, binary, at: performance.now() };

@@ -94,7 +94,7 @@ export async function startTap(upstream: string, marker: string): Promise<Tap> {
   const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await new Promise<void>((r) => wss.once("listening", () => r()));
   wss.on("connection", (client, req) => {
-    const up = new WebSocket(`${upstream}${req.url ?? ""}`);
+    const up = new WebSocket(`${upstream}${req.url ?? ""}`, { perMessageDeflate: false });
     const queue: { data: Buffer; binary: boolean }[] = [];
     const inspect = (data: Buffer) => { stats.frames += 1; stats.bytes += data.length; if (data.includes(needle)) hits += 1; };
     client.on("message", (data: Buffer, binary: boolean) => {

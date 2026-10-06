@@ -69,6 +69,9 @@ There are three WebSocket URLs, all under the relay base `r`:
 Every connection follows the same rules:
 - **Text messages** are control messages: JSON objects with a `t` field.
 - **Binary messages** are data.
+- **No compression:** clients must not offer `permessage-deflate`. Every binary message is
+  ciphertext, which does not compress, and compressing it costs CPU and latency on both ends.
+  Cloudflare accepts the extension when offered, and Node's `ws` offers it by default.
 - **Heartbeat:** a client may send the text `ping` at any time. The relay answers `pong` without
   running any code (`setWebSocketAutoResponse`). Macs and phones send it every 20 s while
   connected.
