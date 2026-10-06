@@ -94,6 +94,9 @@ const CLOSE_LABEL: Record<CloseIntent["kind"], string | null> = {
   tab: "Close tab", unsplit: "Remove from split", empty: "Close the empty pane", pane: "Close pane", prompter: null,
 };
 
+/** A refusal's first clause — "No room for another pane beside it" — which a row has room for. */
+const brief = (why: string) => why.split(/[:.]/)[0]!;
+
 /** The palette's CSS width (styles.css `.palette`); the no-overlay path needs the number. */
 const PALETTE_WIDTH = 560;
 
@@ -376,10 +379,11 @@ function PaletteBody({ closing }: { closing: boolean }) {
         act(`open-${noun}`, `Open ${noun}`, kind, () => openDestinationPage(kind))) : []),
       // Global (every space's calls, W7) — unlike the space page above, it never needs an activeSpaceId.
       act("mcp-activity", "MCP Activity", "tool", () => run(() => openActivity())),
-      // Unavailable while there is no room for another pane at its floor, and saying what would make
-      // room — the same sentence the pane's menu row wears and the key's toast says.
-      { ...act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), splitWhyRow ?? kbd("pane.splitRight")), disabled: !!splitWhyRow },
-      { ...act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), splitWhyCol ?? kbd("pane.splitDown")), disabled: !!splitWhyCol },
+      // Unavailable while there is no room for another pane at its floor. The row keeps its name and
+      // says the sentence's first clause; the whole of it — what would make room, the same words the
+      // pane's menu row and the key's toast use — is the hint's tooltip.
+      { ...act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), splitWhyRow ? <span title={splitWhyRow}>{brief(splitWhyRow)}</span> : kbd("pane.splitRight")), disabled: !!splitWhyRow },
+      { ...act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), splitWhyCol ? <span title={splitWhyCol}>{brief(splitWhyCol)}</span> : kbd("pane.splitDown")), disabled: !!splitWhyCol },
       ...(closeLabel ? [act("close-pane", closeLabel, "close", () => run(() => closeInPane()), kbd("pane.close"))] : []),
       ...(focusedItem ? [
         // The pane keeps its place in the view either way — this only changes how much room it gets.

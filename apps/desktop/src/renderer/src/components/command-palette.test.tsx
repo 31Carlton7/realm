@@ -294,10 +294,12 @@ describe("CommandPalette", () => {
     expect(split()[0]!.getAttribute("aria-disabled")).toBeNull();
     // Down never fitted: one pane tall is all the room there is.
     expect(split()[1]!.getAttribute("aria-disabled")).toBe("true");
-    expect(split()[1]!.textContent).toMatch(/each needs to be 300 points tall/);
+    // The row keeps its name and says the reason's first clause; the whole sentence is its tooltip.
+    expect(split()[1]!.textContent).toBe("Split downNo room for another pane below it");
+    expect(split()[1]!.querySelector("[title]")?.getAttribute("title")).toMatch(/each needs to be 300 points tall/);
     await act(async () => { await store.getState().openItemBeside("i2"); });
     await waitFor(() => expect(split()[0]!.getAttribute("aria-disabled")).toBe("true"));
-    expect(split()[0]!.textContent).toMatch(/No room for another pane beside it/);
+    expect(split()[0]!.textContent).toBe("Split rightNo room for another pane beside it");
     // Chosen anyway (Return on it), it does nothing.
     fireEvent.click(split()[0]!);
     expect(store.getState().layout?.type === "split" ? store.getState().layout!.children : []).toHaveLength(2);
