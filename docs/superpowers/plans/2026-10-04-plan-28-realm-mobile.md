@@ -2,9 +2,10 @@
 
 > Numbered 28: 27 (the sidebar) is the highest on any branch. Renumber on landing if it collides.
 
-> **Status (2026-10-04): planned; nothing built.** The four decisions below were answered by the
-> owner on 2026-10-04. Phase 1 is a spike, and its measurements go into this plan before Phase 2
-> starts.
+> **Status (2026-10-05): Phase 1 built on `feat/mobile-phase-1`; the real-network half waits on the
+> owner.** The four decisions below were answered by the owner on 2026-10-04. Everything that runs on
+> this Mac is built and checked — see "Phase 1 results so far" under Phases. Deploying the relay,
+> timing it over Wi-Fi and LTE, and opening a push on the iPhone need the owner's three steps.
 
 ## What it is for
 
@@ -513,6 +514,85 @@ the Mac is opened by the extension on the iPhone.
 - event latency p95 is ≤ 300 ms on Wi-Fi;
 - resume takes ≤ 1.5 s;
 - the push opens on the device.
+
+### Phase 1 results so far (2026-10-05)
+
+**Built.** These are four commits on `feat/mobile-phase-1`:
+
+- **`packages/remote`:** Noise, frames, pairing links, the `mobile.v1` schemas, and the contract,
+  `PROTOCOL.md`.
+- **`services/relay`:** the Worker, its Durable Object, and a local host running the same core.
+- **`apps/server/src/remote`:** the gateway, dialling the server over loopback. No existing server
+  file changed.
+- **`apps/ios`:**
+  - RealmKit;
+  - a one-screen app: pair, Home, a session with its requests and questions, diagnostics;
+  - the Notification Service Extension.
+
+**Checked:**
+
+- **The published Noise vectors.** All five pass byte for byte in TypeScript, in Swift, and inside
+  Electron 37.10.3 itself (`mobile-crypto-electron-live.ts`). Each side also opens the other's
+  fixtures.
+- **The test suites:**
+  - relay: 137 tests, 50 of them contract cases run against both hosts;
+  - RealmKit: 89 tests;
+  - gateway and rows: 15 tests;
+  - protocol: 24 tests.
+- **Mutation testing.** Ten mutants of the Mac side, all caught, including:
+  - the nonce byte order;
+  - the prologue;
+  - the psk;
+  - the IK static-key check;
+  - unopened sessions' rows;
+  - unknown calls;
+  - a revoke the relay is not told about.
+
+  The relay and Swift helpers mutated their own code the same way.
+- **The marker test** (`mobile-pipe-live.ts`). A marker typed into a session reached the phone
+  decrypted. A tap in front of the relay's real Worker saw 739 frames and never the marker.
+- **The real app in the Simulator** (`mobile-sim-live.ts`). It paired from a link through the Worker,
+  opened a session and reported its own timings.
+
+**What the phone may not do, proved through the real server:**
+
+- a wrong pairing secret is refused before the owner is asked;
+- a declined pairing is refused;
+- a call outside `mobile.v1` is refused;
+- a removed phone is refused by the relay itself (4403);
+- a phone whose relay key is paired but whose Noise key is not is refused by the Mac.
+
+**Local numbers.** These are loopback timings: they show the code's own cost, not the network's.
+
+| Measure | TypeScript phone, `wrangler dev` | The app in the Simulator |
+|---|---|---|
+| Handshake | 5.0 ms | 26.9 ms |
+| Round trip | p50 0.6 ms, p95 1.1 ms | p50 1.8 ms, p95 5.8 ms |
+| Event, server to phone | p50 0.64 ms, p95 0.76 ms | — |
+| Send to own row | p50 28 ms | p50 14 ms, p95 56 ms |
+| Open a session | 3.7 ms (40 rows) | first row 16 ms |
+| Resume | 10 ms | — |
+| Mac leaves, then returns, as seen by the phone | 0.7 ms, then 4 ms | — |
+
+**Found while building:**
+
+- **Request ids must be strings.** The desktop RPC rejects a numeric request id without a reply.
+- **Listen before the socket opens.** A relay speaks the instant a socket opens, so a client must
+  queue messages from the moment it creates the socket.
+- **The Simulator skips the extension.** It delivers a `simctl push` without running the Notification
+  Service Extension, so decryption on a device needs a real APNs push.
+- **A Mac that goes quiet is not announced.** The relay tells phones when the Mac's socket closes. A
+  Mac whose socket stays open but silent, as in sleep, is reported only in `ready` and `mac` messages.
+  Phase 2 decides whether the relay should announce it.
+
+**Still to measure.** These need the owner's three steps:
+
+- the relay deployed to `workers.dev`;
+- the round trip and event latency from the iPhone on Wi-Fi and on LTE;
+- resume on the device;
+- the Mac sleeping and its network pulled;
+- Durable Object CPU per thousand frames;
+- a push opened by the extension on the iPhone.
 
 ### Phase 2 — Watch (the first TestFlight build)
 
