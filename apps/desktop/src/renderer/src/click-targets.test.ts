@@ -47,6 +47,7 @@ const NOT_A_CONTROL: Record<string, string> = {
   "spaces-backdrop": "the same, round the spaces overview",
   "quick-chat-bar": "a drag handle, which takes the grab cursor of its own",
   "sb-resize": "the sidebar's edge, which takes the resize cursor of its own",
+  "resize-handle": "the side panel's edge, which takes the resize cursor of its own, as the sidebar's does",
   "hero-greeting": "the greeting's hidden nod, which nothing announces and nothing depends on",
   "selection-bar": "a toolbar whose press only keeps the text selection it acts on; its buttons point",
   "sim-screen": "a device's own screen, where the pointer stands in for a finger",
@@ -73,6 +74,10 @@ function pressables(file: string, src: string): Found[] {
     for (; j < src.length; j++) {
       const ch = src[j]!;
       if (quote) { if (ch === quote && src[j - 1] !== "\\") quote = null; continue; }
+      // A comment in a handler is prose, and prose has apostrophes: read past it, or its "panel's"
+      // opens a string that swallows the markup after it.
+      if (depth > 0 && ch === "/" && src[j + 1] === "/") { const nl = src.indexOf("\n", j); if (nl < 0) break; j = nl; continue; }
+      if (depth > 0 && ch === "/" && src[j + 1] === "*") { const end = src.indexOf("*/", j + 2); if (end < 0) break; j = end + 1; continue; }
       if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
       if (ch === "{") depth++;
       else if (ch === "}") depth--;
