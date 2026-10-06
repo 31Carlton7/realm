@@ -715,7 +715,7 @@ const scenes = [
         // The card and its tick, close: the card floats over the transcript, and any more room round
         // it is lines of the answer cut off at the crop's edge.
         const left = Math.max(0, Math.round(tick[0]) - 36)
-        if (card) await shot("track", `!!document.querySelector('.track-card[data-open]')`, { clip: { x: left, y: Math.max(0, card.y - 24), width: card.x + card.width + 10 - left, height: card.height + 48 } })
+        if (card) await shot("track", `!!document.querySelector('.track-card[data-open]')`, { clip: { x: left, y: Math.max(0, card.y - 24), width: card.x + card.width + 2 - left, height: card.height + 48 } })
       }
       await park()
       await press("b", { code: "KeyB", vk: 66, meta: true })
