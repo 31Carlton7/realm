@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RealmUpdater, updaterDecision, UPDATE_FEED_LIVE, type UpdaterLike } from "./updater";
+import { CHECK_EVERY_MS, CHECK_ON_FOCUS_AFTER_MS, CHECK_TICK_MS, RealmUpdater, scheduleUpdateChecks, updaterDecision, UPDATE_FEED_LIVE, type UpdaterLike } from "./updater";
 
 describe("updaterDecision — the hard gate (Plan 15 W1)", () => {
   it("dev is absolute: never enabled unpackaged, whatever else claims to be true", () => {
@@ -212,5 +212,62 @@ describe("RealmUpdater", () => {
     settle(null);
     expect((await first).state).toEqual({ kind: "up-to-date" });
     expect(fake.checks).toBe(1);
+  });
+});
+
+describe("an open Realm keeps looking for updates", () => {
+  /* It checked once, at launch, so a Realm left open never heard of a release and the rail's button
+     could not appear (2.0.1, 2026-10-06). THE mutant: drop the schedule from main, or have
+     checkIfStale always skip. */
+  const clock = () => { let t = 1_000_000; return { now: () => t, advance: (ms: number) => { t += ms; } }; };
+
+  it("checks again once the last check is older than the age it is given, and not before", async () => {
+    const fake = fakeUpdater(); const c = clock();
+    const up = new RealmUpdater({ version: "2.0.0", decision: { enabled: true }, load: async () => fake, now: c.now });
+    fake.nextResult = { isUpdateAvailable: false, updateInfo: { version: "2.0.0" } };
+    await up.checkIfStale(CHECK_ON_FOCUS_AFTER_MS);      // never checked: checks
+    expect(fake.checks).toBe(1);
+    c.advance(CHECK_ON_FOCUS_AFTER_MS - 1);
+    await up.checkIfStale(CHECK_ON_FOCUS_AFTER_MS);      // too soon
+    expect(fake.checks).toBe(1);
+    c.advance(1);
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "2.0.1" } };
+    expect((await up.checkIfStale(CHECK_ON_FOCUS_AFTER_MS)).state).toEqual({ kind: "downloading", version: "2.0.1", percent: null });
+    expect(fake.checks).toBe(2);
+  });
+
+  it("never stacks a check on a download, and a gated build never loads the updater", async () => {
+    const fake = fakeUpdater(); const c = clock();
+    const up = new RealmUpdater({ version: "2.0.0", decision: { enabled: true }, load: async () => fake, now: c.now });
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "2.0.1" } };
+    await up.check();
+    c.advance(CHECK_EVERY_MS * 2);
+    await up.checkIfStale(CHECK_EVERY_MS);
+    expect(fake.checks).toBe(1);
+    let loads = 0;
+    const gated = new RealmUpdater({ version: "2.0.0", decision: { enabled: false, reason: "unsigned" }, load: async () => { loads++; return fakeUpdater(); } });
+    await gated.checkIfStale(0);
+    expect(loads).toBe(0);
+  });
+
+  it("is scheduled hourly against a four-hour age, and on focus against an hour", async () => {
+    const asked: number[] = [];
+    let tick: () => void = () => {}, focus: () => void = () => {}, tickMs = 0;
+    scheduleUpdateChecks({ checkIfStale: async (age) => { asked.push(age); } }, {
+      every: (fn, ms) => { tick = fn; tickMs = ms; }, onFocus: (fn) => { focus = fn; },
+    });
+    expect(tickMs).toBe(CHECK_TICK_MS);
+    tick(); focus();
+    expect(asked).toEqual([CHECK_EVERY_MS, CHECK_ON_FOCUS_AFTER_MS]);
+  });
+});
+
+describe("main schedules the checks", () => {
+  it("wires the schedule to the app's updater, an interval and window focus", async () => {
+    // Read as text: importing main would start an Electron app.
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const src = readFileSync(join(__dirname, "index.ts"), "utf8");
+    expect(src).toMatch(/scheduleUpdateChecks\(updater, \{[\s\S]*?setInterval\(fn, ms\)[\s\S]*?app\.on\("browser-window-focus", fn\)/);
   });
 });

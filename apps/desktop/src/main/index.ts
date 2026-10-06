@@ -40,7 +40,7 @@ import {
   MAC_CAPABILITIES, MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
 } from "./mac-access";
-import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
+import { RealmUpdater, UPDATE_FEED_LIVE, scheduleUpdateChecks, updaterDecision } from "./updater";
 import { SecretStore, SecretStoreError } from "./secret-store";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
@@ -1687,6 +1687,12 @@ app.whenReady().then(async () => {
     // builds check the public feed and download in the background; failures remain visible in
     // Settings without blocking startup.
     void updater.check();
+    // …and keeps looking while it is open (updater.ts `scheduleUpdateChecks`): a Realm left open for
+    // days would otherwise never offer the update it was released for.
+    scheduleUpdateChecks(updater, {
+      every: (fn, ms) => setInterval(fn, ms),
+      onFocus: (fn) => app.on("browser-window-focus", fn),
+    });
     // W3: register main as the browser host executor on realm-server's RPC socket. Ops for a view
     // that does not exist fail honestly inside the executor; the bridge just relays.
     // The user chose to keep an older server working. Said once, and held, so a window opened later
