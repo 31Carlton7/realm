@@ -1,13 +1,12 @@
 # realm-site
 
-The marketing site for Realm — Next.js 16, Tailwind 4, and the app mark rendered as liquid glass
-with TypeGPU and vGPU.
+The marketing site for Realm — Next.js 16 and Tailwind 4, over real captures of the app.
 
-Two routes and nothing else:
+Three routes and nothing else:
 
 | Route | What it is |
 | --- | --- |
-| `/` | One screen: the animated mark in the middle, the name and the download in the bottom-left corner, the changelog and X in the bottom-right. No nav, no footer, no scroll. |
+| `/` | The claim and the capture that is evidence for it, then one claim per section, each with its own capture, the questions, and the download. |
 | `/changelog`, `/changelog/[slug]` | Every notable change under one date marker per day, eight at a time behind a **Load more**; each one opens as an article. |
 | `/features` | One non-scrolling screen: a carousel of real captures of the app, arrow keys included. |
 
@@ -67,13 +66,21 @@ the entry pages are fully prerendered.
 ## The feature captures
 
 `scripts/capture-product.mjs` boots the BUILT app (`pnpm build` at the repo root first) on a
-disposable `REALM_HOME`, stages a session through the same RPC and UI paths a person uses, and
-screenshots a list of scenes at 1440×900 and 2× density into `public/product/`.
+disposable `REALM_HOME`, stages a profile's worth of work through the same RPC and UI paths a person
+uses — five spaces across two profiles, sessions waiting, working and finished, a delegation, three
+scheduled tasks and a run, a Library — and screenshots a list of scenes at 1440×900 and 2× density
+into `public/product/`, with the crops the changelog's figures import in `public/product/details/`.
 
 ```sh
 pnpm build                      # from the repo root — a stale build reads as a live bug
 pnpm --filter realm-site capture:product
 ```
+
+Nothing it runs is billed and nothing reaches GitHub: Claude and Codex are the scripted agent
+(`REALM_FAKE_STANDS_IN`), so the chips still name the models a real session runs, and Code review
+reads the fixture pull requests through a fake `gh`. `REALM_CAPTURE_SERVER_PORT`,
+`REALM_CAPTURE_CDP_PORT` and `REALM_CAPTURE_SCRATCH` move its ports and its scratch home;
+`REALM_CAPTURE_ONLY` runs a subset, for diagnosis.
 
 Scenes are independent and each is wrapped: a selector that has moved loses one image and prints
 why, rather than ending the run. The names that survived are written to
@@ -81,18 +88,26 @@ why, rather than ending the run. The names that survived are written to
 `content/features.ts` — so a broken scene drops out of the carousel instead of shipping a hole, and
 a captured scene with no copy authored for it simply is not shown.
 
-Two things the script is careful about, both of which have bitten:
+Three things the script is careful about, all of which have bitten:
 
-- **The computer name.** Every shot walks its text nodes and replaces the developer's machine name
-  before capturing. It is not enough to do it once during staging — each composer redraws it.
+- **The computer name.** Every shot walks its text nodes and replaces the developer's machine name,
+  and the scratch home's path, before capturing. It is not enough to do it once during staging —
+  each composer redraws it.
+- **The display.** The window renders in sRGB (`--force-color-profile=srgb`). Left to the display, a
+  capture carries that display's own profile, and the same scene came out vivid from an external
+  screen and washed out from the Mac's P3 panel.
 - **The browser pane.** There is deliberately no browser scene: the pane is a native
   `WebContentsView`, and a renderer screenshot cannot see its pixels.
 
-## The glass hero
+## The mark, and the glass
 
-`public/realm-mark.svg` carries the canonical logo geometry from `resources/icon-src/mark.svg`.
-`lib/realm-liquid-glass.ts` rasterizes that exact SVG into a GPU texture, derives a blurred normal
-field from it, and refracts animated Realm-blue, white, and silver light streams through the result.
-`components/RealmCanvas.tsx` supplies pointer movement, pauses the frame loop offscreen or in a hidden
-tab, honours reduced motion with one frozen frame, and falls back to the shipped vector mark where
-WebGPU is unavailable.
+`public/realm-mark.svg` is `resources/icon-src/mark.svg` — the cube with a lit doorway, written by
+`resources/icon-src/render.mjs` from `mark.mjs` — and the header draws it beside the name. The
+favicons (`app/icon.png`, `app/apple-icon.png`) and `public/app-icon.png` are the app icon drawn from
+`resources/icon-src/icons.mjs`; the share images come from `/share` (`pnpm capture:share`).
+
+`lib/realm-liquid-glass.ts` bakes the same mark's faces into a signed distance field and refracts
+Realm-blue, white and silver light streams through it, and `components/RealmCanvas.tsx` runs it —
+pausing offscreen and in a hidden tab, one frozen frame under reduced motion, the vector mark where
+WebGPU is unavailable. No page mounts it now: the landing page leads with a capture of the product,
+and the mark sits in the lockup, where a shader would draw a smudge.

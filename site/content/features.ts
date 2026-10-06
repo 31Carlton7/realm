@@ -6,99 +6,98 @@ export type Feature = {
 }
 
 /**
- * The carousel, in tour order: the workspace first, then what lives in it, then what configures it.
+ * The carousel, in tour order: the window first, then working with an agent, then the pages and
+ * tools around it, then what configures it.
  *
  * Copy is authored here; the images are captured. `capture-product.mjs` writes a manifest of the
  * scenes that actually succeeded and the page renders the intersection, so a scene that breaks drops
- * out rather than shipping a hole.
- *
- * Some captured scenes are deliberately absent. `notifications` is two rows on an empty page, and
- * `permissions` leads with two development-build caveats that are true of the capture and not of a
- * packaged Realm — both would be worse evidence than none.
- *
- * `rewind` goes the other way: the copy is here, and the scene only produces an image when the
- * checkpoint it opens really can rewind the conversation. The capture's own agent is scripted and
- * records no provider cursor, so that checkpoint honestly says "Files only" — and the scene fails
- * rather than shoot it. The slide appears when the capture is run against a session that rewinds.
+ * out rather than shipping a hole. Every blurb describes what is in its frame — re-read it whenever
+ * the capture is retaken.
  */
 export const features: Feature[] = [
   {
     slug: "sidebar",
-    title: "An Arc-style sidebar, and nothing else that navigates",
+    title: "Every space in one sidebar",
     blurb:
-      "One column: search, the destinations every space shares, then the space you are in — its open panes above everything it holds. A strip of the other spaces sits along the bottom, and swiping between them tracks the trackpad the way macOS Spaces does.",
-  },
-  {
-    slug: "profiles",
-    title: "Spaces, under the profile they belong to",
-    blurb:
-      "A space is one body of work: its sessions, files, connections and memory. A profile is the layer above — Personal and Client work keep separate spaces, and what you put on the profile is seen by every space under it.",
-  },
-  {
-    slug: "activity",
-    title: "Every chat, by the day you last worked on it",
-    blurb:
-      "The sidebar's activity lens lists every chat across the profile's spaces, grouped by the day it was last worked on. Each row carries the space, the folder and the branch that tell two similarly-titled chats apart.",
+      "Each space is a section of one list: its name in its colour, a tally of what is waiting and working in it, and its sessions. Needs you heads the column with every session waiting on a permission or a question, from every space and every profile.",
   },
   {
     slug: "workspace",
-    title: "Several kinds of work, one grid",
+    title: "What a session opens, beside it",
     blurb:
-      "Sessions, documents, terminals and pages share one pane grammar and one saved layout. What you leave open is what you come back to.",
+      "A file the agent names opens in the side panel at the line it named. A browser, a device, a document or a terminal an agent opens arrives there as a tab, rather than as a column of its own beside whatever had focus.",
+  },
+  {
+    slug: "splits",
+    title: "As many panes as there is room for",
+    blurb:
+      "Split right or down, from whichever spaces the sessions are in. The only limit is room — a pane is never drawn narrower than a session works at — and beside the panes one full-height side panel holds every on-screen session's tabs.",
   },
   {
     slug: "session",
-    title: "A transcript you can read",
+    title: "A transcript that says what each turn changed",
     blurb:
-      "A plan gets a card rather than a paragraph, a tool call gets the shape of what it did, and the list of what is left stays pinned above the composer while the run scrolls past it.",
-  },
-  {
-    slug: "rewind",
-    title: "A restore that takes the conversation back with it",
-    blurb:
-      "Restoring a checkpoint used to put the files back while the agent still remembered writing them. For a Claude session it now cuts the transcript back and resumes the provider conversation at the same turn. Every other agent says plainly that it cannot.",
+      "A file the agent names becomes a link, and a turn that edited files ends with a card: each file with its counts as git measured them, Review for that turn's diff, and Undo where a checkpoint takes back exactly that turn. A tick down the left edge marks every prompt.",
   },
   {
     slug: "models",
-    title: "Every model, one picker",
+    title: "One short list, with effort and fast mode at its foot",
     blurb:
-      "Claude, Codex, Cursor, Gemini, Grok, Kimi and GLM — with what each costs, how much context it holds, and which harness will actually run it.",
+      "Models grouped by the harness a click runs them through, with what the highlighted one is for, its context and its price. The foot is that model's own effort levels on a track, and the bolt for fast mode; at XHigh and Max the track lights.",
   },
   {
-    slug: "palette",
-    title: "⌘K reaches everything",
+    slug: "questions",
+    title: "Every agent's questions on one card",
     blurb:
-      "Sessions across every space, panes, layouts, palettes and each destination, ordered by recency and honest about what it cannot open.",
+      "The card says who is asking, and what it offers comes from Realm rather than from the asker: options, with pictures as tiles; text, masked when it is a secret; a model for each step; a file, a branch, a date. 1 to 9 pick an option.",
   },
   {
-    slug: "documents",
-    title: "Documents beside the run",
+    slug: "blocks",
+    title: "Charts, diagrams and comparisons in a reply",
     blurb:
-      "Markdown, PDFs, study guides and Office files open in a pane, in rich or source mode — and an agent reads the same folder you do.",
+      "An agent writes a Mermaid diagram, a realm-chart or a realm-compare as fenced code, and the transcript draws it once the fence closes, in Realm's own palette. A body that does not parse stays code, with the reason, and nothing in a block fetches anything.",
   },
   {
-    slug: "editor",
-    title: "Source in a pane, and search over the checkout",
+    slug: "delegation",
+    title: "Hand work to other models",
     blurb:
-      "Code opens in CodeMirror in the documents pane, in the app's own theme, with find, replace and undo. ⌘P finds a file by name across the checkout; ⌘⇧P searches its contents through git grep, which honours .gitignore and still finds the file written ten seconds ago and never committed.",
+      "Pick models in the session's Agents tab and say what to build, or ask in words. The session's own agent splits the work and starts a sub-agent on each model; the tab says where each one stands, and the transcript gives each a quiet line of its own.",
   },
   {
-    slug: "terminal",
-    title: "Terminals in the same grid",
+    slug: "review",
+    title: "Pull requests, read and reviewed in Realm",
     blurb:
-      "A real pty in a pane, named for its working directory, respawned where you left it after a relaunch.",
+      "Code review lists your pull requests through your own gh, so Realm holds no GitHub token. A reviewer runs read-only on the model you choose and leaves its findings on the page, and nothing reaches GitHub until you press Submit review.",
   },
   {
-    slug: "commands",
-    title: "The commands a space owns",
+    slug: "schedules",
+    title: "Scheduled tasks, and every run a session",
     blurb:
-      "A script is a named shell line — pnpm test — kept with the space and started in a terminal beside your sessions, addressable as script.<id>.run so a key can be bound to it. A slash command is a markdown file with front matter, read from the space, from ~/Realm and read-only from ~/.claude, whose arguments expand into the draft.",
+      "A column of tasks, each with the model it runs on and its runs under it. A run is its real session — the transcript, and a prompter to carry it on — beside the task's card: when it repeats, when it runs next, and Run now, Pause, Edit and Delete.",
   },
   {
     slug: "library",
-    title: "The skills already on your machine",
+    title: "A Library of your files, sorted by kind",
     blurb:
-      "Realm finds them, says where each one came from, and switches them per space. It injects them per invocation and never writes to your CLI's own config.",
+      "Tabs for images, documents, code and data, and every file one square tile, a picture filling its own. Add, or a drop anywhere on the page, brings your own files in as Realm's copy; Remove from Library takes one back out, with Undo.",
+  },
+  {
+    slug: "documents",
+    title: "The Documents pane opens on your files",
+    blurb:
+      "What this session made and was given, then the Library's, under one search that also finds the checkout's own files by name. ⌘P puts the keyboard there from anywhere, and New makes a document, a spreadsheet, a deck, a paper or a code file.",
+  },
+  {
+    slug: "terminal",
+    title: "A terminal's tab says what is running in it",
+    blurb:
+      "The tab names the program in the foreground before the folder, and wears its mark — vim here, or git, node, or an agent's own. Terminals draw in Realm's own sixteen colours, tuned to each theme.",
+  },
+  {
+    slug: "memory",
+    title: "Memory is the document itself",
+    blurb:
+      "Write and Preview at reading size, saved by a pause in typing. The profile's own document comes first, and every new Claude and Codex session in a space reads that space's before it starts.",
   },
   {
     slug: "connections",
@@ -107,51 +106,57 @@ export const features: Feature[] = [
       "MCP servers are configured once and reached through Realm, so there is one call log instead of one per harness — and Realm's own tools sit on the same switch.",
   },
   {
-    slug: "sandbox",
-    title: "A sandbox the agent and its terminals run inside",
+    slug: "palette",
+    title: "⌘K reaches everything",
     blurb:
-      "A Seatbelt policy applied when Realm starts an agent CLI or a shell: the space's checkouts and the toolchain caches are writable, $HOME is not, and ~/.ssh, ~/.aws and ~/Library/Keychains cannot be read. It ships off, per space — and a Codex session in a sandboxed space refuses to start rather than running unprotected.",
+      "What is open, then every space's sessions by when they last moved, the pages and the commands — the sessions of a space you are not in included.",
   },
   {
-    slug: "schedules",
-    title: "Runs on a clock",
+    slug: "onboarding",
+    title: "First run, signed in without a terminal",
     blurb:
-      "A prompt, a workspace and a cadence. It produces an ordinary session with an ordinary transcript, readable afterwards like any run you started yourself.",
+      "One page: choose your agent — Claude and Codex as cards that install and sign in right there, the rest folded behind one line — then name your space, and start.",
   },
   {
-    slug: "usage",
-    title: "What it actually cost",
+    slug: "new-space",
+    title: "New space asks what the space is",
     blurb:
-      "Spend and tokens by model and by day, a monthly ceiling with an alert before you reach it, and a year of the days you used Realm.",
+      "A name, an icon and its colours, then one card of the rest: a folder, the profile, and the memory every session there reads before it starts. Create lands you in a session in it.",
+  },
+  {
+    slug: "profiles",
+    title: "Profiles keep their sign-ins to themselves",
+    blurb:
+      "Personal and Client work keep separate spaces, cookie jars, saved sign-ins and passkeys. The switcher says what waits in each, and opens a profile in a window of its own.",
+  },
+  {
+    slug: "activity",
+    title: "Every session, by when it last moved",
+    blurb:
+      "The activity button beside the Spaces caption lists the same sessions by when they last moved, across every space, until you press it again.",
   },
   {
     slug: "appearance",
-    title: "Seven palettes, seventeen faces",
+    title: "Nine icons for the Dock, and type on one scale",
     blurb:
-      "Light and dark chosen separately, per-colour overrides that run through the same derivation, a contrast control, and fonts the app can really deliver.",
+      "Settings ▸ Appearance puts any of nine app icons on the Dock at once, and sets the UI and code text sizes without zooming the layout, the content font, the cursor and the translucency of the sidebar and the panes.",
   },
   {
     slug: "keys",
     title: "The keymap is a file you own",
     blurb:
-      "Rules of key, command and when, read from ~/Realm/keybindings.json. The last match wins, so a rule you write beats the default it lands on — and every shortcut the app prints reads the same list the handler does, so a rebind moves the hint with it.",
+      "Rules of key, command and when, read from ~/Realm/keybindings.json. The last match wins, so a rule you write beats the default it lands on — and every shortcut the app prints reads the same list the handler does, the menu bar's included.",
   },
   {
-    slug: "engines",
-    title: "Every CLI, checked and current",
+    slug: "sandbox",
+    title: "A sandbox the agent and its terminals run inside",
     blurb:
-      "Where each one came from, whether a newer version exists, and the install command offered before the button that runs it.",
+      "A Seatbelt policy applied when Realm starts an agent CLI or a shell: the space's checkouts and the toolchain caches are writable, $HOME is not, and ~/.ssh, ~/.aws and ~/Library/Keychains cannot be read. It ships off, per space.",
   },
   {
-    slug: "memory",
-    title: "Scope that follows the work",
+    slug: "commands",
+    title: "The commands a space owns",
     blurb:
-      "Skills, connections and memory can sit on one space or on the profile above it, where every space underneath sees them.",
-  },
-  {
-    slug: "spaces",
-    title: "A space is one body of work",
-    blurb:
-      "Its name, colour, checkout, sessions and scheduled tasks in one place — and deleting it names exactly what goes with it.",
+      "A script is a named shell line — pnpm test — kept with the space and started in a terminal beside your sessions, addressable as script.<id>.run so a key can be bound to it.",
   },
 ]
