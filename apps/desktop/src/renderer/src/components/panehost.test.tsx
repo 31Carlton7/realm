@@ -249,7 +249,7 @@ describe("PaneHost", () => {
 
   it("keeps its split buttons at any number of panes, unavailable with the reason once there is no room", () => {
     // THE MUTANTS: the old cap (no buttons at two), or a button that asks for a pane the room refuses.
-    const why = "No room for another pane beside it: each needs to be 280 points wide. Widen the window or close a pane.";
+    const why = "No room for another pane beside it: each needs to be 280 points wide. Widen the window or take a pane out of the split.";
     const { props } = renderHost({ splitRefusal: (_leaf, dir) => (dir === "row" ? why : null) });
     const right = within(panel("L1")).getByRole("button", { name: "Split Tab A right" });
     expect(right).toBeDisabled();
@@ -529,7 +529,7 @@ describe("PaneHost's side panel", () => {
 
   it("lights an edge a split has no room for as refused, says why across the pane, and takes no drop there", () => {
     // THE MUTANT: light the edge as an ordinary zone. The drop would land, and the toast would say no.
-    const why = "No room for another pane beside it: each needs to be 280 points wide. Widen the window or close a pane.";
+    const why = "No room for another pane beside it: each needs to be 280 points wide. Widen the window or take a pane out of the split.";
     const { props } = renderHost({ splitRefusal: (_leaf, dir) => (dir === "row" ? why : null) });
     fireDrag(window, "dragstart", dt("B"));
     const overlay = panel("L1").querySelector(".drop-overlay")!;

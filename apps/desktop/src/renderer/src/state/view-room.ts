@@ -76,5 +76,5 @@ export function splitRefusal(s: RoomState, leafId: string | null, dir: "row" | "
     return `No room for another pane ${where} with the side panel out. Put the panel away or widen the window.`;
   }
   const floor = dir === "row" ? `${PANE_MIN.width} points wide` : `${PANE_MIN.height} points tall`;
-  return `No room for another pane ${where}: each needs to be ${floor}. Widen the window${sidebarOpen ? ", fold the sidebar" : ""} or close a pane.`;
+  return `No room for another pane ${where}: each needs to be ${floor}. Widen the window${sidebarOpen ? ", fold the sidebar" : ""} or take a pane out of the split.`;
 }
