@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import { MODEL_NOTES, canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { exited } from "../../components/popover-exit.test-fakes";
 import { ModelPicker, type OverflowGroup } from "./ModelPicker";
@@ -68,19 +68,114 @@ describe("the current choice", () => {
 });
 
 describe("picking", () => {
-  it("is one click on a row, and the popover goes", async () => {
+  it("is one click on a row, and the picker stays open for how the model runs", async () => {
+    /* The owner, 10-05: "if I change the model, the modal always closes … Only when clicking outside
+       of the modal should it close." THE MUTANT: close on a pick, as it did. */
     const { picked } = mount();
     fireEvent.click(option("Claude Sonnet 5"));
     expect(picked).toEqual([["claude", "claude-sonnet-5"]]);
     await exited();
-    expect(dialog()).toBeNull();
+    expect(dialog()).toBeInTheDocument();
+    expect(dialog()).not.toHaveAttribute("data-closing");
   });
 
-  it("is Enter on the highlighted row, after walking to it", () => {
+  it("is Enter on the highlighted row, after walking to it, and stays open", async () => {
     const { picked } = mount();
     fireEvent.keyDown(search(), { key: "ArrowDown" });
     fireEvent.keyDown(search(), { key: "Enter" });
     expect(picked).toEqual([["claude", "claude-sonnet-5"]]); // the row after Opus 5
+    await exited();
+    expect(dialog()).not.toHaveAttribute("data-closing");
+  });
+
+  it("is a favourite's ⌘-digit, and stays open", async () => {
+    const { picked } = mount({ rows: rowsFor({ favorites: [canonicalModelKey("Claude Haiku 4.5")] }) });
+    fireEvent.keyDown(search(), { key: "1", metaKey: true });
+    expect(picked).toEqual([["claude", "claude-haiku-4-5"]]);
+    await exited();
+    expect(dialog()).not.toHaveAttribute("data-closing");
+  });
+
+  it("is put away by a click outside it, by its chip, and by Escape", async () => {
+    // The popover hook arms its listeners a tick after mount.
+    const armed = () => act(async () => { await new Promise((r) => setTimeout(r, 1)); });
+    mount();
+    await armed();
+    fireEvent.pointerDown(document.body);
+    await exited();
+    expect(dialog()).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    await armed();
+    fireEvent.keyDown(search(), { key: "Escape" });
+    await exited();
+    expect(dialog()).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    await exited();
+    expect(dialog()).toBeNull();
+  });
+
+  it("keeps the keyboard in the search after a press, its words selected for the next search", () => {
+    mount();
+    fireEvent.change(search(), { target: { value: "sonnet" } });
+    // A press on a row does not take the focus: the field keeps the keys the picker answers next.
+    expect(fireEvent.mouseDown(option("Claude Sonnet 5"))).toBe(false);
+    fireEvent.click(option("Claude Sonnet 5"));
+    const field = search() as HTMLInputElement;
+    expect(document.activeElement).toBe(field);
+    expect([field.selectionStart, field.selectionEnd]).toEqual([0, "sonnet".length]);
+    // …and the list is the one that was picked from, until the next keystroke.
+    expect(screen.getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["Claude Sonnet 5"]);
+  });
+
+  it("holds the list still when a pick moves the session to another harness", () => {
+    /* The session's own harness leads the list and takes every model it also offers, so a pick on
+       Cursor re-sorted the rows under the pointer and Fable came back under Claude wearing Cursor's
+       mark. THE MUTANT: read the live rows (`holdRows` skipped). */
+    const picked: [AgentKind, string | null][] = [];
+    const ui = (kind: AgentKind, model: string | null) => (
+      <ModelPicker kind={kind} model={model} rows={rowsFor({ kind, model })} info={{}}
+        onToggleFavorite={() => {}} onPick={(k, m) => picked.push([k, m])} />
+    );
+    const { rerender } = render(ui("claude", "claude-opus-5"));
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    const groups = () => within(screen.getByRole("listbox", { name: "Models" })).getAllByRole("group").map((g) => g.getAttribute("aria-label"));
+    const names = () => screen.getAllByRole("option").map((o) => o.getAttribute("aria-label"));
+    const [before, order] = [groups(), names()];
+    fireEvent.click(option("GPT-5.5"));
+    expect(picked).toEqual([["acp:cursor", "gpt-5.5"]]);
+    rerender(ui("acp:cursor", "gpt-5.5"));
+    expect(groups()).toEqual(before);
+    expect(names()).toEqual(order);
+    expect(option("GPT-5.5")).toHaveAttribute("aria-selected", "true");
+    expect(document.querySelectorAll(".mp-check")).toHaveLength(1);
+    // Fable is still Claude's, and a click on it goes back through Claude, as the row says.
+    expect(option("Claude Fable 5.1").querySelector(".mp-row-mark")).toHaveAttribute("data-brand", "claude");
+    fireEvent.click(option("Claude Fable 5.1"));
+    expect(picked.at(-1)).toEqual(["claude", "claude-fable-5-1"]);
+  });
+
+  it("holds its height from a pick on, the list taking up a card of another size, and lets go for a search", () => {
+    /* The popover hangs from its chip, so a card that changed height moved every row above it — the
+       one just pressed too. jsdom lays nothing out, so the heights are staged. THE MUTANT: no hold. */
+    const real = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get(this: HTMLElement) {
+      return this.classList.contains("model-picker") ? 480 : this.classList.contains("mp-list-wrap") ? 320 : 0;
+    } });
+    try {
+      mount();
+      expect(dialog()!.style.height).toBe("");
+      fireEvent.click(option("Claude Sonnet 5"));
+      expect(dialog()!.style.height).toBe("480px");
+      expect(dialog()).toHaveAttribute("data-held");
+      // At most three rows of the list are kept back from a card that grew; past that, the box grows.
+      expect(dialog()!.style.getPropertyValue("--mp-floor")).toBe("118px");
+      fireEvent.change(search(), { target: { value: "op" } });
+      expect(dialog()!.style.height).toBe("");
+      expect(dialog()).not.toHaveAttribute("data-held");
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "offsetHeight", real);
+    }
   });
 
   it("walks a page at a time, and stops at the ends", () => {
@@ -377,13 +472,40 @@ describe("how it runs", () => {
     expect(document.querySelector(".mp-foot")).toBeNull();
   });
 
-  it("lets a folded chip's group close on a pick, as the chip's own menu did", async () => {
+  it("keeps the picker open on a folded chip's choice, a setting on the card like the rest", async () => {
     const chosen: string[] = [];
     mount({ overflow: [{ label: "Permissions", items: [{ label: "Accept edits", onSelect: () => chosen.push("acceptEdits") }] }] });
     fireEvent.click(within(screen.getByRole("group", { name: "Permissions" })).getByRole("button", { name: "Accept edits" }));
     expect(chosen).toEqual(["acceptEdits"]);
     await exited();
-    expect(dialog()).toBeNull();
+    expect(dialog()).not.toHaveAttribute("data-closing");
+  });
+
+  it("steps the level of a model just picked with ←/→ in the search, until the highlight moves on", () => {
+    /* After Enter the keyboard is still in the search field; the level is the next thing it sets.
+       THE MUTANTS: ←/→ left to the caret after a pick, or still stepping once ↓ is walking the list. */
+    const { asked, effort } = control("medium");
+    mount({ effort });
+    fireEvent.keyDown(search(), { key: "ArrowRight" });
+    expect(asked).toEqual([]); // before a pick they are the caret's, as they always were
+    fireEvent.keyDown(search(), { key: "ArrowDown" });
+    fireEvent.keyDown(search(), { key: "Enter" });
+    expect(fireEvent.keyDown(search(), { key: "ArrowRight" })).toBe(false);
+    fireEvent.keyDown(search(), { key: "ArrowLeft" });
+    expect(asked).toEqual(["high", "low"]);
+    fireEvent.keyDown(search(), { key: "ArrowDown" });
+    expect(fireEvent.keyDown(search(), { key: "ArrowRight" })).toBe(true);
+    expect(asked).toEqual(["high", "low"]);
+  });
+
+  it("walks the harnesses again, not the level, once the search changes after a pick", () => {
+    const { asked, effort } = control("medium");
+    mount({ effort });
+    fireEvent.click(option("Claude Sonnet 5"));
+    fireEvent.change(search(), { target: { value: "fable 5.1" } });
+    fireEvent.keyDown(search(), { key: "ArrowRight" });
+    expect(asked).toEqual([]);
+    expect(within(option("Claude Fable 5.1")).getByRole("button", { name: /through Cursor/ })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("puts fast mode beside the level as a bolt, with what it buys as its tooltip, and keeps the picker open", async () => {

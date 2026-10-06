@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey, type ModelInfo } from "@realm/contracts";
 import {
-  agentRowHint, billingLead, chipLabel, effortCurrent, effortOptions, fastModeAvailability, fastModeHint, fastModeShown, fastModeTip, fastModeTitle, filterRows, flatten, groupRows,
+  agentRowHint, billingLead, chipLabel, effortCurrent, effortOptions, fastModeAvailability, fastModeHint, fastModeShown, fastModeTip, fastModeTitle, filterRows, flatten, groupRows, holdRows,
   modelAbout, modelLabel, modelRows, resolveModelName, type FastMode, type ModelRow,
 } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
@@ -228,6 +228,32 @@ describe("groupRows", () => {
     expect(cursorHits).toContain("Claude Fable 5.1");
     expect(cursorHits).toContain("GPT-5.5");
     expect(cursorHits).not.toContain("Claude Sonnet 5"); // claude-only, and Cursor never offered it
+  });
+});
+
+describe("holdRows", () => {
+  const agentProbe = [probe("claude", null), probe("acp:cursor", cursorWithClaude)];
+  const opened = modelRows({ kind: "claude", model: null, canSwitchAgent: true, agentProbe });
+
+  it("keeps every row in its place and on its harness after a pick moves the session, with the tick from now", () => {
+    // Picked GPT-5.5 through Cursor: live, Cursor leads and takes Fable from Claude.
+    const live = modelRows({ kind: "acp:cursor", model: "gpt-5.5", canSwitchAgent: true, agentProbe });
+    expect(live.find((r) => r.label === "Claude Fable 5.1")!.kind).toBe("acp:cursor");
+    const held = holdRows(live, opened);
+    expect(held.map((r) => r.id)).toEqual(opened.map((r) => r.id));
+    const fable = held.find((r) => r.label === "Claude Fable 5.1")!;
+    expect(fable).toMatchObject({ kind: "claude", icon: "claude", agentLabel: "Claude", modelId: "claude-fable-5-1", alternates: ["acp:cursor"] });
+    expect(held.filter((r) => r.selected).map((r) => r.label)).toEqual(["GPT-5.5"]);
+    expect(groupRows(held, { query: "", kind: "claude" }).map((g) => g.label)).toEqual(groupRows(opened, { query: "", kind: "claude" }).map((g) => g.label));
+  });
+
+  it("takes the stars from now, drops a row that has gone and adds one that arrived, after the rest", () => {
+    const live = modelRows({ kind: "claude", model: null, canSwitchAgent: true, favorites: [canonicalModelKey("Claude Sonnet 5")],
+      agentProbe: [probe("claude", null), probe("acp:cursor", [...cursorWithClaude.filter((m) => m.label !== "GPT-5.5"), { id: "gpt-6", label: "GPT-6" }])] });
+    const held = holdRows(live, opened);
+    expect(held.find((r) => r.label === "Claude Sonnet 5")!.favorite).toBe(true);
+    expect(held.map((r) => r.label)).not.toContain("GPT-5.5");
+    expect(held.at(-1)!.label).toBe("GPT-6");
   });
 });
 

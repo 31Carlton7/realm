@@ -624,6 +624,12 @@ acronym that is uppercase anyway (a file extension on a tile).
   arriving lifted the bolt out from under the pointer, and the press meant to switch it off landed on
   the effort track. And it is placed by its laid-out size, never one read mid-entrance: measured
   through its .97 scale-in, the picker sat 3% off its chip until its content next moved.
+- A picker that sets several things stays open while they are set. A pick in the model picker
+  changes the model and leaves the card under it to set the level and the speed in the same visit;
+  a click outside, the chip, or Escape put it away (the owner, 10-05). Picked, the list holds still —
+  every row where it was and through the harness it showed, though the session may now run on
+  another — and the box keeps its height, the list giving way to a card of another size. The keyboard
+  stays in the search with its words selected, and ←/→ there step the level of the model just picked.
 - A prompter with no session behind it yet holds everything its controls set, not only the model,
   and the first send starts the session that way. Code review's question box and the media viewer's
   held the model picked and dropped the rest, so the effort track and the fast-mode bolt were drawn,

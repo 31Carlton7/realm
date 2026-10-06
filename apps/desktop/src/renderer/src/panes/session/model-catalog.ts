@@ -301,6 +301,36 @@ export function flatten(groups: RowGroup[]): ModelRow[] {
 }
 
 /**
+ * The rows as a picker that is already open shows them: in the order, and through the harness, each
+ * had when it opened — with what is LIVE taken from now: which row is ticked, which are starred, and
+ * any row that has arrived since, after the rest.
+ *
+ * A pick leaves the picker open, and a pick can move the session to another harness, which re-sorts
+ * `modelRows` — the session's own harness leads, and takes every model it also offers. Read live, the
+ * list re-ordered under the pointer that had just pressed it, and Fable under the Claude heading came
+ * back wearing Cursor's mark. Held, a pick moves the tick and nothing else, and a row runs through the
+ * harness it said it would; the next opening lays the list out for wherever the session is by then.
+ */
+export function holdRows(live: readonly ModelRow[], opened: readonly ModelRow[]): ModelRow[] {
+  const byId = new Map(live.map((r) => [r.id, r]));
+  const held: ModelRow[] = [];
+  for (const o of opened) {
+    const r = byId.get(o.id);
+    if (!r) continue;
+    byId.delete(o.id);
+    held.push(r.blockedReason || r.kind === o.kind || !r.harnesses.includes(o.kind) ? r : throughHarness(r, o.kind));
+  }
+  return [...held, ...byId.values()];
+}
+
+/** `row` resolved through `kind`, which is one of its own harnesses. Its other harnesses stay routes
+ *  only while the session may still switch, which is what having alternates at all says. */
+const throughHarness = (row: ModelRow, kind: AgentKind): ModelRow => ({
+  ...row, kind, agentLabel: AGENT_META[kind].label, icon: AGENT_META[kind].icon, note: row.notes[kind] ?? null,
+  modelId: row.ids[kind] ?? null, alternates: row.alternates.length > 0 ? row.harnesses.filter((h) => h !== kind) : [],
+});
+
+/**
  * A model's name as a list under its harness shows it: "Fable 5.1" beside Claude's mark, not "Claude
  * Fable 5.1" under a heading that already says Claude.
  *
