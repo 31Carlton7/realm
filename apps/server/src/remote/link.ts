@@ -67,7 +67,10 @@ export class RelayLink {
 
   private connect(): void {
     this.setState("connecting");
-    const ws = new WebSocket(`${this.o.relay}/v1/mac/${this.o.macId}`);
+    // No permessage-deflate (PROTOCOL.md §3): every frame is ciphertext, which does not compress, and
+    // \`ws\` offers it by default — Cloudflare accepts, and each frame then queues for zlib on libuv's
+    // thread pool, which under load cost the spike's events hundreds of milliseconds for nothing.
+    const ws = new WebSocket(`${this.o.relay}/v1/mac/${this.o.macId}`, { perMessageDeflate: false });
     this.ws = ws;
     ws.on("message", (raw, isBinary) => {
       if (isBinary) {
