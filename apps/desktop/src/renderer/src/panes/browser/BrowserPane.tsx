@@ -441,6 +441,8 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   );
   /** The live bounds-sync, published by the effect below so a visibility change can poke it. */
   const syncRef = useRef<(() => void) | null>(null);
+  /** The same effect's settle, for a tab coming back on screen: its slot replays the enter tween. */
+  const resettleRef = useRef<(() => void) | null>(null);
 
   const url = state?.url ?? initialUrl ?? "";
   const hasUrl = url !== "";
@@ -531,7 +533,18 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
 
     // The pane-slot enter animation (rl-settle) is moving the placeholder for the first ~150ms;
     // the view appears once the layout has actually settled, not mid-tween.
-    const settleTimer = setTimeout(() => { flags.settled = true; schedule(); }, SETTLE_MS);
+    let settleTimer = setTimeout(() => { flags.settled = true; schedule(); }, SETTLE_MS);
+    /* …and again whenever the tab comes back on screen, since its slot replays the tween from 4px
+       low. A transform moves the box without resizing it, so no observer would ever say it had
+       landed: synced mid-tween, the view stayed 4px under its pane (measured, splits-live.mjs). */
+    resettleRef.current = () => {
+      clearTimeout(settleTimer);
+      flags.settled = false;
+      sync();
+      settleTimer = setTimeout(() => { flags.settled = true; schedule(); }, SETTLE_MS);
+    };
+    const slot = el.closest(".pane-slot");
+    slot?.addEventListener("animationend", schedule);
 
     cancelViewRelease(browserId); // a remount adopts the still-live view
     void (async () => {
@@ -558,6 +571,8 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       offState();
       ro.disconnect();
       syncRef.current = null;
+      resettleRef.current = null;
+      slot?.removeEventListener("animationend", schedule);
       cancelAnimationFrame(raf);
       clearTimeout(settleTimer);
       window.removeEventListener("dragstart", onDragStart);
@@ -587,10 +602,12 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
    * (create, adopt, release) and re-running it on a visibility flip would tear the view down and
    * rebuild it. But `sync` reads both through refs, so nothing told main when either changed: opening
    * Settings over a browser left the native view painting over the page, and a pane moved into a
-   * hidden leaf would have done the same. One line, and it is the whole fix. The toasts' reserve rides
-   * the same line for the same reason: it changes the bounds without changing the pane.
+   * hidden leaf would have done the same. The toasts' reserve rides the same line for the same reason:
+   * it changes the bounds without changing the pane. Shown again — a tab chosen, the side panel
+   * brought back — the pane settles before its view does, as it does when it mounts.
    */
-  useEffect(() => { syncRef.current?.(); }, [visible, pageOverlay, toastReserve]);
+  useEffect(() => { syncRef.current?.(); }, [pageOverlay, toastReserve]);
+  useEffect(() => { if (visible) resettleRef.current?.(); else syncRef.current?.(); }, [visible]);
 
   // An empty pane's natural target is the address bar (like a fresh browser tab).
   useEffect(() => {
