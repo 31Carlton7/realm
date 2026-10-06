@@ -497,6 +497,31 @@ async function main() {
   check("the light face draws the same view", r.panes.length === 3 && r.tabs.length === 2 && r.runs === 1, r.tabs);
   await shot("16-light-three-and-merged-strip");
   await S(`await s.setThemePref("dark")`);
+  await settle(800);
+
+  // ── 9. A page over the view, and the window's drag regions in the panel's head row ────────────
+  await S(`s.openDestinationPage("library-page")`);
+  await settle(900);
+  r = await report();
+  const vPage = await views();
+  check("a page over the view hides every native view, and the panel's toggle with it", Object.values(vPage).every((v) => !v.shown || v.width === 0) && r.toggle === null, { views: vPage, toggle: r.toggle });
+  await shot("17-page-over-the-view");
+  await S(`s.closePageOverlay()`);
+  await settle(900);
+  await viewOnPane("red", "9-after-the-page");
+  /** The region a point is in: the nearest box up from it that says, as Electron reads them. */
+  const regionAt = (x, y) => evalIn(c, `(() => { for (let el = document.elementFromPoint(${x}, ${y}); el; el = el.parentElement) {
+      const v = getComputedStyle(el).getPropertyValue('-webkit-app-region'); if (v === 'drag' || v === 'no-drag') return { region: v, at: el.className?.baseVal ?? el.className }; }
+      return { region: 'none' }; })()`);
+  r = await report();
+  const strip = await evalIn(c, `(() => { const tabs = [...document.querySelectorAll('.view-panel .pane-tab')]; const add = document.querySelector('.view-panel .pane-tabs-add');
+    return { lastTab: __live.box(tabs.at(-1)), add: __live.box(add), bar: __live.box(document.querySelector('.view-panel .panel-bar')) }; })()`);
+  const emptyX = (strip.add.r + (strip.bar.r - 60)) / 2;
+  const regions = {
+    empty: await regionAt(emptyX, 20), tab: await regionAt(center(strip.lastTab).x, 20), add: await regionAt(center(strip.add).x, 20),
+    edge: await regionAt(r.edge.l + 0.5, 20), body: await regionAt(center(r.panel.body).x, center(r.panel.body).y),
+  };
+  check("the panel's head row moves the window where it has no controls, and its tabs, + and edge do not", regions.empty.region === "drag" && regions.tab.region === "no-drag" && regions.add.region === "no-drag" && regions.edge.region === "no-drag" && regions.body.region !== "drag", regions);
 }
 
 async function teardown() {
