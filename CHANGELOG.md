@@ -55,7 +55,10 @@ a model that cannot run fast names the ones that can. Asked for before a session
 also really runs fast; until now it never reached Claude. Code review's and the media viewer's
 question boxes kept only the model you picked before their first question, so the level, the bolt
 and the permission did nothing there; that question now starts with all four. Every popover opens
-where it will stay, so the bolt is still under the pointer for a second press. A level you choose at
+where it will stay, so the bolt is still under the pointer for a second press. Picking a model no
+longer closes the picker: the model changes, the list stays where it was and the card turns to the
+new model's levels, so its level and fast mode are set in the same visit, and a click outside, the
+chip or Escape put it away; ← and → in its search step the level of the model just picked. A level you choose at
 XHigh or Max lights the track the way the landing page draws its light — streams running into a white
 core at the knob, the cube's facets faint beside it — hotter at Max, and turning fast mode on charges
 the bolt and sends a glint down the track and across the chip. Reduce motion shows the light still;
@@ -331,17 +334,21 @@ space you choose, one whose checkout is the request's repository first, so askin
 conversation.
 
 **Scheduled tasks have a page of their own, and every run is a session.** The page follows Codex's
-layout. A column holds New task, your upcoming tasks with their runs under them, each new run unread
-until you read it, and suggestions to start from. Beside it a run is its real session — the
-transcript, and a prompter to carry it on — with the task's card at the top right: when it repeats
-and runs next, a run it missed while the Mac slept, the model each run starts on, the space and its
-connections, and Run now, Pause, Edit and Delete. Schedule a task is a sheet: a name, the
-instructions, whether it repeats — hourly, daily, on weekdays, weekly, monthly or by a cron
+layout. A column holds New task, your upcoming tasks — each with the model it runs on — and their runs
+under them, each new run unread until you read it, and suggestions to start from. Beside it a run is
+its real session — the transcript, and a prompter to carry it on — with the task's card at the top
+right: when it repeats and runs next, a run it missed while the Mac slept, the model each run starts
+on, the space and its connections, and Run now, Pause, Edit and Delete. Schedule a task is a sheet: a
+name, the instructions, whether it repeats — hourly, daily, on weekdays, weekly, monthly or by a cron
 expression — or runs once at a date and time, and under Advanced whether each run starts a new
-session or carries on the last, whether successful runs are archived, and the space, model and
-effort. A run is handed the task's instructions first, as written, and shows them under a quiet
-Scheduled run line; it lands under its task instead of opening a pane beside whatever you were
-doing. A task an agent schedules from a session runs on that session's agent and model.
+session or carries on the last, whether successful runs are archived, the space, and the model: the
+prompter's own chip and picker, with each model's own levels and its default named, fast mode, and
+whether a run asks each time or accepts edits. The card and the column name the model as the chip
+does, its level and bolt included. A run is handed the task's instructions first, as written, and
+shows them under a quiet Scheduled run line; it lands under its task instead of opening a pane beside
+whatever you were doing, and a task that carries on one session carries what you changed since into
+its next run. A task an agent schedules from a session runs on that session's agent, model, level
+and speed.
 
 **The Library sorts by kind, takes your own files, and Memory saves itself.** The Library's files
 open on tabs — All, Images, Documents, Code, Data — beside a filter for where a file was made and by
