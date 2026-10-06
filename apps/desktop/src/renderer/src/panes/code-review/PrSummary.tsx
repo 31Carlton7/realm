@@ -5,7 +5,7 @@ import { useDissolve } from "../../components/ScrollFades";
 import { useApp } from "../../state/store";
 import { Markdown } from "../session/Markdown";
 import {
-  REVIEWER_STATE_LABEL, age, checksFact, isKept, keepFinding, keepSummary, mergeFact, prMarkdown, type Fact, type ReviewDraft,
+  REVIEWER_STATE_LABEL, age, ago, checksFact, isKept, keepFinding, keepSummary, mergeFact, prMarkdown, type Fact, type ReviewDraft,
 } from "./code-review-model";
 import { Monogram } from "./PrColumn";
 import { useReviewerLabel } from "./ReviewTools";
@@ -49,7 +49,7 @@ export function PrSummary({ detail, review, draft, setDraft, onShow }: {
           <p className="cr-head-meta">
             <Monogram name={detail.author} />
             <span className="cr-head-author">{detail.author ?? "ghost"}</span>
-            <span>{age(detail.createdAt)} ago</span>
+            <span>{ago(detail.createdAt)}</span>
             <span aria-hidden="true">·</span>
             <span className="cr-branch" title="The branch being merged">{detail.headOwner ? `${detail.headOwner}:` : ""}{detail.head}</span>
             <Icon name="arrowRight" size={12} className="cr-head-arrow" />
@@ -148,7 +148,7 @@ function ReviewPanel({ review, draft, setDraft, onShow }: {
       <div className="cr-review-head">
         <Icon name={AGENT_META[review.agentKind].icon} size={14} colored />
         <span className="cr-review-title">{running ? `${label} is reviewing…` : `Review by ${label}`}</span>
-        {!running && review.finishedAt && <span className="cr-quiet">{age(review.finishedAt)} ago</span>}
+        {!running && review.finishedAt && <span className="cr-quiet">{ago(review.finishedAt)}</span>}
         <span className="cr-bar-spacer" />
         <button type="button" className="btn-quiet" onClick={openSession} title="Its whole trace, in the session it ran in">Open session</button>
       </div>

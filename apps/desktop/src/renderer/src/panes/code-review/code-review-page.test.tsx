@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { PAGE_REF_IDS, type GhStatus, type PrDetail, type PrPage, type PrReview, type PrSummary } from "@realm/contracts";
+import { PAGE_REF_IDS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrReview, type PrSummary } from "@realm/contracts";
 
 /** The page's calls, answered from what each test sets, and every one kept. Nothing reaches a socket
  *  — and so nothing reaches gh, or GitHub. */
@@ -20,6 +20,8 @@ vi.mock("../../rpc/client", () => ({
         case "codeReview.list": return pages[params.section]![params.cursor ? 1 : 0] ?? { prs: [], nextCursor: null, total: 0 };
         case "codeReview.search": return { prs: [ROW], nextCursor: null, total: 1 };
         case "codeReview.detail": return detail;
+        case "codeReview.files": return FILES;
+        case "codeReview.patches": return { patches: [PATCH] };
         case "codeReview.reviewGet": return { review };
         case "codeReview.pins": return { pins: [] };
         case "codeReview.places": return { places: [{ spaceId: "s1", projectId: null, name: "Versed", path: "/tmp/versed", repo: null, branch: null }] };
@@ -39,6 +41,7 @@ vi.mock("../../rpc/client", () => ({
 
 import { CodeReviewPage } from "./CodeReviewPage";
 import { forgetHeld } from "./held";
+import { exited } from "../../components/popover-exit.test-fakes";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
 /* The overlay draws its page through the registry, which the panes fill by side effect. */
@@ -63,6 +66,15 @@ const REVIEW: PrReview = {
   summary: "Mostly right.", startedAt: T, finishedAt: T,
   findings: [{ id: "f1", path: "src/a.ts", line: 14, side: "RIGHT", body: "Carry the partial token.", anchored: true }],
 };
+/** The request's one changed file, with the line the finding above is on. */
+const FILES: PrFiles = { headSha: "abc1234def", total: 1, truncated: false,
+  files: [{ path: "src/a.ts", oldPath: null, status: "modified", additions: 1, deletions: 0, patch: "text" }] };
+const PATCH: FileDiff = { path: "src/a.ts", oldPath: null, staged: false, binary: false, truncated: false, truncatedReason: null, additions: 1, deletions: 0,
+  hunks: [{ header: "", oldStart: 13, oldLines: 2, newStart: 13, newLines: 3, lines: [
+    { kind: "context", text: "  feed(chunk: string) {", oldLine: 13, newLine: 13 },
+    { kind: "add", text: "    this.partial += chunk;", oldLine: null, newLine: 14 },
+    { kind: "context", text: "  }", oldLine: 14, newLine: 15 },
+  ] }] };
 
 beforeEach(() => {
   forgetHeld();
@@ -221,7 +233,123 @@ describe("Review with…", () => {
     expect(called("codeReview.submit")).toHaveLength(0);
   });
 
-  it("keeps the profile's instructions from the gear, with an example a press away, and Save and run runs", async () => {
+  /** The popover hook arms its outside-press and Escape listeners on a 0ms timeout, so the press that
+   *  opened a surface cannot close it. Nothing below reaches them until this has run. */
+  const armed = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  const openMenu = async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Review instructions" }));
+    const sheet = await screen.findByRole("dialog", { name: "Review instructions" });
+    await armed();
+    return sheet;
+  };
+  const openPicker = async (sheet: HTMLElement) => {
+    fireEvent.click(within(sheet).getByRole("button", { name: "Model" }));
+    const picker = await screen.findByRole("dialog", { name: "Model picker" });
+    await armed();
+    return picker;
+  };
+
+  it("is one control — the harness's mark and the model's name, then a chevron that opens how to review", async () => {
+    /* The owner, 10-05: "instead of a settings button, you have a little drop-down button next to the
+       model name… combine the buttons together too instead of having two separate ones." THE MUTANTS:
+       the mark left off the body, or the gear back beside it. */
+    await mount();
+    await openRequest();
+    const group = screen.getByRole("group", { name: "Review with a model" });
+    const body = within(group).getByRole("button", { name: "Review with Fable 5.1" });
+    const chevron = within(group).getByRole("button", { name: "Review instructions" });
+    expect(body.querySelector('svg[data-brand="claude"]')).not.toBeNull();
+    // Two targets in one group, the body first: the chevron is the second stop for Tab.
+    expect(within(group).getAllByRole("button")).toEqual([body, chevron]);
+    expect(chevron).toHaveAttribute("aria-haspopup", "dialog");
+    fireEvent.click(chevron);
+    expect(await screen.findByRole("dialog", { name: "Review instructions" })).toBeInTheDocument();
+    expect(chevron).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("chooses the model in the prompter's own picker, each under its harness's mark, and the menu stays up for it", async () => {
+    await mount();
+    await openRequest();
+    const sheet = await openMenu();
+    // The chip in the menu is the prompter's: the harness's mark beside the model's name.
+    expect(within(sheet).getByRole("button", { name: "Model" }).querySelector('svg[data-brand="claude"]')).not.toBeNull();
+    const picker = await openPicker(sheet);
+    const claude = within(picker).getByRole("group", { name: "Claude" });
+    for (const row of within(claude).getAllByRole("option")) expect(row.querySelector('svg[data-brand="claude"]')).not.toBeNull();
+    // A press in the picker, which is portalled out of the menu, is not a press outside the menu.
+    // THE MUTANT: the hook's own surface as the only inside — the menu closes under the pick.
+    const opus = within(claude).getByRole("option", { name: /^Claude Opus 5\.5/ });
+    fireEvent.pointerDown(opus);
+    fireEvent.click(opus);
+    await exited();
+    expect(screen.getByRole("dialog", { name: "Review instructions" })).not.toHaveAttribute("data-closing");
+    const body = screen.getByRole("button", { name: "Review with Opus 5.5" });
+    fireEvent.click(body);
+    await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
+    expect(called("codeReview.review")[0]!.params).toMatchObject({ agentKind: "claude", model: "claude-opus-5-5" });
+  });
+
+  it("puts the picker away on Escape before the menu, and the menu on the next", async () => {
+    // THE MUTANT: every surface answering Escape — the menu, mounted first, went first and took the
+    // picker on top of it with it.
+    await mount();
+    await openRequest();
+    const sheet = await openMenu();
+    await openPicker(sheet);
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Search models" }), { key: "Escape" });
+    await exited();
+    expect(screen.queryByRole("dialog", { name: "Model picker" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Review instructions" })).not.toHaveAttribute("data-closing");
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await exited();
+    expect(screen.queryByRole("dialog", { name: "Review instructions" })).toBeNull();
+  });
+
+  it("while a review runs, is that review under its reviewer's mark — and the chevron still opens the menu, whose Save and run says why it waits", async () => {
+    // A review on Codex is running; the pick has moved on to Claude since.
+    review = { ...REVIEW, agentKind: "codex", state: "running", summary: "", findings: [], finishedAt: null };
+    await mount();
+    await openRequest();
+    const body = await screen.findByRole("button", { name: "Reviewing…" });
+    expect(body).toBeDisabled();
+    expect(body).toHaveAttribute("aria-busy", "true");
+    // THE MUTANT: the pick's mark on a review it is not running.
+    expect(body.querySelector('svg[data-brand="openai"]')).not.toBeNull();
+    expect(body).toHaveAttribute("title", "GPT-5.6 is reviewing this pull request");
+    // THE MUTANT: the chevron disabled with the body — the next review's model and instructions out
+    // of reach for as long as this one runs.
+    const chevron = screen.getByRole("button", { name: "Review instructions" });
+    expect(chevron).toBeEnabled();
+    const sheet = await openMenu();
+    await waitFor(() => expect(within(sheet).getByRole("textbox", { name: "Review instructions" })).toBeEnabled());
+    const saveAndRun = within(sheet).getByRole("button", { name: "Save and run" });
+    expect(saveAndRun).toBeDisabled();
+    expect(saveAndRun).toHaveAttribute("title", "A review of this pull request is running — its findings land here when it is done");
+  });
+
+  it("cannot review a request that changes nothing, says so, and still opens the menu", async () => {
+    detail = { ...DETAIL, additions: 0, deletions: 0, changedFiles: 0 };
+    await mount();
+    await openRequest();
+    const body = screen.getByRole("button", { name: "Review with Fable 5.1" });
+    expect(body).toBeDisabled();
+    expect(body).toHaveAttribute("title", "This pull request changes no files, so there is nothing to review");
+    expect(screen.getByRole("button", { name: "Review instructions" })).toBeEnabled();
+  });
+
+  it("heads a finding under its line with the reviewer's mark and its model's name", async () => {
+    // THE MUTANT: a bare note — beside the person's own comments, nothing says the reviewer wrote it.
+    review = REVIEW;
+    await mount();
+    await openRequest();
+    fireEvent.click(screen.getByRole("radio", { name: /Changes/ }));
+    const note = (await screen.findByText("Carry the partial token.")).closest(".cr-note")!;
+    const by = note.querySelector(".cr-note-by")!;
+    expect(by).toHaveTextContent("Fable 5.1");
+    expect(by.querySelector('svg[data-brand="claude"]')).not.toBeNull();
+  });
+
+  it("keeps the profile's instructions from the chevron, with an example a press away, and Save and run runs", async () => {
     instructions = "Skip style nits.";
     await mount();
     await openRequest();
@@ -281,21 +409,24 @@ describe("the column, in the sidebar's place", () => {
   const page = () => document.querySelector<HTMLElement>(".page-overlay")!;
   const column = () => within(sidebar()).getByRole("navigation", { name: "Pull requests" });
 
-  it("is the sidebar's column under its Back from the page's first frame — before gh has answered — and none of it in the page", async () => {
+  it("is the sidebar's column from the page's first frame — before gh has answered — with no Back, and none of it in the page", async () => {
     /* The owner, 10-05, of the Scheduled page's column: "It is supposed to be the replacement sidebar,
        not like its own custom thing. Same for the code review part." And from the first frame: a page
        that waited for gh before drawing its column showed the spaces until it answered, then swapped.
-       THE MUTANTS: the column left in the page, or nothing in the sidebar's place until gh answers. */
+       Of the Back over it, later that day: "unnecessary" — the rail's lit button puts the page away.
+       THE MUTANTS: the column left in the page, nothing in the sidebar's place until gh answers, or a
+       Back over it again. */
     const { store } = await mountInWindow();
-    // Its first frame: the column's picture in the slot, under Back, in the spaces' place — and beside
-    // it the page as it will stand once gh answers, nothing chosen yet.
+    // Its first frame: the column's picture in the slot, in the spaces' place — and beside it the page
+    // as it will stand once gh answers, nothing chosen yet.
     expect(sidebar().querySelector(".sb-page-nav > .cr-col[aria-hidden]")).not.toBeNull();
     expect(within(page()).getByRole("heading", { level: 2, name: "Select a pull request" })).toBeInTheDocument();
-    expect(within(sidebar()).getByRole("button", { name: "Back" })).toBeInTheDocument();
+    expect(within(sidebar()).queryByRole("button", { name: "Back" })).toBeNull();
     expect(sidebar().querySelector(".sb-list")).toHaveAttribute("hidden");
     // gh answers: the column itself in the same place, its lists under the head, the page its own.
     expect(await within(sidebar()).findByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
     expect(column().closest(".sb-page-nav")).not.toBeNull();
+    expect(within(sidebar()).queryByRole("button", { name: "Back" })).toBeNull();
     expect(sidebar().querySelector(".cr-col[aria-hidden]")).toBeNull();
     expect(page().querySelector(".cr-col")).toBeNull();
     fireEvent.click(within(column()).getByRole("button", { name: /^Stream the tokenizer/ }));

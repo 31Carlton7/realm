@@ -14,6 +14,10 @@ import type { IconName } from "@realm/ui";
  */
 export type ToastTone = "error" | "warning" | "success" | "info";
 
+/** The one thing a toast can do besides go: take back what it reports — a removal's Undo. A notice
+ *  about something that happened may offer to unhappen it; it never asks a question (design.md). */
+export type ToastAction = { label: string; run: () => void };
+
 export type Toast = {
   id: string;
   tone: ToastTone;
@@ -24,9 +28,10 @@ export type Toast = {
   /** How long it is up, in ms, not counting the time it spends paused (pointer on the stack, focus in
    *  it, the window not key). */
   life: number;
+  action: ToastAction | null;
 };
 
-export type ToastInput = { text: string; tone?: ToastTone; icon?: IconName; life?: number };
+export type ToastInput = { text: string; tone?: ToastTone; icon?: IconName; life?: number; action?: ToastAction };
 
 /** How many are on screen at once. A fourth pushes the oldest off: three is as many as anyone reads
  *  in the few seconds each one is up, and a stack taller than that is a wall over the work. */
@@ -39,12 +44,15 @@ const LIFE_FLOOR: Record<ToastTone, number> = { error: 6000, warning: 5000, succ
  *  past which a toast has stopped being a toast. */
 const MS_PER_CHAR = 55;
 const LIFE_CAP = 10_000;
+/** The floor of a toast that offers to take back what it reports. The offer is what it is there for,
+ *  and it has to be read, found and pressed before the line reaches the end. */
+const ACTION_FLOOR = 8000;
 
 /** How long a toast stays: its tone's floor, or the time it takes to read, whichever is longer — a
  *  path in an error is most of its length, and four seconds is not long enough to find the folder
  *  name in one. Capped, because a toast that waits a minute is a banner by another name. */
-export function toastLife(tone: ToastTone, text: string): number {
-  return Math.min(LIFE_CAP, Math.max(LIFE_FLOOR[tone], 1000 + text.length * MS_PER_CHAR));
+export function toastLife(tone: ToastTone, text: string, action = false): number {
+  return Math.min(LIFE_CAP, Math.max(action ? ACTION_FLOOR : LIFE_FLOOR[tone], 1000 + text.length * MS_PER_CHAR));
 }
 
 /**
@@ -53,12 +61,14 @@ export function toastLife(tone: ToastTone, text: string): number {
  * The same words in the same tone are one toast, not two. A poll that fails every few seconds would
  * otherwise fill the stack with copies of itself; instead the one already up comes to the front
  * under a new id — which restarts its time and plays its entrance again, so "it happened again" is
- * still said, once.
+ * still said, once. Never a toast with an action: two removals that read alike are two things to
+ * undo, and folding them would take the first one's Undo away.
  */
 export function pushToast(list: readonly Toast[], input: ToastInput, id: string): Toast[] {
   const tone = input.tone ?? "info";
   const text = input.text.trim();
-  const next: Toast = { id, tone, text, icon: input.icon ?? null, life: input.life ?? toastLife(tone, text) };
-  const rest = list.filter((t) => !(t.tone === tone && t.text === text));
+  const action = input.action ?? null;
+  const next: Toast = { id, tone, text, icon: input.icon ?? null, life: input.life ?? toastLife(tone, text, action !== null), action };
+  const rest = action ? [...list] : list.filter((t) => !(t.tone === tone && t.text === text && t.action === null));
   return [...rest, next].slice(-TOAST_LIMIT);
 }

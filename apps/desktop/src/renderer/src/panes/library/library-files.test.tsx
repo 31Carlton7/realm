@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { LIBRARY_PAGE_SIZE, PAGE_REF_IDS, type LibraryEntry } from "@realm/contracts";
 import { LibraryPage } from "./LibraryPage";
 import { groupByDay } from "./LibraryFiles";
 import { createAppStore, StoreContext } from "../../state/store";
 import { resetThumbnailCache } from "../../components/use-thumbnail";
-import { breakableName } from "../../components/FileCard";
+import { breakableName, FileCard } from "../../components/FileCard";
 import { allOnScreen } from "../../components/on-screen.test-fakes";
 import { resetMediaCache } from "../session/media/use-media";
 import { fakeApi, item, session, space, type FakeData } from "../../state/store.test-fakes";
 import { MediaViewer } from "../../components/viewer/MediaViewer";
+import { Toasts } from "../../components/Toasts";
 
 /** The preload bridge, as the preview and the cards see it. jsdom has none, so every capability the
  *  Library offers has to be stubbed here — and a stub that is MISSING is itself the interesting case,
@@ -526,5 +527,223 @@ describe("adding files to the Library", () => {
     await waitFor(() => expect(api.calls).toContain("pickFiles"));
     expect(api.calls.some((c) => c.startsWith("addLibraryFiles:"))).toBe(false);
     expect(store.getState().toasts).toEqual([]);
+  });
+});
+
+describe("taking a file back out of the Library", () => {
+  /** A file the person added, as the index lists one: Realm's copy under the profile, in no session. */
+  const added = (name: string, ts: number): LibraryEntry => ({
+    id: `F-${name}`, sessionId: null, spaceId: null, kind: "added", path: `/realm-home/library/p1/${name}`, name,
+    ext: name.split(".").pop()!, ts, sessionTitle: null, agentKind: null,
+  });
+  const ofP1 = (entries: LibraryEntry[]) => Object.fromEntries(entries.filter((e) => e.kind === "added").map((e) => [e.id, "p1"]));
+  /** The page with the window's toasts under it, so a toast's Undo is pressed as a person presses it. */
+  async function mountWithToasts(artifacts: LibraryEntry[], over: FakeData = {}) {
+    const api = fakeApi({ artifacts, addedProfiles: ofP1(artifacts), ...over });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    render(
+      <StoreContext.Provider value={store}>
+        <LibraryPage item={item("i1", "s1", { kind: "library-page", refId: PAGE_REF_IDS["library-page"], title: "Library" })} visible />
+        <MediaViewer />
+        <Toasts />
+      </StoreContext.Provider>,
+    );
+    return { api, store };
+  }
+  const names = () => [...document.querySelectorAll(".library-file .library-tile-name")].map((n) => n.textContent);
+  const tileOf = (name: string) => screen.getByText(name).closest<HTMLElement>(".library-tile")!;
+  const rowsOf = (menu: HTMLElement) => within(menu).getAllByRole("menuitem").map((b) => b.querySelector(".menu-label")!.textContent);
+  const toast = () => waitFor(() => { const t = document.querySelector<HTMLElement>(".toast"); expect(t).not.toBeNull(); return t!; });
+  async function removeFromMenu(name: string) {
+    fireEvent.click(screen.getByRole("button", { name: `More for ${name}` }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Remove from Library/ }));
+  }
+
+  it("ends an added file's menu — at a right-click or under its ⋯ — with Remove from Library, and a session's file's without it", async () => {
+    /* THE mutants: the row offered for a session's file, which is its work and not the Library's to let
+       go of, or a menu that only one of the two ways in opens. */
+    await mountWithToasts([added("hero.png", 3), file({ id: "plan.md", ts: 2 })]);
+    await screen.findByText("hero.png");
+    fireEvent.contextMenu(tileOf("hero.png"), { clientX: 40, clientY: 50 });
+    const menu = await screen.findByRole("menu", { name: "hero.png" });
+    expect(rowsOf(menu)).toEqual(["Open", "Reveal in Finder", "Copy path", "Remove from Library"]);
+    expect(within(menu).getByRole("menuitem", { name: /^Remove from Library/ })).toHaveAttribute("title", "Deletes Realm's own copy. The file you added it from stays where it is.");
+    fireEvent.keyDown(menu, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "More for plan.md" }));
+    expect(rowsOf(await screen.findByRole("menu", { name: "plan.md" }))).toEqual(["Open", "Reveal in Finder", "Copy path"]);
+  });
+
+  it("takes it out at once — nothing asked — says so with an Undo, and the Undo puts it back where it was", async () => {
+    /* THE mutants: a question in front of the removal (it comes back with a click, so a confirm would
+       guard nothing — design.md), a toast with no way back, or a file that comes back somewhere else. */
+    const { api, store } = await mountWithToasts([added("a.md", 3), added("b.png", 2), added("c.pdf", 1)]);
+    await screen.findByText("b.png");
+    await removeFromMenu("b.png");
+    await waitFor(() => expect(names()).toEqual(["a.md", "c.pdf"]));
+    expect(api.calls).toContain("removeLibraryFiles:p1:/realm-home/library/p1/b.png");
+    const said = await toast();
+    expect(said).toHaveTextContent("Removed b.png from the Library.");
+    fireEvent.click(within(said).getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(names()).toEqual(["a.md", "b.png", "c.pdf"]));
+    expect(api.calls.some((c) => c.startsWith("restoreLibraryFiles:removal:"))).toBe(true);
+    // The offer taken, the toast goes with it.
+    await waitFor(() => expect(store.getState().toasts).toEqual([]));
+  });
+
+  it("takes the file in focus out on Delete — or the Finder's ⌘⌫ — and hands the keyboard to the one after it", async () => {
+    /* THE mutants: Delete ignored on the grid, or the focus dropped on the page with the tile, so the
+       next Delete does nothing and the keyboard is lost. */
+    await mountWithToasts([added("a.md", 3), added("b.md", 2), added("c.md", 1)]);
+    await screen.findByText("b.md");
+    tileOf("b.md").focus();
+    fireEvent.keyDown(tileOf("b.md"), { key: "Backspace" });
+    await waitFor(() => expect(names()).toEqual(["a.md", "c.md"]));
+    await waitFor(() => expect(document.activeElement).toBe(tileOf("c.md")));
+    fireEvent.keyDown(tileOf("c.md"), { key: "Backspace", metaKey: true });
+    await waitFor(() => expect(names()).toEqual(["a.md"]));
+    // The last one goes back to the one before it.
+    await waitFor(() => expect(document.activeElement).toBe(tileOf("a.md")));
+  });
+
+  it("leaves a session's file alone on Delete, and its ⋯'s keys to the ⋯", async () => {
+    const { api } = await mountWithToasts([file({ id: "plan.md", ts: 2 }), added("mine.md", 1)]);
+    await screen.findByText("plan.md");
+    tileOf("plan.md").focus();
+    fireEvent.keyDown(tileOf("plan.md"), { key: "Backspace" });
+    fireEvent.keyDown(tileOf("plan.md"), { key: "Delete" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "More for mine.md" }), { key: "Backspace" });
+    expect(api.calls.some((c) => c.startsWith("removeLibraryFiles:"))).toBe(false);
+    expect(names()).toEqual(["plan.md", "mine.md"]);
+  });
+
+  it("opens the file's menu from the keyboard, on Shift-F10 or the menu key", async () => {
+    await mountWithToasts([added("hero.png", 1)]);
+    await screen.findByText("hero.png");
+    tileOf("hero.png").focus();
+    fireEvent.keyDown(tileOf("hero.png"), { key: "F10", shiftKey: true });
+    expect(rowsOf(await screen.findByRole("menu", { name: "hero.png" }))).toContain("Remove from Library");
+  });
+
+  it("is the page's empty state again once the last file is gone", async () => {
+    await mountWithToasts([added("only.md", 1)]);
+    await screen.findByText("only.md");
+    await removeFromMenu("only.md");
+    expect(await screen.findByText(/^Nothing here yet\./)).toBeTruthy();
+  });
+
+  it("takes the file off a prompter that has it as a chip, and puts the chip back where it was with the undo", async () => {
+    /* A chip naming a file that is gone would fail the next send whole. THE mutants: the chip left in
+       the prompter, or an undo that leaves it off — or puts it back at the end of the row. */
+    const hero = added("hero.png", 1);
+    const { store } = await mountWithToasts([hero]);
+    await screen.findByText("hero.png");
+    const chip = (path: string, name: string) => ({ path, mime: "image/png", name, size: 1 });
+    act(() => { store.setState({ pendingAttachments: { se1: [chip("/tmp/a.png", "a.png"), chip(hero.path, "hero.png"), chip("/tmp/b.png", "b.png")] } }); });
+    await removeFromMenu("hero.png");
+    await waitFor(() => expect(store.getState().pendingAttachments["se1"]!.map((a) => a.name)).toEqual(["a.png", "b.png"]));
+    const said = await toast();
+    expect(said).toHaveTextContent("Removed hero.png from the Library. It's gone from the message you're writing, too.");
+    fireEvent.click(within(said).getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(store.getState().pendingAttachments["se1"]!.map((a) => a.name)).toEqual(["a.png", "hero.png", "b.png"]));
+  });
+
+  it("says which sent messages lose the file", async () => {
+    const hero = added("hero.png", 1);
+    const sent = file({ id: "se1:7:hero", kind: "upload", path: hero.path, name: "hero.png", ext: "png", ts: 2 });
+    await mountWithToasts([sent, hero]);
+    await screen.findAllByText("hero.png");
+    // Listed twice — as attached to the message, and as added — and only the second is the Library's own.
+    const [asSent, asAdded] = screen.getAllByRole("button", { name: "More for hero.png" });
+    fireEvent.click(asSent!);
+    expect(rowsOf(await screen.findByRole("menu", { name: "hero.png" }))).not.toContain("Remove from Library");
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    fireEvent.click(asAdded!);
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Remove from Library/ }));
+    expect(await toast()).toHaveTextContent("Removed hero.png from the Library. It's gone from the message it was sent with, too.");
+    // The Library's listing of it as attached goes with the copy.
+    await waitFor(() => expect(names()).toEqual([]));
+  });
+
+  it("moves the viewer on when the file on show is removed from it, and back to the file with the undo", async () => {
+    /* THE mutants: a Remove the viewer does not offer for an added file, or a viewer left on a file
+       that is no longer anywhere. */
+    bridge();
+    const { store } = await mountWithToasts([added("a.md", 3), added("b.md", 2), file({ id: "plan.md", ts: 1 })]);
+    fireEvent.click(await screen.findByTitle("/realm-home/library/p1/a.md"));
+    const dialog = await screen.findByRole("dialog", { name: "a.md" });
+    fireEvent.click(await within(dialog).findByRole("button", { name: "More actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Remove from Library/ }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveAttribute("aria-label", "b.md"));
+    expect(store.getState().viewer!.files.map((f) => f.name)).toEqual(["b.md", "plan.md"]);
+    fireEvent.click(within(await toast()).getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveAttribute("aria-label", "a.md"));
+    expect(store.getState().viewer!.files.map((f) => f.name)).toEqual(["a.md", "b.md", "plan.md"]);
+    // A session's file in the same viewer has no such row.
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveAttribute("aria-label", "plan.md"));
+    fireEvent.click(await within(screen.getByRole("dialog")).findByRole("button", { name: "More actions" }));
+    await screen.findByRole("menuitem", { name: "Copy path" });
+    expect(screen.queryByRole("menuitem", { name: /^Remove from Library/ })).toBeNull();
+  });
+
+  it("closes the viewer when the only file it held is removed", async () => {
+    bridge();
+    await mountWithToasts([added("only.md", 1)]);
+    fireEvent.click(await screen.findByTitle("/realm-home/library/p1/only.md"));
+    const dialog = await screen.findByRole("dialog", { name: "only.md" });
+    fireEvent.click(await within(dialog).findByRole("button", { name: "More actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Remove from Library/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await toast()).toHaveTextContent("Removed only.md from the Library.");
+  });
+
+  it("draws the picture again for a file added back where a removed one was", async () => {
+    /* A sent message's tile keeps showing a copy's path whatever happens to it. THE mutant: an add that
+       leaves the window's picture cache alone — the tile asked while the copy was gone, holds "no
+       picture", and never asks again, so the file is back and every tile of it is a glyph. */
+    const realm = bridge();
+    allOnScreen();
+    const { store } = await mountWithToasts([added("hero.png", 1)], {
+      pickFiles: [{ path: "/Users/me/Desktop/hero.png", mime: "image/png", name: "hero.png", size: 1 }] });
+    await screen.findByText("hero.png");
+    const { container } = render(
+      <StoreContext.Provider value={store}>
+        <FileCard path="/realm-home/library/p1/hero.png" name="hero.png" type="image" title="sent" onOpen={() => {}} />
+      </StoreContext.Provider>,
+    );
+    await waitFor(() => expect(container.querySelector("img.library-tile-thumb")).not.toBeNull());
+    realm.attachmentThumbnail.mockImplementation(async () => null as unknown as string);
+    await removeFromMenu("hero.png");
+    await waitFor(() => expect(container.querySelector("img.library-tile-thumb")).toBeNull());
+    realm.attachmentThumbnail.mockImplementation(async () => "data:image/png;base64,AGAIN");
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(container.querySelector("img.library-tile-thumb")?.getAttribute("src")).toBe("data:image/png;base64,AGAIN"));
+  });
+
+  it("keeps the page where it was: a file taken out of the second page leaves both pages showing", async () => {
+    /* THE mutant: ask again for the first page only, as a filter change does — the list is cut back to
+       sixty under someone who had scrolled past them, and their place is gone. */
+    const sentinels: { cb: IntersectionObserverCallback; el: Element }[] = [];
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(private cb: IntersectionObserverCallback) {}
+      observe(el: Element) { sentinels.push({ cb: this.cb, el }); }
+      unobserve() {}
+      disconnect() {}
+      takeRecords() { return []; }
+    });
+    const many = Array.from({ length: LIBRARY_PAGE_SIZE + 5 }, (_, i) => added(`f${String(i).padStart(3, "0")}.md`, 1_700_000_000_000 - i));
+    await mountWithToasts(many);
+    await screen.findByText("f000.md");
+    act(() => { for (const s of sentinels.filter((o) => o.el.classList.contains("library-more"))) s.cb([{ isIntersecting: true, target: s.el } as IntersectionObserverEntry], {} as IntersectionObserver); });
+    await screen.findByText("f064.md");
+    await removeFromMenu("f062.md");
+    await waitFor(() => expect(screen.queryByText("f062.md")).toBeNull());
+    expect(document.querySelectorAll(".library-tile")).toHaveLength(LIBRARY_PAGE_SIZE + 4);
+    expect(screen.getByText("f064.md")).toBeTruthy();
+    vi.unstubAllGlobals();
   });
 });

@@ -18,10 +18,11 @@ import { useApp } from "../state/store";
  *
  * So it is an overlay, and one at a time. It covers the pane host and nothing else — the rail and the
  * sidebar stay reachable, because they are the way out: Home or the lit rail button pressed again, a
- * session in the sidebar, the column's Back, or Escape. Its bar draws no close of its own (the owner,
- * 10-05: "Remove the close button… Can nav this with the sidebar"). It is drawn inside the panes' own
- * column (AppShell's `.main`) rather than over the window, so its box is the panes' box in every frame:
- * when the sidebar opens or closes, the page, its bar and the panes under it move as one.
+ * session in the sidebar, the column's Back where a menu opened the page, or Escape. Its bar draws no
+ * close of its own (the owner, 10-05: "Remove the close button… Can nav this with the sidebar"). It is
+ * drawn inside the panes' own column (AppShell's `.main`) rather than over the window, so its box is
+ * the panes' box in every frame: when the sidebar opens or closes, the page, its bar and the panes
+ * under it move as one.
  *
  * The page components are untouched. What they want from an `Item` is a kind, a refId and the space
  * to read from; `pageItemOf` hands them exactly that, built rather than stored.

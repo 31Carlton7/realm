@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { Menu, type MenuItem } from "./Menu";
+import { useAnchoredPopover } from "./use-anchored-popover";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi } from "../state/store.test-fakes";
 import { exited } from "./popover-exit.test-fakes";
@@ -447,5 +449,66 @@ describe("anchored surfaces re-place when their own height changes", () => {
     menuH = 400;
     act(() => { for (const cb of fire) cb(); });
     expect(screen.getByRole("menu").style.top).toBe("196px");
+  });
+});
+
+describe("a surface opened from inside another", () => {
+  /** A popover holding a control that opens a menu, as Code review's instructions hold the model
+   *  picker: the menu is portalled out of the popover, and anchored to a control inside it. */
+  function Popover({ anchorRef, onClose, children }: { anchorRef: RefObject<HTMLElement | null>; onClose: () => void; children: ReactNode }) {
+    const ref = useRef<HTMLDivElement>(null);
+    useAnchoredPopover({ ref, anchorRef, onClose });
+    return createPortal(<div ref={ref} role="dialog" aria-label="Outer popover">{children}</div>, document.body);
+  }
+  function Nested() {
+    const outerBtn = useRef<HTMLButtonElement>(null);
+    const innerBtn = useRef<HTMLButtonElement>(null);
+    const [outer, setOuter] = useState(false);
+    const [inner, setInner] = useState(false);
+    return (
+      <>
+        <button ref={outerBtn} onClick={() => setOuter((o) => !o)}>Outer</button>
+        {outer && (
+          <Popover anchorRef={outerBtn} onClose={() => setOuter(false)}>
+            <button ref={innerBtn} onClick={() => setInner((o) => !o)}>Inner</button>
+            {inner && <Menu items={[plain("A"), plain("B")]} anchorRef={innerBtn} onClose={() => setInner(false)} label="Inner menu" />}
+          </Popover>
+        )}
+      </>
+    );
+  }
+  /** Each surface arms its listeners on a 0ms timeout, so the press that opened it cannot close it. */
+  const listening = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  const openBoth = async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Outer" }));
+    await listening();
+    fireEvent.click(screen.getByRole("button", { name: "Inner" }));
+    await listening();
+  };
+
+  it("takes a press in the inner surface as a press inside the outer one", async () => {
+    // THE MUTANT: only the hook's own element counts as inside — the popover closes under its menu.
+    render(<Nested />);
+    await openBoth();
+    fireEvent.pointerDown(within(screen.getByRole("menu", { name: "Inner menu" })).getByRole("menuitem", { name: "B" }));
+    expect(screen.getByRole("dialog", { name: "Outer popover" })).toBeInTheDocument();
+    // …and a press outside both still closes both.
+    fireEvent.pointerDown(document.body);
+    await exited();
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("gives Escape to the newest surface, then to the one under it", async () => {
+    // THE MUTANT: every surface answering it — in mount order, so the outer went first and took the
+    // menu on top of it along.
+    render(<Nested />);
+    await openBoth();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await exited();
+    expect(screen.queryByRole("menu", { name: "Inner menu" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Outer popover" })).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Outer popover" })).toBeNull();
   });
 });

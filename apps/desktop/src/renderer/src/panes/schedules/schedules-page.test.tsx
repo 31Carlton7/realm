@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { parseOnce, sessionEvent, type Run, type Schedule, type StoredSessionEvent } from "@realm/contracts";
-import { createAppStore, StoreContext } from "../../state/store";
+import { createAppStore, StoreContext, type AgentProbe } from "../../state/store";
 import { fakeApi, item, runRow, session, type FakeData } from "../../state/store.test-fakes";
+import { exited } from "../../components/popover-exit.test-fakes";
 import { SchedulesPage } from "./SchedulesPage";
 /* The overlay draws its page through the registry, which the panes fill by side effect. */
 import "../index";
@@ -109,8 +110,29 @@ describe("a task's runs", () => {
     const card = await screen.findByRole("complementary", { name: "Morning triage details" });
     expect(within(card).getByText("Every day at 9:00 AM")).toBeInTheDocument();
     expect(within(card).getByText(GOAL)).toBeInTheDocument();
-    expect(within(card).getByText("Fake agent · Fake")).toBeInTheDocument();
+    // The model in the prompter chip's words, and its tooltip: the scripted agent takes no level.
+    expect(card.querySelector(".sched-model")).toHaveTextContent(/^Fake$/);
+    expect(card.querySelector(".sched-model")).toHaveAttribute("title", "Fake through Fake agent");
     expect(within(card).getByText(/^0 outputs$/)).toBeInTheDocument();
+  });
+
+  it("names what a task runs on in the chip's own words, in its row and on its card alike", async () => {
+    /* THE MUTANTS: the old "Claude · Opus 5 · Max" line on the card and nothing in the column; the
+       level left off where the task named none, though the model's default is what runs and the chip
+       names it; the bolt left off a task that asks for fast mode. */
+    await mount({ schedules: [
+      schedule({ constraints: { agentKind: "claude", model: "claude-opus-5", effort: "max", fastMode: true } }),
+      schedule({ id: "sch2", title: "Digest", nextRunAt: new Date(2026, 8, 9, 9).getTime(), constraints: { agentKind: "claude" } }),
+    ] });
+    const line = (name: string) => task(name).querySelector(".sched-model")!;
+    await waitFor(() => expect(line("Morning triage")).toHaveTextContent(/^Opus 5Max$/));
+    expect(line("Morning triage").querySelector(".chip-fast")).not.toBeNull();
+    expect(line("Morning triage")).toHaveAttribute("title", "Claude Opus 5 through Claude · Max effort · fast mode");
+    expect(line("Digest")).toHaveTextContent(/^Fable 5\.1High$/);
+    expect(line("Digest").querySelector(".chip-fast")).toBeNull();
+    fireEvent.click(task("Morning triage"));
+    const card = await screen.findByRole("complementary", { name: "Morning triage details" });
+    expect(card.querySelector(".sched-model")!.innerHTML).toBe(line("Morning triage").innerHTML);
   });
 
   it("lists three runs under an open task, and the rest behind Show older", async () => {
@@ -161,15 +183,24 @@ describe("the Schedule a task modal", () => {
     fireEvent.click(within(dialog).getByRole("switch", { name: "Start each run in a new session" }));
     fireEvent.click(within(dialog).getByRole("switch", { name: "Archive successful runs" }));
     fireEvent.change(within(dialog).getByLabelText("Space"), { target: { value: "s2" } });
-    // Offered once the agents have answered their probe, as the prompter's picker is.
-    await within(dialog).findByRole("option", { name: "Fake" });
-    fireEvent.change(within(dialog).getByLabelText("Model"), { target: { value: "fake|fake" } });
-    fireEvent.change(within(dialog).getByLabelText("Effort"), { target: { value: "high" } });
+    // Model and Effort are one row: the prompter's own chip, and its picker.
+    expect(within(dialog).queryByLabelText("Effort")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Model" }));
+    const picker = screen.getByRole("dialog", { name: "Model picker" });
+    fireEvent.click(within(picker).getByRole("option", { name: "Claude Opus 5" }));
+    // Still open: the level, the bolt and the permission are set in the same visit.
+    fireEvent.keyDown(within(picker).getByRole("slider", { name: "Effort" }), { key: "End" });
+    fireEvent.click(within(picker).getByRole("button", { name: "Fast mode" }));
+    fireEvent.click(within(within(picker).getByRole("group", { name: "Permissions" })).getByRole("button", { name: "Accept edits" }));
+    // …and the chip behind it says so as it happens.
+    const chip = within(dialog).getByRole("button", { name: "Model" });
+    expect(chip).toHaveTextContent(/^Opus 5Max$/);
+    expect(chip.querySelector(".chip-fast")).not.toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
     await waitFor(() => expect(store.getState().schedules.s2).toHaveLength(1));
     expect(store.getState().schedules.s2![0]).toMatchObject({
       title: "Release prep", goal, cron: "0 16 * * 5", newSessionPerRun: false, archiveSucceeded: true,
-      constraints: { agentKind: "fake", model: "fake", effort: "high" },
+      constraints: { agentKind: "claude", model: "claude-opus-5", effort: "max", fastMode: true, permissionMode: "acceptEdits" },
     });
     // The modal is gone and the page is on the task it made, which has not run yet.
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -189,6 +220,62 @@ describe("the Schedule a task modal", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
     await waitFor(() => expect(store.getState().schedules.s1).toHaveLength(1));
     expect(parseOnce(store.getState().schedules.s1![0]!.cron)).toBe(new Date(2026, 8, 30, 13).getTime());
+  });
+
+  /** The modal opened on its Advanced section, with the Model row's picker open. */
+  const openPicker = async () => {
+    const dialog = await open();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Advanced" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Model" }));
+    return { dialog, picker: screen.getByRole("dialog", { name: "Model picker" }) };
+  };
+  const codex = (models: NonNullable<AgentProbe["models"]>): AgentProbe => ({ kind: "codex", available: true, version: "1", loggedIn: true, reason: null, models });
+  const fake: AgentProbe = { kind: "fake", available: true, version: "fake", loggedIn: true, reason: null };
+
+  it("offers each model's own levels with its default named, and saves no level the model picked since does not take", async () => {
+    /* The note the owner answered: "The schedule modal still offers five fixed effort levels instead
+       of each model's own". THE MUTANTS: a fixed five, and Max saved for a model that takes three. */
+    const { store } = await mount({ agentProbe: [fake, codex([{ id: "gpt-5.6-terra", label: "GPT-5.6-Terra", efforts: ["low", "medium", "high"], defaultEffort: "medium", fastMode: false }])] });
+    const { dialog, picker } = await openPicker();
+    fireEvent.change(within(dialog).getByLabelText("Task name"), { target: { value: "Nightly" } });
+    fireEvent.change(within(dialog).getByLabelText("Instructions"), { target: { value: "Sweep the inbox." } });
+    // Claude's default, named while nothing is set.
+    expect(within(picker).getByRole("slider", { name: "Effort" })).toHaveAttribute("aria-valuetext", "High");
+    fireEvent.keyDown(within(picker).getByRole("slider", { name: "Effort" }), { key: "End" });
+    fireEvent.click(await within(picker).findByRole("option", { name: "GPT-5.6-Terra" }));
+    const track = within(picker).getByRole("slider", { name: "Effort" });
+    expect(track.querySelectorAll(".mp-track-dot")).toHaveLength(3);
+    expect(track).toHaveAttribute("aria-valuetext", "Medium"); // Max is no level of Terra's: its default runs
+    expect(within(dialog).getByRole("button", { name: "Model" })).toHaveTextContent(/^GPT-5\.6-TerraMedium$/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(store.getState().schedules.s1).toHaveLength(1));
+    expect(store.getState().schedules.s1![0]!.constraints).toEqual({ agentKind: "codex", model: "gpt-5.6-terra" });
+  });
+
+  it("offers the permissions a run can start in, never Full access, and no row where Realm cannot set one", async () => {
+    await mount();
+    const { picker } = await openPicker();
+    const perms = within(picker).getByRole("group", { name: "Permissions" });
+    expect(within(perms).getAllByRole("button").map((b) => b.textContent)).toEqual(["Ask each time", "Accept edits"]);
+    expect(within(perms).getByRole("button", { name: "Ask each time" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(picker).getByRole("option", { name: /^OpenCode/ }));
+    expect(within(picker).queryByRole("group", { name: "Permissions" })).toBeNull();
+  });
+
+  it("offers the scripted agent where this Realm runs one, as the checks that drive the app need", async () => {
+    await mount();
+    const { picker } = await openPicker();
+    expect(await within(picker).findByRole("option", { name: "Fake" })).toBeInTheDocument();
+  });
+
+  it("puts the picker away on Escape and leaves the modal open", async () => {
+    await mount();
+    const { picker } = await openPicker();
+    await act(async () => { await new Promise((r) => setTimeout(r, 1)); }); // the popover arms its keys a tick after mount
+    fireEvent.keyDown(within(picker).getByRole("combobox", { name: "Search models" }), { key: "Escape" });
+    await exited();
+    expect(screen.queryByRole("dialog", { name: "Model picker" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Schedule a task" })).toBeInTheDocument();
   });
 
   it("opens a suggestion with its instructions already written", async () => {
@@ -257,15 +344,17 @@ describe("the column, in the sidebar's place", () => {
   const sidebar = () => document.getElementById("app-sidebar")!;
   const page = () => document.querySelector<HTMLElement>(".page-overlay")!;
 
-  it("is the sidebar's column under its Back, the spaces hidden, and none of it in the page", async () => {
+  it("is the sidebar's column, the spaces hidden and no Back over it, and none of it in the page", async () => {
     /* The owner, 10-05: "The sidebar for scheduled tasks needs to be the same as the home sidebar and
        the library sidebar. It currently looks darker, there is no corner rounding … It is supposed to be
-       the replacement sidebar". THE MUTANTS: the column left in the page (a second, darker sidebar),
-       or drawn in the sidebar beside the spaces rather than in their place. */
+       the replacement sidebar". And later that day, of its Back: "unnecessary" — the rail opened the
+       page, and its lit button and Home put it away. THE MUTANTS: the column left in the page (a
+       second, darker sidebar), drawn in the sidebar beside the spaces rather than in their place, or
+       under a Back again. */
     const { api } = await mountInWindow({ schedules: [schedule()] });
     const col = within(sidebar()).getByRole("navigation", { name: "Scheduled tasks" });
     expect(col.closest(".sb-page-nav")).not.toBeNull();
-    expect(within(sidebar()).getByRole("button", { name: "Back" })).toBeInTheDocument();
+    expect(within(sidebar()).queryByRole("button", { name: "Back" })).toBeNull();
     expect(sidebar().querySelector(".sb-list")).toHaveAttribute("hidden");
     expect(page().querySelector(".sched-col")).toBeNull();
     // Still the page's own column: its tasks, and New task opening the page's modal.

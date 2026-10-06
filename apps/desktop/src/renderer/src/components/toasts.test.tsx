@@ -125,6 +125,24 @@ describe("a toast", () => {
     expect(store.getState().toasts).toEqual([]);
   });
 
+  it("offers its action as a button beside the words, and goes once it is taken — and only then runs it", () => {
+    /* THE mutants: an action drawn and not run, or a toast that stays up offering an Undo already
+       done — a second press would undo nothing, or something else. */
+    const { store } = mount();
+    const run = vi.fn();
+    act(() => { store.getState().toast({ text: "Removed hero.png from the Library.", action: { label: "Undo", run } }); });
+    const undo = within(cards()[0]!).getByRole("button", { name: "Undo" });
+    expect(run).not.toHaveBeenCalled();
+    fireEvent.click(undo);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(cards()[0]).toHaveAttribute("data-leaving");
+    advance(TOAST_EXIT_MS);
+    expect(store.getState().toasts).toEqual([]);
+    // A toast with nothing to offer draws no such button.
+    act(() => { store.getState().toast({ text: "Saved" }); });
+    expect(within(cards()[0]!).getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Dismiss"]);
+  });
+
   it("hands the keyboard to the next toast when one is dismissed by it", () => {
     const { store } = mount();
     act(() => { store.getState().toast({ text: "one" }); store.getState().toast({ text: "two" }); });

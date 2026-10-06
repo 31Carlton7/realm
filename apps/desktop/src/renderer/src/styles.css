@@ -528,7 +528,8 @@ kbd { font: 11px var(--font-mono); }
 .sb-header { flex: none; height: var(--frame-top); display: flex; align-items: center; padding: 0 10px 0 12px;
   clip-path: inset(0 0 0 calc(var(--lead-nav-end) - var(--rail-w) + var(--sidebar-w) * (1 - var(--sidebar-open)))); }
 /* The column's first row: the profile whose spaces it lists — or, while a page's sections have the
-   column, the Back that gives the spaces back (`.sb-page-head`). On the list's 16px inset, so the mark
+   column, the Back that gives the spaces back (`.sb-page-head`), or the page's own first row where it
+   has no Back (`.sb-page-nav:first-child`). On the list's 16px inset, so the mark
    sits over the rows' marks; under the rim and outside the scroller, so it holds still while the list
    moves under it. It moved down out of the head row when the rail narrowed to Codex's width: the
    lights now cross into that row, and it could not hold them, the profile, back and forward, the
@@ -550,9 +551,11 @@ kbd { font: 11px var(--font-mono); }
    sections take the column rather than standing beside it as a second sidebar. They wear the column's
    row anatomy — 32px rows, text 8px in from the column's 16px, nothing lit under a passing pointer,
    the active fill once chosen, the column's own group labels — so it reads as the same sidebar listing
-   something else, under a Back where the profile switcher was. The spaces stay mounted, hidden. */
+   something else. Where the profile switcher was, a page opened from a menu puts a Back (Settings, a
+   profile's or a space's settings) and a page the rail opened puts its own first row, since the rail's
+   lit button and Home put it away (the owner, 10-05). The spaces stay mounted, hidden. */
 .sb-list[hidden] { display: none; }
-/* The slot under Back scrolls a rail longer than the column, and dissolves on the list's own depths. */
+/* The slot scrolls a rail longer than the column, and dissolves on the list's own depths. */
 .sb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; --fade-h: 44px; --fade-top-h: 12px; }
 .sb-page-head { flex: none; display: flex; align-items: center; padding: 6px 16px 0; }
 .sb-page-back { flex: none; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
@@ -564,6 +567,10 @@ kbd { font: 11px var(--font-mono); }
    takes under the profile (`.space-body`), so the column's first rows sit alike in both. */
 .sb-page-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 4px 16px 16px; overflow-y: auto;
   -webkit-app-region: no-drag; }
+/* …and with no Back over it, its first thing stands where Back and the profile do, 6px under the rim:
+   at the step under Back it crowded the rim, and below a band left where Back was it would sit a row
+   lower than the first row of every other column. */
+.sb-page-nav:first-child { padding-top: 6px; }
 .sb-page-nav .page-rail { width: auto; align-self: stretch; }
 .sb-page-nav .page-rail:has(.page-rail-list), .sb-page-nav .settings-rail-lists { gap: 4px; }
 .sb-page-nav .page-rail .settings-tab { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 5px 8px;
@@ -583,6 +590,10 @@ kbd { font: 11px var(--font-mono); }
 .sb-page-nav:has(> :is(.sched-col, .cr-col)) { padding: 0; overflow: hidden; }
 .sb-page-nav > :is(.sched-col, .cr-col) { flex: 1; width: auto; background: none; border-right: 0; }
 .sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-body, .cr-col-body) { --fade-h: 44px; --fade-top-h: 12px; }
+/* Its head is the column's first row, in the band Back and the profile stand in — 6px under the rim,
+   a 30px row — so "Scheduled" is on the line "Personal" is on, and what follows starts where the
+   spaces list does. In the page it keeps the page's own top. */
+.sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-head, .cr-col-head) { padding-block: 6px 0; min-height: 36px; }
 /* The list's head (SidebarLens): what the list is showing, in the column's section-label voice — the
    sentence-case caption "Pinned" and the day headings wear — and at its far end the switch to the other
    reading, a plain icon button lit while the activity is up. A caption row rather than a control row:
@@ -618,22 +629,34 @@ kbd { font: 11px var(--font-mono); }
 .sidebar { background:
   linear-gradient(var(--chrome-tint), var(--chrome-tint)) top / 100% var(--frame-top) no-repeat,
   var(--sidebar-ground); }
-/* The sidebar stands a hair above the panes (the owner, 10-04: "put that shadow on the sidebar"), so
-   its edge casts a very light shade onto them: drawn at the panes' left edge, below the head row only
-   — the row is one chrome ground across the window and casts nothing — and above a page as well as
-   the panes, since a page is what stands beside the sidebar then. On `.main`, whose left edge IS the
-   column's right edge on every frame, so the shade rides the column open and closed; once the column
-   has folded away there is nothing to cast it, and the pseudo-element is the panes' corner instead
-   (the frame, above). Its own step per face, because the same black reads heavier on the light ground
-   (design.md: do not assume the light face mirrors the dark), set by measurement: 60% of the depth this
-   first shipped at — Codex's own sheet shadow — which the owner found a touch heavy for a seam (10-04).
-   Measured as the shade summed across its 8px, because at depths this small the gradient lands in
-   whole 8-bit steps, and 60% of the first ALPHA measured 75–82% of its depth. */
-:root { --seam-shade: oklch(0 0 0 / 0.062); --seam-w: 8px; }
-:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.0095); }
-.app:not([data-sidebar-folded]) > .main::after { content: ""; position: absolute; z-index: 36; pointer-events: none;
-  top: var(--frame-top); bottom: 0; left: 0; width: var(--seam-w);
-  background: linear-gradient(to right, var(--seam-shade), transparent); }
+/* The column stands a hair above the rail (the owner, 10-05: "I want that to be on the left side
+   instead, on the outside of it. This will make it feel a little bit elevated"), so its LEFT edge casts
+   a very light shade outward over the rail, and the panes' edge, where it fell from 10-04, takes none.
+   Cast by a box of the column's own shape — below the head row, its corner rounded as the rim's is —
+   to the left only: offset that way and pulled in by its spread, so nothing spills above the rim (the
+   row is one chrome ground across the window, casting nothing and taking nothing), and round the
+   corner the shade follows the curve and runs out before the rim turns along the top, rather than a
+   band of shadow drawn up into the corner. The box is the column's own (`.sidebar-shade`, Sidebar.tsx)
+   and its width the column's, so on every frame of the fold the shade is the column's: it holds the
+   edge while the column closes from its other side, and with the last few pixels of it, narrower than
+   the spread, it fades and goes; folded away there is nothing to cast it. Fixed, because the column
+   clips what it holds and this lies outside it; over the rail's rung, under everything that floats.
+   Its own step per face, because the same black reads heavier on the light ground (design.md: do not
+   assume the light face mirrors the dark), set by measurement to the depth the panes' shade had once
+   the owner found the first cut a touch heavy (10-04): summed across the strip, because at depths
+   this small the shade lands in whole 8-bit steps, and on the solid grounds Reduce transparency gives,
+   where a capture is what the screen shows. There the dark rail is a step lighter than the panes it was
+   matched on and took 0.045; but over the owner's own translucent rail (their 10-05 capture) 0.045
+   comes out about a sixth lighter than the panes' shade did, so dark takes 0.053 — the depth they
+   saw, on the window they see it on. */
+:root { --seam-shade: oklch(0 0 0 / 0.053); --seam-w: 8px; }
+:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.009); }
+.sidebar-shade { position: fixed; z-index: 3; pointer-events: none;
+  top: var(--frame-top); bottom: 0; left: var(--rail-w); width: calc(var(--sidebar-w) * var(--sidebar-open));
+  border-top-left-radius: var(--frame-r);
+  box-shadow: calc(-1 * var(--seam-w)) 0 calc(var(--seam-w) / 2) calc(var(--seam-w) / -2) var(--seam-shade);
+  clip-path: inset(0 0 0 calc(-1 * var(--seam-w))); }
+.app[data-sidebar-folded] .sidebar-shade { display: none; }
 .app-rail { position: relative; z-index: 2; width: var(--rail-w); flex: none; min-height: 0;
   display: flex; flex-direction: column; align-items: center; gap: 8px; padding: calc(var(--frame-top) + 8px) 0 8px;
   border-radius: var(--r-float) 0 0 var(--r-float); corner-shape: squircle; -webkit-app-region: drag; }
@@ -1390,6 +1413,12 @@ kbd { font: 11px var(--font-mono); }
    the last row under the band is still a row you can click. */
 .mp-list-wrap { position: relative; display: flex; min-height: 0; --fade-h: 20px; --fade-top-h: 16px; }
 .mp-list { flex: 1; min-width: 0; max-height: min(40vh, 320px); overflow-y: auto; padding: 2px 6px 20px; scroll-padding: 16px 0 20px; }
+/* Held after a pick (ModelPicker's `height`): the box keeps its height and the list fills what the
+   new model's card leaves, down to the floor the picker set — so the card can change size and nothing
+   above it moves. The slack under the last row keeps a list scrolled to its end from being pulled
+   back down when the room it is given has nothing more to show. */
+.model-picker[data-held] .mp-list-wrap { flex: 1 1 0; min-height: var(--mp-floor, 0px); }
+.model-picker[data-held] .mp-list { max-height: none; padding-bottom: calc(20px + var(--mp-slack, 0px)); }
 .mp-group + .mp-group { margin-top: 2px; }
 /* Section headings for the harness groups: the quietest thing on the surface, because they label
    rows rather than competing with them. */
@@ -3047,6 +3076,11 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
   overflow-wrap: anywhere; text-wrap: pretty; -webkit-user-select: text; user-select: text; cursor: text; }
 /* Off its own line box at the top, so a 28px target does not make a one-line toast taller. */
 .toast-close { flex: none; margin: -5px 0; color: var(--rl-text-faint); }
+/* The one thing a toast can do, an Undo: a word in the link's ink at the toast's own size, on the
+   close's 28px off the line box, so offering it never makes the toast taller. Two classes, because the
+   quiet button's own size and ink are set further down and would otherwise win. */
+.toast .toast-action { --btn-h: 28px; flex: none; margin: -5px -2px; padding: 0 8px; font-size: 13px; font-weight: var(--fw-label); color: var(--rl-accent); }
+.toast .toast-action:hover:not(:disabled) { color: var(--rl-accent); }
 /* Tucked behind, a toast is its top edge and nothing more: three notices' words a few pixels apart
    would be one illegible one. */
 .toasts:not([data-expanded]) .toast:not([data-front]) .toast-body { opacity: 0; }
@@ -7399,6 +7433,9 @@ select { appearance: none; padding-right: 22px;
   font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 .sched-task-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 16px;
   color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* The third line, what the task runs on: a flex line, so it is the model's name that ellipsizes and
+   never the level or the bolt after it. */
+.sched-task-model { display: flex; min-width: 0; }
 .sched-task-disclose { flex: none; margin-right: 4px; opacity: 0; }
 .sched-task-row:hover .sched-task-disclose, .sched-task-disclose:focus-visible, .sched-task-disclose[aria-expanded="true"] { opacity: 1; }
 /* A task's runs, one step in: each is a time, a word where the time alone would not say it, and
@@ -7446,6 +7483,11 @@ select { appearance: none; padding-right: 22px;
 .sched-card-fact { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .sched-card-fact > svg { flex: none; color: var(--rl-text-faint); }
 .sched-card-fact[data-tone="warn"], .sched-card-fact[data-tone="warn"] > svg { color: var(--rl-warning); }
+/* A task's model in the prompter chip's own words (ScheduleRunText) — the mark, the model, the level
+   in force a shade quieter and the bolt beside it — on its card and in its row alike. */
+.sched-model { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.sched-model .chip-brand { flex: none; }
+.sched-model :is(.chip-effort, .chip-fast) { flex: none; color: var(--rl-text-faint); }
 .sched-card-sub { display: flex; align-items: center; justify-content: space-between; margin: 2px -8px 0 0; font-size: 13px; color: var(--rl-text-faint); }
 .sched-card-list { display: flex; flex-direction: column; gap: 2px; }
 .sched-card-list > li { min-width: 0; }
@@ -7535,14 +7577,38 @@ select { appearance: none; padding-right: 22px;
 .cr-tab-counts { font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
 .cr-tab-counts .diff-add { color: var(--rl-success); }
 .cr-tab-counts .diff-del { color: var(--rl-danger); }
-.cr-review-with { gap: 0; }
-.cr-review-run { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Review with… is ONE control with a second target on it, the shape Codex gives its own: the body is
+   the button — the harness's mark and the model's name, which run the review — and the chevron sits
+   in its far end, past a seam, as a small control of its own that opens how to review. The body
+   keeps the whole surface, so the painter draws one curve and one ring round both; under the pointer
+   the body lights whole and the chevron only its own disc. A body that cannot run greys its words
+   and keeps its shape, because the chevron on it still works. */
+.cr-review-with { position: relative; flex: none; display: inline-flex; }
+.cr-review-run { max-width: 260px; padding-right: calc(var(--btn-h) + 10px); }
+.cr-review-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-review-with > .cr-review-run:disabled { opacity: 1; }
+.cr-review-run:disabled > * { opacity: .45; }
+.cr-review-run:disabled[aria-busy="true"] > * { opacity: .7; }
+/* The chevron: a disc inset from the body's end, on its curve (the disc's radius and the inset add up
+   to the body's), whose hit reaches the seam and the body's edges and no further. */
+.cr-review-more { position: absolute; top: 3px; right: 3px; width: 24px; --btn-h: 24px; color: var(--rl-text-faint); }
+.cr-review-more::after { inset: -3px; }
+/* Its ring inside the disc, clear of the body's edges and the seam it would otherwise run over. */
+.cr-review-more:focus-visible { outline-offset: -2px; }
+/* The seam: a hairline in the ring's colour, inset from both ends — a line between the two targets,
+   not a box round each — drawn as the toolbars' separators are, a fill a hairline wide, because a
+   border that thin is rounded up to a whole pixel and read twice the ring's weight. On the chevron,
+   which is never disabled, so it holds its weight when the body greys. */
+.cr-review-more::before { content: ""; position: absolute; left: -3px; top: 4px; bottom: 4px; width: var(--hairline-w); background: var(--btn-ring); pointer-events: none; }
+.cr-review-more[aria-expanded="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
 .cr-submit { gap: 6px; }
 .cr-submit-count { min-width: 16px; padding: 0 4px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--rl-accent-contrast) 22%, transparent);
   font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; }
-/* Narrow, the bar gives up its words before its controls: the model's name goes to the tooltip. */
+/* Narrow, the bar gives up its words before its controls: the model's name goes to the tooltip and
+   the accessible name, and the body keeps its verb beside the harness's mark. Left as a mark, a
+   name and a chevron it would read as the picker's chip, and a press on it starts a review. */
 @container cr-main (max-width: 720px) {
-  .cr-review-run { max-width: 120px; }
+  .cr-review-model { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .cr-bar { flex-wrap: wrap; row-gap: 6px; }
 }
 
@@ -7661,6 +7727,9 @@ button.cr-finding-where:hover { text-decoration: underline; }
 /* A finding or a comment under its line: a card in Codex's grammar, a step above the patch. */
 .cr-note { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--r-panel); corner-shape: squircle;
   background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+/* Who said it, over what was said: under someone's line, a finding is the reviewer's word. */
+.cr-note-by { display: flex; align-items: center; gap: 5px; margin: 0; font-size: 12px; line-height: 16px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.cr-note-by > svg { flex: none; }
 .cr-note-body { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .cr-note-actions { display: flex; align-items: center; gap: 6px; }
 .cr-field { width: 100%; padding: 10px 12px; border-radius: var(--r-panel); border: var(--hairline-w) solid var(--rl-card-rim);
@@ -7714,7 +7783,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .cr-ask-fold:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .cr-ask .composer-dock { width: 100%; margin: 0 0 max(12px, env(safe-area-inset-bottom)); }
 
-/* The two sheets off the bar: how to review (the gear) and Submit review. Popovers, so they grow out
+/* The two sheets off the bar: how to review (the chevron) and Submit review. Popovers, so they grow out
    of their control on the spring and leave the way they came (the model picker's rule). */
 .cr-pop { z-index: 100; width: 420px; max-width: calc(100vw - 24px); display: flex; flex-direction: column; gap: 12px; padding: 16px;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-float); box-shadow: var(--shadow-overlay);
@@ -7722,9 +7791,6 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .cr-pop[data-closing] { animation: rl-menu-out var(--dur-press) var(--ease-out-strong) forwards; pointer-events: none; }
 .cr-pop-title { margin: 0; padding: 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .cr-pop-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--rl-text-dim); }
-.cr-select { max-width: 60%; field-sizing: content; border-color: transparent; background-color: transparent; color: var(--rl-text-bright);
-  transition: background-color var(--dur-hover) ease; }
-.cr-select:hover, .cr-select:focus-visible { background-color: var(--rl-hover); }
 .cr-pop-note { margin: -4px 0 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
 .cr-pop-note[data-tone="bad"] { color: var(--rl-danger); }
 .cr-pop-actions { display: flex; align-items: center; gap: 8px; }
@@ -7766,6 +7832,9 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .sched-select { flex: none; max-width: 60%; field-sizing: content; border-color: transparent; background-color: transparent; color: var(--rl-text-dim);
   transition: background-color var(--dur-hover) ease; }
 .sched-select:hover, .sched-select:focus-visible { background-color: var(--rl-hover); }
+/* The Model row's value is the prompter's own chip — quiet at the row's end like the menus above it,
+   as wide as what it names needs. */
+.sched-model-row .model-chip { flex: none; max-width: 60%; }
 .sched-cron, .sched-date { flex: none; height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
   background: var(--field); color: var(--rl-text-bright); outline: none; }
 .sched-cron { width: 168px; font-family: var(--font-mono); font-size: 13px; }
@@ -7926,6 +7995,18 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .library-row-mark > img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
 .library-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 .library-row-time { font-size: 12.5px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* A file's ⋯ — its menu — under the pointer or the focus and otherwise out of the way, the grammar the
+   Skills rows use; it arrives at once and fades on the way out. On a tile it stands in the corner on
+   the surface a menu is drawn on, under the object's own shadow, so it reads over a picture as well as
+   over a name. On a row it comes up in the time's column, and the time steps aside for it. */
+.library-file { position: relative; }
+.library-file-more { position: absolute; z-index: 1; opacity: 0; transition: opacity var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+.library-file:is(:hover, :focus-within) > .library-file-more, .library-file-more[aria-expanded="true"] { opacity: 1; transition-duration: 0s; }
+.library-grid .library-file-more { top: 8px; right: 8px; background: var(--surface); box-shadow: var(--rl-object-shadow); }
+.library-grid .library-file-more:hover { background: var(--hover); }
+.library-rows .library-file-more { top: 50%; right: 8px; translate: 0 -50%; }
+.library-rows .library-file:is(:hover, :focus-within) .library-row-time,
+.library-rows .library-file:has(> .library-file-more[aria-expanded="true"]) .library-row-time { visibility: hidden; }
 /* The pager's sentinel. It has to have height, or an IntersectionObserver on a zero-height box at
    the end of a grid never fires. */
 .library-more { min-height: 40px; display: grid; place-items: center; font-size: 12.5px; color: var(--rl-text-dim); }

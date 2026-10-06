@@ -7,7 +7,7 @@ import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
 import { SAVED_TURNS_MAX, SavedTurnSchema } from "./saved-turns";
-import { LibraryAddResultSchema, LibraryAddSchema, LibraryEntrySchema, LibraryQuerySchema } from "./library";
+import { LibraryAddResultSchema, LibraryAddSchema, LibraryEntrySchema, LibraryQuerySchema, LibraryRemoveResultSchema, LibraryRemoveSchema, LibraryRestoreResultSchema, LibraryRestoreSchema } from "./library";
 import { SkillSchema, SkillDetailSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
 import { CommandOriginKindSchema, UserCommandSchema } from "./commands";
 import { ScriptInputSchema, ScriptSchema } from "./scripts";
@@ -536,6 +536,22 @@ export const Methods = {
   "library.add": {
     params: LibraryAddSchema,
     result: LibraryAddResultSchema,
+  },
+  /**
+   * Take files the person added back out of the Library. Realm's copy goes and the file it was copied
+   * from is never touched; a path that is not one of the profile's added files is left alone, and
+   * nothing outside the profile's Library folder is ever deleted. The copies wait, hidden, until the
+   * removal is undone (`library.restore`) or a few minutes have passed.
+   */
+  "library.remove": {
+    params: LibraryRemoveSchema,
+    result: LibraryRemoveResultSchema,
+  },
+  /** Undo a removal: the copies go back exactly as they were — bytes, names, and their places in the
+   *  list — unless a file added since has taken a name, when that copy is kept beside it instead. */
+  "library.restore": {
+    params: LibraryRestoreSchema,
+    result: LibraryRestoreResultSchema,
   },
 
   /**

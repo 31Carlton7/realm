@@ -5,7 +5,8 @@
  * the scripted agent, and walks the page end to end the way a person would:
  *
  *   1. the empty page — the column, and the place to start a task;
- *   2. a task made in the Schedule a task modal, its main model the scripted agent;
+ *   2. a task made in the Schedule a task modal, its main model the scripted agent, picked in the
+ *      prompter's own picker on the Model row;
  *   3. Run now from the task's card, and the run read in the viewer: the real session pane, the
  *      instructions as its first message, the card docked beside it;
  *   4. a run fired on the scheduler's path while the page shows another one — unread until opened;
@@ -213,7 +214,8 @@ async function openPage(c) {
     const page = [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => b.getAttribute('aria-label') === 'Scheduled tasks');
     if (page.getAttribute('aria-pressed') !== 'true') page.click();
     return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.schedules-page .sched-col')`), 15_000, "schedules page");
+  // The column is the sidebar's while the page is up, and stands in the page only with the sidebar folded.
+  await until(() => evalIn(c, `!!document.querySelector('.schedules-page') && !!document.querySelector('.sched-col')`), 15_000, "schedules page");
   await sleep(700);
 }
 
@@ -260,18 +262,24 @@ async function main() {
   check("the modal reads the first run back before anything is saved", /^First run /.test(top.when ?? ""), top);
   await shot(c, "02-modal-top-dark", await sheetClip(c, "Schedule a task"));
   await evalIn(c, `__live.click(__live.button('Advanced', __live.dialog("Schedule a task")))`);
-  await until(() => evalIn(c, `!!__live.dialog("Schedule a task").querySelector('[aria-label="Model"] option[value="fake|fake"]')`), 45_000, "the scripted agent offered as a model");
-  await evalIn(c, `(() => { const d = __live.dialog("Schedule a task");
-    __live.set(__live.byLabel("Model", d), "fake|fake");
-    __live.set(__live.byLabel("Effort", d), "medium");
-    const body = d.querySelector('.sheet-body'); body.scrollTop = body.scrollHeight; return true; })()`);
+  // The Model row is the prompter's own chip and picker; the scripted agent is offered once the probe
+  // has answered. A pick leaves the picker open, and Escape puts it away without the sheet.
+  const fakeRow = `[...document.querySelectorAll('.model-picker .mp-row')].find((r) => r.getAttribute('aria-label') === 'Fake')`;
+  await evalIn(c, `__live.click(__live.dialog("Schedule a task").querySelector('button[aria-label="Model"]'))`);
+  await until(() => evalIn(c, `!!${fakeRow}`), 45_000, "the scripted agent offered as a model");
+  await evalIn(c, `__live.click(${fakeRow})`);
+  await sleep(300);
+  for (const type of ["rawKeyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+  await until(() => evalIn(c, `!document.querySelector('.model-picker') && !!__live.dialog("Schedule a task")`), 5000, "the picker put away, the sheet still up");
+  await evalIn(c, `(() => { const body = __live.dialog("Schedule a task").querySelector('.sheet-body'); body.scrollTop = body.scrollHeight; return true; })()`);
   await sleep(400);
   await shot(c, "03-modal-advanced-dark", await sheetClip(c, "Schedule a task"));
   await evalIn(c, `__live.click(__live.button('Create', __live.dialog("Schedule a task")))`);
   await until(() => evalIn(c, `!__live.dialog("Schedule a task") && __live.q('.sched-empty-title')?.textContent === 'No runs yet'`), 15_000, "task created");
   const made = (await api.call("schedules.list", { spaceId: space.id })).find((s) => s.title === "Release notes");
-  check("the modal wrote the task it showed: instructions verbatim, weekly at four, the scripted agent at medium",
-    made && made.goal === GOAL && made.cron === "0 16 * * 5" && made.constraints?.agentKind === "fake" && made.constraints?.effort === "medium"
+  // The scripted agent takes no level, so its picker offers none and the task names none.
+  check("the modal wrote the task it showed: instructions verbatim, weekly at four, the scripted agent",
+    made && made.goal === GOAL && made.cron === "0 16 * * 5" && made.constraints?.agentKind === "fake" && made.constraints?.effort === undefined
       && made.newSessionPerRun === true && made.archiveSucceeded === false, made);
   // Nothing fires from a task that would reach a real engine.
   if (made?.constraints?.agentKind !== "fake") throw new Error("the task is not on the scripted agent — refusing to fire it");
@@ -295,14 +303,14 @@ async function main() {
     return {
       first: first?.innerText ?? null,
       cardWhen: card?.querySelector('.sched-card-when')?.textContent,
-      model: [...card.querySelectorAll('.sched-card-fact')].map((f) => f.textContent).find((t) => t.includes('Fake')),
+      model: card.querySelector('.sched-model')?.textContent ?? null,
       card: __live.rect(card), session: __live.rect(session), composer: composer ? __live.rect(composer) : null,
       runRows: [...document.querySelectorAll('.sched-run')].length,
       activeRun: !!__live.q('.sched-run[data-active]'),
     };
   })()`);
   check("the run's first message is the task's instructions, as written", (viewer.first ?? "").startsWith(GOAL.split("\n")[0]), viewer.first?.slice(0, 160));
-  check("the card says when and on what", viewer.cardWhen === "Fridays at 4:00 PM" && viewer.model === "Fake agent · Fake · Medium", viewer);
+  check("the card says when, and on what in the prompter chip's words", viewer.cardWhen === "Fridays at 4:00 PM" && viewer.model === "Fake", viewer);
   check("the card is docked beside the run, never over it, and the prompter is under the run",
     viewer.card.x >= viewer.session.right && viewer.composer !== null && viewer.composer.right <= viewer.session.right, viewer);
   check("the run is listed under its task and lit as the one on screen", viewer.runRows === 1 && viewer.activeRun, viewer);

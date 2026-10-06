@@ -199,6 +199,14 @@ Rules:
   the rung lighter than both sides of it, as Codex's is (chrome 60, sheet 47, rim 65, measured).
   A corner over a translucent ground is a hole in that ground with the chrome laid in it — tinting
   over the ground instead composites twice and reads a shade darker than the rail beside it.
+- The sidebar's column stands a hair above the chrome: a very light shade off its LEFT edge, over the
+  rail (the owner, 10-05: "on the outside of it… a little bit elevated"), and none on the panes' edge.
+  A shadow belongs to what stands up and keeps to its shape: round the corner it runs out before the
+  rim turns along the top, never a band drawn up into the corner; it stops at the head row, chrome
+  that neither casts one nor takes one; and it is the column's own width through a fold, so it goes
+  with the column's last pixels instead of standing beside nothing. Moved to another ground, a shade
+  keeps its depth in levels, not its alpha — the dark rail is lighter than the panes, so the same
+  depth takes less black there — measured on solid grounds, where a capture is what the screen shows.
 - A group of settings is a card in Codex's grammar: a step ABOVE the ground it stands on, under a rim
   the rung lighter than both sides, its rows divided by hairlines inset from both ends (Codex,
   measured: page 41, card 47, rim 57; its file tiles go further, 16 levels up, because a tile is an
@@ -471,6 +479,10 @@ acronym that is uppercase anyway (a file extension on a tile).
   prompter's send button. A bar across the top that stays until closed is a chore charged for news.
   What needs a DECISION — a permission, a sign-in, a server that has gone — is not a toast: it stays
   where it is until it is answered.
+- A toast may carry ONE action, and only the one that takes back what it reports. Remove from Library
+  asks nothing first, because its toast's Undo puts the file back exactly and a question would guard
+  nothing; that toast outlasts a receipt and never folds into another that reads alike, since each is
+  an offer still open. What it removes is named: Realm's own copy goes, the original never does.
 - State the screen has stopped showing belongs on the control that changes it, not on a strip that
   reports it. A focused pane hides its siblings, and the answer to that was a banner across the top
   of the window reading "Focused: <title> | Unfocus" — a whole row of chrome, and a second place to
@@ -484,6 +496,14 @@ acronym that is uppercase anyway (a file extension on a tile).
   capped at 1.5px.
 - A disabled control is still a control. Greying the label is the state; losing the shape is a
   different claim. A primary whose fill matches the sheet under it keeps the plain button's ring.
+- An action with its options is ONE control with a second target on it, as Codex draws Review with
+  Codex: the body is the button — its fill, ring and curve — and a chevron sits in its far end past a
+  hairline seam, a small control whose own disc is all that lights under the pointer. Two halves each
+  round on one side are not drawable (the painter has no per-corner input); a target laid on one
+  surface is. A body that cannot act greys its words and keeps its shape, because the chevron on it
+  still works, and stays live while the body waits: what it sets is for the next run. Narrow, the
+  body keeps its verb — a mark, a name and a chevron is the picker's chip, and a press on it would
+  start what a chip only chooses.
 - Align asymmetric icons optically. A mathematically centered arrow or play mark can still look wrong.
 - A press is a fill, not a size. AppKit buttons darken on the mouse-down frame and never shrink;
   the shrink is a touch idiom, where a finger hides the control and scale is the only feedback left
@@ -628,6 +648,12 @@ acronym that is uppercase anyway (a file extension on a tile).
   arriving lifted the bolt out from under the pointer, and the press meant to switch it off landed on
   the effort track. And it is placed by its laid-out size, never one read mid-entrance: measured
   through its .97 scale-in, the picker sat 3% off its chip until its content next moved.
+- A picker that sets several things stays open while they are set. A pick in the model picker
+  changes the model and leaves the card under it to set the level and the speed in the same visit;
+  a click outside, the chip, or Escape put it away (the owner, 10-05). Picked, the list holds still —
+  every row where it was and through the harness it showed, though the session may now run on
+  another — and the box keeps its height, the list giving way to a card of another size. The keyboard
+  stays in the search with its words selected, and ←/→ there step the level of the model just picked.
 - A prompter with no session behind it yet holds everything its controls set, not only the model,
   and the first send starts the session that way. Code review's question box and the media viewer's
   held the model picked and dropped the rest, so the effort track and the fast-mode bolt were drawn,
@@ -639,7 +665,10 @@ acronym that is uppercase anyway (a file extension on a tile).
   listen on the window. The one underneath was registered first and wins, so `stopPropagation` from
   the top surface cannot save it: expanding a picture out of a sheet closed the sheet too. A full
   window overlay should REPLACE what it covers rather than sit on it — the thing underneath is
-  invisible anyway, and unmounting it is what takes its key handler with it.
+  invisible anyway, and unmounting it is what takes its key handler with it. Anchored popovers cannot
+  replace what they open from — the picker opened from a popover's row sits on a popover still in
+  use — so the popover hook keeps them in a stack: one opened from inside another is part of it, a
+  press in it is not a press outside, and Escape is the newest one's (`use-anchored-popover.ts`).
 - Escape is a way out, so it must never also be an answer. In the transcript a request card takes
   Escape as Deny or Skip, and that is the card's whole surface; carried onto a page or popover whose
   Escape means "leave", the same key denied a request the person had only looked at. A surface that
@@ -812,16 +841,19 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - The sidebar answers where the user is and what else is available. Keep primary destinations,
   spaces, open items, and contextual actions visually separate.
 - One column of navigation at a time. A page with sections of its own — Settings, the Library, a
-  profile's or a space's page — draws them IN the sidebar's column while it is up, under a Back that
-  closes the page, rather than as a rail beside the sidebar: two side-by-side lists of places, the
-  left one about somewhere else, read as two sidebars. The sections wear the column's own row
-  anatomy, so it is the same sidebar listing something else, and the page they leave behind is a
-  centred column. Where there is no column to take — the sidebar collapsed — the rail stays in the
-  page, where it can still be reached (`components/page-nav.tsx`).
+  profile's or a space's page — draws them IN the sidebar's column while it is up, rather than as a
+  rail beside the sidebar: two side-by-side lists of places, the left one about somewhere else, read
+  as two sidebars. The sections wear the column's own row anatomy, so it is the same sidebar listing
+  something else, and the page they leave behind is a centred column. Where there is no column to
+  take — the sidebar collapsed — the rail stays in the page, where it can still be reached
+  (`components/page-nav.tsx`).
 - A destination page is left the way it was reached — Home or the lit rail button, a session in the
   sidebar, the column's Back — or with Escape, which goes back to where you were. Its bar is its name
   and nothing else (the owner, 10-05): a × at the bar's far end was one more way out, away from the
-  ones used to arrive.
+  ones used to arrive. The same goes for the Back: it heads the column only where a MENU opened the
+  page — Settings, a profile's or a space's settings — because nothing on the rail is lit to put that
+  page away. A page the rail opened has the rail for that, and its column's first row stands where the
+  profile does (the owner, 10-05: "I think it might only be necessary to keep it on the settings page").
 - Closing a pane should never imply deleting the object behind it. That rule is about objects that
   outlive their pane — a session's transcript, a diff's checkout — and a session goes further: it has
   no close at all (the owner, 10-05). It is reached from the sidebar and left the same way, and a ×

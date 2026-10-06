@@ -17,7 +17,12 @@
  *  - fast mode is on the surface for a brand-new Claude session, honest about what is known, and
  *    Codex's Fast tier and reasoning levels are offered per model from the probe's catalog before
  *    anything has run — and the level chosen reaches the fake app-server as `turn/start.effort`;
- *  - an ACP agent whose session offers a `thought_level` option gets the same track, in its names.
+ *  - an ACP agent whose session offers a `thought_level` option gets the same track, in its names;
+ *  - a pick leaves the picker open, so a model, its level (← → in the search) and fast mode are set
+ *    in one visit with the box and the pressed row held still — across a harness and a card of
+ *    another size too — and Escape or a click outside puts it away (`stay`);
+ *  - the Schedule a task modal's Model row is the same chip and picker, and a run started from the
+ *    task runs on the model, level, fast mode and permission it was given (`schedule`).
  *
  * No real agent is ever asked anything. Every CLI is a stub: Claude answers `--version` and
  * `auth status`, Codex is the adapter's own fake app-server fixture, and the ACP agents are either
@@ -200,14 +205,20 @@ const hover = async (c, label) => {
   return true;
 };
 
-/** Picks a row the way a person does — a click — so the renderer makes the change, not the daemon. */
+/** Where a row is, in view: its box and its middle, or null where the list has no such row. */
+const rowAt = (c, label) => evalIn(c, `(() => { const o = [...document.querySelectorAll('.mp-row')].find((r) => r.getAttribute('aria-label') === ${JSON.stringify(label)});
+  if (!o) return null; o.scrollIntoView({ block: 'nearest' }); const r = o.getBoundingClientRect();
+  return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), cx: r.x + r.width / 2, cy: r.y + r.height / 2 }; })()`);
+
+/** Picks a row the way a person does — a real press and release on it, the pointer left there — so the
+ *  renderer makes the change, not the daemon. The picker stays open after it, as it does for a person. */
 const pickRow = async (c, label) => {
   await openPicker(c);
-  const ok = await evalIn(c, `(() => { const o = [...document.querySelectorAll('.mp-row')].find((r) => r.getAttribute('aria-label') === ${JSON.stringify(label)});
-    if (!o) return false; o.click(); return true; })()`);
-  await until(() => evalIn(c, `!document.querySelector('.model-picker')`), 3000, "picker closed after a pick").catch(() => null);
+  const at = await rowAt(c, label);
+  if (!at) return false;
+  await clickAt(c, at.cx, at.cy);
   await sleep(500);
-  return ok;
+  return true;
 };
 
 /** Boots the built app on a fresh home, onboards one space, and hands back the page and the daemon. */
@@ -596,7 +607,6 @@ async function longList() {
         if (!b) return false; b.click(); return true; })()`);
     }
     check("Fake 1 can be run through OpenCode from its row", routed, { fake });
-    await until(() => evalIn(c, `!document.querySelector('.model-picker')`), 3000, "picker closed after the route").catch(() => null);
     await sleep(500);
     await openPicker(c);
     const acp = await runCard(c);
@@ -611,6 +621,9 @@ async function longList() {
     // An agent that reports no models: its own group, its default ticked, nothing it cannot take.
     check("OpenHands is one row among the other agents", await pickRow(c, "OpenHands"));
     await until(() => evalIn(c, `document.querySelector('.composer button[aria-label="Model"]').textContent.includes('Default')`), 5000, "openhands chip");
+    // The pick left the picker open on the list it opened with; the next opening is laid out for the
+    // harness the session is on now.
+    await closePicker(c);
     await openPicker(c);
     const own = await evalIn(c, `(() => { const g = document.querySelector('.mp-group'); const o = g?.querySelector('.mp-row');
       return { group: g?.getAttribute('aria-label'), row: o?.getAttribute('aria-label'), selected: o?.getAttribute('aria-selected'),
@@ -960,6 +973,248 @@ async function lightPhase() {
   }
 }
 
+/** The open picker as the pointer meets it: its box, its groups and rows in order, the ticked one,
+ *  where the keyboard is and what of the search is selected, and the foot's box. */
+const held = (c) => evalIn(c, `(() => { const p = document.querySelector('.model-picker'); if (!p) return null;
+  const r = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) }; };
+  const field = p.querySelector('.mp-search input');
+  return { picker: r(p), held: p.hasAttribute('data-held'), closing: p.hasAttribute('data-closing'),
+    groups: [...p.querySelectorAll('.mp-group')].map((g) => g.getAttribute('aria-label')),
+    rows: [...p.querySelectorAll('.mp-row')].map((o) => o.getAttribute('aria-label')),
+    ticked: p.querySelector('.mp-row[aria-selected="true"]')?.getAttribute('aria-label') ?? null,
+    focus: document.activeElement === field, selected: field ? [field.selectionStart, field.selectionEnd, field.value.length] : null,
+    foot: r(p.querySelector('.mp-foot')), card: p.querySelector('.mp-run-model')?.textContent ?? null,
+    level: p.querySelector('.mp-run-level')?.textContent ?? null, dots: p.querySelectorAll('.mp-track-dot').length }; })()`);
+const sameBox = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+
+/**
+ * The owner, 10-05: "if I change the model, the modal always closes … so I can change model and then
+ * also change … the effort level and also … fast mode all in one shot." One visit to the picker, with
+ * real presses and real keys: a model, then the level by ← → in the search the keyboard was left in,
+ * then the bolt — the picker open throughout, its box and the pressed row where they were — then a
+ * model on another harness, one with no card at all, and back. A frame of the same clip after each.
+ */
+async function stayOpen() {
+  const { c, api, home, sessionId } = await boot(stubs(path.join(scratch, "bin-stay"), { acp: true }), "stay");
+  const mine = async () => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sessionId);
+  const becomes = (fn, tag) => until(async () => fn(await mine()), 5000, tag).then(() => true, () => false);
+  try {
+    for (const mode of ["dark", "light"]) {
+      await setTheme(c, api, mode);
+      await openPicker(c);
+      const start = await held(c), chip = await box(c, CHIP);
+      // One clip for every frame, so the sequence lines up: the picker and its chip — above or below
+      // it, wherever the prompter sits — and a margin.
+      const left = Math.min(start.picker.x, chip.x) - 16, top = Math.min(start.picker.y, chip.y) - 16;
+      const clip = { x: left, y: top, width: Math.max(start.picker.x + start.picker.w, chip.x + chip.width) + 16 - left,
+        height: Math.max(start.picker.y + start.picker.h, chip.y + chip.height) + 16 - top };
+      let n = 0;
+      const frame = (what) => shoot(c, `stay-${mode}-${String(++n).padStart(2, "0")}-${what}`, clip);
+      await frame("open");
+
+      const opus = await rowAt(c, "Claude Opus 5.5");
+      await clickAt(c, opus.cx, opus.cy);
+      check(`stay ${mode}: a click on Opus 5.5 puts the session on it`, await becomes((s) => s?.model === "claude-opus-5-5", "opus"));
+      await sleep(250);
+      let now = await held(c);
+      await frame("model");
+      check(`stay ${mode}: …and the picker stays open, its box and the row pressed where they were`,
+        !!now && !now.closing && sameBox(now.picker, start.picker) && sameBox(await rowAt(c, "Claude Opus 5.5"), opus) && now.ticked === "Claude Opus 5.5", { now, start: start.picker, opus });
+      check(`stay ${mode}: the card is the new model's, and the chip behind it says so already`,
+        now?.card === "Opus 5.5" && (await chipOf(c)).text.includes("Opus 5.5"), { card: now?.card, chip: await chipOf(c) });
+      check(`stay ${mode}: the keyboard is still in the search`, !!now?.focus, now);
+
+      await key(c, "ArrowRight");
+      check(`stay ${mode}: → in the search steps the picked model's level up, to XHigh`, await becomes((s) => s?.effort === "xhigh", "xhigh"));
+      await sleep(250);
+      await frame("xhigh");
+      await key(c, "ArrowRight");
+      check(`stay ${mode}: …and again, to Max`, await becomes((s) => s?.effort === "max", "max"));
+      await sleep(600);
+      await frame("max");
+      now = await held(c);
+      check(`stay ${mode}: the level moved and nothing else did`, now?.level === "Max" && sameBox(now.picker, start.picker) && (await chipOf(c)).effort === "Max", now);
+
+      const card = await runCard(c);
+      await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+      check(`stay ${mode}: the bolt asks for fast mode, in the same visit`, await becomes((s) => s?.fastMode === true, "fast"));
+      await sleep(700);
+      await frame("fast");
+      now = await held(c);
+      check(`stay ${mode}: still open, still in place, and the chip wears the level and the bolt`,
+        !!now && !now.closing && sameBox(now.picker, start.picker) && (await chipOf(c)).fast && (await chipOf(c)).effort === "Max", { now, chip: await chipOf(c) });
+
+      // A model on another harness: the session moves to Codex, and the list must not re-sort under the pointer.
+      const sol = await rowAt(c, "GPT-5.6-Sol");
+      await clickAt(c, sol.cx, sol.cy);
+      check(`stay ${mode}: a click on GPT-5.6-Sol moves the session to Codex`, await becomes((s) => s?.agentKind === "codex" && s.model === "gpt-5.6-sol", "codex"));
+      await sleep(400);
+      await frame("codex");
+      now = await held(c);
+      check(`stay ${mode}: the list holds still — every group and row where it was, the pressed row under the pointer`,
+        JSON.stringify(now?.groups) === JSON.stringify(start.groups) && JSON.stringify(now?.rows) === JSON.stringify(start.rows) && sameBox(await rowAt(c, "GPT-5.6-Sol"), sol) && now.ticked === "GPT-5.6-Sol",
+        { groups: [start.groups, now?.groups], sol: [sol, await rowAt(c, "GPT-5.6-Sol")] });
+      check(`stay ${mode}: …and the card turns to Codex's levels for Sol`, now?.card === "GPT-5.6-Sol" && now.dots === 4 && sameBox(now.picker, start.picker), now);
+
+      // A model whose card is another size — none at all — and back: the box holds, the list gives.
+      const hands = await rowAt(c, "OpenHands");
+      await clickAt(c, hands.cx, hands.cy);
+      check(`stay ${mode}: a click on OpenHands moves the session to it`, await becomes((s) => s?.agentKind === "acp:openhands", "openhands"));
+      await sleep(400);
+      await frame("no-card");
+      now = await held(c);
+      check(`stay ${mode}: with no card to show, the box keeps its height and the list takes the room`,
+        !!now && now.held && now.foot === null && sameBox(now.picker, start.picker) && sameBox(await rowAt(c, "OpenHands"), hands), { now, hands });
+      const fable = await rowAt(c, "Claude Fable 5.1");
+      await clickAt(c, fable.cx, fable.cy);
+      check(`stay ${mode}: and back to Claude`, await becomes((s) => s?.agentKind === "claude", "claude again"));
+      await sleep(400);
+      await frame("back");
+      now = await held(c);
+      check(`stay ${mode}: the card comes back inside the same box, the row pressed where it was`,
+        !!now?.foot && now.card === "Fable 5.1" && sameBox(now.picker, start.picker) && sameBox(await rowAt(c, "Claude Fable 5.1"), fable), { now, fable });
+
+      await closePicker(c);
+      check(`stay ${mode}: Escape puts it away`, await evalIn(c, `!document.querySelector('.model-picker')`));
+      await openPicker(c);
+      const out = await box(c, ".session-pane");
+      await clickAt(c, out.x + 40, out.y + 120);
+      await until(() => evalIn(c, `!document.querySelector('.model-picker')`), 3000, "closed by a click outside").catch(() => null);
+      check(`stay ${mode}: a click outside puts it away`, await evalIn(c, `!document.querySelector('.model-picker')`));
+      // The next face starts from the same place: a fresh Claude session on its defaults.
+      await api.call("sessions.setOptions", { id: sessionId, effort: null, fastMode: false });
+      await sleep(300);
+    }
+    const errs = c.errors.filter((e) => !e.includes("Autofill"));
+    check("stay: no renderer console errors", errs.length === 0, errs.slice(0, 5));
+    c.close(); api.close();
+  } finally {
+    await stop(home);
+  }
+}
+
+/**
+ * The owner, 10-05: "Update the schedule modal as well." The Schedule a task modal's Model row is the
+ * prompter's chip and picker: Opus 5.5 at XHigh with fast mode and Accept edits, set in one visit; the
+ * task's card and its row name it in the chip's words; and Run now starts a session on exactly that —
+ * the fake Claude CLI answers with what its flag layer holds, so the reply says what the run ran at.
+ */
+async function schedulePhase() {
+  const { c, api, home } = await boot(stubs(path.join(scratch, "bin-sched"), { acp: false, claudeCli: true }), "sched");
+  const SHEET = '[role=dialog][aria-label="Schedule a task"]';
+  const sheetClip = async (name = "Schedule a task") => { const b = await box(c, `[role=dialog][aria-label="${name}"]`); return { x: b.x - 24, y: b.y - 24, width: b.width + 48, height: b.height + 48 }; };
+  const openPage = async () => {
+    await evalIn(c, `(() => { const b = document.querySelector('.app-rail button[aria-label="Scheduled tasks"]'); if (b.getAttribute('aria-pressed') !== 'true') b.click(); return true; })()`);
+    await until(() => evalIn(c, `!!document.querySelector('.schedules-page')`), 15000, "the Scheduled page");
+    await sleep(700);
+  };
+  const press = async (sel) => { const b = await box(c, sel); await clickAt(c, b.x + b.width / 2, b.y + b.height / 2); };
+  const chipText = (sel) => evalIn(c, `(() => { const e = document.querySelector(${JSON.stringify(sel)}); return e ? { text: e.textContent, fast: !!e.querySelector('.chip-fast'), title: e.getAttribute('title') } : null; })()`);
+  try {
+    for (const mode of ["dark", "light"]) {
+      await setTheme(c, api, mode);
+      await openPage();
+      if (mode === "dark") {
+        await evalIn(c, `(() => { document.querySelector('.sched-new').click(); return true; })()`);
+        await until(() => evalIn(c, `!!document.querySelector(${JSON.stringify(SHEET)})`), 10000, "the modal");
+        await evalIn(c, `(() => { const d = document.querySelector(${JSON.stringify(SHEET)});
+          const set = (el, v) => { const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); };
+          set(d.querySelector('[aria-label="Task name"]'), 'Release notes');
+          set(d.querySelector('[aria-label="Instructions"]'), 'Draft this week’s release notes from what merged to main.');
+          [...d.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith('Advanced')).click(); return true; })()`);
+        await sleep(500);
+      } else {
+        await evalIn(c, `(() => { [...document.querySelectorAll('.sched-task-hit')].find((b) => b.textContent.startsWith('Release notes')).click(); return true; })()`);
+        await sleep(600);
+        await evalIn(c, `(() => { document.querySelector('button[aria-label="Edit Release notes"]').click(); return true; })()`);
+        await until(() => evalIn(c, `!!document.querySelector('[role=dialog][aria-label="Edit task"]')`), 10000, "the edit modal");
+        await evalIn(c, `(() => { [...document.querySelector('[role=dialog][aria-label="Edit task"]').querySelectorAll('button')].find((b) => b.textContent.trim().startsWith('Advanced')).click(); return true; })()`);
+        await sleep(500);
+      }
+      const sheet = mode === "dark" ? SHEET : '[role=dialog][aria-label="Edit task"]';
+      CHIP = `${sheet} button[aria-label="Model"]`;
+      const row = await evalIn(c, `(() => { const d = document.querySelector(${JSON.stringify(sheet)});
+        return { effortRow: !!d.querySelector('[aria-label="Effort"]'), modelRows: [...d.querySelectorAll('.settings-row-name')].filter((n) => n.textContent === 'Model').length,
+          chip: !!d.querySelector('.sched-model-row .model-chip') }; })()`);
+      check(`schedule ${mode}: Model and Effort are one row, holding the prompter's chip`, !row.effortRow && row.modelRows === 1 && row.chip, row);
+      await openPicker(c);
+      await shootPicker(c, `schedule-${mode}-picker-open`);
+      await shoot(c, `schedule-${mode}-modal-picker-open`, await sheetClip(mode === "dark" ? "Schedule a task" : "Edit task"));
+      if (mode === "dark") {
+        const start = await held(c);
+        const card0 = await runCard(c);
+        check("schedule: the card names Claude's default while the task names none, over the model's own five levels",
+          card0?.level === "High" && card0.dots.length === 5 && !card0.reset, card0 && { level: card0.level, dots: card0.dots.length });
+        check("schedule: the permission row offers what a run can start in, and no Full access",
+          JSON.stringify(await evalIn(c, `[...document.querySelectorAll('.mp-foot .mp-seg-group[aria-label="Permissions"] .mp-seg-opt')].map((b) => b.textContent)`)) === JSON.stringify(["Ask each time", "Accept edits"]));
+        check("schedule: the scripted agent is offered here, as the checks that drive the app need", !!(await rowAt(c, "Fake")));
+        await pickRow(c, "Claude Opus 5.5");
+        await key(c, "ArrowRight");
+        await sleep(300);
+        const card = await runCard(c);
+        await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+        await sleep(500);
+        await press('.mp-foot .mp-seg-group[aria-label="Permissions"] .mp-seg-opt:nth-child(2)');
+        await sleep(500);
+        const set = await held(c);
+        check("schedule: a pick, a level, the bolt and the permission in one visit, the picker open and unmoved throughout",
+          !!set && !set.closing && sameBox(set.picker, start.picker) && set.card === "Opus 5.5" && set.level === "XHigh"
+            && (await runCard(c))?.bolt?.pressed === "true" && await evalIn(c, `document.querySelector('.mp-foot .mp-seg-opt[aria-pressed="true"]')?.textContent === 'Accept edits'`),
+          { set, start: start.picker });
+        await shootPicker(c, "schedule-dark-picker-set");
+        const chip = await chipText(CHIP);
+        check("schedule: the chip in the row says it as it happens", /Opus 5\.5XHigh/.test(chip?.text ?? "") && chip.fast, chip);
+        await closePicker(c);
+        check("schedule: Escape puts the picker away and leaves the modal", await evalIn(c, `!document.querySelector('.model-picker') && !!document.querySelector(${JSON.stringify(SHEET)})`));
+        await evalIn(c, `(() => { const b = document.querySelector(${JSON.stringify(SHEET)}).querySelector('.sheet-body'); b.scrollTop = b.scrollHeight; return true; })()`);
+        await sleep(300);
+        await shoot(c, "schedule-dark-modal-set", await sheetClip());
+        await evalIn(c, `(() => { [...document.querySelector(${JSON.stringify(SHEET)}).querySelectorAll('button')].find((b) => b.textContent.trim() === 'Create').click(); return true; })()`);
+        await until(() => evalIn(c, `!document.querySelector(${JSON.stringify(SHEET)}) && document.querySelector('.sched-empty-title')?.textContent === 'No runs yet'`), 15000, "the task made");
+        const space = (await api.call("spaces.list", {}))[0];
+        const made = (await api.call("schedules.list", { spaceId: space.id })).find((t) => t.title === "Release notes");
+        check("schedule: the task holds what the picker set", JSON.stringify(made?.constraints) === JSON.stringify({ agentKind: "claude", model: "claude-opus-5-5", effort: "xhigh", fastMode: true, permissionMode: "acceptEdits" }), made?.constraints);
+        await sleep(400);
+        const line = await chipText('.sched-task .sched-model'), fact = await chipText('.sched-card .sched-model');
+        check("schedule: its row and its card name it in the chip's words — model, level and bolt", line?.text === "Opus 5.5XHigh" && line.fast && fact?.text === line.text && fact.fast
+          && line.title === "Claude Opus 5.5 through Claude · XHigh effort · fast mode", { line, fact });
+        await shoot(c, "schedule-dark-task");
+        await evalIn(c, `(() => { [...document.querySelectorAll('.sched-main button')].find((b) => b.textContent.trim() === 'Run now').click(); return true; })()`);
+        const runs = await until(async () => {
+          const r = (await api.call("runs.list", { spaceId: space.id, scheduleId: made.id })).runs;
+          return r.length === 1 && r[0].state === "succeeded" ? r : null;
+        }, 40000, "the run settling").catch(() => null);
+        const sid = runs?.[0]?.sessionId;
+        const ran = sid ? (await api.call("sessions.listAll", { profileId: null })).find((x) => x.id === sid) : null;
+        check("schedule: Run now starts a session on Opus 5.5 at XHigh, fast, accepting edits",
+          ran?.model === "claude-opus-5-5" && ran.effort === "xhigh" && ran.fastMode === true && ran.permissionMode === "acceptEdits", ran && { model: ran.model, effort: ran.effort, fastMode: ran.fastMode, permissionMode: ran.permissionMode });
+        const reply = sid ? (await api.call("sessions.events", { id: sid, afterSeq: 0 })).map((e) => e.event).filter((e) => e.type === "assistant_text").map((e) => e.payload.text).at(-1) : null;
+        check("schedule: …and the CLI ran its turn that way", /^Ran on claude-opus-5-5: effort xhigh, fast on\./.test(reply ?? ""), reply);
+        await until(() => evalIn(c, `!!document.querySelector('.sched-view .session-pane') && document.querySelector('.sched-view .session-pane').textContent.includes('effort xhigh, fast on')`), 15000, "the run on screen").catch(() => null);
+        await sleep(800);
+        const prompter = await evalIn(c, `(() => { const b = document.querySelector('.sched-view .composer button[aria-label="Model"]'); return b ? { text: b.querySelector('.chip-label')?.textContent, effort: b.querySelector('.chip-effort')?.textContent ?? null, fast: !!b.querySelector('.chip-fast') } : null; })()`);
+        check("schedule: the run's own prompter says what it ran with", prompter?.text === "Opus 5.5" && prompter.effort === "XHigh" && prompter.fast, prompter);
+        await shoot(c, "schedule-dark-run");
+      } else {
+        await closePicker(c);
+        await evalIn(c, `(() => { [...document.querySelector('[role=dialog][aria-label="Edit task"]').querySelectorAll('button')].find((b) => b.textContent.trim() === 'Cancel').click(); return true; })()`);
+        await sleep(500);
+        await evalIn(c, `(() => { document.querySelector('.sched-run')?.click(); return true; })()`);
+        await until(() => evalIn(c, `!!document.querySelector('.sched-view .session-pane')`), 15000, "the run in light").catch(() => null);
+        await sleep(900);
+        await shoot(c, "schedule-light-run");
+      }
+    }
+    const errs = c.errors.filter((e) => !e.includes("Autofill"));
+    check("schedule: no renderer console errors", errs.length === 0, errs.slice(0, 5));
+    c.close(); api.close();
+  } finally {
+    CHIP = '.composer button[aria-label="Model"]';
+    await stop(home);
+  }
+}
+
 process.on("SIGINT", () => { void stop(null).then(() => process.exit(130)); });
 const only = (process.env.LIVE_ONLY ?? "").split(",").filter(Boolean);
 const wanted = (name) => only.length === 0 || only.includes(name);
@@ -969,6 +1224,8 @@ try {
   if (wanted("real")) await ownerReal();
   if (wanted("review")) await review();
   if (wanted("light")) await lightPhase();
+  if (wanted("stay")) await stayOpen();
+  if (wanted("schedule")) await schedulePhase();
 } catch (e) {
   console.error("ERROR", e.message);
   process.exitCode = 1;
@@ -980,4 +1237,6 @@ try {
   fs.rmSync(path.join(scratch, "real-home"), { recursive: true, force: true });
   fs.rmSync(path.join(scratch, "review-home"), { recursive: true, force: true });
   fs.rmSync(path.join(scratch, "light-home"), { recursive: true, force: true });
+  fs.rmSync(path.join(scratch, "stay-home"), { recursive: true, force: true });
+  fs.rmSync(path.join(scratch, "sched-home"), { recursive: true, force: true });
 }

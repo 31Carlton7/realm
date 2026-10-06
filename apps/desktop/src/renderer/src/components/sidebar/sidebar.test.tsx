@@ -92,6 +92,18 @@ describe("the list", () => {
     await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
     expect(row().closest(".sb-foot")).not.toBeNull();
   });
+
+  it("carries its own shade, outside the slide, so it is the column's width on every frame and leaves with it", async () => {
+    // The column casts it over the rail (styles.css, `.sidebar-shade`), reading the column's own
+    // `--sidebar-open`. THE MUTANTS: the shade drawn by the rail or the panes, which cannot read that
+    // number and would stand still beside a column folding away — or put on the slide, which travels.
+    const { container } = await mount(home());
+    const shade = container.querySelector(".sidebar-shade")!;
+    expect(shade.parentElement).toBe(document.getElementById("app-sidebar"));
+    expect(shade.closest(".sidebar-slide")).toBeNull();
+    expect(shade).toHaveAttribute("aria-hidden", "true");
+    expect(shade.childNodes).toHaveLength(0);
+  });
 });
 
 describe("a space's section", () => {

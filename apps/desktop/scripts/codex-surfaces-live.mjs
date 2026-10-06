@@ -407,7 +407,7 @@ async function main() {
     await evalIn(c, `__live.library("skills")`);
     await sleep(500);
     await shoot(c, `library-skills-${face}`);
-    await evalIn(c, `(() => { document.querySelector('.sb-page-back')?.click(); return true; })()`);
+    await evalIn(c, `__live.rail("Home")`);
     await sleep(400);
   }
 }

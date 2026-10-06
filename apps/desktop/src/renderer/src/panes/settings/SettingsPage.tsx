@@ -75,7 +75,7 @@ export function SettingsPage(_props: PaneProps) {
   return (
     <div className="page settings-page-pane" ref={page}>
       <div className="page-body">
-        <PageRail label="Settings">
+        <PageRail label="Settings" back>
         <div className="page-rail settings-rail">
           {/* Above the pages it searches, because it answers the question the rail cannot: which page
               is that switch on. Enter takes the first result; Escape gives the page back. */}

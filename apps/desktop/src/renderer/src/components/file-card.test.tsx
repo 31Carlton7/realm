@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { FileCard } from "./FileCard";
-import { resetThumbnailCache } from "./use-thumbnail";
+import { forgetThumbnails, resetThumbnailCache } from "./use-thumbnail";
 import { allOnScreen } from "./on-screen.test-fakes";
 
 beforeEach(() => { resetThumbnailCache(); });
@@ -83,5 +83,23 @@ describe("a file card's picture", () => {
     const { container } = render(card("/space/shot.png"));
     expect(container.querySelector("img.library-tile-thumb"), "on the very first render").not.toBeNull();
     expect(asked).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes from a card already showing it when its file is forgotten, and comes back when the file does", async () => {
+    /* A file taken out of the Library is gone from every tile that showed it — a sent message's too —
+       and the undo puts it back. THE MUTANT: forget the cache entry without telling the cards on
+       screen, and a card keeps drawing a picture of a file that is no longer anywhere. */
+    const asked = bridge();
+    allOnScreen();
+    const { container } = render(card("/realm-home/library/p1/hero.png"));
+    await waitFor(() => expect(container.querySelector("img.library-tile-thumb")).not.toBeNull());
+    asked.mockImplementation(async () => null as unknown as string);
+    act(() => { forgetThumbnails(["/realm-home/library/p1/hero.png"]); });
+    await waitFor(() => expect(container.querySelector("img.library-tile-thumb")).toBeNull());
+    expect(container.querySelector(".library-tile-mark")).not.toBeNull();
+    asked.mockImplementation(async () => "data:image/png;base64,BBBB");
+    act(() => { forgetThumbnails(["/realm-home/library/p1/hero.png"]); });
+    await waitFor(() => expect(container.querySelector("img.library-tile-thumb")?.getAttribute("src")).toBe("data:image/png;base64,BBBB"));
+    expect(asked).toHaveBeenCalledTimes(3);
   });
 });

@@ -60,7 +60,7 @@ async function listen(port: number): Promise<{ events: { event: string; payload:
 
 const task = (spaceId: string, over: Partial<CreateScheduleInput> = {}): CreateScheduleInput => ({
   spaceId, title: "Migration", goal: GOAL, cron: "0 9 * * 1", enabled: true,
-  constraints: { agentKind: "fake", model: "fake-pro", effort: "high" }, newSessionPerRun: true, archiveSucceeded: false, ...over,
+  constraints: { agentKind: "fake", model: "fake-pro", effort: "high", fastMode: true }, newSessionPerRun: true, archiveSucceeded: false, ...over,
 });
 
 const runOf = (id: string) => app.runs.get(id)!.run;
@@ -79,10 +79,11 @@ describe("a task fired from the Scheduled page", () => {
 
     expect(run.state).toBe("succeeded");
     expect(run.scheduleId).toBe(schedule.id);
-    // The chosen model is the one that runs: on the session row, and in what the agent was started with.
+    // The chosen model is the one that runs, at its level and speed: on the session row, and in what
+    // the agent was started with.
     const session = app.sessions.get(run.sessionId!);
-    expect(session).toMatchObject({ agentKind: "fake", model: "fake-pro", effort: "high" });
-    expect(fake.seen.at(-1)).toMatchObject({ model: "fake-pro", effort: "high" });
+    expect(session).toMatchObject({ agentKind: "fake", model: "fake-pro", effort: "high", fastMode: true });
+    expect(fake.seen.at(-1)).toMatchObject({ model: "fake-pro", effort: "high", fastMode: true });
     // The instructions are the first message, as written — the models named in them included.
     const [first] = userMessages(run.sessionId!);
     expect(first!.startsWith(`${GOAL}\n`)).toBe(true);
@@ -133,6 +134,23 @@ describe("a task that continues one session", () => {
     expect(runOf(second).sessionId).toBe(runOf(first).sessionId);
     expect(userMessages(runOf(first).sessionId!)).toHaveLength(2);
     expect(runOf(second).state).toBe("succeeded");
+  });
+
+  it("runs the next turn on what the task says now: a level, a speed and a permission edited since", async () => {
+    /* THE MUTANT: a continued session left on what its first run set up. Edit the task to the model's
+       default level, fast mode off and Accept edits, and the conversation carried on at High, fast,
+       asking every time. */
+    const { spaceId } = await boot();
+    const schedule = app.schedules.create(task(spaceId, { newSessionPerRun: false }));
+    const first = app.schedules.runNow(schedule.id).lastRunId!;
+    await settled(first);
+    const sessionId = runOf(first).sessionId!;
+    expect(app.sessions.get(sessionId)).toMatchObject({ effort: "high", fastMode: true, permissionMode: "default" });
+    app.schedules.update({ id: schedule.id, constraints: { agentKind: "fake", model: "fake-pro", permissionMode: "acceptEdits" } });
+    const second = app.schedules.runNow(schedule.id).lastRunId!;
+    await settled(second);
+    expect(runOf(second).sessionId).toBe(sessionId);
+    expect(app.sessions.get(sessionId)).toMatchObject({ model: "fake-pro", effort: null, fastMode: false, permissionMode: "acceptEdits" });
   });
 
   it("a task that does not starts each run in a session of its own", async () => {

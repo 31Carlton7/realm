@@ -10,8 +10,9 @@ import type { AgentProbe } from "../../state/store";
  * name (`resolveModelName`).
  *
  * The prompter's picker is one reader. Anything else that picks a model — a scheduled task's Model
- * and Effort fields, a plan handed to sub-agents on other models — reads the same answers from here,
- * so a model offered in one place is offered, named and routed the same way in every other.
+ * row, which is the same picker, and a plan handed to sub-agents on other models — reads the same
+ * answers from here, so a model offered in one place is offered, named and routed the same way in
+ * every other.
  */
 
 /** One pickable line: a MODEL, and the harness that would run it. */
@@ -96,16 +97,21 @@ export type ModelRow = {
  * still marks a row: the frontier model, which is the first of the kind's list and the one the chip
  * already names via `DEFAULT_MODEL_LABEL` (presets.test.ts pins the two to each other).
  */
-export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites = [] }: {
+export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites = [], also = [] }: {
   kind: AgentKind; model: string | null; agentProbe: AgentProbe[]; canSwitchAgent: boolean;
   /** Canonical keys the user has starred. */
   favorites?: readonly string[];
+  /** Kinds offered after the selectable set: the scripted agent, which a session never offers fresh
+   *  but a scheduled task may be put on wherever this Realm runs one — the checks that drive the app
+   *  schedule their work on it. */
+  also?: readonly AgentKind[];
 }): ModelRow[] {
   // The session's own kind leads, then the rest of the offered set. Leading with it is what makes the
   // tie-break above fall out for free: the first harness to claim a model is the current one whenever
   // it has it. It also covers a kind that is not offered fresh (`fake`), which would otherwise have
   // no row at all.
-  const kinds: AgentKind[] = [kind, ...SELECTABLE_AGENT_KINDS.filter((k) => k !== kind)];
+  const offered: AgentKind[] = [...SELECTABLE_AGENT_KINDS, ...also.filter((k) => !(SELECTABLE_AGENT_KINDS as readonly AgentKind[]).includes(k))];
+  const kinds: AgentKind[] = [kind, ...offered.filter((k) => k !== kind)];
   const noteOf = new Map<AgentKind, string | null>(kinds.map((k) => [k, availabilityNote(agentAvailability(k, agentProbe))]));
   const favorite = new Set(favorites);
 
@@ -301,6 +307,36 @@ export function flatten(groups: RowGroup[]): ModelRow[] {
 }
 
 /**
+ * The rows as a picker that is already open shows them: in the order, and through the harness, each
+ * had when it opened — with what is LIVE taken from now: which row is ticked, which are starred, and
+ * any row that has arrived since, after the rest.
+ *
+ * A pick leaves the picker open, and a pick can move the session to another harness, which re-sorts
+ * `modelRows` — the session's own harness leads, and takes every model it also offers. Read live, the
+ * list re-ordered under the pointer that had just pressed it, and Fable under the Claude heading came
+ * back wearing Cursor's mark. Held, a pick moves the tick and nothing else, and a row runs through the
+ * harness it said it would; the next opening lays the list out for wherever the session is by then.
+ */
+export function holdRows(live: readonly ModelRow[], opened: readonly ModelRow[]): ModelRow[] {
+  const byId = new Map(live.map((r) => [r.id, r]));
+  const held: ModelRow[] = [];
+  for (const o of opened) {
+    const r = byId.get(o.id);
+    if (!r) continue;
+    byId.delete(o.id);
+    held.push(r.blockedReason || r.kind === o.kind || !r.harnesses.includes(o.kind) ? r : throughHarness(r, o.kind));
+  }
+  return [...held, ...byId.values()];
+}
+
+/** `row` resolved through `kind`, which is one of its own harnesses. Its other harnesses stay routes
+ *  only while the session may still switch, which is what having alternates at all says. */
+const throughHarness = (row: ModelRow, kind: AgentKind): ModelRow => ({
+  ...row, kind, agentLabel: AGENT_META[kind].label, icon: AGENT_META[kind].icon, note: row.notes[kind] ?? null,
+  modelId: row.ids[kind] ?? null, alternates: row.alternates.length > 0 ? row.harnesses.filter((h) => h !== kind) : [],
+});
+
+/**
  * A model's name as a list under its harness shows it: "Fable 5.1" beside Claude's mark, not "Claude
  * Fable 5.1" under a heading that already says Claude.
  *
@@ -330,6 +366,11 @@ export function chipLabel(kind: AgentKind, model: string | null, rows: ModelRow[
   const selected = rows.find((r) => r.selected);
   return selected ? modelLabel(selected) : model ?? DEFAULT_MODEL_LABEL[kind];
 }
+
+/** The chip's tooltip, which spells the whole thing out — the model's full name, the harness it runs
+ *  through, the level in force and fast mode — for anyone who needs it. */
+export const chipTitle = (fullName: string, kind: AgentKind, level: string | null, fast: boolean): string =>
+  `${fullName} through ${AGENT_META[kind].label}${level ? ` · ${level} effort` : ""}${fast ? " · fast mode" : ""}`;
 
 /** Display form of an effort level: capitalised, with `xhigh` as "XHigh" — the id's two morphemes
  *  each get their cap, and no hyphen is invented that the CLIs never print. */

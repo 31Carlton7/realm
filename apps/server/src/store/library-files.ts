@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { constants, existsSync, type Stats } from "node:fs";
-import { lstat, mkdir, open, readdir, rm, type FileHandle } from "node:fs/promises";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { link, lstat, mkdir, open, readdir, rename, rm, rmdir, unlink, type FileHandle } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import {
-  extOf, LIBRARY_ADD_MAX, LibraryAddSchema, MAX_ATTACHMENT_BYTES, newId,
-  type LibraryAddInput, type LibraryAddResult, type LibraryEntry,
+  extOf, LIBRARY_ADD_MAX, LibraryAddSchema, LibraryRemoveSchema, LibraryRestoreSchema, MAX_ATTACHMENT_BYTES, newId,
+  type LibraryAddInput, type LibraryAddResult, type LibraryEntry, type LibraryRemoveInput, type LibraryRemoveResult,
+  type LibraryRestoreInput, type LibraryRestoreResult,
 } from "@realm/contracts";
 import type { Db } from "../db/database";
 import { NotFoundError, RpcError, now } from "./rows";
@@ -35,6 +36,27 @@ export function safeLibraryName(name: string): string {
   return stem + tail;
 }
 
+/** Where removed copies wait while their removal can still be undone: in the profile's own folder, so
+ *  putting one back is a move on the same disk, and hidden, because nothing in it is the Library's any
+ *  more. No copy can be given the name — `safeLibraryName` never starts one with a dot. */
+const SET_ASIDE = ".removed";
+
+/** How long a removal can be undone. The toast's Undo is up for seconds, longer only while it is read;
+ *  this is the backstop for a window closed with one up. Past it, the copies are deleted for good. */
+export const LIBRARY_UNDO_MS = 10 * 60_000;
+
+/**
+ * Whether `path` names one of the copies Realm keeps in `dir`: a name directly in the profile's own
+ * folder, as an add writes one. Never a path that walks out with `..`, one in a folder inside it, or
+ * the folder the removed wait in — the only paths a removal may take a file from.
+ */
+export function isLibraryCopy(dir: string, path: string): boolean {
+  if (!isAbsolute(path)) return false;
+  const at = resolve(path);
+  const name = basename(at);
+  return dirname(at) === resolve(dir) && name !== "" && !name.startsWith(".");
+}
+
 /** The Finder's name for a second file of the same name, kept beside the first: `report 2.pdf`. */
 export function numberedName(name: string, n: number): string {
   if (n < 2) return name;
@@ -49,6 +71,25 @@ type FolderNote = LibraryAddResult["folders"][number];
  *  file chosen, so it stops the add and says so, rather than calling the file unreadable. */
 const unwritable = (e: unknown): RpcError =>
   new RpcError("LIBRARY_UNWRITABLE", `Realm couldn't keep a copy in its Library folder: ${e instanceof Error ? e.message : String(e)}`);
+const unmovable = (name: string, e: unknown): RpcError =>
+  new RpcError("LIBRARY_UNWRITABLE", `Realm couldn't move ${name} in its Library folder: ${e instanceof Error ? e.message : String(e)}`);
+
+type FileRow = { id: string; profile_id: string; path: string; name: string; ext: string; size: number; digest: string; ts: number };
+type ListingRow = { id: string; session_id: string; seq: number; kind: string; path: string; name: string; ext: string; ts: number };
+
+const entryOf = (r: FileRow): LibraryEntry => ({
+  id: r.id, sessionId: null, spaceId: null, kind: "added", path: r.path, name: r.name, ext: r.ext, ts: r.ts, sessionTitle: null, agentKind: null,
+});
+
+/** A removal that can still be undone: the rows it took, each with where its copy was set aside (null
+ *  for a copy that was not there to take, or was not a file Realm made), and the Library's other
+ *  listings of those copies. Held in memory, so a removal outlives neither its hold nor the server. */
+type Removal = {
+  profileId: string;
+  files: { row: FileRow; held: string | null }[];
+  listings: ListingRow[];
+  timer: ReturnType<typeof setTimeout>;
+};
 
 /** A folder's own files — not what the folders inside it hold, not what is hidden, never a link — in
  *  name order, with what that leaves out. */
@@ -82,16 +123,34 @@ async function folderFiles(dir: string): Promise<{ files: string[]; links: strin
  * bytes, or a file the Library already lists by its own path, come back as `duplicate`. And no link is
  * followed, at the top or inside a folder: the source is opened `O_NOFOLLOW`, so a link swapped in
  * after it was looked at is refused rather than read.
+ *
+ * And what was added can be taken out again (`remove`), which is the one place Realm deletes a file
+ * here — so it deletes only its own copies, and only after a wait: a removed copy is set aside in the
+ * profile's folder until the removal is undone (`restore`) or `LIBRARY_UNDO_MS` has passed.
  */
 export class LibraryFilesStore {
-  /** The add in progress. Adds run one at a time, so the same file dropped twice in quick succession is
-   *  recognised the second time rather than both copies passing the check before either is written. */
+  /** The change in progress. Changes run one at a time, so the same file dropped twice in quick
+   *  succession is recognised the second time rather than both copies passing the check before either
+   *  is written — and an undo can never cross the end of its own hold. */
   private last: Promise<unknown> = Promise.resolve();
+  private removals = new Map<string, Removal>();
 
   constructor(private db: Db, private home: string) {}
 
   add(input: LibraryAddInput): Promise<LibraryAddResult> {
-    const next = this.last.then(() => this.addNow(input));
+    return this.serially(() => this.addNow(input));
+  }
+
+  remove(input: LibraryRemoveInput): Promise<LibraryRemoveResult> {
+    return this.serially(() => this.removeNow(input));
+  }
+
+  restore(input: LibraryRestoreInput): Promise<LibraryRestoreResult> {
+    return this.serially(() => this.restoreNow(input));
+  }
+
+  private serially<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.last.then(fn);
     this.last = next.catch(() => {});
     return next;
   }
@@ -217,5 +276,181 @@ export class LibraryFilesStore {
       this.db.prepare("DELETE FROM library_files WHERE id = ?").run(row.id);
     }
     return { name: null, digest };
+  }
+
+  /**
+   * Take these added files out of the profile's Library: their rows, and their copies set aside.
+   *
+   * Only a row of the profile's own `library_files` is taken — a path a session made or was given is
+   * not one, so it is left alone whatever is asked. Only a regular FILE at a path an add would have
+   * written is moved: a link standing where a copy was, or a folder, was put there by something else,
+   * and stays exactly as it is while its row goes. The move is a rename, which moves the entry and
+   * never what a link names, so even a link swapped in after the look is set aside as a link.
+   *
+   * The Library's other listings of a copy — the message that carried it, an agent's write to it — name
+   * a file about to be gone, so they go with it and come back with it. The messages themselves keep
+   * their words and the file's name: a transcript is never rewritten.
+   */
+  private async removeNow(input: LibraryRemoveInput): Promise<LibraryRemoveResult> {
+    const q = LibraryRemoveSchema.parse(input);
+    if (!this.db.prepare("SELECT 1 FROM profiles WHERE id = ?").get(q.profileId)) throw new NotFoundError("profile", q.profileId);
+    const paths = [...new Set(q.paths)];
+    const rows = this.db.prepare(`SELECT * FROM library_files WHERE profile_id = ? AND path IN (${paths.map(() => "?").join(", ")})
+      ORDER BY ts DESC, id DESC`).all(q.profileId, ...paths) as FileRow[];
+    if (rows.length === 0) return { removed: [], messages: 0, removal: null };
+
+    const dir = libraryDir(this.home, q.profileId);
+    const removal = newId();
+    const aside = join(dir, SET_ASIDE, removal);
+    const files: Removal["files"] = [];
+    // Each one moved is put back if a later one cannot be, so a removal happens whole or not at all.
+    const undoMoves = async () => { for (const f of files) if (f.held) await rename(f.held, resolve(f.row.path)).catch(() => {}); };
+    for (const row of rows) {
+      let held: string | null = null;
+      if (isLibraryCopy(dir, row.path) && (await lstat(row.path).catch(() => null))?.isFile()) {
+        await this.setAsideFolder(dir, aside);
+        held = join(aside, basename(resolve(row.path)));
+        try { await rename(resolve(row.path), held); } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === "ENOENT") held = null; // gone since the look: nothing to set aside
+          else { await undoMoves(); throw unmovable(row.name, e); }
+        }
+      }
+      files.push({ row, held });
+    }
+
+    const copies = rows.map((r) => r.path).filter((p) => isLibraryCopy(dir, p));
+    const listings = copies.length === 0 ? [] : this.db.prepare(`SELECT * FROM artifacts WHERE path IN (${copies.map(() => "?").join(", ")})`)
+      .all(...copies) as ListingRow[];
+    this.db.exec("BEGIN");
+    try {
+      const dropFile = this.db.prepare("DELETE FROM library_files WHERE id = ?");
+      for (const r of rows) dropFile.run(r.id);
+      const dropListing = this.db.prepare("DELETE FROM artifacts WHERE id = ?");
+      for (const a of listings) dropListing.run(a.id);
+      this.db.exec("COMMIT");
+    } catch (e) { this.db.exec("ROLLBACK"); await undoMoves(); throw e; }
+
+    const timer = setTimeout(() => { void this.serially(() => this.discard(removal)); }, LIBRARY_UNDO_MS);
+    timer.unref?.();
+    this.removals.set(removal, { profileId: q.profileId, files, listings, timer });
+    const messages = new Set(listings.filter((a) => a.kind === "upload").map((a) => `${a.session_id}:${a.seq}`)).size;
+    return { removed: rows.map(entryOf), messages, removal };
+  }
+
+  /** The folder a removal's copies wait in, made if need be — and refused unless it is a real folder
+   *  inside the profile's own: a link planted at its name would carry the copies out of the Library.
+   *  Looked at before anything is made in it, and one level at a time, so a refusal leaves no trace. */
+  private async setAsideFolder(dir: string, aside: string): Promise<void> {
+    const made = async (at: string) => {
+      try { await mkdir(at); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw unmovable("the files", e); }
+      if (!(await lstat(at).catch(() => null))?.isDirectory()) {
+        throw new RpcError("LIBRARY_UNWRITABLE", `Realm couldn't set the removed files aside: ${at} is not a folder of its own.`);
+      }
+    };
+    await made(join(dir, SET_ASIDE));
+    await made(aside);
+  }
+
+  /**
+   * Undo a removal: each copy back where it was — the same bytes under the same name, its row with the
+   * same id and time, so it is in the same place in the list — and the listings that went with it. A
+   * file added since under a copy's name is never written over: the copy goes back beside it as
+   * `name 2`, and the listings, which named the other file's path, stay gone.
+   */
+  private async restoreNow(input: LibraryRestoreInput): Promise<LibraryRestoreResult> {
+    const q = LibraryRestoreSchema.parse(input);
+    const r = this.removals.get(q.removal);
+    if (!r) throw new RpcError("LIBRARY_UNDO_GONE", "That removal can't be undone any more: Realm has deleted its copies.");
+    if (!this.db.prepare("SELECT 1 FROM profiles WHERE id = ?").get(r.profileId)) throw new NotFoundError("profile", r.profileId);
+    const dir = libraryDir(this.home, r.profileId);
+    const result: LibraryRestoreResult = { restored: [], renamed: [] };
+    const put = this.db.prepare("INSERT INTO library_files (id, profile_id, path, name, ext, size, digest, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    // A session deleted in the meantime took its listings with it, and they do not come back without it.
+    const relist = this.db.prepare(`INSERT OR IGNORE INTO artifacts (id, session_id, seq, kind, path, name, ext, ts)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?)`);
+    // A file at a time, whole — its copy and its rows — and struck off the removal once back, so an undo
+    // that stopped part way can be asked again and finish rather than put anything back twice.
+    while (r.files.length > 0) {
+      const f = r.files[0]!;
+      const at = f.held === null ? f.row.path : await this.putBack(dir, f.held, f.row.name);
+      const row: FileRow = { ...f.row, path: at, name: basename(at) };
+      this.db.exec("BEGIN");
+      try {
+        put.run(row.id, row.profile_id, row.path, row.name, row.ext, row.size, row.digest, row.ts);
+        if (at === f.row.path) {
+          for (const a of r.listings) if (a.path === at) relist.run(a.id, a.session_id, a.seq, a.kind, a.path, a.name, a.ext, a.ts, a.session_id);
+        }
+        this.db.exec("COMMIT");
+      } catch (e) {
+        this.db.exec("ROLLBACK");
+        if (f.held !== null) await rename(at, f.held).catch(() => {});
+        throw e;
+      }
+      r.files.shift();
+      if (row.name !== f.row.name) result.renamed.push({ from: f.row.name, to: row.name });
+      result.restored.push(entryOf(row));
+    }
+    clearTimeout(r.timer);
+    this.removals.delete(q.removal);
+    await rmdir(join(dir, SET_ASIDE, q.removal)).catch(() => {});
+    await rmdir(join(dir, SET_ASIDE)).catch(() => {}); // still holding another removal's copies: kept
+    return result;
+  }
+
+  /** A set-aside copy back in the folder under its own name, or beside a file that has taken it since,
+   *  the way an add keeps one. Linked and then unlinked, never renamed: a rename replaces whatever has
+   *  the name, and nothing in the Library is ever written over. */
+  private async putBack(dir: string, held: string, name: string): Promise<string> {
+    try { await mkdir(dir, { recursive: true }); } catch (e) { throw unmovable(name, e); }
+    for (let n = 1; n < 1000; n++) {
+      const at = join(dir, numberedName(name, n));
+      try { await link(held, at); } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "EEXIST") continue;
+        throw unmovable(name, e);
+      }
+      await unlink(held);
+      return at;
+    }
+    throw unmovable(name, new Error("every name it could take is in use"));
+  }
+
+  /** The end of a removal's hold: its copies deleted for good, one file at a time, and the folder they
+   *  waited in. Only ever a name inside that folder, and `unlink`, which neither follows a link nor
+   *  empties a folder. */
+  private async discard(removal: string): Promise<void> {
+    const r = this.removals.get(removal);
+    if (!r) return;
+    this.removals.delete(removal);
+    clearTimeout(r.timer);
+    for (const f of r.files) if (f.held) await unlink(f.held).catch(() => {});
+    const dir = libraryDir(this.home, r.profileId);
+    await rmdir(join(dir, SET_ASIDE, removal)).catch(() => {});
+    await rmdir(join(dir, SET_ASIDE)).catch(() => {});
+  }
+
+  /**
+   * Copies a last run set aside and never finished holding — the app quit with an Undo still up.
+   * Nothing can undo those any more (a hold lives in memory), so they are deleted, at boot, the way
+   * their hold would have ended: one file or link at a time, in folders of the Library's own that are
+   * real folders and not links to somewhere else, so this can reach nothing outside them.
+   */
+  sweep(): Promise<void> {
+    return this.serially(async () => {
+      const root = join(this.home, "library");
+      for (const profile of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+        if (!profile.isDirectory()) continue;
+        const aside = join(root, profile.name, SET_ASIDE);
+        if (!(await lstat(aside).catch(() => null))?.isDirectory()) continue;
+        for (const hold of await readdir(aside, { withFileTypes: true }).catch(() => [])) {
+          if (!hold.isDirectory()) continue;
+          const at = join(aside, hold.name);
+          for (const f of await readdir(at, { withFileTypes: true }).catch(() => [])) {
+            if (f.isFile() || f.isSymbolicLink()) await unlink(join(at, f.name)).catch(() => {});
+          }
+          await rmdir(at).catch(() => {});
+        }
+        await rmdir(aside).catch(() => {});
+      }
+    });
   }
 }

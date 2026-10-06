@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { EFFORT_LEVELS, describeSchedule, onceExpr, parseMoment, type RunConstraints, type Schedule, type Session } from "@realm/contracts";
+import { describeSchedule, onceExpr, parseMoment, type RunConstraints, type Schedule, type Session } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
 import type { ScheduleService } from "./service";
@@ -33,8 +33,8 @@ export const SCHEDULE_PROVIDER_NAME = "realm-schedule";
 export type ScheduleAgentToolsDeps = {
   schedules: Pick<ScheduleService, "create" | "list">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
-  /** The calling session's row — whose agent and model the task it schedules will run on. */
-  sessions?: { get(id: string): Pick<Session, "agentKind" | "model" | "effort"> };
+  /** The calling session's row — whose agent, model, level and speed the task it schedules runs on. */
+  sessions?: { get(id: string): Pick<Session, "agentKind" | "model" | "effort" | "fastMode"> };
 };
 
 const CreateArgs = z.object({
@@ -129,17 +129,18 @@ function createSchedule(d: ScheduleAgentToolsDeps, ctx: ProviderCallContext, arg
 }
 
 /**
- * The task runs on the agent and model of the session that scheduled it. Left unset, a run falls back
- * to Claude whatever was asking — a Codex conversation that said "do this every Monday" would come
- * back as somebody else's work. Null where the session cannot be read: the run's own fallback then
- * stands, as it does for a task made with no session behind it.
+ * The task runs on the agent, model, level and speed of the session that scheduled it. Left unset, a
+ * run falls back to Claude whatever was asking — a Codex conversation that said "do this every
+ * Monday" would come back as somebody else's work, and one on Max with fast mode at the default and
+ * slow. Null where the session cannot be read: the run's own fallback then stands, as it does for a
+ * task made with no session behind it.
  */
 function callerConstraints(d: ScheduleAgentToolsDeps, sessionId: string): RunConstraints | null {
   if (!d.sessions) return null;
-  let caller: Pick<Session, "agentKind" | "model" | "effort">;
+  let caller: Pick<Session, "agentKind" | "model" | "effort" | "fastMode">;
   try { caller = d.sessions.get(sessionId); } catch { return null; }
-  const effort = EFFORT_LEVELS.find((e) => e === caller.effort);
-  return { agentKind: caller.agentKind, ...(caller.model ? { model: caller.model } : {}), ...(effort ? { effort } : {}) };
+  return { agentKind: caller.agentKind, ...(caller.model ? { model: caller.model } : {}), ...(caller.effort ? { effort: caller.effort } : {}),
+    ...(caller.fastMode ? { fastMode: true } : {}) };
 }
 
 function listSchedules(d: ScheduleAgentToolsDeps, ctx: ProviderCallContext): CallToolResult {

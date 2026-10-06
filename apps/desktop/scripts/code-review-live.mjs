@@ -5,11 +5,11 @@
  * FAKE gh — `REALM_GH_BIN` names a wrapper running apps/server/scripts/fixtures/fake-gh.mjs on the
  * fixture pull requests, so nothing here can reach GitHub — and walks the page as a person would:
  *
- *   1. the rail: Code review where Notifications was, and the spaces sidebar away while it is up;
+ *   1. the rail: Code review where Notifications was, and the column in the sidebar's place once gh can list;
  *   2. setup — gh signed out — and Check again once the fixture signs it in;
  *   3. the column: the three lists, Show more, the team's folded list;
  *   4. a request's Summary, and its Changes side by side with the file tree;
- *   5. Review with… on the scripted agent: the instructions gear, then the findings on the summary
+ *   5. Review with… on the scripted agent: the instructions under its chevron, then the findings on the summary
  *      and on their lines in the diff;
  *   6. Submit review: the decision, the comment, a kept finding — and the one POST it makes;
  *   7. the docked prompter: a question and its answer;
@@ -248,9 +248,12 @@ async function main() {
   const rail = await evalIn(c, `(() => ({ names: __live.qa('.app-rail .rail-group .rail-btn').map((b) => b.getAttribute('aria-label')) }))()`);
   check("the rail holds Code review where Notifications was", rail.names.includes("Code review") && !rail.names.some((n) => /^Notifications/.test(n)), rail.names);
   await openPage(c);
-  const shell = await evalIn(c, `(() => ({ collapsed: document.querySelector('.app').hasAttribute('data-sidebar-collapsed'),
-    pressed: __live.byLabel('Code review', __live.q('.app-rail')).getAttribute('aria-pressed') }))()`);
-  check("the spaces sidebar is away while the page is up, and the rail's button is lit", shell.collapsed && shell.pressed === "true", shell);
+  // Signed out, the page is its setup, so the sidebar keeps the spaces: the column takes their place
+  // only once gh can list something (components/page-nav.tsx).
+  const shell = await until(() => evalIn(c, `!!__live.button('Set up GitHub')`), 15_000, "setup").then(() => evalIn(c, `(() => ({
+    pressed: __live.byLabel('Code review', __live.q('.app-rail')).getAttribute('aria-pressed'),
+    column: !!__live.q('.sb-page-nav .cr-col'), spaces: !!__live.q('.sb-list') && !__live.q('.sb-list').hasAttribute('hidden') }))()`));
+  check("while gh is not set up the sidebar keeps the spaces, and the rail's button is lit", shell.pressed === "true" && !shell.column && shell.spaces, shell);
 
   /* ── 2. Setup ──────────────────────────────────────────────────────────────────────────────── */
   await until(() => evalIn(c, `!!__live.button('Set up GitHub')`), 15_000, "setup");
@@ -267,9 +270,10 @@ async function main() {
     sections: __live.qa('.cr-section-label').map((h) => h.textContent),
     rows: __live.qa('.cr-row').length, more: !!__live.button('Show more'),
     team: __live.q('.cr-section-toggle')?.getAttribute('aria-expanded'),
-    width: __live.rect(__live.q('.cr-col')).width, empty: __live.q('.cr-empty-title')?.textContent,
+    inSidebar: !!__live.q('.sb-page-nav > .cr-col'), empty: __live.q('.cr-empty-title')?.textContent,
   }))()`);
-  check("the column lists Authored by me and Needs my review, a page of each, the team's folded", col.sections.join() === "Authored by me,Needs my review" && col.more && col.team === "false" && col.width === 300, col);
+  check("the column lists Authored by me and Needs my review, a page of each, the team's folded — in the sidebar's own place",
+    col.sections.join() === "Authored by me,Needs my review" && col.more && col.team === "false" && col.inSidebar, col);
   check("nothing selected is the place to start", col.empty === "Select a pull request", col.empty);
   await shot(c, "02-list-dark");
   await evalIn(c, `__live.click(__live.button('Show more'))`);
@@ -319,7 +323,7 @@ async function main() {
   await evalIn(c, `__live.click(__live.button('Save and run', __live.dialog('Review instructions')))`);
   await until(() => evalIn(c, `!!__live.q('.cr-review[data-state=done]') || __live.q('.cr-file .cr-note') !== null`), 30_000, "findings");
   const saved = await api.call("codeReview.instructions", { profileId: space.profileId });
-  check("the gear saved the profile's instructions, the example appended", saved.text === "Flag error paths that swallow a failure.\nI care most about the data model. Tell me where we might be overcomplicating things.", saved.text);
+  check("the chevron's menu saved the profile's instructions, the example appended", saved.text === "Flag error paths that swallow a failure.\nI care most about the data model. Tell me where we might be overcomplicating things.", saved.text);
   await until(() => evalIn(c, `__live.qa('.cr-note').length >= 2`), 15_000, "inline findings");
   await evalIn(c, `(() => { const n = __live.q('.cr-file[data-file="src/tokenizer.ts"] .cr-note'); n.scrollIntoView({ block: 'center' }); return true; })()`);
   await sleep(400);
