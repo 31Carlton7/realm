@@ -10,10 +10,10 @@ import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sour
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
 import {
-  allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, openItem as layoutOpen, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
+  allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, findPanel, firstLeaf, itemIdOfLeaf, openItem as layoutOpen, sideTabsOf, tabOwner, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   groupsFromLayout, SpaceGroupsSchema,
-  columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, primaryLeaves, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type StoredView, type WindowView,
+  besidePane, clampPanelShare, columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, primaryLeaves, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type Room, type StoredView, type WindowView,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
@@ -28,6 +28,7 @@ import { libraryAddNotices } from "./library-add";
 import { libraryRemoveNotice, libraryRestoreNotice } from "./library-remove";
 import { forgetThumbnails } from "../components/use-thumbnail";
 import { closeIntent } from "./close-intent";
+import { panelPlace, splitRefusal } from "./view-room";
 import type { LibraryAddInput, LibraryAddResult, LibraryRemoveInput, LibraryRemoveResult, LibraryRestoreInput, LibraryRestoreResult } from "@realm/contracts";
 import { getMachineHub } from "../panes/machine/machine-hub";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
@@ -991,11 +992,14 @@ export type AppState = {
   /** Sidebar hidden, its toggle moved to the top rail. The toggle is rendered in BOTH states —
    *  a collapse with no way back is a trap — which is why this is one boolean and not a mode. */
   sidebarCollapsed: boolean;
-  /** The side panes put away by the toggle at the window's top right: every side pane's tabs stay
-   *  open — mounted, a browser's page and an agent's hold on it included — and none is drawn, so
-   *  the panes they serve take the width. Window-wide rather than per pane, because it is one
-   *  control. Persisted, as the window's other arrangements are. */
+  /** The side panel put away by the toggle at the window's top right: every tab stays open —
+   *  mounted, a browser's page and an agent's hold on it included — and the panel is not drawn, so
+   *  the main panes take its width. Persisted, as the window's other arrangements are. */
   sidePanesHidden: boolean;
+  /** The pane host's box, as it last measured itself: the room the main panes and the panel share,
+   *  which is what decides whether a split is offered and where the panel stands (`view-room.ts`).
+   *  Null until measured — and in jsdom, where everything fits. */
+  viewRoom: Room | null;
   /** The page that takes the sidebar away (`PAGE_SHELL`) on which the person asked for it back
    *  anyway — that overlay itself, so the ask ends with the page and never touches their own
    *  `sidebarCollapsed`. Read through `sidebarHidden` (selectors.ts), never on its own. */
@@ -1074,9 +1078,10 @@ export type AppState = {
   /** The items of every space of the active profile, archived ones included (the space's own lists
    *  show those apart). Each space's slice is refreshed on its own `items.changed`. */
   items: Item[];
-  /** The window's one view (contracts/view.ts): a pane or a split of two, each with its own side
-   *  pane, and the side panes of the sessions not on screen. Null before boot. The source of truth;
-   *  `layout` mirrors it. Persisted per profile (`ui.view:<profileId>`). */
+  /** The window's one view (contracts/view.ts): the main panes, the one side panel beside them with
+   *  every on-screen session's tabs, the tabs of the sessions not on screen, and the panel's share of
+   *  the room. Null before boot. The source of truth; `layout` mirrors it. Persisted per profile
+   *  (`ui.view:<profileId>`), which is per window. */
   view: WindowView | null;
   /** The view's layout, mirrored on every write (see `writeView`). Its own field so every reader that
    *  only ever wanted "what is on screen" — the pane host, the sidebar glyph, focus, the hotkeys —
@@ -1836,9 +1841,9 @@ export type AppState = {
   /** Open an item from any space, any profile — the palette's and the feed's way in. A space of
    *  another profile switches the window to it first. */
   revealItem(itemId: string, spaceId: string): Promise<void>;
-  /** Open an item beside the focused pane (⌘-click, a drop on an edge, a diff from a session's bar):
-   *  a second pane when the view shows one, in place of the OTHER side when it shows two — never a
-   *  third. Focuses it; an item already on screen is gone to instead. */
+  /** Open an item beside the focused pane (⌘-click, a run's session): a new pane to its right while
+   *  there is room for one, else in place of the pane beside it — never squeezed in. Focuses it; an
+   *  item already on screen is gone to instead. */
   openItemBeside(itemId: string): Promise<void>;
   /** `openItemBeside` minus the focus move (Plan 13 W2's dispatch): the pane appears beside — or
    *  fills the focused-but-empty leaf — and `focusedLeafId` is NOT touched, because the whole point
@@ -1861,11 +1866,21 @@ export type AppState = {
    * leaves them as the person left them.
    */
   openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean }): Promise<boolean>;
-  /** The toggle at the window's top right: put every side pane away with its tabs, or bring them
-   *  back. With none on screen it opens one, on a new tab, beside the session in focus. */
+  /** The toggle at the window's top right: put the side panel away with its tabs, or bring it back —
+   *  in the main panes' place when there is no room for it beside them. With nothing open in it, it
+   *  opens a new tab for the session in focus. */
   toggleSidePanes(): Promise<void>;
-  /** A tab moved within its strip (drag to reorder). */
-  moveTab(leafId: string, itemId: string, index: number): Promise<void>;
+  /** The pane host measured itself (`viewRoom`). */
+  setViewRoom(room: Room | null): void;
+  /** The panel's edge dragged: its share of the main area, remembered for this window. Persisted on
+   *  the trailing debounce a divider's drag is, or at once with `commit` (the drag's end, a reset). */
+  resizePanel(share: number, opts?: { commit?: boolean }): void;
+  /** Why "Split right" or "Split down" from `leafId` (the focused pane by default) is not offered —
+   *  the sentence the palette and the pane's menu show — or null when it is. */
+  splitRefusal(dir: "row" | "col", leafId?: string | null): string | null;
+  /** A tab moved within its strip (drag to reorder) — handed to `owner` when it was dropped into
+   *  another session's run. */
+  moveTab(leafId: string, itemId: string, index: number, owner?: string): Promise<void>;
   /**
    * A new, blank browser tab in a side pane, with the keyboard: `leafId`'s strip when it names one,
    * else the strip the focused pane is in or serves — made beside the focused session when it has
@@ -1889,10 +1904,11 @@ export type AppState = {
   /** Destructive: closes from the layout, deletes the item server-side (kills ptys), and drops local
    *  terminal/session state. */
   deleteItem(itemId: string): Promise<void>;
-  /** An empty pane beside the view, focused — refused when the view already shows two. */
+  /** An empty pane beside the focused one (beside the pane of the session whose tab is showing, from
+   *  the panel), focused — refused, in a toast that says why, when there is no room for it. */
   splitFocused(dir: "row" | "col"): Promise<void>;
-  /** Drag-to-split: center replaces the leaf's item; an edge opens it beside, on that side — a second
-   *  pane, or in place of the other side when there are two. */
+  /** Drag-to-split: center replaces the leaf's item (or, on the panel, adds it as a tab); an edge
+   *  opens it beside the pane on that side — refused, in a toast, when there is no room. */
   openItemAt(itemId: string, leafId: string, edge: DropEdge): Promise<void>;
   focusLeaf(leafId: string): void;
 
@@ -2906,11 +2922,6 @@ export type FocusDir = "left" | "right" | "up" | "down";
  * depend on the origin leaf's cross-axis position, which the tree does not encode. Null = no
  * neighbor that way (callers no-op).
  */
-/** Every side pane in the layout — the tabbed leaves, on screen or put away. */
-export function sidePaneLeaves(l: Layout): LayoutLeaf[] {
-  return l.type === "leaf" ? (l.tabs ? [l] : []) : l.children.flatMap(sidePaneLeaves);
-}
-
 export function neighborLeafId(l: Layout, leafId: string, dir: FocusDir): string | null {
   const axis = dir === "left" || dir === "right" ? "row" : "col";
   const forward = dir === "right" || dir === "down";
@@ -3105,7 +3116,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const focusedLeaf = get().focusedLeafId;
       const stored: StoredView = { v: 1, layout: kept.layout, zoomedLeafId: kept.zoomedLeafId, sidePanes: kept.sidePanes,
         focusedItemId: peek && focusedItem === peek.item.id ? peek.owner : focusedItem,
-        focusedLeafId: focusedLeaf && findLeaf(kept.layout, focusedLeaf) ? focusedLeaf : null };
+        focusedLeafId: focusedLeaf && findLeaf(kept.layout, focusedLeaf) ? focusedLeaf : null,
+        ...(kept.panelShare !== undefined ? { panelShare: kept.panelShare } : {}) };
       await api.setSetting(viewSettingKey(pid), stored);
     };
     const schedulePersist = () => {
@@ -3390,9 +3402,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      */
     const delegatedChildren = new Map<string, { doneRow?: string }>();
     /**
-     * The ONE way the view is written. It is brought to its one shape here (`normalizeView`: two panes
-     * at most, each side pane with the session it serves, a side pane leaving with its session), and
-     * `layout` is re-mirrored in the same set, so the two can never be observed disagreeing.
+     * The ONE way the view is written. It is brought to its one shape here (`normalizeView`: the main
+     * panes, the one panel beside them, each tab in its session's run and leaving with its session),
+     * and `layout` is re-mirrored in the same set, so the two can never be observed disagreeing.
      *
      * Also THE recording site for per-pane history: every structural change — open, split, drop,
      * close — ends here, so reconciling once covers all of them (see reconcileNav). `extra` still
@@ -3412,15 +3424,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // view's, and Back would put it there for good — another profile's session included.
       const history = was && !held.has(was.item.id) ? forgetNavItem(get().paneHistory, was.item.id) : get().paneHistory;
       // Focus keeps its leaf while the view still has it — and only then: a leaf that went with this
-      // write (a pane closed, a side pane taken off screen with its session) hands it to the first pane.
-      const focusedLeafId = keep && findLeaf(shaped.layout, keep) ? keep : firstPaneLeaf(shaped.layout).id;
+      // write hands it on, to the pane of the session whose tab it was in (the panel closing), or to
+      // the pane beside the one that left the split — else to the first pane.
+      const focusedLeafId = keep && findLeaf(shaped.layout, keep) ? keep : landing(get().layout, keep, shaped.layout);
       return { view: shaped, layout: shaped.layout, paneHistory: reconcileNav(history, shaped.layout), ...extra, focusedLeafId, peek };
+    };
+    /** Where the keyboard lands when the leaf it was in went with a write: the pane of the session whose
+     *  tab it was in, or the pane beside the one that left — whichever is still there — else the first. */
+    const landing = (before: Layout | null, gone: string | null, after: Layout): string => {
+      const near = before && gone ? [columnOf(before, gone), besidePane(before, gone)] : [];
+      for (const leaf of near) if (leaf && findLeaf(after, leaf.id)) return leaf.id;
+      return firstPaneLeaf(after).id;
     };
     /** The view as it stands, or an empty one before boot has restored any. Its layout is read from
      *  the `layout` mirror, which is the same tree — and the one a test sets directly. */
     const viewNow = (): WindowView => {
       const v = get().view;
-      return { layout: get().layout ?? v?.layout ?? emptyLayout(), zoomedLeafId: v?.zoomedLeafId ?? null, sidePanes: v?.sidePanes ?? {} };
+      return { layout: get().layout ?? v?.layout ?? emptyLayout(), zoomedLeafId: v?.zoomedLeafId ?? null, sidePanes: v?.sidePanes ?? {},
+        ...(v?.panelShare !== undefined ? { panelShare: v.panelShare } : {}) };
     };
     /** A new layout for the view, everything else about it kept. */
     const writeLayout = (layout: Layout, extra: Partial<AppState> = {}): Partial<AppState> => writeView({ ...viewNow(), layout }, extra);
@@ -3618,31 +3639,74 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * not a reason to close what someone is reading.
      */
     const revealPanes = () => { if (get().pageOverlay) set({ pageOverlay: null }); };
-    /** `itemId` as a tab of the side pane of the main pane holding `owner` (an item id): the strip it
-     *  has, or a new one to its right. `openInSidePane`'s body once it has found its session; also what
-     *  the diff uses when the pane in focus is not a session (`openDiff`). */
+    /** The session item `leafId` works for: the session it shows, or — the panel — the session whose
+     *  tab is showing in it. Null for anything else. */
+    const sessionAt = (leafId: string): string | null => {
+      const leaf = get().layout ? findLeaf(get().layout!, leafId) : null;
+      const id = leaf?.tabs ? (leaf.itemId ? tabOwner(leaf, leaf.itemId) : undefined) : leaf?.itemId;
+      return id && get().items.some((i) => i.id === id && i.kind === "session") ? id : null;
+    };
+    /** The session the keyboard is working for (`sessionAt` the focus). */
+    const servedSession = (): string | null => (get().focusedLeafId ? sessionAt(get().focusedLeafId!) : null);
+    /** An open beside `fromLeafId`'s pane: a new pane to its right while there is room for one, else in
+     *  the place of the pane beside it — the pane asked from is the one being looked at, and stays. */
+    const besideLayout = (l: Layout, fromLeafId: string | null, itemId: string): Layout => {
+      if (!get().splitRefusal("row", fromLeafId)) return openBesideInView(l, fromLeafId, itemId);
+      const other = besidePane(l, fromLeafId);
+      return other ? showInView(l, other.id, itemId) : showInView(l, fromLeafId, itemId);
+    };
+    /** The main pane at the top right of the split — the one a session dropped on the panel goes beside. */
+    const topRightPane = (l: Layout): string | null => {
+      const walk = (n: Layout): LayoutLeaf | null => {
+        if (n.type === "leaf") return n.tabs ? null : n;
+        for (const c of n.dir === "row" ? [...n.children].reverse() : n.children) { const f = walk(c); if (f) return f; }
+        return null;
+      };
+      return walk(l)?.id ?? null;
+    };
+    /** `itemId` as a tab of the side panel, in the run of `owner` (a session's item id) — the panel
+     *  there is, or a new one at the right. `openInSidePane`'s body once it has found its session; also
+     *  what the diff uses when the pane in focus is not a session (`openDiff`).
+     *
+     *  A person's open (`focus`) shows the tab and moves the keyboard to it. An agent's never takes the
+     *  keyboard, and takes the panel only from its own session: its tab comes to the front when the
+     *  panel is showing that session's tabs (or nothing), or that session is the one the keyboard is
+     *  working for — and otherwise waits in the strip, so two agents opening pages side by side do not
+     *  pull the panel back and forth under the person reading it. */
     const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean } = {}): Promise<boolean> => {
       const view = viewNow();
-      const layout = layoutOpenInSidePane(view.layout, owner, itemId);
+      const panel = findPanel(view.layout);
+      const showingOwner = panel?.itemId ? tabOwner(panel, panel.itemId) : undefined;
+      const front = !!opts.focus || !panel || showingOwner === owner || servedSession() === owner;
+      const layout = layoutOpenInSidePane(view.layout, owner, itemId, { front });
       if (!layout) return false;
       const leaf = findLeafOfItem(layout, itemId)!;
       if (opts.focus) {
         revealPanes();
         revealSidePanes();
         set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
+        showPanelIfAside();
       } else {
         set(writeView({ ...view, layout }));
       }
       await persist();
       return true;
     };
-    /** Bring the side panes back if they were put away: a person just asked to look at something in
-     *  one (a tool asked for by its key, a tab, a row whose item is a tab), and a keyboard parked in
-     *  a pane nobody can see is a click that missed. */
+    /** Bring the side panel back if it was put away: a person just asked to look at something in it
+     *  (a tool asked for by its key, a tab, a row whose item is a tab), and a keyboard parked in a pane
+     *  nobody can see is a click that missed. */
     const revealSidePanes = () => {
       if (!get().sidePanesHidden) return;
       set({ sidePanesHidden: false });
       void api.setSetting(SETTING_SIDE_PANES_HIDDEN, false).catch(() => {});
+    };
+    /** …and where there is no room for it beside the panes, show it in their place: the panel fills the
+     *  host as a full view (⌥⌘B's), from which ⌘⇧F or the toggle goes back. Run after the write that
+     *  put the tab in it, so the leaf it zooms is the one on screen. */
+    const showPanelIfAside = () => {
+      if (panelPlace(get()).kind !== "aside") return;
+      const panel = findPanel(get().layout ?? emptyLayout());
+      if (panel) set(writeView({ ...viewNow(), zoomedLeafId: panel.id }));
     };
 
     /** The newest session of a space that has a pane to open — by the session's own `updatedAt`,
@@ -3686,8 +3750,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const terminalTabOf = (sessionId: string): Item | null => {
       const items = get().items;
       const owner = items.find((i) => i.kind === "session" && i.refId === sessionId);
-      const side = owner ? findSidePane(get().layout ?? emptyLayout(), owner.id) : null;
-      const tabs = side ? [side.itemId, ...side.tabs!] : [];
+      const layout = get().layout ?? emptyLayout();
+      const mine = owner ? sideTabsOf(layout, owner.id) : [];
+      const showing = findPanel(layout)?.itemId ?? null;
+      const tabs = showing && mine.includes(showing) ? [showing, ...mine] : mine;
       return tabs.map((id) => items.find((i) => i.id === id)).find((i) => i?.kind === "terminal")
         ?? items.find((i) => i.id === terminalTabs.get(sessionId)) ?? null;
     };
@@ -3834,7 +3900,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       let focusItem: string | null;
       let focusLeaf: string | null = null;
       if (stored) {
-        view = { layout: stored.layout, zoomedLeafId: stored.zoomedLeafId, sidePanes: stored.sidePanes };
+        view = { layout: stored.layout, zoomedLeafId: stored.zoomedLeafId, sidePanes: stored.sidePanes,
+          ...(stored.panelShare !== undefined ? { panelShare: stored.panelShare } : {}) };
         focusItem = stored.focusedItemId;
         focusLeaf = stored.focusedLeafId ?? null;
       } else {
@@ -3844,7 +3911,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         view = from ? viewFromGroups(seedGroups(from), from.activeItemId) : { layout: emptyLayout(), zoomedLeafId: null, sidePanes: {} };
         focusItem = from?.activeItemId ?? null;
       }
-      view = pruneView(view, liveIds(), existIds());
+      // A Plan 27 view had a side pane per session; folded into the one panel, the strip the keyboard
+      // was in keeps its tab showing.
+      view = pruneView(view, liveIds(), existIds(), { keep: focusLeaf });
       const focus = (focusItem ? findLeafOfItem(view.layout, focusItem)?.id : undefined)
         ?? (focusLeaf && findLeaf(view.layout, focusLeaf) ? focusLeaf : undefined) ?? firstPaneLeaf(view.layout).id;
       set(writeView(view, { focusedLeafId: focus, peek: null }));
@@ -3924,8 +3993,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // means that space.
       if (s.pageOverlay?.kind === "space-page" && mine(s.pageOverlay.refId)) return s.pageOverlay.refId;
       const leaf = s.layout && s.focusedLeafId ? findLeaf(s.layout, s.focusedLeafId) : null;
-      // In a side pane, the session it serves is the one in focus.
-      const id = leaf?.tabs ? leaf.owner ?? leaf.itemId : leaf?.itemId ?? null;
+      // In the side panel, the session whose tab is showing is the one in focus.
+      const id = leaf?.tabs ? (leaf.itemId ? tabOwner(leaf, leaf.itemId) : undefined) ?? leaf.itemId : leaf?.itemId ?? null;
       const item = id ? s.items.find((i) => i.id === id) ?? (s.peek?.item.id === id ? s.peek.item : undefined) : undefined;
       if (item && mine(item.spaceId)) return item.spaceId;
       const last = s.lastSpaceByProfile[pid];
@@ -3987,7 +4056,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, toasts: [], toastReserve: null,
+      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       appPick: null,
@@ -4738,12 +4807,13 @@ await get().refreshCustomThemes().catch(() => {});
       /** Agent-opened panes arrive BESIDE the user's focused pane, never replacing it. Replacing was a
        *  live-found deadlock: the browser evicted the very session whose permission card the user had to
        *  answer — and eviction destroys an agent's browser view mid-task (close is final for browsers).
-       *  If the focused pane is empty, filling it is fine; a view showing two gives up its OTHER side. */
+       *  If the focused pane is empty, filling it is fine; with no room for another pane, the one
+       *  beside it gives up its place. */
       async openItemBeside(itemId) {
         revealPanes();
         const view = viewNow();
         if (findLeafOfItem(view.layout, itemId)) { await get().openItem(itemId); return; }
-        const layout = openBesideInView(view.layout, get().focusedLeafId, itemId);
+        const layout = besideLayout(view.layout, get().focusedLeafId, itemId);
         const leaf = findLeafOfItem(layout, itemId);
         // Opened under a live pane focus, the new pane would be behind the focused one, invisible.
         set(writeView(revealing({ ...view, layout }, leaf?.id ?? null), { focusedLeafId: leaf?.id ?? get().focusedLeafId }));
@@ -4763,10 +4833,11 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async toggleSidePanes() {
         const layout = get().layout ?? emptyLayout();
-        if (!sidePaneLeaves(layout).length) {
-          // None to show or hide: the toggle is the way to the side pane, as Codex's is to its panel,
-          // so it opens one — on a new tab, beside the session the keyboard is in or the first one on
-          // screen. With no session there is nothing for a side pane to serve, and nothing happens.
+        const panel = findPanel(layout);
+        if (!panel) {
+          // Nothing to show or hide: the toggle is the way to the side panel, as Codex's is to its
+          // panel, so it opens one — on a new tab for the session the keyboard is working for, or the
+          // first one on screen. With no session there is nothing for a tab to belong to.
           const owner = get().peekOwner();
           const leaf = owner ? findLeafOfItem(layout, owner) : null;
           if (!leaf) return;
@@ -4774,50 +4845,64 @@ await get().refreshCustomThemes().catch(() => {});
           await get().newTab();
           return;
         }
-        const hidden = !get().sidePanesHidden;
-        // The keyboard does not stay in a pane that has just gone: it goes to the session it served.
+        const place = panelPlace(get()).kind;
+        const hidden = place === "beside" || place === "full";
+        // The keyboard does not stay in a panel that has just gone: it goes to the session whose tab
+        // it was in. A panel filling the host gives the host back as it goes.
         const focused = get().focusedLeafId ? findLeaf(layout, get().focusedLeafId!) : null;
-        const back = hidden && focused?.tabs ? columnOf(layout, focused.id)?.id ?? null : null;
+        const back = hidden && focused?.tabs ? columnOf(layout, focused.id)?.id ?? firstPaneLeaf(layout).id : null;
+        if (place === "full") set(writeView({ ...viewNow(), zoomedLeafId: null }, back ? { focusedLeafId: back } : {}));
         set({ sidePanesHidden: hidden, ...(back ? { focusedLeafId: back } : {}) });
+        // Brought back where there is no room beside the panes, it takes their place.
+        if (!hidden) showPanelIfAside();
         await api.setSetting(SETTING_SIDE_PANES_HIDDEN, hidden);
+        if (place === "full" || !hidden) await persist();
       },
-      async moveTab(leafId, itemId, index) {
+      setViewRoom(room) {
+        const cur = get().viewRoom;
+        if (cur === room || (cur && room && cur.width === room.width && cur.height === room.height)) return;
+        set({ viewRoom: room });
+      },
+      resizePanel(share, opts = {}) {
+        const next = clampPanelShare(share);
+        const view = viewNow();
+        if (view.panelShare === next) { if (opts.commit) get().run(persist); return; }
+        set(writeView({ ...view, panelShare: next }));
+        if (!layoutHydrated) return;
+        if (opts.commit) get().run(persist); else schedulePersist();
+      },
+      splitRefusal(dir, leafId) {
+        // The sidebar's own fold, not `sidebarHidden`: a page that takes the column also covers the panes.
+        return splitRefusal(get(), leafId === undefined ? get().focusedLeafId : leafId, dir, !get().sidebarCollapsed);
+      },
+      async moveTab(leafId, itemId, index, owner) {
         const layout = get().layout; if (!layout) return;
-        const next = layoutMoveTab(layout, leafId, itemId, index);
+        const next = layoutMoveTab(layout, leafId, itemId, index, owner);
         set(writeLayout(next));
         await persist();
       },
       async newTab(leafId = null, opts = {}) {
-        const layout = get().layout ?? emptyLayout();
-        // Which strip: the one named, else the one the focused pane is in — read before the awaits,
-        // since the click or the key was about the panes as they stood when it landed.
-        const named = leafId ? findLeaf(layout, leafId) : null;
-        const focused = get().focusedLeafId ? findLeaf(layout, get().focusedLeafId!) : null;
-        const strip = named?.tabs ? named : focused?.tabs ? focused : null;
-        const focusedItem = focused?.itemId ? get().items.find((i) => i.id === focused.itemId) : undefined;
-        // Made in the space of the session the strip serves — or of the focused pane — whichever
-        // space the other side of the view is showing.
-        const ownerItem = strip?.owner ? get().items.find((i) => i.id === strip.owner) : focusedItem;
+        // For the session the ask came from — read before the awaits, since the click or the key was
+        // about the panes as they stood when it landed: the session pane `leafId` (else the focus) is
+        // in, or in the panel the session whose tab is showing, else the first session on screen.
+        const owner = leafId ? sessionAt(leafId) ?? get().peekOwner() : get().peekOwner();
+        const ownerItem = owner ? get().items.find((i) => i.id === owner) : undefined;
         const sid = ownerItem?.spaceId ?? get().activeSpaceId; if (!sid) return;
         const { itemId } = await api.createBrowser(sid);
         await loadSpaceItems(sid);
         if (!inProfile(sid)) return;
-        if (strip) await get().openItem(itemId, strip.id);
-        // No strip on screen: the focused session's side pane, made beside it if it has none — and with
-        // no session to be beside, an ordinary browser beside the focused pane.
-        else if (!(focusedItem?.kind === "session" && await get().openInSidePane(focusedItem.refId, itemId, { focus: true }))) {
-          await get().openItemBeside(itemId);
-        }
+        // A tab of that session's run — and with no session on screen, an ordinary browser beside the
+        // focused pane.
+        if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, { focus: true }))) await get().openItemBeside(itemId);
         if (opts.full) await zoomItemPane(itemId);
       },
       peekOwner() {
         const layout = get().layout; if (!layout) return null;
         const items = get().items;
         const isSession = (id: string | null | undefined) => !!id && items.some((i) => i.id === id && i.kind === "session");
-        const focused = get().focusedLeafId ? findLeaf(layout, get().focusedLeafId!) : null;
-        // The keyboard in a side pane: the session it serves. In a session's own pane: that session.
-        if (focused?.tabs) return isSession(focused.owner) ? focused.owner! : null;
-        if (isSession(focused?.itemId)) return focused!.itemId;
+        // The keyboard in the panel: the session whose tab is showing. In a session's own pane: that one.
+        const here = get().focusedLeafId ? sessionAt(get().focusedLeafId!) : null;
+        if (here) return here;
         // Elsewhere — a terminal, a page, nothing: the first session on screen that is not a tab.
         return allItems(layout).find((id) => isSession(id) && !findLeafOfItem(layout, id)!.tabs) ?? null;
       },
@@ -4851,6 +4936,7 @@ await get().refreshCustomThemes().catch(() => {});
         revealPanes();
         revealSidePanes();
         set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id, peek: { item, owner } }));
+        showPanelIfAside();
         return true;
       },
       async openPeek() {
@@ -4873,7 +4959,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (findLeafOfItem(view.layout, itemId)) return;
         // openItemBeside's placement, minus its focus move: the pane appears at the side while
         // focusedLeafId — and with it the composer the user is typing in — stays put.
-        set(writeView({ ...view, layout: openBesideInView(view.layout, get().focusedLeafId, itemId) }));
+        set(writeView({ ...view, layout: besideLayout(view.layout, get().focusedLeafId, itemId) }));
         await persist();
       },
       async openItem(itemId, leafId = null) {
@@ -4900,8 +4986,9 @@ await get().refreshCustomThemes().catch(() => {});
             // …and a pane focus parked on ANOTHER leaf would swallow the move: the pane asked for is
             // not the one on screen. Only then is this a write at all.
             const revealed = revealing(fronted, at.id);
-            if (revealed === view) { set({ focusedLeafId: at.id }); return; }
+            if (revealed === view) { set({ focusedLeafId: at.id }); if (at.tabs) showPanelIfAside(); return; }
             set(writeView(revealed, { focusedLeafId: at.id }));
+            if (at.tabs) showPanelIfAside();
             await persist();
             return;
           }
@@ -4919,6 +5006,7 @@ await get().refreshCustomThemes().catch(() => {});
         const leaf = findLeafOfItem(layout, itemId);
         if (leaf?.tabs) revealSidePanes();
         set(writeView(revealing({ ...view, layout }, leaf?.id ?? null), { focusedLeafId: leaf?.id ?? null }));
+        if (leaf?.tabs) showPanelIfAside();
         await persist();
       },
       async closeFromLayout(itemId) {
@@ -5037,22 +5125,35 @@ await get().refreshCustomThemes().catch(() => {});
         }
       },
       async splitFocused(dir) {
-        const { layout, leafId } = splitEmptyInView(get().layout ?? emptyLayout(), dir);
-        // A view already showing two takes no third: the pane to replace is one the user names.
-        if (!leafId) return;
-        set(writeLayout(layout, { focusedLeafId: leafId }));
+        // A pane is never squeezed below its floor: with no room, the key and the menu bar — which
+        // cannot draw the command unavailable, as the palette and the pane's menu do — say why.
+        const why = get().splitRefusal(dir);
+        if (why) { get().toast({ tone: "warning", text: why }); return; }
+        const { layout, leafId } = splitEmptyInView(get().layout ?? emptyLayout(), get().focusedLeafId, dir);
+        set(writeView(revealing({ ...viewNow(), layout }, leafId), { focusedLeafId: leafId }));
         await persist();
       },
       async openItemAt(itemId, leafId, edge) {
         // Self-drop: the item already occupies the target leaf. Splitting would first close the item
         // (pruning that very leaf) and teleport it to the far side; replacing is a no-op anyway.
-        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)?.id === leafId) return;
-        revealPanes(); // after the self-drop check: that one moves nothing, so it reveals nothing
-        if (edge === "center") return get().openItem(itemId, leafId);
-        // An edge opens it beside the pane it was dropped on: a second pane, or the other side's place.
-        const layout = openBesideInView(get().layout ?? emptyLayout(), leafId, itemId, edge as BesideEdge);
+        const current = get().layout ?? emptyLayout();
+        if (findLeafOfItem(current, itemId)?.id === leafId) return;
+        const target = findLeaf(current, leafId);
+        const isSession = get().items.some((i) => i.id === itemId && i.kind === "session");
+        // On the panel a drop is a tab, its edges included — the panel is not a pane of the split. A
+        // session is never a tab by a drop: it joins the split, at the right of the main panes.
+        if (target?.tabs && !isSession) { revealPanes(); return get().openItem(itemId, leafId); }
+        const at = target?.tabs ? topRightPane(current) : leafId;
+        const side: DropEdge = target?.tabs ? "right" : edge;
+        if (side === "center") { revealPanes(); return get().openItem(itemId, at); }
+        // An edge opens it beside the pane it was dropped on, on that side — while there is room for
+        // another pane; a drop with none is refused, and the toast says why.
+        const why = get().splitRefusal(side === "top" || side === "bottom" ? "col" : "row", at);
+        if (why) { get().toast({ tone: "warning", text: why }); return; }
+        revealPanes(); // after the refusals: those move nothing, so they reveal nothing
+        const layout = openBesideInView(current, at, itemId, side as BesideEdge);
         const leaf = findLeafOfItem(layout, itemId);
-        set(writeLayout(layout, { focusedLeafId: leaf?.id ?? null }));
+        set(writeView(revealing({ ...viewNow(), layout }, leaf?.id ?? null), { focusedLeafId: leaf?.id ?? null }));
         await persist();
       },
       focusLeaf(leafId) { set({ focusedLeafId: leafId }); },
@@ -5115,9 +5216,16 @@ await get().refreshCustomThemes().catch(() => {});
       focusNeighbor(dir) {
         const { layout, focusedLeafId } = get();
         if (!layout || !focusedLeafId) return;
-        const next = neighborLeafId(layout, focusedLeafId, dir);
-        // Not into a side pane that is put away: the keyboard would be somewhere nobody can see.
-        if (next && !(get().sidePanesHidden && findLeaf(layout, next)?.tabs)) set({ focusedLeafId: next });
+        const zoomed = get().view?.zoomedLeafId ?? null;
+        const panel = findPanel(layout);
+        const beside = panelPlace(get()).kind === "beside";
+        // Under a pane focus the one pane and the panel beside it are all there is to move between.
+        const next = !zoomed ? neighborLeafId(layout, focusedLeafId, dir)
+          : panel && beside && dir === "right" && focusedLeafId === zoomed ? panel.id
+          : panel && beside && dir === "left" && focusedLeafId === panel.id ? zoomed : null;
+        // Not into a panel that is not drawn beside the panes: the keyboard would be somewhere nobody
+        // can see.
+        if (next && !(findLeaf(layout, next)?.tabs && !beside)) set({ focusedLeafId: next });
       },
       resizeSplit(splitId, sizes) {
         const l = get().layout; if (!l) return;
@@ -5216,9 +5324,10 @@ await get().refreshCustomThemes().catch(() => {});
       async openFromNewTab(itemId, tool) {
         // The blank tab's own space: what opens in its place belongs where the tab did.
         const sid = get().items.find((i) => i.id === itemId)?.spaceId ?? get().activeSpaceId; if (!sid) return;
-        // The session the tab's side pane serves, whose checkout the tool opens on. A browser that is
-        // a pane of its own serves nobody, and the space's primary checkout is the server's default.
-        const owner = findLeafOfItem(get().layout ?? emptyLayout(), itemId)?.owner;
+        // The session the blank tab is for, whose checkout the tool opens on. A browser that is a pane
+        // of its own serves nobody, and the space's primary checkout is the server's default.
+        const at = findLeafOfItem(get().layout ?? emptyLayout(), itemId);
+        const owner = at?.tabs ? tabOwner(at, itemId) : undefined;
         const ownerItem = owner ? get().items.find((i) => i.id === owner) : undefined;
         const session = ownerItem?.kind === "session" ? get().sessions[ownerItem.refId] : undefined;
         // A session's sub-agents are that session's or nobody's: a tab serving none has no Agents row.

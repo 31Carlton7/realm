@@ -1,13 +1,14 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { createAppStore } from "./store";
-import { allItems, findLeafOfItem, findSidePane, itemIdOfLeaf, primaryLeaves, type StoredView } from "@realm/contracts";
+import { PANE_DIVIDER, PANE_MIN, PANEL_MIN_WIDTH, allItems, findLeafOfItem, findPanel, findSidePane, itemIdOfLeaf, primaryLeaves, sideTabsOf, tabOwner, type StoredView } from "@realm/contracts";
 import { fakeApi, item, profile, session, space, type FakeApi } from "./store.test-fakes";
 
 /**
- * The window's one view (Plan 27): a pane, or a split of two, each with its own side pane, over every
- * space of the profile at once. What used to be per-space named splits — the Main group, Split 2, the
- * group bar — is gone; these are the rules that replaced them. Every test names the one-line change
- * that would make it fail.
+ * The window's one view: as many main panes as the person makes, and one side panel beside them
+ * holding every on-screen session's tabs, over every space of the profile at once. What used to be
+ * per-space named splits — the Main group, Split 2, the group bar — is gone, and so is Plan 27's cap
+ * of two panes each with a side pane of its own; these are the rules that replaced them. Every test
+ * names the one-line change that would make it fail.
  */
 
 type Store = ReturnType<typeof createAppStore>;
@@ -87,18 +88,42 @@ describe("the window's one view", () => {
     expect(api.calls.filter((c) => c.startsWith("list"))).toEqual([]);
   });
 
-  it("gives each of the two its own side pane, and keeps them apart", async () => {
+  it("gives the two sessions' tabs one side panel, a run each, and keeps whose is whose", async () => {
+    // THE MUTANT: a side pane per session, as Plan 27 had. Two sessions with a browser each would be
+    // four columns, and the panel would not be the window's one.
     const store = await sideBySide(api);
     browser(api, "s1", "i-wa"); browser(api, "s2", "i-wb");
     await store.getState().refreshItems();
     expect(await store.getState().openInSidePane("a", "i-wa")).toBe(true);
     expect(await store.getState().openInSidePane("b", "i-wb")).toBe(true);
-    expect(findSidePane(store.getState().layout!, "i-a")?.tabs).toEqual(["i-wa"]);
-    expect(findSidePane(store.getState().layout!, "i-b")?.tabs).toEqual(["i-wb"]);
-    // Two columns, a session and its side pane in each — never four columns in a row.
+    const panel = findPanel(store.getState().layout!)!;
+    expect(panel.tabs).toEqual(["i-wa", "i-wb"]);
+    expect(sideTabsOf(store.getState().layout!, "i-a")).toEqual(["i-wa"]);
+    expect(sideTabsOf(store.getState().layout!, "i-b")).toEqual(["i-wb"]);
+    // The two panes, and the panel beside them at the root — never a column per session.
     const root = store.getState().layout!;
     expect(root.type === "split" ? root.children.length : 1).toBe(2);
+    expect(root.type === "split" ? root.children[1] : null).toBe(panel);
     expect(primaryLeaves(root).map((p) => p.itemId)).toEqual(["i-a", "i-b"]);
+  });
+
+  it("a session joining the split brings its tabs into the strip, and takes them when it leaves", async () => {
+    const store = await booted(api);
+    await store.getState().openItem("i-a");
+    browser(api, "s1", "i-wa"); browser(api, "s2", "i-wb");
+    await store.getState().refreshItems();
+    await store.getState().openInSidePane("a", "i-wa");
+    // B's agent opened a page while B was off screen: it waits, live, for B.
+    await store.getState().applyAgentPaneOpened({ spaceId: "s2", itemId: "i-wb", openedBy: "b" });
+    expect(store.getState().view!.sidePanes["i-b"]).toEqual({ tabs: ["i-wb"], itemId: "i-wb" });
+    await store.getState().openItemAt("i-b", leafOf(store, "i-a"), "right");
+    expect(findPanel(store.getState().layout!)!.tabs).toEqual(["i-wa", "i-wb"]);
+    expect(store.getState().view!.sidePanes).toEqual({});
+    // What the person was looking at stays on screen: the merge does not take the panel from them.
+    expect(findPanel(store.getState().layout!)!.itemId).toBe("i-wa");
+    await store.getState().closeInPane(leafOf(store, "i-b"));
+    expect(findPanel(store.getState().layout!)!.tabs).toEqual(["i-wa"]);
+    expect(store.getState().view!.sidePanes["i-b"]).toEqual({ tabs: ["i-wb"], itemId: "i-wb" });
   });
 
   it("a session's side pane leaves the screen with it, and comes back when it does", async () => {
@@ -117,16 +142,25 @@ describe("the window's one view", () => {
     expect(findSidePane(store.getState().layout!, "i-a")?.tabs).toEqual(["i-wa"]);
   });
 
-  it("opens beside: a second pane when it shows one, the other side's place when it shows two", async () => {
+  it("opens beside: a new pane to the right while there is room, the pane beside it's place once there is none", async () => {
+    // THE MUTANTS: the old cap (a third replacing the other side however wide the window), or a pane
+    // squeezed in below its floor.
     const store = await booted(api);
+    store.setState({ viewRoom: { width: 3 * PANE_MIN.width + 2 * PANE_DIVIDER, height: 800 } });
     await store.getState().openItem("i-a");
     await store.getState().openItemBeside("i-b");
     expect(open(store)).toEqual(["i-a", "i-b"]);
     expect(focusedItem(store)).toBe("i-b");
-    // From B, a third takes A's place — the side B is not.
     await store.getState().openItemBeside("i-c");
-    expect(open(store)).toEqual(["i-c", "i-b"]);
+    expect(open(store)).toEqual(["i-a", "i-b", "i-c"]);
     expect(focusedItem(store)).toBe("i-c");
+    // No room for a fourth: from C it takes the place of the pane beside C — the one C is not.
+    api.data.items.s1!.push(item("i-d", "s1", { kind: "session", refId: "d", title: "D" }));
+    api.data.sessions.push(session("d", "s1"));
+    await store.getState().refreshItems("s1");
+    await store.getState().openItemBeside("i-d");
+    expect(open(store)).toEqual(["i-a", "i-d", "i-c"]);
+    expect(focusedItem(store)).toBe("i-d");
   });
 
   it("a quiet open beside keeps the keyboard where it is", async () => {
@@ -135,7 +169,7 @@ describe("the window's one view", () => {
     const store = await sideBySide(api);
     store.getState().focusLeaf(leafOf(store, "i-a"));
     await store.getState().openItemBesideQuiet("i-c");
-    expect(open(store)).toEqual(["i-a", "i-c"]);
+    expect(open(store)).toEqual(["i-a", "i-c", "i-b"]);
     expect(focusedItem(store)).toBe("i-a");
   });
 
@@ -234,6 +268,257 @@ describe("the window's one view", () => {
   });
 });
 
+describe("room, and the side panel's place", () => {
+  let api: FakeApi;
+  beforeEach(() => { api = twoSpaces(); });
+  /** A host with room for `cols` panes in a row and the panel at its floor beside them. */
+  const roomFor = (cols: number, panel = true) => ({
+    width: cols * PANE_MIN.width + (cols - 1) * PANE_DIVIDER + (panel ? PANEL_MIN_WIDTH + PANE_DIVIDER : 0), height: 2 * PANE_MIN.height + PANE_DIVIDER,
+  });
+  const toasts = (store: Store) => store.getState().toasts.map((t) => t.text);
+
+  it("splits as long as every pane keeps its floor, and says why when it would not — the key and the menu bar alike", async () => {
+    // THE MUTANT: split whatever the room. A third column in a window with room for two would be
+    // squeezed below the floor every pane is drawn at.
+    const store = await booted(api);
+    store.setState({ viewRoom: roomFor(2, false) });
+    await store.getState().openItem("i-a");
+    expect(store.getState().splitRefusal("row")).toBeNull();
+    await store.getState().splitFocused("row");
+    expect(primaryLeaves(store.getState().layout!)).toHaveLength(2);
+    expect(store.getState().splitRefusal("row")).toMatch(/No room for another pane beside it/);
+    await store.getState().splitFocused("row");
+    expect(primaryLeaves(store.getState().layout!)).toHaveLength(2);
+    expect(toasts(store).at(-1)).toMatch(/each needs to be 280 points wide/);
+    // Down still fits: the room is two panes tall.
+    expect(store.getState().splitRefusal("col")).toBeNull();
+    await store.getState().splitFocused("col");
+    expect(primaryLeaves(store.getState().layout!)).toHaveLength(3);
+  });
+
+  it("leaves the panel its floor while it is out, and says so when that is what is in the way", async () => {
+    const store = await booted(api);
+    store.setState({ viewRoom: roomFor(2) });
+    await store.getState().openItem("i-a");
+    browser(api, "s1", "i-wa");
+    await store.getState().refreshItems();
+    await store.getState().openInSidePane("a", "i-wa");
+    expect(store.getState().splitRefusal("row")).toBeNull();
+    await store.getState().splitFocused("row");
+    expect(store.getState().splitRefusal("row")).toMatch(/with the side panel out/);
+    // Put away, the panel's room is the panes'.
+    await store.getState().toggleSidePanes();
+    store.setState({ viewRoom: roomFor(3, false) });
+    expect(store.getState().splitRefusal("row")).toBeNull();
+  });
+
+  it("a drop on an edge with no room is refused, and nothing moves", async () => {
+    const store = await sideBySide(api);
+    store.setState({ viewRoom: roomFor(2, false) });
+    const before = store.getState().layout;
+    await store.getState().openItemAt("i-c", leafOf(store, "i-b"), "right");
+    expect(store.getState().layout).toBe(before);
+    expect(toasts(store).at(-1)).toMatch(/No room for another pane beside it/);
+    // The middle still replaces, which needs no room.
+    await store.getState().openItemAt("i-c", leafOf(store, "i-b"), "center");
+    expect(open(store)).toEqual(["i-a", "i-c"]);
+  });
+
+  it("a session dropped on the panel joins the split at its right — never a tab", async () => {
+    const store = await booted(api);
+    await store.getState().openItem("i-a");
+    browser(api, "s1", "i-wa");
+    await store.getState().refreshItems();
+    await store.getState().openInSidePane("a", "i-wa");
+    await store.getState().openItemAt("i-b", findPanel(store.getState().layout!)!.id, "center");
+    expect(primaryLeaves(store.getState().layout!).map((p) => p.itemId)).toEqual(["i-a", "i-b"]);
+    expect(findPanel(store.getState().layout!)!.tabs).toEqual(["i-wa"]);
+  });
+
+  it("with no room beside the panes, a tab a person opens shows the panel in their place", async () => {
+    // THE MUTANT: leave the panel stepped aside. ⌘⇧B would make a tab nobody can see, and the keyboard
+    // would be in it.
+    const store = await sideBySide(api);
+    store.setState({ viewRoom: roomFor(2, false) });
+    browser(api, "s2", "i-wb");
+    await store.getState().refreshItems();
+    await store.getState().openInSidePane("b", "i-wb", { focus: true });
+    const panel = findPanel(store.getState().layout!)!;
+    expect(store.getState().view!.zoomedLeafId).toBe(panel.id);
+    expect(store.getState().focusedLeafId).toBe(panel.id);
+    // The toggle gives the panes back and puts the panel away.
+    await store.getState().toggleSidePanes();
+    expect(store.getState().view!.zoomedLeafId).toBeNull();
+    expect(store.getState().sidePanesHidden).toBe(true);
+    expect(focusedItem(store)).toBe("i-b");
+    // …and an agent's tab never takes the panes' place: out, but with no room, the panel stays aside.
+    store.setState({ sidePanesHidden: false });
+    browser(api, "s1", "i-wa");
+    await store.getState().refreshItems();
+    await store.getState().openInSidePane("a", "i-wa");
+    expect(store.getState().view!.zoomedLeafId).toBeNull();
+  });
+
+  it("an agent's tab takes the panel only from its own session: another's waits behind the tab showing", async () => {
+    // THE MUTANT: every agent tab to the front. Two agents opening pages side by side would pull the
+    // panel back and forth under the person reading it.
+    const store = await sideBySide(api);
+    browser(api, "s1", "i-wa"); browser(api, "s2", "i-wb"); browser(api, "s2", "i-wb2");
+    await store.getState().refreshItems();
+    store.getState().focusLeaf(leafOf(store, "i-a"));
+    await store.getState().openInSidePane("a", "i-wa");
+    expect(findPanel(store.getState().layout!)!.itemId).toBe("i-wa");
+    await store.getState().applyAgentPaneOpened({ spaceId: "s2", itemId: "i-wb", openedBy: "b" });
+    expect(findPanel(store.getState().layout!)!.itemId).toBe("i-wa");
+    expect(findPanel(store.getState().layout!)!.tabs).toEqual(["i-wa", "i-wb"]);
+    // From the session the keyboard is in, it comes to the front.
+    store.getState().focusLeaf(leafOf(store, "i-b"));
+    await store.getState().applyAgentPaneOpened({ spaceId: "s2", itemId: "i-wb2", openedBy: "b" });
+    expect(findPanel(store.getState().layout!)!.itemId).toBe("i-wb2");
+    expect(focusedItem(store)).toBe("i-b");
+  });
+
+  it("a new tab is for the session the keyboard is working for — in a pane, or in the panel the session whose tab shows", async () => {
+    const store = await sideBySide(api);
+    browser(api, "s1", "i-wa");
+    await store.getState().refreshItems();
+    await store.getState().openInSidePane("a", "i-wa");
+    store.getState().focusLeaf(leafOf(store, "i-b"));
+    await store.getState().newTab();
+    const after = findPanel(store.getState().layout!)!;
+    const made = after.itemId!;
+    expect(tabOwner(after, made)).toBe("i-b");
+    // With the keyboard in the panel on A's tab, the next is A's.
+    await store.getState().openItem("i-wa");
+    expect(store.getState().focusedLeafId).toBe(after.id);
+    await store.getState().newTab();
+    const last = findPanel(store.getState().layout!)!;
+    expect(tabOwner(last, last.itemId!)).toBe("i-a");
+  });
+
+  it("⌘W in the panel closes the tab; its last tab hands the keyboard to the session whose tab it was", async () => {
+    const store = await sideBySide(api);
+    browser(api, "s1", "i-wa");
+    await store.getState().refreshItems();
+    await store.getState().openInSidePane("a", "i-wa", { focus: true });
+    await store.getState().closeInPane();
+    expect(findPanel(store.getState().layout!)).toBeNull();
+    expect(focusedItem(store)).toBe("i-a");
+  });
+
+  it("⌘W takes a pane out of a split of any size, and the pane beside it gets the keyboard", async () => {
+    const store = await sideBySide(api);
+    await store.getState().openItemBeside("i-c");
+    expect(open(store)).toEqual(["i-a", "i-b", "i-c"]);
+    store.getState().focusLeaf(leafOf(store, "i-b"));
+    await store.getState().closeInPane(leafOf(store, "i-b"));
+    expect(open(store)).toEqual(["i-a", "i-c"]);
+    expect(focusedItem(store)).toBe("i-c");
+    // A session alone closes nothing: the keyboard goes to its prompter.
+    await store.getState().closeInPane(leafOf(store, "i-c"));
+    await store.getState().closeInPane(leafOf(store, "i-a"));
+    expect(open(store)).toEqual(["i-a"]);
+    expect(store.getState().keyboardFor?.sessionId).toBe("a");
+  });
+
+  it("remembers the panel's width for the window, across a relaunch, and draws it from there", async () => {
+    // THE MUTANT: forget the share on persist. The panel would come back at half every launch.
+    const store = await booted(api);
+    await store.getState().openItem("i-a");
+    browser(api, "s1", "i-wa");
+    await store.getState().refreshItems();
+    await store.getState().openInSidePane("a", "i-wa");
+    const root = () => store.getState().layout as Extract<NonNullable<ReturnType<Store["getState"]>["layout"]>, { type: "split" }>;
+    expect(root().sizes).toEqual([50, 50]);
+    store.getState().resizePanel(0.35, { commit: true });
+    await store.getState().flushPersist();
+    expect(stored(api).panelShare).toBe(0.35);
+    expect(root().sizes[1]).toBeCloseTo(35);
+    const next = await booted(api);
+    expect(next.getState().view!.panelShare).toBe(0.35);
+    const r = next.getState().layout!;
+    expect(r.type === "split" ? r.sizes[1] : null).toBeCloseTo(35);
+  });
+});
+
+describe("moving around the view", () => {
+  let api: FakeApi;
+  beforeEach(() => { api = twoSpaces(); });
+
+  it("moves the keyboard between panes and into the panel, and never into one not drawn", async () => {
+    // THE MUTANT: walk the tree regardless of the panel's place — the keyboard would go into a panel
+    // that is put away, or past a zoomed pane into one nobody can see.
+    const store = await sideBySide(api);
+    browser(api, "s1", "i-wa");
+    await store.getState().refreshItems();
+    await store.getState().openInSidePane("a", "i-wa");
+    const panel = () => findPanel(store.getState().layout!)!.id;
+    store.getState().focusLeaf(leafOf(store, "i-a"));
+    store.getState().focusNeighbor("right");
+    expect(focusedItem(store)).toBe("i-b");
+    store.getState().focusNeighbor("right");
+    expect(store.getState().focusedLeafId).toBe(panel());
+    store.getState().focusNeighbor("left");
+    expect(focusedItem(store)).toBe("i-b");
+    // Under pane focus: the one pane and the panel beside it.
+    await store.getState().focusPaneFull(leafOf(store, "i-a"));
+    store.getState().focusNeighbor("right");
+    expect(store.getState().focusedLeafId).toBe(panel());
+    store.getState().focusNeighbor("left");
+    expect(focusedItem(store)).toBe("i-a");
+    await store.getState().unfocusPane();
+    // Put away, the panel is not somewhere to go.
+    await store.getState().toggleSidePanes();
+    store.getState().focusLeaf(leafOf(store, "i-b"));
+    store.getState().focusNeighbor("right");
+    expect(focusedItem(store)).toBe("i-b");
+  });
+
+  it("opens Changes in the run of the session working in that checkout, whichever pane has the keyboard", async () => {
+    api.data.environments = { s1: [{ id: "env-a", spaceId: "s1", path: "/w/a", branch: "main", kind: "primary", portBlockStart: null, createdAt: 0, updatedAt: 0 }] };
+    api.data.sessions = api.data.sessions.map((x) => (x.id === "a" ? { ...x, environmentId: "env-a" } : x));
+    const store = await sideBySide(api);
+    store.getState().focusLeaf(leafOf(store, "i-b"));
+    await store.getState().openDiff("env-a");
+    const diff = store.getState().items.find((i) => i.kind === "diff")!.id;
+    const panel = findPanel(store.getState().layout!)!;
+    expect(tabOwner(panel, diff)).toBe("i-a");
+    expect(primaryLeaves(store.getState().layout!).map((p) => p.itemId)).toEqual(["i-a", "i-b"]);
+  });
+});
+
+describe("views stored by older builds, restored at boot", () => {
+  it("folds a Plan 27 view's side pane per session into the one panel, the keyboard's strip still showing", async () => {
+    // Typed out in the shape Plan 27 stored, never made by today's functions.
+    const stored = JSON.parse(`{
+      "v": 1,
+      "layout": { "type": "split", "id": "R", "dir": "row", "sizes": [50, 50], "children": [
+        { "type": "split", "id": "C1", "dir": "row", "sizes": [50, 50], "children": [
+          { "type": "leaf", "id": "LA", "itemId": "i-a" },
+          { "type": "leaf", "id": "TA", "itemId": "i-wa", "tabs": ["i-wa"], "owner": "i-a" } ] },
+        { "type": "split", "id": "C2", "dir": "row", "sizes": [50, 50], "children": [
+          { "type": "leaf", "id": "LB", "itemId": "i-b" },
+          { "type": "leaf", "id": "TB", "itemId": "i-wb", "tabs": ["i-wb"], "owner": "i-b" } ] } ] },
+      "zoomedLeafId": null,
+      "sidePanes": { "i-c": { "tabs": ["i-wc"], "itemId": "i-wc" } },
+      "focusedItemId": "i-wb",
+      "focusedLeafId": "TB"
+    }`);
+    const api = twoSpaces({ settings: { "ui.view:p1": stored } });
+    browser(api, "s1", "i-wa"); browser(api, "s2", "i-wb"); browser(api, "s1", "i-wc");
+    const store = await booted(api);
+    const l = store.getState().layout!;
+    const panel = findPanel(l)!;
+    expect(primaryLeaves(l).map((p) => p.itemId)).toEqual(["i-a", "i-b"]);
+    expect(panel.tabs).toEqual(["i-wa", "i-wb"]);
+    expect(panel.itemId).toBe("i-wb");
+    expect(store.getState().focusedLeafId).toBe(panel.id);
+    expect(store.getState().view!.sidePanes).toEqual({ "i-c": { tabs: ["i-wc"], itemId: "i-wc" } });
+    expect(store.getState().view!.panelShare).toBeUndefined();
+    expect(l.type === "split" ? l.sizes : null).toEqual([50, 50]);
+  });
+});
+
 describe("the view across a relaunch", () => {
   let api: FakeApi;
   beforeEach(() => { api = twoSpaces(); });
@@ -306,6 +591,24 @@ describe("the view across a relaunch", () => {
     await store.getState().selectProfile("p3");
     expect(open(store)).toEqual(["i-t"]);
   });
+
+  it("keeps the panel's width per profile — each window's own", async () => {
+    api.data.profiles.push(profile("p3", "School"));
+    api.data.spaces.push(space("s3", "p3", "Thesis"));
+    api.data.items.s3 = [item("i-t", "s3", { kind: "session", refId: "t" })];
+    api.data.sessions.push(session("t", "s3"));
+    const store = await sideBySide(api);
+    store.getState().resizePanel(0.3, { commit: true });
+    await store.getState().flushPersist();
+    await store.getState().selectProfile("p3");
+    expect(store.getState().view!.panelShare).toBeUndefined();
+    store.getState().resizePanel(0.7, { commit: true });
+    await store.getState().flushPersist();
+    await store.getState().selectProfile("p1");
+    expect(store.getState().view!.panelShare).toBe(0.3);
+    await store.getState().selectProfile("p3");
+    expect(store.getState().view!.panelShare).toBe(0.7);
+  });
 });
 
 describe("the current space", () => {
@@ -324,7 +627,7 @@ describe("the current space", () => {
 
   it("falls back to the one last current when the focus holds nothing", async () => {
     const store = await sideBySide(api); // B, of s2, had the keyboard last
-    await store.getState().splitFocused("row"); // refused at two: still B
+    await store.getState().splitFocused("row"); // an empty pane beside B, with the keyboard
     await store.getState().closeFromLayout("i-a");
     await store.getState().splitFocused("row");
     expect(focusedItem(store)).toBeNull();

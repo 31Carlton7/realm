@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { TERMINALS_DOCK_KEY, findLeafOfItem, findSidePane, type Environment, type Layout } from "@realm/contracts";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { TERMINALS_DOCK_KEY, findLeafOfItem, findSidePane, tabOwner, type Environment, type Layout } from "@realm/contracts";
 import { PaneHost } from "./PaneHost";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
@@ -104,6 +104,109 @@ describe("a side pane's tab strip", () => {
     await store.getState().openItem("i-kid");
     expect(side(store).itemId).toBe("i-kid");
     expect(store.getState().focusedLeafId).toBe(side(store).id);
+  });
+});
+
+describe("several sessions' tabs in one strip", () => {
+  /** Lead with a browser and a previewed child, and Other beside it with a browser of its own. */
+  async function two() {
+    const items = [...ITEMS, item("i-other", "s1", { kind: "session", refId: "other", title: "Other" }),
+      item("i-ob", "s1", { kind: "browser", refId: "ob", title: "Other docs" })];
+    const api = fakeApi({ items: { s1: items }, sessions: [session("lead", "s1"), session("kid", "s1"), session("other", "s1")] });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-lead");
+    await store.getState().openItemAt("i-other", findLeafOfItem(store.getState().layout!, "i-lead")!.id, "right");
+    await store.getState().openInSidePane("lead", "i-br");
+    await store.getState().openInSidePane("lead", "i-kid");
+    await store.getState().openInSidePane("other", "i-ob");
+    const host = () => (
+      <StoreContext.Provider value={store}>
+        <PaneHost layout={store.getState().layout!} items={store.getState().items} focusedLeafId={store.getState().focusedLeafId}
+          onFocus={() => {}} onClose={() => {}} onSplit={() => {}} />
+      </StoreContext.Provider>
+    );
+    const r = render(host());
+    return { api, store, rerender: () => r.rerender(host()) };
+  }
+  const paneOf = (store: Awaited<ReturnType<typeof two>>["store"], itemId: string) =>
+    document.querySelector(`.panel[data-leaf-id="${findLeafOfItem(store.getState().layout!, itemId)!.id}"]`)!;
+  const carry = (id: string) => ({ types: ["application/x-realm-item"], getData: () => id, setData: () => {} });
+
+  it("says whose each tab is, quietly: a hairline between runs, the session in the tooltip, its pane marked under the pointer", async () => {
+    // THE MUTANTS: no cue at all (whose tab is this?), or a loud one — a label per run — that takes the
+    // strip's width from the tabs.
+    const { store } = await two();
+    expect(strip().getAllByRole("tab").map((t) => t.textContent)).toEqual(["Delta careers", "Agent: apply", "Other docs"]);
+    expect(document.querySelectorAll(".pane-tab-run")).toHaveLength(1);
+    expect(document.querySelector(".pane-tab-run")!.nextElementSibling!.textContent).toContain("Other docs");
+    expect(strip().getByRole("tab", { name: "Delta careers" })).toHaveAttribute("title", "Delta careers — Lead");
+    expect(strip().getByRole("tab", { name: "Other docs" })).toHaveAttribute("title", "Other docs — Other");
+    fireEvent.pointerEnter(strip().getByRole("tab", { name: "Other docs" }).parentElement!);
+    expect(paneOf(store, "i-other")).toHaveAttribute("data-owner-hover");
+    expect(paneOf(store, "i-lead")).not.toHaveAttribute("data-owner-hover");
+    fireEvent.pointerEnter(strip().getByRole("tab", { name: "Delta careers" }).parentElement!);
+    expect(paneOf(store, "i-lead")).toHaveAttribute("data-owner-hover");
+    expect(paneOf(store, "i-other")).not.toHaveAttribute("data-owner-hover");
+    fireEvent.pointerLeave(screen.getByRole("tablist", { name: "Tabs" }));
+    expect(document.querySelectorAll("[data-owner-hover]")).toHaveLength(0);
+  });
+
+  it("marks the pane of the session whose tab the keyboard is in", async () => {
+    const { store, rerender } = await two();
+    await store.getState().openItem("i-ob");
+    rerender();
+    expect(paneOf(store, "i-other")).toHaveAttribute("data-owner-active");
+    expect(paneOf(store, "i-lead")).not.toHaveAttribute("data-owner-active");
+  });
+
+  it("wears none of it while one session's tabs are the strip", async () => {
+    await mount();
+    expect(document.querySelectorAll(".pane-tab-run")).toHaveLength(0);
+    expect(strip().getByRole("tab", { name: "Delta careers" })).toHaveAttribute("title", "Delta careers");
+  });
+
+  it("a tab dropped on another session's tab joins that session's run, and leaves with it", async () => {
+    const { store } = await two();
+    const target = strip().getByRole("tab", { name: "Other docs" }).parentElement!;
+    fireEvent.dragOver(target, { dataTransfer: carry("i-br") });
+    fireEvent.drop(target, { dataTransfer: carry("i-br") });
+    await waitFor(() => expect(side(store).tabs).toEqual(["i-kid", "i-br", "i-ob"]));
+    expect(tabOwner(side(store), "i-br")).toBe("i-other");
+    await store.getState().closeInPane(findLeafOfItem(store.getState().layout!, "i-other")!.id);
+    expect(side(store).tabs).toEqual(["i-kid"]);
+    expect(store.getState().view!.sidePanes["i-other"]?.tabs).toEqual(["i-br", "i-ob"]);
+  });
+
+  it("lands after a tab when the pointer is on its far half — the only way to the end of a run another follows", async () => {
+    const { store } = await two();
+    const target = strip().getByRole("tab", { name: "Agent: apply" }).parentElement!;
+    vi.spyOn(target, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, right: 100, bottom: 28, width: 100, height: 28, x: 0, y: 0, toJSON: () => ({}) });
+    // jsdom has no DragEvent, so the pointer's x is put on the event by hand.
+    const at80 = (make: typeof createEvent.dragOver) => {
+      const e = make(target, { dataTransfer: carry("i-br") });
+      Object.defineProperty(e, "clientX", { value: 80 });
+      return e;
+    };
+    fireEvent(target, at80(createEvent.dragOver));
+    expect(target).toHaveAttribute("data-over", "after");
+    fireEvent(target, at80(createEvent.drop));
+    await waitFor(() => expect(side(store).tabs).toEqual(["i-kid", "i-br", "i-ob"]));
+    expect(tabOwner(side(store), "i-br")).toBe("i-lead");
+  });
+
+  it("choosing a tab shows it and hands the caret back to the prompter that had it", async () => {
+    // THE MUTANT: leave the keyboard on the tab. The person was typing; the next key would go nowhere.
+    await two();
+    const prompter = document.createElement("textarea");
+    document.body.appendChild(prompter);
+    prompter.focus();
+    const tab = strip().getByRole("tab", { name: "Other docs" });
+    fireEvent.pointerDown(tab);
+    tab.focus();
+    fireEvent.click(tab);
+    expect(document.activeElement).toBe(prompter);
+    prompter.remove();
   });
 });
 
@@ -213,9 +316,9 @@ describe("the strip's +", () => {
     expect(menu.getByRole("menuitem", { name: /^Simulator/ })).toBeInTheDocument();
   });
 
-  it("adds a blank tab to this strip on New tab", async () => {
-    // THE MUTANT: a + that calls newTab with no leaf. The keyboard is in ANOTHER session here, so the
-    // tab would land in that session's side pane instead of the strip whose + was clicked.
+  it("adds a blank tab for the session the keyboard is in, whichever session's tab is showing", async () => {
+    // THE MUTANT: a + that adds to the session whose tab is showing. The keyboard is in ANOTHER session
+    // here, and a new tab is the focused pane's session's.
     const { api, store, rerender } = await mount();
     api.data.items.s1!.push(item("i-other", "s1", { kind: "session", refId: "other", title: "Other" }));
     api.data.sessions.push(session("other", "s1"));
@@ -226,10 +329,20 @@ describe("the strip's +", () => {
     fireEvent.click(screen.getByRole("button", { name: "New tab" }));
     fireEvent.click(within(await screen.findByRole("menu", { name: "New tab" })).getAllByRole("menuitem")[0]!);
     await waitFor(() => expect(side(store).tabs).toHaveLength(3));
-    // After the tab showing, and on screen itself — the order a browser gives a tab you asked for.
+    // On screen, in Other's run — ahead of Lead's, since Other's pane is read first.
+    const fresh = side(store).itemId!;
+    expect(side(store).tabs).toEqual([fresh, "i-br", "i-kid"]);
+    expect(tabOwner(side(store), fresh)).toBe("i-other");
+    expect(store.getState().items.find((i) => i.id === fresh)?.kind).toBe("browser");
+  });
+
+  it("with the keyboard in the panel, a new tab goes after the one showing, as a browser's does", async () => {
+    const { store } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "New tab" })).getAllByRole("menuitem")[0]!);
+    await waitFor(() => expect(side(store).tabs).toHaveLength(3));
     const fresh = side(store).itemId!;
     expect(side(store).tabs).toEqual(["i-br", fresh, "i-kid"]);
-    expect(store.getState().items.find((i) => i.id === fresh)?.kind).toBe("browser");
   });
 
   it("fills the host with this pane on New tab in full view", async () => {

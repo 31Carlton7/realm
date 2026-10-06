@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
-import { allItems, sessionEvent, type Item, type Layout } from "@realm/contracts";
+import { PANE_DIVIDER, PANE_MIN, allItems, sessionEvent, type Item, type Layout } from "@realm/contracts";
 import { PaneHost, zoneAt, type PaneHostProps } from "./PaneHost";
 import { PanelBar } from "./PanelBar";
 import { Main } from "../App";
@@ -247,11 +247,17 @@ describe("PaneHost", () => {
     expect(props.onSplit).toHaveBeenLastCalledWith("L1", "col");
   });
 
-  it("at two panes, no bar offers a split — the window shows two at most", () => {
-    // THE MUTANT: keep the split buttons on, and a click asks for a third pane the store refuses.
-    renderHost();
-    expect(within(panel("L1")).queryByRole("button", { name: "Split Tab A right" })).toBeNull();
-    expect(within(panel("L1")).queryByRole("button", { name: "Split Tab A down" })).toBeNull();
+  it("keeps its split buttons at any number of panes, unavailable with the reason once there is no room", () => {
+    // THE MUTANTS: the old cap (no buttons at two), or a button that asks for a pane the room refuses.
+    const why = "No room for another pane beside it: each needs to be 280 points wide. Widen the window or close a pane.";
+    const { props } = renderHost({ splitRefusal: (_leaf, dir) => (dir === "row" ? why : null) });
+    const right = within(panel("L1")).getByRole("button", { name: "Split Tab A right" });
+    expect(right).toBeDisabled();
+    expect(right).toHaveAttribute("title", why);
+    const down = within(panel("L1")).getByRole("button", { name: "Split Tab A down" });
+    expect(down).toBeEnabled();
+    fireEvent.click(down);
+    expect(props.onSplit).toHaveBeenCalledExactlyOnceWith("L1", "col");
     // The non-browser pane keeps its ⋯ menu — the rework is scoped to browser panes.
     expect(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" })).toBeInTheDocument();
   });
@@ -450,34 +456,122 @@ describe("PaneHost's Remove from split", () => {
   });
 });
 
-describe("PaneHost side panes put away", () => {
-  const withSide: Layout = { type: "split", id: "col", dir: "row", sizes: [60, 40], children: [
+describe("PaneHost's side panel", () => {
+  const withPanel: Layout = { type: "split", id: "root", dir: "row", sizes: [60, 40], children: [
     { type: "leaf", id: "L1", itemId: "B" },
-    { type: "leaf", id: "S1", itemId: "A", tabs: ["A"], owner: "B" },
+    { type: "leaf", id: "S1", itemId: "A", tabs: ["A"], owners: { A: "B" } },
   ] };
 
-  it("keeps the side pane mounted and draws nothing of it, divider included — the pane it serves takes the row", () => {
-    // THE MUTANT: unmount the strip to hide it — a browser's view, a terminal's scrollback and an
-    // agent's hold on the page would go with it.
-    const { container } = renderHost({ layout: withSide, sidePanesHidden: true });
-    const strip = container.querySelector('[data-leaf-id="S1"]')!;
-    expect(strip).not.toBeNull();
-    expect((strip.closest("[data-panel]") as HTMLElement).style.display).toBe("none");
-    expect((container.querySelector(".resize-handle") as HTMLElement).style.display).toBe("none");
-    expect((container.querySelector('[data-leaf-id="L1"]')!.closest("[data-panel]") as HTMLElement).style.display).not.toBe("none");
+  it("is a column of its own beside the main panes, the full height, at its share before the host has measured", () => {
+    const { container } = renderHost({ layout: withPanel, panelShare: 0.4 });
+    const column = container.querySelector(".view-panel") as HTMLElement;
+    expect(column.querySelector('[data-leaf-id="S1"]')).not.toBeNull();
+    expect(column.style.width).toBe("40%");
+    // Beside the main panes, never inside their tree, with its own edge between them.
+    expect(container.querySelector(".view-main [data-leaf-id='S1']")).toBeNull();
+    expect(container.querySelector(".panehost > .panel-edge")).not.toBeNull();
+    expect(column.previousElementSibling).toHaveClass("panel-edge");
   });
 
-  it("marks the bar at the window's top right — the side pane's while it is out, the main pane's once it is away", () => {
-    const shown = renderHost({ layout: withSide });
+  it("draws its measured width, and its edge is a separator with the room as its range", () => {
+    const { container } = renderHost({ layout: withPanel, panelPlace: { kind: "beside", width: 640 } });
+    expect((container.querySelector(".view-panel") as HTMLElement).style.width).toBe("640px");
+    const edge = screen.getByRole("separator", { name: "Side panel width" });
+    expect(edge).toHaveAttribute("aria-valuenow", "640");
+  });
+
+  it("put away, stays mounted and draws nothing of itself, edge included — the main panes take the width", () => {
+    // THE MUTANT: unmount the panel to hide it — a browser's view, a terminal's scrollback and an
+    // agent's hold on the page would go with it.
+    const { container } = renderHost({ layout: withPanel, sidePanesHidden: true });
+    const strip = container.querySelector('[data-leaf-id="S1"]')!;
+    expect(strip).not.toBeNull();
+    expect(strip.closest(".view-panel")).toHaveAttribute("hidden");
+    expect(container.querySelector(".panel-edge")).toBeNull();
+    expect(container.querySelector('[data-leaf-id="L1"]')!.closest(".view-main")).not.toHaveAttribute("hidden");
+  });
+
+  it("stepping aside for room is the same: mounted, not drawn", () => {
+    const { container } = renderHost({ layout: withPanel, panelPlace: { kind: "aside" } });
+    expect(container.querySelector(".view-panel")).toHaveAttribute("hidden");
+    expect(container.querySelector(".panel-edge")).toBeNull();
+  });
+
+  it("in full view takes the main panes' place, which unmount", () => {
+    const { container } = renderHost({ layout: withPanel, zoomedLeafId: "S1" });
+    expect(container.querySelector(".view-main")).toBeNull();
+    expect(container.querySelector(".view-panel")).toHaveAttribute("data-full");
+    expect(container.querySelector('[data-leaf-id="S1"]')).toHaveAttribute("data-first-leaf");
+  });
+
+  it("stays beside a main pane under pane focus — the panel is the window's, not a pane of the split", () => {
+    const three: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "split", id: "M", dir: "row", sizes: [50, 50], children: [{ type: "leaf", id: "L1", itemId: "B" }, { type: "leaf", id: "L2", itemId: null }] },
+      { type: "leaf", id: "S1", itemId: "A", tabs: ["A"], owners: { A: "B" } },
+    ] };
+    const { container } = renderHost({ layout: three, zoomedLeafId: "L1" });
+    expect(container.querySelector('[data-leaf-id="L2"]')).toBeNull();
+    expect(container.querySelector(".view-panel")).not.toHaveAttribute("hidden");
+  });
+
+  it("a press in its bar leaves the keyboard where it is; a press in the tab itself moves it there", () => {
+    // THE MUTANT: focus the panel on any press in it. Choosing a tab would take the keyboard from the
+    // prompter being typed in.
+    const { props } = renderHost({ layout: withPanel, focusedLeafId: "L1" });
+    fireEvent.pointerDown(within(panel("S1")).getByRole("tab", { name: "Tab A" }));
+    expect(props.onFocus).not.toHaveBeenCalled();
+    fireEvent.pointerDown(panel("S1").querySelector(".panel-body")!);
+    expect(props.onFocus).toHaveBeenCalledExactlyOnceWith("S1");
+    // A main pane's bar still takes it: a pane is focused by pressing anywhere in it.
+    fireEvent.pointerDown(panel("L1").querySelector(".panel-bar")!);
+    expect(props.onFocus).toHaveBeenLastCalledWith("L1");
+  });
+
+  it("lights an edge a split has no room for as refused, says why across the pane, and takes no drop there", () => {
+    // THE MUTANT: light the edge as an ordinary zone. The drop would land, and the toast would say no.
+    const why = "No room for another pane beside it: each needs to be 280 points wide. Widen the window or close a pane.";
+    const { props } = renderHost({ splitRefusal: (_leaf, dir) => (dir === "row" ? why : null) });
+    fireDrag(window, "dragstart", dt("B"));
+    const overlay = panel("L1").querySelector(".drop-overlay")!;
+    stubRect(overlay, { width: 400, height: 300 });
+    fireDrag(overlay, "dragover", dt("B"), { clientX: 390, clientY: 150 });
+    expect(overlay.querySelector('.drop-zone[data-edge="right"]')).toHaveAttribute("data-refused");
+    expect(within(overlay as HTMLElement).getByRole("status")).toHaveTextContent(why);
+    fireDrag(overlay, "drop", dt("B"), { clientX: 390, clientY: 150 });
+    expect(props.onDropItem).not.toHaveBeenCalled();
+    // Down has room: lit as ever, and the drop lands. (A drop ends the drag, so the overlay is new.)
+    fireDrag(window, "dragstart", dt("B"));
+    const again = panel("L1").querySelector(".drop-overlay")!;
+    stubRect(again, { width: 400, height: 300 });
+    fireDrag(again, "dragover", dt("B"), { clientX: 200, clientY: 290 });
+    expect(again.querySelector('.drop-zone[data-edge="bottom"]')).toHaveAttribute("data-hot");
+    expect(again.querySelector('.drop-zone[data-edge="bottom"]')).not.toHaveAttribute("data-refused");
+    expect(again.querySelector(".drop-zone-why")).toBeNull();
+    fireDrag(again, "drop", dt("B"), { clientX: 200, clientY: 290 });
+    expect(props.onDropItem).toHaveBeenCalledExactlyOnceWith("B", "L1", "bottom");
+  });
+
+  it("offers no split and no edge drops of its own — a drop on it is a tab", () => {
+    renderHost({ layout: withPanel });
+    fireDrag(window, "dragstart", dt("B"));
+    const overlay = panel("S1").querySelector(".drop-overlay")!;
+    expect([...overlay.querySelectorAll(".drop-zone")].map((z) => z.getAttribute("data-edge"))).toEqual(["center"]);
+  });
+
+  it("marks the bar at the window's top right — the panel's while it is out, the main panes' once it is away", () => {
+    const shown = renderHost({ layout: withPanel });
     expect(shown.container.querySelector("[data-top-right]")).toHaveAttribute("data-leaf-id", "S1");
     shown.unmount();
-    const hidden = renderHost({ layout: withSide, sidePanesHidden: true });
+    const hidden = renderHost({ layout: withPanel, sidePanesHidden: true });
     expect(hidden.container.querySelector("[data-top-right]")).toHaveAttribute("data-leaf-id", "L1");
     // A row's top right is its LAST child, a column's is in its FIRST.
     hidden.unmount();
-    const stacked: Layout = { type: "split", id: "v", dir: "col", sizes: [50, 50], children: [withSide, { type: "leaf", id: "L9", itemId: null }] };
-    const { container } = renderHost({ layout: stacked });
-    expect(container.querySelector("[data-top-right]")).toHaveAttribute("data-leaf-id", "S1");
+    const stacked: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "split", id: "v", dir: "col", sizes: [50, 50], children: [{ type: "leaf", id: "L1", itemId: "B" }, { type: "leaf", id: "L9", itemId: null }] },
+      { type: "leaf", id: "S1", itemId: "A", tabs: ["A"], owners: { A: "B" } },
+    ] };
+    const away = renderHost({ layout: stacked, sidePanesHidden: true });
+    expect(away.container.querySelector("[data-top-right]")).toHaveAttribute("data-leaf-id", "L1");
   });
 });
 
@@ -686,7 +780,7 @@ async function mountMain(focusedLeafId: string) {
 }
 
 describe("App shell", () => {
-  it("dropping New session on a pane's edge opens it beside that pane — in the other side's place, never a third", async () => {
+  it("dropping New session on a pane's edge opens it beside that pane — a third pane, on the side it was dropped", async () => {
     const { store, api } = await mountMain("L1");
     fireDrag(window, "dragstart", newSessionDt());
     const overlay = panel("L2").querySelector(".drop-overlay")!;
@@ -701,17 +795,20 @@ describe("App shell", () => {
     });
     const layout = store.getState().layout!;
     expect(layout.type).toBe("split"); if (layout.type !== "split") throw new Error();
-    // B was dropped on, so it stays; the new session takes A's side, to B's right as the edge said.
-    expect(layout.children.map((c) => c.type === "leaf" ? c.itemId : null)).toEqual(["B", created.id]);
-    expect(store.getState().focusedLeafId).toBe(layout.children[1]!.id);
+    // B was dropped on, and the new session is beside it, to its right as the edge said: three panes.
+    expect(layout.children.map((c) => c.type === "leaf" ? c.itemId : null)).toEqual(["A", "B", created.id]);
+    expect(store.getState().focusedLeafId).toBe(layout.children[2]!.id);
   });
 
-  it("a pane bar offers Split only while the view can take a second pane", async () => {
-    // THE MUTANT: offer the rows at two panes, where the store refuses the split — a control whose
-    // only outcome is nothing happening.
+  it("a pane bar's Split is unavailable, saying why, only while there is no room for another pane", async () => {
+    // THE MUTANT: offer the row where the room refuses the split — a control whose only outcome is
+    // nothing happening — or take it away without saying what would bring it back.
     const { store } = await mountMain("L1");
+    act(() => store.setState({ viewRoom: { width: 2 * PANE_MIN.width + PANE_DIVIDER, height: PANE_MIN.height } }));
     fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
-    expect(screen.queryByRole("menuitem", { name: /Split right/ })).toBeNull();
+    const refused = screen.getByRole("menuitem", { name: /Split right/ });
+    expect(refused).toBeDisabled();
+    expect(refused).toHaveAttribute("title", expect.stringMatching(/No room for another pane beside it/));
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
     await act(async () => { await store.getState().closeFromLayout("A"); });
     const solo = store.getState().layout!;

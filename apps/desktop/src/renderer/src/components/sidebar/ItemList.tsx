@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { findLeaf, type Layout } from "@realm/contracts";
+import { findLeaf, mainOf, type Layout } from "@realm/contracts";
 import { useApp } from "../../state/store";
 
 /**
@@ -52,31 +52,17 @@ export function paneMapOf(layout: Layout, itemId: string): PaneRect[] | null {
 }
 
 /**
- * The layout as the window draws it, which the stored tree is not always: one pane filling the window
- * under pane focus (⌘⇧F) is that pane alone, and while the toggle at the window's top right has the
- * side panes put away (`sidePanesHidden`) they are not drawn and their main panes take their room
- * (PaneHost) — so a column that loses its side pane is its main pane, and the shares left in a split
- * are the shares of what is still in it. The owner, 10-05: a session filling the window wore a
- * half-lit glyph for a side pane the toggle had put away.
+ * The split as the window draws it: the main panes — never the side panel, which is the window's and
+ * not a pane of the split, so a session beside it alone is a session filling its place and wears no
+ * glyph (the owner, 10-05: a session filling the window wore a half-lit glyph for a side pane) — and
+ * one pane filling their place under pane focus (⌘⇧F) is that pane alone.
  *
- * Null when nothing in it is drawn, which the view's shape (a main pane in every column) never leaves.
+ * Null while the panel fills the window itself, when no main pane is drawn.
  */
-export function layoutOnScreen(layout: Layout, { zoomedLeafId = null, sidePanesHidden = false }:
-  { zoomedLeafId?: string | null; sidePanesHidden?: boolean } = {}): Layout | null {
-  const root = (zoomedLeafId ? findLeaf(layout, zoomedLeafId) : null) ?? layout;
-  if (!sidePanesHidden) return root;
-  const drawn = (n: Layout): Layout | null => {
-    if (n.type === "leaf") return n;
-    const kept = n.children.flatMap((c, i) => {
-      // A side pane is put away where PaneHost puts it away: as a split's child, never the whole view.
-      const shown = c.type === "leaf" ? (c.tabs ? null : c) : drawn(c);
-      return shown ? [{ child: shown, size: n.sizes[i] ?? 0 }] : [];
-    });
-    if (kept.length === 0) return null;
-    if (kept.length === 1) return kept[0]!.child;
-    return { ...n, children: kept.map((k) => k.child), sizes: kept.map((k) => k.size) };
-  };
-  return drawn(root);
+export function layoutOnScreen(layout: Layout, { zoomedLeafId = null }: { zoomedLeafId?: string | null } = {}): Layout | null {
+  const zoomed = zoomedLeafId ? findLeaf(layout, zoomedLeafId) : null;
+  if (zoomed?.tabs) return null;
+  return zoomed ?? mainOf(layout);
 }
 
 /** The glyph's drawing box, and the gap between panes, in its own units. A 24-unit box at a 12px
@@ -99,11 +85,10 @@ const GLYPH_MIN = 1.5;
 export function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }) {
   // Read here rather than handed in, so every list that draws the glyph pictures the same window.
   const zoomedLeafId = useApp((s) => s.view?.zoomedLeafId ?? null);
-  const sidePanesHidden = useApp((s) => s.sidePanesHidden);
   const rects = useMemo(() => {
-    const shown = layoutOnScreen(layout, { zoomedLeafId, sidePanesHidden });
+    const shown = layoutOnScreen(layout, { zoomedLeafId });
     return shown ? paneMapOf(shown, itemId) : null;
-  }, [layout, itemId, zoomedLeafId, sidePanesHidden]);
+  }, [layout, itemId, zoomedLeafId]);
   if (!rects) return null;
   return (
     <svg className="item-glyph" viewBox={`0 0 ${GLYPH_BOX} ${GLYPH_BOX}`} width="12" height="12" aria-hidden="true">

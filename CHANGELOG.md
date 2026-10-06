@@ -67,7 +67,7 @@ Low power and a window in the background pause it.
 **A session can hand work to other models.** Ask in words — "have GPT-6 Luna build this" — and the
 session's agent starts a sub-agent on that model. A model is found by its name, so GPT-6 Luna runs
 through Codex and Fable on the newest Fable, and a sub-agent on the lead's own harness runs the
-lead's model unless another is named. Or open the session's Agents tab, from its side pane's +: its
+lead's model unless another is named. Or open the session's Agents tab, from the side panel's +: its
 sub-agents, each with its model, its task, where it stands and its report, a click from its own
 transcript, and under them Build with, where you pick models — this session's own, your starred
 ones, More models for the rest — say what to build, and Split by model to give each its own part
@@ -149,10 +149,16 @@ space strip and its swipe went with the rooms. Since you no longer go anywhere t
 session says where it works — its pane bar reads *Space › Session*, in the space's colour — and one
 that has not started yet can be moved from the composer's space chip.
 
-**The window shows one view, not a layout per space.** One pane, or two side by side, from whichever
-spaces their sessions are in, and moving between them loads and unloads nothing, because every space
-is already loaded. The current space is just the one the focused session works in, which is where a
-new session goes. ⌘-click a session to open it beside the one you are in; ⌘\ and ⌘⇧\ still split.
+**The window shows one view, not a layout per space.** As many panes as you make, split right or
+down and nested the way you split them, from whichever spaces their sessions are in, and moving
+between them loads and unloads nothing, because every space is already loaded. The only limit is
+room: a pane is never drawn narrower than 280 points or shorter than 300, the least a session's
+prompter and transcript work at, so where another pane would go below that, Split right, Split down
+and a drop on that edge are unavailable and say what would make room, and ⌘\ says it in a toast. A
+session is on screen once; opening it again goes to it. The current space is just the one the
+focused session works in, which is where a new session goes. ⌘-click a session to open it beside
+the one you are in, or beside the one next to it when there is no room for another; ⌘\ and ⌘⇧\
+split.
 Named splits went with the rooms, and so did their strip and their keys — ⌘⇧[, ⌘⇧] and ⌘⇧G. On the
 first launch the split you were last in comes back as the view, and the sessions in your other
 splits stay in their spaces. The view, and where the keyboard was in it, survive a relaunch.
@@ -190,18 +196,28 @@ folds a card instead of denying the request that had the focus. Peek, from a ses
 any session as a tab beside the one you are in — its transcript and its card, with no prompter — and
 saves it nowhere.
 
-**What an agent opens arrives as a tab beside its session.** A browser, a device, a document or a
-terminal an agent opens is a tab of one side pane, to the right of the session that asked, rather
-than a new column beside whatever had focus — which is how a fan-out of six agents once filled a
-window with eight columns too narrow to read. The session's Agents and its Changes are tabs there
-too; Changes no longer opens as a pane of its own. A sub-agent gets no pane at all: the agents a
-session has working are a count in its bar, and the list behind the count can preview one as a tab.
-Every browser tab stays live behind the one showing, and what is opened for a session that is off
-screen waits in that session's side pane, still live for the agent driving it. The button at the
-window's top right puts the side pane away, every tab still open behind it, and brings it back.
-The + after the tabs opens a blank tab (⌘⇧B, or ⌥⌘B for full view) whose page lists the session's
-tools — Documents, Terminal, Agents, Simulator and Machine — and the pages you visited last, or opens
-one of those tools straight away, and ⌘J puts the session's terminal there too. The strip fades where its tabs run past its ends, and every tab's
+**What an agent opens arrives as a tab in the side panel.** A browser, a device, a document or a
+terminal an agent opens is a tab of the one side panel at the window's right edge, rather than a new
+column beside whatever had focus — which is how a fan-out of six agents once filled a window with
+eight columns too narrow to read. The panel is the full height of the window and half the room right
+of the sidebar until you drag its edge, which it remembers for the window (a double-click puts it
+back to half). It narrows to make room before any pane goes below its floor, and where even its
+narrowest will not fit beside the panes it steps aside, and the button at the top right shows it in
+their place. Its tabs still belong to their sessions. The strip holds the tabs of every session on
+screen, each session's run in the order its pane is read, a hairline between one run and the next;
+a tab's tooltip names its session, and the pointer on a tab marks that session's pane. A session
+joining the split brings its tabs into the strip without taking the panel from what you were
+reading, and leaving it takes them along, to bring back. What is opened for a session that is off
+screen waits with it, still live for the agent driving it, and an agent's new tab comes to the front
+only over its own session's. The session's Agents and its Changes are tabs there too; Changes no
+longer opens as a pane of its own. A sub-agent gets no pane at all: the agents a session has working
+are a count in its bar, and the list behind the count can preview one as a tab. Every browser tab
+stays live behind the one showing, and choosing a tab shows it without taking the keyboard from the
+prompter you were typing in. The button at the window's top right puts the panel away, every tab
+still open behind it, and brings it back. The + after the tabs opens a blank tab for the session
+you are working in (⌘⇧B, or ⌥⌘B for full view) whose page lists the session's tools — Documents,
+Terminal, Agents, Simulator and Machine — and the pages you visited last, or opens one of those tools
+straight away, and ⌘J puts the session's terminal there too. The strip fades where its tabs run past its ends, and every tab's
 glyph is one size at any width. A device's controls left the strip, where they took the width the
 tabs needed, for a toolbar centred over the device — Home, Screenshot, the elements overlay and
 Rotate, with the volume and side buttons, its apps, the Simulator's settings, the frame and stopping
@@ -213,12 +229,13 @@ find.
 glyphs for the tools a session opens beside itself. It now carries the session's place and name, the
 count of agents it has working, its status, one button for what it made — the summary and the
 files, switched in the panel's own head — and its menu. The tools are where they open: the side
-pane's + and a blank tab's page list them, the button at the window's top right opens a session's
-first side pane onto that page, and the command palette has each one. A session is left from the
+panel's + and a blank tab's page list them, the button at the window's top right opens the panel
+onto that page, and the command palette has each one. A session is left from the
 sidebar, the way it was reached, so neither its bar nor its menu has a Close. ⌘W closes what the
-keyboard is in: a tab leaves its side pane; a pane leaves the split it shares, which its menu calls
-Remove from split; an empty pane beside a session goes instead of the session; and a session alone
-closes nothing — the keyboard goes to its prompter. File ▸ Close Tab or Split says the same.
+keyboard is in: a tab leaves the side panel; a pane leaves the split it shares, which its menu calls
+Remove from split, and the pane beside it takes the keyboard; an empty pane beside a session goes
+instead of the session; and a session alone closes nothing — the keyboard goes to its prompter. File
+▸ Close Tab or Split says the same.
 
 **New space asks what the space is, and lands you in it.** The sheet asked for a name and a profile,
 then opened the new space's settings. It leads with the name now, with the space's icon beside it —
@@ -561,8 +578,8 @@ agent drives, or a passkey prompt, finds the window that holds its pane.
   the window.
 - The strips stacked above the prompter — a plan, a goal, the agents running, the git line — keep
   their side edges down to where the prompter tucks over them, in the mode's colour too.
-- A session filling the window no longer shows a half-lit split glyph in the sidebar for a side pane
-  that was put away.
+- A session filling the window no longer shows a half-lit split glyph in the sidebar: the glyph
+  pictures the panes of the split, never the side panel beside them.
 - A page rising into view no longer makes the window scrollable for the length of its rise, which
   put a scrollbar across the app for a moment and nudged a centred page sideways.
 - Scrolling a long transcript no longer redraws all of it on every frame.

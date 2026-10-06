@@ -1,5 +1,5 @@
 import { Icon, THEMES, themeModes } from "@realm/ui";
-import { AGENT_META, SELECTABLE_AGENT_KINDS, VIEW_MAX_PANES, chordsForCommand, displayKeyChord, emptyLayout, itemIdOfLeaf, primaryLeaves, allItems as openItemIds, type DestinationPageKind, type Item, type KeyContext, type SearchResults, type SearchSnippet } from "@realm/contracts";
+import { AGENT_META, SELECTABLE_AGENT_KINDS, chordsForCommand, displayKeyChord, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type DestinationPageKind, type Item, type KeyContext, type SearchResults, type SearchSnippet } from "@realm/contracts";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 import { centerOverComplement } from "../state/no-overlay";
@@ -94,6 +94,9 @@ const CLOSE_LABEL: Record<CloseIntent["kind"], string | null> = {
   tab: "Close tab", unsplit: "Remove from split", empty: "Close the empty pane", pane: "Close pane", prompter: null,
 };
 
+/** A refusal's first clause — "No room for another pane beside it" — which a row has room for. */
+const brief = (why: string) => why.split(/[:.]/)[0]!;
+
 /** The palette's CSS width (styles.css `.palette`); the no-overlay path needs the number. */
 const PALETTE_WIDTH = 560;
 
@@ -178,6 +181,10 @@ function PaletteBody({ closing }: { closing: boolean }) {
   const dispatchDraft = useApp((s) => s.dispatchDraft);
   const drafts = useApp((s) => s.drafts);
   const splitFocused = useApp((s) => s.splitFocused);
+  /* Why a split from the focused pane is not offered, read as the palette opens: the room cannot change
+     while it is up. */
+  const splitWhyRow = useApp((s) => s.splitRefusal("row"));
+  const splitWhyCol = useApp((s) => s.splitRefusal("col"));
   const closeInPane = useApp((s) => s.closeInPane);
   const requestRename = useApp((s) => s.requestRename);
   const interruptSession = useApp((s) => s.interruptSession);
@@ -372,12 +379,11 @@ function PaletteBody({ closing }: { closing: boolean }) {
         act(`open-${noun}`, `Open ${noun}`, kind, () => openDestinationPage(kind))) : []),
       // Global (every space's calls, W7) — unlike the space page above, it never needs an activeSpaceId.
       act("mcp-activity", "MCP Activity", "tool", () => run(() => openActivity())),
-      // Offered while the view has room for a second pane — at two the window refuses a third, and an
-      // entry whose only outcome is nothing happening is the dead chrome the pane bar leaves out too.
-      ...(primaryLeaves(layout ?? emptyLayout()).length < VIEW_MAX_PANES ? [
-        act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), kbd("pane.splitRight")),
-        act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), kbd("pane.splitDown")),
-      ] : []),
+      // Unavailable while there is no room for another pane at its floor. The row keeps its name and
+      // says the sentence's first clause; the whole of it — what would make room, the same words the
+      // pane's menu row and the key's toast use — is the hint's tooltip.
+      { ...act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), splitWhyRow ? <span title={splitWhyRow}>{brief(splitWhyRow)}</span> : kbd("pane.splitRight")), disabled: !!splitWhyRow },
+      { ...act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), splitWhyCol ? <span title={splitWhyCol}>{brief(splitWhyCol)}</span> : kbd("pane.splitDown")), disabled: !!splitWhyCol },
       ...(closeLabel ? [act("close-pane", closeLabel, "close", () => run(() => closeInPane()), kbd("pane.close"))] : []),
       ...(focusedItem ? [
         // The pane keeps its place in the view either way — this only changes how much room it gets.
@@ -406,7 +412,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
 
     return [...open, ...activeRest, ...others, ...actions, ...themes, ...palettes];
   }, [kbd, kbdIn, spaces, activeSpaceId, plainFolder, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeNames, mode, drafts, dispatchDraft,
-      selectSpace, revealItem, newTerminal, newBrowser, newMachine, newSimulator, newTab, showSessionTerminal, openAgentsTab, besideSession, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeInPane, requestRename,
+      selectSpace, revealItem, newTerminal, newBrowser, newMachine, newSimulator, newTab, showSessionTerminal, openAgentsTab, besideSession, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, splitWhyRow, splitWhyCol, closeInPane, requestRename,
       interruptSession, jumpToPermission, setThemePref, setThemeName, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, setSpacesOpen, run,
       profiles, activeProfileId, openProfileWindow, openNewProfileSheet,
       zoomedLeaf, toggleFocusPane]);

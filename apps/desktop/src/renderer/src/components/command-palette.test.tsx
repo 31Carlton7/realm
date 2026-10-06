@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { CommandPalette, PALETTE_EXIT_MS, matchScore, relTime } from "./CommandPalette";
 import { StoreContext, createAppStore } from "../state/store";
-import { findLeafOfItem } from "@realm/contracts";
+import { PANE_DIVIDER, PANE_MIN, findLeafOfItem } from "@realm/contracts";
 import { fakeApi, item, session } from "../state/store.test-fakes";
 
 async function mount(over: Parameters<typeof fakeApi>[0] = {}) {
@@ -283,14 +283,27 @@ describe("CommandPalette", () => {
     expect(screen.queryByText(/^Layout: /)).toBeNull();
   });
 
-  it("offers a split while the view has room for a second pane, and none once it shows two", async () => {
-    // THE MUTANT: list both splits always. At two panes the window refuses a third, so each would be
-    // an entry whose only outcome is nothing happening.
+  it("offers a split while there is room for another pane, and once there is none says why instead", async () => {
+    // THE MUTANTS: a split offered that the room refuses (an entry whose only outcome is nothing
+    // happening), or the entries gone without a word about what would bring them back.
     const { store } = await mount({ items: { s1: [item("i1", "s1", { title: "Notes" }), item("i2", "s1", { title: "Plan" })] } });
+    act(() => store.setState({ viewRoom: { width: 2 * PANE_MIN.width + PANE_DIVIDER, height: PANE_MIN.height } }));
     await act(async () => { await store.getState().openItem("i1"); });
-    expect(options().filter((o) => /Split (right|down)/.test(o ?? ""))).toHaveLength(2);
+    const split = () => screen.getAllByRole("option").filter((o) => /Split (right|down)/.test(o.textContent ?? ""));
+    expect(split()).toHaveLength(2);
+    expect(split()[0]!.getAttribute("aria-disabled")).toBeNull();
+    // Down never fitted: one pane tall is all the room there is.
+    expect(split()[1]!.getAttribute("aria-disabled")).toBe("true");
+    // The row keeps its name and says the reason's first clause; the whole sentence is its tooltip.
+    expect(split()[1]!.textContent).toBe("Split downNo room for another pane below it");
+    expect(split()[1]!.querySelector("[title]")?.getAttribute("title")).toMatch(/each needs to be 300 points tall/);
     await act(async () => { await store.getState().openItemBeside("i2"); });
-    await waitFor(() => expect(options().filter((o) => /Split (right|down)/.test(o ?? ""))).toEqual([]));
+    await waitFor(() => expect(split()[0]!.getAttribute("aria-disabled")).toBe("true"));
+    expect(split()[0]!.textContent).toBe("Split rightNo room for another pane beside it");
+    // Chosen anyway (Return on it), it does nothing.
+    fireEvent.click(split()[0]!);
+    const l = store.getState().layout;
+    expect(l?.type === "split" ? l.children : []).toHaveLength(2);
   });
 
 });

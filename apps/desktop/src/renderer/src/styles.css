@@ -2010,6 +2010,17 @@ kbd { font: 11px var(--font-mono); }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; } /* its grounds: the frame, above */
 .panehost { flex: 1; min-height: 0; display: flex; -webkit-app-region: no-drag; }
 .panehost > * { flex: 1; min-width: 0; min-height: 0; }
+/* The main panes' place and the side panel beside it (PaneHost). The panes take what the panel leaves;
+   the panel is the full height of the window and its own width — half the host by default, then what
+   its edge was dragged to — and never narrower than its floor (contracts/view.ts). Put away or
+   stepping aside for room it stays mounted and is not drawn, and the panes take the width. */
+.view-main { display: flex; }
+.view-main > * { flex: 1; min-width: 0; min-height: 0; }
+.panehost > .view-panel { flex: none; display: flex; position: relative; }
+.view-panel > .panel { flex: 1; min-width: 0; }
+.view-panel[hidden] { display: none; }
+/* Its full view (⌥⌘B, ⌘⇧F in it) takes the panes' place too. */
+.panehost > .view-panel[data-full] { flex: 1; width: auto; }
 /* An inline-size container: the pane's own chrome (its bar, and every pane that queries below) sizes
    itself against the LEAF it fills, not the window — a pane can be a tenth of the host. */
 .panel { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0;
@@ -2080,8 +2091,12 @@ button.panel-title:hover { background: var(--rl-hover); }
   transition: background-color var(--dur-hover) var(--ease-out-strong); }
 .pane-tab:hover { background: var(--rl-hover); }
 .pane-tab[data-active] { background: var(--rl-hover); }
-/* Where a dragged tab will land: before this one. */
+/* Where a dragged tab will land: before this one, or — the pointer on its far half — after it. */
 .pane-tab[data-over] { box-shadow: inset 2px 0 0 var(--rl-accent); }
+.pane-tab[data-over="after"] { box-shadow: inset -2px 0 0 var(--rl-accent); }
+/* Between one session's run of tabs and the next, while several share the strip: a hairline, the
+   strip's own boundary, at the height of a tab's label rather than the bar's. */
+.pane-tab-run { flex: none; align-self: center; width: var(--hairline-w); height: 16px; margin: 0 4px; background: var(--rl-line-strong); }
 .pane-tab-label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; height: 100%; padding: 0 2px 0 8px;
   font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-dim); text-align: left; }
 .pane-tab[data-active] .pane-tab-label { color: var(--rl-text-bright); }
@@ -2111,6 +2126,14 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-tab-label:focus-visible { outline: none; }
 /* The strip takes drops itself (reorder, join), so the pane's drop zones start under its bar. */
 .panel[data-tabbed] > .drop-overlay { top: 40px; }
+/* Whose a tab of the side panel is, while several sessions' tabs share it: the pane of the session the
+   pointer's tab belongs to — or, with the keyboard in the panel, the one whose tab is showing — wears
+   a quiet ring of the accent, inside its edge. Not focus (the title says that) and not a fill: a cue
+   that arrives with the pointer and fades as it leaves, as a hover does. */
+.panel::after { content: ""; position: absolute; inset: 0; z-index: 4; pointer-events: none; opacity: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--rl-accent) 55%, transparent);
+  transition: opacity var(--dur-hover) ease; }
+.panel:is([data-owner-hover], [data-owner-active])::after { opacity: 1; transition: none; }
 
 .panel-rename .rename { height: 24px; }
 .panel-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -2206,6 +2229,15 @@ button.panel-title:hover { background: var(--rl-hover); }
 .resize-handle:hover::before,
 .resize-handle[data-resize-handle-state="hover"]::before,
 .resize-handle[data-resize-handle-active]::before { opacity: 1; }
+/* The side panel's edge (PanelEdge) is the same line and the same light, drawn by the app rather than
+   the split library, and a separator the keyboard can move: its focus is the lit line, as the
+   sidebar's edge's is. */
+.panel-edge { cursor: col-resize; touch-action: none; }
+.panel-edge::before { inset-inline: -1px; }
+.panel-edge[data-resizing]::before, .panel-edge:focus-visible::before { opacity: 1; }
+.panel-edge[data-resizing] { background: var(--rl-divider-hover); }
+.panel-edge:focus-visible { outline: none; }
+:root[data-panel-resizing] * { cursor: col-resize !important; user-select: none !important; }
 
 /* Only ever rendered while a drag is in progress (see PaneHost.tsx), so it's always meant to catch
    pointer events — no idle "none" state to switch out of. */
@@ -2213,6 +2245,14 @@ button.panel-title:hover { background: var(--rl-hover); }
 .drop-zone { position: absolute; background: color-mix(in srgb, var(--rl-accent) 18%, transparent);
   border: 1.5px dashed var(--rl-accent); border-radius: var(--r-ctl); opacity: 0; }
 .drop-zone[data-hot] { opacity: 1; }
+/* An edge a split has no room for lights in the quiet ink, and the pane says why across its middle:
+   a drop there is refused, and what would make room is read before the drop, not after it. */
+.drop-zone[data-refused] { background: color-mix(in srgb, var(--rl-text-faint) 14%, transparent); border-color: var(--rl-text-faint); }
+/* It is about what is under the pointer, so it wears the tooltip's skin (`.tooltip`). */
+.drop-zone-why { position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: max-content; max-width: min(280px, calc(100% - 32px));
+  padding: 4px 8px; pointer-events: none; border-radius: var(--r-chip); background: var(--tooltip-bg); color: var(--tooltip-fg);
+  box-shadow: 0 0 0 var(--hairline-w) var(--tooltip-border), var(--shadow-card-lift);
+  font: var(--fw-medium) 12px/16px var(--font-ui); text-align: center; text-wrap: balance; }
 .drop-zone[data-edge="left"] { inset: 6px auto 6px 6px; width: 32%; }
 .drop-zone[data-edge="right"] { inset: 6px 6px 6px auto; width: 32%; }
 .drop-zone[data-edge="top"] { inset: 6px 6px auto 6px; height: 32%; }
@@ -4722,6 +4762,11 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    and a space named without spaces in it would push the line out past both edges of the pane rather
    than wrap. With the floor lifted, `overflow-wrap` can do its job on the one word that needs it. */
 .hero-greeting > span { min-width: 0; text-align: center; text-wrap: balance; overflow-wrap: break-word; }
+/* A short pane — a row of a stack — holds the card at the lift's floor, 60px under its top, and two
+   lines of greeting over that ran up past the pane's top and under its bar (measured, splits-live:
+   a third of a 1000px window). The card is the next action and the greeting is the one thing here
+   that is not, so it is the greeting that gives way. 380 is where the floor starts to win. */
+@container (max-height: 380px) { .session-pane[data-composer="hero"] .hero-greeting { display: none; } }
 .hero-greeting em { font-style: normal; }
 /* The place the greeting names, as a link to the space's page: a link in prose — the accent and the
    line's own type, no underline until the pointer is on it (design.md). A button, so the keyboard

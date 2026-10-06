@@ -1,31 +1,45 @@
 import { z } from "zod";
 import { newId } from "./ids";
-import { LayoutSchema, allItems, closeItem, equalSizes, findLeaf, findLeafOfItem, firstLeaf, leafItems, type Layout, type LayoutLeaf, type LayoutSplit } from "./layout";
+import {
+  LayoutSchema, allItems, closeItem, equalSizes, findLeaf, findLeafOfItem, findPanel, firstLeaf, leafItems, splitLeaf, tabOwner,
+  type Layout, type LayoutLeaf, type LayoutSplit,
+} from "./layout";
 import { activeGroup, type SpaceGroups } from "./groups";
 
 /**
- * The window's one view (Plan 27).
+ * The window's one view.
  *
  * A space used to be a room with its own arrangement — named splits, each its own layout — and
- * switching rooms swapped the whole screen. Now every space's work is loaded at once and the window
- * shows ONE view: the main pane holds one thing, or a split of two, and each of them keeps its own
- * side pane (Plan 26's tabs of what its agents opened). A split is a way of looking at two things at
- * once, so it needs no name, no bar and no list of its own.
+ * switching rooms swapped the whole screen. Every space's work is loaded at once now, and the window
+ * shows ONE view of it (Plan 27): main panes, as many as the person makes, split right or down and
+ * nested as they were made, and ONE side panel at the window's right edge holding the tabs of every
+ * session on screen. A split is a way of looking at several things at once, so it needs no name, no
+ * bar and no list of its own; the only limit on it is room (`PANE_MIN`, `splitFits`).
+ *
+ * The panel is not a pane of the split. It is the full height of the window, never split per pane
+ * and never stacked under one, and by default half the main area wide (`panelShare`, remembered per
+ * window). Its tabs still belong to their sessions — a browser an agent drives is that agent's
+ * session's — so the strip is every on-screen session's tabs in one row, a run per session in the
+ * order its pane is read. A session leaving the screen takes its run with it, into `sidePanes`, and
+ * brings it back when it returns; a session joining the split brings its run into the strip.
  *
  * The view stays a `Layout`, so the pane host, focus, resizing and the trails read it as they always
- * did; this file is what keeps it to that shape. `normalizeView` is the one place the shape is
- * enforced, and every write goes through it:
+ * did: the main panes' tree, and — while anything is open in it — the panel as the second child of a
+ * row at the root. `normalizeView` is the one place that shape is enforced, and every write goes
+ * through it:
  *
- *  - at most `VIEW_MAX_PANES` main panes, each optionally paired with the side pane that serves it;
- *  - a side pane whose owner leaves the screen goes with it, into `sidePanes`, and comes back when
- *    the owner does — which is what "a session keeps its own side pane" means once the screen can
- *    show any session from any space;
- *  - the tree is rebuilt into a canonical shape (a column per main pane, the two columns side by side
- *    or stacked), reusing the split nodes it already had so a dragged divider keeps its place.
+ *  - every strip in the tree, wherever an edit left it, is folded into the one panel at the root;
+ *  - a tab whose session is not a main pane leaves with that session, into `sidePanes`, and comes
+ *    back when it does — which is what "a session keeps its own tabs" means once the screen can show
+ *    any session from any space;
+ *  - the strip is put in reading order, and the root's shares follow `panelShare`; the main panes'
+ *    tree keeps the split nodes it had, so a dragged divider keeps its place.
+ *
+ * Plan 27 shipped this as at most two main panes, each with a side pane of its own; those views, and
+ * every older shape, are read by the same function (view.test.ts holds a hand-written one of each).
  */
-export const VIEW_MAX_PANES = 2;
 
-/** A side pane taken off screen with its owner: its tabs, and the one that was showing. */
+/** A session's tabs off screen: what comes back with it, and the one that was showing. */
 export type SidePane = { tabs: string[]; itemId: string };
 
 export type WindowView = {
@@ -33,12 +47,40 @@ export type WindowView = {
   layout: Layout;
   /** The leaf filling the window under pane focus (⌘⇧F), or null for the whole view. */
   zoomedLeafId: string | null;
-  /** The side panes of items NOT on screen, by owner item id: what comes back when they do. */
+  /** The tabs of sessions NOT on screen, by owner item id: what comes back when they do. */
   sidePanes: Record<string, SidePane>;
+  /** The side panel's width as a share of the main area — the space right of the sidebar. Absent is
+   *  the default, half (`PANEL_SHARE`). */
+  panelShare?: number;
 };
 
 /** Where a pane opened beside another goes: an edge of the pane it was dropped on. */
 export type BesideEdge = "left" | "right" | "top" | "bottom";
+
+/**
+ * The least a main pane is drawn at. A session pane is the one every pane has to be able to hold, and
+ * these are its own floors, measured in the built app (splits-live.mjs): below the composer's last
+ * rung (`@container (max-width: 360px)`, where the branch has given way to its mark) nothing more
+ * gives way, and at 280 wide the row still holds its controls and Send with nothing overflowing and a
+ * message keeps a measure of five or six words. Below 300 tall the transcript stops shrinking at its
+ * floor and the composer starts to cover it; at 300 there are still lines of it to read. A split that
+ * would leave any pane below them is not offered, rather than squeezed.
+ */
+export const PANE_MIN = { width: 280, height: 300 } as const;
+/** The panel's own floor: a browser at a phone's width, a strip with room for two tabs and its "+". */
+export const PANEL_MIN_WIDTH = 320;
+/** The panel's share of the main area: half by default, and never so much of it that the share
+ *  stops meaning anything at either end. */
+export const PANEL_SHARE = { default: 0.5, min: 0.1, max: 0.9 } as const;
+/** A divider between two panes, and the panel's edge: one hairline of the layout's own. */
+export const PANE_DIVIDER = 1;
+
+export type Room = { width: number; height: number };
+
+export function clampPanelShare(share: number | undefined): number {
+  if (share === undefined || !Number.isFinite(share)) return PANEL_SHARE.default;
+  return Math.min(PANEL_SHARE.max, Math.max(PANEL_SHARE.min, share));
+}
 
 export function emptyView(): WindowView {
   return { layout: { type: "leaf", id: newId(), itemId: null }, zoomedLeafId: null, sidePanes: {} };
@@ -49,18 +91,54 @@ function leavesOf(l: Layout): LayoutLeaf[] {
   return l.type === "leaf" ? [l] : l.children.flatMap(leavesOf);
 }
 
-/** The main panes — every leaf that is not a side pane — in reading order. */
+/** The main panes — every leaf that is not the panel — in reading order. */
 export function primaryLeaves(l: Layout): LayoutLeaf[] {
   return leavesOf(l).filter((leaf) => !leaf.tabs);
 }
 
-/** The main pane of the column `leafId` is in: the leaf itself, or the pane a side pane serves. */
+/** The session item a tab of the panel belongs to, or null for anything that is not one. */
+export function ownerOfTab(l: Layout, tab: string): string | null {
+  const panel = findPanel(l);
+  return panel?.tabs!.includes(tab) ? tabOwner(panel, tab) ?? null : null;
+}
+
+/** A tree with every strip taken out of it, on `closeItem`'s terms: a split left with one child is that
+ *  child, and the shares of what is left are renormalised. Null when nothing is left. */
+function withoutStrips(n: Layout): Layout | null {
+  if (n.type === "leaf") return n.tabs ? null : n;
+  const kept: Layout[] = []; const sizes: number[] = [];
+  n.children.forEach((c, i) => { const p = withoutStrips(c); if (p) { kept.push(p); sizes.push(n.sizes[i] ?? 0); } });
+  if (kept.length === 0) return null;
+  if (kept.length === 1) return kept[0]!;
+  if (kept.length === n.children.length && kept.every((c, i) => c === n.children[i])) return n;
+  const total = sizes.reduce((a, b) => a + b, 0) || 1;
+  return { ...n, children: kept, sizes: sizes.map((s) => (s / total) * 100) };
+}
+
+/** The main panes' tree: the view without its panel. Never nothing — an empty pane at the least. */
+export function mainOf(l: Layout): Layout {
+  return withoutStrips(l) ?? { type: "leaf", id: newId(), itemId: null };
+}
+
+/** `main` as the view's main panes, the panel (if any) still beside them on the root it had. */
+function withMain(l: Layout, main: Layout): Layout {
+  const panel = findPanel(l);
+  if (!panel) return main;
+  const root = l.type === "split" && l.children.length === 2 && l.children[1] === panel && l.id !== main.id ? l : null;
+  return { type: "split", id: root?.id ?? newId(), dir: "row", sizes: root?.sizes ?? equalSizes(2), children: [main, panel] };
+}
+
+/**
+ * The main pane `leafId` stands for: the leaf itself, or — for the panel — the pane of the session
+ * whose tab is showing in it, which is the session the keyboard is working for while it is there.
+ */
 export function columnOf(l: Layout, leafId: string | null): LayoutLeaf | null {
   if (!leafId) return null;
   const leaf = findLeaf(l, leafId);
   if (!leaf) return null;
   if (!leaf.tabs) return leaf;
-  return primaryLeaves(l).find((p) => p.itemId !== null && p.itemId === leaf.owner) ?? null;
+  const owner = leaf.itemId ? tabOwner(leaf, leaf.itemId) : undefined;
+  return primaryLeaves(l).find((p) => p.itemId !== null && p.itemId === owner) ?? null;
 }
 
 /** The split whose children carry exactly these ids, in this order — the node a rebuild reuses. */
@@ -71,26 +149,13 @@ function splitWithChildren(l: Layout, ids: string[]): LayoutSplit | null {
   return null;
 }
 
-/** The direction of the innermost split holding both leaves — how two panes sat — else a row. */
-function dirBetween(l: Layout, a: string, b: string): "row" | "col" {
-  let dir: "row" | "col" = "row";
-  const holds = (n: Layout, id: string): boolean => (n.type === "leaf" ? n.id === id : n.children.some((c) => holds(c, id)));
-  const walk = (n: Layout) => {
-    if (n.type === "leaf") return;
-    if (!holds(n, a) || !holds(n, b)) return;
-    dir = n.dir;
-    for (const c of n.children) walk(c);
-  };
-  walk(l);
-  return dir;
-}
-
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 export type NormalizeOptions = {
-  /** A leaf whose column must survive the cap — the focused one. */
+  /** The leaf with the keyboard: when several strips are folded into one (a Plan 27 view), the one it
+   *  is in keeps its tab showing. */
   keep?: string | null;
-  /** Items never written into a remembered side pane: a peek is a look, not a tab of anyone's. */
+  /** Items never written into a remembered run: a peek is a look, not a tab of anyone's. */
   transient?: ReadonlySet<string>;
 };
 
@@ -101,66 +166,87 @@ export type NormalizeOptions = {
 export function normalizeView(view: WindowView, opts: NormalizeOptions = {}): WindowView {
   const l = view.layout;
   const transient = opts.transient ?? new Set<string>();
-  let prims = primaryLeaves(l);
+  const strips = leavesOf(l).filter((leaf) => leaf.tabs);
+  const main = mainOf(l);
+  const panes = primaryLeaves(main);
+  const onScreen = new Set(panes.map((p) => p.itemId).filter((id): id is string => id !== null));
 
-  // The cap. The kept column first, then reading order; what falls off leaves the screen, and its
-  // side pane with it. Reading order is kept among the survivors.
-  if (prims.length > VIEW_MAX_PANES) {
-    const keep = columnOf(l, opts.keep ?? null);
-    const ranked = keep ? [keep, ...prims.filter((p) => p !== keep)] : prims;
-    const chosen = new Set(ranked.slice(0, VIEW_MAX_PANES));
-    prims = prims.filter((p) => chosen.has(p));
-  }
-  const owners = new Set(prims.map((p) => p.itemId).filter((id): id is string => id !== null));
-
-  const sides = new Map<string, LayoutLeaf>();
-  const sidePanes: Record<string, SidePane> = { ...view.sidePanes };
-  for (const leaf of leavesOf(l)) {
-    if (!leaf.tabs) continue;
-    const owner = leaf.owner ?? null;
-    const held = sides.get(owner ?? "");
-    if (owner && owners.has(owner)) {
-      // Two strips for one session is one strip with both sets of tabs.
-      if (held) sides.set(owner, { ...held, tabs: [...held.tabs!, ...leaf.tabs.filter((t) => !held.tabs!.includes(t))] });
-      else sides.set(owner, leaf);
-      continue;
+  // Every tab, in the order the strips held them, with the session it belongs to. A tab a plain open
+  // put in a strip has no owner of its own: it is the session's whose tab it was opened beside.
+  const tabs: { id: string; owner: string | null }[] = [];
+  for (const s of strips) {
+    const own = s.tabs!.map((t) => tabOwner(s, t) ?? null);
+    for (let i = 0; i < own.length; i++) {
+      if (own[i]) continue;
+      const before = own.slice(0, i).reverse().find(Boolean);
+      own[i] = before ?? own.slice(i + 1).find(Boolean) ?? null;
     }
-    // Its owner is not on screen: the side pane goes with it, to come back when it does.
-    const tabs = leaf.tabs.filter((t) => !transient.has(t));
-    if (owner && tabs.length > 0) sidePanes[owner] = { tabs, itemId: leaf.itemId && tabs.includes(leaf.itemId) ? leaf.itemId : tabs[0]! };
+    s.tabs!.forEach((t, i) => tabs.push({ id: t, owner: own[i]! }));
+  }
+  // A tab of a session that is itself a tab — a sub-agent previewed beside its parent — is the
+  // parent's: what the preview opens comes and goes with the session on screen.
+  const tabOwners = new Map(tabs.map((t) => [t.id, t.owner]));
+  for (const t of tabs) {
+    for (let hops = 0; t.owner && !onScreen.has(t.owner) && tabOwners.has(t.owner) && hops < 8; hops++) t.owner = tabOwners.get(t.owner) ?? null;
   }
 
-  // An owner back on screen gets its side pane back, minus anything now showing somewhere else.
-  const onScreen = new Set<string>([...prims.flatMap(leafItems), ...[...sides.values()].flatMap(leafItems)]);
-  for (const p of prims) {
+  const showingBefore = strips.find((s) => s.id === opts.keep)?.itemId ?? strips[0]?.itemId ?? null;
+  const sidePanes: Record<string, SidePane> = { ...view.sidePanes };
+  const kept: { id: string; owner: string }[] = [];
+  for (const t of tabs) {
+    if (t.owner && onScreen.has(t.owner) && t.id !== t.owner) { kept.push({ id: t.id, owner: t.owner }); continue; }
+    // Its session is not on screen: the tab goes with it, to come back when it does. A tab nobody
+    // owns, and a peek, simply stop being open.
+    if (!t.owner || transient.has(t.id)) continue;
+    const held = sidePanes[t.owner];
+    const list = held ? (held.tabs.includes(t.id) ? held.tabs : [...held.tabs, t.id]) : [t.id];
+    const showing = t.id === showingBefore ? t.id : held && list.includes(held.itemId) ? held.itemId : list[0]!;
+    sidePanes[t.owner] = { tabs: list, itemId: showing };
+  }
+
+  // A session back on screen gets its tabs back, minus anything now showing somewhere else.
+  const shown = new Set<string>([...panes.flatMap(leafItems), ...kept.map((t) => t.id)]);
+  let returning: string | null = null;
+  for (const p of panes) {
     const owner = p.itemId;
     if (!owner || !sidePanes[owner]) continue;
-    const kept = sidePanes[owner]!;
+    const held = sidePanes[owner]!;
     delete sidePanes[owner];
-    if (sides.has(owner)) continue; // it already has one: what was remembered is stale
-    const tabs = kept.tabs.filter((t) => !onScreen.has(t) && t !== owner);
-    if (tabs.length === 0) continue;
-    for (const t of tabs) onScreen.add(t);
-    sides.set(owner, { type: "leaf", id: newId(), itemId: tabs.includes(kept.itemId) ? kept.itemId : tabs[0]!, tabs, owner });
+    for (const t of held.tabs) {
+      if (shown.has(t) || t === owner) continue;
+      shown.add(t);
+      kept.push({ id: t, owner });
+    }
+    if (returning === null && kept.some((t) => t.id === held.itemId)) returning = held.itemId;
   }
 
-  const column = (p: LayoutLeaf): Layout => {
-    const side = p.itemId ? sides.get(p.itemId) : undefined;
-    if (!side) return p;
-    const had = splitWithChildren(l, [p.id, side.id]);
-    return had ? { ...had, dir: "row", children: [p, side] } : { type: "split", id: newId(), dir: "row", sizes: equalSizes(2), children: [p, side] };
-  };
-  const cols = prims.map(column);
-  let layout: Layout;
-  if (cols.length === 0) layout = { type: "leaf", id: newId(), itemId: null };
-  else if (cols.length === 1) layout = cols[0]!;
-  else {
-    const had = splitWithChildren(l, cols.map((c) => c.id));
-    layout = had ? { ...had, children: cols }
-      : { type: "split", id: newId(), dir: dirBetween(l, prims[0]!.id, prims[1]!.id), sizes: equalSizes(cols.length), children: cols };
+  // One strip: each session's run in the order its pane is read, its own tabs in their own order.
+  const rank = new Map(panes.map((p, i) => [p.itemId, i]));
+  const ordered = kept.map((t, i) => ({ t, i }))
+    .sort((a, b) => (rank.get(a.t.owner) ?? 0) - (rank.get(b.t.owner) ?? 0) || a.i - b.i)
+    .map(({ t }) => t);
+  const ids = ordered.map((t) => t.id);
+
+  // The tab showing stays. Gone with its session, the panel shows what a session coming back had
+  // showing when it left, else the tab beside the one that went — the next, else the one before.
+  let showing = showingBefore && ids.includes(showingBefore) ? showingBefore : null;
+  if (showing === null && ids.length > 0) {
+    const was = tabs.map((t) => t.id);
+    const at = showingBefore ? was.indexOf(showingBefore) : -1;
+    const next = was.slice(at + 1).find((t) => ids.includes(t)) ?? was.slice(0, Math.max(at, 0)).reverse().find((t) => ids.includes(t));
+    showing = returning ?? next ?? ids[0]!;
+  }
+
+  let layout: Layout = main;
+  if (showing !== null) {
+    const panel: LayoutLeaf = { type: "leaf", id: strips[0]?.id ?? newId(), itemId: showing, tabs: ids,
+      owners: Object.fromEntries(ordered.map((t) => [t.id, t.owner])) };
+    const share = clampPanelShare(view.panelShare) * 100;
+    const had = splitWithChildren(l, [main.id, panel.id]);
+    layout = { type: "split", id: had?.id ?? newId(), dir: "row", sizes: [100 - share, share], children: [main, panel] };
   }
   const zoomedLeafId = view.zoomedLeafId && findLeaf(layout, view.zoomedLeafId) ? view.zoomedLeafId : null;
-  const next: WindowView = { layout, zoomedLeafId, sidePanes };
+  const next: WindowView = { layout, zoomedLeafId, sidePanes, ...(view.panelShare !== undefined ? { panelShare: view.panelShare } : {}) };
   return sameJson(next, view) ? view : next;
 }
 
@@ -171,9 +257,9 @@ function fill(l: Layout, leafId: string, itemId: string | null): Layout {
 }
 
 /**
- * Put `itemId` in the main view, in the column `leafId` is in (or the first column), in place of
- * what that pane shows. An item already on screen elsewhere moves here. The replaced item's side
- * pane leaves with it, and `itemId`'s own comes back, once the result is normalized.
+ * Put `itemId` in the main view, in the pane `leafId` stands for (or the first), in place of what
+ * that pane shows. An item already on screen elsewhere moves here. The replaced session's tabs leave
+ * with it, and `itemId`'s own come back, once the result is normalized.
  */
 export function showInView(l: Layout, leafId: string | null, itemId: string): Layout {
   const at = findLeafOfItem(l, itemId);
@@ -182,48 +268,93 @@ export function showInView(l: Layout, leafId: string | null, itemId: string): La
   const base = at ? closeItem(l, itemId) : l;
   const target = (target0 && findLeaf(base, target0.id)) ?? primaryLeaves(base)[0] ?? null;
   if (target && !target.tabs) return fill(base, target.id, itemId);
-  // Nothing but side panes is left: the item takes the main pane in front of them.
+  // Nothing but the panel is left: the item takes the main pane in front of it.
   return { type: "split", id: newId(), dir: "row", sizes: equalSizes(2), children: [{ type: "leaf", id: newId(), itemId }, base] };
 }
 
-/**
- * Open `itemId` beside the column of `fromLeafId`: as a second column when the view has one — on
- * `edge`'s side, stacked for top and bottom — and in place of the OTHER side when it already has two.
- * An empty single pane is filled rather than split. An item already on screen moves.
- *
- * `edge` omitted with two columns keeps their arrangement; given, the drop decides where it lands.
- */
-export function openBesideInView(l: Layout, fromLeafId: string | null, itemId: string, edge?: BesideEdge): Layout {
-  const base = findLeafOfItem(l, itemId) ? closeItem(l, itemId) : l;
-  const prims = primaryLeaves(base);
-  const anchor = columnOf(base, fromLeafId) ?? prims[0] ?? null;
-  const fresh: LayoutLeaf = { type: "leaf", id: newId(), itemId };
+/** The main panes after `leafId`'s pane is split along `edge` with `fresh` — the tree a split, a drop
+ *  on an edge and an open beside all make. Grows a split that already runs that way (`splitLeaf`). */
+function splitMain(l: Layout, anchorId: string, edge: BesideEdge, itemId: string | null): { layout: Layout; leafId: string } {
+  const main = mainOf(l);
   const dir: "row" | "col" = edge === "top" || edge === "bottom" ? "col" : "row";
   const before = edge === "left" || edge === "top";
-  if (!anchor) return { type: "split", id: newId(), dir: "row", sizes: equalSizes(2), children: [fresh, base] };
-  if (prims.length < VIEW_MAX_PANES) {
-    if (anchor.itemId === null) return fill(base, anchor.id, itemId);
-    return { type: "split", id: newId(), dir, sizes: equalSizes(2), children: before ? [fresh, base] : [base, fresh] };
-  }
-  const other = prims.find((p) => p.id !== anchor.id)!;
-  const replaced = fill(base, other.id, itemId);
-  if (!edge) return replaced;
-  // A drop on an edge says where the new pane goes relative to the one it was dropped on.
-  const placed = findLeaf(replaced, other.id)!;
-  const rest = leavesOf(replaced).filter((leaf) => leaf.tabs);
-  const ordered = before ? [placed, anchor] : [anchor, placed];
-  return { type: "split", id: newId(), dir, sizes: equalSizes(ordered.length + rest.length), children: [...ordered, ...rest] };
+  const grown = splitLeaf(main, anchorId, dir, itemId, before);
+  const known = new Set(leavesOf(main).map((leaf) => leaf.id));
+  const fresh = leavesOf(grown).find((leaf) => !known.has(leaf.id))!;
+  return { layout: withMain(l, grown), leafId: fresh.id };
 }
 
-/** An empty pane beside the view, for "Split right" and "Split down". Null `leafId` when the view
- *  already shows two: a third would be a column nobody asked the window to hold. */
-export function splitEmptyInView(l: Layout, dir: "row" | "col"): { layout: Layout; leafId: string | null } {
-  if (primaryLeaves(l).length >= VIEW_MAX_PANES) return { layout: l, leafId: null };
-  const fresh: LayoutLeaf = { type: "leaf", id: newId(), itemId: null };
-  return { layout: { type: "split", id: newId(), dir, sizes: equalSizes(2), children: [l, fresh] }, leafId: fresh.id };
+/**
+ * Open `itemId` beside the pane `fromLeafId` stands for, on `edge`'s side of it (the right by
+ * default): a new pane in the split — a column for left and right, a row for top and bottom. An empty
+ * pane is filled rather than split, and an item already on screen moves. Room is the caller's to ask
+ * first (`splitFits`); this only says where.
+ */
+export function openBesideInView(l: Layout, fromLeafId: string | null, itemId: string, edge: BesideEdge = "right"): Layout {
+  const base = findLeafOfItem(l, itemId) ? closeItem(l, itemId) : l;
+  const anchor = columnOf(base, fromLeafId) ?? primaryLeaves(base)[0] ?? null;
+  if (!anchor) return { type: "split", id: newId(), dir: "row", sizes: equalSizes(2), children: [{ type: "leaf", id: newId(), itemId }, base] };
+  if (anchor.itemId === null) return fill(base, anchor.id, itemId);
+  return splitMain(base, anchor.id, edge, itemId).layout;
 }
 
-/** `itemId` added to the side pane `owner` will have when it is next on screen, as the tab showing. */
+/** An empty pane beside the pane `leafId` stands for (the first, without one), for "Split right" and
+ *  "Split down", and the new pane's leaf. Room is the caller's to ask first (`splitFits`). */
+export function splitEmptyInView(l: Layout, leafId: string | null, dir: "row" | "col"): { layout: Layout; leafId: string } {
+  const anchor = columnOf(l, leafId) ?? primaryLeaves(l)[0] ?? firstLeaf(mainOf(l));
+  return splitMain(l, anchor.id, dir === "row" ? "right" : "bottom", null);
+}
+
+/** The pane beside `leafId`'s in reading order — the next, else the one before: what an open beside
+ *  replaces when there is no room for another pane. Null when the view shows one. */
+export function besidePane(l: Layout, leafId: string | null): LayoutLeaf | null {
+  const panes = primaryLeaves(l);
+  const from = columnOf(l, leafId);
+  const at = from ? panes.findIndex((p) => p.id === from.id) : -1;
+  if (at < 0) return panes[1] ?? null;
+  return panes[at + 1] ?? panes[at - 1] ?? null;
+}
+
+/** The least room a tree of main panes can be drawn in, every pane at `PANE_MIN`. */
+export function minRoomOf(l: Layout): Room {
+  if (l.type === "leaf") return l.tabs ? { width: 0, height: 0 } : { width: PANE_MIN.width, height: PANE_MIN.height };
+  const kids = l.children.filter((c) => c.type === "split" || !c.tabs).map(minRoomOf);
+  if (kids.length === 0) return { width: 0, height: 0 };
+  const gaps = (kids.length - 1) * PANE_DIVIDER;
+  return l.dir === "row"
+    ? { width: kids.reduce((a, k) => a + k.width, 0) + gaps, height: Math.max(...kids.map((k) => k.height)) }
+    : { width: Math.max(...kids.map((k) => k.width)), height: kids.reduce((a, k) => a + k.height, 0) + gaps };
+}
+
+/** The room the main panes have in a host of `room`: all of it, less the panel at its floor while the
+ *  panel is drawn beside them. */
+export function mainRoom(room: Room, panelShown: boolean): Room {
+  return panelShown ? { width: room.width - PANEL_MIN_WIDTH - PANE_DIVIDER, height: room.height } : room;
+}
+
+/**
+ * Whether splitting the pane `leafId` stands for along `dir` leaves every main pane at least
+ * `PANE_MIN` in `room` (the main panes' room: `mainRoom`). Unmeasured room (null) fits anything.
+ */
+export function splitFits(l: Layout, leafId: string | null, dir: "row" | "col", room: Room | null): boolean {
+  if (!room) return true;
+  const need = minRoomOf(mainOf(splitEmptyInView(l, leafId, dir).layout));
+  return need.width <= room.width && need.height <= room.height;
+}
+
+/**
+ * The panel's drawn width in a host of `room` beside main panes that need `need`, or null when it
+ * does not fit at its floor and steps aside. It gives way first: it narrows from its share toward
+ * `PANEL_MIN_WIDTH` before any pane goes below `PANE_MIN`, and below that it is not drawn beside them
+ * at all — its tabs stay open, and the toggle shows it in the main panes' place.
+ */
+export function panelWidthIn(room: Room, need: Room, share: number | undefined): number | null {
+  const room4Panel = room.width - need.width - PANE_DIVIDER;
+  if (room4Panel < PANEL_MIN_WIDTH) return null;
+  return Math.max(PANEL_MIN_WIDTH, Math.min(Math.round(clampPanelShare(share) * room.width), room4Panel));
+}
+
+/** `itemId` added to the run `owner` will have when it is next on screen, as the tab showing. */
 export function rememberSidePane(view: WindowView, owner: string, itemId: string): WindowView {
   const held = view.sidePanes[owner];
   if (held?.itemId === itemId) return view;
@@ -233,7 +364,7 @@ export function rememberSidePane(view: WindowView, owner: string, itemId: string
 
 /**
  * Drop what no longer exists. `live` is what may be on screen (archived items may not); `exists`
- * is what may be remembered — a session put away keeps its side pane for when it comes back.
+ * is what may be remembered — a session put away keeps its tabs for when it comes back.
  */
 export function pruneView(view: WindowView, live: ReadonlySet<string>, exists: ReadonlySet<string> = live, opts: NormalizeOptions = {}): WindowView {
   let layout = view.layout;
@@ -257,8 +388,7 @@ export function withoutItem(view: WindowView, itemId: string): WindowView {
 
 /**
  * The view a home upgraded from rooms opens on: the active split of the space it was last in, as the
- * user last saw it. A split of more than two keeps the pane that had focus and the first other one;
- * the rest stay items of their space, and their side panes are remembered for when they reopen.
+ * user last saw it — every pane of it, and every session's side pane folded into the one panel.
  */
 export function viewFromGroups(groups: SpaceGroups, focusItemId: string | null): WindowView {
   const g = activeGroup(groups);
@@ -278,6 +408,8 @@ export const StoredViewSchema = z.object({
   sidePanes: z.record(SidePaneSchema),
   focusedItemId: z.string().nullable(),
   focusedLeafId: z.string().nullable().optional(),
+  /** Absent in a view stored before the panel had a width of its own. */
+  panelShare: z.number().optional(),
 });
 export type StoredView = z.infer<typeof StoredViewSchema>;
 

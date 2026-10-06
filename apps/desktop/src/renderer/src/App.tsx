@@ -31,6 +31,7 @@ import { persistBrowserPages } from "./panes/browser/persist-pages";
 import { Onboarding } from "./components/Onboarding";
 import { StoreContext, createAppStore, useApp, useAppStore, type AppState } from "./state/store";
 import { sidebarHidden } from "./state/selectors";
+import { drawnShare, panelPlace } from "./state/view-room";
 import { useStore, type StoreApi } from "zustand";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
@@ -376,8 +377,8 @@ function SheetHost() {
   return null;
 }
 
-/** Full-bleed PaneHost for the window's one view: a pane, or a split of two, each with its own side
- *  pane — no bar of named splits above it. Exported for the app-shell tests. */
+/** Full-bleed PaneHost for the window's one view: the main panes, as many as were made, and the one
+ *  side panel beside them — no bar of named splits above it. Exported for the app-shell tests. */
 export function Main() {
   const layout = useApp((s) => s.layout);
   const spaceItems = useApp((s) => s.items);
@@ -401,6 +402,13 @@ export function Main() {
   const equalizeSplit = useApp((s) => s.equalizeSplit);
   const zoomedLeafId = useApp((s) => s.view?.zoomedLeafId ?? null);
   const sidePanesHidden = useApp((s) => s.sidePanesHidden);
+  const view = useApp((s) => s.view);
+  const viewRoom = useApp((s) => s.viewRoom);
+  const setViewRoom = useApp((s) => s.setViewRoom);
+  const resizePanel = useApp((s) => s.resizePanel);
+  const splitRefusal = useApp((s) => s.splitRefusal);
+  // Where the panel stands, from the room the host last measured (state/view-room.ts).
+  const place = useMemo(() => panelPlace({ layout, view, viewRoom, sidePanesHidden }), [layout, view, viewRoom, sidePanesHidden]);
   const focusPaneFull = useApp((s) => s.focusPaneFull);
   const unfocusPane = useApp((s) => s.unfocusPane);
   const run = useApp((s) => s.run);
@@ -417,6 +425,10 @@ export function Main() {
     <>
       <PaneHost layout={layout ?? emptyLayout()} items={items} focusedLeafId={focusedLeafId}
         zoomedLeafId={zoomedLeafId} sidePanesHidden={sidePanesHidden}
+        panelPlace={place} panelShare={drawnShare({ layout, view })}
+        onRoom={setViewRoom} onResizePanel={resizePanel}
+        // Read with the room it was measured in, which is why `viewRoom` is subscribed above.
+        splitRefusal={(leafId, dir) => (viewRoom ? splitRefusal(dir, leafId) : null)}
         onZoom={(leafId) => run(() => focusPaneFull(leafId))}
         onUnzoom={() => run(() => unfocusPane())}
         onFocus={focusLeaf}

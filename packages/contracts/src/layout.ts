@@ -3,16 +3,20 @@ import { newId } from "./ids";
 
 /**
  * A leaf normally shows one item. A TABBED leaf (`tabs` present) holds several and shows the one in
- * `itemId`, which is always one of them; the rest are open, just not on screen. That is what a
- * session's side pane is: the browsers, devices, documents and sub-agent previews its agents open,
- * as tabs in one pane beside it rather than a column each. `owner` is the session ITEM the side pane
- * serves, which is how the next thing that session's agents open finds it.
+ * `itemId`, which is always one of them; the rest are open, just not on screen. That is what the
+ * window's side panel is: the browsers, devices, documents and sub-agent previews the sessions on
+ * screen opened, as tabs in one strip rather than a column each.
+ *
+ * Every tab belongs to a session: `owners[tab]` is the session ITEM it was opened for, which is how
+ * it leaves the screen with that session and comes back with it (view.ts). `owner` is how a Plan
+ * 26/27 side pane said the same thing for its whole strip, one strip per session; it is read, and
+ * never written.
  *
  * Not the pre-Plan-4 `{tabs, activeTab}` leaf `migrateShape` collapses: that one has no `itemId`.
  */
 export type Layout =
   | { type: "split"; id: string; dir: "row" | "col"; sizes: number[]; children: Layout[] }
-  | { type: "leaf"; id: string; itemId: string | null; tabs?: string[]; owner?: string };
+  | { type: "leaf"; id: string; itemId: string | null; tabs?: string[]; owner?: string; owners?: Record<string, string> };
 
 export type LayoutLeaf = Extract<Layout, { type: "leaf" }>;
 export type LayoutSplit = Extract<Layout, { type: "split" }>;
@@ -49,7 +53,7 @@ function dedupeItems(input: unknown): unknown {
       // or the leaf has nothing to show. An emptied tab strip is a plain empty leaf.
       const tabs = [...new Set(n.tabs.filter((t): t is string => typeof t === "string"))].filter((t) => !seen.has(t));
       for (const t of tabs) seen.add(t);
-      const { tabs: _drop, owner: _owner, ...plain } = n;
+      const { tabs: _drop, owner: _owner, owners: _owners, ...plain } = n;
       if (tabs.length === 0) return { ...plain, itemId: null };
       const itemId = typeof n.itemId === "string" && tabs.includes(n.itemId) ? n.itemId : tabs[0]!;
       return { ...n, itemId, tabs };
@@ -84,7 +88,7 @@ const LayoutBaseSchema: z.ZodType<Layout> = z.lazy(() =>
     z.object({ type: z.literal("split"), id: z.string(), dir: z.enum(["row", "col"]),
       sizes: z.array(z.number()), children: z.array(LayoutBaseSchema) }),
     z.object({ type: z.literal("leaf"), id: z.string(), itemId: z.string().nullable(),
-      tabs: z.array(z.string()).optional(), owner: z.string().optional() }),
+      tabs: z.array(z.string()).optional(), owner: z.string().optional(), owners: z.record(z.string()).optional() }),
   ]),
 );
 
@@ -173,9 +177,9 @@ export function closeItem(l: Layout, itemId: string): Layout {
   }
 }
 
-/** A leaf with its tab strip and owner taken off — what a leaf is once it holds one thing or none. */
+/** A leaf with its tab strip and owners taken off — what a leaf is once it holds one thing or none. */
 function plainLeaf(l: LayoutLeaf): LayoutLeaf {
-  const { tabs: _t, owner: _o, ...plain } = l;
+  const { tabs: _t, owner: _o, owners: _os, ...plain } = l;
   return plain;
 }
 
@@ -239,46 +243,96 @@ function withTab(leaf: LayoutLeaf, itemId: string): string[] {
   return at < 0 ? [...tabs, itemId] : [...tabs.slice(0, at + 1), itemId, ...tabs.slice(at + 1)];
 }
 
-/** The side pane serving this session item, or null. */
+/** The session item a tab belongs to: its own, or — in a Plan 26/27 strip — the strip's. */
+export function tabOwner(leaf: LayoutLeaf, tab: string): string | undefined {
+  return leaf.owners?.[tab] ?? leaf.owner;
+}
+
+/** Every tab's session, written out — a Plan 26/27 strip's one `owner` becomes one per tab. */
+function ownersOf(leaf: LayoutLeaf): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const t of leaf.tabs ?? []) { const o = tabOwner(leaf, t); if (o) out[t] = o; }
+  return out;
+}
+
+/** The window's side panel — the tabbed leaf — or null while nothing is open in it. */
+export function findPanel(l: Layout): LayoutLeaf | null {
+  if (l.type === "leaf") return l.tabs ? l : null;
+  for (const c of l.children) { const f = findPanel(c); if (f) return f; }
+  return null;
+}
+
+/** The side panel when it holds a tab of this session item, or null. */
 export function findSidePane(l: Layout, ownerItemId: string): LayoutLeaf | null {
-  if (l.type === "leaf") return l.owner === ownerItemId && l.tabs ? l : null;
+  if (l.type === "leaf") return l.tabs?.some((t) => tabOwner(l, t) === ownerItemId) ? l : null;
   for (const c of l.children) { const f = findSidePane(c, ownerItemId); if (f) return f; }
   return null;
 }
 
-/**
- * Open `itemId` in the side pane of the session item `ownerItemId`: as a tab of the one it has, or
- * in a new side pane to the right of the session when it has none yet. Null when the session is not
- * in this layout — there is nothing to be beside.
- *
- * One pane for everything a session's agents open is the point. Eight agent-opened browsers used to
- * be eight columns a fifth of a window wide, every title an ellipsis; as tabs, the one on screen
- * gets the whole side and the rest are a click away.
- */
-export function openInSidePane(l: Layout, ownerItemId: string, itemId: string): Layout | null {
-  const side = findSidePane(l, ownerItemId);
-  if (side) return openItem(l, side.id, itemId);
-  if (ownerItemId === itemId) return null;
-  const base = findLeafOfItem(l, itemId) ? closeItem(l, itemId) : l;
-  const owner = findLeafOfItem(base, ownerItemId);
-  if (!owner) return null;
-  // The session is itself a tab — a sub-agent previewed in its parent's side pane. What it opens
-  // joins that same strip: a side pane of a side pane is the column-per-agent layout again.
-  if (owner.tabs) return openItem(base, owner.id, itemId);
-  const fresh: LayoutLeaf = { type: "leaf", id: newId(), itemId, tabs: [itemId], owner: ownerItemId };
-  const grown = insertSibling(base, owner.id, "row", false, fresh);
-  if (grown) return grown;
-  return mapLeaves(base, (leaf) => (leaf.id !== owner.id ? leaf
-    : { type: "split", id: newId(), dir: "row", sizes: equalSizes(2), children: [leaf, fresh] }));
+/** This session's own tabs in the side panel, in the strip's order. */
+export function sideTabsOf(l: Layout, ownerItemId: string): string[] {
+  const panel = findSidePane(l, ownerItemId);
+  return panel ? panel.tabs!.filter((t) => tabOwner(panel, t) === ownerItemId) : [];
 }
 
-/** Move a tab within its strip, to `index` among the tabs. Anything else is returned unchanged. */
-export function moveTab(l: Layout, leafId: string, itemId: string, index: number): Layout {
+/**
+ * Open `itemId` as a tab of the side panel, for the session item `ownerItemId`: in that session's run
+ * of the panel's strip, or in a new panel at the right of everything when nothing is open in one yet.
+ * Null when the session is not in this layout — there is nothing to be beside.
+ *
+ * One strip for everything the sessions on screen open is the point. Eight agent-opened browsers used
+ * to be eight columns a fifth of a window wide, every title an ellipsis; as tabs, the one showing gets
+ * the whole panel and the rest are a click away.
+ *
+ * `front` false adds the tab behind the one showing — an agent's open beside a person reading another
+ * session's tab (the store decides). A tab that is already there comes to the front and stays whose
+ * it was.
+ */
+export function openInSidePane(l: Layout, ownerItemId: string, itemId: string, opts: { front?: boolean } = {}): Layout | null {
+  if (ownerItemId === itemId) return null;
+  const front = opts.front ?? true;
+  const there = findPanel(l);
+  if (there?.tabs!.includes(itemId)) return front ? openItem(l, there.id, itemId) : l;
+  const base = findLeafOfItem(l, itemId) ? closeItem(l, itemId) : l;
+  const at = findLeafOfItem(base, ownerItemId);
+  if (!at) return null;
+  // The session is itself a tab — a sub-agent previewed beside its parent. What it opens is the
+  // parent's: a strip per agent is the column-per-agent layout again.
+  const owner = at.tabs ? tabOwner(at, ownerItemId) ?? ownerItemId : ownerItemId;
+  const panel = findPanel(base);
+  if (!panel) {
+    const fresh: LayoutLeaf = { type: "leaf", id: newId(), itemId, tabs: [itemId], owners: { [itemId]: owner } };
+    return { type: "split", id: newId(), dir: "row", sizes: equalSizes(2), children: [base, fresh] };
+  }
+  // After the tab showing when that one is the session's own, else after the session's last: its run
+  // stays one run (view.ts puts the runs in order).
+  const tabs = panel.tabs!;
+  const mine = tabs.filter((t) => tabOwner(panel, t) === owner);
+  const after = panel.itemId && tabOwner(panel, panel.itemId) === owner ? panel.itemId : mine.at(-1);
+  const i = after ? tabs.indexOf(after) + 1 : tabs.length;
+  const next = [...tabs.slice(0, i), itemId, ...tabs.slice(i)];
+  const owners = { ...ownersOf(panel), [itemId]: owner };
+  return mapLeaves(base, (leaf) => {
+    if (leaf.id !== panel.id) return leaf;
+    const { owner: _o, ...rest } = leaf;
+    return { ...rest, itemId: front ? itemId : leaf.itemId, tabs: next, owners };
+  });
+}
+
+/**
+ * Move a tab within its strip, to `index` among the tabs. Anything else is returned unchanged.
+ * `owner` hands the tab to another session — a tab dropped into another session's run is that
+ * session's from then on, and leaves the screen with it.
+ */
+export function moveTab(l: Layout, leafId: string, itemId: string, index: number, owner?: string): Layout {
   return mapLeaves(l, (leaf) => {
     if (leaf.id !== leafId || !leaf.tabs?.includes(itemId)) return leaf;
     const rest = leaf.tabs.filter((t) => t !== itemId);
     const at = Math.max(0, Math.min(index, rest.length));
-    return { ...leaf, tabs: [...rest.slice(0, at), itemId, ...rest.slice(at)] };
+    const tabs = [...rest.slice(0, at), itemId, ...rest.slice(at)];
+    if (!owner || tabOwner(leaf, itemId) === owner) return { ...leaf, tabs };
+    const { owner: _o, ...plain } = leaf;
+    return { ...plain, tabs, owners: { ...ownersOf(leaf), [itemId]: owner } };
   });
 }
 
