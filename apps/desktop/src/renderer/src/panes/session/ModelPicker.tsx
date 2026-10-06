@@ -6,7 +6,7 @@ import { ScrollFades } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import {
-  agentRowHint, billingLead, chipLabel, effortCurrent, fastModeHint, fastModeShown, fastModeTitle, fastModeUntried, filterRows, flatten,
+  agentRowHint, billingLead, chipLabel, chipTitle, effortCurrent, fastModeHint, fastModeShown, fastModeTitle, fastModeUntried, filterRows, flatten,
   formatEffort, groupRows, holdRows, isHarnessDefault, modelAbout, modelIdOn, modelLabel, type EffortControl, type FastMode, type ModelRow,
 } from "./model-catalog";
 
@@ -136,19 +136,32 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
       {/* The mark is the HARNESS's, in colour: the one fact the model's own name cannot carry, and the
           only place a session says which CLI is running it. */}
       <button ref={btn} type="button" className="ghost-chip model-chip" aria-label="Model"
-        title={`${fullName} through ${AGENT_META[kind].label}${level ? ` · ${level} effort` : ""}${bolt ? " · fast mode" : ""}`}
+        title={chipTitle(fullName, kind, level, bolt)}
         aria-haspopup="dialog" aria-expanded={open}
         onClick={() => setOpen((v) => !v)}>
-        <Icon name={AGENT_META[kind].icon} size={14} colored className="chip-brand" />
-        <span className="chip-label">{label}</span>
-        {level && <span className="chip-effort">{level}</span>}
-        {/* The bolt Codex's own chip wears for its Fast tier: the speed asked for, on a model nothing
-            has said cannot serve it. */}
-        {bolt && <Icon name="zap" size={12} className="chip-fast" />}
+        <ModelChipText kind={kind} label={label} level={level} fast={bolt} />
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
       {open && <ModelPopover kind={kind} name={label} rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
         onToggleFavorite={onToggleFavorite} effort={effort} overflow={overflow} fast={fast} eggs={eggs} />}
+    </>
+  );
+}
+
+/**
+ * What the model chip says, in its own words: the harness's mark, the model, the level in force and
+ * the bolt. Anything else that names how work will run reads the same way — a scheduled task's card
+ * and its row in the column — because they are the same four facts about the same session to come.
+ */
+export function ModelChipText({ kind, label, level, fast }: { kind: AgentKind; label: string; level: string | null; fast: boolean }) {
+  return (
+    <>
+      <Icon name={AGENT_META[kind].icon} size={14} colored className="chip-brand" />
+      <span className="chip-label">{label}</span>
+      {level && <span className="chip-effort">{level}</span>}
+      {/* The bolt Codex's own chip wears for its Fast tier: the speed asked for, on a model nothing
+          has said cannot serve it. */}
+      {fast && <Icon name="zap" size={12} className="chip-fast" />}
     </>
   );
 }

@@ -1,5 +1,5 @@
 import {
-  EFFORT_LEVELS, cadenceOf, cronOf, describeSchedule, isOnce, momentInputValue, nextFireOf, onceExpr, parseMoment, parseOnce,
+  AGENT_FAST_MODE, AGENT_TAKES_EFFORT, cadenceOf, cronOf, describeSchedule, isOnce, momentInputValue, nextFireOf, onceExpr, parseMoment, parseOnce,
   type AgentKind, type Cadence, type Repeat, type Run, type RunConstraints, type Schedule, type Session,
 } from "@realm/contracts";
 
@@ -167,7 +167,8 @@ export function runState(run: Pick<Run, "state">): { label: string; mark: "runni
 
 /* ────────────────────────────── the modal's draft ────────────────────────────── */
 
-export type Effort = (typeof EFFORT_LEVELS)[number];
+/** The permission a task's runs start in. `bypassPermissions` is not in a run's vocabulary at all. */
+export type RunPermission = NonNullable<RunConstraints["permissionMode"]>;
 
 /** Everything the Schedule a task modal holds, in its own terms. The expression is derived from it
  *  (`exprOf`) rather than stored beside it, so the two can never disagree. */
@@ -193,7 +194,14 @@ export type Draft = {
   spaceId: string;
   agentKind: AgentKind;
   model: string | null;
-  effort: Effort | null;
+  /** One of the model's own levels by its harness's name, or null for the model's default. Kept
+   *  across a pick of another model, as a session keeps its own: the card shows what runs instead,
+   *  and saving writes only a level the model takes (`constraintsOf`). */
+  effort: string | null;
+  /** Fast mode, asked of every run's session. */
+  fastMode: boolean;
+  /** Null is the run's own, Ask each time. */
+  permissionMode: RunPermission | null;
 };
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -209,7 +217,7 @@ export function blankDraft(spaceId: string, agentKind: AgentKind, now = Date.now
     title: "", goal: "", repeat: true, every: "daily", time: "09:00", minute: 0,
     weekday: new Date(now).getDay(), monthDay: 1, cron: "0 9 * * *",
     date: momentInputValue(tomorrow.getTime()).slice(0, 10),
-    newSessionPerRun: true, archiveSucceeded: false, spaceId, agentKind, model: null, effort: null,
+    newSessionPerRun: true, archiveSucceeded: false, spaceId, agentKind, model: null, effort: null, fastMode: false, permissionMode: null,
   };
 }
 
@@ -218,7 +226,8 @@ export function draftOf(s: Schedule, fallbackKind: AgentKind, now = Date.now()):
   const base = blankDraft(s.spaceId, s.constraints?.agentKind ?? fallbackKind, now);
   const shared = {
     ...base, title: s.title, goal: s.goal, cron: s.cron, newSessionPerRun: s.newSessionPerRun, archiveSucceeded: s.archiveSucceeded,
-    model: s.constraints?.model ?? null, effort: s.constraints?.effort ?? null,
+    model: s.constraints?.model ?? null, effort: s.constraints?.effort ?? null, fastMode: s.constraints?.fastMode === true,
+    permissionMode: s.constraints?.permissionMode ?? null,
   };
   const once = parseOnce(s.cron);
   if (once !== null) {
@@ -261,12 +270,27 @@ export const draftValid = (d: Draft, now = Date.now()): boolean =>
 
 /**
  * The run constraints a draft asks for, laid over what the task already carried: the modal owns the
- * agent, the model and the effort, and anything else a task was given through `runs`' vocabulary —
- * a permission mode, a skill subset — is kept rather than dropped by an edit that never showed it.
+ * agent, the model, the level, fast mode and the permission, and anything else a task was given
+ * through `runs`' vocabulary — a skill subset, a worktree — is kept rather than dropped by an edit that
+ * never showed it.
+ *
+ * Only what the chosen model's harness can be asked is written. A level is one of `levels`, the
+ * model's own as the card drew them — a level set under another model is not what runs, the card
+ * showed the model's default instead, and the default is what is saved. Where Realm does not know the
+ * model's levels yet (Codex before its probe has answered), the level the task holds is kept rather
+ * than dropped on a guess. Fast mode goes only where Realm can ask the harness for it.
  */
-export function constraintsOf(d: Draft, before: RunConstraints | null): RunConstraints {
-  const { model: _m, effort: _e, ...kept } = before ?? {};
-  return { ...kept, agentKind: d.agentKind, ...(d.model ? { model: d.model } : {}), ...(d.effort ? { effort: d.effort } : {}) };
+export function constraintsOf(d: Draft, before: RunConstraints | null, levels: readonly string[] = []): RunConstraints {
+  const { model: _m, effort: _e, fastMode: _f, permissionMode: _p, ...kept } = before ?? {};
+  const effort = d.effort !== null && AGENT_TAKES_EFFORT[d.agentKind] && (levels.length === 0 || levels.includes(d.effort)) ? d.effort : null;
+  return {
+    ...kept, agentKind: d.agentKind,
+    ...(d.model ? { model: d.model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(d.fastMode && AGENT_FAST_MODE[d.agentKind] ? { fastMode: true } : {}),
+    // Ask each time is what a run starts in when it names none, so it is not written down.
+    ...(d.permissionMode && d.permissionMode !== "default" ? { permissionMode: d.permissionMode } : {}),
+  };
 }
 
 /** The time menu's options: every half hour, plus the draft's own time when it is off that grid — a

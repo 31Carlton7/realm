@@ -96,16 +96,21 @@ export type ModelRow = {
  * still marks a row: the frontier model, which is the first of the kind's list and the one the chip
  * already names via `DEFAULT_MODEL_LABEL` (presets.test.ts pins the two to each other).
  */
-export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites = [] }: {
+export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites = [], also = [] }: {
   kind: AgentKind; model: string | null; agentProbe: AgentProbe[]; canSwitchAgent: boolean;
   /** Canonical keys the user has starred. */
   favorites?: readonly string[];
+  /** Kinds offered after the selectable set: the scripted agent, which a session never offers fresh
+   *  but a scheduled task may be put on wherever this Realm runs one — the checks that drive the app
+   *  schedule their work on it. */
+  also?: readonly AgentKind[];
 }): ModelRow[] {
   // The session's own kind leads, then the rest of the offered set. Leading with it is what makes the
   // tie-break above fall out for free: the first harness to claim a model is the current one whenever
   // it has it. It also covers a kind that is not offered fresh (`fake`), which would otherwise have
   // no row at all.
-  const kinds: AgentKind[] = [kind, ...SELECTABLE_AGENT_KINDS.filter((k) => k !== kind)];
+  const offered: AgentKind[] = [...SELECTABLE_AGENT_KINDS, ...also.filter((k) => !(SELECTABLE_AGENT_KINDS as readonly AgentKind[]).includes(k))];
+  const kinds: AgentKind[] = [kind, ...offered.filter((k) => k !== kind)];
   const noteOf = new Map<AgentKind, string | null>(kinds.map((k) => [k, availabilityNote(agentAvailability(k, agentProbe))]));
   const favorite = new Set(favorites);
 
@@ -360,6 +365,11 @@ export function chipLabel(kind: AgentKind, model: string | null, rows: ModelRow[
   const selected = rows.find((r) => r.selected);
   return selected ? modelLabel(selected) : model ?? DEFAULT_MODEL_LABEL[kind];
 }
+
+/** The chip's tooltip, which spells the whole thing out — the model's full name, the harness it runs
+ *  through, the level in force and fast mode — for anyone who needs it. */
+export const chipTitle = (fullName: string, kind: AgentKind, level: string | null, fast: boolean): string =>
+  `${fullName} through ${AGENT_META[kind].label}${level ? ` · ${level} effort` : ""}${fast ? " · fast mode" : ""}`;
 
 /** Display form of an effort level: capitalised, with `xhigh` as "XHigh" — the id's two morphemes
  *  each get their cap, and no hyphen is invented that the CLIs never print. */

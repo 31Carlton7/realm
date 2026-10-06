@@ -7359,6 +7359,9 @@ select { appearance: none; padding-right: 22px;
   font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 .sched-task-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 16px;
   color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* The third line, what the task runs on: a flex line, so it is the model's name that ellipsizes and
+   never the level or the bolt after it. */
+.sched-task-model { display: flex; min-width: 0; }
 .sched-task-disclose { flex: none; margin-right: 4px; opacity: 0; }
 .sched-task-row:hover .sched-task-disclose, .sched-task-disclose:focus-visible, .sched-task-disclose[aria-expanded="true"] { opacity: 1; }
 /* A task's runs, one step in: each is a time, a word where the time alone would not say it, and
@@ -7406,6 +7409,11 @@ select { appearance: none; padding-right: 22px;
 .sched-card-fact { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .sched-card-fact > svg { flex: none; color: var(--rl-text-faint); }
 .sched-card-fact[data-tone="warn"], .sched-card-fact[data-tone="warn"] > svg { color: var(--rl-warning); }
+/* A task's model in the prompter chip's own words (ScheduleRunText) — the mark, the model, the level
+   in force a shade quieter and the bolt beside it — on its card and in its row alike. */
+.sched-model { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.sched-model .chip-brand { flex: none; }
+.sched-model :is(.chip-effort, .chip-fast) { flex: none; color: var(--rl-text-faint); }
 .sched-card-sub { display: flex; align-items: center; justify-content: space-between; margin: 2px -8px 0 0; font-size: 13px; color: var(--rl-text-faint); }
 .sched-card-list { display: flex; flex-direction: column; gap: 2px; }
 .sched-card-list > li { min-width: 0; }
@@ -7726,6 +7734,9 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .sched-select { flex: none; max-width: 60%; field-sizing: content; border-color: transparent; background-color: transparent; color: var(--rl-text-dim);
   transition: background-color var(--dur-hover) ease; }
 .sched-select:hover, .sched-select:focus-visible { background-color: var(--rl-hover); }
+/* The Model row's value is the prompter's own chip — quiet at the row's end like the menus above it,
+   as wide as what it names needs. */
+.sched-model-row .model-chip { flex: none; max-width: 60%; }
 .sched-cron, .sched-date { flex: none; height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
   background: var(--field); color: var(--rl-text-bright); outline: none; }
 .sched-cron { width: 168px; font-family: var(--font-mono); font-size: 13px; }

@@ -136,10 +136,33 @@ describe("the modal's draft", () => {
     expect(firstRun(d, now)).toBe(new Date(2026, 8, 8, 9).getTime());
   });
 
-  it("asks for the agent, model and effort, and keeps whatever else the task was given", () => {
-    const d = { ...blankDraft("s1", "codex", now), model: "gpt-5.6-terra", effort: "medium" as const };
-    expect(constraintsOf(d, { permissionMode: "plan", skills: ["triage"], model: "old" }))
-      .toEqual({ permissionMode: "plan", skills: ["triage"], agentKind: "codex", model: "gpt-5.6-terra", effort: "medium" });
-    expect(constraintsOf({ ...d, model: null, effort: null }, null)).toEqual({ agentKind: "codex" });
+  it("asks for the agent, the model, its level, fast mode and the permission, and keeps whatever else the task was given", () => {
+    const before = { permissionMode: "plan" as const, skills: ["triage"], model: "old", fastMode: true };
+    const d = { ...draftOf(schedule({ constraints: before }), "codex", now), model: "gpt-5.6-terra", effort: "medium" };
+    expect(constraintsOf(d, before, ["low", "medium", "high"]))
+      .toEqual({ permissionMode: "plan", skills: ["triage"], agentKind: "codex", model: "gpt-5.6-terra", effort: "medium", fastMode: true });
+    // What the modal turned off is off: no level, no bolt, Ask each time — none of them written down.
+    expect(constraintsOf({ ...d, model: null, effort: null, fastMode: false, permissionMode: "default" }, before))
+      .toEqual({ skills: ["triage"], agentKind: "codex" });
+  });
+
+  it("opens a task's level, bolt and permission back onto the draft", () => {
+    expect(draftOf(schedule({ constraints: { agentKind: "claude", effort: "xhigh", fastMode: true, permissionMode: "acceptEdits" } }), "codex", now))
+      .toMatchObject({ agentKind: "claude", effort: "xhigh", fastMode: true, permissionMode: "acceptEdits" });
+    expect(draftOf(schedule(), "codex", now)).toMatchObject({ agentKind: "codex", effort: null, fastMode: false, permissionMode: null });
+  });
+
+  it("saves a level only where the chosen model takes it, and a bolt only where its harness can be asked", () => {
+    /* A level set under one model, kept while another was picked: the card showed the new model's
+       default in force, so that is what is saved. THE MUTANTS: the stale level written (the run asks
+       the harness for a level the model refuses), or dropped where Realm only had not heard yet. */
+    const d = { ...blankDraft("s1", "codex", now), model: "gpt-5.6-terra", effort: "max", fastMode: true };
+    expect(constraintsOf(d, null, ["low", "medium", "high"])).toEqual({ agentKind: "codex", model: "gpt-5.6-terra", fastMode: true });
+    // Codex before its probe has answered: no levels known yet, and the saved one stands.
+    expect(constraintsOf(d, null, [])).toEqual({ agentKind: "codex", model: "gpt-5.6-terra", effort: "max", fastMode: true });
+    // An ACP agent takes no fast mode from Realm, and the scripted one no level.
+    expect(constraintsOf({ ...d, agentKind: "acp:opencode", model: null, effort: "high" }, null, ["low", "medium", "high"]))
+      .toEqual({ agentKind: "acp:opencode", effort: "high" });
+    expect(constraintsOf({ ...d, agentKind: "fake", model: "fake", effort: "high", fastMode: false }, null)).toEqual({ agentKind: "fake", model: "fake" });
   });
 });

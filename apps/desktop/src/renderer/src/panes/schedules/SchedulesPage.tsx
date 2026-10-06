@@ -1,16 +1,16 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AGENT_META, AGENT_MODELS, DEFAULT_MODEL_LABEL, type AgentKind, type Item, type Run, type Schedule } from "@realm/contracts";
-import { FALLBACK_AGENT, useApp, useProfileSpaces, type AgentProbe } from "../../state/store";
+import type { Item, Run, Schedule } from "@realm/contracts";
+import { FALLBACK_AGENT, useApp, useProfileSpaces } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { PageRail } from "../../components/page-nav";
 import { useDissolve } from "../../components/ScrollFades";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { SessionPane } from "../session/SessionPane";
-import { formatEffort } from "../session/ModelPicker";
 import { summarize } from "../session/session-summary";
 import { ScheduleModal, type ModalOpen } from "./ScheduleModal";
+import { ScheduleRunText } from "./ScheduleRunPicker";
 import {
   SUGGESTIONS, blankDraft, cadenceSentence, draftOfSuggestion, filterSchedules, lowerRelative, runMoment, runState, runUnread, shortWhen,
   taskLine, upcomingOrder, whenPhrase,
@@ -194,6 +194,8 @@ function TaskRow({ schedule, runs, more, limit, expanded, selectedRun, unread, o
             {!open && fresh > 0 && <span className="status-dot" data-status="unseen" aria-label={`${fresh} unread`} />}
           </span>
           <span className="sched-task-line">{taskLine(schedule)}</span>
+          {/* What it runs on, in the prompter chip's words — the same line as its card. */}
+          <span className="sched-task-line sched-task-model"><ScheduleRunText schedule={schedule} /></span>
         </button>
         {runs.length > 0 && (
           <button type="button" className="item-disclose sched-task-disclose" aria-expanded={open}
@@ -302,17 +304,6 @@ function TaskView({ schedule, onEdit, onRunNow, onGone }: { schedule: Schedule; 
   );
 }
 
-/** "Claude · Fable 5.1 · High" — the main model a task's runs start on, in the picker's own names. */
-function modelLine(schedule: Schedule, probe: AgentProbe[]): { kind: AgentKind; text: string } {
-  const kind = schedule.constraints?.agentKind ?? FALLBACK_AGENT;
-  const id = schedule.constraints?.model ?? null;
-  const known = [...(probe.find((p) => p.kind === kind)?.models ?? []), ...AGENT_MODELS[kind]].find((m) => m.id === id);
-  const model = id === null ? DEFAULT_MODEL_LABEL[kind] : known?.label ?? id;
-  const agent = AGENT_META[kind].label;
-  const effort = schedule.constraints?.effort;
-  return { kind, text: [agent, ...(model !== agent ? [model] : []), ...(effort ? [formatEffort(effort)] : [])].join(" · ") };
-}
-
 /**
  * The task's card, at the top right of whatever is selected: its name and the way to edit it, when it
  * runs, what it is told, and what it works with — the outputs of the run on screen, the model, the
@@ -323,7 +314,6 @@ function TaskCard({ schedule, run, onEdit, onRunNow, onGone }: {
 }) {
   const space = useApp((s) => s.spaces.find((x) => x.id === schedule.spaceId));
   const connectors = useApp((s) => s.connectors[schedule.spaceId]);
-  const probe = useApp((s) => s.agentProbe);
   const blocks = useApp((s) => (run?.sessionId ? s.transcripts[run.sessionId]?.t.blocks : undefined));
   const refreshConnectors = useApp((s) => s.refreshConnectors);
   const openSpacePage = useApp((s) => s.openSpacePage);
@@ -339,7 +329,6 @@ function TaskCard({ schedule, run, onEdit, onRunNow, onGone }: {
 
   const outputs = useMemo(() => (blocks ? summarize(blocks).outputs.length : 0), [blocks]);
   const enabled = (connectors ?? []).filter((c) => c.enabled);
-  const model = modelLine(schedule, probe);
   const missed = schedule.lastSkippedAt !== null && (schedule.lastRunAt === null || schedule.lastSkippedAt > schedule.lastRunAt);
   const remove = () => act(async () => { await deleteSchedule(schedule.id, schedule.spaceId); onGone(); });
   const items: MenuItem[] = [
@@ -375,9 +364,8 @@ function TaskCard({ schedule, run, onEdit, onRunNow, onGone }: {
         {missed && (
           <li className="sched-card-fact" data-tone="warn"><Icon name="alert" size={14} />Missed a run {lowerRelative(shortWhen(schedule.lastSkippedAt!))}</li>
         )}
-        <li className="sched-card-fact" title="The model each run starts on">
-          <Icon name={AGENT_META[model.kind].icon} size={14} />{model.text}
-        </li>
+        {/* The model each run starts on, at its level and speed: the chip's own words. */}
+        <li className="sched-card-fact"><ScheduleRunText schedule={schedule} /></li>
       </ul>
       <div className="sched-card-sources">
         <div className="sched-card-sub">
