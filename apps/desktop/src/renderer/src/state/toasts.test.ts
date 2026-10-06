@@ -25,6 +25,18 @@ describe("pushToast", () => {
     expect(list).toHaveLength(2);
   });
 
+  it("never folds a toast that offers an action into another, so each removal keeps its own Undo", () => {
+    /* THE mutant: fold action toasts by their words like any other. "Removed notes.md" twice is two
+       removals, and folding them takes the first one's Undo away while its file is still held. */
+    const undo = (label: string) => ({ label, run: () => {} });
+    let list = pushToast([], { text: "Removed notes.md from the Library.", action: undo("first") }, "a");
+    list = pushToast(list, { text: "Removed notes.md from the Library.", action: undo("second") }, "b");
+    expect(list.map((t) => [t.id, t.action?.label])).toEqual([["a", "first"], ["b", "second"]]);
+    // A plain toast of the same words is not folded into one that carries an offer, either.
+    list = pushToast(list, { text: "Removed notes.md from the Library." }, "c");
+    expect(list.map((t) => t.id)).toEqual(["a", "b", "c"]);
+  });
+
   it("defaults to an info toast with the tone's own glyph, and trims what it is given", () => {
     expect(pushToast([], { text: "  Shared example.com  " }, "a")[0]).toMatchObject({ tone: "info", text: "Shared example.com", icon: null });
     expect(pushToast([], { text: "Added", icon: "target" }, "a")[0]!.icon).toBe("target");
@@ -37,6 +49,12 @@ describe("toastLife", () => {
     expect(toastLife("warning", "boom")).toBe(5000);
     expect(toastLife("success", "boom")).toBe(4000);
     expect(toastLife("info", "boom")).toBe(4000);
+  });
+
+  it("gives a toast with an action longer: the offer has to be read, found and pressed", () => {
+    expect(toastLife("info", "Removed a.md.", true)).toBe(8000);
+    expect(pushToast([], { text: "Removed a.md.", action: { label: "Undo", run: () => {} } }, "a")[0]!.life).toBe(8000);
+    expect(toastLife("info", "x".repeat(2000), true)).toBe(10_000);
   });
 
   it("stays long enough to read a long one, and no longer than ten seconds", () => {

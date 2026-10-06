@@ -152,6 +152,38 @@ describe("the documents home", () => {
     await waitFor(() => expect(store.getState().pendingAttachments.lead).toEqual([]));
   });
 
+  it("takes a file the person added back out of the Library from its row — its menu or Delete — and nothing else", async () => {
+    /* The same file offers the same things from every list that shows it. THE mutants: a menu with no
+       Remove for an added file here, a Remove offered on the session's own file, or Delete that leaves
+       the keyboard on nothing. */
+    const scan: LibraryEntry = { id: "f1", sessionId: null, spaceId: null, kind: "added", path: "/realm-home/library/p1/scan.pdf", name: "scan.pdf",
+      ext: "pdf", ts: 90, sessionTitle: null, agentKind: null };
+    const memo: LibraryEntry = { ...scan, id: "f2", path: "/realm-home/library/p1/memo.md", name: "memo.md", ext: "md", ts: 80 };
+    const { api, store } = await mount({ artifacts: [art("a1", "lead", "notes/plan.md", 100), scan, memo], addedProfiles: { f1: "p1", f2: "p1" } });
+    expect(await namesIn("Library")).toEqual(["scan.pdf", "memo.md"]);
+    const labels = (menu: HTMLElement) => within(menu).getAllByRole("menuitem").map((b) => b.querySelector(".menu-label")!.textContent);
+    fireEvent.contextMenu(rowFor("plan.md"));
+    expect(labels(await screen.findByRole("menu", { name: "plan.md" }))).toEqual(["Open", "Reveal in Finder", "Copy path"]);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    // The row's file is in the next message, and goes out of it with the file.
+    fireEvent.click(screen.getByRole("button", { name: "Add scan.pdf to the next message" }));
+    await waitFor(() => expect(store.getState().pendingAttachments.lead?.map((a) => a.path)).toEqual(["/realm-home/library/p1/scan.pdf"]));
+    fireEvent.contextMenu(rowFor("scan.pdf"));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Remove from Library/ }));
+    await waitFor(async () => expect(await namesIn("Library")).toEqual(["memo.md"]));
+    expect(api.calls).toContain("removeLibraryFiles:p1:/realm-home/library/p1/scan.pdf");
+    expect(store.getState().pendingAttachments.lead).toEqual([]);
+    // Delete on the row in focus does the same, and the keyboard moves on rather than falling to the page.
+    rowFor("memo.md").focus();
+    fireEvent.keyDown(rowFor("memo.md"), { key: "Backspace" });
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Library" })?.querySelector(".docs-home-name")).toBeFalsy());
+    await waitFor(() => expect(document.activeElement).toBe(rowFor("plan.md")));
+    // …onto the session's own file, which Delete leaves alone.
+    fireEvent.keyDown(rowFor("plan.md"), { key: "Backspace" });
+    expect(api.calls.filter((c) => c.startsWith("removeLibraryFiles:"))).toHaveLength(2);
+  });
+
   it("in a pane of its own, lists no session and offers nothing to add a file to", async () => {
     await mount({ owned: false, artifacts: [art("a1", "lead", "notes/plan.md", 100)] });
     expect(await namesIn("Library")).toEqual(["plan.md"]);
