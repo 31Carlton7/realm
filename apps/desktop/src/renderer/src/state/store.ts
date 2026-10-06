@@ -4229,6 +4229,9 @@ await get().refreshCustomThemes().catch(() => {});
         if (paths.length === 0) return null;
         try {
           const result = await api.addLibraryFiles({ profileId, paths: [...paths], folders: opts.folders ?? false });
+          // A copy made where a removed one was is a new file at an old path: what the window holds for
+          // the path is about the file that went — a sent message's tile showing it as gone, say.
+          forgetThumbnails(result.added.map((e) => e.path));
           for (const notice of libraryAddNotices(result)) get().toast(notice);
           return result;
         } finally {

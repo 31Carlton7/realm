@@ -5,7 +5,7 @@ import { LibraryPage } from "./LibraryPage";
 import { groupByDay } from "./LibraryFiles";
 import { createAppStore, StoreContext } from "../../state/store";
 import { resetThumbnailCache } from "../../components/use-thumbnail";
-import { breakableName } from "../../components/FileCard";
+import { breakableName, FileCard } from "../../components/FileCard";
 import { allOnScreen } from "../../components/on-screen.test-fakes";
 import { resetMediaCache } from "../session/media/use-media";
 import { fakeApi, item, session, space, type FakeData } from "../../state/store.test-fakes";
@@ -699,6 +699,29 @@ describe("taking a file back out of the Library", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: /^Remove from Library/ }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(await toast()).toHaveTextContent("Removed only.md from the Library.");
+  });
+
+  it("draws the picture again for a file added back where a removed one was", async () => {
+    /* A sent message's tile keeps showing a copy's path whatever happens to it. THE mutant: an add that
+       leaves the window's picture cache alone — the tile asked while the copy was gone, holds "no
+       picture", and never asks again, so the file is back and every tile of it is a glyph. */
+    const realm = bridge();
+    allOnScreen();
+    const { store } = await mountWithToasts([added("hero.png", 1)], {
+      pickFiles: [{ path: "/Users/me/Desktop/hero.png", mime: "image/png", name: "hero.png", size: 1 }] });
+    await screen.findByText("hero.png");
+    const { container } = render(
+      <StoreContext.Provider value={store}>
+        <FileCard path="/realm-home/library/p1/hero.png" name="hero.png" type="image" title="sent" onOpen={() => {}} />
+      </StoreContext.Provider>,
+    );
+    await waitFor(() => expect(container.querySelector("img.library-tile-thumb")).not.toBeNull());
+    realm.attachmentThumbnail.mockImplementation(async () => null as unknown as string);
+    await removeFromMenu("hero.png");
+    await waitFor(() => expect(container.querySelector("img.library-tile-thumb")).toBeNull());
+    realm.attachmentThumbnail.mockImplementation(async () => "data:image/png;base64,AGAIN");
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(container.querySelector("img.library-tile-thumb")?.getAttribute("src")).toBe("data:image/png;base64,AGAIN"));
   });
 
   it("keeps the page where it was: a file taken out of the second page leaves both pages showing", async () => {
