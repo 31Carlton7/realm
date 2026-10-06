@@ -915,6 +915,8 @@ export function registerMethods(d: Deps): void {
   reg("codeReview.submit", (p) => d.codeReview.submit(p));
   reg("codeReview.instructions", (p) => d.codeReview.instructions(p.profileId));
   reg("codeReview.setInstructions", (p) => d.codeReview.setInstructions(p.profileId, p.text));
+  reg("codeReview.reviewerPick", (p) => ({ pick: d.codeReview.reviewerPick(p.profileId) }));
+  reg("codeReview.setReviewerPick", (p) => d.codeReview.setReviewerPick(p.profileId, p.pick));
   reg("codeReview.pins", (p) => ({ pins: d.codeReview.pins(p.profileId) }));
   reg("codeReview.setPinned", (p) => ({ pins: d.codeReview.setPinned(p.profileId, p.pr, p.pinned) }));
   reg("codeReview.review", (p) => d.codeReview.review(p));

@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
-import type { AgentKind, FileDiff, GhStatus, PrDetail, PrFiles, PrRef, PrSection, PrSummary } from "@realm/contracts";
+import type { FileDiff, GhStatus, PrDetail, PrFiles, PrRef, PrSection, PrSummary, ReviewerPick } from "@realm/contracts";
 import { EMPTY_DRAFT, type ReviewDraft } from "./code-review-model";
 
 /**
@@ -34,8 +34,18 @@ export const heldLines = new Map<string, string[] | null>();
 export const atHead = (key: string, headSha: string) => `${key}@${headSha}`;
 export const patchId = (key: string, headSha: string, path: string) => `${key}@${headSha}:${path}`;
 
-/** The model the person last reviewed with — Review with… names it until they pick another. */
-export const reviewerPick: { current: { kind: AgentKind; model: string | null } | null } = { current: null };
+/** Each profile's reviewer as last read or picked, by profile — what Review with… names in its first
+ *  frame. The profile's own copy is the server's (`codeReview.reviewerPick`). */
+const reviewers = new Map<string, ReviewerPick>();
+export const heldReviewer = (profileId: string): ReviewerPick | null => reviewers.get(profileId) ?? null;
+export function useHeldReviewer(profileId: string): [ReviewerPick | null, (pick: ReviewerPick) => void] {
+  const pick = useSyncExternalStore(subscribe, () => heldReviewer(profileId));
+  const hold = useCallback((next: ReviewerPick) => {
+    reviewers.set(profileId, next);
+    for (const fn of listeners) fn();
+  }, [profileId]);
+  return [pick, hold];
+}
 
 /** A list as the column last drew it. */
 export type Listed = { prs: PrSummary[]; next: string | null; state: "loading" | "ready" | "error"; error: string | null };
@@ -59,8 +69,7 @@ export const pageHeld = {
 /** Everything above, forgotten — what a new window starts from, and what each test does. */
 export function forgetHeld(): void {
   drafts.clear();
-  for (const m of [heldDetails, heldFiles, heldPatches, heldLines]) m.clear();
-  reviewerPick.current = null;
+  for (const m of [heldDetails, heldFiles, heldPatches, heldLines, reviewers]) m.clear();
   Object.assign(pageHeld, { status: null, pins: {}, selection: null, lists: {}, teamOpen: false, tabs: new Map(), view: { split: true, tree: true } });
   for (const fn of listeners) fn();
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { PAGE_REF_IDS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrReview, type PrSummary } from "@realm/contracts";
+import { MODEL_EFFORTS_KEY, PAGE_REF_IDS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrReview, type PrSummary, type ReviewerPick } from "@realm/contracts";
 
 /** The page's calls, answered from what each test sets, and every one kept. Nothing reaches a socket
  *  — and so nothing reaches gh, or GitHub. */
@@ -10,6 +10,7 @@ let pages: Record<string, PrPage[]> = {};
 let detail: PrDetail;
 let review: PrReview | null = null;
 let instructions = "";
+let reviewerPick: ReviewerPick | null = null;
 vi.mock("../../rpc/client", () => ({
   rpc: () => ({
     on: () => () => {},
@@ -29,6 +30,8 @@ vi.mock("../../rpc/client", () => ({
         case "codeReview.ask": return { sessionId: "01HQ000000000000000000ASK1", itemId: null };
         case "codeReview.instructions": return { text: instructions };
         case "codeReview.setInstructions": instructions = params.text; return { text: params.text };
+        case "codeReview.reviewerPick": return { pick: reviewerPick };
+        case "codeReview.setReviewerPick": reviewerPick = params.pick; return params.pick;
         case "codeReview.review": return { ...REVIEW, state: "running", findings: [], summary: "" };
         case "codeReview.submit": return { id: 7, url: "https://github.com/acme/widgets/pull/42#pullrequestreview-7" };
         case "terminals.create": return { terminalId: "01HQ00000000000000000000T1", itemId: "i-term" };
@@ -62,7 +65,7 @@ const DETAIL: PrDetail = {
   checks: [{ name: "test", state: "success", url: null }, { name: "lint", state: "failure", url: null }],
 };
 const REVIEW: PrReview = {
-  ref, headSha: "abc1234def", sessionId: "01HQ000000000000000000SES1", spaceId: "s1", agentKind: "claude", model: null, state: "done",
+  ref, headSha: "abc1234def", sessionId: "01HQ000000000000000000SES1", spaceId: "s1", agentKind: "claude", model: null, effort: null, state: "done",
   summary: "Mostly right.", startedAt: T, finishedAt: T,
   findings: [{ id: "f1", path: "src/a.ts", line: 14, side: "RIGHT", body: "Carry the partial token.", anchored: true }],
 };
@@ -88,11 +91,12 @@ beforeEach(() => {
   detail = DETAIL;
   review = null;
   instructions = "";
+  reviewerPick = null;
 });
 afterEach(() => cleanup());
 
-async function mount() {
-  const store = createAppStore(fakeApi());
+async function mount(data: FakeData = {}) {
+  const store = createAppStore(fakeApi(data));
   await store.getState().boot();
   render(<StoreContext.Provider value={store}>
     <CodeReviewPage item={item("cr", "s1", { kind: "code-review-page", title: "Code review", refId: PAGE_REF_IDS["code-review-page"] })} visible />
@@ -228,7 +232,7 @@ describe("Review with…", () => {
     await openRequest();
     fireEvent.click(screen.getByRole("button", { name: "Review with Fable 5.1" }));
     await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
-    expect(called("codeReview.review")[0]!.params).toEqual({ ref, profileId: "p1", spaceId: "s1", projectId: null, agentKind: "claude", model: null });
+    expect(called("codeReview.review")[0]!.params).toEqual({ ref, profileId: "p1", spaceId: "s1", projectId: null, agentKind: "claude", model: null, effort: null, fastMode: false });
     expect(await screen.findByRole("button", { name: "Reviewing…" })).toBeDisabled();
     expect(called("codeReview.submit")).toHaveLength(0);
   });
@@ -347,6 +351,92 @@ describe("Review with…", () => {
     const by = note.querySelector(".cr-note-by")!;
     expect(by).toHaveTextContent("Fable 5.1");
     expect(by.querySelector('svg[data-brand="claude"]')).not.toBeNull();
+  });
+
+  it("sets the reviewer's level and fast mode on the picker's own card, says them on the body, and the review runs at them", async () => {
+    /* The owner, 10-06: "The reviewer effort level can do that as well" — the card the prompter's
+       picker has, where this one had none. THE MUTANTS: the card left off this picker, the level or the
+       speed dropped on the way to the review, or the body silent about what it will run at. */
+    await mount();
+    await openRequest();
+    const sheet = await openMenu();
+    const picker = await openPicker(sheet);
+    // The model's own levels, its default named while none is set.
+    expect(within(picker).getByRole("slider", { name: "Effort" })).toHaveAttribute("aria-valuetext", "High");
+    fireEvent.keyDown(within(picker).getByRole("slider", { name: "Effort" }), { key: "End" });
+    await waitFor(() => expect(within(picker).getByRole("slider", { name: "Effort" })).toHaveAttribute("aria-valuetext", "Max"));
+    fireEvent.click(within(picker).getByRole("button", { name: "Fast mode" }));
+    await waitFor(() => expect(within(picker).getByRole("button", { name: "Fast mode" })).toHaveAttribute("aria-pressed", "true"));
+    // The menu's chip says it as the prompter's does, and the body after it.
+    const chip = within(sheet).getByRole("button", { name: "Model" });
+    expect(chip.querySelector(".chip-effort")).toHaveTextContent("Max");
+    expect(chip.querySelector(".chip-fast")).not.toBeNull();
+    const body = screen.getByRole("button", { name: "Review with Fable 5.1 Max in fast mode" });
+    expect(body.querySelector(".cr-level")).toHaveTextContent("Max");
+    // The profile's as each was set: there is no Save for a pick.
+    expect(called("codeReview.setReviewerPick").at(-1)!.params).toEqual({ profileId: "p1", pick: { agentKind: "claude", model: null, effort: "max", fastMode: true } });
+    fireEvent.click(body);
+    await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
+    expect(called("codeReview.review")[0]!.params).toMatchObject({ agentKind: "claude", model: null, effort: "max", fastMode: true });
+  });
+
+  it("is the profile's reviewer in the next window — the model, its level and the bolt — and its review runs at them", async () => {
+    // THE MUTANT: the pick held for the window alone, so a relaunch is back on the default at its default.
+    reviewerPick = { agentKind: "claude", model: "claude-opus-5-5", effort: "xhigh", fastMode: true };
+    await mount();
+    await openRequest();
+    const body = await screen.findByRole("button", { name: "Review with Opus 5.5 XHigh in fast mode" });
+    expect(body).toHaveAttribute("title", "A read-only Opus 5.5 at XHigh effort in fast mode reads the diff and leaves findings for you — nothing is posted");
+    fireEvent.click(body);
+    await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
+    expect(called("codeReview.review")[0]!.params).toMatchObject({ agentKind: "claude", model: "claude-opus-5-5", effort: "xhigh", fastMode: true });
+  });
+
+  it("gives a level the newly picked model does not take to that model's own default — on the card, the body and the review — and has it back with one that does", async () => {
+    /* As the prompter does: a session's row keeps a level set under another model, and the card shows
+       what runs in its place. THE MUTANT: the held level sent to a model that does not take it. */
+    reviewerPick = { agentKind: "claude", model: "claude-opus-5-5", effort: "max", fastMode: false };
+    await mount({ settings: { [MODEL_EFFORTS_KEY]: { "claude:claude-sonnet-5": ["low", "medium", "high"] } } });
+    await openRequest();
+    await screen.findByRole("button", { name: "Review with Opus 5.5 Max" });
+    const sheet = await openMenu();
+    const picker = await openPicker(sheet);
+    const pick = (name: RegExp) => { const row = within(picker).getByRole("option", { name }); fireEvent.pointerDown(row); fireEvent.click(row); };
+    pick(/^Claude Sonnet 5/);
+    const track = await within(picker).findByRole("slider", { name: "Effort" });
+    await waitFor(() => expect(track).toHaveAttribute("aria-valuemax", "2"));
+    expect(track).toHaveAttribute("aria-valuetext", "High");
+    // Its own default is what runs, so there is nothing to put back.
+    expect(within(picker).queryByRole("button", { name: "Reset effort" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Review with Sonnet 5" })).toBeInTheDocument();
+    expect(reviewerPick).toEqual({ agentKind: "claude", model: "claude-sonnet-5", effort: "max", fastMode: false });
+    pick(/^Claude Opus 5\.5/);
+    expect(await screen.findByRole("button", { name: "Review with Opus 5.5 Max" })).toBeInTheDocument();
+    pick(/^Claude Sonnet 5/);
+    fireEvent.click(await screen.findByRole("button", { name: "Review with Sonnet 5" }));
+    await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
+    expect(called("codeReview.review")[0]!.params).toMatchObject({ model: "claude-sonnet-5", effort: null });
+  });
+
+  it("names the level a review was started at wherever it names the reviewer's model — over the run, and over each finding", async () => {
+    // THE MUTANTS: the level left off either, or read from the pick rather than from the run.
+    review = { ...REVIEW, effort: "xhigh" };
+    await mount();
+    await openRequest();
+    const head = within(await screen.findByRole("region", { name: "Review" })).getByText(/^Review by/);
+    expect(head).toHaveTextContent("Review by Fable 5.1 XHigh");
+    expect(head.querySelector(".cr-level")).toHaveTextContent("XHigh");
+    fireEvent.click(screen.getByRole("radio", { name: /Changes/ }));
+    const note = (await screen.findByText("Carry the partial token.")).closest(".cr-note")!;
+    expect(note.querySelector(".cr-note-by")).toHaveTextContent("Fable 5.1 XHigh");
+  });
+
+  it("while a review runs at a level, says it over the run and in the body's tooltip", async () => {
+    review = { ...REVIEW, effort: "xhigh", state: "running", summary: "", findings: [], finishedAt: null };
+    await mount();
+    await openRequest();
+    expect(await screen.findByRole("button", { name: "Reviewing…" })).toHaveAttribute("title", "Fable 5.1 at XHigh effort is reviewing this pull request");
+    expect(within(screen.getByRole("region", { name: "Review" })).getByText(/is reviewing…$/)).toHaveTextContent("Fable 5.1 XHigh is reviewing…");
   });
 
   it("keeps the profile's instructions from the chevron, with an example a press away, and Save and run runs", async () => {

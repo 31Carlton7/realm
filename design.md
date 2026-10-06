@@ -509,6 +509,10 @@ acronym that is uppercase anyway (a file extension on a tile).
   still works, and stays live while the body waits: what it sets is for the next run. Narrow, the
   body keeps its verb — a mark, a name and a chevron is the picker's chip, and a press on it would
   start what a chip only chooses.
+- An action that names how it will run says the level and the bolt as the picker's chip does, one
+  rung quieter than the name — "Review with Opus 5.5 XHigh" — and starts exactly that. A level the
+  pick holds from another model, or for a model that names none, is neither shown nor sent, and comes
+  back with a model that takes it (the reviewer, 10-06). Narrow, the level and the bolt yield first.
 - Align asymmetric icons optically. A mathematically centered arrow or play mark can still look wrong.
 - A press is a fill, not a size. AppKit buttons darken on the mouse-down frame and never shrink;
   the shrink is a touch idiom, where a finger hides the control and scale is the only feedback left

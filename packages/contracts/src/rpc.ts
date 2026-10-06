@@ -25,7 +25,7 @@ import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } fro
 import { ReviewResultSchema } from "./review";
 import {
   GhStatusSchema, PrDetailSchema, PrFilesSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
-  PR_PATCHES_PER_CALL, ReviewInstructionsSchema, SubmitReviewSchema, SubmittedReviewSchema,
+  PR_PATCHES_PER_CALL, ReviewInstructionsSchema, ReviewerPickSchema, SubmitReviewSchema, SubmittedReviewSchema,
 } from "./code-review";
 import { DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
@@ -1633,14 +1633,20 @@ export const Methods = {
   "codeReview.instructions": { params: z.object({ profileId: IdSchema }), result: ReviewInstructionsSchema },
   /** Refused, not trimmed, past `REVIEW_INSTRUCTIONS_MAX` (INSTRUCTIONS_TOO_LONG). */
   "codeReview.setInstructions": { params: z.object({ profileId: IdSchema, text: z.string() }), result: ReviewInstructionsSchema },
+  /** The profile's reviewer — the model Review with… names, and the level and fast mode its card sets
+   *  — or null until one is picked. An agent that cannot be held to read-only is refused. */
+  "codeReview.reviewerPick": { params: z.object({ profileId: IdSchema }), result: z.object({ pick: ReviewerPickSchema.nullable() }) },
+  "codeReview.setReviewerPick": { params: z.object({ profileId: IdSchema, pick: ReviewerPickSchema }), result: ReviewerPickSchema },
   "codeReview.pins": { params: z.object({ profileId: IdSchema }), result: z.object({ pins: z.array(PrSummarySchema) }) },
   "codeReview.setPinned": { params: z.object({ profileId: IdSchema, pr: PrSummarySchema, pinned: z.boolean() }), result: z.object({ pins: z.array(PrSummarySchema) }) },
   /**
    * Review with… — run a read-only reviewer session on the chosen model over the request's diff,
-   * under the profile's saved instructions. Returns as soon as the session exists; its findings land
-   * as `codeReview.reviewChanged`. They are the person's to keep or discard: nothing here posts.
+   * under the profile's saved instructions, at the level and speed the menu's card set. Returns as
+   * soon as the session exists; its findings land as `codeReview.reviewChanged`. They are the
+   * person's to keep or discard: nothing here posts.
    */
-  "codeReview.review": { params: z.object({ ref: PrRefSchema, profileId: IdSchema, spaceId: IdSchema, projectId: IdSchema.nullable().default(null), agentKind: AgentKindSchema, model: z.string().nullable().default(null), effort: z.string().nullable().default(null) }), result: PrReviewSchema },
+  "codeReview.review": { params: z.object({ ref: PrRefSchema, profileId: IdSchema, spaceId: IdSchema, projectId: IdSchema.nullable().default(null), agentKind: AgentKindSchema, model: z.string().nullable().default(null), effort: z.string().nullable().default(null),
+    fastMode: z.boolean().default(false) }), result: PrReviewSchema },
   /** The request's latest reviewer run, or null. */
   "codeReview.reviewGet": { params: z.object({ ref: PrRefSchema }), result: z.object({ review: PrReviewSchema.nullable() }) },
   /** Every space of the profile and its projects, with the GitHub repository each checkout pushes to. */
