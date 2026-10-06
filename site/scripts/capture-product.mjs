@@ -797,7 +797,7 @@ const scenes = [
       await shot("delegation", expect)
       // The cards and the count over them.
       const box = await boxOf([".view-panel:not([hidden]) .subagent"], 20)
-      if (box) await shot("sub-agents", expect, { clip: { ...box, y: Math.max(0, box.y - 40), height: box.height + 40 } })
+      if (box) await shot("sub-agents", expect, { clip: { ...box, y: Math.max(0, box.y - 32), height: box.height + 32 } })
     },
   },
   {
@@ -836,12 +836,13 @@ const scenes = [
       const terminal = (await rpc.call("items.listAll", {})).filter((item) => item.kind === "terminal").at(-1)
       if (!terminal) throw new Error("No terminal item to write to")
       // No vimrc and no viminfo, so nothing of anybody's is read or written; the function the turn
-      // rewrote at the top of the screen. TypeScript's syntax is slow enough to trip vim's default
-      // redraw budget on a busy machine, which switches highlighting off halfway down the file and
-      // says so across the foot of the screen — hence the longer one.
-      await rpc.call("terminals.write", { terminalId: terminal.refId, data: "clear; vim -u NONE -i NONE -N -n --cmd 'set redrawtime=10000 bg=dark' --cmd 'filetype on' --cmd 'syntax on' -c 'set number laststatus=2 ruler linebreak breakindent' +81 -c 'normal! zt' web/lib/orgs.ts\r" })
+      // rewrote in the middle of the screen. Coloured as JavaScript: vim's TypeScript syntax blew its
+      // redraw budget on this file's `async function` line even at ten seconds, and switched the
+      // highlighting off halfway down the screen with a message across its foot.
+      await rpc.call("terminals.write", { terminalId: terminal.refId, data: "clear; vim -u NONE -i NONE -N -n --cmd 'set bg=dark' --cmd 'syntax on' -c 'set ft=javascript number laststatus=2 ruler linebreak breakindent' -c 'normal! 62Gzt81G' web/lib/orgs.ts\r" })
       await until(async () => (await rpc.call("terminals.programs", {}).catch(() => ({})))[terminal.refId]?.id === "editor", 15_000, "vim in the foreground")
-      await sleep(1500)
+      await until(async () => (await rpc.call("terminals.read", { terminalId: terminal.refId, cursor: null }).catch(() => null))?.live.includes("withInviteDefaults"), 30_000, "vim's screen drawn")
+      await sleep(1200)
       await park()
       await shot("terminal", `!!document.querySelector('.view-panel:not([hidden]) .xterm') && [...document.querySelectorAll('.view-panel:not([hidden]) [role=tab]')].some((t) => t.textContent.includes('vim'))`)
       await rpc.call("terminals.write", { terminalId: terminal.refId, data: "\x1b:qa!\r" }).catch(() => null)
