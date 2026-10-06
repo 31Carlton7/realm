@@ -396,6 +396,9 @@ describe("removing files from the Library", () => {
     const insert = db.prepare("INSERT INTO library_files (id, profile_id, path, name, ext, size, digest, ts) VALUES (?, ?, ?, ?, ?, 1, ?, ?)");
     insert.run("Fdesk", profile.id, desktop, "taxes.pdf", "pdf", "d1", 2);
     insert.run("Fwalk", profile.id, walked, "theirs.md", "md", "d2", 1);
+    // Another profile's copy, named exactly, is that profile's to remove and not this one's.
+    expect(await files.remove({ profileId: profile.id, paths: [theirs.path] })).toEqual({ removed: [], messages: 0, removal: null });
+    expect(rows(db)).toBe(3);
     const out = await files.remove({ profileId: profile.id, paths: [desktop, walked] });
     expect(out.removed.map((e) => e.id).sort()).toEqual(["Fdesk", "Fwalk"]);
     expect(readFileSync(desktop, "utf8")).toBe("%PDF-taxes");
