@@ -139,13 +139,9 @@ const check = (name, cond, detail) => {
 };
 const note = (name, detail) => console.log(`NOTE ${name} ${JSON.stringify(detail)}`);
 
-const frame = () => new Promise((r) => setTimeout(r, 0));
 /** Two frames: what a style change has to wait for before a capture can see it. */
 const settle = (c) => evalIn(c, `new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))`);
 const park = (c) => c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 900, y: 500 });
-const escape = async (c) => {
-  for (const type of ["keyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-};
 /** Hold the window key: an unkeyed window greys its accent, and the live window opens behind. */
 const holdKey = (c) => evalIn(c, `(() => { const r = document.documentElement; const hold = () => r.removeAttribute('data-window-inactive');
   hold(); if (!globalThis.__keyHeld) { new MutationObserver(hold).observe(r, { attributes: true, attributeFilter: ['data-window-inactive'] }); globalThis.__keyHeld = true; } return true; })()`);
@@ -174,14 +170,16 @@ async function columns(c, clip) {
 const SHADE_OFF = `.sidebar-shade { display: none !important; } .app:not([data-sidebar-folded]) > .main::after { display: none !important; }`;
 
 /** The two seams' strips, with and without the shade. `depth` is per CSS px column, in 8-bit levels
- *  (positive = darker than the ground without the shade); `sum` adds them across the strip, which is
- *  how the depth was matched when the shade was first lightened (10-04): at a couple of levels the
- *  gradient lands in whole steps, so its peak alone says little. */
-async function seams(c, { y0, y1 } = {}) {
+ *  (positive = darker than the ground without the shade), and each side of a seam is summed across
+ *  its 12px — `outside` the column and `inside` it at the rail, the `column` and the `panes` at the
+ *  seam — which is how the depth was matched when the shade was first lightened (10-04): at a couple
+ *  of levels the gradient lands in whole steps, so its peak alone says little. */
+async function seams(c) {
   const g = await evalIn(c, `(() => ({ rail: document.querySelector('.app-rail').getBoundingClientRect().right,
     main: document.querySelector('.main').getBoundingClientRect().left,
     column: document.getElementById('app-sidebar').getBoundingClientRect().width }))()`);
-  const top = y0 ?? 290, bottom = y1 ?? VIEW.height - 120;
+  // A band clear of the rail's destinations above and the person at its foot.
+  const top = 290, bottom = VIEW.height - 120;
   const clipRail = { x: Math.round(g.rail) - 12, y: top, width: 24, height: bottom - top };
   const clipMain = { x: Math.round(g.main) - 12, y: top, width: 24, height: bottom - top };
   const railOn = await columns(c, clipRail), mainOn = await columns(c, clipMain);
@@ -198,7 +196,7 @@ async function seams(c, { y0, y1 } = {}) {
       for (let j = 0; j < k; j++) d += off.cols[i + j] - on.cols[i + j];
       perCss.push(+(d / k).toFixed(2));
     }
-    return { depth: perCss, sum: +perCss.reduce((a, b) => a + b, 0).toFixed(2), ground: on.cols.slice(0, k).reduce((a, b) => a + b, 0) / k, alpha: Math.min(...on.alpha) };
+    return { depth: perCss, ground: on.cols.slice(0, k).reduce((a, b) => a + b, 0) / k, alpha: Math.min(...on.alpha) };
   };
   const rail = fold(railOn, railOff), main = fold(mainOn, mainOff);
   // The rail's right 12px are the strip's first twelve CSS columns; the column's first 12px the rest.
@@ -220,8 +218,8 @@ async function headBand(c) {
   return +on.cols.reduce((s, v, i) => s + (off.cols[i] - v), 0).toFixed(2) / on.k;
 }
 
-/** The corner, row by row: for each row from the rim down, the depth summed over the 12px left of the
- *  column's edge and over the 12px right of it (where the corner's outside is chrome). */
+/** The corner, row by row: for each row from just above the rim down, the depth summed over the 12px
+ *  left of the column's edge and over the 16px right of it (where the corner's outside is chrome). */
 async function cornerRows(c) {
   const rail = Math.round(await evalIn(c, `document.querySelector('.app-rail').getBoundingClientRect().right`));
   const rows = [];
@@ -422,6 +420,11 @@ async function measureFace(c, mode) {
   check(`${mode}: …and none on the panes' edge`, Math.abs(homeSeams.main.panes) < 0.3 && Math.abs(homeSeams.main.column) < 0.3, { panes: homeSeams.main.panes, column: homeSeams.main.column });
   const band = await headBand(c);
   check(`${mode}: the head row takes none of it`, Math.abs(band) < 0.3, { band });
+  /* The shade's box covers the column and comes after its buttons in the document, which is the order
+     Electron lays drag regions down in: a `drag` there would take every click in the column for a
+     window drag, a `no-drag` would stop the window moving by the column. It must set neither. */
+  const region = await evalIn(c, `getComputedStyle(document.querySelector('.sidebar-shade')).getPropertyValue('-webkit-app-region')`);
+  check(`${mode}: the shade takes no part in the window's drag regions`, region === "none", { region });
   const corner = await cornerRows(c);
   note(`${mode} corner rows (depth summed over the 12px left of the column's edge | the 16px right of it)`, corner.map((r) => `${r.y}:${r.left}|${r.right}`).join(" "));
   check(`${mode}: the corner's shade stops at the rim — nothing above it`, corner.filter((r) => r.y < 40).every((r) => Math.abs(r.left) < 0.3 && Math.abs(r.right) < 0.3), corner.filter((r) => r.y < 40));
