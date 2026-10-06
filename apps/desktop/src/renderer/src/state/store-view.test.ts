@@ -441,6 +441,84 @@ describe("room, and the side panel's place", () => {
   });
 });
 
+describe("moving around the view", () => {
+  let api: FakeApi;
+  beforeEach(() => { api = twoSpaces(); });
+
+  it("moves the keyboard between panes and into the panel, and never into one not drawn", async () => {
+    // THE MUTANT: walk the tree regardless of the panel's place — the keyboard would go into a panel
+    // that is put away, or past a zoomed pane into one nobody can see.
+    const store = await sideBySide(api);
+    browser(api, "s1", "i-wa");
+    await store.getState().refreshItems();
+    await store.getState().openInSidePane("a", "i-wa");
+    const panel = () => findPanel(store.getState().layout!)!.id;
+    store.getState().focusLeaf(leafOf(store, "i-a"));
+    store.getState().focusNeighbor("right");
+    expect(focusedItem(store)).toBe("i-b");
+    store.getState().focusNeighbor("right");
+    expect(store.getState().focusedLeafId).toBe(panel());
+    store.getState().focusNeighbor("left");
+    expect(focusedItem(store)).toBe("i-b");
+    // Under pane focus: the one pane and the panel beside it.
+    await store.getState().focusPaneFull(leafOf(store, "i-a"));
+    store.getState().focusNeighbor("right");
+    expect(store.getState().focusedLeafId).toBe(panel());
+    store.getState().focusNeighbor("left");
+    expect(focusedItem(store)).toBe("i-a");
+    await store.getState().unfocusPane();
+    // Put away, the panel is not somewhere to go.
+    await store.getState().toggleSidePanes();
+    store.getState().focusLeaf(leafOf(store, "i-b"));
+    store.getState().focusNeighbor("right");
+    expect(focusedItem(store)).toBe("i-b");
+  });
+
+  it("opens Changes in the run of the session working in that checkout, whichever pane has the keyboard", async () => {
+    api.data.environments = { s1: [{ id: "env-a", spaceId: "s1", path: "/w/a", branch: "main", kind: "primary", portBlockStart: null, createdAt: 0, updatedAt: 0 }] };
+    api.data.sessions = api.data.sessions.map((x) => (x.id === "a" ? { ...x, environmentId: "env-a" } : x));
+    const store = await sideBySide(api);
+    store.getState().focusLeaf(leafOf(store, "i-b"));
+    await store.getState().openDiff("env-a");
+    const diff = store.getState().items.find((i) => i.kind === "diff")!.id;
+    const panel = findPanel(store.getState().layout!)!;
+    expect(tabOwner(panel, diff)).toBe("i-a");
+    expect(primaryLeaves(store.getState().layout!).map((p) => p.itemId)).toEqual(["i-a", "i-b"]);
+  });
+});
+
+describe("views stored by older builds, restored at boot", () => {
+  it("folds a Plan 27 view's side pane per session into the one panel, the keyboard's strip still showing", async () => {
+    // Typed out in the shape Plan 27 stored, never made by today's functions.
+    const stored = JSON.parse(`{
+      "v": 1,
+      "layout": { "type": "split", "id": "R", "dir": "row", "sizes": [50, 50], "children": [
+        { "type": "split", "id": "C1", "dir": "row", "sizes": [50, 50], "children": [
+          { "type": "leaf", "id": "LA", "itemId": "i-a" },
+          { "type": "leaf", "id": "TA", "itemId": "i-wa", "tabs": ["i-wa"], "owner": "i-a" } ] },
+        { "type": "split", "id": "C2", "dir": "row", "sizes": [50, 50], "children": [
+          { "type": "leaf", "id": "LB", "itemId": "i-b" },
+          { "type": "leaf", "id": "TB", "itemId": "i-wb", "tabs": ["i-wb"], "owner": "i-b" } ] } ] },
+      "zoomedLeafId": null,
+      "sidePanes": { "i-c": { "tabs": ["i-wc"], "itemId": "i-wc" } },
+      "focusedItemId": "i-wb",
+      "focusedLeafId": "TB"
+    }`);
+    const api = twoSpaces({ settings: { "ui.view:p1": stored } });
+    browser(api, "s1", "i-wa"); browser(api, "s2", "i-wb"); browser(api, "s1", "i-wc");
+    const store = await booted(api);
+    const l = store.getState().layout!;
+    const panel = findPanel(l)!;
+    expect(primaryLeaves(l).map((p) => p.itemId)).toEqual(["i-a", "i-b"]);
+    expect(panel.tabs).toEqual(["i-wa", "i-wb"]);
+    expect(panel.itemId).toBe("i-wb");
+    expect(store.getState().focusedLeafId).toBe(panel.id);
+    expect(store.getState().view!.sidePanes).toEqual({ "i-c": { tabs: ["i-wc"], itemId: "i-wc" } });
+    expect(store.getState().view!.panelShare).toBeUndefined();
+    expect(l.type === "split" ? l.sizes : null).toEqual([50, 50]);
+  });
+});
+
 describe("the view across a relaunch", () => {
   let api: FakeApi;
   beforeEach(() => { api = twoSpaces(); });
@@ -512,6 +590,24 @@ describe("the view across a relaunch", () => {
     expect(open(store)).toEqual(["i-a", "i-b"]);
     await store.getState().selectProfile("p3");
     expect(open(store)).toEqual(["i-t"]);
+  });
+
+  it("keeps the panel's width per profile — each window's own", async () => {
+    api.data.profiles.push(profile("p3", "School"));
+    api.data.spaces.push(space("s3", "p3", "Thesis"));
+    api.data.items.s3 = [item("i-t", "s3", { kind: "session", refId: "t" })];
+    api.data.sessions.push(session("t", "s3"));
+    const store = await sideBySide(api);
+    store.getState().resizePanel(0.3, { commit: true });
+    await store.getState().flushPersist();
+    await store.getState().selectProfile("p3");
+    expect(store.getState().view!.panelShare).toBeUndefined();
+    store.getState().resizePanel(0.7, { commit: true });
+    await store.getState().flushPersist();
+    await store.getState().selectProfile("p1");
+    expect(store.getState().view!.panelShare).toBe(0.3);
+    await store.getState().selectProfile("p3");
+    expect(store.getState().view!.panelShare).toBe(0.7);
   });
 });
 
