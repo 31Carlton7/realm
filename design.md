@@ -467,6 +467,10 @@ acronym that is uppercase anyway (a file extension on a tile).
   prompter's send button. A bar across the top that stays until closed is a chore charged for news.
   What needs a DECISION — a permission, a sign-in, a server that has gone — is not a toast: it stays
   where it is until it is answered.
+- A toast may carry ONE action, and only the one that takes back what it reports. Remove from Library
+  asks nothing first, because its toast's Undo puts the file back exactly and a question would guard
+  nothing; that toast outlasts a receipt and never folds into another that reads alike, since each is
+  an offer still open. What it removes is named: Realm's own copy goes, the original never does.
 - State the screen has stopped showing belongs on the control that changes it, not on a strip that
   reports it. A focused pane hides its siblings, and the answer to that was a banner across the top
   of the window reading "Focused: <title> | Unfocus" — a whole row of chrome, and a second place to
