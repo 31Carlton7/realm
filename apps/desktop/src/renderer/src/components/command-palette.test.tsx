@@ -302,7 +302,8 @@ describe("CommandPalette", () => {
     expect(split()[0]!.textContent).toBe("Split rightNo room for another pane beside it");
     // Chosen anyway (Return on it), it does nothing.
     fireEvent.click(split()[0]!);
-    expect(store.getState().layout?.type === "split" ? store.getState().layout!.children : []).toHaveLength(2);
+    const l = store.getState().layout;
+    expect(l?.type === "split" ? l.children : []).toHaveLength(2);
   });
 
 });
