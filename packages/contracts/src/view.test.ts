@@ -163,6 +163,15 @@ describe("normalizeView — tabs merge and part by owner", () => {
     expect(strip(v)).toEqual(["A:a1", "A:a2", "B:b1"]);
   });
 
+  it("gives the session in the fourth pane its run as much as the first's", () => {
+    const grid = split("M", "col", [split("r1", "row", [leaf("A"), leaf("B")]), split("r2", "row", [leaf("C"), leaf("D")])]);
+    const v = normalizeView(view(split("R", "row", [grid, panelLeaf([["d1", "D"], ["a1", "A"], ["c1", "C"]], "d1")])));
+    expect(strip(v)).toEqual(["A:a1", "C:c1", "D:d1"]);
+    expect(showing(v)).toBe("d1");
+    expect(v.sidePanes).toEqual({});
+    expectCanonical(v);
+  });
+
   it("puts a run back in reading order when the panes it follows move", () => {
     const tangled = view(split("R", "row", [split("M", "row", [leaf("B"), leaf("A")]), panelLeaf([["a1", "A"], ["b1", "B"], ["a2", "A"]])]));
     const v = normalizeView(tangled);
