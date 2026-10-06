@@ -70,6 +70,8 @@ export type LibraryEntry = z.infer<typeof LibraryEntrySchema>;
 /** One page. Large enough that a first screen of a Drive-style grid is one round trip at any
  *  reasonable window size, small enough that the query stays an index range scan. */
 export const LIBRARY_PAGE_SIZE = 60;
+/** The most rows one read may ask for: what a page already showing several pages asks again, at most. */
+export const LIBRARY_QUERY_MAX = 200;
 
 export const LibraryQuerySchema = z.object({
   /** Null spans every space in the profile, which is what "across all sessions" means. */
@@ -95,7 +97,7 @@ export const LibraryQuerySchema = z.object({
    *  to also match the eleven directories above it. */
   query: z.string().default(""),
   /** Newest first by default — the same order every other list of session output takes. */
-  limit: z.number().int().positive().max(200).default(LIBRARY_PAGE_SIZE),
+  limit: z.number().int().positive().max(LIBRARY_QUERY_MAX).default(LIBRARY_PAGE_SIZE),
   /** Keyset, not offset: `(ts, id)` strictly below this. An OFFSET page over a table that grows at
    *  the head silently repeats and skips rows while the user is scrolling it. */
   before: z.object({ ts: z.number(), id: z.string() }).nullable().default(null),

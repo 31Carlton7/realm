@@ -549,6 +549,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     pickIconImage: overrides.pickIconImage ?? null,
   };
   let n = 100;
+  /** `library.remove`'s holds, by removal id: what each took from `artifacts`, and where it stood. */
+  const removals = new Map<string, { entry: LibraryEntry; index: number }[]>();
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
   const findRun = (id: string) => {
     const r = Object.values(data.runs).flat().find((x) => x.id === id);
@@ -783,6 +785,32 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         else result.folders.push({ path, name: basenameOf(path), files: folder.files.length, bytes: folder.bytes, subfolders: folder.subfolders, more: folder.files.length > LIBRARY_ADD_MAX });
       }
       return result;
+    },
+    /* The server's rule: only the profile's ADDED files are taken, and the index's other listings of
+       the same copy go with them — each remembered where it stood, so the undo puts it back there. */
+    removeLibraryFiles: async (input) => {
+      calls.push(`removeLibraryFiles:${input.profileId}:${input.paths.join(",")}`);
+      await wait("removeLibraryFiles");
+      const copies = new Set(data.artifacts.filter((a) => a.kind === "added" && input.paths.includes(a.path) && data.addedProfiles[a.id] === input.profileId).map((a) => a.path));
+      if (copies.size === 0) return { removed: [], messages: 0, removal: null };
+      const taken = data.artifacts.flatMap((entry, index) => (copies.has(entry.path) ? [{ entry, index }] : []));
+      data.artifacts = data.artifacts.filter((a) => !copies.has(a.path));
+      const removal = `removal:${++n}`;
+      removals.set(removal, taken);
+      return {
+        removed: taken.filter((t) => t.entry.kind === "added").map((t) => t.entry),
+        messages: taken.filter((t) => t.entry.kind === "upload").length,
+        removal,
+      };
+    },
+    restoreLibraryFiles: async (input) => {
+      calls.push(`restoreLibraryFiles:${input.removal}`);
+      await wait("restoreLibraryFiles");
+      const taken = removals.get(input.removal);
+      if (!taken) throw new Error("That removal can't be undone any more: Realm has deleted its copies.");
+      removals.delete(input.removal);
+      for (const { entry, index } of taken) data.artifacts.splice(index, 0, entry);
+      return { restored: taken.filter((t) => t.entry.kind === "added").map((t) => t.entry), renamed: [] };
     },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
     listEnvironments: async (sid) => { calls.push(`listEnvironments:${sid}`); await wait(`listEnvironments:${sid}`); return data.environments[sid] ?? []; },

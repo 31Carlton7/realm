@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 /**
  * A picture of a file on disk, cached once per path for the life of the window.
@@ -24,11 +24,33 @@ const inflight = new Map<string, Promise<string | null>>();
  *  `preview` is meant to be read. */
 export type ThumbnailSize = "tile" | "card" | "preview";
 
+/** How many times each path has been forgotten, so a picture already on screen asks again. */
+const epochs = new Map<string, number>();
+const listeners = new Set<() => void>();
+const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
+
 /** Test seam and cache reset. Nothing in the app calls this; the suite does, between cases that
  *  would otherwise see each other's answers. */
 export function resetThumbnailCache(): void {
   cache.clear();
   inflight.clear();
+  epochs.clear();
+}
+
+/**
+ * Forget every picture of these files, at every size, and have each one on screen asked for again —
+ * the one exception to "a path's picture is a pure function of the path". A file taken out of the
+ * Library is gone from every tile that showed it, a sent message's included, and an undo puts it
+ * back; the same path answers differently on each side of either.
+ */
+export function forgetThumbnails(paths: Iterable<string>): void {
+  const gone = new Set(paths);
+  if (gone.size === 0) return;
+  const of = (key: string) => key.slice(key.indexOf(":") + 1);
+  for (const key of [...cache.keys()]) if (gone.has(of(key))) cache.delete(key);
+  for (const key of [...inflight.keys()]) if (gone.has(of(key))) inflight.delete(key);
+  for (const path of gone) epochs.set(path, (epochs.get(path) ?? 0) + 1);
+  for (const fn of listeners) fn();
 }
 
 function load(path: string, size: ThumbnailSize): Promise<string | null> {
@@ -41,9 +63,14 @@ function load(path: string, size: ThumbnailSize): Promise<string | null> {
     ? window.realm?.files?.preview?.(path)
     : size === "card" ? window.realm?.attachmentThumbnail?.(path, "card")
     : window.realm?.attachmentThumbnail?.(path);
+  // An answer to a question asked before the path was forgotten is about the file as it was then.
+  const asked = epochs.get(path) ?? 0;
   const p = (ask ?? Promise.resolve(null))
     .catch(() => null)
-    .then((url) => { cache.set(key, url); inflight.delete(key); return url; });
+    .then((url) => {
+      if ((epochs.get(path) ?? 0) !== asked) return url;
+      cache.set(key, url); inflight.delete(key); return url;
+    });
   inflight.set(key, p);
   return p;
 }
@@ -64,6 +91,7 @@ function load(path: string, size: ThumbnailSize): Promise<string | null> {
 export function useThumbnail(path: string | null, size: ThumbnailSize = "tile", ask = true): string | null {
   const key = path === null ? null : `${size}:${path}`;
   const [url, setUrl] = useState<string | null>(() => (key === null ? null : cache.get(key) ?? null));
+  const epoch = useSyncExternalStore(subscribe, () => (path === null ? 0 : epochs.get(path) ?? 0));
   useEffect(() => {
     if (path === null || key === null) { setUrl(null); return; }
     if (cache.has(key)) { setUrl(cache.get(key) ?? null); return; }
@@ -71,6 +99,6 @@ export function useThumbnail(path: string | null, size: ThumbnailSize = "tile", 
     let live = true;
     void load(path, size).then((u) => { if (live) setUrl(u); });
     return () => { live = false; };
-  }, [path, key, size, ask]);
+  }, [path, key, size, ask, epoch]);
   return url;
 }

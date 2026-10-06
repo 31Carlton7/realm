@@ -4,6 +4,8 @@ import { chordsForCommand, displayKeyChord, documentKindFor, type DocumentKind, 
 import { useApp } from "../../state/store";
 import { TYPE_ICON } from "../../components/FileCard";
 import { fileDragProps, quickLookOnSpace } from "../../components/file-actions";
+import { fileMenuItems, isMenuKey, removeOnDelete } from "../../components/file-menu";
+import { Menu } from "../../components/Menu";
 import { useDissolve } from "../../components/ScrollFades";
 import { SEARCH_DEBOUNCE_MS, relTime } from "../../components/CommandPalette";
 import { CodeFilePrompt, NEW_KINDS, NewMenu } from "./NewMenu";
@@ -61,6 +63,7 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
   const libraryRevision = useApp((s) => s.libraryRevision);
   const attachPaths = useApp((s) => s.attachPaths);
   const removeAttachment = useApp((s) => s.removeAttachment);
+  const removeLibraryFiles = useApp((s) => s.removeLibraryFiles);
   const openDestinationPage = useApp((s) => s.openDestinationPage);
   const openViewer = useApp((s) => s.openViewer);
   const keybindings = useApp((s) => s.keybindings);
@@ -166,11 +169,31 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
     else rows[at - 1]!.focus();
   };
 
+  /* A file the person added goes back out of the Library from here too — its menu, or Delete on the
+     row — and the keyboard moves on to the row after it once the lists without it are back. */
+  const focusNext = useRef<string | null>(null);
+  useEffect(() => {
+    const key = focusNext.current;
+    if (key === null || !scroller.current) return;
+    const row = scroller.current.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"] > .docs-home-open`);
+    if (!row) return;
+    focusNext.current = null;
+    row.focus();
+  }, [sections]);
+  const remove = (f: HomeFile) => (f.from?.kind === "added" && f.abs && profileId ? () => run(async () => {
+    const rows = [...(scroller.current?.querySelectorAll<HTMLElement>(".docs-home-row[data-key]") ?? [])];
+    const at = rows.findIndex((r) => r.dataset["key"] === f.key);
+    const held = at >= 0 && rows[at]!.contains(document.activeElement);
+    const next = rows[at + 1] ?? rows[at - 1];
+    const r = await removeLibraryFiles(profileId, [f.abs!]);
+    if (held && next && r?.removal) focusNext.current = next.dataset["key"] ?? null;
+  }) : null);
+
   const toggle = (id: string) => setExpanded((cur) => { const next = new Set(cur); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const rowsOf = (id: string, files: HomeFile[]) => (
     <ul className="docs-home-rows">
       {(expanded.has(id) ? files : files.slice(0, SECTION_ROWS)).map((f) => (
-        <HomeRow key={f.key} file={f} query={lists?.forQuery ?? ""} onOpen={() => open(f)} attach={attach(f)} />
+        <HomeRow key={f.key} file={f} query={lists?.forQuery ?? ""} onOpen={() => open(f)} attach={attach(f)} onRemove={remove(f)} />
       ))}
       {files.length > SECTION_ROWS && (
         <li><button type="button" className="btn-quiet docs-home-more" onClick={() => toggle(id)}>
@@ -279,23 +302,35 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
 /**
  * One file: its kind's glyph, its name, the one thing its list knows (the folder it is in, that it
  * was attached, the session it came from), and when it was last touched. A row is a file the way a
- * Finder row is — Space shows it in Quick Look and it drags out — and beside it, the one thing only
- * this pane can do with it: put it in the next message to the session.
+ * Finder row is — Space shows it in Quick Look, it drags out, and a right-click is the file's menu, the
+ * same one its Library tile has — and beside it, the one thing only this pane can do with it: put it in
+ * the next message to the session.
  */
-function HomeRow({ file, query, onOpen, attach }: {
+function HomeRow({ file, query, onOpen, attach, onRemove }: {
   file: HomeFile;
   query: string;
   onOpen: () => void;
   attach: { on: boolean; toggle: () => void } | null;
+  /** Takes it out of the Library: a file the person added, and only that. */
+  onRemove: (() => void) | null;
 }) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const abs = file.abs;
   const hit = matchRun(file.name, query);
   const where = file.rel ?? (file.abs ? tildePath(file.abs) : file.path);
   const from = !file.from ? null : file.from.kind === "added" ? "Added by you"
     : `${file.from.kind === "upload" ? "Attached to" : "Made in"} ${file.from.sessionTitle ?? "a session"}`;
   return (
-    <li className="docs-home-row">
+    <li className="docs-home-row" data-key={file.key}
+      onContextMenu={abs ? (e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); } : undefined}>
       <button type="button" className="docs-home-open" title={[where, from].filter(Boolean).join("\n")} onClick={onOpen}
-        {...(file.abs ? { onKeyDown: quickLookOnSpace(file.abs), ...fileDragProps(file.abs) } : {})}>
+        {...(abs ? {
+          onKeyDown: (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+            if (isMenuKey(e)) { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4 }); return; }
+            if (!removeOnDelete(onRemove)(e)) quickLookOnSpace(abs)(e);
+          },
+          ...fileDragProps(abs),
+        } : {})}>
         <span className="docs-home-glyph" data-type={file.type}><Icon name={TYPE_ICON[file.type]} size={16} /></span>
         <span className="docs-home-name">{hit ? <>{hit.before}<mark>{hit.match}</mark>{hit.after}</> : file.name}</span>
         {file.detail && <span className="docs-home-detail">{file.detail}</span>}
@@ -308,6 +343,10 @@ function HomeRow({ file, query, onOpen, attach }: {
           title={attach.on ? "In the next message — click to take it out" : "Add to the next message"} onClick={attach.toggle}>
           <Icon name={attach.on ? "check" : "attach"} size={14} />
         </button>
+      )}
+      {menu && abs && (
+        <Menu at={menu} label={file.name} onClose={() => setMenu(null)}
+          items={fileMenuItems({ path: abs, onOpen, shareFrom: () => menu, ...(onRemove ? { onRemove } : {}) })} />
       )}
     </li>
   );
