@@ -174,18 +174,19 @@ download's progress and, once it is ready, restarts into it; and your avatar, fo
 Settings. The sidebar's head row holds its toggle, search and a new session, with the profile as the
 first row under it; back and forward sit beside the traffic lights, on ⌃- and ⌃⇧- too, and the
 toggle joins them once the sidebar has folded. The sidebar opens and closes as one box, its contents
-sliding with its edge, and casts a light shadow on the panes beside it. Landing on a session puts
-the keyboard in its prompter. The pane bars' own arrows are gone; ⌘[ and ⌘] still walk the focused
-pane's history.
+sliding with its edge, and stands a hair above the rail, casting a light shadow over it from its
+left edge. Landing on a session puts the keyboard in its prompter. The pane bars' own arrows are
+gone; ⌘[ and ⌘] still walk the focused pane's history.
 
 **A page takes the room it needs, and is left the way it was reached.** Connections has no use for
 the spaces beside it, so while it is up the sidebar is away and the page takes the width right of
 the rail; a page with a column of its own — Settings, the Library, Scheduled tasks, Code review —
-puts it in the sidebar's column under a Back instead of drawing a second sidebar beside the first.
+puts it in the sidebar's column instead of drawing a second sidebar beside the first, with a Back
+at its head only on the settings pages, which are opened from a menu rather than the rail.
 Either change lands in the frame the page opens in — only ⌘B or the toggle draws the sidebar moving
 — and leaving gives the sidebar back as it was. A page's bar is its name and nothing
 else: there is no close button, because Home, the lit rail button, a session in the sidebar, the
-column's Back and Escape already go back.
+settings pages' Back and Escape already go back.
 
 **What needs you is one list, and you can answer from it.** Needs you, at the top of the sidebar,
 gathers every session waiting on a permission or a question — longest first, then failures you have
@@ -342,13 +343,14 @@ installed and signed in, the page says what is missing, and Set up GitHub opens 
 command typed in for you to run. Its column takes a search or a pasted pull request link, and lists
 Authored by me, Needs my review and Needs my team's review, with any you pin at the top. A request
 opens on Summary — its description, whether it can merge, who has reviewed, its checks — and
-Changes, side by side or in one column, beside a file tree. Review with… runs a reviewer over the
-diff on the model you choose, held to read-only, under instructions the profile keeps, and leaves
-its findings on the page; none of them, nor any line comment of yours, reaches GitHub until you
-press Submit review and choose Comment, Approve or Request changes, with a comment, which posts it
-as you. Ask about this pull request, at its foot, puts a question to the request's own session in a
-space you choose, one whose checkout is the request's repository first, so asking twice is one
-conversation.
+Changes, side by side or in one column, beside a file tree. Review with — one button, the model's
+mark and name, and a chevron to the reviewer's instructions and its model, every model under its
+mark — runs a reviewer over the diff on the model you choose, held to read-only, under instructions
+the profile keeps, and leaves its findings on the page; none of them, nor any line comment of yours,
+reaches GitHub until you press Submit review and choose Comment, Approve or Request changes, with a
+comment, which posts it as you. Ask about this pull request, at its foot, puts a question to the
+request's own session in a space you choose, one whose checkout is the request's repository first,
+so asking twice is one conversation.
 
 **Scheduled tasks have a page of their own, and every run is a session.** The page follows Codex's
 layout. A column holds New task, your upcoming tasks — each with the model it runs on — and their runs
@@ -374,6 +376,9 @@ already loaded. Every file is one square tile, a picture filling its own. Add, a
 toolbar, or a drop anywhere on the page, brings files of yours in: Realm keeps its own copy under
 the profile, never over another file, never twice and never through a link, a dropped folder asks
 before its files go in, and they are marked Added by you wherever the Library's files are listed.
+Remove from Library — on a file's menu, its ⋯, the viewer's menu, or ⌫ — takes one back out, with
+Undo; Realm's copy waits ten minutes before it goes, and a message the file was sent with keeps its
+name. A file a session made stays: only your own come out.
 "Every space" now means every space of this window's profile; a Work window used to list what
 School's sessions had made. Saved lists the turns you save from a transcript's track. Memory was a
 textarea with a Save button. It is the document itself now, at reading size, with Write and Preview:
