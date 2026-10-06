@@ -1,3 +1,4 @@
+import Image from "next/image"
 import type { ReactNode } from "react"
 
 import type { Block } from "@/lib/changelog"
@@ -39,6 +40,14 @@ function block(item: Block, key: number): ReactNode {
       )
     case "note":
       return <blockquote key={key}>{inline(item.text)}</blockquote>
+    case "figure":
+      // The reading column is 46rem at most, and a phone is the whole width less its inset.
+      return (
+        <figure key={key}>
+          <Image src={item.image} alt={item.alt} sizes="(max-width: 46rem) 100vw, 46rem" />
+          <figcaption>{inline(item.caption)}</figcaption>
+        </figure>
+      )
   }
 }
 

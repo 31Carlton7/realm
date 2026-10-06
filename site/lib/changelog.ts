@@ -1,3 +1,5 @@
+import type { StaticImageData } from "next/image"
+
 import { entries } from "@/content/changelog"
 
 /**
@@ -7,6 +9,11 @@ import { entries } from "@/content/changelog"
  * union the compiler checks is worth more here than a parser nobody can test — the site sits
  * outside the workspace's vitest projects, so a hand-rolled Markdown reader would ship unverified.
  * Inline `code` and **bold** are the two spans that survive, handled in `Prose`.
+ *
+ * A figure is a capture of the app, imported rather than named by path: the import carries the
+ * picture's own size, and a picture that is not there fails the build instead of shipping a hole in
+ * a release note. The caption says what is IN the frame, and the alt says it to someone who cannot
+ * see the frame.
  */
 export type Block =
   | { kind: "p"; text: string }
@@ -14,6 +21,7 @@ export type Block =
   | { kind: "ul"; items: string[] }
   | { kind: "code"; text: string }
   | { kind: "note"; text: string }
+  | { kind: "figure"; image: StaticImageData; alt: string; caption: string }
 
 export type Entry = {
   /** URL segment. Stable once published — these are linkable. */
