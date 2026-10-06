@@ -41,6 +41,19 @@ describe("the side panel's edge", () => {
     expect(onResize).toHaveBeenLastCalledWith(PANEL_MIN_WIDTH / 1200, { commit: true });
   });
 
+  it("an arrow at either end stays there", () => {
+    const max = 1200 - 281 - PANE_DIVIDER;
+    const wide = edge({ width: max });
+    fireEvent.keyDown(wide.sep, { key: "ArrowLeft" });
+    expect(wide.onResize).toHaveBeenLastCalledWith(max / 1200, { commit: true });
+  });
+
+  it("an arrow at the panel's floor stays at the floor", () => {
+    const narrow = edge({ width: PANEL_MIN_WIDTH });
+    fireEvent.keyDown(narrow.sep, { key: "ArrowRight" });
+    expect(narrow.onResize).toHaveBeenLastCalledWith(PANEL_MIN_WIDTH / 1200, { commit: true });
+  });
+
   it("goes back to half on a double-click", () => {
     const { sep, onResize } = edge();
     fireEvent.doubleClick(sep);
