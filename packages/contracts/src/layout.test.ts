@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LayoutSchema, allItems, closeItem, closeLeaf, emptyLayout, findLeafOfItem, firstLeaf, equalizeSplit, findSidePane, itemIdOfLeaf, migrateLayout, moveTab, openInSidePane, openItem, splitLeaf, updateSizes, type Layout, type LayoutLeaf, type LayoutSplit } from "./layout";
+import { LayoutSchema, allItems, closeItem, closeLeaf, emptyLayout, findLeafOfItem, findPanel, firstLeaf, equalizeSplit, findSidePane, itemIdOfLeaf, migrateLayout, moveTab, openInSidePane, openItem, sideTabsOf, splitLeaf, updateSizes, type Layout, type LayoutLeaf, type LayoutSplit } from "./layout";
 
 const leaf = (itemId: string | null): LayoutLeaf => ({ type: "leaf", id: `L-${itemId ?? "empty"}`, itemId });
 const row = (children: Layout[], sizes = children.map(() => 100 / children.length)): Layout =>
@@ -353,9 +353,9 @@ describe("closeLeaf", () => {
 describe("side panes (tabbed leaves)", () => {
   const side = (tabs: string[], active: string, owner = "s1"): LayoutLeaf => ({ type: "leaf", id: "SIDE", itemId: active, tabs, owner });
 
-  it("opens a session's first agent pane to its right, as a one-tab side pane", () => {
+  it("opens a session's first agent pane to its right, as a one-tab panel whose tab is the session's", () => {
     const l = openInSidePane(leaf("s1"), "s1", "b1")!;
-    expect(l).toMatchObject({ type: "split", dir: "row", children: [{ itemId: "s1" }, { itemId: "b1", tabs: ["b1"], owner: "s1" }] });
+    expect(l).toMatchObject({ type: "split", dir: "row", children: [{ itemId: "s1" }, { itemId: "b1", tabs: ["b1"], owners: { b1: "s1" } }] });
   });
 
   it("puts every later open in the SAME pane as a tab, on screen, after the one showing", () => {
@@ -367,16 +367,31 @@ describe("side panes (tabbed leaves)", () => {
     expect(findSidePane(l, "s1")).toMatchObject({ itemId: "b3", tabs: ["b1", "b2", "b3"] });
   });
 
-  it("goes beside the session that asked, not whichever pane has focus", () => {
+  it("is the session's that asked, not whichever pane has focus, and opens at the right of everything", () => {
     const l = openInSidePane(row([leaf("s1"), leaf("s2")]), "s2", "b1")!;
-    expect((l as LayoutSplit).children.map((c) => (c as LayoutLeaf).itemId)).toEqual(["s1", "s2", "b1"]);
+    expect((l as LayoutSplit).children).toHaveLength(2);
+    expect(findPanel(l)).toMatchObject({ tabs: ["b1"], owners: { b1: "s2" } });
+    expect(findSidePane(l, "s1")).toBeNull();
   });
 
-  it("gives each session its own side pane", () => {
+  it("gives every session's tabs one strip, each session's its own run", () => {
+    // THE MUTANT this pins: a strip per session — two sessions with tabs would be four columns.
     let l: Layout = openInSidePane(row([leaf("s1"), leaf("s2")]), "s1", "b1")!;
     l = openInSidePane(l, "s2", "b2")!;
-    expect(findSidePane(l, "s1")?.tabs).toEqual(["b1"]);
-    expect(findSidePane(l, "s2")?.tabs).toEqual(["b2"]);
+    l = openInSidePane(l, "s1", "b3")!;
+    expect(findSidePane(l, "s1")).toBe(findSidePane(l, "s2"));
+    expect(sideTabsOf(l, "s1")).toEqual(["b1", "b3"]);
+    expect(sideTabsOf(l, "s2")).toEqual(["b2"]);
+  });
+
+  it("hands a tab to another session when it is dropped into that session's run", () => {
+    let l: Layout = openInSidePane(row([leaf("s1"), leaf("s2")]), "s1", "b1")!;
+    l = openInSidePane(l, "s2", "b2")!;
+    const panel = findPanel(l)!;
+    const moved = moveTab(l, panel.id, "b1", 1, "s2");
+    expect(sideTabsOf(moved, "s2")).toEqual(["b2", "b1"]);
+    expect(sideTabsOf(moved, "s1")).toEqual([]);
+    expect(moveTab(l, panel.id, "b1", 1)).toMatchObject({ children: [{}, { owners: { b1: "s1" } }] });
   });
 
   it("what a previewed sub-agent opens joins the strip it is a tab of, not a side pane of its own", () => {
