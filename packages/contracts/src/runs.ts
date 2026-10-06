@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { AgentKindSchema, IdSchema } from "./entities";
-import { EFFORT_LEVELS } from "./presets";
 import { SkillIdSchema } from "./skills";
 
 /**
@@ -59,7 +58,14 @@ export const RunConstraintsSchema = z.object({
    *  this, then have another model implement it") — that is the goal's business, carried verbatim,
    *  and this is the one the session itself is. */
   model: z.string().min(1).max(200).optional(),
-  effort: z.enum(EFFORT_LEVELS).optional(),
+  /** The level the session starts at, as its harness names it: one of the model's own, which is a
+   *  Claude level, Codex's `minimal`, or an ACP agent's `thought_level` id. Free text for the reason
+   *  `Session.effort` is — a fixed five refused every level that was not Claude's. Omitted, the
+   *  model's own default. */
+  effort: z.string().min(1).max(64).optional(),
+  /** Fast mode, asked of the run's session as the prompter's bolt asks it: a REQUEST, which the
+   *  harness answers in the first turn's report (`Session.fastMode`). Omitted, not asked for. */
+  fastMode: z.boolean().optional(),
   environmentId: IdSchema.optional(),
   newWorktree: z.union([z.boolean(), z.string().min(1).max(80)]).optional(),
   permissionMode: z.enum(["plan", "default", "acceptEdits"]).optional(),

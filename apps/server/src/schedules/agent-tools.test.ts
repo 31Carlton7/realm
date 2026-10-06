@@ -44,7 +44,7 @@ const row = (input: CreateScheduleInput): Schedule => ({
 });
 const MANUAL = { enabled: true, constraints: null, newSessionPerRun: true, archiveSucceeded: false } as const;
 /** The session asking, as `sessions.get` would hand it back. */
-let caller: Pick<Session, "agentKind" | "model" | "effort"> | null;
+let caller: Pick<Session, "agentKind" | "model" | "effort" | "fastMode"> | null;
 
 /** The day these tests are set on. Their moments are written as dates, and a one-shot is only ever
  *  scheduled ahead of now: on the real clock they ran out on 2026-09-30, the date most of them name.
@@ -56,7 +56,7 @@ beforeEach(() => {
   vi.useFakeTimers({ now: TODAY, toFake: ["Date"] });
   rows = [];
   enabled = true;
-  caller = { agentKind: "codex", model: "gpt-5.6-terra", effort: "medium" };
+  caller = { agentKind: "codex", model: "gpt-5.6-terra", effort: "medium", fastMode: false };
   provider = createScheduleAgentProvider({
     schedules: {
       create: (input: CreateScheduleInput) => {
@@ -140,8 +140,16 @@ describe("schedule_create", () => {
     expect(rows[0]).toMatchObject({ newSessionPerRun: true, archiveSucceeded: false, enabled: true });
   });
 
+  it("runs it at the asking session's own level and speed, a level Claude has no word for included", async () => {
+    /* THE MUTANTS: the level filtered to Claude's five (Codex's `minimal` dropped on the way), and the
+       bolt left behind — a conversation on fast mode scheduling work that then ran slow. */
+    caller = { agentKind: "codex", model: "gpt-5.6-sol", effort: "minimal", fastMode: true };
+    await call("schedule_create", { title: "Quick", goal: "G", cron: "0 9 * * *" });
+    expect(rows[0]!.constraints).toEqual({ agentKind: "codex", model: "gpt-5.6-sol", effort: "minimal", fastMode: true });
+  });
+
   it("leaves the model to the agent where the session pinned none, and the run's fallback where it cannot be read", async () => {
-    caller = { agentKind: "claude", model: null, effort: null };
+    caller = { agentKind: "claude", model: null, effort: null, fastMode: false };
     await call("schedule_create", { title: "A", goal: "G", cron: "0 9 * * *" });
     expect(rows[0]!.constraints).toEqual({ agentKind: "claude" });
     caller = null;
@@ -216,13 +224,14 @@ describe("one source of truth", () => {
     const spaceId = new SpacesStore(db, home).create({ profileId, name: "Alpha", icon: "folder" }).id;
     const schedules = new ScheduleService({ store: new SchedulesStore(db), runs: { create: () => { throw new Error("no firing here"); }, latestForSchedule: () => null }, rpc: { broadcast: () => {} } });
     const real = createScheduleAgentProvider({ schedules, mcp: { providerEnabled: () => true },
-      sessions: { get: () => ({ agentKind: "fake", model: "fake", effort: null }) } });
+      sessions: { get: () => ({ agentKind: "fake", model: "fake", effort: null, fastMode: true }) } });
     const res = await real.call({ sessionId: "sess-1", spaceId }, "schedule_create", { title: "Weekly review", goal: "Write the status update.", cron: "0 16 * * 5" });
     expect(res.isError).toBe(false);
     const [listed] = schedules.list(spaceId);
     expect(listed).toMatchObject({
       title: "Weekly review", goal: "Write the status update.", cron: "0 16 * * 5", enabled: true,
-      constraints: { agentKind: "fake", model: "fake" }, newSessionPerRun: true, archiveSucceeded: false,
+      // Fast mode through the service's own parse, which drops a key the schema does not name.
+      constraints: { agentKind: "fake", model: "fake", fastMode: true }, newSessionPerRun: true, archiveSucceeded: false,
       lastRunAt: null, lastRunId: null,
     });
     expect(listed!.nextRunAt).toBeGreaterThan(Date.now());

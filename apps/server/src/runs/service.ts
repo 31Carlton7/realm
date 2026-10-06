@@ -314,13 +314,14 @@ export class RunService {
       let createdItemId: string | null = null;
       if (sessionId && !this.sessionRuns(sessionId, run.agentKind)) sessionId = null;
       const model = run.constraints?.model ?? null, effort = run.constraints?.effort ?? null;
+      const fastMode = run.constraints?.fastMode === true;
+      // Never `bypassPermissions` — it is not in a run's vocabulary at all (contracts/runs.ts).
+      const permissionMode = run.constraints?.permissionMode ?? "default";
       if (!sessionId) {
         try {
           const created = this.d.sessions.create({
             spaceId: run.spaceId, agentKind: run.agentKind, projectId: null, environmentId: env.value.environmentId,
-            model, effort,
-            // Never `bypassPermissions` — it is not in a run's vocabulary at all (contracts/runs.ts).
-            permissionMode: run.constraints?.permissionMode ?? "default",
+            model, effort, permissionMode,
             title: clip(run.title, 40),
             dispatchedBy: { sessionId: null, kind: "run" },
           });
@@ -334,10 +335,19 @@ export class RunService {
           this.settle(id, "failed", { error: why });
           return;
         }
-      } else if (model !== null || effort !== null) {
-        // A resumed session runs on what the run asks for NOW — a schedule's model edited since the
-        // session began is the one its next run is owed.
-        await this.d.sessions.setOptions(sessionId, { ...(model !== null ? { model } : {}), ...(effort !== null ? { effort } : {}) });
+        // Asked on the row before the first message, where starting the session reads it — the way a
+        // prompter with no session behind it hands its bolt to the session it starts.
+        if (fastMode) {
+          await this.d.sessions.setOptions(sessionId, { fastMode: true });
+          if (this.closing) return;
+        }
+      } else if (run.attempt === 1) {
+        // A session handed over at create — a schedule continuing its conversation — runs on what THIS
+        // run asks for: a model, level, speed or permission edited since the session began is what the
+        // next run is owed, a level or a speed taken back included. A model is only ever named; a row
+        // has no way to un-pin one. A later attempt resumes the run's own session as it was left,
+        // which may be how the person who answered it left it.
+        await this.d.sessions.setOptions(sessionId, { ...(model !== null ? { model } : {}), effort, fastMode, permissionMode });
         if (this.closing) return;
       }
       // Persisted BEFORE the first send: `ensureLive` reads the preamble and the skill narrowing off
