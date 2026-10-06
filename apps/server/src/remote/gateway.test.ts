@@ -166,7 +166,9 @@ describe("Plan 28: the pipe", () => {
     const phone = await paired(r);
     expect(r.gw.revoke(phone.phoneId)).toBe(true);
     await expect(phone.call("ping")).rejects.toThrow();
-    await expect(phone.connect()).rejects.toThrow();
+    // Refused by the relay itself (4403), not only by the Mac behind it: the relay has forgotten the
+    // phone's key, so a lost phone cannot even reach the Mac's socket to try.
+    await expect(phone.connect()).rejects.toThrow(/socket closed 4403/);
   });
 
   it("will not talk to a phone whose relay key is paired but whose Noise key is not", async () => {
