@@ -272,6 +272,8 @@ describe("Ask about this pull request", () => {
     const { rpc, space } = await boot();
     const first = await rpc.call("codeReview.ask", { ref, spaceId: space.id, agentKind: "fake", text: "What does this change?" });
     expect(first.itemId).toEqual(expect.any(String));
+    // Nothing chosen on the card is the model's own level, at its own speed.
+    expect(app!.sessions.get(first.sessionId)).toMatchObject({ effort: null, fastMode: false });
     expect(await rpc.call("codeReview.thread", { ref })).toEqual({ sessionId: first.sessionId, spaceId: space.id });
     const second = await rpc.call("codeReview.ask", { ref, spaceId: space.id, agentKind: "fake", text: "And the tests?" });
     expect(second.sessionId).toBe(first.sessionId);
@@ -286,6 +288,15 @@ describe("Ask about this pull request", () => {
     expect(context).toContain("Why: speed.");
     expect(context).toContain("+++ b/src/a.ts");
     expect(context).toContain("is not a checkout of acme/widgets");
+  });
+
+  it("starts the session at the level, speed and permission the prompter's card was set to", async () => {
+    // Set before there was a session to set them on — the prompter holds them, and this is where they
+    // land. THE MUTANT: create without them, and the card's every press is dropped at the first question.
+    const { rpc, space } = await boot();
+    const asked = await rpc.call("codeReview.ask", { ref, spaceId: space.id, agentKind: "fake", text: "Quick read?",
+      effort: "max", fastMode: true, permissionMode: "acceptEdits" });
+    expect(app!.sessions.get(asked.sessionId)).toMatchObject({ effort: "max", fastMode: true, permissionMode: "acceptEdits" });
   });
 
   it("says when the chosen project is a checkout of the request's repository", async () => {

@@ -1,7 +1,8 @@
-import { AGENT_META, basenameOf, isOpenablePath, isPlayablePath, mimeForPath, sessionModeOf, type Session, type SessionStatus } from "@realm/contracts";
+import { AGENT_META, basenameOf, isOpenablePath, isPlayablePath, mimeForPath, sessionModeOf, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "../../panes/session/Composer";
+import { draftRun, draftSession as draftAsSession } from "../../panes/session/draft-run";
 import { Transcript } from "../../panes/session/Transcript";
 import { useMediaFiles } from "../../panes/session/media/use-media";
 import { FALLBACK_AGENT, useApp, type PickedAttachment } from "../../state/store";
@@ -51,6 +52,7 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
   const modelInfo = useApp((s) => s.modelInfo);
   const agentProbe = useApp((s) => s.agentProbe);
   const fastSupport = useApp((s) => s.fastSupport);
+  const effortSupport = useApp((s) => s.effortSupport);
   const submitKey = useApp((s) => s.submitKey);
   const setDraft = useApp((s) => s.setDraft);
   const sendFromViewer = useApp((s) => s.sendFromViewer);
@@ -58,6 +60,7 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const setSessionAgent = useApp((s) => s.setSessionAgent);
   const pickViewerAgent = useApp((s) => s.pickViewerAgent);
+  const setViewerOptions = useApp((s) => s.setViewerOptions);
   const attachFromPicker = useApp((s) => s.attachFromPicker);
   const attachFiles = useApp((s) => s.attachFiles);
   const removeAttachment = useApp((s) => s.removeAttachment);
@@ -96,11 +99,8 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
      and the picker is how that is chosen — so it is handed a session the size of that choice. */
   const pickKind = viewer.pick?.agentKind ?? lastAgentKind ?? FALLBACK_AGENT;
   const pickModel = viewer.pick?.model ?? null;
-  const draftSession = useMemo((): Session => ({
-    id: VIEWER_SLOT, spaceId: viewer.spaceId ?? "", projectId: null, agentKind: pickKind, model: pickModel, effort: null,
-    permissionMode: "default", fastMode: false, environmentId: "", cwd: "", status: "idle", providerSessionId: null,
-    title: "", lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, createdAt: 0, updatedAt: 0,
-  }), [viewer.spaceId, pickKind, pickModel]);
+  const draftSession = useMemo(() => draftAsSession({ ...(viewer.pick ?? draftRun(pickKind)), agentKind: pickKind, model: pickModel },
+    { id: VIEWER_SLOT, spaceId: viewer.spaceId ?? "", projectId: null, cwd: "" }), [viewer.spaceId, viewer.pick, pickKind, pickModel]);
   const session = owner ?? draftSession;
 
   // This viewer's own part of the session: from its first question on, and only in that session.
@@ -187,7 +187,7 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
           onRemoveAttachment={(path) => (path === file.path ? detachViewerFile(path) : removeAttachment(VIEWER_SLOT, path))}
           onSend={(text) => { setSends((n) => n + 1); ask(text); }}
           onStop={() => { if (ownerId) run(() => interruptSession(ownerId)); }}
-          onOptions={(o) => { if (owner) run(() => setSessionOptions(owner.id, o)); }}
+          onOptions={(o) => { if (owner) run(() => setSessionOptions(owner.id, o)); else setViewerOptions(o); }}
           onPickModel={(pick, modelId) => {
             if (!owner) { pickViewerAgent(pick, modelId); return; }
             run(async () => {
@@ -200,7 +200,7 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
           canSwitchAgent={!owner || (entry?.t.blocks.length ?? 0) === 0}
           agentProbe={agentProbe} modelFavorites={modelFavorites} modelInfo={modelInfo}
           onToggleModelFavorite={(key) => run(() => toggleModelFavorite(key))}
-          sessionInit={entry?.t.init ?? null} fastSupport={fastSupport} submitKey={submitKey} />
+          sessionInit={entry?.t.init ?? null} fastSupport={fastSupport} effortSupport={effortSupport} submitKey={submitKey} />
       </section>
     </ViewerShowContext.Provider>
   );

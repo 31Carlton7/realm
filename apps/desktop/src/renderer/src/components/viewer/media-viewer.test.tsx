@@ -344,6 +344,27 @@ describe("the prompter docked under it", () => {
     expect(within(dialog).getAllByRole("button", { name: /^Open (hero|palette)\.png$/ })).toHaveLength(2);
   });
 
+  it("holds the card's level and speed for the session a first question starts, with none to ask", async () => {
+    // The card is drawn for the session the send will make, so it answers for that session too.
+    // THE MUTANT: drop its presses while there is no session, as this prompter once did.
+    bridge([media("/x/orphan.png")]);
+    const { store, api } = await mount([]);
+    act(() => store.getState().openViewer({ files: [{ path: "/x/orphan.png",
+      from: { sessionId: "deleted", spaceId: "s2", sessionTitle: "Gone", kind: "output" } }] }));
+    const dialog = await screen.findByRole("dialog", { name: "orphan.png" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Model" }));
+    fireEvent.keyDown(await screen.findByRole("slider", { name: "Effort" }), { key: "End" });
+    await waitFor(() => expect(screen.getByRole("slider", { name: "Effort" })).toHaveAttribute("aria-valuetext", "Max"));
+    fireEvent.click(screen.getByRole("button", { name: "Fast mode" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Fast mode" })).toHaveAttribute("aria-pressed", "true"));
+    // The picker is a dialog of its own, still open: the viewer's box is found inside the viewer.
+    const box = within(dialog).getByRole("textbox", { name: "Message" });
+    fireEvent.change(box, { target: { value: "What is this?" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(store.getState().sessions[api.sent[0]!.id]).toMatchObject({ effort: "max", fastMode: true });
+  });
+
   it("says when there is no session to ask, and which space the first question starts one in", async () => {
     bridge([media("/x/orphan.png")]);
     const { store } = await mount([]);

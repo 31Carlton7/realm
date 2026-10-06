@@ -43,6 +43,25 @@ describe("Menu placement", () => {
     expect(screen.getByRole("menu").style.top).toBe("524px"); // anchor.bottom + 4
   });
 
+  it("places by its laid-out size, not the smaller one its entrance's scale paints", () => {
+    /* THE BUG: a surface measures itself while its scale-in (.97) is still running, and a rect read
+       through the transform is 3% small — the model picker opened 15px down over its own chip and
+       jumped back under the pointer the next time its content changed size. */
+    const orig = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return this.classList.contains("menu") ? rect(0, MENU_H * 0.97, 0, 160 * 0.97) : orig.call(this);
+    });
+    const saved = ["offsetHeight", "offsetWidth"].map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)!] as const);
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get() { return (this as HTMLElement).classList.contains("menu") ? MENU_H : 0; } });
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get() { return (this as HTMLElement).classList.contains("menu") ? 160 : 0; } });
+    try {
+      mount([plain("A")], { anchorRef: anchor(), placement: "up" });
+      expect(screen.getByRole("menu").style.top).toBe("376px"); // 500 - 120 - 4, not 500 - 116.4 - 4
+    } finally {
+      for (const [k, d] of saved) Object.defineProperty(HTMLElement.prototype, k, d);
+    }
+  });
+
   it("placement='up' subtracts the menu's own height so it clears the trigger", () => {
     withMenuHeight();
     mount([plain("A")], { anchorRef: anchor(), placement: "up" });

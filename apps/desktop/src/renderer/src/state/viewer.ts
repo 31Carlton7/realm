@@ -1,5 +1,6 @@
 import { WRITE_TOOL_NAMES, bareToolName, mediaCandidatesIn, writtenPathOf, type AgentKind, type ArtifactKind } from "@realm/contracts";
 import type { Block } from "../panes/session/transcript-model";
+import type { DraftRun } from "../panes/session/draft-run";
 
 /**
  * The media viewer, as data: what it is showing, who its prompter talks to, and where in that
@@ -90,9 +91,10 @@ export type ViewerState = {
   /** The viewed file the person took off the next message. It comes back on with the next file
    *  viewed, or once the message has gone — the default is that a question about a file carries it. */
   detached: string | null;
-  /** The agent and model a session made on the first send will run, picked in the viewer's own
-   *  prompter while there is no session yet. Null takes the last agent used. */
-  pick: { agentKind: AgentKind; model: string | null } | null;
+  /** How a session made on the first send will run — its agent and model, and the level, fast mode
+   *  and permission set on the prompter's card — chosen in the viewer's own prompter while there is
+   *  no session yet. Null takes the last agent used, as it comes. */
+  pick: DraftRun | null;
   /** Marking up the file on show: what has been drawn on it so far, and the size of the picture it
    *  was drawn against. Null is not marking. The marks are the file's, so moving to another file puts
    *  them away. */

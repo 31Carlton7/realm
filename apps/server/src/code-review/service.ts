@@ -100,7 +100,7 @@ export class CodeReviewService {
     gh: GhClient | null;
     settings: SettingsLike;
     rpc: Pick<RpcServer, "broadcast">;
-    sessions: Pick<SessionService, "create" | "send" | "get">;
+    sessions: Pick<SessionService, "create" | "send" | "get" | "setOptions">;
     engine: Pick<DelegationEngine, "begin" | "drain" | "end">;
     spaces: Pick<SpacesStore, "get" | "list">;
     projects: Pick<ProjectsStore, "get" | "list">;
@@ -330,7 +330,7 @@ export class CodeReviewService {
    * message says what is attached in one line, so the transcript keeps the person's own words.
    */
   async ask(input: { ref: PrRef; spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null; text: string;
-    attachments?: { path: string; mime: string }[] }): Promise<{ sessionId: string; itemId: string | null }> {
+    fastMode?: boolean; permissionMode?: string | null; attachments?: { path: string; mime: string }[] }): Promise<{ sessionId: string; itemId: string | null }> {
     const extra = input.attachments ?? [];
     const thread = this.thread(input.ref);
     if (thread && thread.spaceId === input.spaceId) {
@@ -343,9 +343,12 @@ export class CodeReviewService {
     const context = this.writeContext(detail, set, place);
     const { session, itemId } = this.d.sessions.create({
       spaceId: input.spaceId, agentKind: input.agentKind, projectId: input.projectId,
-      model: input.model, effort: input.effort, permissionMode: null,
+      model: input.model, effort: input.effort, permissionMode: input.permissionMode ?? null,
       title: clip(`${prName(detail.ref)} ${detail.title}`, 40),
     });
+    // Fast mode is a column the session is made without; set before the send below starts the agent,
+    // which reads the row, so the first answer is already a fast one.
+    if (input.fastMode) await this.d.sessions.setOptions(session.id, { fastMode: true });
     this.d.settings.set(prThreadKey(input.ref), { sessionId: session.id, spaceId: input.spaceId });
     await this.d.sessions.send(session.id, {
       text: `About pull request ${prName(detail.ref)} (attached): ${input.text}`,

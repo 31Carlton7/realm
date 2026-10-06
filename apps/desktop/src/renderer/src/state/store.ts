@@ -37,6 +37,7 @@ import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, lastUserMessage, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
+import { draftRun, withOptions } from "../panes/session/draft-run";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 import type { SettingsTab } from "../panes/settings/settings-index";
@@ -2349,6 +2350,9 @@ export type AppState = {
   detachViewerFile(path: string): void;
   /** The agent and model the viewer's prompter will make a session with, while it has none. */
   pickViewerAgent(agentKind: AgentKind, model: string | null): void;
+  /** The level, fast mode or permission set on the viewer's prompter while it has no session: held
+   *  for the one its first send makes. */
+  setViewerOptions(o: SessionOptions): void;
   /**
    * Ask about the viewed file: the message goes to the viewer's session — made now, in its space, if
    * there was none — carrying the file through the same attachment wire the prompter uses, with any
@@ -6373,7 +6377,14 @@ await get().refreshCustomThemes().catch(() => {});
       },
       setViewerMarks(marking) { const v = get().viewer; if (v) set({ viewer: { ...v, marking } }); },
       detachViewerFile(path) { const v = get().viewer; if (v) set({ viewer: { ...v, detached: path } }); },
-      pickViewerAgent(agentKind, model) { const v = get().viewer; if (v) set({ viewer: { ...v, pick: { agentKind, model } } }); },
+      pickViewerAgent(agentKind, model) {
+        const v = get().viewer;
+        if (v) set({ viewer: { ...v, pick: { ...(v.pick ?? draftRun(agentKind)), agentKind, model } } });
+      },
+      setViewerOptions(o) {
+        const v = get().viewer;
+        if (v) set({ viewer: { ...v, pick: withOptions(v.pick ?? draftRun(get().lastAgentKind ?? FALLBACK_AGENT), o) } });
+      },
       async sendFromViewer(text) {
         const v = get().viewer; if (!v) return;
         const file = v.files[v.index]; if (!file) return;
@@ -6387,7 +6398,11 @@ await get().refreshCustomThemes().catch(() => {});
           const sid = home && get().spaces.some((sp) => sp.id === home) ? home : get().activeSpaceId;
           if (!sid) return;
           const agentKind = v.pick?.agentKind ?? get().lastAgentKind ?? FALLBACK_AGENT;
-          const { session } = await api.createSession({ spaceId: sid, agentKind, model: v.pick?.model ?? null });
+          const created = await api.createSession({ spaceId: sid, agentKind, model: v.pick?.model ?? null, effort: v.pick?.effort ?? null,
+            ...(v.pick?.permissionMode ? { permissionMode: v.pick.permissionMode } : {}) });
+          // Fast mode is a column a session is made without: set before the send starts the agent, which
+          // reads the row, so the first answer is already a fast one.
+          const session = v.pick?.fastMode ? await api.setSessionOptions(created.session.id, { fastMode: true }) : created.session;
           rememberAgent(agentKind);
           mergeSession(session);
           sessionId = session.id;

@@ -24,6 +24,7 @@ vi.mock("../../rpc/client", () => ({
         case "codeReview.pins": return { pins: [] };
         case "codeReview.places": return { places: [{ spaceId: "s1", projectId: null, name: "Versed", path: "/tmp/versed", repo: null, branch: null }] };
         case "codeReview.thread": return { sessionId: null, spaceId: null };
+        case "codeReview.ask": return { sessionId: "01HQ000000000000000000ASK1", itemId: null };
         case "codeReview.instructions": return { text: instructions };
         case "codeReview.setInstructions": instructions = params.text; return { text: params.text };
         case "codeReview.review": return { ...REVIEW, state: "running", findings: [], summary: "" };
@@ -233,6 +234,28 @@ describe("Review with…", () => {
     await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: "Save and run" })); });
     await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
     expect(called("codeReview.setInstructions")[0]!.params).toEqual({ profileId: "p1", text: "Skip style nits.\nI care most about the data model. Tell me where we might be overcomplicating things." });
+  });
+});
+
+describe("Ask about this pull request", () => {
+  it("answers the card before there is a session, and the first question starts one at that level and speed", async () => {
+    /* THE BUG the owner hit: with no session behind it yet, this prompter held the model picked and
+       dropped every press on the card — the bolt and the track were drawn, took the click, and did
+       nothing. THE MUTANTS: drop the draft's options again, or leave them off the first question. */
+    await mount();
+    await openRequest();
+    const ask = screen.getByRole("region", { name: "Ask about this pull request" });
+    fireEvent.click(within(ask).getByRole("button", { name: "Model" }));
+    fireEvent.keyDown(await screen.findByRole("slider", { name: "Effort" }), { key: "End" });
+    await waitFor(() => expect(screen.getByRole("slider", { name: "Effort" })).toHaveAttribute("aria-valuetext", "Max"));
+    fireEvent.click(screen.getByRole("button", { name: "Fast mode" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Fast mode" })).toHaveAttribute("aria-pressed", "true"));
+    expect(within(ask).getByRole("button", { name: "Model" }).querySelector(".chip-effort")).toHaveTextContent("Max");
+    const box = within(ask).getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "Is the stream right?" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(called("codeReview.ask")).toHaveLength(1));
+    expect(called("codeReview.ask")[0]!.params).toMatchObject({ effort: "max", fastMode: true, permissionMode: null, model: null });
   });
 });
 
