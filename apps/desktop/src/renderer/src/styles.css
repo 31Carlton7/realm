@@ -629,22 +629,32 @@ kbd { font: 11px var(--font-mono); }
 .sidebar { background:
   linear-gradient(var(--chrome-tint), var(--chrome-tint)) top / 100% var(--frame-top) no-repeat,
   var(--sidebar-ground); }
-/* The sidebar stands a hair above the panes (the owner, 10-04: "put that shadow on the sidebar"), so
-   its edge casts a very light shade onto them: drawn at the panes' left edge, below the head row only
-   — the row is one chrome ground across the window and casts nothing — and above a page as well as
-   the panes, since a page is what stands beside the sidebar then. On `.main`, whose left edge IS the
-   column's right edge on every frame, so the shade rides the column open and closed; once the column
-   has folded away there is nothing to cast it, and the pseudo-element is the panes' corner instead
-   (the frame, above). Its own step per face, because the same black reads heavier on the light ground
-   (design.md: do not assume the light face mirrors the dark), set by measurement: 60% of the depth this
-   first shipped at — Codex's own sheet shadow — which the owner found a touch heavy for a seam (10-04).
-   Measured as the shade summed across its 8px, because at depths this small the gradient lands in
-   whole 8-bit steps, and 60% of the first ALPHA measured 75–82% of its depth. */
-:root { --seam-shade: oklch(0 0 0 / 0.062); --seam-w: 8px; }
-:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.0095); }
-.app:not([data-sidebar-folded]) > .main::after { content: ""; position: absolute; z-index: 36; pointer-events: none;
-  top: var(--frame-top); bottom: 0; left: 0; width: var(--seam-w);
-  background: linear-gradient(to right, var(--seam-shade), transparent); }
+/* The column stands a hair above the rail (the owner, 10-05: "I want that to be on the left side
+   instead, on the outside of it. This will make it feel a little bit elevated"), so its LEFT edge casts
+   a very light shade outward over the rail, and the panes' edge, where it fell from 10-04, takes none.
+   Cast by a box of the column's own shape — below the head row, its corner rounded as the rim's is —
+   to the left only: offset that way and pulled in by its spread, so nothing spills above the rim (the
+   row is one chrome ground across the window, casting nothing and taking nothing), and round the
+   corner the shade follows the curve and runs out before the rim turns along the top, rather than a
+   band of shadow drawn up into the corner. The box is the column's own (`.sidebar-shade`, Sidebar.tsx)
+   and its width the column's, so on every frame of the fold the shade is the column's: it holds the
+   edge while the column closes from its other side, and with the last few pixels of it, narrower than
+   the spread, it fades and goes; folded away there is nothing to cast it. Fixed, because the column
+   clips what it holds and this lies outside it; over the rail's rung, under everything that floats.
+   Its own step per face, because the same black reads heavier on the light ground (design.md: do not
+   assume the light face mirrors the dark), set by measurement to the depth the panes' shade had once
+   the owner found the first cut a touch heavy (10-04): summed across the strip, because at depths
+   this small the shade lands in whole 8-bit steps, and on the solid grounds Reduce transparency gives,
+   where a capture is what the screen shows. The dark rail is a step lighter than the panes it was
+   matched on, so the same depth takes less black there. */
+:root { --seam-shade: oklch(0 0 0 / 0.045); --seam-w: 8px; }
+:root[data-mode="light"] { --seam-shade: oklch(0 0 0 / 0.009); }
+.sidebar-shade { position: fixed; z-index: 3; pointer-events: none;
+  top: var(--frame-top); bottom: 0; left: var(--rail-w); width: calc(var(--sidebar-w) * var(--sidebar-open));
+  border-top-left-radius: var(--frame-r);
+  box-shadow: calc(-1 * var(--seam-w)) 0 calc(var(--seam-w) / 2) calc(var(--seam-w) / -2) var(--seam-shade);
+  clip-path: inset(0 0 0 calc(-1 * var(--seam-w))); }
+.app[data-sidebar-folded] .sidebar-shade { display: none; }
 .app-rail { position: relative; z-index: 2; width: var(--rail-w); flex: none; min-height: 0;
   display: flex; flex-direction: column; align-items: center; gap: 8px; padding: calc(var(--frame-top) + 8px) 0 8px;
   border-radius: var(--r-float) 0 0 var(--r-float); corner-shape: squircle; -webkit-app-region: drag; }

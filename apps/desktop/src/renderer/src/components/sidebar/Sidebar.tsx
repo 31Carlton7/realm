@@ -74,6 +74,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           a collapsed sidebar is off-screen, and a handle for a column nobody can see would still
           answer the keyboard. On the column, not the slide: it is the column's edge that it moves. */}
       <SidebarResizer />
+      {/* The column's shade on the rail (styles.css): the column's own, so it is the column's width
+          on every frame of the fold and leaves with it. */}
+      <span className="sidebar-shade" aria-hidden="true" />
     </aside>
   );
 }

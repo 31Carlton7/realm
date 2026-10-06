@@ -1300,31 +1300,48 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(":root:has(.page-overlay) .main .resize-handle").join(" ")).toContain("visibility: hidden");
   });
 
-  it("the sidebar stands a hair above the panes: its edge casts a light shade onto them, below the head row", () => {
-    /* The owner, 10-04: "put that shadow on the sidebar and remove the shadow from the left side of
-       the session panes". The sidebar is the raised surface, so the shade falls on the panes' side of
-       the seam — over a page as well, which is what stands beside the sidebar then — and on `.main`,
-       whose edge is the column's edge on every frame of the motion. Below the 40px head row, which is
-       chrome on both sides and casts nothing; none at all once the column has folded. Its own alpha
-       per face: the same black reads far heavier on the light ground. THE mutants: the shade back on
-       the sidebar's own ground, over the head row, under a page, or kept while folded. */
-    expect(bodiesFor(".sidebar").join(" ")).not.toContain("seam-shade");
-    const shade = bodiesFor(".app:not([data-sidebar-folded]) > .main::after").join(" ");
-    expect(shade).toContain("background: linear-gradient(to right, var(--seam-shade), transparent)");
-    expect(shade).toContain("top: var(--frame-top)");
-    expect(shade).toContain("left: 0; width: var(--seam-w)");
+  it("the column stands a hair above the rail: its LEFT edge casts a light shade over the rail, and the panes' edge takes none", () => {
+    /* The owner, 10-05, circling the shade at the column's right edge: "I want that to be on the left
+       side instead, on the outside of it. This will make it feel a little bit elevated." So the column
+       casts it, outward over the rail, from a box of its own shape: below the 40px head row (chrome
+       across the window, casting nothing and taking nothing), its corner rounded as the rim's is, and
+       cast to the LEFT only — offset that way, pulled in by its spread so nothing reaches above the
+       rim, and clipped to its left side. Its width is the column's on every frame of the fold, and
+       folded away there is none. `sidebar-shade-live.mjs` measures the pixels. THE MUTANTS: the shade
+       back on the panes' edge, cast up into the head row or down, square at the corner (a band drawn
+       into it), on a width of its own (a shade where the column has gone), under the rail, or kept
+       while folded. */
+    // One place casts it, and it is not the panes'.
+    expect(RULES.filter((r) => r.body.includes("var(--seam-shade)")).flatMap(partsOf)).toEqual([".sidebar-shade"]);
+    expect(RULES.flatMap(partsOf).filter((sel) => sel.includes(".main::after") && !sel.includes("[data-sidebar-folded]") && !sel.includes("[data-first-run]"))).toEqual([]);
+    const shade = bodiesFor(".sidebar-shade").join(" ");
+    // Out of the column's clip (it lies outside the column) and against the window, the column's box.
+    expect(shade).toContain("position: fixed");
+    expect(shade).toContain("pointer-events: none");
+    expect(shade).toContain("top: var(--frame-top); bottom: 0; left: var(--rail-w)");
+    expect(shade).toContain(`width: ${/width: (calc\([^;]+\))/.exec(bodiesFor(".sidebar").join(" "))?.[1]}`);
+    expect(shade).toContain("border-top-left-radius: var(--frame-r)");
+    expect(bodiesFor(".sidebar::before").join(" ")).toContain("border-top-left-radius: var(--frame-r)");
+    // Left by its own width, no rise or drop, a spread that takes back what the blur would spill.
+    expect(shade).toContain("box-shadow: calc(-1 * var(--seam-w)) 0 calc(var(--seam-w) / 2) calc(var(--seam-w) / -2) var(--seam-shade)");
+    expect(shade).toContain("clip-path: inset(0 0 0 calc(-1 * var(--seam-w)))");
+    // Over the rail it falls on, under everything that floats (a page is the bottom of that stack).
     const rung = (sel: string) => Number(/z-index:\s*(\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
-    expect(rung(".app:not([data-sidebar-folded]) > .main::after")).toBeGreaterThan(rung(".page-overlay"));
+    expect(rung(".sidebar-shade")).toBeGreaterThan(rung(".app-rail"));
+    expect(rung(".sidebar-shade")).toBeLessThan(rung(".page-overlay"));
+    expect(bodiesFor(".app[data-sidebar-folded] .sidebar-shade").join(" ")).toContain("display: none");
+    // Its own alpha per face: the same black reads far heavier on the light ground.
     const alpha = (block: string) => Number(/--seam-shade: oklch\(0 0 0 \/ ([\d.]+)\)/.exec(block)?.[1]);
     const dark = alpha(bodiesFor(":root").join(" "));
     const light = alpha(bodiesFor(':root[data-mode="light"]').join(" "));
     expect(dark).toBeGreaterThan(0);
     expect(light).toBeGreaterThan(0);
     expect(light).toBeLessThan(dark);
-    // Very light means very light: the owner asked for it lighter again (10-04), to about 60% of the
-    // first cut's measured depth (0.14 dark, 0.02 light). THE mutant: the first cut's depth back.
-    expect(dark).toBeLessThanOrEqual(0.085);
-    expect(light).toBeLessThanOrEqual(0.012);
+    /* Very light means very light: the depth the panes' shade had once the owner found the first cut a
+       touch heavy (10-04) — 0.062 dark and 0.0095 light there — matched on the rail, which in dark is
+       a step lighter than the panes, so it takes less. THE mutant: the panes' alpha carried over. */
+    expect(dark).toBeLessThan(0.062);
+    expect(light).toBeLessThanOrEqual(0.0095);
   });
 
   it("an app-level page is laid out in the panes' column: it moves with them and never covers the rail", () => {

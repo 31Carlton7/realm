@@ -199,6 +199,14 @@ Rules:
   the rung lighter than both sides of it, as Codex's is (chrome 60, sheet 47, rim 65, measured).
   A corner over a translucent ground is a hole in that ground with the chrome laid in it — tinting
   over the ground instead composites twice and reads a shade darker than the rail beside it.
+- The sidebar's column stands a hair above the chrome: a very light shade off its LEFT edge, over the
+  rail (the owner, 10-05: "on the outside of it… a little bit elevated"), and none on the panes' edge.
+  A shadow belongs to what stands up and keeps to its shape: round the corner it runs out before the
+  rim turns along the top, never a band drawn up into the corner; it stops at the head row, chrome
+  that neither casts one nor takes one; and it is the column's own width through a fold, so it goes
+  with the column's last pixels instead of standing beside nothing. Moved to another ground, a shade
+  keeps its depth in levels, not its alpha — the dark rail is lighter than the panes, so the same
+  depth takes less black there — measured on solid grounds, where a capture is what the screen shows.
 - A group of settings is a card in Codex's grammar: a step ABOVE the ground it stands on, under a rim
   the rung lighter than both sides, its rows divided by hairlines inset from both ends (Codex,
   measured: page 41, card 47, rim 57; its file tiles go further, 16 levels up, because a tile is an
