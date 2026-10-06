@@ -211,6 +211,10 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
   /** How much of the list a held box keeps, so a card that grew cannot squeeze it to nothing: past
    *  that, the box grows by what the card still needs rather than clip it. */
   const [floor, setFloor] = useState(0);
+  /** Room under the list's last row, for a list scrolled near its end when a card smaller than the one
+   *  it replaces gives the list the difference: with nothing more to show, the browser pulls the
+   *  scroll back and every row comes down under the pointer. */
+  const [slack, setSlack] = useState(0);
   /** A model has just been picked here: until the highlight moves or the search changes, ←/→ in the
    *  search field step that model's level, which is what the keyboard reaches for next. */
   const [tuning, setTuning] = useState(false);
@@ -261,6 +265,10 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
       setHeight(box);
       setFloor(Math.min(wrap.current?.offsetHeight ?? 0, LIST_FLOOR));
     }
+    // The most the list can be given is the whole of the card now under it.
+    const foot = ref.current?.querySelector<HTMLElement>(".mp-foot")?.offsetHeight ?? 0;
+    const l = list.current;
+    if (l && foot > 0) setSlack((was) => was + Math.max(0, foot - (l.scrollHeight - l.clientHeight - l.scrollTop)));
     setRoutes((rs) => ({ ...rs, [row.id]: target }));
     setActiveKey(row.id);
     setTuning(true);
@@ -309,7 +317,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
   return createPortal(
     <div ref={ref} className="model-picker" aria-label="Model picker" role="dialog"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: room ?? undefined,
-        height: height ?? undefined, "--mp-floor": `${floor}px`,
+        height: height ?? undefined, "--mp-floor": `${floor}px`, "--mp-slack": `${slack}px`,
         visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom right" } as CSSProperties}
       data-held={height !== null || undefined} data-closing={closing || undefined} data-eggs={eggs || undefined} inert={closing}>
       <div className="mp-search">

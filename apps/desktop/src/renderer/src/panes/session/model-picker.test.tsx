@@ -157,24 +157,37 @@ describe("picking", () => {
 
   it("holds its height from a pick on, the list taking up a card of another size, and lets go for a search", () => {
     /* The popover hangs from its chip, so a card that changed height moved every row above it — the
-       one just pressed too. jsdom lays nothing out, so the heights are staged. THE MUTANT: no hold. */
-    const real = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
-    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get(this: HTMLElement) {
-      return this.classList.contains("model-picker") ? 480 : this.classList.contains("mp-list-wrap") ? 320 : 0;
-    } });
+       one just pressed too. jsdom lays nothing out, so the heights are staged: a list of 500 scrolled
+       160 down in a box of 300, 40 short of its end, over a card of 111. THE MUTANTS: no hold, and no
+       slack — a list near its end pulled back down when a smaller card gave it the difference. */
+    const staged: [string, keyof HTMLElement, number][] = [["model-picker", "offsetHeight", 480], ["mp-list-wrap", "offsetHeight", 320],
+      ["mp-foot", "offsetHeight", 111], ["mp-list", "scrollHeight", 500], ["mp-list", "clientHeight", 300]];
+    // Shadowed on HTMLElement and taken off again after: jsdom keeps two of the three on Element.
+    const own = new Map((["offsetHeight", "scrollHeight", "clientHeight"] as const).map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)]));
+    for (const [prop] of own) {
+      Object.defineProperty(HTMLElement.prototype, prop, { configurable: true, get(this: HTMLElement) {
+        return staged.find(([cls, p]) => p === prop && this.classList.contains(cls))?.[2] ?? 0;
+      } });
+    }
     try {
-      mount();
+      mount({ fast: { on: false, state: null, reason: null, requested: null, onChange: () => {}, availability: { state: "unknown" }, tip: "Fast mode." } });
       expect(dialog()!.style.height).toBe("");
+      screen.getByRole("listbox", { name: "Models" }).scrollTop = 160;
       fireEvent.click(option("Claude Sonnet 5"));
       expect(dialog()!.style.height).toBe("480px");
       expect(dialog()).toHaveAttribute("data-held");
       // At most three rows of the list are kept back from a card that grew; past that, the box grows.
       expect(dialog()!.style.getPropertyValue("--mp-floor")).toBe("118px");
+      // The card could give back all 111 of its height, and the list has 40 to absorb it: 71 under it.
+      expect(dialog()!.style.getPropertyValue("--mp-slack")).toBe("71px");
       fireEvent.change(search(), { target: { value: "op" } });
       expect(dialog()!.style.height).toBe("");
       expect(dialog()).not.toHaveAttribute("data-held");
     } finally {
-      Object.defineProperty(HTMLElement.prototype, "offsetHeight", real);
+      for (const [prop, d] of own) {
+        if (d) Object.defineProperty(HTMLElement.prototype, prop, d);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[prop];
+      }
     }
   });
 
