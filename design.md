@@ -224,6 +224,10 @@ Rules:
   never rounded to it: an edge rounded outward covers the pixel next door, and the pixel next door
   is usually the only boundary the layout has. Losing a hairline of page content at the edge is
   invisible; losing a divider is not.
+- A native view follows its box's LAYOUT, and a transform is not layout: a box moved by an entrance
+  tween fires no resize, so a view placed mid-tween stays where the tween began. A browser tab coming
+  back on screen replays its slot's 4px rise, and its page sat 4px under its pane until the next
+  resize. Show the view once the box has settled, as a pane does when it mounts.
 - What stands in for a page — a new tab, a page on its way, a page that did not load — is the pane's
   own DOM with the view hidden, never a document loaded into the view. The view is opaque, because
   pages assume a white canvas, so anything drawn inside it is a slab of another colour under the
@@ -736,23 +740,52 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - A pane is a location, not decoration. Pane bars stay compact and consistent across pane kinds.
 - Splits expose relationships. Avoid a split when one side has no ongoing value.
 - A split is the user's arrangement; an agent never makes one. What a session's agents open — a
-  browser, a device, a document, a sub-agent the user asked to look at — arrives as a tab of ONE
-  side pane beside that session, never as a column of its own beside whatever had focus. A fan-out
-  of six agents each opening a browser once filled a window with eight columns a fifth of it wide,
-  every title an ellipsis and every page unreadable. In a side pane's bar the tabs are the data of
-  unbounded length, so they keep the width and the shown item's own actions go to its menu. The
-  agents still working are a count in the session's bar, and their list previews one on request;
-  a tab dragged to an edge is how something becomes part of the user's own layout.
+  browser, a device, a document, a sub-agent the user asked to look at — arrives as a tab of the
+  ONE side panel, never as a column of its own beside whatever had focus. A fan-out of six agents
+  each opening a browser once filled a window with eight columns a fifth of it wide, every title an
+  ellipsis and every page unreadable. In the panel's bar the tabs are the data of unbounded length,
+  so they keep the width and the shown item's own actions go to its menu. The agents still working
+  are a count in the session's bar, and their list previews one on request; a tab dragged to an edge
+  is how something becomes part of the user's own layout.
+- A split holds as many panes as the person makes, split right or down and nested as they were made
+  (the owner, 10-05: "allow opening as many as the user wants"). The limit is room, never a count: a
+  pane is never drawn below the floor a session pane was measured to work at (`PANE_MIN`), so a split
+  that would leave one there is not offered. Unavailable is not gone — the palette row and the pane's
+  menu row stay, greyed, with the sentence that says what would make room, and the key and the menu
+  bar, which cannot draw a row unavailable, say the same sentence in a toast; a drop edge with no room
+  lights as refused, with the sentence across the pane. A count was the wrong question in both
+  directions: two refused a third column a wide window had room for, and would have squeezed a second
+  into one that had none.
+- The side panel is the window's, not a pane of the split: the full height of the window at its right
+  edge, never split per pane and never stacked under one, by default half the room right of the
+  sidebar, and as wide as its edge was last dragged, remembered per window as a share of that room so
+  it keeps its proportion as the window and the sidebar change. It gives way before any pane does —
+  it narrows to its own floor, and past that it steps aside, still open with every tab live, and its
+  toggle shows it in the panes' place rather than squeezing them. Pane focus fills the panes' place
+  with the one pane and leaves the panel beside it; the panel's own full view takes both.
+- The panel's tabs belong to their sessions, so the strip is every on-screen session's tabs in one
+  row, a run per session in the order its pane is read and each session's tabs in its own order. A
+  session joining the split brings its run in and leaving takes it out, to come back with it. While
+  several share the strip it says whose a tab is quietly — a hairline between runs, the session in the
+  tab's tooltip, a ring on the session's pane while the pointer is on its tab — and one session's strip
+  wears none of it. A run never takes the panel by arriving, and an agent's tab comes to the front
+  only from its own session, or two agents opening pages side by side pull the panel back and forth
+  under the person reading it. A new tab is for the session the keyboard is working for; choosing a
+  tab shows it and leaves the keyboard in the prompter it was in; a tab dropped into another session's
+  run is that session's from then on.
+- A session is on screen once. A second pane of the same conversation would be two prompters writing
+  one draft and a strip that could not say whose its tabs were; opening a session that is on screen
+  goes to it, and dropping it on an edge moves it.
 - A pane's bar carries what is about the thing it heads; what is opened BESIDE it is launched from
   where it lands. A session's bar is its crumb, the count of its agents working, its status, one
   control for what it made — the summary and the files, told apart in the dock's own head — and its
   menu. Documents, its terminal, its agents, a page, a device and a machine are rows of the side
-  pane's "+" and of a new tab's page, with their chords, and in the palette. Seven glyphs that each
+  panel's "+" and of a new tab's page, with their chords, and in the palette. Seven glyphs that each
   opened something somewhere else were the loudest thing at the top of the window and said nothing
   about the session (the owner, 10-05); a "+" is the one control a strip of tabs can spare, because
   every button beside it comes out of the tabs' width.
-- What a pane SHOWS keeps its controls with it, not in the pane's bar, which in a side pane is the tab
-  strip: the simulator's state and eight buttons there once left the tabs no width at all. A device
+- What a pane SHOWS keeps its controls with it, not in the pane's bar, which in the side panel is the
+  tab strip: the simulator's state and eight buttons there once left the tabs no width at all. A device
   wears a toolbar centred over it — its state and the presses used every minute, the rest one click
   away in an overflow that a narrow pane fills from the toolbar's end — and what is done WITH it
   (recording it for Laya) sits under it in the same pill, so the two read as one instrument.
@@ -793,10 +826,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   outlive their pane — a session's transcript, a diff's checkout — and a session goes further: it has
   no close at all (the owner, 10-05). It is reached from the sidebar and left the same way, and a ×
   on its bar was a way out to nowhere a click on another row does not go. ⌘W closes what the keyboard
-  is IN: a tab leaves its side pane; a pane leaves the split it shares — its menu says Remove from
-  split, the one way back to a single pane — and beside an empty box the box goes instead; a session
-  alone closes nothing, and the keyboard goes to its prompter rather than the key doing nothing anyone
-  can see. One answer (`close-intent.ts`) feeds the key, the menu bar, the palette and the menu, so
+  is IN: a tab leaves the side panel; a pane leaves the split it shares — its menu says Remove from
+  split — and the pane beside it takes the keyboard, and beside an empty box the box goes instead; a
+  session alone closes nothing, and the keyboard goes to its prompter rather than the key doing
+  nothing anyone can see. One answer (`close-intent.ts`) feeds the key, the menu bar, the palette and the menu, so
   none of them can name one thing and do another.
 - A × in a pane bar is right where an object outlives the pane and is not a session — a diff, a
   machine. It has no work to do where there is nothing underneath: a terminal, browser or documents
