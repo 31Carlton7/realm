@@ -289,7 +289,7 @@ describe("room, and the side panel's place", () => {
     expect(store.getState().splitRefusal("row")).toMatch(/No room for another pane beside it/);
     await store.getState().splitFocused("row");
     expect(primaryLeaves(store.getState().layout!)).toHaveLength(2);
-    expect(toasts(store).at(-1)).toMatch(/each needs to be 320 points wide/);
+    expect(toasts(store).at(-1)).toMatch(/each needs to be 280 points wide/);
     // Down still fits: the room is two panes tall.
     expect(store.getState().splitRefusal("col")).toBeNull();
     await store.getState().splitFocused("col");

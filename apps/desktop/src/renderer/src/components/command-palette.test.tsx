@@ -294,7 +294,7 @@ describe("CommandPalette", () => {
     expect(split()[0]!.getAttribute("aria-disabled")).toBeNull();
     // Down never fitted: one pane tall is all the room there is.
     expect(split()[1]!.getAttribute("aria-disabled")).toBe("true");
-    expect(split()[1]!.textContent).toMatch(/each needs to be 260 points tall/);
+    expect(split()[1]!.textContent).toMatch(/each needs to be 300 points tall/);
     await act(async () => { await store.getState().openItemBeside("i2"); });
     await waitFor(() => expect(split()[0]!.getAttribute("aria-disabled")).toBe("true"));
     expect(split()[0]!.textContent).toMatch(/No room for another pane beside it/);

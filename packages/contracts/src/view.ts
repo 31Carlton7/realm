@@ -59,13 +59,14 @@ export type BesideEdge = "left" | "right" | "top" | "bottom";
 
 /**
  * The least a main pane is drawn at. A session pane is the one every pane has to be able to hold, and
- * these are its own floors: the composer's narrowest rung (`@container (max-width: 360px)` in
- * styles.css, where the branch has given way to its mark and the row still holds the model, the
- * permission and Send) with the transcript's 16px gutters either side of it, and the height of its
- * bar, the composer and three lines of transcript above it. A split that would leave any pane below
- * them is not offered, rather than squeezed.
+ * these are its own floors, measured in the built app (splits-live.mjs): below the composer's last
+ * rung (`@container (max-width: 360px)`, where the branch has given way to its mark) nothing more
+ * gives way, and at 280 wide the row still holds its controls and Send with nothing overflowing and a
+ * message keeps a measure of five or six words. Below 300 tall the transcript stops shrinking at its
+ * floor and the composer starts to cover it; at 300 there are still lines of it to read. A split that
+ * would leave any pane below them is not offered, rather than squeezed.
  */
-export const PANE_MIN = { width: 320, height: 260 } as const;
+export const PANE_MIN = { width: 280, height: 300 } as const;
 /** The panel's own floor: a browser at a phone's width, a strip with room for two tabs and its "+". */
 export const PANEL_MIN_WIDTH = 320;
 /** The panel's share of the main area: half by default, and never so much of it that the share
