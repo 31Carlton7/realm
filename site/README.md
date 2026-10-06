@@ -6,7 +6,7 @@ Three routes and nothing else:
 
 | Route | What it is |
 | --- | --- |
-| `/` | The claim and the capture that is evidence for it, then one claim per section, each with its own capture, the questions, and the download. |
+| `/` | The hero in a portal, the mark assembling face by face, one claim per section with its own capture, the delegation interlude, the questions, the download, and the footer. |
 | `/changelog`, `/changelog/[slug]` | Every notable change under one date marker per day, eight at a time behind a **Load more**; each one opens as an article. |
 | `/features` | One non-scrolling screen: a carousel of real captures of the app, arrow keys included. |
 
@@ -68,8 +68,11 @@ the entry pages are fully prerendered.
 `scripts/capture-product.mjs` boots the BUILT app (`pnpm build` at the repo root first) on a
 disposable `REALM_HOME`, stages a profile's worth of work through the same RPC and UI paths a person
 uses — five spaces across two profiles, sessions waiting, working and finished, a delegation, three
-scheduled tasks and a run, a Library — and screenshots a list of scenes at 1440×900 and 2× density
-into `public/product/`, with the crops the changelog's figures import in `public/product/details/`.
+scheduled tasks and a run, a Library — and screenshots a list of scenes at 1440×900 and 3× density
+into `.captures/` (not in git). `scripts/encode-product.mjs` then writes what the site serves, all of
+it lossless WebP: every scene at 1× and as shot (`public/product/<scene>-1440.webp`, `-4320.webp`),
+each landing claim's own cut of its scene (`public/product/claims/`), and the crops the changelog's
+figures import (`public/product/details/`). `pnpm capture:encode` re-runs that step alone.
 
 ```sh
 pnpm build                      # from the repo root — a stale build reads as a live bug
@@ -88,7 +91,14 @@ why, rather than ending the run. The names that survived are written to
 `content/features.ts` — so a broken scene drops out of the carousel instead of shipping a hole, and
 a captured scene with no copy authored for it simply is not shown.
 
-Three things the script is careful about, all of which have bitten:
+Four things the script and the pages are careful about, all of which have bitten:
+
+- **Sharpness.** A claim zooms into part of its scene, and a 2× capture zoomed that far drew fewer
+  than two image pixels per CSS pixel on a Retina screen. Next's optimiser made it worse: it served
+  every capture as lossy WebP at quality 75 with the colour at half resolution, which smears small
+  text. So the window is shot at 3×, each claim is cut from that by `lib/frames.ts` (the same
+  arithmetic the page lays it out with), and the pages serve the files as written, never through
+  `/_next/image`.
 
 - **The computer name.** Every shot walks its text nodes and replaces the developer's machine name,
   and the scratch home's path, before capturing. It is not enough to do it once during staging —
@@ -106,7 +116,9 @@ Three things the script is careful about, all of which have bitten:
 favicons (`app/icon.png`, `app/apple-icon.png`) and `public/app-icon.png` are the app icon drawn from
 `resources/icon-src/icons.mjs`; the share images come from `/share` (`pnpm capture:share`).
 
-`lib/realm-liquid-glass.ts` bakes the same mark's faces into a signed distance field and refracts
+`lib/mark.ts` works the mark's geometry out the way `mark.mjs` does: its six faces, the walls and
+the doorway's floor, jamb and lit back. The landing page's field (`lib/dimension/`) assembles, lights
+and tiles exactly those faces, and `lib/realm-liquid-glass.ts` bakes the same mark's walls into a signed distance field and refracts
 Realm-blue, white and silver light streams through it, and `components/RealmCanvas.tsx` runs it —
 pausing offscreen and in a hidden tab, one frozen frame under reduced motion, the vector mark where
 WebGPU is unavailable. No page mounts it now: the landing page leads with a capture of the product,
