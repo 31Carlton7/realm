@@ -182,7 +182,13 @@ const pressRow = (c, label) => pressAt(c, `[...document.querySelectorAll('.menu 
 /** The front toast: its words and whether it offers an Undo. */
 const TOAST = `(() => { const t = [...document.querySelectorAll('.toast')].find((x) => x.hasAttribute('data-front') && !x.hasAttribute('data-leaving')); return t ? { text: t.querySelector('.toast-text')?.textContent, undo: t.querySelector('.toast-action')?.textContent ?? null } : null; })()`;
 const frontToast = (c, has) => until(async () => { const t = await evalIn(c, TOAST); return t && (!has || t.text.includes(has)) ? t : null; }, 8_000, `a toast saying ${has}`);
-const pressUndo = (c) => pressAt(c, `[...document.querySelectorAll('.toast[data-front]:not([data-leaving]) .toast-action')][0]`, "the toast's Undo");
+/** The front toast's Undo, pressed once the toast has risen into place: pressed mid-rise, the point
+ *  measured a frame earlier is beside the button. */
+const pressUndo = async (c) => {
+  await until(() => evalIn(c, `(() => { const t = document.querySelector('.toast[data-front]:not([data-leaving])');
+    return !!t && !t.getAnimations().some((a) => a.animationName === "rl-toast-rise" && a.playState === "running"); })()`), 5_000, "the toast in place");
+  await pressAt(c, `[...document.querySelectorAll('.toast[data-front]:not([data-leaving]) .toast-action')][0]`, "the toast's Undo");
+};
 /** Every toast taken down, so the next one read is the next one said. */
 const clearToasts = (c) => evalIn(c, `(() => { const s = window.__liveStore.getState(); for (const t of s.toasts) s.dismissToast(t.id); return true; })()`);
 
@@ -301,6 +307,8 @@ async function main() {
   const openLibrary = async () => {
     await press(c, `.app-rail .rail-btn[aria-label^="Library"]`);
     await until(() => evalIn(c, `!!document.querySelector('.library-add')`), 10_000, "the Library's Add");
+    // Its first answer in: files, or the page saying there are none — never the moment before either.
+    await until(() => evalIn(c, `!!document.querySelector('.library-file, .library-empty')`), 10_000, "the Library's files");
   };
   const addAll = async () => {
     const mime = { png: "image/png", jpg: "image/jpeg", pdf: "application/pdf", md: "text/markdown", csv: "text/csv" };
@@ -366,24 +374,38 @@ async function main() {
 
     // ── 2. Remove, and Undo ───────────────────────────────────────────────────────────────────
     const before = await evalIn(c, GRID);
+    /* The removals waiting to be undone, each the folder its copies wait in. The dark pass's last ones
+       are still waiting in the light one, so this removal is the folder that appears and then goes. */
+    const holds = () => { const at = path.join(libraryDir, ".removed");
+      return fs.existsSync(at) ? Object.fromEntries(fs.readdirSync(at).map((d) => [d, fs.readdirSync(path.join(at, d))])) : {}; };
+    const held0 = holds();
     await rightClick(c, TILE("notes.md"), "notes.md", "notes.md");
     await pressRow(c, "Remove from Library");
     await until(() => evalIn(c, `!(${FILE("notes.md")})`), 5_000, "notes.md gone from the grid");
     const said = await frontToast(c, "notes.md");
-    const aside = fs.existsSync(path.join(libraryDir, ".removed")) ? fs.readdirSync(path.join(libraryDir, ".removed")).flatMap((d) => fs.readdirSync(path.join(libraryDir, ".removed", d))) : [];
+    const held1 = holds();
+    const aside = Object.keys(held1).filter((d) => !(d in held0)).map((d) => held1[d]);
     check(`${face}: Remove takes it out at once — no question — and says so with an Undo`,
       said.text === "Removed notes.md from the Library." && said.undo === "Undo" && !(await evalIn(c, `!!document.querySelector('.sheet, [role=alertdialog]')`)), said);
     check(`${face}: …Realm's copy leaves its place, set aside; the original on the Desktop is untouched`,
-      !fs.existsSync(copyOf("notes.md")) && aside.includes("notes.md") && sha(path.join(desk, "notes.md")) === originals["notes.md"], aside);
+      !fs.existsSync(copyOf("notes.md")) && JSON.stringify(aside) === JSON.stringify([["notes.md"]]) && sha(path.join(desk, "notes.md")) === originals["notes.md"], aside);
     // The pointer on the stack holds its clock while it is captured.
     await hover(c, `document.querySelector('.toast[data-front] .toast-text')`, "the toast");
+    const undoLook = await evalIn(c, `(() => { const b = document.querySelector('.toast[data-front] .toast-action');
+      const ink = document.createElement('span'); ink.style.color = 'var(--rl-accent)'; document.body.append(ink);
+      const accent = getComputedStyle(ink).color; ink.remove();
+      const cs = getComputedStyle(b), text = getComputedStyle(document.querySelector('.toast[data-front] .toast-text'));
+      return { color: cs.color, accent, size: cs.fontSize, textSize: text.fontSize, h: Math.round(b.getBoundingClientRect().height) }; })()`);
+    check(`${face}: …the Undo a word in the link's ink, at the toast's own size, on a 28px target`,
+      undoLook.color === undoLook.accent && undoLook.size === undoLook.textSize && undoLook.h === 28, undoLook);
     await shot(c, `4-toast-undo-${face}`);
     await pressUndo(c);
     await until(() => evalIn(c, `!!(${FILE("notes.md")})`), 5_000, "notes.md back");
     await sleep(300);
     const after = await evalIn(c, GRID);
     check(`${face}: Undo puts it back exactly — the same bytes, the same name, the same place in the grid`,
-      JSON.stringify(after) === JSON.stringify(before) && sha(copyOf("notes.md")) === originals["notes.md"] && !fs.existsSync(path.join(libraryDir, ".removed")), { before, after });
+      JSON.stringify(after) === JSON.stringify(before) && sha(copyOf("notes.md")) === originals["notes.md"]
+        && JSON.stringify(Object.keys(holds()).sort()) === JSON.stringify(Object.keys(held0).sort()), { before, after });
     await clearToasts(c);
 
     // ── 3. Delete on the tile in focus ─────────────────────────────────────────────────────────

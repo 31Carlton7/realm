@@ -3008,9 +3008,10 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 /* Off its own line box at the top, so a 28px target does not make a one-line toast taller. */
 .toast-close { flex: none; margin: -5px 0; color: var(--rl-text-faint); }
 /* The one thing a toast can do, an Undo: a word in the link's ink at the toast's own size, on the
-   close's 28px off the line box, so offering it never makes the toast taller. */
-.toast-action { --btn-h: 28px; flex: none; margin: -5px -2px; padding: 0 8px; font-size: 13px; font-weight: var(--fw-label); color: var(--rl-accent); }
-.toast-action:hover:not(:disabled) { color: var(--rl-accent); }
+   close's 28px off the line box, so offering it never makes the toast taller. Two classes, because the
+   quiet button's own size and ink are set further down and would otherwise win. */
+.toast .toast-action { --btn-h: 28px; flex: none; margin: -5px -2px; padding: 0 8px; font-size: 13px; font-weight: var(--fw-label); color: var(--rl-accent); }
+.toast .toast-action:hover:not(:disabled) { color: var(--rl-accent); }
 /* Tucked behind, a toast is its top edge and nothing more: three notices' words a few pixels apart
    would be one illegible one. */
 .toasts:not([data-expanded]) .toast:not([data-front]) .toast-body { opacity: 0; }
