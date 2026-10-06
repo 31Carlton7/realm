@@ -1071,9 +1071,10 @@ export type AppState = {
   /** The items of every space of the active profile, archived ones included (the space's own lists
    *  show those apart). Each space's slice is refreshed on its own `items.changed`. */
   items: Item[];
-  /** The window's one view (contracts/view.ts): a pane or a split of two, each with its own side
-   *  pane, and the side panes of the sessions not on screen. Null before boot. The source of truth;
-   *  `layout` mirrors it. Persisted per profile (`ui.view:<profileId>`). */
+  /** The window's one view (contracts/view.ts): the main panes, the one side panel beside them with
+   *  every on-screen session's tabs, the tabs of the sessions not on screen, and the panel's share of
+   *  the room. Null before boot. The source of truth; `layout` mirrors it. Persisted per profile
+   *  (`ui.view:<profileId>`), which is per window. */
   view: WindowView | null;
   /** The view's layout, mirrored on every write (see `writeView`). Its own field so every reader that
    *  only ever wanted "what is on screen" — the pane host, the sidebar glyph, focus, the hotkeys —
@@ -2909,11 +2910,6 @@ export type FocusDir = "left" | "right" | "up" | "down";
  * depend on the origin leaf's cross-axis position, which the tree does not encode. Null = no
  * neighbor that way (callers no-op).
  */
-/** Every side pane in the layout — the tabbed leaves, on screen or put away. */
-export function sidePaneLeaves(l: Layout): LayoutLeaf[] {
-  return l.type === "leaf" ? (l.tabs ? [l] : []) : l.children.flatMap(sidePaneLeaves);
-}
-
 export function neighborLeafId(l: Layout, leafId: string, dir: FocusDir): string | null {
   const axis = dir === "left" || dir === "right" ? "row" : "col";
   const forward = dir === "right" || dir === "down";
@@ -3394,9 +3390,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      */
     const delegatedChildren = new Map<string, { doneRow?: string }>();
     /**
-     * The ONE way the view is written. It is brought to its one shape here (`normalizeView`: two panes
-     * at most, each side pane with the session it serves, a side pane leaving with its session), and
-     * `layout` is re-mirrored in the same set, so the two can never be observed disagreeing.
+     * The ONE way the view is written. It is brought to its one shape here (`normalizeView`: the main
+     * panes, the one panel beside them, each tab in its session's run and leaving with its session),
+     * and `layout` is re-mirrored in the same set, so the two can never be observed disagreeing.
      *
      * Also THE recording site for per-pane history: every structural change — open, split, drop,
      * close — ends here, so reconciling once covers all of them (see reconcileNav). `extra` still
