@@ -1430,44 +1430,41 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     }
   });
 
-  it("a page's title heads its column as far under the rim as it stands in from the column's edge, on one token", () => {
-    /* The owner, 10-06, of the Library's column and the titles over Scheduled's and Code review's: "make
-       sure we have the title of the page for the library here … and increase the top padding … so it
-       looks more even". Measured on the ink (page-heads-live.mjs), a title 6px under the rim had its caps
-       14px down and its first glyph 25px in; at 18px, in a row its trailing control's height, the caps
-       are 25px down. Every column's title takes that one top — the Library's, drawn by the column, and
-       the two that bring their own head, in the sidebar's slot and standing in the page — in one type,
-       in a row that keeps the control's slot. The Back and the profile are first-row controls and stay
-       6px under. THE MUTANTS: the token back at the profile's 6px (the cramped head), a head with a
-       literal top of its own (a column off the others' line), a row that drops the control's slot (the
-       Library's name, with no control, a line higher than the others'), the Library's title in a type
-       of its own, or the Back moved down with the titles (Home → Settings jumping its first row). */
+  it("every column's first row stands one depth under the rim, from one token, where a title's caps stand as far down as in", () => {
+    /* The owner, 10-06: "make sure we have the title of the page for the library here … increase the top
+       padding … so it looks more even", then "add some top padding to the profile switcher and where the
+       back button is". Measured on the ink (page-heads-live.mjs), a title 6px under the rim had its caps
+       14px down and its first glyph 25px in; at 17px, in the column's 30px first row, the caps are 25px
+       down. Every column's first row takes that one depth and is that one row — Home's profile, a Back,
+       the Library's name drawn by the column, and the heads Scheduled's and Code review's columns bring,
+       in the sidebar's slot and standing in the page — so going from Home to a page moves nothing, and
+       the names share one type. THE MUTANTS: the token back at 6px (the cramped heads); a head with a
+       literal top of its own (the first row jumping between Home and that page); a title's line off the
+       row's 30px (its name off the profile's line, and with no control beside it, a row shorter than the
+       others); the Library's title in a type of its own. */
     const px = (body: string, re: RegExp) => Number(re.exec(body)?.[1]);
     const root = RULES.filter((r) => r.selectors.includes(":root") && r.body.includes("--col-head-top")).map((r) => r.body).join(" ");
-    expect(root).toContain("--col-head-top: 18px");
-    const inset = px(bodiesFor(".sb-title").join(" "), /padding-top: (\d+)px/);
-    expect(inset).toBe(6);
-    expect(bodiesFor(".sb-page-head").join(" ")).toContain(`padding: ${inset}px 16px 0`);
+    expect(root).toContain("--col-head-top: 17px");
+    // The profile and the Back: a 30px control each, at the token's depth.
     const row = px(bodiesFor(".sb-profile").join(" "), /height: (\d+)px/);
     expect(px(bodiesFor(".sb-page-back").join(" "), /height: (\d+)px/)).toBe(row);
-    // The title's first glyph where every row's glyph starts: the list's inset and a row's own.
+    expect(bodiesFor(".sb-title").join(" ")).toContain("padding-top: var(--col-head-top)");
+    expect(bodiesFor(".sb-page-head").join(" ")).toContain("padding: var(--col-head-top) 16px 0");
+    // A page's name at the same depth, its first glyph where every row's glyph starts — the list's inset
+    // and a row's own — and standing in the page with the column's own bottom kept.
     const side = px(bodiesFor(".sb-page-nav").join(" "), /padding: \d+px (\d+)px 16px/) + px(bodiesFor(".sb-page-nav .page-rail .settings-tab").join(" "), /padding: \d+px (\d+)px/);
-    // The trailing control's slot: the icon button the Scheduled and Code review heads carry.
-    const control = px(bodiesFor(".icon-btn").join(" "), /--btn-h: (\d+)px/);
     for (const sel of [".sb-page-head:has(> .sb-page-title)", ".sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-head, .cr-col-head)"]) {
-      const head = bodiesFor(sel).join(" ");
-      expect(head, sel).toContain(`padding: var(--col-head-top) 12px 0 ${side}px`);
-      expect(head, sel).toContain(`min-height: calc(var(--col-head-top) + ${control}px)`);
+      expect(bodiesFor(sel).join(" "), sel).toContain(`padding: var(--col-head-top) 12px 0 ${side}px`);
     }
-    // Standing in the page, with the sidebar folded away, each keeps its own bottom and takes the same top.
     for (const sel of [".sched-col-head", ".cr-col-head"]) expect(bodiesFor(sel).join(" "), sel).toContain(`padding: var(--col-head-top) 12px 6px ${side}px`);
-    // Nothing else in the stylesheet writes a head's top for itself.
-    expect(RULES.filter((r) => r.selectors.some((s) => /(sched|cr)-col-head|sb-page-title/.test(s)) && /padding(-top|-block)?: \d/.test(r.body)).map((r) => r.selectors.join(", "))).toEqual([]);
-    // One type for the three titles, from one rule.
+    // Nothing else in the stylesheet writes a first row's top for itself.
+    const heads = /^\.sb-title$|sb-page-head|(sched|cr)-col-head|sb-page-title/;
+    expect(RULES.filter((r) => r.selectors.some((sel) => heads.test(sel)) && /padding(-top|-block)?: \d/.test(r.body)).map((r) => r.selectors.join(", "))).toEqual([]);
+    // One type for the three names, from one rule, on a line the row's height.
     const type = RULES.filter((r) => r.selectors.includes(".sb-page-title"));
     expect(type).toHaveLength(1);
     expect(type[0]!.selectors).toEqual(expect.arrayContaining([".sched-col-title", ".cr-col-title", ".sb-page-title"]));
-    for (const want of ["font-size: 18px", "line-height: 24px", "font-weight: var(--fw-title)", "color: var(--rl-text-bright)"]) expect(type[0]!.body, want).toContain(want);
+    for (const want of ["font-size: 18px", `line-height: ${row}px`, "font-weight: var(--fw-title)", "color: var(--rl-text-bright)"]) expect(type[0]!.body, want).toContain(want);
     for (const sel of [".sched-col-title", ".cr-col-title"]) expect(bodiesFor(sel), sel).toEqual([type[0]!.body]);
   });
 

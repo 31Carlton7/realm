@@ -172,9 +172,15 @@ const HEAD_INK = `(async () => {
   return { kind: h.kind, text: h.text ?? h.el.textContent.trim(), rim, edge, row: __heads.box(h.row), el: __heads.box(h.el),
     clip: { x: Math.floor(edge) + 1, y: Math.floor(rim) + 1, width: Math.ceil(right - edge), height: Math.ceil(box.bottom - rim) + 2 },
     glyphRight: glyph,
+    // The first row's own box — a title's head carries the depth as its padding — and the middle of its
+    // words, which is the line a reader's eye lands on.
+    contentTop: h.kind === 'title' ? box.top + parseFloat(getComputedStyle(h.row).paddingTop) : box.top,
+    mid: (() => { const t = document.createTreeWalker(h.el, NodeFilter.SHOW_TEXT); let n;
+      while ((n = t.nextNode())) if (n.textContent.trim()) { const r = document.createRange(); r.selectNodeContents(n); const b = r.getBoundingClientRect(); return (b.top + b.bottom) / 2; }
+      return null; })(),
     font: h.kind === 'title' ? (() => { const cs = getComputedStyle(h.el); return cs.fontSize + '/' + cs.lineHeight + ' ' + cs.fontWeight; })() : null,
     // The first thing under the head: New task, Code review's search, a first section, Settings' search.
-    next: __heads.box(col.querySelector('.sb-page-nav :is(.sched-new, .cr-col:not([aria-hidden]) .cr-col-search .search-field, .page-rail .settings-tab, .settings-search .search-field)')
+    next: __heads.box(col.querySelector('.sb-page-nav :is(.sched-new, .cr-col:not([aria-hidden]) .cr-col-search .search-field, .page-rail .settings-tab, input.settings-search)')
       ?? col.querySelector('.sb-list:not([hidden]) .space-body > *')) };
 })()`;
 
@@ -213,7 +219,7 @@ async function inkOf(c) {
   const side = +((head.clip.x + at.left / k) - head.edge).toFixed(2);
   return { kind: head.kind, text: head.text, top, side, uneven: +(top - side).toFixed(2),
     inkTop: +((head.clip.y + ink.all.top / k) - head.rim).toFixed(2), capHeight: +((at.bottom - at.top + 1) / k).toFixed(2),
-    row: head.row, rowTop: +(head.row.t - head.rim).toFixed(2), next: head.next, nextTop: head.next ? +(head.next.t - head.rim).toFixed(2) : null, font: head.font };
+    row: head.row, rowTop: +(head.contentTop - head.rim).toFixed(2), mid: +(head.mid - head.rim).toFixed(2), next: head.next, nextTop: head.next ? +(head.next.t - head.rim).toFixed(2) : null, font: head.font };
 }
 
 /** The token, overridden in the page: what each inset would put where, read off the same ink. */
@@ -480,20 +486,27 @@ async function main() {
     await setFace(c, mode);
     faces[mode] = await measureFace(c, mode);
   }
-  /* What evenness asks: a title's ink as far under the rim as it stands in from the column's edge.
-     Reported for every column; held for the titles, which are what the owner asked to be even. */
+  /* What evenness asks: a title's caps as far under the rim as its first glyph stands in from the
+     column's edge. Reported for every column; held for the titles, whose depth every column's first row
+     takes. And that one depth is what keeps the first row still between Home and every page: the
+     profile, the Back and the names in one row at one depth, centred on one line, with what follows
+     starting on one (the owner, 10-06: "add some top padding to the profile switcher and where the back
+     button is"). */
   for (const mode of ["dark", "light"]) {
     for (const [name, m] of Object.entries(faces[mode])) {
       if (m?.kind !== "title") continue;
       check(`${mode} ${name}: its title's caps stand as far under the rim as its first glyph stands in from the column's edge`, Math.abs(m.top - m.side) <= 0.5, { top: m.top, side: m.side });
     }
     const titles = Object.entries(faces[mode]).filter(([, m]) => m?.kind === "title");
-    if (titles.length > 1) {
-      const tops = titles.map(([, m]) => m.top), sides = titles.map(([, m]) => m.side), nexts = titles.map(([, m]) => m.nextTop);
-      check(`${mode}: every column's title is on one line and one inset`, Math.max(...tops) - Math.min(...tops) <= 0.5 && Math.max(...sides) - Math.min(...sides) <= 1.5,
-        Object.fromEntries(titles.map(([n, m]) => [n, { top: m.top, side: m.side }])));
-      check(`${mode}: …and what follows each starts on one line`, Math.max(...nexts) - Math.min(...nexts) <= 0.5, Object.fromEntries(titles.map(([n, m]) => [n, m.nextTop])));
-    }
+    const tops = titles.map(([, m]) => m.top), sides = titles.map(([, m]) => m.side);
+    check(`${mode}: every column's name has its caps on one line and its first glyph on one inset`, Math.max(...tops) - Math.min(...tops) <= 0.5 && Math.max(...sides) - Math.min(...sides) <= 1,
+      Object.fromEntries(titles.map(([n, m]) => [n, { top: m.top, side: m.side }])));
+    const all = Object.entries(faces[mode]).filter(([, m]) => m);
+    const spread = (key) => { const v = all.map(([, m]) => m[key]); return Math.max(...v) - Math.min(...v); };
+    check(`${mode}: every column's first row — the profile, the Backs, the names — stands at one depth under the rim`, spread("rowTop") <= 0.5,
+      Object.fromEntries(all.map(([n, m]) => [n, m.rowTop])));
+    check(`${mode}: …centred on one line, so going from Home to a page moves nothing`, spread("mid") <= 1, Object.fromEntries(all.map(([n, m]) => [n, m.mid])));
+    check(`${mode}: …and what follows each starts on one line`, spread("nextTop") <= 0.5, Object.fromEntries(all.map(([n, m]) => [n, m.nextTop])));
   }
   await setFace(c, "dark");
   for (const height of [600, 480]) await shortWindow(c, height);

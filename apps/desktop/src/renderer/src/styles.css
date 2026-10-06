@@ -529,13 +529,21 @@ kbd { font: 11px var(--font-mono); }
   clip-path: inset(0 0 0 calc(var(--lead-nav-end) - var(--rail-w) + var(--sidebar-w) * (1 - var(--sidebar-open)))); }
 /* The column's first row: the profile whose spaces it lists — or, while a page's sections have the
    column, the Back that gives the spaces back (`.sb-page-head`), or where it has no Back the page's
-   name, set lower as a title is (`--col-head-top`, below). On the list's 16px inset, so the mark
+   name (below). On the list's 16px inset, so the mark
    sits over the rows' marks; under the rim and outside the scroller, so it holds still while the list
    moves under it. It moved down out of the head row when the rail narrowed to Codex's width: the
    lights now cross into that row, and it could not hold them, the profile, back and forward, the
    toggle and two actions at the sidebar's own width. The profile's name is the one thing in the row of
-   unbounded length, and it has the row to itself. */
-.sb-title { flex: none; display: flex; align-items: center; padding-top: 6px; }
+   unbounded length, and it has the row to itself.
+   Every column's first row is one 30px row at one depth under the rim, so going from Home to a page
+   and back moves nothing: the profile, a Back and a page's name centre on one line, and what follows
+   starts on one. The depth is the titles': a name's caps stand as far under the rim as its first glyph
+   stands in from the column's edge, measured on the ink rather than the boxes (`page-heads-live.mjs`).
+   6px put the caps 14px down against 25px in, and every head read as cramped against the top (the
+   owner, 10-06: "so it looks more even … add some top padding to the profile switcher and where the
+   back button is"). The caps start 8px into the row, so 17px puts them 25px down. */
+:root { --col-head-top: 17px; }
+.sb-title { flex: none; display: flex; align-items: center; padding-top: var(--col-head-top); }
 .sb-profile { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .sb-profile:hover:not(:disabled) { background: var(--rl-hover); }
@@ -557,7 +565,7 @@ kbd { font: 11px var(--font-mono); }
 .sb-list[hidden] { display: none; }
 /* The slot scrolls a rail longer than the column, and dissolves on the list's own depths. */
 .sb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; --fade-h: 44px; --fade-top-h: 12px; }
-.sb-page-head { flex: none; display: flex; align-items: center; padding: 6px 16px 0; }
+.sb-page-head { flex: none; display: flex; align-items: center; padding: var(--col-head-top) 16px 0; }
 .sb-page-back { flex: none; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
   border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .sb-page-back:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
@@ -589,19 +597,12 @@ kbd { font: 11px var(--font-mono); }
 .sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-body, .cr-col-body) { --fade-h: 44px; --fade-top-h: 12px; }
 /* A page the rail opened is headed by its name — the Library's drawn by the column (`.sb-page-title`,
    Sidebar.tsx), Scheduled's and Code review's by their own columns with a search or a ⋯ beside it — in
-   one type and one row. The row stands as far under the rim as the name's first glyph stands in from
-   the column's edge, measured on the ink rather than the boxes (`page-heads-live.mjs`): a row 6px
-   under the rim put the caps 14px down against 25px in, and the head read as cramped against the top
-   (the owner, 10-06: "so it looks more even"). The caps start 5px into the 24px line, centred in a row
-   its trailing control's height, so 18px puts them 25px down — in the sidebar and in the page alike.
-   With no control of its own the row keeps the control's slot, so every name is on one line and what
-   follows starts on one, a step under it. Standing in the page, with the sidebar folded away, a column
-   keeps its own bottom. The Back and the profile are controls in the first row, not titles, and stay
-   where they are. */
-:root { --col-head-top: 18px; }
+   one type, on the column's first row (`--col-head-top`, above). Its line is that row's 30px, so the
+   name centres where the profile and a Back do whether or not a control stands beside it, and in the
+   page, with the sidebar folded away, as in the sidebar; there a column keeps its own bottom. */
 .sb-page-head:has(> .sb-page-title), .sb-page-nav > :is(.sched-col, .cr-col) > :is(.sched-col-head, .cr-col-head) {
-  padding: var(--col-head-top) 12px 0 24px; min-height: calc(var(--col-head-top) + 28px); }
-.sched-col-title, .cr-col-title, .sb-page-title { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 24px;
+  padding: var(--col-head-top) 12px 0 24px; }
+.sched-col-title, .cr-col-title, .sb-page-title { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 30px;
   font-weight: var(--fw-title); color: var(--rl-text-bright); }
 /* The list's head (SidebarLens): what the list is showing, in the column's section-label voice — the
    sentence-case caption "Pinned" and the day headings wear — and at its far end the switch to the other
