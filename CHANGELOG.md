@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.0.0 — 2026-10-05
+## v2.0.0 — 2026-10-06
 
 This release was going to be 1.6, and before it shipped it grew into a redesign of the prompter, the
 model picker, the transcript and the window around them — so it is 2.0. What 1.6 was to bring is all
