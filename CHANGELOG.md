@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.0.3 — 2026-10-06
+
+**The sidebar scrolls wherever the pointer is over it.** The sidebar is where the window is dragged
+from, and the list of spaces and sessions inherited that: it scrolled only with the pointer on a row,
+and stood still over the gaps between rows, a space's or section's heading, or the empty space at the
+foot of the list, where macOS took the scroll for the start of a window drag. The list is no longer
+part of the drag area; the window still drags by the strip at the top of the sidebar.
+
 ## v2.0.2 — 2026-10-06
 
 **An open Realm notices a new version.** Realm looked for updates once, when it opened, so a Realm
