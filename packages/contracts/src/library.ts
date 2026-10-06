@@ -156,6 +156,45 @@ export const LibraryAddResultSchema = z.object({
 });
 export type LibraryAddResult = z.infer<typeof LibraryAddResultSchema>;
 
+/**
+ * Taking files back out of the Library (`library.remove`): a file's menu, its ⋯, the viewer's menu, or
+ * Delete on the file in focus.
+ *
+ * Only a file the person ADDED can be removed, because only that is the Library's own: Realm's copy is
+ * deleted, and the file it was copied from is never touched — it never was the Library's. A file a
+ * session made or was given is the session's work and its transcript's, and stays. Named by path,
+ * which every surface that shows a file knows; a path that is not one of the profile's added files is
+ * left alone, so a request can never reach anything else.
+ */
+export const LibraryRemoveSchema = z.object({
+  profileId: IdSchema,
+  paths: z.array(z.string().min(1)).min(1).max(LIBRARY_ADD_MAX),
+});
+export type LibraryRemoveInput = z.input<typeof LibraryRemoveSchema>;
+
+export const LibraryRemoveResultSchema = z.object({
+  /** What left the Library, as it listed them. */
+  removed: z.array(LibraryEntrySchema),
+  /** The sent messages that carried one of the removed copies. Each keeps its words and the file's
+   *  name, and loses the file; the Library's listing of it as attached goes with the copy. */
+  messages: z.number().int(),
+  /** The removal, for its undo (`library.restore`); null when nothing was removed. */
+  removal: z.string().nullable(),
+});
+export type LibraryRemoveResult = z.infer<typeof LibraryRemoveResultSchema>;
+
+/** Undoing a removal (`library.restore`): the toast's Undo, while the server still holds the copies. */
+export const LibraryRestoreSchema = z.object({ removal: z.string().min(1) });
+export type LibraryRestoreInput = z.input<typeof LibraryRestoreSchema>;
+
+export const LibraryRestoreResultSchema = z.object({
+  /** Back in the Library, each where it was in the list. */
+  restored: z.array(LibraryEntrySchema),
+  /** Copies put back under another name, because a file added since took theirs — never over it. */
+  renamed: z.array(z.object({ from: z.string(), to: z.string() })),
+});
+export type LibraryRestoreResult = z.infer<typeof LibraryRestoreResultSchema>;
+
 /** The extension a name ends in, lowercased and dotless. `""` for a name with none — never null, so
  *  the column has one type and the filter has one comparison. */
 export function extOf(name: string): string {

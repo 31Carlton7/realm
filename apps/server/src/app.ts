@@ -962,6 +962,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   hubElicit = createHubElicitation({ broker: browserBroker, serverName: (id) => mcpServersStore.get(id)?.name ?? null });
   const artifacts = new ArtifactsStore(db, settings);
+  const libraryFiles = new LibraryFilesStore(db, opts.home);
   const sessionEvents = new SessionEventsStore(db, artifacts);
   // Hoisted: `defaultAdapters()` builds live adapter instances, and failover must check membership
   // against the SAME registry the session service starts agents from — two registries would let a
@@ -1259,7 +1260,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
-    libraryFiles: new LibraryFilesStore(db, opts.home),
+    libraryFiles,
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
     codeReview,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
@@ -1292,6 +1293,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // The pre-v25 history reaches the Library's file index the same way, on the same terms: chunked,
   // yielding, resumable, and merely incomplete rather than wrong while it runs.
   void artifacts.runBackfill(() => false);
+  // Copies removed from the Library while the last run was up, whose Undo went with it.
+  void libraryFiles.sweep();
   terminals.restoreAll();
   // Brings laya-serve back only if the user left Laya on and an install is on disk.
   laya.boot();
