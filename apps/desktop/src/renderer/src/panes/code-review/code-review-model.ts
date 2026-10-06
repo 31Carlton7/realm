@@ -5,7 +5,7 @@ import {
 } from "@realm/contracts";
 import type { AgentProbe } from "../../state/store";
 import {
-  effortOptions, fastModeAvailability, fastModeTip, formatEffort, levelToRun, modelRows,
+  effortCurrent, effortOptions, fastModeAvailability, fastModeTip, modelRows,
   type EffortOptions, type FastAvailability, type ModelRow,
 } from "../session/model-catalog";
 
@@ -133,20 +133,20 @@ export function reviewerCatalog({ pick, agentProbe, favorites, info, effortSuppo
 }
 
 /**
- * How a review started from the pick runs, which is what Review with… says: the level held, where the
- * model takes it — one set under another model gives way to the model's own default, as the card
- * shows it — and fast mode where it is asked for, of a harness that can be asked, on a model nothing
- * has said cannot run it. Nothing has run on the pick yet, so there is no report to say otherwise.
+ * How a review started from the pick runs, which is what Review with… says: the level the card shows
+ * chosen — one held from another model gives way to this one's own default, which is what the card
+ * shows in its place, and so does any level for a model that names none (Haiku, or a Codex model its
+ * catalog has not described yet) — and fast mode where it is asked for, of a harness that can be
+ * asked, on a model nothing has said cannot run it. Nothing has run on the pick yet, so there is no
+ * report to say otherwise. The pick keeps its level either way, for a model that takes it.
  */
 export function reviewRun(pick: ReviewerPick, c: ReviewerCatalog): { effort: string | null; fastMode: boolean } {
+  const level = effortCurrent({ ...c.levels, value: pick.effort });
   return {
-    effort: levelToRun(pick.agentKind, pick.effort, c.levels.levels.map((l) => l.id)),
+    effort: level.chosen ? level.choice!.id : null,
     fastMode: pick.fastMode && c.fast.state !== "none" && c.fast.state !== "unavailable",
   };
 }
-
-/** A level by the name the card gives it, or as Realm prints one where the card has no name for it. */
-export const levelName = (effort: string, levels: EffortOptions["levels"]): string => levels.find((l) => l.id === effort)?.label ?? formatEffort(effort);
 
 /** The reviewer in a sentence, for a tooltip: "Opus 5.5", "Opus 5.5 at XHigh effort in fast mode". */
 export const reviewerPhrase = (label: string, level: string | null, fast = false): string =>

@@ -22,7 +22,9 @@
  *    in one visit with the box and the pressed row held still — across a harness and a card of
  *    another size too — and Escape or a click outside puts it away (`stay`);
  *  - the Schedule a task modal's Model row is the same chip and picker, and a run started from the
- *    task runs on the model, level, fast mode and permission it was given (`schedule`).
+ *    task runs on the model, level, fast mode and permission it was given (`schedule`);
+ *  - Code review's reviewer is the same picker and card from its review menu, the profile keeps the
+ *    model, level and fast mode, and a review runs at them (`reviewer`).
  *
  * No real agent is ever asked anything. Every CLI is a stub: Claude answers `--version` and
  * `auth status`, Codex is the adapter's own fake app-server fixture, and the ACP agents are either
@@ -813,6 +815,282 @@ async function review() {
   }
 }
 
+/**
+ * Code review's reviewer, on the same fake CLI (the owner, 10-06: "The reviewer effort level can do
+ * that as well"). The review menu's model chip opens the picker with its card; a pick leaves it open
+ * and → in the search steps the model just picked; the menu's chip and the Review button say the
+ * level and the bolt; the profile keeps them through a reload; and a review started at Opus 5.5
+ * XHigh runs at xhigh, then fast — the CLI answers with what it ran under, and that answer is the
+ * review's summary. A model the CLI says takes no level gives the remembered XHigh way: its review
+ * is sent none, and Opus has XHigh back after it.
+ */
+async function reviewer() {
+  const ghDir = path.join(scratch, "gh-reviewer");
+  fs.mkdirSync(ghDir, { recursive: true });
+  const fixturePath = path.join(ghDir, "fixture.json");
+  fs.writeFileSync(fixturePath, JSON.stringify({ ...buildFixture(), auth: "ready" }));
+  const ghBin = path.join(ghDir, "gh");
+  fs.writeFileSync(ghBin, `#!/bin/sh\nFAKE_GH_FIXTURE='${fixturePath}' FAKE_GH_LOG='${path.join(ghDir, "calls.jsonl")}' exec '${process.execPath}' '${path.join(repoRoot, "apps/server/scripts/fixtures/fake-gh.mjs")}' "$@"\n`);
+  fs.chmodSync(ghBin, 0o755);
+  const { c, api, home } = await boot({ ...stubs(path.join(scratch, "bin-reviewer"), { acp: false, claudeCli: true }), REALM_GH_BIN: ghBin }, "reviewer");
+  const TITLE = "Stream the tokenizer instead of buffering its input";
+  const ref = { owner: "acme", repo: "widgets", number: 42 };
+  const MENU = '[role=dialog][aria-label="Review instructions"]';
+  const { profileId } = (await api.call("spaces.list", {}))[0];
+  const openRequest = async () => {
+    await evalIn(c, `(() => { const b = [...document.querySelectorAll('.app-rail button')].find((x) => x.getAttribute('aria-label') === 'Code review');
+      if (b.getAttribute('aria-pressed') !== 'true') b.click(); return true; })()`);
+    await until(() => evalIn(c, `[...document.querySelectorAll('.cr-row')].some((r) => r.textContent.includes(${JSON.stringify(TITLE)}))`), 20000, "the request's row");
+    await evalIn(c, `(() => { [...document.querySelectorAll('.cr-row')].find((r) => r.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
+    await until(() => evalIn(c, `(() => { const b = document.querySelector('.cr-review-run'); return !!b && !b.disabled; })()`), 20000, "Review with");
+    await sleep(800);
+  };
+  const menuUp = () => evalIn(c, `(() => { const d = document.querySelector(${JSON.stringify(MENU)}); return !!d && !d.hasAttribute('data-closing') && getComputedStyle(d).visibility === 'visible'; })()`);
+  const pickerUp = () => evalIn(c, `(() => { const p = document.querySelector('.model-picker'); return !!p && !p.hasAttribute('data-closing'); })()`);
+  const openMenu = async () => {
+    if (await menuUp()) return;
+    const m = await box(c, ".cr-review-more");
+    await clickAt(c, m.x + m.width / 2, m.y + m.height / 2);
+    await until(async () => (await menuUp()) && evalIn(c, `!document.querySelector(${JSON.stringify(`${MENU} textarea`)}).disabled`), 10000, "the review menu");
+    await sleep(350); // the arrival spring
+  };
+  const closeMenu = async () => {
+    for (let i = 0; i < 3 && (await menuUp()); i++) {
+      for (const type of ["rawKeyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+      await sleep(350);
+    }
+  };
+  /** A real press on a picker row, the pointer left there. */
+  const press = async (label) => { const at = await rowAt(c, label); if (!at) return false; await clickAt(c, at.cx, at.cy); await sleep(500); return true; };
+  /** Everything about the body a screenshot of it is evidence for. */
+  const body = () => evalIn(c, `(() => {
+    const b = document.querySelector('.cr-review-run'), l = b.querySelector('.cr-review-label'), lv = b.querySelector('.cr-level'), bolt = b.querySelector('.cr-review-fast');
+    const bar = document.querySelector('.cr-bar'), m = b.querySelector('.cr-review-model');
+    // The level's ink over the body's own ground as WCAG measures it, read back through a canvas so an
+    // oklch() or translucent ink is resolved by the browser itself.
+    const cv = document.createElement('canvas'); cv.width = cv.height = 1;
+    const g = cv.getContext('2d', { willReadFrequently: true });
+    const px = (...fills) => { g.clearRect(0, 0, 1, 1); for (const f of fills) { g.fillStyle = f; g.fillRect(0, 0, 1, 1); } return [...g.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+    const probe = document.createElement('span'); probe.style.background = 'var(--surface)'; b.appendChild(probe);
+    const ground = getComputedStyle(probe).backgroundColor; probe.remove();
+    const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+    const ratio = (ink) => { const [x, y] = [lum(px(ground, ink)), lum(px(ground))].sort((p, q) => q - p); return Math.round(((x + 0.05) / (y + 0.05)) * 100) / 100; };
+    const lr = l.getBoundingClientRect(), br = bolt?.getBoundingClientRect();
+    return { text: b.textContent, title: b.title, level: lv?.textContent ?? null, fast: !!bolt && getComputedStyle(bolt).display !== 'none',
+      levelInk: lv ? getComputedStyle(lv).color : null, labelInk: getComputedStyle(l).color, levelContrast: lv ? ratio(getComputedStyle(lv).color) : null,
+      boltOnLine: !br || br.width === 0 || (br.top >= lr.top - 1 && br.bottom <= lr.bottom + 1 && br.left > lr.left + 40),
+      disabled: b.disabled, width: Math.round(b.getBoundingClientRect().width), cut: l.scrollWidth > l.clientWidth + 1,
+      modelShown: !!m && m.getBoundingClientRect().width > 1, levelShown: !!lv && lv.getBoundingClientRect().width > 1,
+      fits: bar.scrollWidth <= bar.clientWidth + 1,
+      // What the bar needs: every item but the spacer, the gaps between all of them, and its padding.
+      need: (() => { const cs = getComputedStyle(bar), kids = [...bar.children];
+        return Math.ceil(kids.filter((k) => !k.classList.contains('cr-bar-spacer')).reduce((a, k) => a + k.getBoundingClientRect().width, 0)
+          + (parseFloat(cs.columnGap) || 0) * (kids.length - 1) + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)); })(),
+      barWidth: Math.round(bar.clientWidth) }; })()`);
+  const clipAround = (sels, pad = 16) => evalIn(c, `(() => {
+    const rs = ${JSON.stringify(sels)}.map((s) => document.querySelector(s)).filter(Boolean).map((e) => e.getBoundingClientRect());
+    const x = Math.min(...rs.map((r) => r.left)) - ${pad}, y = Math.min(...rs.map((r) => r.top)) - ${pad};
+    return { x, y, width: Math.max(...rs.map((r) => r.right)) + ${pad} - x, height: Math.max(...rs.map((r) => r.bottom)) + ${pad} - y }; })()`);
+  const shootBar = async (name) => shoot(c, name, await clipAround([".cr-review-with", ".cr-submit"], 14));
+  const shootMenu = async (name) => shoot(c, name, await clipAround([".cr-review-with", MENU, ".model-picker"], 16));
+  /** Somewhere the pointer rests on nothing, so no shot carries a hover. */
+  const rest = async () => {
+    await evalIn(c, `(() => { document.activeElement?.blur?.(); return true; })()`);
+    const t = await box(c, ".cr-title");
+    if (t) await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: t.x + 4, y: t.y + t.height / 2 });
+    await sleep(450);
+  };
+  const reviewOf = async () => (await api.call("codeReview.reviewGet", { ref })).review;
+  const replyOf = async (sid) => (await api.call("sessions.events", { id: sid, afterSeq: 0 })).map((e) => e.event)
+    .filter((e) => e.type === "assistant_text").map((e) => e.payload.text).at(-1) ?? null;
+  const sessionOf = async (sid) => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sid) ?? null;
+  /** A real press on the body, and the review it started once it has settled. */
+  const runReview = async () => {
+    const before = (await reviewOf())?.sessionId ?? null;
+    const b = await box(c, ".cr-review-run");
+    await clickAt(c, b.x + 30, b.y + b.height / 2);
+    return until(async () => { const r = await reviewOf(); return r && r.sessionId !== before && r.state !== "running" ? r : null; }, 40000, "the review").catch(() => null);
+  };
+  const reloadOn = async () => {
+    await c.send("Page.reload", {});
+    await until(() => evalIn(c, `!!document.querySelector('.app-rail')`), 30000, "reload");
+    await keyWindow(c);
+    await sleep(1500);
+    await openRequest();
+  };
+  try {
+    await setTheme(c, api, "dark");
+    await c.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
+    await openRequest();
+    const atRest = await body();
+    check("reviewer: at rest the body is Review with Fable 5.1 — no level asked for, none named", atRest.text === "Review with Fable 5.1" && atRest.level === null && !atRest.fast, atRest);
+
+    // ── The menu's chip opens the picker with its card; a pick, then → in the search ──
+    CHIP = `${MENU} button[aria-label="Model"]`;
+    await openMenu();
+    const chip0 = await chipOf(c);
+    check("reviewer: the menu's chip is the prompter's — the model, and the level in force named while none is set", chip0.text === "Fable 5.1" && chip0.effort === "High", chip0);
+    await openPicker(c);
+    let card = await runCard(c);
+    check("reviewer: the chip opens the picker with its card — the model's own levels, its default named, no reset, the bolt",
+      cardIsDrawn(card) && card.level === "High" && card.model === "Fable 5.1" && card.reset === null && !!card.bolt, card);
+    check("reviewer: Opus 5.5 is a row to pick", await press("Claude Opus 5.5"));
+    check("reviewer: the pick leaves the picker open over the menu", (await pickerUp()) && (await menuUp()));
+    card = await runCard(c);
+    check("reviewer: …its card now Opus 5.5's, at its default", card?.level === "High" && card.model === "Opus 5.5", card && { level: card.level, model: card.model });
+    await key(c, "ArrowRight");
+    card = await runCard(c);
+    check("reviewer: → in the search, straight after the pick, steps Opus 5.5 to XHigh, the reset beside it",
+      card?.level === "XHigh" && card.track?.chosen === "xhigh" && card.reset !== null, card && { level: card.level, chosen: card.track?.chosen, reset: card.reset });
+    const chip1 = await chipOf(c);
+    check("reviewer: the menu's chip wears XHigh as the prompter's does", chip1.text === "Opus 5.5" && chip1.effort === "XHigh" && /XHigh effort/.test(chip1.title), chip1);
+    const kept1 = (await api.call("codeReview.reviewerPick", { profileId })).pick;
+    check("reviewer: the profile keeps the pick as it is made", JSON.stringify(kept1) === JSON.stringify({ agentKind: "claude", model: "claude-opus-5-5", effort: "xhigh", fastMode: false }), kept1);
+    const placed = await layout(c);
+    check("reviewer: the picker opens whole inside the window", placed.picker.x >= 0 && placed.picker.y >= 0 && placed.picker.x + placed.picker.w <= placed.win.w && placed.picker.y + placed.picker.h <= placed.win.h, placed.picker);
+    await sleep(900); // the heavy level's light, running in the track
+    await shootMenu("reviewer-dark-picker-card");
+    await closePicker(c);
+    check("reviewer: Escape puts the picker away and leaves the menu", await menuUp());
+    await shoot(c, "reviewer-dark-menu", await clipAround([".cr-review-with", MENU], 16));
+    await closeMenu();
+    await rest();
+
+    // ── The body says it, and the review runs at it ──
+    const b1 = await body();
+    check("reviewer: the body says the level as the chip does — Review with Opus 5.5 XHigh, the level a shade quieter, nothing cut, the bar whole",
+      b1.text === "Review with Opus 5.5 XHigh" && b1.level === "XHigh" && b1.levelInk !== b1.labelInk && !b1.cut && b1.fits, b1);
+    check("reviewer: the level's ink clears AA on the body's ground", b1.levelContrast >= 4.5, b1.levelContrast);
+    check("reviewer: …and the tooltip says it in words", b1.title === "A read-only Opus 5.5 at XHigh effort reads the diff and leaves findings for you — nothing is posted", b1.title);
+    await shootBar("reviewer-dark-button");
+    const r1 = await runReview();
+    const s1 = r1 ? await sessionOf(r1.sessionId) : null;
+    const reply1 = r1 ? await replyOf(r1.sessionId) : null;
+    check("reviewer: the review starts its session on Opus 5.5 at XHigh, read-only, not fast",
+      s1?.model === "claude-opus-5-5" && s1.effort === "xhigh" && s1.fastMode === false && s1.permissionMode === "plan", s1 && { model: s1.model, effort: s1.effort, fastMode: s1.fastMode, permissionMode: s1.permissionMode });
+    check("reviewer: …and the CLI ran it at xhigh", /^Ran on claude-opus-5-5: effort xhigh, fast off\./.test(reply1 ?? ""), reply1);
+    check("reviewer: the review is kept with its level", r1?.state === "done" && r1.effort === "xhigh", r1 && { state: r1.state, effort: r1.effort });
+    await until(() => evalIn(c, `!!document.querySelector('.cr-review[data-state=done]')`), 10000, "the panel").catch(() => null);
+    const head1 = await evalIn(c, `(() => { const t = document.querySelector('.cr-review-title'); return { text: t?.textContent ?? null, level: t?.querySelector('.cr-level')?.textContent ?? null }; })()`);
+    check("reviewer: its panel is headed Review by Opus 5.5 XHigh", head1.text === "Review by Opus 5.5 XHigh" && head1.level === "XHigh", head1);
+    await rest();
+    await shoot(c, "reviewer-dark-panel", await clipAround([".cr-review"], 12));
+
+    // ── Fast mode: the bolt on the card, worn by the body, honoured by the run ──
+    await openMenu();
+    await openPicker(c);
+    card = await runCard(c);
+    await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+    await sleep(500);
+    card = await runCard(c);
+    check("reviewer: a press on the bolt asks for fast mode", card?.bolt?.pressed === "true", card?.bolt);
+    await sleep(500);
+    await shootMenu("reviewer-dark-picker-fast");
+    await closePicker(c);
+    await closeMenu();
+    await rest();
+    const b2 = await body();
+    check("reviewer: the body wears the bolt after the level on the same line, and says it in its name",
+      b2.text === "Review with Opus 5.5 XHigh in fast mode" && b2.fast && b2.boltOnLine && b2.fits && !b2.cut, b2);
+    await shootBar("reviewer-dark-button-fast");
+    const r2 = await runReview();
+    const s2 = r2 ? await sessionOf(r2.sessionId) : null;
+    const reply2 = r2 ? await replyOf(r2.sessionId) : null;
+    check("reviewer: with the bolt the review's session is fast, and the CLI ran it at xhigh, fast", s2?.fastMode === true && /^Ran on claude-opus-5-5: effort xhigh, fast on\./.test(reply2 ?? ""), { fastMode: s2?.fastMode, reply: reply2 });
+
+    // ── The profile's, in the next window ──
+    await reloadOn();
+    const b3 = await body();
+    check("reviewer: a new window reads the profile's reviewer — Opus 5.5, XHigh, the bolt", b3.text === "Review with Opus 5.5 XHigh in fast mode" && b3.fast, b3);
+
+    // ── A model that takes no level: the remembered one gives way, and comes back ──
+    await openMenu();
+    await openPicker(c);
+    card = await runCard(c);
+    await clickAt(c, card.bolt.box.cx, card.bolt.box.cy); // off, so the run says only what the level did
+    await sleep(300);
+    check("reviewer: Haiku 4.5 is a row to pick", await press("Claude Haiku 4.5"));
+    card = await runCard(c);
+    check("reviewer: Haiku 4.5, which the CLI says takes no level, draws no track", !!card && card.track === null, card && { level: card.level, track: card.track });
+    await closePicker(c);
+    await closeMenu();
+    await rest();
+    const b4 = await body();
+    check("reviewer: the body names no level for it", b4.text === "Review with Haiku 4.5" && b4.level === null, b4);
+    const kept4 = (await api.call("codeReview.reviewerPick", { profileId })).pick;
+    check("reviewer: …while the profile still holds XHigh, as a session's row would", kept4?.model === "claude-haiku-4-5" && kept4.effort === "xhigh" && kept4.fastMode === false, kept4);
+    const r4 = await runReview();
+    const s4 = r4 ? await sessionOf(r4.sessionId) : null;
+    const reply4 = r4 ? await replyOf(r4.sessionId) : null;
+    check("reviewer: its review is sent no level, and the CLI runs it at none", s4?.effort === null && /^Ran on claude-haiku-4-5: effort none, fast off\./.test(reply4 ?? ""), { effort: s4?.effort, reply: reply4 });
+    await openMenu();
+    await openPicker(c);
+    await press("Claude Opus 5.5");
+    await closePicker(c);
+    await closeMenu();
+    await rest();
+    const b5 = await body();
+    check("reviewer: back on Opus 5.5, XHigh is in force again", b5.text === "Review with Opus 5.5 XHigh" && b5.level === "XHigh", b5);
+
+    // ── Narrow: the bar gives up the words before its controls ──
+    // Fast mode on again, so the sweep is of the longest body.
+    await openMenu();
+    await openPicker(c);
+    card = await runCard(c);
+    await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+    await closePicker(c);
+    await closeMenu();
+    const widths = [];
+    for (let w = 1240; w >= 1000; w -= 10) {
+      await c.send("Emulation.setDeviceMetricsOverride", { width: w, height: 900, deviceScaleFactor: 2, mobile: false });
+      await sleep(350);
+      const k = await body();
+      widths.push({ w, main: await evalIn(c, `Math.round(document.querySelector('.cr-main').getBoundingClientRect().width)`), bar: k.barWidth, need: k.need,
+        fits: k.fits, level: k.levelShown, bolt: k.fast, model: k.modelShown, cut: k.cut, body: k.width });
+    }
+    console.log("WIDTHS", JSON.stringify(widths));
+    check("reviewer: at every width the bar fits and the body's words are never cut; narrowing, the level and the bolt go first, then the name",
+      widths.every((x) => x.fits && !x.cut) && widths.some((x) => x.level && x.bolt && x.model) && widths.some((x) => !x.level && !x.bolt && x.model)
+        && widths.some((x) => !x.model) && widths.every((x) => x.model || !x.level), widths.filter((x) => !x.fits || x.cut));
+    const narrow = await body();
+    check("reviewer: narrow, the tooltip still names the model, its level and fast mode", /^A read-only Opus 5\.5 at XHigh effort in fast mode reads/.test(narrow.title), narrow.title);
+    await rest();
+    await shootBar("reviewer-dark-button-narrow");
+    await c.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
+    await sleep(500);
+
+    // ── The light face ──
+    await setTheme(c, api, "light");
+    await openRequest();
+    await openMenu();
+    await openPicker(c);
+    await sleep(900); // the heavy level's light, running in the track
+    card = await runCard(c);
+    check("light reviewer: the card reads XHigh with the bolt pressed", card?.level === "XHigh" && card.bolt?.pressed === "true", card && { level: card.level, bolt: card.bolt });
+    await shootMenu("reviewer-light-picker-card");
+    await closePicker(c);
+    await shoot(c, "reviewer-light-menu", await clipAround([".cr-review-with", MENU], 16));
+    await closeMenu();
+    await rest();
+    const l1 = await body();
+    check("light reviewer: the body says Review with Opus 5.5 XHigh and wears the bolt on its line", l1.text === "Review with Opus 5.5 XHigh in fast mode" && l1.fast && l1.boltOnLine && l1.fits, l1);
+    check("light reviewer: the level's ink clears AA on the body's ground", l1.levelContrast >= 4.5, l1.levelContrast);
+    await shootBar("reviewer-light-button");
+    const l2 = await runReview();
+    const lreply = l2 ? await replyOf(l2.sessionId) : null;
+    check("light reviewer: a review from the light face runs at xhigh, fast, too", /^Ran on claude-opus-5-5: effort xhigh, fast on\./.test(lreply ?? ""), lreply);
+    await until(() => evalIn(c, `document.querySelector('.cr-review-title')?.textContent === 'Review by Opus 5.5 XHigh'`), 10000, "the light panel").catch(() => null);
+    await rest();
+    await shoot(c, "reviewer-light-panel", await clipAround([".cr-review"], 12));
+    const errs = c.errors.filter((e) => !e.includes("Autofill"));
+    check("reviewer: no renderer console errors", errs.length === 0, errs.slice(0, 5));
+    c.close(); api.close();
+  } finally {
+    CHIP = '.composer button[aria-label="Model"]';
+    await stop(home);
+  }
+}
+
 /** `n` frames of a clip, `gapMs` apart, saved as `<name>-NN.png` for a contact sheet; the base64 of each. */
 async function frames(c, name, clip, n, gapMs) {
   const out = [];
@@ -1223,6 +1501,7 @@ try {
   if (wanted("long")) await longList();
   if (wanted("real")) await ownerReal();
   if (wanted("review")) await review();
+  if (wanted("reviewer")) await reviewer();
   if (wanted("light")) await lightPhase();
   if (wanted("stay")) await stayOpen();
   if (wanted("schedule")) await schedulePhase();
@@ -1236,6 +1515,7 @@ try {
   fs.rmSync(path.join(scratch, "long-home"), { recursive: true, force: true });
   fs.rmSync(path.join(scratch, "real-home"), { recursive: true, force: true });
   fs.rmSync(path.join(scratch, "review-home"), { recursive: true, force: true });
+  fs.rmSync(path.join(scratch, "reviewer-home"), { recursive: true, force: true });
   fs.rmSync(path.join(scratch, "light-home"), { recursive: true, force: true });
   fs.rmSync(path.join(scratch, "stay-home"), { recursive: true, force: true });
   fs.rmSync(path.join(scratch, "sched-home"), { recursive: true, force: true });

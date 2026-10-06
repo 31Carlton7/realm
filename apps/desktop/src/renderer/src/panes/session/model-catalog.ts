@@ -456,16 +456,6 @@ export function effortCurrent(e: Pick<EffortControl, "levels" | "value" | "defau
   return fallback >= 0 ? { index: fallback, choice: e.levels[fallback]!, chosen: false } : { index: -1, choice: null, chosen: false };
 }
 
-/**
- * The level a run that has not started yet is started at, from the one its draft holds: that level
- * where the model takes it, and otherwise the model's own default (null) — a level set under another
- * model is not what runs, and the card shows the default in its place. Where Realm does not know the
- * model's levels yet (Codex before its probe has answered), the level held is kept rather than
- * dropped on a guess; a harness that takes no level is sent none.
- */
-export const levelToRun = (kind: AgentKind, effort: string | null, levels: readonly string[]): string | null =>
-  effort !== null && AGENT_TAKES_EFFORT[kind] && (levels.length === 0 || levels.includes(effort)) ? effort : null;
-
 /** Where an answer about fast mode came from, most direct first. */
 export type FastSource = "session" | "catalog" | "remembered";
 
