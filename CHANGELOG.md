@@ -52,12 +52,19 @@ turn, mid-session for Claude, and through an ACP agent's own thought level where
 mode can be asked for before the first turn — Codex's catalog says which models take it, one Claude
 session answers for every Claude model, and elsewhere the bolt says the first turn will check — and
 a model that cannot run fast names the ones that can. Asked for before a session's first message, it
-also really runs fast; until now it never reached Claude.
+also really runs fast; until now it never reached Claude. Code review's and the media viewer's
+question boxes kept only the model you picked before their first question, so the level, the bolt
+and the permission did nothing there; that question now starts with all four. Every popover opens
+where it will stay, so the bolt is still under the pointer for a second press. A level you choose at
+XHigh or Max lights the track the way the landing page draws its light — streams running into a white
+core at the knob, the cube's facets faint beside it — hotter at Max, and turning fast mode on charges
+the bolt and sends a glint down the track and across the chip. Reduce motion shows the light still;
+Low power and a window in the background pause it.
 
 **A session can hand work to other models.** Ask in words — "have GPT-6 Luna build this" — and the
 session's agent starts a sub-agent on that model. A model is found by its name, so GPT-6 Luna runs
 through Codex and Fable on the newest Fable, and a sub-agent on the lead's own harness runs the
-lead's model unless another is named. Or open the session's Agents tab, from its bar: its
+lead's model unless another is named. Or open the session's Agents tab, from its side pane's +: its
 sub-agents, each with its model, its task, where it stands and its report, a click from its own
 transcript, and under them Build with, where you pick models — this session's own, your starred
 ones, More models for the rest — say what to build, and Split by model to give each its own part
