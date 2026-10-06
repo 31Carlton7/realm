@@ -1,0 +1,57 @@
+name: Realm
+options:
+  bundleIdPrefix: co.charmtechnologies.realm
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: FY9QB79VAP
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+packages:
+  RealmKit:
+    path: RealmKit
+targets:
+  Realm:
+    type: application
+    platform: iOS
+    sources:
+      - path: Realm
+    dependencies:
+      - package: RealmKit
+      - target: RealmNotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.charmtechnologies.realm.ios
+        PRODUCT_NAME: Realm
+        INFOPLIST_FILE: Realm/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Realm/Realm.entitlements
+  RealmNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RealmNotificationService
+    dependencies:
+      - package: RealmKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.charmtechnologies.realm.ios.notifications
+        PRODUCT_NAME: RealmNotificationService
+        INFOPLIST_FILE: RealmNotificationService/Info.plist
+        CODE_SIGN_ENTITLEMENTS: RealmNotificationService/RealmNotificationService.entitlements
+schemes:
+  Realm:
+    build:
+      targets:
+        Realm: all
+        RealmNotificationService: all
+    run:
+      config: Debug
+    archive:
+      config: Release
