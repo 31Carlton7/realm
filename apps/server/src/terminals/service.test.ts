@@ -3,11 +3,27 @@ import WebSocket from "ws";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { createApp, type App } from "../app";
-import { TerminalsStore } from "../store/terminals";
+import { openDatabase, type Db } from "../db/database";
+import { RpcServer } from "../rpc/server";
+import { ExecutionSandboxService } from "../sandbox/service";
+import { ItemsStore } from "../store/items";
+import { ProfilesStore } from "../store/profiles";
+import { EnvironmentsStore } from "../store/environments";
+import { SettingsStore } from "../store/settings";
+import { SpacesStore } from "../store/spaces";
+import { RpcError } from "../store/rows";
+import { TerminalHistoryStore, TerminalsStore } from "../store/terminals";
+import { TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { waitFor } from "../test-utils";
+import { TerminalManager } from "./manager";
+import { TerminalService, isSandboxRefusal } from "./service";
 
 const apps: App[] = [];
-afterEach(async () => { for (const a of apps.splice(0)) await a.close().catch(() => {}); });
+const dbs: Db[] = [];
+afterEach(async () => {
+  for (const a of apps.splice(0)) await a.close().catch(() => {});
+  for (const db of dbs.splice(0)) db.close();
+});
 
 async function client(port: number) {
   const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.once("open", () => res(w)); w.once("error", rej); });
@@ -76,18 +92,212 @@ describe("terminal port blocks", () => {
     c2.close();
   });
 
-  it("gives two spaces' terminals different blocks", async () => {
+  /** Output from every `terminal.data` frame this client saw, and the cursor to resume from. */
+  const streamed = (c: { events: any[] }, terminalId: string) => {
+    const frames = c.events.filter((e) => e.event === "terminal.data" && e.payload.terminalId === terminalId);
+    return { text: frames.map((e) => String(e.payload.data)).join(""), last: frames.at(-1)?.payload as { runId: string; seq: number } | undefined };
+  };
+
+  it("with history on, a terminal comes back with what it printed before the restart", async () => {
     const home = tempDir("realm-home-");
     const app1 = await createApp({ home, port: 0 }); apps.push(app1);
-    const c = await client(app1.port);
+    const c1 = await client(app1.port);
+    await c1.call("settings.set", { key: TERMINALS_HISTORY_KEY, value: true });
+    const prof = (await c1.call("profiles.create", { name: "Work" })).result;
+    const space = (await c1.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+    const { terminalId } = (await c1.call("terminals.create", { spaceId: space.id, cols: 132, rows: 44 })).result;
+    await c1.call("terminals.write", { terminalId, data: "echo SCROLLBACK_MARKER_9F2\n" });
+    await waitFor(() => streamed(c1, terminalId).text.includes("SCROLLBACK_MARKER_9F2"));
+    c1.close();
+    await app1.close(); // closeAll flushes synchronously, so a clean quit loses nothing
+
+    const app2 = await createApp({ home, port: 0 }); apps.push(app2);
+    const c2 = await client(app2.port);
+    const read = (await c2.call("terminals.read", { terminalId, cursor: null })).result;
+    // MUTANT: drop the synchronous flush in closeAll, or read `terminals` instead of
+    // `terminal_history`, and the marker is nowhere.
+    expect(read.history.data).toContain("SCROLLBACK_MARKER_9F2");
+    // It is HISTORY, not live: the shell that printed it is gone, and the pane draws a seam there.
+    expect(read.live).not.toContain("SCROLLBACK_MARKER_9F2");
+    expect(read.running).toBe(true);
+    // Respawned at the size the output was printed at, not the old hardcoded 80x24.
+    expect(read.history.cols).toBe(132);
+    c2.close();
+  });
+
+  it("with history off, nothing reaches the disk — and turning it off purges what was kept", async () => {
+    const home = tempDir("realm-home-");
+    const app = await createApp({ home, port: 0 }); apps.push(app);
+    const c = await client(app.port);
     const prof = (await c.call("profiles.create", { name: "Work" })).result;
-    const a = (await c.call("spaces.create", { profileId: prof.id, name: "A" })).result;
-    const b = (await c.call("spaces.create", { profileId: prof.id, name: "B" })).result;
-    await c.call("terminals.create", { spaceId: a.id });
-    await c.call("terminals.create", { spaceId: b.id });
-    const blocks = (app1.db.prepare("SELECT port_block_start AS s FROM environments WHERE port_block_start IS NOT NULL").all() as { s: number }[]).map((r) => r.s);
-    expect(blocks).toHaveLength(2);
-    expect(new Set(blocks).size).toBe(2);
+    const space = (await c.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+    const { terminalId } = (await c.call("terminals.create", { spaceId: space.id })).result;
+    await c.call("terminals.write", { terminalId, data: "echo OFF_MARKER\n" });
+    await waitFor(() => streamed(c, terminalId).text.includes("OFF_MARKER"));
+
+    const history = new TerminalHistoryStore(app.db);
+    app.terminals.flushHistory();
+    // Default is off, and off means nothing is written.
+    expect(history.count()).toBe(0);
+    // …but the in-memory buffer is always on, because it holds bytes already broadcast and is what
+    // makes a reattach after a dropped socket show what arrived meanwhile.
+    expect((await c.call("terminals.read", { terminalId, cursor: null })).result.live).toContain("OFF_MARKER");
+
+    await c.call("settings.set", { key: TERMINALS_HISTORY_KEY, value: true });
+    app.terminals.flushHistory();
+    expect(history.count()).toBe(1);
+    // MUTANT: make settings.set a plain write and the purge never happens — a switch that leaves
+    // yesterday's terminal output on disk is not an off switch.
+    await c.call("settings.set", { key: TERMINALS_HISTORY_KEY, value: false });
+    expect(history.count()).toBe(0);
     c.close();
+  });
+
+  it("a reattaching client gets exactly what it missed, with no gap in seq", async () => {
+    const home = tempDir("realm-home-");
+    const app = await createApp({ home, port: 0 }); apps.push(app);
+    const c1 = await client(app.port);
+    const prof = (await c1.call("profiles.create", { name: "Work" })).result;
+    const space = (await c1.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+    const { terminalId } = (await c1.call("terminals.create", { spaceId: space.id })).result;
+    /* The marker is assembled by the command, so it exists only in the OUTPUT. With `echo BEFORE_DROP`
+       the wait was satisfied by the tty echoing the typed line, the cursor was taken before the
+       command had printed, and its output — older than the drop — came back in the catch-up whenever
+       the machine was loaded enough to separate the two. */
+    await c1.call("terminals.write", { terminalId, data: "printf 'BEFORE_%s\\n' DROP\n" });
+    await waitFor(() => streamed(c1, terminalId).text.includes("BEFORE_DROP"));
+    const cursor = streamed(c1, terminalId).last!;
+    c1.close();
+
+    // Output arrives with nobody listening — the ordinary case once the server outlives the app.
+    const c2 = await client(app.port);
+    await c2.call("terminals.write", { terminalId, data: "printf 'WHILE_%s\\n' AWAY\n" });
+    await waitFor(() => streamed(c2, terminalId).text.includes("WHILE_AWAY"));
+
+    const caught = (await c2.call("terminals.read", { terminalId, cursor })).result;
+    expect(caught.runId).toBe(cursor.runId);
+    expect(caught.truncated).toBe(false);
+    expect(caught.live).toContain("WHILE_AWAY");
+    // MUTANT: ignore the cursor and return the whole ring, and the pane draws its own scrollback a
+    // second time on every reconnect.
+    expect(caught.live).not.toContain("BEFORE_DROP");
+    // Nothing before the cursor comes back as history either — the client still has it on screen.
+    expect(caught.history).toBeNull();
+    c2.close();
+  });
+});
+/**
+ * A sandbox refusal must not delete a terminal.
+ *
+ * `restoreAll`'s catch prunes the row for a spawn it could not repeat — a cwd the user deleted, a
+ * shell that is gone. A `SANDBOX_*` throw reaching that same catch would prune EVERY persisted
+ * terminal in every space, on one boot, because `sandbox-exec` was missing or a posture was set.
+ * That is the worst failure this change can produce and it looks like data loss rather than like a
+ * refusal, so it is tested on its own, at the unit the decision lives in.
+ */
+describe("restoreAll and a refusing sandbox", () => {
+  /** A real service whose probe says the mechanism is unavailable — so `wrap` throws
+   *  SANDBOX_UNAVAILABLE for any posture but `off`, which is the live failure this guards. */
+  const refusingSandbox = (db: Db, home: string) => {
+    const s = new ExecutionSandboxService({
+      settings: new SettingsStore(db), environments: new EnvironmentsStore(db),
+      home, tmpDir: join(home, "tmp"), realmHome: home, platform: "darwin",
+      probe: () => ({ available: false, error: "sandbox_unavailable", detail: "/usr/bin/sandbox-exec is missing or not executable." }),
+    });
+    s.setDefaults({ posture: "workspace-write", network: true });
+    return s;
+  };
+
+  const harness = (makeSandbox?: (db: Db, home: string) => ExecutionSandboxService) => {
+    const home = tempDir("realm-term-sandbox-");
+    const db = openDatabase(join(home, "realm.db"));
+    dbs.push(db);
+    const profile = new ProfilesStore(db).create({ name: "P", icon: "x", color: "#000" });
+    const spaces = new SpacesStore(db, home);
+    const space = spaces.create({ profileId: profile.id, name: "Work", icon: "folder" });
+    const terminals = new TerminalsStore(db);
+    const svc = new TerminalService({
+      db, rpc: new RpcServer(), spaces, items: new ItemsStore(db), terminals,
+      environments: new EnvironmentsStore(db), settings: new SettingsStore(db),
+      sandbox: makeSandbox?.(db, home),
+      // The flush timer is noise here and would hold the process open; nothing in these tests flushes.
+      setInterval: () => ({ unref() {} }) as unknown as ReturnType<typeof setInterval>,
+    });
+    // A row whose cwd exists, so the ONLY thing that can fail is the spawn itself.
+    terminals.insert({ id: "t_keepme", spaceId: space.id, cwd: home, shell: "/bin/sh" });
+    return { home, db, space, terminals, svc };
+  };
+
+  it("keeps the row and leaves it un-restored when the sandbox refuses the spawn", () => {
+    const h = harness(refusingSandbox);
+    expect(h.svc.restoreAll()).toEqual([]);
+    // MUTANT: drop the `isSandboxRefusal` guard from restoreAll's catch and this row — and every
+    // other terminal the user had open — is gone after one boot with no sandbox on the machine.
+    expect(h.terminals.get("t_keepme")).not.toBeNull();
+    expect(h.svc.has("t_keepme")).toBe(false);
+    h.svc.closeAll();
+  });
+
+  it("still prunes the row for every other kind of failure", () => {
+    const h = harness();
+    // A cwd the user deleted: a fact about THIS row that waiting will not change.
+    h.terminals.insert({ id: "t_gone", spaceId: h.space.id, cwd: join(h.home, "not-here"), shell: "/bin/sh" });
+    const restored = h.svc.restoreAll();
+    expect(restored).toContain("t_keepme"); // the good row still comes back
+    expect(h.terminals.get("t_gone")).toBeNull();
+    h.svc.closeAll();
+  });
+
+  it("tells a sandbox refusal apart from an ordinary error carrying the word sandbox", () => {
+    // The predicate itself, because the catch above cannot show the difference between a code match
+    // and a message match. MUTANT: match on the message and a `git` failure mentioning a sandbox
+    // keeps a row that should have been pruned.
+    expect(isSandboxRefusal(new RpcError("SANDBOX_UNAVAILABLE", "no"))).toBe(true);
+    expect(isSandboxRefusal(new RpcError("SANDBOX_POLICY_INVALID", "no"))).toBe(true);
+    expect(isSandboxRefusal(new RpcError("NOT_FOUND", "SANDBOX_UNAVAILABLE"))).toBe(false);
+    expect(isSandboxRefusal(new Error("SANDBOX_UNAVAILABLE"))).toBe(false);
+  });
+});
+
+/**
+ * What a terminal is actually spawned with — the promise this change makes to a user who has not
+ * opted in, asserted on the argv rather than on a posture name.
+ */
+describe("the argv a terminal is spawned with", () => {
+  it("hands the sandbox exactly the shell and arguments that were about to be spawned", async () => {
+    const seen: { command: string; args: string[] }[] = [];
+    const tm = new TerminalManager({ onData: () => {}, onExit: () => {} });
+    const { id, shell } = tm.create({
+      cwd: process.cwd(), cols: 80, rows: 24, shell: "/bin/sh",
+      wrap: (command, args) => { seen.push({ command, args }); return { command, args }; },
+    });
+    // The unwrapped argv, byte for byte: this is what `pty.spawn` received before this feature and
+    // what `sandboxCommand` returns unchanged for a posture of `off` (see spawn.test.ts).
+    expect(seen).toEqual([{ command: "/bin/sh", args: ["-l"] }]);
+    // …and the row still stores the SHELL, so restoreAll re-wraps rather than double-wrapping.
+    expect(shell).toBe("/bin/sh");
+    tm.close(id);
+  });
+
+  it("spawns what the wrap returned, not what it was handed", async () => {
+    // The mutant this kills: accept `wrap` and ignore it. `env` execs the shell with an extra
+    // variable set, so a pty that came from the ORIGINAL argv prints nothing for it.
+    const chunks: string[] = [];
+    const tm = new TerminalManager({ onData: (_id, d) => chunks.push(d), onExit: () => {} });
+    const { id } = tm.create({
+      cwd: process.cwd(), cols: 80, rows: 24, shell: "/bin/sh",
+      wrap: (command, args) => ({ command: "/usr/bin/env", args: ["REALM_WRAPPED=yes", command, ...args] }),
+    });
+    tm.write(id, "echo WRAP=$REALM_WRAPPED\n");
+    await waitFor(() => chunks.join("").includes("WRAP=yes"));
+    tm.close(id);
+  });
+
+  it("lets a wrap's throw out instead of spawning the shell unconfined", () => {
+    const tm = new TerminalManager({ onData: () => {}, onExit: () => {} });
+    expect(() => tm.create({
+      cwd: process.cwd(), cols: 80, rows: 24, shell: "/bin/sh",
+      wrap: () => { throw new RpcError("SANDBOX_UNAVAILABLE", "no sandbox-exec on this machine"); },
+    })).toThrow(/no sandbox-exec/);
   });
 });

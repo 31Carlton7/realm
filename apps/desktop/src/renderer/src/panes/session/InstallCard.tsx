@@ -1,5 +1,7 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { CommandCopy } from "../../components/CommandCopy";
+import { useDissolve } from "../../components/ScrollFades";
 import type { AgentAvailability } from "../../state/agent-availability";
 import type { CliJob } from "../../state/store";
 
@@ -13,14 +15,20 @@ import type { CliJob } from "../../state/store";
  * "Install" is offered only when the server's `cli.status` says so — one click that runs the command
  * shown above it and streams what it says. Everything the server will not run stays as it always was:
  * "Open in terminal" types the command into the session's own terminal **without a newline**, and the
- * user presses Return. A signed-out agent is always the second case, because logging in is a browser
- * flow or an API key, not a command Realm can run to completion on someone's behalf.
+ * user presses Return.
+ *
+ * A signed-out agent used to be stuck with that second shape, because logging in is a browser flow
+ * and not a command Realm could run to completion on someone's behalf. "Sign in" is the answer to
+ * that now: Realm opens a terminal, runs the CLI's own login command, reads the URL it prints and
+ * opens the consent page in a pane beside it. What it does NOT do is press Authorize — that grant is
+ * durable and stays the user's, unless the space has explicitly said otherwise. So the button starts
+ * the errand and the note under it says where it stops.
  *
  * Re-probing happens on BOTH triggers, because the user's fix happens outside Realm: window focus
  * (they alt-tabbed to a terminal, installed, and came back) and an explicit "Check again". Both force
  * past the server's probe cache — a cached "not installed" is precisely what they just fixed.
  */
-export function InstallCard({ availability, onRetry, onOpenInTerminal, offer, job, onInstall, onDismissJob }: {
+export function InstallCard({ availability, onRetry, onOpenInTerminal, offer, job, onInstall, onDismissJob, onSignIn }: {
   availability: Extract<AgentAvailability, { command: string | null }>;
   onRetry: () => void;
   onOpenInTerminal: (command: string) => void;
@@ -31,16 +39,14 @@ export function InstallCard({ availability, onRetry, onOpenInTerminal, offer, jo
   job: CliJob | null;
   onInstall: () => void;
   onDismissJob: () => void;
+  /** Start the sign-in flow. Only ever offered for `logged_out`: there is nothing to sign into
+   *  until the CLI is actually there. */
+  onSignIn: () => void;
 }) {
   const { title, reason, command, state } = availability;
-  const [copied, setCopied] = useState(false);
   const tail = useRef<HTMLPreElement>(null);
+  useDissolve(tail);
   useEffect(() => { const el = tail.current; if (el) el.scrollTop = el.scrollHeight; }, [job?.output]);
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1600);
-    return () => clearTimeout(t);
-  }, [copied]);
   // Window focus re-probe: the whole point of this card is that the fix can happen in another app.
   // Still true now that Realm can install one itself — Homebrew, a downloaded binary and a login all
   // still happen elsewhere.
@@ -49,6 +55,10 @@ export function InstallCard({ availability, onRetry, onOpenInTerminal, offer, jo
     return () => window.removeEventListener("focus", onRetry);
   }, [onRetry]);
   const running = job?.state === "running";
+  /* Offered for a signed-OUT agent that has a login command, and for nothing else. `missing` has no
+     credentials to fix — it has no CLI — and an agent whose route is an API key (Gemini) has no
+     command for the flow to run, which is the same `command === null` the card already reads. */
+  const signIn = state === "logged_out" && command !== null;
   return (
     <div className="composer-dock">
       <div className="install-card" role="group" aria-label={title} data-state={state}>
@@ -57,17 +67,7 @@ export function InstallCard({ availability, onRetry, onOpenInTerminal, offer, jo
           <h3>{title}</h3>
         </div>
         <p className="install-reason">{reason}</p>
-        {command && (
-          <div className="install-cmd">
-            <code>{command}</code>
-            <button className="tool-copy" aria-label="Copy command" title={copied ? "Copied" : "Copy"}
-              data-copied={copied || undefined}
-              onClick={() => { void navigator.clipboard?.writeText(command); setCopied(true); }}>
-              <Icon name="copy" size={12} className="copy-icon" />
-              <Icon name="check" size={12} className="copied-icon" />
-            </button>
-          </div>
-        )}
+        {command && <CommandCopy command={command} />}
         {job && (
           <div className="cli-job" data-state={job.state}>
             <div className="cli-job-head">
@@ -86,6 +86,11 @@ export function InstallCard({ availability, onRetry, onOpenInTerminal, offer, jo
               Open in terminal
             </button>
           )}
+          {signIn && (
+            <button type="button" className="btn primary" onClick={onSignIn} disabled={running}>
+              Sign in
+            </button>
+          )}
           {offer && (
             <button type="button" className="btn primary" onClick={onInstall} disabled={running}>
               {running ? "Installing…" : "Install"}
@@ -93,11 +98,13 @@ export function InstallCard({ availability, onRetry, onOpenInTerminal, offer, jo
           )}
         </div>
         <p className="install-note">
-          {offer
-            ? "Realm runs the command above and shows you what it says."
-            : command
-              ? "Realm types the command into this session’s terminal — you press Return."
-              : "Realm can’t offer a single command for this one; the reason above says what it needs."}
+          {signIn
+            ? "Realm opens a terminal, runs the command above, and opens the sign-in page in a pane. You approve it — Realm never presses Authorize for you."
+            : offer
+              ? "Realm runs the command above and shows you what it says."
+              : command
+                ? "Realm types the command into this session’s terminal — you press Return."
+                : "Realm can’t offer a single command for this one; the reason above says what it needs."}
         </p>
       </div>
     </div>

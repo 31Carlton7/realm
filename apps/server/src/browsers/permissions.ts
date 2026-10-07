@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { isReadOnlyMode, sessionEvent, type SessionEvent } from "@realm/contracts";
+import { isReadOnlyMode, loggableAnswers, normalizeAnswers, requiredAnswered, sessionEvent, type AskAnswers, type AskCard, type SessionEvent } from "@realm/contracts";
 import type { PermissionDecision } from "@realm/adapters";
 
 /** Distinguishes broker-owned requestIds from adapter-owned ones in `sessions.respondPermission` —
@@ -13,14 +13,32 @@ const REQUEST_PREFIX = "bperm_";
  *  the agent's own transport gives up at some unhelpful place. */
 const PROMPT_TIMEOUT_MS = 15 * 60 * 1000;
 
-type PendingPrompt = { sessionId: string; toolKey: string; resolve: (d: PermissionDecision) => void; timer: NodeJS.Timeout; alwaysPrompt: boolean; onAlwaysAllow?: () => void };
+/** How a prompt ends. `cancelled` is nobody answering at all — the session went — which a question's
+ *  asker may need told apart from the user's own "no". */
+type Settle = (r: { decision: PermissionDecision; answers?: AskAnswers; cancelled?: boolean }) => void;
+type PendingPrompt = { sessionId: string; toolKey: string; settle: Settle; timer: NodeJS.Timeout; alwaysPrompt: boolean; perSession: boolean; onAlwaysAllow?: () => void;
+  /** Set for a QUESTION (`ask`): what its answers are held to, and how the log keeps them. */
+  card?: AskCard };
+
+/**
+ * How a question ended, for the caller that asked it. `refused`: Realm declined it before anyone saw
+ * it (the card says why). `timeout`: nobody answered within the prompt limit. `cancelled`: it stopped
+ * mattering — the asker withdrew it, or the session went.
+ */
+export type AskOutcome =
+  | { outcome: "answered"; answers: AskAnswers }
+  | { outcome: "skipped" }
+  | { outcome: "refused" }
+  | { outcome: "timeout" }
+  | { outcome: "cancelled" };
 
 /**
  * Per-call gate behaviour.
  *
  * `alwaysPrompt` makes ONE call prompt every single time: `bypassPermissions` does not skip it and
- * `allow_always` neither satisfies it nor gets recorded by it. Exactly one caller sets it —
- * `browser_fill_credential`, the only tool that puts a real secret onto a page.
+ * `allow_always` neither satisfies it nor gets recorded by it. Exactly one tool sets it —
+ * `browser_fill_credential`, the only tool that puts a real secret onto a page, and it sets it for
+ * the password Realm generates as much as for the one the user enrolled.
  *
  * The reasoning, since this is the sole place a mode's meaning is narrowed: `bypassPermissions` means
  * "stop asking me about ordinary actions", and Realm has never treated a secret entering a page as an
@@ -54,6 +72,13 @@ export type GateOptions = {
   preapproved?: boolean;
   /** Answered "always": persist it wherever `preapproved` will be read from next time. */
   onAlwaysAllow?: () => void;
+  /**
+   * The card asks for the rest of the SESSION, not for this one call, so a plain "Allow" is kept for
+   * the session and key exactly as "Allow always" is. The simulator input tools set it, keyed per
+   * device: a tap is one step of a run that takes dozens, and a card per tap is a card nobody reads
+   * by the tenth. It records nothing durable — `onAlwaysAllow` still answers to "always" alone.
+   */
+  perSession?: boolean;
 };
 
 export type GateResult = { allowed: true } | { allowed: false; reason: string };
@@ -74,6 +99,9 @@ export type GateResult = { allowed: true } | { allowed: false; reason: string };
  *
  * The broker owns its requestIds (`bperm_…`); `SessionService.respondPermission` routes those here
  * and everything else to the live adapter handle.
+ *
+ * It also asks QUESTIONS (`ask`), for the two askers Realm raises itself: `realm-ui`'s `ui_ask` and an
+ * MCP server behind the hub eliciting mid-call. Same card channel, same round trip, answers carried.
  */
 export class BrowserPermissionBroker {
   private readonly pending = new Map<string, PendingPrompt>();
@@ -91,25 +119,45 @@ export class BrowserPermissionBroker {
   }
 
   /** The user's answer, routed here by `SessionService.respondPermission`. Unknown ids are ignored
-   *  (a stale card answered after the timeout already denied it). */
-  resolve(requestId: string, decision: PermissionDecision): void {
+   *  (a stale card answered after the timeout already denied it), and so is an answer naming another
+   *  session than the one the card was put to. */
+  resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string): void {
     const p = this.pending.get(requestId);
-    if (!p) return;
+    if (!p || (sessionId !== undefined && p.sessionId !== sessionId)) return;
     this.pending.delete(requestId);
     clearTimeout(p.timer);
+    if (p.card) {
+      // A question: held to its card, kept in the log with a mark where a masked answer was, and an
+      // answer that leaves a required field empty is not an answer.
+      const given = decision !== "deny" && answers ? normalizeAnswers(p.card, answers) : undefined;
+      const answered = given !== undefined && Object.keys(given).length > 0 && requiredAnswered(p.card, given);
+      this.d.emit(p.sessionId, sessionEvent("permission_response", { requestId, decision: answered ? "allow" : "deny", ...(answered ? { answers: loggableAnswers(p.card, given) } : {}) }));
+      this.settled(p.sessionId);
+      p.settle(answered ? { decision: "allow", answers: given } : { decision: "deny" });
+      return;
+    }
     // An `alwaysPrompt` gate records nothing: the user answering "always" to a credential fill card
     // must not silently license the next one, on whatever origin that turns out to be.
-    if (decision === "allow_always" && !p.alwaysPrompt) {
+    const kept = decision === "allow_always" || (decision === "allow" && p.perSession);
+    if (kept && !p.alwaysPrompt) {
       let set = this.always.get(p.sessionId);
       if (!set) { set = new Set(); this.always.set(p.sessionId, set); }
       set.add(p.toolKey);
       // The session set is kept even for a gate that also persists: it is what answers if the
       // durable write fails, and it keeps the answer working for the rest of THIS session either way.
-      p.onAlwaysAllow?.();
+      if (decision === "allow_always") p.onAlwaysAllow?.();
     }
     this.d.emit(p.sessionId, sessionEvent("permission_response", { requestId, decision }));
-    this.d.emit(p.sessionId, sessionEvent("status", { status: "running" }));
-    p.resolve(decision);
+    this.settled(p.sessionId);
+    p.settle({ decision });
+  }
+
+  /** The session is waiting on nothing of the broker's any more, so it is running again — and not
+   *  before: a card still open beside the one just answered must keep its session waiting, or the
+   *  transcript stops drawing it. */
+  private settled(sessionId: string): void {
+    for (const p of this.pending.values()) if (p.sessionId === sessionId) return;
+    this.d.emit(sessionId, sessionEvent("status", { status: "running" }));
   }
 
   /** A session ended or was deleted: its prompts die with it (denied), its allow-always set is
@@ -119,9 +167,52 @@ export class BrowserPermissionBroker {
       if (p.sessionId !== sessionId) continue;
       this.pending.delete(id);
       clearTimeout(p.timer);
-      p.resolve("deny");
+      p.settle({ decision: "deny", cancelled: true });
     }
     this.always.delete(sessionId);
+  }
+
+  /**
+   * Put a question to the user on Realm's card and wait for the answers — the gate, extended to carry
+   * them back. Used by Realm's own `ui_ask` and by the hub for an MCP server's elicitation, so both
+   * reach the same card, the same `respondPermission` round trip and every surface that answers one.
+   *
+   * Allowed in EVERY mode, Plan, Ask and bypass included: a question changes nothing, and a session
+   * whose mode refused it would be one that cannot ask what it needs to know. For the same reason
+   * there is no "always": every question is asked.
+   *
+   * A card Realm already declined (`refused`) is recorded and answered at once, so the transcript says
+   * what was declined and why. `signal` is the asker withdrawing the question — an MCP server whose
+   * own request timed out, say — and takes the card down with it.
+   */
+  ask(sessionId: string, card: AskCard, o: { toolName: string; title: string; input?: Record<string, unknown>; signal?: AbortSignal }): Promise<AskOutcome> {
+    const requestId = REQUEST_PREFIX + randomBytes(12).toString("base64url");
+    const request = sessionEvent("permission_request", { requestId, toolName: o.toolName, input: o.input ?? {}, title: o.title, suggestions: [], ask: card });
+    if (card.refused) {
+      this.d.emit(sessionId, request);
+      this.d.emit(sessionId, sessionEvent("permission_response", { requestId, decision: "deny" }));
+      return Promise.resolve({ outcome: "refused" });
+    }
+    if (o.signal?.aborted) return Promise.resolve({ outcome: "cancelled" });
+    return new Promise<AskOutcome>((resolve) => {
+      /** The card goes without an answer: told to the transcript, and to the caller as `outcome`. */
+      const withdraw = (outcome: "timeout" | "cancelled") => {
+        if (!this.pending.delete(requestId)) return;
+        clearTimeout(timer);
+        this.d.emit(sessionId, sessionEvent("permission_response", { requestId, decision: "deny" }));
+        this.settled(sessionId);
+        resolve({ outcome });
+      };
+      const timer = setTimeout(() => withdraw("timeout"), PROMPT_TIMEOUT_MS);
+      o.signal?.addEventListener("abort", () => withdraw("cancelled"), { once: true });
+      this.pending.set(requestId, {
+        sessionId, toolKey: o.toolName, timer, alwaysPrompt: true, perSession: false, card,
+        settle: (r) => resolve(r.cancelled ? { outcome: "cancelled" } : r.decision === "deny" || !r.answers ? { outcome: "skipped" } : { outcome: "answered", answers: r.answers }),
+      });
+      // After the pending entry exists, as the gate does: a same-tick answer must find it.
+      this.d.emit(sessionId, request);
+      this.d.emit(sessionId, sessionEvent("status", { status: "waiting_permission" }));
+    });
   }
 
   /**
@@ -158,10 +249,10 @@ export class BrowserPermissionBroker {
       const timer = setTimeout(() => {
         if (!this.pending.delete(requestId)) return;
         this.d.emit(sessionId, sessionEvent("permission_response", { requestId, decision: "deny" }));
-        this.d.emit(sessionId, sessionEvent("status", { status: "running" }));
+        this.settled(sessionId);
         resolve("deny");
       }, PROMPT_TIMEOUT_MS);
-      this.pending.set(requestId, { sessionId, toolKey, resolve, timer, alwaysPrompt: opts.alwaysPrompt === true, onAlwaysAllow: opts.onAlwaysAllow });
+      this.pending.set(requestId, { sessionId, toolKey, settle: (r) => resolve(r.decision), timer, alwaysPrompt: opts.alwaysPrompt === true, perSession: opts.perSession === true, onAlwaysAllow: opts.onAlwaysAllow });
       // Emitted AFTER the pending entry exists: a same-tick respondPermission must find it.
       // `toolName` is what the card SHOWS; `toolKey` is what `allow_always` remembers. They differ when
       // the grant must be narrower than the tool — Plan 20's ask keys on `agent_ask:<targetId>` so

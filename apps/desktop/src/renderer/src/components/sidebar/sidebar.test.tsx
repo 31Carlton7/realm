@@ -1,587 +1,507 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
-import { allItems, findLeafOfItem, type Layout } from "@realm/contracts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent, waitFor, act, within, cleanup } from "@testing-library/react";
+import { allItems, findLeafOfItem, type Item, type Layout, type Session } from "@realm/contracts";
+import { spaceColor } from "@realm/ui";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, iconAsset, item, session, space } from "../../state/store.test-fakes";
-import { paneMapOf } from "./ItemList";
+import { fakeApi, iconAsset, item, profile, session, space, type FakeData } from "../../state/store.test-fakes";
+import { layoutOnScreen, paneMapOf } from "./ItemList";
+import { ALL_ITEMS_SETTLE_MS } from "./use-sidebar-model";
 import { exited } from "../popover-exit.test-fakes";
 
-async function mount(api = fakeApi()) {
+/**
+ * The sidebar's list (Plan 27): the profile's spaces as sections of one list, the profile's pinned
+ * items, New space at the end — sessions only, from every space at once. Every test names the
+ * one-line change that would make it fail.
+ */
+
+async function mount(over: FakeData | ReturnType<typeof fakeApi> = {}) {
+  const api = "calls" in over ? over : fakeApi(over as FakeData);
   const store = createAppStore(api); await store.getState().boot();
   const r = render(<StoreContext.Provider value={store}><Sidebar /></StoreContext.Provider>);
+  // Every space's rows come from `items.listAll`, read when the sidebar mounts.
+  await waitFor(() => expect(api.calls).toContain("listAllItems"));
   return { store, api, ...r };
 }
 
-describe("Arc sidebar", () => {
-  it("hydrates saved custom space icons before the strip renders", async () => {
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+const sessionItem = (id: string, spaceId: string, title: string, extra: Partial<Item> = {}) =>
+  item(`i-${id}`, spaceId, { kind: "session", refId: id, title, ...extra });
+
+/** Work holds Versed (the room on screen: a terminal and "Alpha") and Homework ("Wants a yes",
+ *  waiting on you); School holds Lectures ("Notes"). */
+const home = (over: FakeData = {}): FakeData => ({
+  profiles: [profile("p1", "Work"), profile("p2", "School")],
+  spaces: [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p1", "Homework", { color: "#3ddc97" }), space("s3", "p2", "Lectures")],
+  items: {
+    s1: [item("i-term", "s1", { kind: "terminal", title: "Terminal" }), sessionItem("a", "s1", "Alpha")],
+    s2: [sessionItem("b", "s2", "Wants a yes")],
+    s3: [sessionItem("c", "s3", "Notes")],
+  },
+  sessions: [session("a", "s1", { title: "Alpha" }), session("b", "s2", { title: "Wants a yes", status: "waiting_permission" }), session("c", "s3", { title: "Notes" })],
+  ...over,
+});
+
+const section = (name: string) => screen.getByRole("region", { name });
+const head = (name: string) => within(section(name)).getByRole("button", { name: new RegExp(`^${name}( —|$)`) });
+const rowsIn = (name: string) => [...section(name).querySelectorAll(".sb-section-clip .item-title")].map((t) => t.textContent);
+
+describe("the list", () => {
+  it("is the profile's spaces as sections of one scroller — no strip, no Open, no other spaces, no Archived", async () => {
+    const { container } = await mount(home());
+    const body = container.querySelector(".space-body")!;
+    expect([...body.querySelectorAll(".sb-section")].map((s) => s.getAttribute("aria-label"))).toEqual(["Versed", "Homework"]);
+    // Another profile's spaces are its own list.
+    expect(screen.queryByRole("region", { name: "Lectures" })).toBeNull();
+    // What left the sidebar, by name.
+    expect(container.querySelector(".space-strip, .swiper, .space-page")).toBeNull();
+    for (const gone of [/^Open$/, /^Other spaces$/, /^Archived$/, /^Sessions$/]) expect(within(body as HTMLElement).queryByText(gone)).toBeNull();
+    expect(screen.queryByRole("button", { name: /New split/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Switch to space/ })).toBeNull();
+  });
+
+  it("shows every space's sessions at once, without switching to it", async () => {
+    // THE MUTANT: draw the active room's rows alone, and Homework's waiting session is a walk away.
+    const { store } = await mount(home());
+    await waitFor(() => expect(rowsIn("Homework")).toEqual(["Wants a yes"]));
+    expect(store.getState().activeSpaceId).toBe("s1");
+  });
+
+  it("hydrates saved custom space icons before the sections draw them", async () => {
     const asset = iconAsset("ia-saved", "p1");
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { icon: `asset:${asset.id}` })],
-      iconAssets: { p1: [asset] },
-    });
+    const api = fakeApi({ spaces: [space("s1", "p1", "Versed", { icon: `asset:${asset.id}` })], iconAssets: { p1: [asset] } });
     await mount(api);
-    const button = screen.getByRole("button", { name: "Switch to space Versed" });
     expect(api.calls).toContain("listIconAssets:p1");
-    expect(button.querySelector("circle")).not.toBeNull();
+    expect(head("Versed").querySelector(".sb-space-icon circle")).not.toBeNull();
   });
 
-  it("shows only the active space's items, the space strip with all spaces, and switches on strip click", async () => {
-    const { store } = await mount();
-    expect(screen.getByRole("heading", { name: /Versed/ })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /Homework/ })).not.toBeInTheDocument(); // other pages are aria-hidden
-    expect(screen.getByRole("button", { name: "Terminal" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /switch to space/i })).toHaveLength(2);
-    expect(screen.getByRole("button", { name: /switch to space Versed/i })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
-    await waitFor(() => expect(screen.getByRole("heading", { name: /Homework/ })).toBeInTheDocument());
+  it("keeps New space at the column's foot, outside the list, however long the list and in either reading", async () => {
+    // The owner, 10-04: "the button disappears when the list is too long". THE MUTANT: New space back
+    // at the list's end, inside the scroller, where thirty spaces carry it out of the column.
+    const many = Array.from({ length: 30 }, (_, i) => space(`m${i}`, "p1", `Space ${i + 1}`));
+    const { store, container } = await mount(home({ spaces: many }));
+    const row = () => screen.getByRole("button", { name: "New space" });
+    expect(container.querySelectorAll(".sb-section")).toHaveLength(30);
+    expect(row().closest(".space-body")).toBeNull();
+    expect(row().closest(".sb-foot")!.previousElementSibling).toHaveClass("space-body");
+    fireEvent.click(row());
+    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-space" }));
+    act(() => store.getState().closeSheet());
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
+    expect(row().closest(".sb-foot")).not.toBeNull();
+  });
+
+  it("carries its own shade, outside the slide, so it is the column's width on every frame and leaves with it", async () => {
+    // The column casts it over the rail (styles.css, `.sidebar-shade`), reading the column's own
+    // `--sidebar-open`. THE MUTANTS: the shade drawn by the rail or the panes, which cannot read that
+    // number and would stand still beside a column folding away — or put on the slide, which travels.
+    const { container } = await mount(home());
+    const shade = container.querySelector(".sidebar-shade")!;
+    expect(shade.parentElement).toBe(document.getElementById("app-sidebar"));
+    expect(shade.closest(".sidebar-slide")).toBeNull();
+    expect(shade).toHaveAttribute("aria-hidden", "true");
+    expect(shade.childNodes).toHaveLength(0);
+  });
+});
+
+describe("a space's section", () => {
+  it("names its space in the space's colour, and says what is going on in it", async () => {
+    await mount(home({ sessions: [
+      session("a", "s1", { title: "Alpha", status: "running" }), session("b", "s2", { title: "Wants a yes", status: "waiting_permission" }),
+      session("c", "s3", { title: "Notes" }),
+    ] }));
+    // THE MUTANT: tint nothing, and the colour is back to marking one icon in a strip that is gone.
+    // The colour as the face on screen can carry it — jsdom has no media queries, so the light face.
+    expect((head("Homework").querySelector(".sb-space-icon") as HTMLElement).style.color).toBe(hexToRgb(spaceColor("#3ddc97", "light")));
+    expect(head("Homework")).toHaveAccessibleName("Homework — 1 waiting on you");
+    const tally = head("Homework").querySelector(".item-trail")!;
+    expect(within(tally as HTMLElement).getByText("1").nextElementSibling).toHaveAttribute("data-status", "waiting_permission");
+    expect(head("Versed")).toHaveAccessibleName("Versed — 1 running");
+    expect(head("Versed").querySelector(".item-trail .status-dot")).toHaveAttribute("data-status", "running");
+  });
+
+  it("folds, and remembers it across a relaunch", async () => {
+    const { api, store } = await mount(home());
+    await waitFor(() => expect(rowsIn("Homework")).toEqual(["Wants a yes"]));
+    expect(head("Homework")).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(head("Homework"));
+    await waitFor(() => expect(head("Homework")).toHaveAttribute("aria-expanded", "false"));
+    expect(api.data.settings["ui.sidebarCollapsedSpaces"]).toEqual(["s2"]);
+    // Folded rows are out of the tab order and out of what a reader hears.
+    const clip = section("Homework").querySelector(".sb-section-clip")!;
+    expect(clip).toHaveAttribute("inert");
+    expect(clip).toHaveAttribute("aria-hidden", "true");
+    expect(within(section("Homework")).queryByRole("button", { name: /Wants a yes/ })).toBeNull();
+    void store;
+    cleanup();
+    await mount(home({ settings: { "ui.sidebarCollapsedSpaces": ["s2"] } }));
+    await waitFor(() => expect(head("Homework")).toHaveAttribute("aria-expanded", "false"));
+    expect(head("Versed")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("lists its sessions newest first, five of them, then Show more opens the space's page", async () => {
+    const many = Array.from({ length: 7 }, (_, i) => session(`m${i}`, "s2", { title: `Task ${i}`, updatedAt: 1000 + i }));
+    const { store } = await mount(home({
+      items: { s1: [], s2: many.map((m) => sessionItem(m.id, "s2", m.title)) },
+      sessions: many,
+    }));
+    await waitFor(() => expect(rowsIn("Homework")).toEqual(["Task 6", "Task 5", "Task 4", "Task 3", "Task 2"]));
+    const more = within(section("Homework")).getByRole("button", { name: /Show more/ });
+    expect(more).toHaveTextContent("Show more 2");
+    fireEvent.click(more);
+    await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "space-page", refId: "s2" }));
+    expect(store.getState().spacePageTab.s2).toBe("sessions");
+  });
+
+  it("offers a new session in an empty space as its one row", async () => {
+    const { api, store } = await mount(home({ items: { s1: [], s2: [] }, sessions: [] }));
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: "New session" }));
+    await waitFor(() => expect(api.calls).toContain("createSession:claude"));
     expect(store.getState().activeSpaceId).toBe("s2");
-    expect(screen.queryByRole("button", { name: "Terminal" })).not.toBeInTheDocument();
   });
 
-  it("session items show a status dot that follows sessionStatus, and the row's accessible name carries the status (A-L4)", async () => {
-    const { store } = await mount(fakeApi({ items: { s1: [item("i1", "s1", { title: "Terminal" }), item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] } }));
-    const row = () => screen.getByRole("button", { name: /^Fix the build/ });
-    expect(row().querySelector(".status-dot")).toBeNull(); // no status known yet
-    expect(row()).toHaveAccessibleName("Fix the build");
-    act(() => store.getState().applySessionStatus("se1", "waiting_permission"));
-    expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "waiting_permission");
-    expect(row()).toHaveAccessibleName("Fix the build — needs permission");
-    act(() => store.getState().applySessionStatus("se1", "idle"));
-    expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "idle");
-    expect(row()).toHaveAccessibleName("Fix the build — idle");
-    expect(screen.getByRole("button", { name: "Terminal" }).querySelector(".status-dot")).toBeNull();
+  it("makes a new session in its own space from the + on its head", async () => {
+    // THE MUTANT: create in the room on screen. The session would land in Versed under Homework's +.
+    const { api, store } = await mount(home());
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: "New session in Homework" }));
+    await waitFor(() => expect(api.calls).toContain("createSession:claude"));
+    expect(api.data.sessions.at(-1)!.spaceId).toBe("s2");
+    expect(store.getState().activeSpaceId).toBe("s2");
   });
 
-  it("an empty space shows one faint hint line pointing at New session (A-L6)", async () => {
-    await mount(fakeApi({ items: { s1: [] } }));
-    expect(screen.getByText(/Nothing here yet/)).toBeInTheDocument();
+  it("opens its space's own pages from the ⋯ on its head", async () => {
+    const { store } = await mount(home());
+    const open = async () => {
+      fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
+      return within(await screen.findByRole("menu", { name: "Homework" }));
+    };
+    fireEvent.click((await open()).getByRole("menuitem", { name: "Connections" }));
+    await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "space-page", refId: "s2" }));
+    expect(store.getState().spacePageTab.s2).toBe("connections");
+    for (const [name, tab] of [["Memory", "memory"], ["Archived sessions", "sessions"], ["Space settings", "general"]] as const) {
+      await exited();
+      fireEvent.click((await open()).getByRole("menuitem", { name }));
+      await waitFor(() => expect(store.getState().spacePageTab.s2).toBe(tab));
+    }
+    // Show in Finder is offered only where the desktop bridge can reveal a folder.
+    await exited();
+    expect((await open()).queryByRole("menuitem", { name: "Show in Finder" })).toBeNull();
   });
 
-  it("pinned items render as tiles, unpinned in the list", async () => {
-    await mount(fakeApi({ items: { s1: [item("i1", "s1", { pinned: true, title: "GitHub" }), item("i2", "s1", { title: "Terminal" })] } }));
-    expect(screen.getByRole("button", { name: /GitHub/ })).toHaveAttribute("data-tile", "true");
-    expect(screen.getByRole("button", { name: "Terminal" })).not.toHaveAttribute("data-tile");
+  it("reveals its folder in the Finder where the bridge can", async () => {
+    const reveal = vi.fn(async () => true);
+    vi.stubGlobal("realm", { files: { reveal } });
+    await mount(home({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework", { folderPath: "/work/homework" })] }));
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "Show in Finder" }));
+    expect(reveal).toHaveBeenCalledWith("/work/homework");
   });
 
-  it("two-finger horizontal wheel on the sidebar switches spaces; vertical wheel does not", async () => {
-    const { store, container } = await mount();
-    const swiper = container.querySelector("[data-swiper]")!;
-    fireEvent.wheel(swiper, { deltaX: 0, deltaY: 120 });
-    fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 }); fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 });
+  it("starts a session in a fresh worktree of its space from the ⋯", async () => {
+    const { api } = await mount(home({ gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } } }));
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "New session in a worktree" }));
+    await waitFor(() => expect(api.calls).toContain("createWorktree:s2"));
+  });
+
+  it("offers no session in a worktree from the ⋯ of a space that is a plain folder", async () => {
+    const { store } = await mount(home({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework", { folderPath: "/work/homework" })] }));
+    await act(async () => { await store.getState().refreshGitInfo("/work/homework"); });
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
+    const menu = await screen.findByRole("menu", { name: "Homework" });
+    expect(within(menu).queryByRole("menuitem", { name: "New session in a worktree" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: "Space settings" })).toBeInTheDocument();
+  });
+});
+
+describe("a session's row", () => {
+  it("opens its session wherever it is", async () => {
+    const { store } = await mount(home());
+    fireEvent.click(await within(section("Homework")).findByRole("button", { name: /^Wants a yes/ }));
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    await waitFor(() => expect(allItems(store.getState().layout!)).toContain("i-b"));
+  });
+
+  it("wears its state at the far end, and says it in its name (A-L4)", async () => {
+    const { store } = await mount(home());
+    const row = () => within(section("Versed")).getByRole("button", { name: /^Alpha/ });
+    await waitFor(() => expect(row()).toHaveAccessibleName("Alpha"));
+    expect(row().querySelector(".status-dot")).toBeNull(); // idle wears nothing
+    act(() => store.getState().applySessionStatus("a", "waiting_permission"));
+    expect(row().querySelector(".item-trail .status-dot")).toHaveAttribute("data-status", "waiting_permission");
+    expect(row()).toHaveAccessibleName("Alpha — needs permission");
+    act(() => store.getState().applySessionStatus("a", "idle"));
+    expect(row().querySelector(".status-dot")).toBeNull();
+  });
+
+  it("wears the unread ring when something new happened, and a running dot instead while it works", async () => {
+    // THE MUTANT this kills is the one once shipped: a dot for every status, idle included — the ring
+    // only draws on a row with no other mark, so it could never appear.
+    const { store } = await mount(home({ sessions: [session("a", "s1", { title: "Alpha", seenSeq: 3, lastEventSeq: 5 }), session("b", "s2", { title: "Wants a yes" })] }));
+    const row = () => within(section("Versed")).getByRole("button", { name: /^Alpha/ });
+    await waitFor(() => expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "unseen"));
+    expect(row()).toHaveAccessibleName("Alpha — new since you were here");
+    act(() => store.getState().applySessionStatus("a", "running"));
+    expect(row().querySelectorAll(".status-dot")).toHaveLength(1);
+    expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "running");
+  });
+
+  it("wears a clock when a schedule started it", async () => {
+    await mount(home({ sessions: [session("a", "s1", { title: "Alpha", dispatchedBy: { kind: "run", sessionId: null } }), session("b", "s2", {})] }));
+    const row = within(section("Versed")).getByRole("button", { name: /^Alpha/ });
+    expect(row).toHaveAccessibleName("Alpha, from a schedule");
+    expect(row.querySelector(".sb-gutter svg")).not.toBeNull();
+  });
+
+  it("leaves out a sub-agent and an archived session", async () => {
+    await mount(home({
+      items: { s1: [sessionItem("a", "s1", "Alpha"), sessionItem("kid", "s1", "Agent: look it up"), sessionItem("old", "s1", "Put away", { archived: true })] },
+      sessions: [session("a", "s1", { title: "Alpha" }), session("kid", "s1", { dispatchedBy: { kind: "agent_run", sessionId: "a" } }), session("old", "s1", {})],
+    }));
+    await waitFor(() => expect(rowsIn("Versed")).toEqual(["Alpha"]));
+  });
+
+  it("puts its session away from its shelf — in this space or another", async () => {
+    const { api } = await mount(home());
+    await within(section("Homework")).findByRole("button", { name: /^Wants a yes/ });
+    fireEvent.click(within(section("Versed")).getByRole("button", { name: "Archive Alpha" }));
+    // (Closing the room's last pane lands in a fresh session, which is the store's rule, not the row's.)
+    await waitFor(() => expect(rowsIn("Versed")).not.toContain("Alpha"));
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: "Archive Wants a yes" }));
+    await waitFor(() => expect(rowsIn("Homework")).toEqual(["New session"])); // an empty space's one row
+    expect(api.data.items.s2![0]!.archived).toBe(true);
+  });
+
+  it("reads every space's rows again straight after a write to another space's row", async () => {
+    /* The window hears `items.changed` for the room on screen only, so a row put away or pinned in
+       another space is re-read by the sidebar itself, at once — not on the next beat something else
+       happens to move. THE MUTANTS: a shelf or a menu that writes and leaves the list to catch up. */
+    const { api } = await mount(home());
+    await within(section("Homework")).findByRole("button", { name: /^Wants a yes/ });
+    const reads = () => api.calls.filter((c) => c === "listAllItems").length;
+    const soon = { timeout: ALL_ITEMS_SETTLE_MS - 100 };
+    let before = reads();
+    fireEvent.contextMenu(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Pin" }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before), soon);
+    await exited();
+    before = reads();
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: "Archive Wants a yes" }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before), soon);
+  });
+
+  it("keeps its state and its one action in one slot at the far end", async () => {
+    /* THE MUTANTS: a mark outside the trailing group would stay on screen under the button, and a
+       wrong count would make the title give way by the wrong amount on hover. */
+    const layout: Layout = { type: "split", id: "S", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "i-a" }, { type: "leaf", id: "L2", itemId: "i-term" },
+    ] };
+    await mount(home({ spaces: [space("s1", "p1", "Versed", { layout }), space("s2", "p1", "Homework")],
+      sessions: [session("a", "s1", { title: "Alpha", status: "running" }), session("b", "s2", {})] }));
+    const alpha = within(section("Versed")).getByRole("button", { name: /^Alpha/ }).closest(".item")!;
+    expect(alpha.querySelector(".item-row > .status-dot, .item-row > .item-glyph")).toBeNull();
+    expect(alpha.querySelectorAll(".item-trail .status-dot, .item-trail .item-glyph")).toHaveLength(2);
+    expect([...alpha.querySelectorAll(".item-actions > button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Archive Alpha"]);
+    expect(alpha.getAttribute("data-actions")).toBe("1");
+  });
+
+  it("draws the pane glyph for a session on screen in a split, lighting its own side", async () => {
+    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "i-a" }, { type: "leaf", id: "L2", itemId: "i-x" },
+    ] };
+    await mount(home({ spaces: [space("s1", "p1", "Versed", { layout }), space("s2", "p1", "Homework")],
+      items: { s1: [sessionItem("a", "s1", "Alpha"), sessionItem("x", "s1", "Beta")] },
+      sessions: [session("a", "s1", { title: "Alpha" }), session("x", "s1", { title: "Beta" })] }));
+    const glyph = (name: RegExp) => within(section("Versed")).getByRole("button", { name }).querySelector(".item-glyph")!;
+    expect(onCells(glyph(/^Alpha/))).toEqual([0]);
+    expect(onCells(glyph(/^Beta/))).toEqual([1]);
+  });
+
+  it("pictures the split as it is drawn: none for a session filling its place, the side panel out or not", async () => {
+    /* The owner, 10-05: a session filling the window — its side pane put away by the toggle at the top
+       right, nothing else split — wore a half-lit glyph, for the side pane the window was not drawing.
+       The panel is the window's now, not a pane of the split, so it is in no glyph at all.
+       THE MUTANTS: the glyph drawing the panel (half-lit beside a browser), or none for a real split. */
+    const { store } = await mount(home({ items: {
+      s1: [item("i-term", "s1", { kind: "terminal", title: "Terminal" }), sessionItem("a", "s1", "Alpha"), sessionItem("x", "s1", "Beta")],
+      s2: [sessionItem("b", "s2", "Wants a yes")],
+    }, sessions: [session("a", "s1", { title: "Alpha" }), session("x", "s1", { title: "Beta" }), session("b", "s2", { title: "Wants a yes" })] }));
+    const glyph = (name: RegExp) => within(section("Versed")).getByRole("button", { name }).querySelector(".item-glyph");
+    await act(async () => { await store.getState().openItem("i-a"); });
+    expect(glyph(/^Alpha/), "one pane filling the window").toBeNull();
+    await act(async () => { await store.getState().openInSidePane("a", "i-term"); });
+    expect(glyph(/^Alpha/), "beside the side panel: still the one pane of the split").toBeNull();
+    // A real split is one, with the panel out or put away alike.
+    await act(async () => { await store.getState().openItemBeside("i-x"); });
+    expect(onCells(glyph(/^Alpha/)!)).toEqual([0]);
+    expect(onCells(glyph(/^Beta/)!)).toEqual([1]);
+    expect(glyph(/^Alpha/)!.querySelectorAll("rect")).toHaveLength(2);
+    await act(async () => { await store.getState().toggleSidePanes(); });
+    expect(store.getState().sidePanesHidden).toBe(true);
+    expect(glyph(/^Alpha/)!.querySelectorAll("rect")).toHaveLength(2);
+    // Filling their place by pane focus (⌘⇧F) is one pane on screen too, and the other is not there.
+    await act(async () => { await store.getState().focusPaneFull(findLeafOfItem(store.getState().layout!, "i-a")!.id); });
+    expect(glyph(/^Alpha/)).toBeNull();
+    expect(glyph(/^Beta/)).toBeNull();
+  });
+
+  it("opens a session BESIDE the one in focus on ⌘-click — from any space", async () => {
+    // THE MUTANT: ignore the modifier. ⌘-click would then replace the session on screen, and the
+    // window's one split would have no way in from the list.
+    const { store } = await mount(home());
+    fireEvent.click(within(section("Versed")).getByRole("button", { name: /^Alpha/ }));
+    await waitFor(() => expect(store.getState().layout).not.toBeNull());
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }), { metaKey: true });
+    await waitFor(() => {
+      const open = allItems(store.getState().layout!);
+      expect(open).toEqual(expect.arrayContaining(["i-a", "i-b"]));
+    });
+  });
+
+  it("lights a row from another space once its session has focus", async () => {
+    // THE MUTANT: keep the room's rule (only the current space's rows light). A session from another
+    // space would then never show it is the one in focus.
+    const { store } = await mount(home());
+    const other = within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }).closest(".item")!;
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }));
+    await waitFor(() => expect(other).toHaveAttribute("data-active"));
+    void store;
+  });
+
+  it("lights the row of the session in focus, and only that one", async () => {
+    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "i-a" }, { type: "leaf", id: "L2", itemId: "i-x" },
+    ] };
+    const { store } = await mount(home({ spaces: [space("s1", "p1", "Versed", { layout }), space("s2", "p1", "Homework")],
+      items: { s1: [sessionItem("a", "s1", "Alpha"), sessionItem("x", "s1", "Beta")] },
+      sessions: [session("a", "s1", { title: "Alpha" }), session("x", "s1", { title: "Beta" })] }));
+    const row = (name: RegExp) => within(section("Versed")).getByRole("button", { name }).closest(".item")!;
+    act(() => store.setState({ focusedLeafId: "L2" }));
+    expect(row(/^Beta/)).toHaveAttribute("data-active");
+    expect(row(/^Alpha/)).not.toHaveAttribute("data-active");
+  });
+
+  it("drags into a pane from any space, carrying its item", async () => {
+    await mount(home());
+    const row = within(section("Versed")).getByRole("button", { name: /^Alpha/ }).closest(".item")!;
+    expect(row).toHaveAttribute("draggable", "true");
+    const data: Record<string, string> = {};
+    fireEvent.dragStart(row, { dataTransfer: { setData: (k: string, v: string) => { data[k] = v; }, effectAllowed: "" } });
+    expect(data["application/x-realm-item"]).toBe("i-a");
+    expect(row).toHaveAttribute("data-dragging");
+    fireEvent.dragEnd(row);
+    expect(row).not.toHaveAttribute("data-dragging");
+    // Another space's row drags just the same: the view is the window's, not a room's.
+    const other = (await within(section("Homework")).findByRole("button", { name: /^Wants a yes/ })).closest(".item")!;
+    fireEvent.dragStart(other, { dataTransfer: { setData: (k: string, v: string) => { data[k] = v; }, effectAllowed: "" } });
+    expect(data["application/x-realm-item"]).toBe("i-b");
+  });
+
+  it("pins from its menu, and the pin shows under Pinned", async () => {
+    await mount(home());
+    fireEvent.contextMenu(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Pin" }));
+    const pinned = await screen.findByRole("region", { name: "Pinned" });
+    expect(within(pinned).getByRole("button", { name: "Wants a yes" })).toHaveAttribute("data-tile", "true");
+  });
+
+  it("renames from its menu, committing on Enter", async () => {
+    await mount(home());
+    fireEvent.contextMenu(within(section("Versed")).getByRole("button", { name: /^Alpha/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+    const input = screen.getByRole("textbox", { name: "Rename Alpha" });
+    fireEvent.change(input, { target: { value: "Renamed" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(rowsIn("Versed")).toEqual(["Renamed"]));
+  });
+
+  it("deletes from its menu in two steps", async () => {
+    const { api } = await mount(home());
+    fireEvent.contextMenu(within(section("Versed")).getByRole("button", { name: /^Alpha/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    expect(api.calls.some((c) => c.startsWith("deleteItem:"))).toBe(false);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Really delete?" }));
+    await waitFor(() => expect(api.calls).toContain("deleteItem:i-a"));
+    await waitFor(() => expect(rowsIn("Versed")).not.toContain("Alpha"));
+  });
+});
+
+describe("a fan-out", () => {
+  const fan = (id: string, at: number, status: Session["status"] = "running") =>
+    session(id, "s2", { title: "Migrate the API", status, createdAt: at, updatedAt: at, dispatchedBy: { kind: "user-dispatch", sessionId: null } });
+
+  it("is one row that unfolds to its sessions, summing their states", async () => {
+    // THE MUTANT: list the siblings flat, and twenty of them bury the space.
+    await mount(home({
+      items: { s1: [], s2: ["f1", "f2", "f3"].map((id) => sessionItem(id, "s2", "Migrate the API")) },
+      sessions: [fan("f1", 1000), fan("f2", 2000, "waiting_permission"), fan("f3", 3000)],
+    }));
+    const row = await within(section("Homework")).findByRole("button", { name: /^Fan-out: Migrate the API/ });
+    expect(row).toHaveAccessibleName("Fan-out: Migrate the API — 3 sessions, 1 waiting on you, 2 running");
+    expect(within(section("Homework")).queryAllByRole("button", { name: /^Migrate the API/ })).toHaveLength(0);
+    fireEvent.click(row);
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    expect(within(section("Homework")).getAllByRole("button", { name: /^Migrate the API/ })).toHaveLength(3);
+  });
+});
+
+describe("Pinned", () => {
+  it("holds the profile's pinned items from every one of its spaces, and opens them where they are", async () => {
+    const { store } = await mount(home({
+      items: {
+        s1: [item("i-gh", "s1", { kind: "browser", refId: "br1", title: "GitHub", pinned: true })],
+        s2: [sessionItem("b", "s2", "Wants a yes", { pinned: true })],
+        s3: [sessionItem("c", "s3", "Notes", { pinned: true })],
+      },
+    }));
+    const pinned = await screen.findByRole("region", { name: "Pinned" });
+    await waitFor(() => expect(within(pinned).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["GitHub", "Wants a yes"]));
+    fireEvent.click(within(pinned).getByRole("button", { name: "Wants a yes" }));
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
   });
 
-  // §6's do-NOT-animate list names "sidebar space swipes triggered by keyboard": the page slide is
-  // the tail of a gesture the fingers began, so it belongs to gestures alone.
-  describe("space switches only slide when a gesture asked for it (§6)", () => {
-    const track = (c: HTMLElement) => c.querySelector<HTMLElement>(".swiper-track")!;
-
-    it("a keyboard/programmatic switch lands on the new page instantly", async () => {
-      const { store, container } = await mount();
-      expect(track(container).style.transform).toBe("translateX(0%)");
-      await act(async () => { await store.getState().nextSpace(); });
-      expect(track(container).style.transform).toBe("translateX(-100%)");
-      expect(track(container).style.transition).toBe("none");
-    });
-
-    it("a click on the space strip lands instantly too", async () => {
-      const { container } = await mount();
-      fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
-      await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
-      expect(track(container).style.transition).toBe("none");
-    });
-
-    it("a committed two-finger swipe still eases to the page it threw", async () => {
-      const { container } = await mount();
-      const swiper = container.querySelector("[data-swiper]")!;
-      fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 }); fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 });
-      await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
-      expect(track(container).style.transition).toContain("transform 300ms");
-    });
-
-    // The page being left empties the instant activeSpaceId flips (selectSpace clears `items` and
-    // refetches), so without a snapshot a commit slides a blank page out and a blank page in.
-    it("a committed swipe keeps the page it is leaving filled in while it slides out", async () => {
-      const { container } = await mount();
-      const page = () => container.querySelector('[data-space-page="s1"]')!.textContent ?? "";
-      const swiper = container.querySelector("[data-swiper]")!;
-      fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 }); fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 });
-      await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
-      expect(page()).toContain("Terminal");
-      await waitFor(() => expect(page()).not.toContain("Terminal")); // dropped once the slide is over
-    });
-
-    // A 120Hz trackpad delivers several deltas per frame; writing the transform on each one is
-    // recalc work the compositor throws away, and it is what made the drag stutter.
-    it("drag frames are written on the next animation frame, not inline on every wheel event", async () => {
-      const { container } = await mount();
-      fireEvent.wheel(container.querySelector("[data-swiper]")!, { deltaX: 20, deltaY: 0 });
-      expect(track(container).style.transform).toBe("translateX(0%)"); // nothing written yet
-      await act(async () => { await new Promise(requestAnimationFrame); });
-      expect(track(container).style.transform).toContain("20px");
-    });
-
-    it("a swipe that never reaches the threshold eases back to the page it started on", async () => {
-      const { container } = await mount();
-      fireEvent.wheel(container.querySelector("[data-swiper]")!, { deltaX: 20, deltaY: 0 });
-      await waitFor(() => expect(track(container).style.transition).toContain("transform 220ms"));
-      expect(track(container).style.transform).toBe("translateX(0%)"); // settle is shorter than a commit
-    });
-
-    it("an instant switch has nothing to slide, so the page it left empties at once", async () => {
-      const { container } = await mount();
-      fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
-      await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
-      expect(container.querySelector('[data-space-page="s1"]')!.textContent).not.toContain("Terminal");
-    });
+  it("is not drawn while nothing is pinned", async () => {
+    await mount(home());
+    expect(screen.queryByRole("region", { name: "Pinned" })).toBeNull();
   });
 
-  it("right-click on an item offers Pin, which moves it to the pinned grid; Delete removes it permanently", async () => {
-    const { store, api } = await mount();
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Pin" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /Terminal/ })).toHaveAttribute("data-tile", "true"));
-    expect(store.getState().items[0]?.pinned).toBe(true);
-    // i1 is unopened (default layout is null), so Close should not even be offered here.
-    await exited();
-    fireEvent.contextMenu(screen.getByRole("button", { name: /Terminal/ }));
-    expect(screen.queryByRole("menuitem", { name: "Close" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
-    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
-    expect(api.calls).toContain("deleteItem:i1");
-  });
-
-  it("Delete is two-step: the first click arms 'Really delete?' without deleting; reopening the menu disarms; the second click deletes", async () => {
-    const { store, api } = await mount();
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
-    // Armed in place: the menu stays open, the row relabels, and NOTHING was deleted.
-    expect(api.calls).not.toContain("deleteItem:i1");
-    expect(store.getState().items).toHaveLength(1);
-    expect(screen.queryByRole("menuitem", { name: "Delete" })).not.toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Really delete?" })).toBeInTheDocument();
-    // Reopening the menu resets the confirmation.
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
-    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: "Really delete?" })).not.toBeInTheDocument();
-    expect(api.calls).not.toContain("deleteItem:i1");
-    // Two clicks within one open menu delete for real.
-    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
-    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
-    expect(api.calls).toContain("deleteItem:i1");
-  });
-
-  it("rename via the context menu commits on Enter", async () => {
-    const { store } = await mount();
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
-    const input = screen.getByRole("textbox", { name: /Rename Terminal/ });
-    fireEvent.change(input, { target: { value: "Build" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(store.getState().items[0]?.title).toBe("Build"));
-    expect(screen.getByRole("button", { name: "Build" })).toBeInTheDocument();
-  });
-
-  it("the sidebar's + creates a session on the first click — no menu, no sheet, nothing to answer (W3)", async () => {
-    const { store, api } = await mount();
-    const plus = screen.getByRole("button", { name: "New session" });
-    expect(screen.queryByRole("menu")).toBeNull();
-    fireEvent.click(plus);
-    await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
-    expect(screen.queryByRole("menu")).toBeNull();
-    expect(store.getState().sheet).toBeNull();
-    expect(api.calls).toContain("createSession:claude");
-    const created = Object.values(store.getState().sessions)[0]!;
-    expect(store.getState().items.some((i) => i.kind === "session" && i.refId === created.id)).toBe(true);
-    // The tooltip names the agent you'll actually get, and follows the last-used memory.
-    expect(plus).toHaveAttribute("title", "New Claude session (⌘N)");
-    await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toHaveAttribute("title", "New Claude session (⌘N)"));
-    await act(() => store.getState().newSession({ agentKind: "codex" }));
-    expect(screen.getByRole("button", { name: "New session" })).toHaveAttribute("title", "New Codex session (⌘N)");
-  });
-
-  it("the New session row is draggable without creating until it is dropped", async () => {
-    const { store, api } = await mount();
-    const button = screen.getByRole("button", { name: "New session" });
-    const row = button.closest(".new-item")!;
-    expect(row).toHaveAttribute("draggable", "true");
-    const setData = vi.fn();
-    fireEvent.dragStart(row, { dataTransfer: { setData, effectAllowed: "", types: [], getData: () => "" } });
-    expect(setData).toHaveBeenCalledWith("application/x-realm-new-session", "new-session");
-    expect(row).toHaveAttribute("data-dragging");
-    expect(api.calls.filter((c) => c.startsWith("createSession"))).toEqual([]);
-    expect(Object.keys(store.getState().sessions)).toHaveLength(0);
-    fireEvent.dragEnd(row);
-    expect(row).not.toHaveAttribute("data-dragging");
-  });
-
-  it("the space menu opens a session in a fresh worktree, leaving \"+\" as the no-questions path (W2)", async () => {
-    const { store, api } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
-    fireEvent.click(within(screen.getByRole("menu", { name: "Space menu" })).getByText("New session in a worktree"));
-    await waitFor(() => expect(api.calls).toContain("createWorktree:s1"));
-    await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
-    const env = api.data.environments.s1![0]!;
-    const created = Object.values(store.getState().sessions)[0]!;
-    // Pinned to the worktree, and its cwd follows the environment rather than the space folder (W1).
-    expect(created.environmentId).toBe(env.id);
-    expect(created.cwd).toBe(env.path);
-    expect(store.getState().environments[env.id]).toMatchObject({ kind: "worktree" });
-  });
-
-  it("menus render in a portal with fixed positioning so ancestor overflow can't clip them (regression: the swiper's overflow:clip was hiding menus)", async () => {
-    await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
-    const menu = screen.getByRole("menu", { name: "Space menu" });
-    expect(menu.parentElement).toBe(document.body);
-    expect(menu.style.position).toBe("fixed");
-  });
-
-  it("dragging a strip icon onto another reorders spaces", async () => {
-    const { store, api } = await mount();
-    const versed = screen.getByRole("button", { name: /switch to space Versed/i });
-    const homework = screen.getByRole("button", { name: /switch to space Homework/i });
-    const dt = { effectAllowed: "", setData: () => {}, getData: () => "s2" };
-    fireEvent.dragStart(homework, { dataTransfer: dt });
-    fireEvent.dragOver(versed, { dataTransfer: dt });
-    fireEvent.drop(versed, { dataTransfer: dt });
-    await waitFor(() => expect(store.getState().spaces.map((s) => s.id)).toEqual(["s2", "s1"]));
-    expect(api.calls).toContain("reorderSpaces:s2,s1");
-  });
-
-  it("dragging the first strip icon onto the last moves it to the end ([A,B,C] → [B,C,A])", async () => {
-    const api = fakeApi({ spaces: [space("a", "p1", "A"), space("b", "p1", "B"), space("c", "p1", "C")], items: {} });
-    const { store } = await mount(api);
-    const dt = { effectAllowed: "", setData: () => {}, getData: () => "a" };
-    fireEvent.dragStart(screen.getByRole("button", { name: /switch to space A$/i }), { dataTransfer: dt });
-    fireEvent.drop(screen.getByRole("button", { name: /switch to space C$/i }), { dataTransfer: dt });
-    await waitFor(() => expect(store.getState().spaces.map((s) => s.id)).toEqual(["b", "c", "a"]));
-    // and back to the front (leftward drag lands before the target)
-    fireEvent.dragStart(screen.getByRole("button", { name: /switch to space A$/i }), { dataTransfer: dt });
-    fireEvent.drop(screen.getByRole("button", { name: /switch to space B$/i }), { dataTransfer: dt });
-    await waitFor(() => expect(store.getState().spaces.map((s) => s.id)).toEqual(["a", "b", "c"]));
-  });
-
-  it("inactive swiper pages are inert (their controls are not reachable)", async () => {
-    const { container } = await mount();
-    const pages = container.querySelectorAll<HTMLElement>(".space-page");
-    expect(pages).toHaveLength(2);
-    expect(pages[0]!.hasAttribute("inert")).toBe(false);
-    expect(pages[1]!.hasAttribute("inert")).toBe(true);
-    expect(pages[1]!.getAttribute("aria-hidden")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
-    await waitFor(() => expect(pages[1]!.hasAttribute("inert")).toBe(false));
-    expect(pages[0]!.hasAttribute("inert")).toBe(true);
-  });
-
-  it("the profile pill opens the PROFILE page (Plan 14 W2) and + opens the new-space sheet", async () => {
-    const { store } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Work" }));
-    // The pill names the profile, so it opens the profile page — the space page keeps its own two
-    // doors (the title row and the menu's Open space, tested below).
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "profile-page")).toBe(true));
-    expect(store.getState().items.some((i) => i.kind === "space-page")).toBe(false);
-    expect(store.getState().sheet).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "New space" }));
-    expect(store.getState().sheet).toEqual({ kind: "new-space" });
-  });
-
-  it("the header title row itself opens the space PAGE (the transcription's front door)", async () => {
-    const { store } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Versed" }));
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
-    const page = store.getState().items.find((i) => i.kind === "space-page")!;
-    expect(JSON.stringify(store.getState().layout)).toContain(page.id);
-  });
-
-  it("the space menu's Open space opens the page — the sheet's ⋯ entry point did not go dead", async () => {
-    const { store } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Open space" }));
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
-  });
-
-  it("OPEN label is absent when nothing is open; unopened items render under SPACE", async () => {
-    await mount(); // default: layout is null, i1 "Terminal" is unopened
-    expect(screen.queryByText("Open")).not.toBeInTheDocument();
-    expect(screen.getByText("Space")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Terminal" })).toBeInTheDocument();
-  });
-
-  it("OPEN group follows layout order (not items order); SPACE holds the rest, pinned tiles first, and a pinned-and-open item appears only in OPEN", async () => {
-    // Layout order is i2 then i1 — the reverse of the items array below, so an implementation that
-    // (wrongly) used items order instead of allItems(layout) order would render them the other way.
-    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
-      { type: "leaf", id: "L1", itemId: "i2" },
-      { type: "leaf", id: "L2", itemId: "i1" },
-    ] };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [
-        item("i1", "s1", { title: "Alpha", pinned: true }), // pinned AND open — belongs only to OPEN
-        item("i2", "s1", { title: "Beta" }),
-        item("i3", "s1", { title: "Gamma", pinned: true }), // pinned, unopened — the grid
-        item("i4", "s1", { title: "Delta" }), // unpinned, unopened — the space list
-      ] },
-    });
-    await mount(api);
-    expect(screen.getByText("Open")).toBeInTheDocument();
-    const lists = document.querySelectorAll(".item-list");
-    const openTitles = Array.from(lists[0]!.querySelectorAll(".item-title")).map((n) => n.textContent);
-    expect(openTitles).toEqual(["Beta", "Alpha"]); // layout order, not items-array order
-    const pinnedGrid = document.querySelector(".pinned-grid")!;
-    expect(pinnedGrid.textContent).toContain("Gamma");
-    expect(pinnedGrid.textContent).not.toContain("Alpha"); // open-and-pinned lives in OPEN, not the grid
-    const spaceList = lists[1]!;
-    expect(spaceList.textContent).toContain("Delta");
-    expect(spaceList.textContent).not.toContain("Gamma"); // pinned items don't also get a SPACE row
-    expect(spaceList.textContent).not.toContain("Alpha");
-  });
-
-  it("clicking a SPACE row opens it; clicking an OPEN row keeps/re-opens it (both call openItem)", async () => {
-    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
-    });
-    const { store } = await mount(api);
-    fireEvent.click(screen.getByRole("button", { name: "Beta" })); // SPACE row -> opens it
-    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBe("i2"); });
-    fireEvent.click(screen.getByRole("button", { name: "Alpha" })); // now unopened -> click re-opens it
-    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBe("i1"); });
-  });
-
-  it("the x on an OPEN row closes it from the layout without deleting it; SPACE rows render no x", async () => {
-    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
-    });
-    const { store } = await mount(api);
-    expect(screen.getByRole("button", { name: "Beta" }).closest(".item")!.querySelector(".item-close")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Close Alpha" }));
-    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).not.toBe("i1"); });
-    expect(api.calls).not.toContain("deleteItem:i1");
-    expect(store.getState().items.map((i) => i.id)).toContain("i1"); // still exists, just unopened
-  });
-
-  it("context menu: Close only for open items (closes from layout); Delete always (destructive)", async () => {
-    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
-    });
-    const { store } = await mount(api);
-
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" })); // open
-    expect(screen.getByRole("menuitem", { name: "Close" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Close" }));
-    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).not.toBe("i1"); });
-    expect(api.calls).not.toContain("deleteItem:i1");
-    expect(store.getState().items.map((i) => i.id)).toContain("i1"); // still exists
-
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Beta" })); // unopened
-    expect(screen.queryByRole("menuitem", { name: "Close" })).not.toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
-    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i2"));
-    expect(api.calls).toContain("deleteItem:i2");
-  });
-
-  it("THE homing mutant: the row menu's Open here brings the pane INTO the focused leaf", async () => {
-    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" })] },
-    });
-    const { store } = await mount(api);
-    await act(async () => { await store.getState().splitFocused("row"); });
-    const other = store.getState().focusedLeafId!;
-    expect(other).not.toBe("L1");
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Open here" }));
-    await waitFor(() => expect(findLeafOfItem(store.getState().layout!, "i1")!.id).toBe(other));
-  });
-
-  it("…and it is absent wherever a plain click would land in the same place anyway", async () => {
-    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
-    });
-    await mount(api);
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" })); // open, and its leaf is the focused one
-    expect(screen.queryByRole("menuitem", { name: "Open here" })).not.toBeInTheDocument();
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Beta" })); // not open at all: a click opens it here
-    expect(screen.queryByRole("menuitem", { name: "Open here" })).not.toBeInTheDocument();
-  });
-
-  it("Delete on an OPEN item removes it from both the layout and the item list", async () => {
-    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
-    });
-    const { store } = await mount(api);
-
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Alpha" })); // i1 is open in L1
-    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Really delete?" }));
-    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
-    expect(api.calls).toContain("deleteItem:i1");
-    const l = store.getState().layout!;
-    // The leaf no longer points at i1. It isn't empty either: deleting the last open pane lands in a
-    // fresh session rather than an empty-state placeholder.
-    expect(l.type === "leaf" && l.itemId).not.toBe("i1");
-  });
-
-  it("during a row split, OPEN rows draw one bar per slot along the split's axis, lighting their own", async () => {
-    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
-      { type: "leaf", id: "L1", itemId: "i1" },
-      { type: "leaf", id: "L2", itemId: "i2" },
-    ] };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
-    });
-    await mount(api);
-    // Two panes side by side, drawn as two rects splitting the box across.
-    expect(panesOf(glyphOf("Alpha"))).toEqual(["1,1,11,23", "13,1,11,23"]);
-    expect(onCells(glyphOf("Alpha"))).toEqual([0]);
-    expect(onCells(glyphOf("Beta"))).toEqual([1]);
-  });
-
-  it("during a col split, the same bars run down instead of across", async () => {
-    const layout: Layout = { type: "split", id: "root", dir: "col", sizes: [50, 50], children: [
-      { type: "leaf", id: "L1", itemId: "i1" },
-      { type: "leaf", id: "L2", itemId: "i2" },
-    ] };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
-    });
-    await mount(api);
-    // The same two rects, stacked instead of side by side — the axis is in the geometry now.
-    expect(panesOf(glyphOf("Alpha"))).toEqual(["1,1,23,11", "1,13,23,11"]);
-    expect(onCells(glyphOf("Alpha"))).toEqual([0]);
-    expect(onCells(glyphOf("Beta"))).toEqual([1]);
-  });
-
-  it("a three-column layout gets three bars — the case the old 2x2 could only answer wrongly", async () => {
-    // gridPreset("three-col") builds exactly this, and the command palette offers it. The old glyph
-    // had no third column to light, so it lit the bottom-left quadrant of a grid with no bottom row.
-    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [34, 33, 33], children: [
-      { type: "leaf", id: "L1", itemId: "i1" },
-      { type: "leaf", id: "L2", itemId: "i2" },
-      { type: "leaf", id: "L3", itemId: "i3" },
-    ] };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" }), item("i3", "s1", { title: "Gamma" })] },
-    });
-    await mount(api);
-    expect(glyphOf("Gamma").querySelectorAll("rect")).toHaveLength(3);
-    expect(onCells(glyphOf("Gamma"))).toEqual([2]);
-  });
-
-  it("in a split, data-active marks only the focused leaf's row, not every open row; clicking the other OPEN row moves the highlight", async () => {
-    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
-      { type: "leaf", id: "L1", itemId: "i1" },
-      { type: "leaf", id: "L2", itemId: "i2" },
-    ] };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
-    });
-    const { store } = await mount(api);
-    // boot() focuses the first leaf (L1 -> Alpha) by default.
-    expect(store.getState().focusedLeafId).toBe("L1");
-    const rows = () => screen.getAllByRole("button", { name: /^(Alpha|Beta)$/ }).map((b) => b.closest(".item")!);
-    expect(rows().filter((r) => r.hasAttribute("data-active"))).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Alpha" }).closest(".item")).toHaveAttribute("data-active");
-    expect(screen.getByRole("button", { name: "Beta" }).closest(".item")).not.toHaveAttribute("data-active");
-    fireEvent.click(screen.getByRole("button", { name: "Beta" })); // already open -> focuses its pane, no layout move
-    await waitFor(() => expect(store.getState().focusedLeafId).toBe("L2"));
-    expect(rows().filter((r) => r.hasAttribute("data-active"))).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Beta" }).closest(".item")).toHaveAttribute("data-active");
-    expect(screen.getByRole("button", { name: "Alpha" }).closest(".item")).not.toHaveAttribute("data-active");
-  });
-
-  it("both OPEN and SPACE rows are draggable, carry the item id via application/x-realm-item on dragstart, and set/clear data-dragging", async () => {
-    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
-    });
-    await mount(api);
-    const openRow = screen.getByRole("button", { name: "Alpha" }).closest(".item")!; // OPEN row
-    const spaceRow = screen.getByRole("button", { name: "Beta" }).closest(".item")!; // SPACE row
-
-    for (const [row, id] of [[openRow, "i1"], [spaceRow, "i2"]] as const) {
-      expect(row).toHaveAttribute("draggable", "true");
-      const setData = vi.fn();
-      fireEvent.dragStart(row, { dataTransfer: { setData, effectAllowed: "", getData: () => "" } });
-      expect(setData).toHaveBeenCalledWith("application/x-realm-item", id);
-      expect(row).toHaveAttribute("data-dragging");
-      fireEvent.dragEnd(row, { dataTransfer: { getData: () => "" } });
-      expect(row).not.toHaveAttribute("data-dragging");
-    }
-  });
-
-  it("dragging one row does not mark a sibling row as dragging", async () => {
-    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
-    });
-    await mount(api);
-    const openRow = screen.getByRole("button", { name: "Alpha" }).closest(".item")!;
-    const spaceRow = screen.getByRole("button", { name: "Beta" }).closest(".item")!;
-    fireEvent.dragStart(spaceRow, { dataTransfer: { setData: () => {}, effectAllowed: "", getData: () => "" } });
-    expect(spaceRow).toHaveAttribute("data-dragging");
-    expect(openRow).not.toHaveAttribute("data-dragging");
-  });
-
-  it("a single-leaf layout hides the glyph entirely, even though the item is open", async () => {
-    const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Alpha" })] },
-    });
-    await mount(api);
-    expect(screen.getByRole("button", { name: "Alpha" }).querySelector(".item-glyph")).toBeNull();
+  it("draws a pinned browser with its page's own icon", async () => {
+    const ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9h";
+    await mount(home({ items: { s1: [item("i1", "s1", { kind: "browser", refId: "b1", pinned: true, title: "GitHub", favicon: ICON })] } }));
+    expect(within(await screen.findByRole("region", { name: "Pinned" })).getByRole("button", { name: "GitHub" })
+      .querySelector("img.page-icon")?.getAttribute("src")).toBe(ICON);
   });
 });
 
-describe("the list's bottom fade", () => {
+describe("the list's fade", () => {
   it("is nothing but the scroller — no band element sits beside or inside it", async () => {
-    // The dissolve is a mask on .space-body (pinned in styles.test.ts; seen on screen in
-    // sidebar-fade-live.mjs). The named mutant is the old `.space-fade` sibling coming back: a
-    // backdrop-filter band over this translucent column blurs the window's own transparency and
-    // renders as a dark smudge above the space strip.
-    await mount();
-    expect(document.querySelector(".space-body")).not.toBeNull();
-    expect(document.querySelector(".space-fade")).toBeNull();
+    // The dissolve is the shared mask on .space-body, which marks itself `data-dissolve` (pinned in
+    // styles.test.ts). The named mutant is the old `.space-fade` sibling coming back: a
+    // backdrop-filter band over this translucent column blurs the window's own transparency into a
+    // dark smudge. THE second mutant: the scroller left unmarked, which leaves it no dissolve at all.
+    const { container } = await mount();
+    const body = container.querySelector(".space-body")!;
+    expect(body.parentElement).toHaveClass("sb-list");
+    expect(body).toHaveAttribute("data-dissolve");
+    expect(container.querySelector(".space-fade")).toBeNull();
+    // Everything that scrolls is inside it: Needs you, Pinned, the list's head and the sections alike —
+    // and New space is not, pinned below it.
+    expect(body.querySelector(".sb-lens")).not.toBeNull();
+    expect(body.querySelector(".sb-sections")).not.toBeNull();
+    expect(body.querySelector(".sb-new-space")).toBeNull();
   });
 });
 
-function glyphOf(title: string): Element {
-  return screen.getByRole("button", { name: title }).querySelector(".item-glyph")!;
-}
 function onCells(glyph: Element): number[] {
   return Array.from(glyph.querySelectorAll("rect"))
     .map((s, i) => (s.hasAttribute("data-on") ? i : null))
     .filter((x): x is number => x !== null);
 }
-/** `x,y,w,h` of each pane in the glyph, rounded — the geometry the reader actually sees. */
-function panesOf(glyph: Element): string[] {
-  return Array.from(glyph.querySelectorAll("rect")).map((r) =>
-    ["x", "y", "width", "height"].map((a) => Math.round(Number(r.getAttribute(a)))).join(","));
+function hexToRgb(hex: string): string {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
 }
 
 describe("paneMapOf — the arrangement itself, not a category of arrangement", () => {
@@ -592,13 +512,6 @@ describe("paneMapOf — the arrangement itself, not a category of arrangement", 
   const boxes = (l: Layout, id: string) =>
     paneMapOf(l, id)?.map((r) => [r.x, r.y, r.w, r.h, r.active] as const)
       .map(([x, y, w, h, a]) => [+x.toFixed(3), +y.toFixed(3), +w.toFixed(3), +h.toFixed(3), a]);
-
-  it("draws a plain split as two halves, with this item's half lit", () => {
-    expect(boxes(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "i1")).toEqual([
-      [0, 0, 0.5, 1, true],
-      [0.5, 0, 0.5, 1, false],
-    ]);
-  });
 
   it("uses the layout's REAL proportions, so a dragged splitter shows as a dragged splitter", () => {
     // THE mutant: divide the box equally and ignore `sizes`. Every layout then draws as the tidy
@@ -661,3 +574,32 @@ describe("paneMapOf — the arrangement itself, not a category of arrangement", 
     expect(paneMapOf(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "gone")).toBeNull();
   });
 });
+
+describe("layoutOnScreen — the split as the window draws it", () => {
+  const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
+  const panel = (id: string, owner: string, tabs: string[]): Layout => ({ type: "leaf", id, itemId: tabs[0]!, tabs, owners: Object.fromEntries(tabs.map((t) => [t, owner])) });
+  const split = (id: string, dir: "row" | "col", children: Layout[], sizes?: number[]): Layout =>
+    ({ type: "split", id, dir, sizes: sizes ?? children.map(() => 100 / children.length), children });
+  const ids = (l: Layout | null): unknown => (!l ? null : l.type === "leaf" ? l.id : { [l.dir]: l.children.map(ids), sizes: l.sizes });
+
+  it("is the main panes, never the side panel: a session beside the panel alone wears no glyph", () => {
+    // THE MUTANT: picture the panel as a pane. A session with a browser open beside it would wear a
+    // half-lit glyph for a pane it is not split with (the owner, 10-05).
+    const one = split("R", "row", [leaf("A", "a"), panel("P", "a", ["t"])], [50, 50]);
+    expect(ids(layoutOnScreen(one))).toBe("A");
+    expect(paneMapOf(layoutOnScreen(one)!, "a")).toBeNull();
+    const two = split("R", "row", [split("M", "row", [leaf("A", "a"), leaf("B", "b")], [30, 70]), panel("P", "a", ["t"])]);
+    expect(ids(layoutOnScreen(two))).toEqual({ row: ["A", "B"], sizes: [30, 70] });
+    const plain = split("M", "col", [leaf("A", "a"), leaf("B", "b")]);
+    expect(layoutOnScreen(plain)).toBe(plain);
+  });
+
+  it("is the one pane that fills their place under pane focus, and nothing while the panel fills the window", () => {
+    const l = split("R", "row", [split("M", "row", [leaf("A", "a"), leaf("B", "b")]), panel("P", "a", ["t"])]);
+    expect(ids(layoutOnScreen(l, { zoomedLeafId: "B" }))).toBe("B");
+    expect(layoutOnScreen(l, { zoomedLeafId: "P" })).toBeNull();
+    // A zoom the tree no longer holds is no zoom.
+    expect(ids(layoutOnScreen(l, { zoomedLeafId: "gone" }))).toEqual({ row: ["A", "B"], sizes: [50, 50] });
+  });
+});
+

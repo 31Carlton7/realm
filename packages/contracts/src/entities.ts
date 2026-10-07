@@ -4,12 +4,22 @@ import { SpaceGroupsSchema } from "./groups";
 import { IdSchema } from "./ids";
 export { IdSchema } from "./ids";
 
-const Timestamps = { createdAt: z.number().int(), updatedAt: z.number().int() };
+/** Every persisted row carries these two. Exported so a schema that lives in its own file — a
+ *  machine's, whose source, status and actions are far more than an entity's worth of contract —
+ *  still ages with the rest rather than inlining its own pair. */
+export const Timestamps = { createdAt: z.number().int(), updatedAt: z.number().int() };
 export const HexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i, "expected #rrggbb");
 
 export const ProfileSchema = z.object({
   id: IdSchema, name: z.string().min(1), icon: z.string(), color: z.string(),
-  sortOrder: z.number().int(), ...Timestamps,
+  sortOrder: z.number().int(),
+  /** The Electron session partition this profile's browser panes use — its own cookie jar, site data
+   *  and cache. Fixed when the profile is made and never edited: the first profile of a home keeps
+   *  `persist:browser`, the jar every pane shared before profiles were separate, so the sign-ins made
+   *  then survive; every other profile has `persist:browser-<id>`. Reordering profiles must not move
+   *  anybody's cookies, which is why this is stored rather than derived from the order. */
+  browserPartition: z.string(),
+  ...Timestamps,
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
@@ -53,8 +63,18 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  the space's own page (General/Memory/Skills/Connections/Sessions/History), one per space.
  *  `documents` (Plan 17 W1) takes the `diff` route for the same reason: a document workspace is a view
  *  of a CHECKOUT, so several sessions sharing an environment share its documents. Its `refId` is a
- *  `document_workspaces` row id, and that row carries the environment. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "documents", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page", "schedules-page", "agents-page"]);
+ *  `document_workspaces` row id, and that row carries the environment.
+ *  `machine` (Plan 25 W3) sits beside `browser` because it is its sibling: a live remote surface with
+ *  a durable row behind it, whose `refId` is a `machines` row id. Deliberately NOT the reserved
+ *  `simulator`, which `Icon.tsx` maps to a phone and which `device-ax.ts` speaks about specifically.
+ *  A machine is not a phone.
+ *  `agents` (v2) is a session's Agents tab — its sub-agents and the composer that hands work out. Its
+ *  `refId` is the SESSION's id, because the tab is a view of that one session; the session's own
+ *  item is still the one `findByRefId` answers for the id (`ItemsStore` skips this kind), so nothing
+ *  that looks a session's item up can be handed its tab instead.
+ *  `app-view` (v2) is a view an MCP server drew for one tool call (MCP Apps), opened as a tab of its
+ *  session's side pane. Its `refId` is the VIEW's id — an `app_views` row, which names the session. */
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "code-review-page", "settings-page", "profile-page", "schedules-page", "you-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**
@@ -71,7 +91,6 @@ export type ItemKind = z.infer<typeof ItemKindSchema>;
 export const PAGE_REF_IDS = {
   "library-page": "00000000000000000000000001",
   "connections-page": "00000000000000000000000002",
-  "notifications-page": "00000000000000000000000003",
   "settings-page": "00000000000000000000000004",
   // Plan 14 W2. The page shows the VANTAGE space's profile — the profile is derived live from
   // `item.spaceId`, never stored in the item, so a space moved between profiles moves its page's
@@ -80,9 +99,16 @@ export const PAGE_REF_IDS = {
   // Scheduled tasks. Space-scoped like the rest: a schedule names the space its runs are created in,
   // so the page's vantage is the space its item lives in.
   "schedules-page": "00000000000000000000000006",
-  /** Every agent across every space, by what it needs from you. The page a manager of several
-   *  sessions keeps open: what is waiting on a permission, what is working, what has finished. */
-  "agents-page": "00000000000000000000000007",
+  // …07 was a page since removed. Not reused: a home from before pages were overlays may still hold
+  // rows carrying it, and a sentinel is only a sentinel while it names one page.
+  /** The person, not a space or a profile: your name and picture, the figures every session adds
+   *  up to, and the rhythm of the days you used Realm. Read from every space, so the vantage space
+   *  an overlay carries is only where it was opened from. */
+  "you-page": "00000000000000000000000008",
+  /** Pull requests on GitHub, through the person's own `gh` (v2) — the rail's place where
+   *  Notifications was. Its own sentinel rather than the retired page's …003: a row an older build
+   *  left under that id is pruned as a page item, and must not come back as this one. */
+  "code-review-page": "00000000000000000000000009",
 } as const;
 export type DestinationPageKind = keyof typeof PAGE_REF_IDS;
 
@@ -99,20 +125,58 @@ export const ItemSchema = z.object({
    * destination page or a session-owned terminal means nothing), but nothing in the column is
    * session-specific, so widening it is a UI change alone.
    */
-  archived: z.boolean(), refId: IdSchema, ...Timestamps,
+  archived: z.boolean(), refId: IdSchema,
+  /** A browser's page icon (`isFaviconDataUrl`), read from its `browsers` row, so every place that
+   *  draws the item — a tab, a sidebar row, a pane bar — can draw the page's own mark. Absent for
+   *  every other kind, and for a browser whose page has offered none: both draw the kind's glyph. */
+  favicon: z.string().optional(),
+  ...Timestamps,
 });
 export type Item = z.infer<typeof ItemSchema>;
 
 /**
+ * The largest favicon Realm keeps, in bytes. A favicon is a 16 or 32px picture: twenty popular sites
+ * measured from 549 bytes (x.com) to 31KB (Notion's five-size ICO). Bounded at all because it rides on
+ * every item list the sidebar draws, and an "icon" past this is a full-size image no tab has a use for.
+ */
+export const FAVICON_MAX_BYTES = 32 * 1024;
+/** What a favicon may be: the formats main recognises by their own bytes (browser-host.ts). */
+export const FAVICON_TYPES = ["image/png", "image/x-icon", "image/gif", "image/jpeg", "image/webp", "image/svg+xml"] as const;
+
+/**
+ * Is this a favicon as Realm keeps one: the picture itself, base64 in a `data:` URL of one of
+ * `FAVICON_TYPES`, no bigger than `FAVICON_MAX_BYTES`. Never the address it came from — main fetched it
+ * on the pane's own session, so drawing it makes no request from the window (whose CSP admits no
+ * remote image), and a restored tab draws it before its page has loaded again.
+ */
+export function isFaviconDataUrl(s: string): boolean {
+  const m = /^data:([a-z/+.-]+);base64,([A-Za-z0-9+/]*={0,2})$/.exec(s);
+  if (!m || m[2] === "" || !(FAVICON_TYPES as readonly string[]).includes(m[1]!)) return false;
+  return m[2]!.length <= Math.ceil(FAVICON_MAX_BYTES / 3) * 4;
+}
+
+/**
  * A browser pane's persisted half (Plan 11 W1). The row carries only what a restart needs — the last
- * committed `url` and page `title`; the live `WebContentsView` (history, session state beyond the
- * `persist:browser` partition's own disk cache) belongs to Electron main and dies with the pane.
+ * committed `url`, its page `title` and its `favicon` (`isFaviconDataUrl`, '' when none is known); the
+ * live `WebContentsView` (history, session state beyond the `persist:browser` partition's own disk
+ * cache) belongs to Electron main and dies with the pane.
  * `url: ""` = never navigated (the pane opens on its empty state, not about:blank).
  */
 export const BrowserSchema = z.object({
-  id: IdSchema, spaceId: IdSchema, url: z.string(), title: z.string(), ...Timestamps,
+  id: IdSchema, spaceId: IdSchema, url: z.string(), title: z.string(), favicon: z.string(), ...Timestamps,
 });
 export type Browser = z.infer<typeof BrowserSchema>;
+
+/**
+ * A page a profile's browser panes have shown (Plan 26 W7c) — what the address field suggests. Per
+ * profile and keyed on the address, so `visits` is how often and `lastVisitAt` how recently: the two
+ * things a suggestion is ranked by, in that order. `favicon` is the icon the page last showed, as the
+ * `browsers` row keeps one ('' when none was seen).
+ */
+export const BrowserHistoryPageSchema = z.object({
+  url: z.string(), title: z.string(), visits: z.number().int().positive(), lastVisitAt: z.number().int(), favicon: z.string(),
+});
+export type BrowserHistoryPage = z.infer<typeof BrowserHistoryPageSchema>;
 
 /**
  * A document workspace's persisted half (Plan 17 W1) — the tab strip, so a restart reopens what was
@@ -154,7 +218,14 @@ export type DocumentEntry = z.infer<typeof DocumentEntrySchema>;
  * slide deck shown read-only beside the session working on it. Neither goes through the Markdown or
  * sheet models.
  */
-export const DocumentKindSchema = z.enum(["doc", "sheet", "slides", "latex", "html", "pdf", "preview", "unsupported"]);
+/**
+ * `code` is the plain-text lane: a source file opened to be EDITED rather than rendered. It is its
+ * own member and not a flavour of `doc` because the two disagree about every decision downstream —
+ * `doc` is rich text through tiptap, where a stray newline is a paragraph and the bytes on disk are
+ * the editor's business; `code` is bytes, exactly, and an editor that reflows them has corrupted a
+ * file. Widening the enum is safe: `agent_kind`-style, no persisted row re-parses.
+ */
+export const DocumentKindSchema = z.enum(["doc", "sheet", "slides", "latex", "html", "pdf", "preview", "code", "unsupported"]);
 export type DocumentKind = z.infer<typeof DocumentKindSchema>;
 
 /**
@@ -217,6 +288,26 @@ export const CheckpointSchema = z.object({
   headSha: z.string().nullable(),
   /** The branch ref HEAD was on, or null when detached. Restore will not move a HEAD that has left it. */
   headRef: z.string().nullable(),
+  /**
+   * Realm's own transcript position when this was captured: the `seq` of the newest stored session
+   * event at that moment. Null for a checkpoint taken outside any session, and for every row written
+   * before conversation rewind existed — which is the honest answer for those, not a zero. A restore
+   * truncates the transcript to this seq, so a row without one restores files only.
+   *
+   * `.default(null)` rather than a bare `.nullable()` so that a row written by an older build — which
+   * has no such column at all — still parses. The alternative, a required field, would turn every
+   * pre-existing checkpoint into a parse error on the first read after upgrade.
+   */
+  sessionSeq: z.number().int().nullable().default(null),
+  /**
+   * Where the PROVIDER's conversation stood, in whatever form that provider's adapter can later hand
+   * back to it. Opaque here on purpose: only the adapter that wrote it may interpret it, because the
+   * shape is the provider's and not Realm's (Claude stores a chain-entry UUID; another agent that
+   * gains a truncating resume will store something else entirely). Null when the session's agent
+   * cannot be rewound at all — see `AGENT_CONVERSATION_REWIND`. Defaulted for the same
+   * older-row reason as `sessionSeq` above.
+   */
+  providerCursor: z.string().nullable().default(null),
   createdAt: z.number().int(),
 });
 export type Checkpoint = z.infer<typeof CheckpointSchema>;
@@ -300,6 +391,18 @@ export const SessionSchema = z.object({
   /** Derived from the environment's `path`, not stored on the session — read-only for every consumer. */
   cwd: z.string(), status: SessionStatusSchema, providerSessionId: z.string().nullable(),
   title: z.string(), lastEventSeq: z.number().int(),
+  /**
+   * How far this user has READ the transcript, against `lastEventSeq`'s how far it has been WRITTEN.
+   *
+   * The gap between the two is the only thing that can answer "what is new since I was last here",
+   * and with a daemon that keeps working while the app is closed that gap is no longer a few seconds
+   * — it is however long you were away.
+   *
+   * 0 means never opened, which is a claim about the future rather than the past: the first open
+   * stamps it, and until then the rules that read it draw nothing rather than declaring a whole
+   * transcript unread.
+   */
+  seenSeq: z.number().int(),
   /** The item of the session's own terminal side panel, once it has been opened at least once (W4).
    *  That item is hidden from every item listing — the terminal belongs to the session, not the space. */
   terminalItemId: IdSchema.nullable(),
@@ -309,3 +412,24 @@ export const SessionSchema = z.object({
   ...Timestamps,
 });
 export type Session = z.infer<typeof SessionSchema>;
+
+/**
+ * A message the user typed while a turn was running and chose not to interrupt it with.
+ *
+ * Not a `user_message` yet, and that is the point: the transcript records what an agent was actually
+ * asked, so a queued message earns its line there when it goes OUT, not when it is written. Until
+ * then it lives in the prompter as a chip the user can drop or send now.
+ *
+ * `attachments` rides along because a queued message keeps the files it was composed with, and those
+ * are paths on disk — a file moved between queueing and draining degrades exactly as it does for any
+ * other attachment. `mentions` and `elements` are deliberately absent from the WIRE shape: they are
+ * resolved against the session's live state at send time (`resolveMentions`), so the queue carries
+ * them server-side and shows the prompter only what it draws.
+ */
+export const QueuedPromptSchema = z.object({
+  id: z.string().min(1),
+  text: z.string(),
+  attachments: z.array(z.object({ path: z.string(), mime: z.string() })),
+  ts: z.number(),
+});
+export type QueuedPrompt = z.infer<typeof QueuedPromptSchema>;

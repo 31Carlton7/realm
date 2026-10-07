@@ -13,7 +13,7 @@ const env = (id: string, spaceId: string, path: string): Environment => ({
 const project = (id: string, spaceId: string, name: string, rootPath: string): Project => ({
   id, spaceId, name, rootPath, defaultBranch: "main", ...T,
 });
-const profile = (id: string, name: string, sortOrder: number): Profile => ({ id, name, icon: "user", color: "#000000", sortOrder, ...T });
+const profile = (id: string, name: string, sortOrder: number): Profile => ({ id, name, icon: "user", color: "#000000", sortOrder, browserPartition: `persist:browser-${id}`, ...T });
 
 const PROFILES = [profile("P1", "Work", 0), profile("P2", "School", 1), profile("P3", "Personal", 2)];
 const world = (over: Partial<MatchWorld> = {}): MatchWorld => ({ spaces: [], environments: [], projects: [], profiles: PROFILES, ...over });

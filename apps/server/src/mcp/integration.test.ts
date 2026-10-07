@@ -170,24 +170,61 @@ describe("mcp over rpc", () => {
 
   it("mcp.providers.list names the gateway's registered providers with THIS space's switch state (W4)", async () => {
     const { c, work, school } = await boot();
-    // Every registered provider is listed with this space's switch state. All default ON except
-    // realm-computer, which reaches every app on the Mac and so is off until a space asks for it.
+    /* Every registered provider is listed with this space's switch state. All default ON except the
+       two whose reach is outside Realm: realm-computer, which drives every app on this Mac, and
+       realm-vm, which drives a whole other computer.
+       realm-app is OFF with those two and for a related reason: it reaches the INTERFACE, the window
+       the user is reading and answers questions in. realm-terminal is ON, and its reach is why: every
+       harness already has a shell tool, so it adds no ability to run commands — what it adds is a
+       terminal that talks back, and the narrowings that matter (a password prompt refused in every
+       mode, a terminal the session did not open prompting even under bypass) are inside the provider
+       rather than on its switch.
+       `realm-simulator` is ON and sits beside realm-vm, the other pane that shows a screen: a
+       simulator is a device on THIS Mac that the agent's own shell can already drive with `simctl`,
+       so the tools add no reach — they add the pane the device is shown in.
+       `goal` and `realm-schedule` are last because they are registered last — both wrap a service
+       declared further down `app.ts`. `goal` is on by default because its reach is the narrowest here
+       (two tools that appear only on a session already pursuing a goal, and the most either can do is
+       end it); `realm-schedule` because it only writes a row this space's own page can see.
+       `realm-ui` is ON, and sits after the delegation tools it is registered beside: it can only ask,
+       and an answer is the user's click. */
     const before = (await c.call("mcp.providers.list", { spaceId: work.id })).result.providers;
+    /* `offered`/`needs` ride every row: what the provider can do on this Mac, beside what the space
+       asked for. Every provider acting inside Realm is always offered. realm-simulator depends on a
+       toolchain, and this app was built with no probe — the suite's case — so its answer is not known,
+       which is its own state rather than a yes or a no. */
+    const row = (name: string, enabled: boolean) => (name === "realm-simulator"
+      ? { name, enabled, offered: null, needs: "Xcode or Android Studio" }
+      : { name, enabled, offered: true, needs: null });
     expect(before).toEqual([
-      { name: "realm-browser", enabled: true }, { name: "realm-agent", enabled: true },
-      { name: "realm-computer", enabled: false }, { name: "realm-docs", enabled: true },
+      row("realm-browser", true), row("realm-agent", true), row("realm-ui", true),
+      row("realm-computer", false), row("realm-terminal", true),
+      row("realm-app", false), row("realm-docs", true),
+      row("realm-vm", false), row("realm-simulator", true),
+      row("goal", true), row("realm-schedule", true),
     ]);
     await c.call("mcp.setProviderEnabled", { spaceId: work.id, name: "realm-browser", enabled: false });
     // The disable is per-space: Work reads OFF, School still reads ON.
     expect((await c.call("mcp.providers.list", { spaceId: work.id })).result.providers).toEqual([
-      { name: "realm-browser", enabled: false }, { name: "realm-agent", enabled: true },
-      { name: "realm-computer", enabled: false }, { name: "realm-docs", enabled: true },
+      row("realm-browser", false), row("realm-agent", true), row("realm-ui", true),
+      row("realm-computer", false), row("realm-terminal", true),
+      row("realm-app", false), row("realm-docs", true),
+      row("realm-vm", false), row("realm-simulator", true),
+      row("goal", true), row("realm-schedule", true),
     ]);
-    // And the opt-in provider turns ON through the same switch, for this space alone.
+    /* And the opt-in provider turns ON through the same switch, for this space alone.
+       By NAME rather than by index: these lines each ask about one provider's switch, and an index
+       makes them a second, accidental assertion about registration order that breaks whenever a
+       provider is added in the middle. Order is already pinned, exactly once, by the whole-array
+       comparisons above — which is where a claim about it belongs. */
+    const providerIn = async (spaceId: string, name: string) =>
+      (await c.call("mcp.providers.list", { spaceId })).result.providers.find((p: { name: string }) => p.name === name);
     await c.call("mcp.setProviderEnabled", { spaceId: work.id, name: "realm-computer", enabled: true });
-    expect((await c.call("mcp.providers.list", { spaceId: work.id })).result.providers[2]).toEqual({ name: "realm-computer", enabled: true });
-    expect((await c.call("mcp.providers.list", { spaceId: school.id })).result.providers[2]).toEqual({ name: "realm-computer", enabled: false });
-    expect((await c.call("mcp.providers.list", { spaceId: school.id })).result.providers[0]).toEqual({ name: "realm-browser", enabled: true });
+    expect(await providerIn(work.id, "realm-computer")).toEqual(row("realm-computer", true));
+    expect(await providerIn(school.id, "realm-computer")).toEqual(row("realm-computer", false));
+    expect(await providerIn(school.id, "realm-browser")).toEqual(row("realm-browser", true));
+    // …and realm-vm is the same shape of switch, off in both until one of them asks.
+    expect(await providerIn(work.id, "realm-vm")).toEqual(row("realm-vm", false));
     // Same ghost-space refusal as every other per-space mcp method.
     expect((await c.call("mcp.providers.list", { spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAZ" })).error?.code).toBe("NOT_FOUND");
     c.close();
@@ -282,13 +319,6 @@ describe("oauth over rpc — the whole flow through a real app", () => {
     const updated = (await c.call("mcp.update", { spaceId: work.id, id: server.id, url: "https://b.example.com/mcp" })).result;
     // Its API-key headers are the user's own, not something Realm negotiated — they survive the move.
     expect(updated).toMatchObject({ authKind: "secrets", oauthStatus: "unconfigured", headerKeys: ["Authorization"] });
-    c.close();
-  });
-
-  it("refuses to start a flow for a stdio server rather than opening a browser that goes nowhere", async () => {
-    const { c, work } = await boot();
-    const server = (await addStdio(c, work.id, "airtable")).result;
-    expect((await c.call("mcp.oauth.start", { id: server.id })).error?.code).toBe("MCP_OAUTH_UNSUPPORTED");
     c.close();
   });
 

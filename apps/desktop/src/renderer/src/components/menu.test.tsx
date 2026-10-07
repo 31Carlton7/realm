@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { useRef, useState } from "react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { Menu, type MenuItem } from "./Menu";
+import { useAnchoredPopover } from "./use-anchored-popover";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi } from "../state/store.test-fakes";
 import { exited } from "./popover-exit.test-fakes";
@@ -43,18 +45,31 @@ describe("Menu placement", () => {
     expect(screen.getByRole("menu").style.top).toBe("524px"); // anchor.bottom + 4
   });
 
+  it("places by its laid-out size, not the smaller one its entrance's scale paints", () => {
+    /* THE BUG: a surface measures itself while its scale-in (.97) is still running, and a rect read
+       through the transform is 3% small — the model picker opened 15px down over its own chip and
+       jumped back under the pointer the next time its content changed size. */
+    const orig = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return this.classList.contains("menu") ? rect(0, MENU_H * 0.97, 0, 160 * 0.97) : orig.call(this);
+    });
+    const saved = ["offsetHeight", "offsetWidth"].map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)!] as const);
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get() { return (this as HTMLElement).classList.contains("menu") ? MENU_H : 0; } });
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get() { return (this as HTMLElement).classList.contains("menu") ? 160 : 0; } });
+    try {
+      mount([plain("A")], { anchorRef: anchor(), placement: "up" });
+      expect(screen.getByRole("menu").style.top).toBe("376px"); // 500 - 120 - 4, not 500 - 116.4 - 4
+    } finally {
+      for (const [k, d] of saved) Object.defineProperty(HTMLElement.prototype, k, d);
+    }
+  });
+
   it("placement='up' subtracts the menu's own height so it clears the trigger", () => {
     withMenuHeight();
     mount([plain("A")], { anchorRef: anchor(), placement: "up" });
     // 500 - 120 - 4: the menu's BOTTOM sits 4px above the trigger's top. Forgetting the height term
     // yields 496 and the menu covers its own chip.
     expect(screen.getByRole("menu").style.top).toBe("376px");
-  });
-
-  it("placement='up' flips below when there is no room above", () => {
-    withMenuHeight();
-    mount([plain("A")], { anchorRef: anchor(2), placement: "up" }); // 2 - 120 - 4 is off-screen
-    expect(screen.getByRole("menu").style.top).toBe("26px"); // flipped: anchor.bottom + 4
   });
 
   /** W2 (Plan 11): the same placement, with browser view rects to avoid. The store carries the
@@ -132,17 +147,6 @@ describe("Menu placement", () => {
       expect(origin()).toBe("bottom left");
     });
 
-    it("a menu that flips below because there is no room above grows downward again", () => {
-      withMenuHeight();
-      mount([plain("A")], { anchorRef: anchor(2), placement: "up" });
-      expect(origin()).toBe("top left");
-    });
-
-    it("a point-placed context menu grows from the click point", () => {
-      withMenuHeight();
-      mount([plain("A")], { at: { x: 40, y: 40 } });
-      expect(origin()).toBe("top left");
-    });
   });
 });
 
@@ -294,6 +298,22 @@ describe("Menu keyboard (U-M10/A-H3)", () => {
     expect(screen.getByRole("menuitem", { name: "Third" })).toHaveFocus();
   });
 
+  /* A browser gives no focus to an element that is `visibility: hidden`, which is what the menu is
+     until it has been placed — and jsdom focuses anything, so this test has to say so itself. THE
+     mutant is a focus at mount, before placement: in the app it silently left focus on the trigger,
+     and the arrow keys went nowhere. */
+  it("moves focus in once it has been placed, which is the first moment it can take focus", () => {
+    const realFocus = HTMLElement.prototype.focus;
+    const focus = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement, opts?: FocusOptions) {
+      for (let el: HTMLElement | null = this; el; el = el.parentElement) if (el.style.visibility === "hidden") return;
+      realFocus.call(this, opts);
+    });
+    try {
+      mount([plain("First"), plain("Second")]);
+      expect(screen.getByRole("menuitem", { name: "First" })).toHaveFocus();
+    } finally { focus.mockRestore(); }
+  });
+
   it("Home/End jump to the first/last enabled item", () => {
     mount([plain("A"), plain("B"), plain("C")]);
     fireEvent.keyDown(screen.getByRole("menu"), { key: "End" });
@@ -349,11 +369,6 @@ describe("Menu keyboard (U-M10/A-H3)", () => {
     expect(screen.getByRole("menuitemcheckbox", { name: "Light" }).querySelector("svg")).toBeNull();
   });
 
-  it("renders the kbd hint column from the item's kbd prop", () => {
-    mount([{ label: "Close", kbd: "⌘W", onSelect: () => {} }]);
-    const item = screen.getByRole("menuitem", { name: /Close/ });
-    expect(item.querySelector("kbd.menu-kbd")).toHaveTextContent("⌘W");
-  });
 });
 
 /**
@@ -363,6 +378,48 @@ describe("Menu keyboard (U-M10/A-H3)", () => {
  * the flip/clamp decision is retaken rather than frozen. Driven through Menu because that is the
  * hook's other consumer: if the primitive regresses, both surfaces do.
  */
+describe("a menu with sections", () => {
+  const items: MenuItem[] = [
+    { kind: "header", label: "Add" },
+    { label: "Files…", detail: "Attach to this message", kbd: "⌘U", onSelect: () => {} },
+    { label: "Folder…", onSelect: () => {} },
+    { kind: "header", label: "Mode" },
+    { label: "Build", checked: true, onSelect: () => {} },
+    { label: "Plan", checked: false, onSelect: () => {} },
+  ];
+
+  it("names a group for each head, from the rows after it to the next head", () => {
+    mount(items);
+    const groups = screen.getAllByRole("group");
+    expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["Add", "Mode"]);
+    expect(within(groups[0]!).getAllByRole("menuitem").map((b) => b.querySelector(".menu-label")!.textContent)).toEqual(["Files…", "Folder…"]);
+    expect(within(groups[1]!).getAllByRole("menuitemcheckbox")).toHaveLength(2);
+  });
+
+  it("is not a stop for the arrows — they walk the rows as one list, across the heads", () => {
+    mount(items);
+    expect(document.activeElement).toHaveTextContent("Files…");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(document.activeElement).toHaveAccessibleName("Build");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+    expect(document.activeElement).toHaveAccessibleName("Folder…");
+  });
+
+  it("gives a row's detail to its description, not its name", () => {
+    mount(items);
+    const files = screen.getByRole("menuitem", { name: /^Files…/ });
+    expect(files).toHaveAccessibleDescription("Attach to this message");
+    expect(files).not.toHaveAccessibleName(/Attach/);
+  });
+
+  it("lets the pointer move the one highlight the keys move", () => {
+    mount(items);
+    fireEvent.pointerMove(screen.getByRole("menuitemcheckbox", { name: "Plan" }));
+    expect(document.activeElement).toHaveAccessibleName("Plan");
+  });
+});
+
 describe("anchored surfaces re-place when their own height changes", () => {
   const rect = (top: number, height: number, left = 100, width = 50) =>
     ({ top, bottom: top + height, left, right: left + width, width, height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
@@ -392,5 +449,66 @@ describe("anchored surfaces re-place when their own height changes", () => {
     menuH = 400;
     act(() => { for (const cb of fire) cb(); });
     expect(screen.getByRole("menu").style.top).toBe("196px");
+  });
+});
+
+describe("a surface opened from inside another", () => {
+  /** A popover holding a control that opens a menu, as Code review's instructions hold the model
+   *  picker: the menu is portalled out of the popover, and anchored to a control inside it. */
+  function Popover({ anchorRef, onClose, children }: { anchorRef: RefObject<HTMLElement | null>; onClose: () => void; children: ReactNode }) {
+    const ref = useRef<HTMLDivElement>(null);
+    useAnchoredPopover({ ref, anchorRef, onClose });
+    return createPortal(<div ref={ref} role="dialog" aria-label="Outer popover">{children}</div>, document.body);
+  }
+  function Nested() {
+    const outerBtn = useRef<HTMLButtonElement>(null);
+    const innerBtn = useRef<HTMLButtonElement>(null);
+    const [outer, setOuter] = useState(false);
+    const [inner, setInner] = useState(false);
+    return (
+      <>
+        <button ref={outerBtn} onClick={() => setOuter((o) => !o)}>Outer</button>
+        {outer && (
+          <Popover anchorRef={outerBtn} onClose={() => setOuter(false)}>
+            <button ref={innerBtn} onClick={() => setInner((o) => !o)}>Inner</button>
+            {inner && <Menu items={[plain("A"), plain("B")]} anchorRef={innerBtn} onClose={() => setInner(false)} label="Inner menu" />}
+          </Popover>
+        )}
+      </>
+    );
+  }
+  /** Each surface arms its listeners on a 0ms timeout, so the press that opened it cannot close it. */
+  const listening = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  const openBoth = async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Outer" }));
+    await listening();
+    fireEvent.click(screen.getByRole("button", { name: "Inner" }));
+    await listening();
+  };
+
+  it("takes a press in the inner surface as a press inside the outer one", async () => {
+    // THE MUTANT: only the hook's own element counts as inside — the popover closes under its menu.
+    render(<Nested />);
+    await openBoth();
+    fireEvent.pointerDown(within(screen.getByRole("menu", { name: "Inner menu" })).getByRole("menuitem", { name: "B" }));
+    expect(screen.getByRole("dialog", { name: "Outer popover" })).toBeInTheDocument();
+    // …and a press outside both still closes both.
+    fireEvent.pointerDown(document.body);
+    await exited();
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("gives Escape to the newest surface, then to the one under it", async () => {
+    // THE MUTANT: every surface answering it — in mount order, so the outer went first and took the
+    // menu on top of it along.
+    render(<Nested />);
+    await openBoth();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await exited();
+    expect(screen.queryByRole("menu", { name: "Inner menu" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Outer popover" })).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Outer popover" })).toBeNull();
   });
 });

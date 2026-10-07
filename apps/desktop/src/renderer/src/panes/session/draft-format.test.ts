@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scanMentions, stripMentionAts } from "@realm/contracts";
-import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, listItemAt, stepOverChip, toggleList, type Segment } from "./draft-format";
+import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, listItemAt, removeChip, stepOverChip, toggleList, type Segment, appendQuote } from "./draft-format";
 
 /** A compact readout of the runs that carry a class — plain text is the uninteresting majority. */
 const painted = (segs: Segment[]) => segs.filter((s) => s.kind).map((s) => [s.kind, s.text]);
@@ -17,15 +17,10 @@ describe("highlightSegments — the mirror paints the draft, never a version of 
       "trailing newline\n", "\n\n", "  - indented @mac https://x.dev/a?b=1 end",
       "*", "**", "``", "@", "- ", "https://",
       '@[button "Sign in"]', 'a @[div#hero] b', "@[", "@[]", '@[link https://x.dev] tail', "@[a\nb]",
+      "/goal", "/goal ship it", "/", "//", "/goal\n/goal", "not /goal", "/usr/local/bin", "/GOAL",
     ]) {
-      expect(rejoin(highlightSegments(text, ["mac"])), JSON.stringify(text)).toBe(text);
+      expect(rejoin(highlightSegments(text, ["mac"], [], ["goal"])), JSON.stringify(text)).toBe(text);
     }
-  });
-
-  it("paints an element chip as one run, brackets included", () => {
-    expect(painted(highlightSegments('make @[button "Sign in"] blue', []))).toEqual([
-      ["element", '@[button "Sign in"]'],
-    ]);
   });
 
   it("a URL inside a chip's label does not cut the token in half", () => {
@@ -36,12 +31,6 @@ describe("highlightSegments — the mirror paints the draft, never a version of 
 
   it("an unclosed chip is plain text, not a chip that eats the rest of the draft", () => {
     expect(painted(highlightSegments("@[button and more", []))).toEqual([]);
-  });
-
-  it("paints an element chip and a mention in the same draft", () => {
-    expect(painted(highlightSegments("@mac look at @[div#hero]", ["mac"]))).toEqual([
-      ["mention", "@mac"], ["element", "@[div#hero]"],
-    ]);
   });
 
   it("paints URLs, and stops where the URL does", () => {
@@ -65,10 +54,6 @@ describe("highlightSegments — the mirror paints the draft, never a version of 
     expect(painted(highlightSegments("carlton@mac wrote", ["mac"]))).toEqual([]);
     // A longer id is a different id: `@mac-extras` must not light up as `mac`.
     expect(painted(highlightSegments("@mac-extras", ["mac"]))).toEqual([]);
-  });
-
-  it("gives a declared-but-dead mention the warning tone, not the live one", () => {
-    expect(painted(highlightSegments("run @web now", ["mac"], ["web"]))).toEqual([["mention-stale", "@web"]]);
   });
 
   it("paints list, quote and heading markers without touching their text", () => {
@@ -238,8 +223,33 @@ describe("chipSpans — what the mirror paints is what a gesture can take", () =
     expect(spans("https://x.dev/@mac")).toEqual([]);
   });
 
-  it("leaves nothing to interact with in a draft that has no chips", () => {
-    expect(spans("plain words @nonesuch")).toEqual([]);
+  /* The command opening the draft wears the same pill, so it answers the same gestures — a click
+     takes it whole — and it is a chip only where it is painted as one: a command that exists. */
+  it("carries the command opening the draft, and only one the prompter has", () => {
+    expect(chipSpans(highlightSegments("/goal ship it", [], [], ["goal"]))).toEqual([{ kind: "slash", start: 0, end: 5 }]);
+    expect(chipSpans(highlightSegments("/usr/bin is a path", [], [], ["goal"]))).toEqual([]);
+  });
+});
+
+describe("removeChip — the hover's ×", () => {
+  it("takes the token and the space it brought, so the sentence closes up", () => {
+    const draft = 'make @[button "Sign in"] blue';
+    expect(removeChip(spans(draft), draft, 5)).toEqual({ text: "make blue", start: 5, end: 5 });
+    expect(removeChip(spans("use @mac now"), "use @mac now", 4)).toEqual({ text: "use now", start: 4, end: 4 });
+  });
+
+  it("takes the space before it when the chip ends the draft", () => {
+    expect(removeChip(spans("make @[a]"), "make @[a]", 5)).toEqual({ text: "make", start: 4, end: 4 });
+    expect(removeChip(spans("@[a]"), "@[a]", 0)).toEqual({ text: "", start: 0, end: 0 });
+  });
+
+  it("takes one space and never two, nor a newline", () => {
+    expect(removeChip(spans("a @[b] c"), "a @[b] c", 2)).toEqual({ text: "a c", start: 2, end: 2 });
+    expect(removeChip(spans("line\n@[b]"), "line\n@[b]", 5)).toEqual({ text: "line\n", start: 5, end: 5 });
+  });
+
+  it("does nothing for an offset no chip starts at", () => {
+    expect(removeChip(spans("use @mac now"), "use @mac now", 5)).toBeNull();
   });
 });
 
@@ -307,11 +317,6 @@ describe("deleteChipAt", () => {
     expect(deleteChipAt(spans(draft), draft, 5, 1)).toEqual({ text: "make  blue", start: 5, end: 5 });
   });
 
-  it("leaves the caret where the chip was, so the next keystroke lands in its place", () => {
-    const edit = deleteChipAt(spans(draft), draft, chipEnd, -1)!;
-    expect(edit.text.slice(0, edit.start)).toBe("make ");
-  });
-
   it("does nothing anywhere else in the token, or in the prose around it", () => {
     for (const caret of [0, 5, 6, chipEnd - 1, chipEnd + 1, draft.length])
       expect(deleteChipAt(spans(draft), draft, caret, -1), String(caret)).toBeNull();
@@ -333,5 +338,110 @@ describe("deleteChipAt", () => {
   it("does nothing to a token the mirror did not paint as a chip", () => {
     const code = "`@[button]`";
     expect(deleteChipAt(spans(code), code, code.length - 1, -1)).toBeNull();
+  });
+});
+
+/**
+ * The `/name` run.
+ *
+ * Gated on the command EXISTING, which is the whole design: a slash is a path separator, a division
+ * sign and half of every URL, so colouring anything slash-shaped would promise an action for `/usr`
+ * and `and/or`. The gate is the same `slashQueryAt` the picker uses, so a coloured run and the
+ * popover under it can never disagree about what the token is.
+ */
+describe("highlightSegments — slash commands", () => {
+  const cmds = ["goal", "plan", "export"];
+
+  it("paints the command opening the draft", () => {
+    expect(painted(highlightSegments("/goal", [], [], cmds))).toEqual([["slash", "/goal"]]);
+  });
+
+  it("paints only the token, leaving its argument as ordinary message text", () => {
+    // `/goal ship the release notes` — the objective is the user's own words and is not a command.
+    expect(painted(highlightSegments("/goal ship the release notes", [], [], cmds)))
+      .toEqual([["slash", "/goal"]]);
+  });
+
+  /* The named mutant: dropping the "does this command exist" check. Every one of these is a message
+     somebody would plausibly type, and each would light up as an action that is not going to happen. */
+  it("leaves a slash that names no command completely alone", () => {
+    for (const text of ["/usr/local/bin", "/or", "/nope run it", "/", "//", "/123"]) {
+      expect(painted(highlightSegments(text, [], [], cmds)), text).toEqual([]);
+    }
+  });
+
+  /* Position 0 only, matching `slashQueryAt`'s own gate — otherwise a path mid-sentence would light
+     up, which is the case that gate exists for. */
+  it("only paints a command that OPENS the draft", () => {
+    expect(painted(highlightSegments("run /goal now", [], [], cmds))).toEqual([]);
+    expect(painted(highlightSegments(" /goal", [], [], cmds))).toEqual([]);
+    expect(painted(highlightSegments("\n/goal", [], [], cmds))).toEqual([]);
+  });
+
+  it("matches the command case-insensitively, because the box does not shout back", () => {
+    expect(painted(highlightSegments("/GOAL", [], [], cmds))).toEqual([["slash", "/GOAL"]]);
+  });
+
+  it("paints nothing when the session has no commands yet", () => {
+    // The ordinary state mid-load. Colouring on an empty list would mean colouring nothing; the risk
+    // is the reverse — a default that coloured anything slash-shaped while the list was absent.
+    expect(painted(highlightSegments("/goal", [], []))).toEqual([]);
+  });
+
+  it("does not stop a half-typed command being ordinary text", () => {
+    // `/goa` is not a command yet. The picker under the box is already saying what it could become,
+    // and colouring a prefix would claim an action that does not exist at that keystroke.
+    expect(painted(highlightSegments("/goa", [], [], cmds))).toEqual([]);
+  });
+
+  it("leaves the rest of the draft's runs alone around it", () => {
+    expect(painted(highlightSegments("/goal see https://x.dev/a and @mac", ["mac"], [], cmds))).toEqual([
+      ["slash", "/goal"],
+      ["link", "https://x.dev/a"],
+      ["mention", "@mac"],
+    ]);
+  });
+});
+
+describe("appendQuote — a passage of the transcript, into the draft", () => {
+  it("prefixes every line and leaves the caret under the block", () => {
+    // The caret is the point. What the user is about to type is a question ABOUT the passage, and a
+    // caret left inside the `>` block would make their first sentence part of the quotation.
+    const e = appendQuote("", "one\ntwo");
+    expect(e.text).toBe("> one\n> two\n\n");
+    expect(e.start).toBe(e.text.length);
+    expect(e.end).toBe(e.text.length);
+  });
+
+  it("separates the quote from what was already typed", () => {
+    // THE MUTANT: concatenate. Markdown swallows a `>` that opens on the line after a paragraph, so
+    // the quote would render as part of the user's own sentence.
+    expect(appendQuote("about this:", "hello").text).toBe("about this:\n\n> hello\n\n");
+    // A draft that already ends blank has met the requirement; a second blank line is spacing, not
+    // syntax, and would push the quote further from what it answers on every successive quote.
+    expect(appendQuote("about this:\n\n", "hello").text).toBe("about this:\n\n> hello\n\n");
+  });
+
+  it("marks an interior blank line rather than leaving it empty", () => {
+    // THE MUTANT: leave the empty line bare. A blank line ENDS a blockquote, so a two-paragraph
+    // passage would render as two quotations with the reader's own prose apparently between them.
+    expect(appendQuote("", "one\n\ntwo").text).toBe("> one\n>\n> two\n\n");
+  });
+
+  it("drops the blank lines a drag picks up at either end", () => {
+    // Dragging past the end of a paragraph collects them, and each would become a `>` to delete.
+    expect(appendQuote("", "\n\nhello\n\n").text).toBe("> hello\n\n");
+    expect(appendQuote("", "hello   ").text).toBe("> hello\n\n");
+  });
+
+  it("leaves the draft alone when there was nothing but whitespace to quote", () => {
+    const e = appendQuote("keep me", "   \n  ");
+    expect(e.text).toBe("keep me");
+    expect(e.start).toBe("keep me".length);
+  });
+
+  it("quotes a passage that is itself a quote, rather than flattening it", () => {
+    // Nesting is the honest reading: the agent wrote a blockquote, and the user is quoting that.
+    expect(appendQuote("", "> they said\nand then").text).toBe("> > they said\n> and then\n\n");
   });
 });

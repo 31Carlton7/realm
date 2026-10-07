@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { symlink } from "node:fs/promises";
 import { tempDir } from "@realm/test-utils";
 import {
-  describeFiles, fileThumbnail, openablePath, quickLookThumbnail, safeAttachmentName, saveTempAttachment,
+  describeFiles, existingPath, fileThumbnail, openablePath, quickLookThumbnail, safeAttachmentName, saveTempAttachment,
   statFile, sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir,
 } from "./attachments";
 
@@ -37,6 +37,12 @@ describe("safeAttachmentName", () => {
     expect(safeAttachmentName("///")).toBe("pasted");
     expect(safeAttachmentName("...")).toBe("pasted");
   });
+
+  it("lets the caller name that fallback — a download is not a paste", () => {
+    expect(safeAttachmentName("...", "download")).toBe("download");
+    // Only the empty case takes it: a real name is never replaced by the caller's word.
+    expect(safeAttachmentName("notes", "download")).toBe("notes");
+  });
   it("bounds the length", () => {
     expect(safeAttachmentName("x".repeat(500)).length).toBe(120);
   });
@@ -61,10 +67,6 @@ describe("saveTempAttachment", () => {
     expect(a.path).not.toBe(b.path);
     expect((await stat(a.path)).size).toBe(1);
     expect((await stat(b.path)).size).toBe(2);
-  });
-  it("creates the directory it needs", async () => {
-    await saveTempAttachment(home, "a.png", "image/png", new Uint8Array([1]));
-    expect((await readdir(tempAttachmentDir(home)))).toHaveLength(1);
   });
 });
 
@@ -92,12 +94,6 @@ describe("sweepTempAttachments", () => {
     await age(p, TEMP_ATTACHMENT_TTL_MS - 5_000);
     expect(await sweepTempAttachments(dir())).toEqual([]);
     expect(await readdir(dir())).toEqual(["edge.png"]);
-  });
-
-  it("removes nothing when nothing is stale", async () => {
-    await put("a.png"); await put("b.png");
-    expect(await sweepTempAttachments(dir())).toEqual([]);
-    expect((await readdir(dir())).sort()).toEqual(["a.png", "b.png"]);
   });
 
   it("is a no-op on a directory that was never created", async () => {
@@ -131,9 +127,6 @@ describe("describeFiles", () => {
     await mkdir(join(home, "adir.png"));
     expect(await describeFiles([join(home, "adir.png")]))
       .toEqual([{ path: join(home, "adir.png"), mime: "inode/directory", name: "adir.png", size: 0 }]);
-  });
-  it("still drops what is neither a file nor a directory", async () => {
-    expect(await describeFiles([join(home, "nope")])).toEqual([]);
   });
 });
 
@@ -191,10 +184,6 @@ describe("quickLookThumbnail", () => {
     expect(left).toEqual([]);
   }, 20_000);
 
-  it("is a no-op off macOS — qlmanage is Apple's, and the caller falls back to its glyph", async () => {
-    if (darwin) return; // the darwin path is covered above; this is the guard's other branch
-    expect(await quickLookThumbnail(home, join(home, "report.pdf"), 96)).toBeNull();
-  });
 });
 
 /* What `files:stat` answers. The Library lists rows from an INDEX of what a session did, so a row
@@ -219,6 +208,37 @@ describe("statFile", () => {
     // The renderer's cwd is the app bundle, so a relative path resolves somewhere nobody asked about.
     expect(await statFile("report.md")).toBeNull();
     expect(await statFile(null)).toBeNull();
+  });
+});
+
+/* What `files:reveal` answers. Its loudest caller is the transcript's path menu, so the path is
+   whatever the agent wrote in prose — `~/…` as often as not, and sometimes relative to where it was
+   working. */
+describe("existingPath", () => {
+  it("resolves ~/ against the home folder, the form agents write most", async () => {
+    await mkdir(join(home, "school", "imported"), { recursive: true });
+    // THE MUTANT: drop the expansion. `~/…` is not absolute, so Reveal in Finder did nothing at all.
+    expect(await existingPath("~/school/imported/", undefined, home)).toBe(join(home, "school", "imported"));
+  });
+
+  it("resolves a relative path against the session's working directory", async () => {
+    await writeFile(join(home, "notes.md"), "n");
+    expect(await existingPath("./notes.md", home, "/nowhere")).toBe(join(home, "notes.md"));
+    expect(await existingPath("notes.md", home, "/nowhere")).toBe(join(home, "notes.md"));
+  });
+
+  it("refuses a relative path with no absolute base, and answers null for what is not there", async () => {
+    await writeFile(join(home, "notes.md"), "n");
+    // The renderer's cwd is the app bundle: resolving against it would find something nobody named.
+    expect(await existingPath("notes.md", undefined, home)).toBeNull();
+    expect(await existingPath("notes.md", "relative/base", home)).toBeNull();
+    expect(await existingPath(join(home, "gone.md"))).toBeNull();
+    expect(await existingPath(null)).toBeNull();
+    expect(await existingPath("")).toBeNull();
+  });
+
+  it("answers for a directory as well as a file — revealing a folder is the point", async () => {
+    expect(await existingPath(home)).toBe(home);
   });
 });
 

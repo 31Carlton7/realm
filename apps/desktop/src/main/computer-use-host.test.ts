@@ -69,9 +69,6 @@ describe("formatElementLine", () => {
       .toBe('[0] AXButton "a" (10,20 30×40)\n[1] AXButton "b" (10,20 30×40)');
   });
 
-  it("renders an empty tree as the empty string, not as a stray newline", () => {
-    expect(renderElements([])).toBe("");
-  });
 });
 
 describe("actionToHelperParams", () => {

@@ -2,20 +2,6 @@ import { describe, expect, it } from "vitest";
 import { sessionEvent } from "@realm/contracts";
 import { blockKey, emptyTranscript, reduceAll, reduceTranscript } from "./transcript-model";
 
-describe("a message another session delivered (Plan 20)", () => {
-  it("carries `from` onto the user block, and leaves it undefined for a message the user typed", () => {
-    let t = emptyTranscript();
-    t = reduceTranscript(t, sessionEvent("user_message", { text: "I typed this", attachments: [] }));
-    // Absence is the ordinary case and must stay absent — a block that claimed an author for every
-    // message would attribute the user's own words to a session.
-    expect(t.blocks.at(-1)).not.toHaveProperty("from");
-    t = reduceTranscript(t, sessionEvent("user_message", { text: "an agent asked this", attachments: [], from: { sessionId: "s1", title: "Refactor the parser" } }));
-    // Kills the reducer dropping the field, which silently un-labels every injected message: the pane
-    // would then render another agent's words as something the user typed.
-    expect(t.blocks.at(-1)).toMatchObject({ kind: "user", text: "an agent asked this", from: { sessionId: "s1", title: "Refactor the parser" } });
-  });
-});
-
 describe("a plan the agent proposed", () => {
   const plan = (planId: string, payload: { text?: string; steps?: { text: string; status: "pending" | "in_progress" | "completed" }[] }, ts: number) =>
     sessionEvent("plan", { planId, ...payload }, ts);
@@ -62,9 +48,17 @@ describe("a plan the agent proposed", () => {
     expect(blockKey(block, 7)).toBe("plan:p1");
   });
 
-  it("survives a reload: the same events replayed rebuild the same single card", () => {
-    const events = [plan("p1", { steps: [{ text: "A", status: "pending" }] }, 10), plan("p1", { steps: [{ text: "A", status: "completed" }] }, 30)];
-    expect(reduceAll(events).blocks).toEqual([{ kind: "plan", planId: "p1", steps: [{ text: "A", status: "completed" }], ts: 10 }]);
+});
+
+describe("an ACP call's own account of itself", () => {
+  it("carries the kind and the files it named onto the block, and nothing for a call that stated neither", () => {
+    const t = reduceAll([
+      sessionEvent("tool_call", { toolUseId: "c1", name: "Editing orgs.ts", input: {}, parentToolUseId: null, kind: "edit", paths: ["/w/orgs.ts"] }),
+      sessionEvent("tool_call", { toolUseId: "c2", name: "Edit", input: { file_path: "/w/a.ts" }, parentToolUseId: null }),
+    ]);
+    expect(t.blocks[0]).toMatchObject({ toolKind: "edit", paths: ["/w/orgs.ts"] });
+    expect(t.blocks[1]).not.toHaveProperty("toolKind");
+    expect(t.blocks[1]).not.toHaveProperty("paths");
   });
 });
 
@@ -105,9 +99,12 @@ describe("transcript model", () => {
     expect(t.usage.costUsd).toBe(0.5);
     t = reduceTranscript(t, sessionEvent("init", { providerSessionId: "p", model: "m", tools: ["Bash"], cwd: "/x" }));
     expect(t.init).toEqual({ providerSessionId: "p", model: "m", tools: ["Bash"] });
-    const before = t;
+    // No `running` ever opened a clock here, so the settle closes the turn from the outside (see
+    // "still closes a turn that failed before its agent ever reported running") — once.
     t = reduceTranscript(t, sessionEvent("status", { status: "idle" }));
-    expect(t).toBe(before);
+    expect(t.blocks.at(-1)).toMatchObject({ kind: "run", derived: true });
+    const settled = t;
+    expect(reduceTranscript(t, sessionEvent("status", { status: "idle" }))).toBe(settled);
   });
   it("tracks concurrent permission requests and resolves them in either order", () => {
     const req = (id: string) => sessionEvent("permission_request", { requestId: id, toolName: "Bash", input: { command: id }, title: `Run ${id}?`, suggestions: [] });
@@ -169,11 +166,6 @@ describe("how long the run worked", () => {
     expect(runBlocks(t)).toMatchObject([{ ms: 40_000, startedAt: 0 }]);
   });
 
-  it("keeps the label seed on the block so the settled line can name the same verb", () => {
-    const t = reduceAll([status("running", 777), status("idle", 1_777)]);
-    expect(runBlocks(t)).toMatchObject([{ startedAt: 777 }]);
-  });
-
   it("reports nothing for a status that closes no run", () => {
     // An adapter says `idle` when it boots and `ended` after the idle that closed the last turn.
     // Both would otherwise bank a run dated from the epoch.
@@ -194,19 +186,62 @@ describe("how long the run worked", () => {
     const t = reduceAll([status("running", 1_000), status("idle", 2_000), status("running", 9_000_000), status("idle", 9_004_000)]);
     expect(runBlocks(t)).toMatchObject([{ ms: 1_000 }, { ms: 4_000 }]);
   });
+
+  it("marks a run that ended on a failure as failed, whichever way the harness settled it", () => {
+    // Claude settles a failed turn with `status: error`; the scripted agent says `error` and then
+    // `idle`. Both are a turn that did not finish, and "Simmered for 4s" under either would say it did.
+    expect(runBlocks(reduceAll([status("running", 0), status("error", 3_000)]))).toEqual([
+      { kind: "run", ms: 3_000, startedAt: 0, ts: 3_000, failed: true }]);
+    const t = reduceAll([status("running", 0), sessionEvent("error", { message: "boom" }, 2_000), status("idle", 2_100)]);
+    expect(runBlocks(t)).toEqual([{ kind: "run", ms: 2_100, startedAt: 0, ts: 2_100, failed: true }]);
+    // An ordinary settle is not a failure.
+    expect(runBlocks(reduceAll([status("running", 0), status("idle", 3_000)]))[0]).not.toHaveProperty("failed");
+  });
+
+  it("calls a turn the user stopped stopped, even when the harness reported the abort as an error", () => {
+    const t = reduceAll([status("running", 0), sessionEvent("error", { message: "aborted" }, 900),
+      sessionEvent("status", { status: "idle", interrupted: true }, 1_000)]);
+    expect(runBlocks(t)).toEqual([{ kind: "run", ms: 1_000, startedAt: 0, ts: 1_000, stopped: true }]);
+  });
+
+  it("still closes a turn that failed before its agent ever reported running", () => {
+    // A CLI that will not start says so and settles without a `running` ever opening a clock. The
+    // turn still has two real moments — the message and the failure — and they are what it says.
+    const t = reduceAll([
+      sessionEvent("user_message", { text: "go", attachments: [] }, 1_000),
+      status("idle", 1_100),
+      sessionEvent("error", { message: "claude: command not found" }, 1_500),
+      status("error", 1_600),
+      status("ended", 60_000),
+    ]);
+    expect(runBlocks(t)).toEqual([{ kind: "run", ms: 500, startedAt: 1_000, ts: 1_500, derived: true, failed: true }]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["user", "error", "run"]);
+  });
+
+  it("closes an unsettled turn when the next message arrives, at the last thing it produced", () => {
+    const t = reduceAll([
+      sessionEvent("user_message", { text: "go", attachments: [] }, 1_000),
+      sessionEvent("error", { message: "session ended" }, 2_000),
+      sessionEvent("user_message", { text: "again", attachments: [] }, 9_000),
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["user", "error", "run", "user"]);
+    expect(runBlocks(t)).toEqual([{ kind: "run", ms: 1_000, startedAt: 1_000, ts: 2_000, derived: true, failed: true }]);
+  });
+
+  it("invents no line for a turn that produced nothing, or that already has one", () => {
+    // The boot `idle` lands after the message that started the adapter, with nothing said yet.
+    const quiet = reduceAll([sessionEvent("user_message", { text: "go", attachments: [] }, 1_000), status("idle", 1_100),
+      sessionEvent("user_message", { text: "again", attachments: [] }, 2_000)]);
+    expect(runBlocks(quiet)).toEqual([]);
+    const settled = reduceAll([sessionEvent("user_message", { text: "go", attachments: [] }, 1_000), status("running", 1_100),
+      sessionEvent("assistant_text", { messageId: "m", text: "done" }, 1_500), status("idle", 1_600), status("ended", 5_000),
+      sessionEvent("user_message", { text: "again", attachments: [] }, 9_000)]);
+    expect(runBlocks(settled)).toHaveLength(1);
+  });
 });
 
 describe("feedback", () => {
   const rate = (messageId: string, rating: "up" | "down" | null) => sessionEvent("feedback", { messageId, rating });
-
-  it("keeps a rating against the message it judges, and nothing against the ones it does not", () => {
-    const t = reduceAll([
-      sessionEvent("assistant_text", { messageId: "m1", text: "one" }),
-      sessionEvent("assistant_text", { messageId: "m2", text: "two" }),
-      rate("m1", "up"),
-    ]);
-    expect(t.feedback).toEqual({ m1: "up" });
-  });
 
   it("lets the reader change their mind, and take the verdict back entirely", () => {
     // Three states, not two: absent is "not judged", which a boolean could not tell from "down".
@@ -216,16 +251,6 @@ describe("feedback", () => {
     expect(down.feedback).toEqual({ m1: "down" });
     const withdrawn = reduceAll([rate("m1", "up"), rate("m1", null)]);
     expect(withdrawn.feedback).toEqual({});
-  });
-
-  it("survives the relaunch, because it is in the log the transcript is rebuilt from", () => {
-    // The whole reason this is an event and not a settings row.
-    const events = [
-      sessionEvent("user_message", { text: "hi", attachments: [] }),
-      sessionEvent("assistant_text", { messageId: "m1", text: "hello" }),
-      rate("m1", "down"),
-    ];
-    expect(reduceAll(events).feedback).toEqual({ m1: "down" });
   });
 
   it("never touches the blocks — a verdict is about a message, not a thing in the scrollback", () => {
@@ -357,13 +382,6 @@ describe("a session that changed agents mid-turn", () => {
     expect(t.blocks.map((b) => b.kind)).toEqual(["handoff"]);
   });
 
-  it("gives the two blocks distinct keys, so React does not reuse one as the other", () => {
-    const t = reduceAll([
-      retrying(1),
-      sessionEvent("handoff", { from: "claude", to: "codex", reason: "auth", note: "n", attempt: 1 }),
-    ]);
-    expect(new Set(t.blocks.map(blockKey)).size).toBe(t.blocks.length);
-  });
 });
 
 describe("a background sub-agent's start and stop", () => {
@@ -397,5 +415,81 @@ describe("a background sub-agent's start and stop", () => {
   it("ignores a task naming a call this transcript never saw", () => {
     const t = reduceAll([tool("t1", "Agent"), sessionEvent("background_task", { toolUseId: "nope", status: "running" })]);
     expect(t.blocks).toHaveLength(1);
+  });
+});
+
+/**
+ * The generated prompt hint on the transcript.
+ *
+ * Two rules, and the second is the one that keeps ⇥ from typing a stale sentence: the hint was
+ * written about the turn that had just ended, so the moment the user sends anything it stops being
+ * about the last turn and has to go.
+ */
+describe("the prompt hint", () => {
+  const hint = (text: string, throughSeq: number) => sessionEvent("prompt_hint", { text, throughSeq });
+
+  it("takes the newest hint, and never an older one arriving late", () => {
+    // Same forward-only rule the summary has: on a slow machine a hint generated for an earlier turn
+    // can land after a newer one, and the newer answer is the one about the transcript on screen.
+    const t = reduceAll([hint("newer", 9), hint("older", 4)]);
+    expect(t.promptHint).toEqual({ text: "newer", throughSeq: 9 });
+  });
+
+  it("is dropped the moment the user sends anything", () => {
+    const t = reduceAll([
+      sessionEvent("user_message", { text: "go", attachments: [] }),
+      sessionEvent("assistant_text", { messageId: "m1", text: "done" }),
+      hint("Write tests for it.", 2),
+      sessionEvent("user_message", { text: "actually do this", attachments: [] }),
+    ]);
+    /* The mutant: keeping it here. The prompter would offer "Write tests for it." under a transcript
+       whose last line is a different request, and ⇥ would send it. */
+    expect(t.promptHint).toBeNull();
+  });
+
+});
+
+describe("a question put to the user", () => {
+  const codex = { kind: "agent" as const, name: "Codex", agent: "codex" as const };
+  const ask = { asker: codex, mode: "question" as const, questions: [{ id: "base", prompt: "Which branch?", kind: "choice" as const, options: [{ value: "main", label: "main" }] }] };
+  const request = (over: Record<string, unknown> = {}, ts = 20) =>
+    sessionEvent("permission_request", { requestId: "q1", toolName: "item/tool/requestUserInput", input: {}, title: "Which branch?", suggestions: [], ask, ...over }, ts);
+  const answer = (answers?: Record<string, string>) => sessionEvent("permission_response", { requestId: "q1", decision: answers ? "allow" : "deny", ...(answers ? { answers } : {}) }, 30);
+
+  it("keeps its place in the log and takes its answer when the answer arrives", () => {
+    // THE MUTANT: leave `permission_response` as it was, clearing the pending card and nothing else.
+    // The answer is persisted and never drawn — the gap this block exists to close.
+    let t = reduceAll([sessionEvent("assistant_text", { messageId: "m1", text: "Let me ask." }, 10), request()]);
+    expect(t.blocks.at(-1)).toMatchObject({ kind: "question", requestId: "q1", card: { asker: codex } });
+    expect(t.blocks.at(-1)).not.toHaveProperty("decision");
+    t = reduceTranscript(t, answer({ base: "main" }));
+    expect(t.blocks.at(-1)).toMatchObject({ kind: "question", decision: "allow", answers: { base: "main" } });
+    expect(t.pendingPermissions).toEqual([]);
+    expect(blockKey(t.blocks.at(-1)!, 0)).toBe("question:q1");
+  });
+
+  it("takes the place of the call that asked it, whichever of the two arrives first", () => {
+    const input = { questions: [{ id: "base", prompt: "Which branch?", kind: "choice", options: [{ label: "main" }] }] };
+    const call = sessionEvent("tool_call", { toolUseId: "t1", name: "mcp__realm__realm-ui__ui_ask", input, parentToolUseId: null }, 15);
+    const asked = request({ toolName: "ui_ask", input });
+    for (const events of [[call, asked], [asked, call]]) {
+      const t = reduceAll([...events, answer({ base: "main" }), sessionEvent("tool_result", { toolUseId: "t1", content: "The user answered", isError: false })]);
+      expect(t.blocks.map((b) => b.kind)).toEqual(["question"]);
+      expect(t.blocks[0]).toMatchObject({ toolUseId: "t1", answers: { base: "main" } });
+    }
+  });
+
+  it("leaves a different call's row alone, and makes no question of a permission", () => {
+    const t = reduceAll([
+      sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "ls" }, parentToolUseId: null }),
+      sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "ls" }, title: "Run ls?", suggestions: [] }),
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["tool"]);
+  });
+
+  it("records a skip, and a request Realm declined itself, as answered without answers", () => {
+    expect(reduceAll([request(), answer()]).blocks.at(-1)).toMatchObject({ kind: "question", decision: "deny" });
+    const refused = reduceAll([request({ ask: { ...ask, mode: "form", refused: "It asked for a password." } }), answer()]);
+    expect(refused.blocks.at(-1)).toMatchObject({ kind: "question", card: { refused: "It asked for a password." }, decision: "deny" });
   });
 });

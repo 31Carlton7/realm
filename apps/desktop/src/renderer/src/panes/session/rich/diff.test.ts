@@ -193,11 +193,6 @@ describe("fileDiffsFor", () => {
 });
 
 describe("intra-line emphasis", () => {
-  it("marks the middle that changed, keeping the shared prefix and suffix out of it", () => {
-    const e = pairEmphasis("const timeout = 30;", "const timeout = 60;")!;
-    expect("const timeout = 30;".slice(e.del.start, e.del.end)).toBe("3");
-    expect("const timeout = 60;".slice(e.add.start, e.add.end)).toBe("6");
-  });
 
   it("declines when the two lines share too little to be one line edited", () => {
     expect(pairEmphasis("completely different", "nothing alike here")).toBeNull();

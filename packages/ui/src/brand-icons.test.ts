@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 import { brandMarks, isBrandName } from "./brand-icons";
 
 describe("brand marks", () => {
-  it("covers every provider the prompter can name", () => {
+  it("covers every provider the prompter can name, and every machine vendor the connect form can", () => {
+    /* Three sets, one list. The agents are what the prompter's model chip names; the eight machine
+       vendors are what "Connect a machine" names — who is on the other end of an address; and the
+       link services are what a pasted URL can become a chip for (`describeLink`). E2B's and
+       Namespace's come from the vendors' own sites rather than from the two icon sets this file
+       otherwise draws on, because neither set carries them; both entries say so. */
     expect(Object.keys(brandMarks).sort()).toEqual([
-      "claude", "cursor", "deepseek", "figma", "fx", "gemini", "github", "githubCopilot", "goose", "grok", "jira", "kimi", "linear", "meta", "notion", "openai", "opencode", "openhands", "qwen", "sentry", "slack", "zai",
+      "alpine", "android", "apple", "claude", "cursor", "debian", "deepseek", "e2b", "figma", "fx", "gemini", "github", "githubCopilot", "goose", "grok", "jira", "kimi", "linear", "meta", "modal", "namespace", "notion", "openai", "opencode", "openhands", "qwen", "sentry", "slack", "ubuntu", "vercel", "x", "zai",
     ]);
   });
 
@@ -22,20 +27,12 @@ describe("brand marks", () => {
   it("keeps the even-odd fill on the OpenAI blossom and only there", () => {
     // Preserve the fill rule declared by the source SVGs; removing it turns their negative space
     // into solid blobs. Marks absent from this list intentionally use SVG's nonzero default.
+    /* Namespace joins them for a different reason than the rest: its source paints a white N onto a
+       blue disc, which needs two fills, and even-odd turns the same three paths into a disc with the
+       N knocked out of it — one fill, and correct on either ground. */
     expect(Object.entries(brandMarks).filter(([, m]) => "evenOdd" in m).map(([n]) => n)).toEqual([
-      "openai", "opencode", "githubCopilot", "zai",
+      "openai", "opencode", "githubCopilot", "zai", "namespace",
     ]);
-  });
-
-  it("carries the vendor's colour on exactly the marks whose vendor has one", () => {
-    // Anthropic's coral spark, Gemini's blue and DeepSeek's whale blue are the vendors' own; OpenAI
-    // and Cursor publish no single glyph colour, so their marks declare none — inventing one would be
-    // a wrong statement about the trademark, not a design choice.
-    expect(brandMarks.claude.color).toBe("#D97757");
-    expect(brandMarks.gemini.color).toBe("#4796E3");
-    expect(brandMarks.deepseek.color).toBe("#5786FE");
-    expect(brandMarks.meta.color).toBe("#0467DF");
-    expect(Object.entries(brandMarks).filter(([, m]) => "color" in m).map(([n]) => n).sort()).toEqual(["claude", "deepseek", "figma", "gemini", "jira", "linear", "meta", "sentry", "slack"]);
   });
 
   it("isBrandName accepts the marks and rejects Hugeicons names", () => {

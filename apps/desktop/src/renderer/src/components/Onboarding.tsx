@@ -1,242 +1,336 @@
-import { AGENT_META, SELECTABLE_AGENT_KINDS, SPACE_COLORS, pickSpaceColor, type AgentKind } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, AGENT_META, SELECTABLE_AGENT_KINDS, pickSpaceColor, type AgentKind } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FALLBACK_AGENT, folderName, useApp } from "../state/store";
 import { agentAvailability, type AgentAvailability } from "../state/agent-availability";
-import { grainVars } from "../theme/grain";
-import { useFileDrop } from "./use-file-drop";
-import { IconPicker } from "./IconPicker";
-
-/**
- * Status pill text + tone per §3 (fill = 14% color-mix, text at full strength).
- *
- * "Ready" is the tone that gets no fill. Three saturated success pills annotating the three agents you
- * did nothing wrong with drowned the one decision on this screen; colour belongs on the states that
- * need you — signed out, not installed.
- */
-function statusOf(a: AgentAvailability, version: string | null): { label: string; tone: "ready" | "warning" | "muted" } {
-  if (a.state === "unknown") return { label: "", tone: "muted" };
-  if (a.state === "missing") return { label: "Not installed", tone: "muted" };
-  if (a.state === "logged_out") return { label: "Signed out", tone: "warning" };
-  // Being listed already says "found"; the version is the one fact worth the row's right edge.
-  return { label: version ?? "Ready", tone: "ready" };
-}
+import { Spinner } from "./Spinner";
+import { useDissolve } from "./ScrollFades";
+import { DEFAULT_SPACE_ICON, SpaceFolderField, SpaceIdentityField } from "./space-fields";
+import markUrl from "../assets/realm-mark.svg";
 
 /** The name a space takes when the user types none: the folder's, else a plain word. */
 export const DEFAULT_SPACE_NAME = "Home";
-/** What the space wears until the user says otherwise. These used to be written into `createSpace`
- *  at the call site, which meant the first screen decided a space's identity and never showed it. */
-export const DEFAULT_SPACE_ICON = "folder";
+/** The colour the space wears until the user says otherwise. It and the icon (`DEFAULT_SPACE_ICON`)
+ *  used to be written into `createSpace` at the call site, which meant the first screen decided a
+ *  space's identity and never showed it. */
 export const DEFAULT_SPACE_COLOR = pickSpaceColor(0);
 
 /**
- * First run: no spaces exist, so there is nothing to show and nothing to do. One centered sheet does
- * what a first launch actually needs, and does it in two columns, because two different things are
- * being decided and they are not the same kind of thing:
+ * The two agents first run leads with, as cards: the ones Realm carries end to end — memory into
+ * every session, permission modes, a sign-in it can run and see finish. Everything else is one line
+ * under them, and stays one click from being the pick.
+ */
+export const LEAD_AGENTS = ["claude", "codex"] as const satisfies readonly AgentKind[];
+type LeadAgent = (typeof LEAD_AGENTS)[number];
+const LEAD_COPY: Record<LeadAgent, { name: string; by: string; signIn: string }> = {
+  claude: { name: "Claude", by: "Claude Code, by Anthropic", signIn: "Sign in with Claude" },
+  codex: { name: "Codex", by: "ChatGPT's coding agent, by OpenAI", signIn: "Sign in with ChatGPT" },
+};
+const isLead = (k: AgentKind): k is LeadAgent => (LEAD_AGENTS as readonly AgentKind[]).includes(k);
+
+/**
+ * Where an agent stands. Until a probe reports it, it is checking; once a whole probe has answered
+ * (`agentsProbed`), an agent it did not report is not on this Mac — a card left on "Checking…" for a
+ * kind nobody is going to report is a page that claims to be working forever. Not "any row has
+ * arrived": the two lead cards are probed on their own, ahead of the rest, and their rows say nothing
+ * about the agents behind the fold.
+ */
+function standing(kind: AgentKind, probe: Parameters<typeof agentAvailability>[1], probedAll: boolean): AgentAvailability {
+  const a = agentAvailability(kind, probe);
+  if (a.state !== "unknown" || !probedAll) return a;
+  const label = AGENT_META[kind].label;
+  return { state: "missing", title: `${label} isn’t installed`, reason: `Realm could not find ${label} on this Mac.`, command: AGENT_CLI_COMMANDS[kind].install };
+}
+
+/** One word for where an agent stands, for the folded list. */
+function shortState(a: AgentAvailability, loggedIn: boolean | null | undefined): string {
+  if (a.state === "unknown") return "";
+  if (a.state === "missing") return "Not installed";
+  if (a.state === "logged_out") return "Signed out";
+  return loggedIn ? "Signed in" : "Installed";
+}
+
+/**
+ * First run, as one page that reads top to bottom: what Realm is, the agent that will answer, and
+ * the space it works in — then Start.
  *
- *   - **Left, the agent.** An inventory to scan: which of the CLIs on this Mac should answer.
- *   - **Right, the space.** A short form to fill: its name, where its code is, and what it looks
- *     like in the sidebar.
+ * It was a sheet over the app with thirteen equal radio rows on one side and a form on the other,
+ * which answered "which of these CLIs is on this Mac" for someone who had not yet been told what any
+ * of them were for. A first run is a decision, not an inventory (design.md), and for a person who has
+ * never opened a terminal the decision is: which assistant, signed in with which account. So the two
+ * agents Realm carries end to end are cards, and each card does what its state needs IN PLACE —
+ * Install, Sign in with Claude, Sign in with ChatGPT — without a terminal, a command to copy, or a
+ * space to exist first (`agentSignIn.*`, which runs the CLI's own login with no space around it).
+ * Claude needs no install at all: Realm carries the binary its sessions run.
  *
- * Stacked, those two ran into each other. The one field anybody types sat below a dozen radios with
- * the folder step wedged between, so the screen read as a list of agents that happened to have a
- * form at the bottom. Side by side each half is scannable on its own and the whole thing fits above
- * the fold.
+ * Nothing here is required, as before. The agent is preselected (a previous run's, else the first
+ * that works, else Claude), the folder is optional, the name defaults to the folder's or to "Home",
+ * the icon and colour have defaults — so Start is live from the first frame and Enter finishes the
+ * whole thing. An agent that is not ready yet is said so under the button, and its session asks
+ * again, with the same Install and Sign in.
  *
- * Nothing here is required. The agent is preselected (a previous run's, else the first that works),
- * the folder is optional, the name defaults to the folder's or to "Home", and the icon and colour
- * have defaults — so the primary action is live from the first frame and Enter finishes the whole
- * thing.
+ * One form, on purpose: the first text field in `.onboarding` is the space's name and the form's
+ * submit makes the space and opens its session, which is the hook every live check boots through.
  *
- * The icon and the colour are here because the space was getting them anyway. `completeOnboarding`
- * used to write a folder glyph and the first palette colour into `createSpace` at the call site: the
- * first screen was already deciding a space's identity, it just never showed anyone what it picked.
- * They use the same picker and the same swatches the space's own settings do, so the control someone
- * meets on their first screen is the control they meet again.
- *
- * The inventory is still here, folded. Agents the probe FOUND are listed; the ones it did not are
- * behind one disclosure, and stay pickable when shown — picking one lands in the prompter's install
- * card, which carries the exact command, rather than in an inert greyed-out row. Before the probe
- * lands the list is drawn plain with one line saying so, not thirteen "Checking…" pills.
- *
- * The folder is the step the old sheet never asked. A session opened from onboarding ran in the
- * empty folder Realm allocates for the space, and the first thing every user did was go and find
- * the "+" to add the repo they had in mind. Dropping it here, or choosing it, makes it the space's
- * first project and opens the session in it.
- *
- * Keyboard-complete: the name field takes focus on mount, arrows move between agent radios and
- * between colour swatches, Enter (or Tab to the button) starts. Focus lands in the RIGHT column
- * although the left one comes first in the source, and that is deliberate — reading order is left to
- * right, but the agent already has an answer and the name is the only thing anyone has to type.
- * There is no dismiss — with zero spaces there is nothing behind it. It never returns: `Main`
- * renders it only while `booted && spaces.length === 0`.
+ * Keyboard-complete: the name takes focus on mount (the agent already has an answer; the name is the
+ * only thing anyone types), arrows move between the agent radios and between the swatches, Enter
+ * starts. There is no dismiss — with zero spaces there is nothing behind it — and while it is up the
+ * rail and the sidebar are away (`AppShell`), since nothing in them works before a space exists.
  */
 export function Onboarding() {
   const agentProbe = useApp((s) => s.agentProbe);
+  const agentsProbed = useApp((s) => s.agentsProbed);
   const lastAgentKind = useApp((s) => s.lastAgentKind);
   const probeAgents = useApp((s) => s.probeAgents);
+  const probeAgent = useApp((s) => s.probeAgent);
+  const refreshCliStatus = useApp((s) => s.refreshCliStatus);
   const setDefaultAgent = useApp((s) => s.setDefaultAgent);
-  const pickFolder = useApp((s) => s.pickFolder);
   const completeOnboarding = useApp((s) => s.completeOnboarding);
   const run = useApp((s) => s.run);
   const nameRef = useRef<HTMLInputElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  useDissolve(stage);
   const [name, setName] = useState("");
   const [picked, setPicked] = useState<AgentKind | null>(null);
   const [folder, setFolder] = useState<string | null>(null);
   const [icon, setIcon] = useState(DEFAULT_SPACE_ICON);
   const [color, setColor] = useState<string>(DEFAULT_SPACE_COLOR);
-  const [showAll, setShowAll] = useState(false);
+  const [showOthers, setShowOthers] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { run(() => probeAgents()); }, [probeAgents, run]);
+  /* The two cards are asked on their own as well as in the whole probe. That one answers when every
+     agent has, and on a Mac with an ACP agent whose model listing takes half a minute, Claude and
+     Codex would say "Checking…" for all of it; each alone answers in a second or so. */
+  useEffect(() => {
+    run(() => probeAgents());
+    for (const k of LEAD_AGENTS) run(() => probeAgent(k));
+    run(() => refreshCliStatus());
+  }, [probeAgents, probeAgent, refreshCliStatus, run]);
   useEffect(() => { nameRef.current?.focus(); }, []);
 
-  const probed = agentProbe.length > 0;
-  const rows = useMemo(() => SELECTABLE_AGENT_KINDS.map((k) => {
-    const a = agentAvailability(k, agentProbe);
-    return { kind: k, a, status: statusOf(a, agentProbe.find((p) => p.kind === k)?.version ?? null) };
-  }), [agentProbe]);
-  // Found first, signed-out next, and the rest folded: the list is sorted by how close each agent is
-  // to answering a prompt, which is the only order that puts the likely pick at the top.
-  const found = rows.filter((r) => r.a.state === "ready" || r.a.state === "logged_out")
-    .sort((x, y) => Number(y.a.state === "ready") - Number(x.a.state === "ready"));
-  const missing = rows.filter((r) => r.a.state === "missing");
-  // Before the probe answers every row is unknown; show them all, plainly, rather than nothing.
-  const listed = !probed || showAll || found.length === 0 ? rows : found;
-
-  // Until the user picks: whatever a previous run remembered, else the first agent that actually works,
-  // else Claude. The probe arrives after mount, so this is derived, not seeded into state.
-  const firstReady = found.find((r) => r.a.state === "ready")?.kind;
+  const probed = agentsProbed || LEAD_AGENTS.every((k) => agentProbe.some((r) => r.kind === k));
+  const availability = (k: AgentKind) => standing(k, agentProbe, agentsProbed);
+  const others = SELECTABLE_AGENT_KINDS.filter((k) => !isLead(k));
+  // Until the user picks: whatever a previous run remembered, else the first agent that actually
+  // works, leads first, else Claude. The probe arrives after mount, so this is derived, not seeded.
+  const firstReady = [...LEAD_AGENTS, ...others].find((k) => availability(k).state === "ready");
   const agent: AgentKind = picked ?? lastAgentKind ?? firstReady ?? FALLBACK_AGENT;
   const pick = (k: AgentKind) => { setPicked(k); run(() => setDefaultAgent(k)); };
+  // The pick is never hidden: an agent from the folded list that is the answer opens the fold.
+  const othersOpen = showOthers || !isLead(agent);
 
-  // A folder dropped from the Finder. Chromium hands a directory over as a File with an empty type;
-  // the server refuses anything that is not a directory when the project is linked, so there is no
-  // guessing here — the path is shown, and a wrong one fails at the one step that can tell.
-  const pathForFile = useApp((s) => s.pathForFile);
-  /* The picker's upload tab files an image under a profile. The server seeds "Personal" on first
-     boot, so there is one here before this sheet ever renders; the fallback keeps the BUILT-IN icons
-     working on the one path where there is not, rather than refusing to draw the control. */
-  const profileId = useApp((s) => s.profiles[0]?.id ?? "");
-  const drop = useFileDrop((files) => {
-    const path = files.map((f) => pathForFile(f)).find(Boolean);
-    if (path) setFolder(path);
-  }, true);
-  const choose = () => run(async () => { const p = await pickFolder(); if (p) setFolder(p); });
+  /* The profile the space goes into (`completeOnboarding`'s pick): the picker's upload tab files an
+     image under it, and the folder field asks where a space there would live. The server seeds
+     "Personal" on first boot, so there is one here before this page renders; the fallback keeps the
+     BUILT-IN icons working on the one path where there is not. */
+  const profileId = useApp((s) => s.activeProfileId ?? s.profiles[0]?.id ?? "");
 
   const suggested = folder ? folderName(folder) : DEFAULT_SPACE_NAME;
   const submit = () => {
     if (busy) return;
     setBusy(true);
     run(async () => {
-      try { await completeOnboarding({ name: name.trim() || suggested, agentKind: agent, folder, icon, color }); }
-      finally { setBusy(false); }
+      try {
+        await completeOnboarding({ name: name.trim() || suggested, agentKind: agent, folder, icon, color });
+      } finally { setBusy(false); }
     });
   };
 
-  return (
-    <div className="onboarding-stage">
-      <section className="sheet onboarding wash" data-grain style={grainVars("onboarding")} aria-labelledby="onboarding-title">
-        <form className="onboarding-form" onSubmit={(e) => { e.preventDefault(); submit(); }}>
-          <div className="sheet-head"><h3 id="onboarding-title">Welcome to Realm</h3></div>
-          <div className="sheet-body onboarding-body">
-            <p className="muted onboarding-lead">
-              Realm runs the agent CLIs already on this Mac. Everything here can be changed later.
-            </p>
-            {/* Two things are being set up here and they are not the same thing: WHICH agent answers,
-                and WHAT the space is. Side by side they read as the two halves they are — an
-                inventory to scan on the left, a short form to fill on the right — where stacked, the
-                one field you actually type sat under a dozen radios and the folder step in between.
+  const chosen = availability(agent);
+  const chosenName = isLead(agent) ? LEAD_COPY[agent].name : AGENT_META[agent].label;
+  const spaceName = name.trim() || suggested;
+  // What Start will do, in one line beside it — and, when the agent is not ready yet, what the
+  // session will ask for, so Start never reads as a promise the next screen breaks.
+  const summary = chosen.state === "missing"
+    ? `${chosenName} isn't installed yet — install it above, or from the session.`
+    : chosen.state === "logged_out"
+      ? `${chosenName} isn't signed in yet — sign in above, or from the session.`
+      : `Starts a ${chosenName} session in ${spaceName}.`;
 
-                A grid that folds on its own rather than at a breakpoint: the sheet is centred in the
-                window and can be narrowed to anything, and `auto-fit` puts the columns back into one
-                without a number here having to guess where. Source order is the reading order either
-                way, which is what makes the stacked case still make sense. */}
-            <div className="onboarding-cols">
-              {/* Native radios, not buttons with role="radio": arrow-key movement, one tab stop and the
-                  checked state all come for free, which is most of "completable with a keyboard alone". */}
-              <fieldset className="field cli-field onboarding-col">
-                <legend>Agent</legend>
-                {!probed && <p className="onboarding-note" aria-live="polite">Checking which agents are installed…</p>}
-                {probed && found.length === 0 && (
-                  <p className="onboarding-note">None of these is installed yet. Pick one and Realm will show the install command.</p>
-                )}
-                {listed.map(({ kind: k, status: st }) => (
-                  <label key={k} className="cli-row" data-selected={agent === k || undefined}>
+  return (
+    <div className="onboarding-stage" ref={stage}>
+      <form className="onboarding" aria-labelledby="onboarding-title" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+        <header className="onboarding-hero">
+          {/* The product's own mark, once, at the size the page opens on; decorative, beside its name. */}
+          <img className="onboarding-mark" src={markUrl} alt="" width={40} height={48} draggable={false} />
+          <h1 id="onboarding-title">Welcome to Realm</h1>
+          <p className="onboarding-lead">One workspace for every coding agent, on your Mac.</p>
+        </header>
+
+        <fieldset className="onboarding-step" aria-busy={!probed || undefined}>
+          <legend className="onboarding-step-head"><span className="onboarding-step-n" aria-hidden="true">1</span>Choose your agent</legend>
+          <p className="onboarding-step-sub">It works in your files and answers in a session. Sign in once, with your own account.</p>
+          <div className="agent-cards">
+            {LEAD_AGENTS.map((k) => <AgentCard key={k} kind={k} selected={agent === k} onPick={() => pick(k)} />)}
+          </div>
+          <button type="button" className="onboarding-more" aria-expanded={othersOpen} onClick={() => setShowOthers((v) => !v)}>
+            <Icon name="chevronDown" size={12} />
+            {othersOpen ? "Fewer agents" : `${others.length} more agents`}
+          </button>
+          {othersOpen && (
+            <div className="onboarding-others">
+              {others.map((k) => {
+                const a = availability(k);
+                return (
+                  <label key={k} className="onboarding-other" data-selected={agent === k || undefined}>
                     <input type="radio" name="default-agent" value={k} checked={agent === k} onChange={() => pick(k)} />
                     <Icon name={AGENT_META[k].icon} size={16} colored />
-                    <span className="cli-name">{AGENT_META[k].label}</span>
-                    {st.label && <span className="status-pill" data-tone={st.tone}>{st.label}</span>}
+                    <span className="onboarding-other-name">{AGENT_META[k].label}</span>
+                    <span className="onboarding-other-state" data-tone={a.state}>{shortState(a, agentProbe.find((p) => p.kind === k)?.loggedIn)}</span>
                   </label>
-                ))}
-                {probed && found.length > 0 && missing.length > 0 && (
-                  <button type="button" className="onboarding-more" aria-expanded={showAll} onClick={() => setShowAll((v) => !v)}>
-                    <Icon name="chevronDown" size={12} />
-                    {showAll ? "Hide the ones not installed" : `${missing.length} more not installed`}
-                  </button>
-                )}
-              </fieldset>
-
-              {/* The space, whole. Name leads because it is the field that takes focus and the only
-                  one anybody has to type; the folder sits under it because picking one is what fills
-                  the name's placeholder, and the two reading adjacent is the whole of that story. */}
-              <fieldset className="cli-field onboarding-col onboarding-space">
-                <legend>Space</legend>
-                <label className="field">
-                  <span>Name</span>
-                  <input ref={nameRef} aria-label="Space name" value={name} placeholder={suggested}
-                    onChange={(e) => setName(e.target.value)} />
-                </label>
-
-                <div className="field">
-                  <span>Folder <span className="onboarding-optional">optional</span></span>
-                  {/* The drop target is the whole field, and it says so only while something is over it. */}
-                  <div className="onboarding-folder" data-dropping={drop.dropping || undefined} {...drop.handlers}>
-                    {folder ? (
-                      <>
-                        <Icon name="folder" size={14} />
-                        <span className="onboarding-folder-path" title={folder}>{folder}</span>
-                        <button type="button" className="icon-btn" aria-label="Remove folder" onClick={() => setFolder(null)}><Icon name="close" size={12} /></button>
-                      </>
-                    ) : (
-                      <>
-                        <button type="button" className="btn" onClick={choose}>Choose folder…</button>
-                        <span className="onboarding-note">{drop.dropping ? "Drop to use this folder" : "or drop a repo here"}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* The same picker the space's own settings use, so the control someone meets first is
-                    the control they meet again. */}
-                <div className="field">
-                  <span>Icon</span>
-                  <IconPicker icon={icon} profileId={profileId} onPick={setIcon} />
-                </div>
-
-                {/* Swatches alone — settings keeps a hex field beside them for anyone who has a colour
-                    in mind, and a first run does not. Ten is a choice; a text field is a task. */}
-                <div className="field">
-                  <span>Color</span>
-                  <div className="swatches" role="radiogroup" aria-label="Color">
-                    {SPACE_COLORS.map((c) => (
-                      <button key={c} type="button" role="radio" aria-checked={color === c} aria-label={`Color ${c}`}
-                        className="swatch" data-selected={color === c || undefined}
-                        style={{ background: c }} onClick={() => setColor(c)} />
-                    ))}
-                  </div>
-                </div>
-              </fieldset>
+                );
+              })}
+              <p className="onboarding-note">Each of these installs and signs in from its first session, or from Settings › Engines.</p>
             </div>
+          )}
+        </fieldset>
+
+        {/* The space, whole. Name leads because it is the field that takes focus and the only one
+            anybody has to type, with how the space will look beside it; the folder sits next to it
+            because picking one is what fills the name's placeholder. The New space sheet is made of
+            the same two fields. */}
+        <fieldset className="onboarding-step onboarding-space">
+          <legend className="onboarding-step-head"><span className="onboarding-step-n" aria-hidden="true">2</span>Name your space</legend>
+          <p className="onboarding-step-sub">A space keeps one project's sessions, files and memory together. Add more any time.</p>
+          <div className="onboarding-space-row">
+            <SpaceIdentityField nameRef={nameRef} name={name} onName={setName} placeholder={suggested}
+              icon={icon} onIcon={setIcon} color={color} onColor={setColor} profileId={profileId} />
+            <SpaceFolderField className="field" folder={folder} onFolder={setFolder} profileId={profileId} name={spaceName} />
           </div>
-          {/* The decision, held outside the scroller so it is never below the fold. */}
-          <div className="sheet-foot">
-            <button type="submit" className="btn primary" disabled={busy} aria-busy={busy || undefined}>
-              {busy ? "Starting…" : "Start"}
-            </button>
-          </div>
-        </form>
-      </section>
+        </fieldset>
+
+        <footer className="onboarding-foot">
+          <p className="onboarding-summary" data-tone={chosen.state === "missing" || chosen.state === "logged_out" ? "warn" : undefined}>{summary}</p>
+          <button type="submit" className="btn primary onboarding-start" disabled={busy} aria-busy={busy || undefined}>
+            {busy ? "Starting…" : "Start"}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+/**
+ * One lead agent, as a card: picking it (the radio is the card's head), and below, the one thing its
+ * state needs — Checking…, Install, Sign in with …, the browser step of a sign-in, a code to paste
+ * back, or Ready. Every action also picks the agent it acts on: someone who signs in to Codex means
+ * Codex.
+ */
+function AgentCard({ kind, selected, onPick }: { kind: LeadAgent; selected: boolean; onPick: () => void }) {
+  const probe = useApp((s) => s.agentProbe);
+  const probedAll = useApp((s) => s.agentsProbed);
+  const cli = useApp((s) => s.cliStatus.find((r) => r.kind === kind) ?? null);
+  const job = useApp((s) => s.cliJobs[kind]);
+  const signIn = useApp((s) => s.agentSignIns[kind]);
+  const runCliAction = useApp((s) => s.runCliAction);
+  const startAgentSignIn = useApp((s) => s.startAgentSignIn);
+  const sendAgentSignInCode = useApp((s) => s.sendAgentSignInCode);
+  const cancelAgentSignIn = useApp((s) => s.cancelAgentSignIn);
+  const run = useApp((s) => s.run);
+  const [code, setCode] = useState("");
+  const copy = LEAD_COPY[kind];
+  const a = standing(kind, probe, probedAll);
+  const loggedIn = probe.find((p) => p.kind === kind)?.loggedIn ?? null;
+  const live = signIn && (signIn.state === "starting" || signIn.state === "browser" || signIn.state === "code") ? signIn : null;
+
+  const signInNow = () => { onPick(); setCode(""); run(() => startAgentSignIn(kind)); };
+  const sendCode = () => {
+    const c = code.trim();
+    if (c === "") return;
+    setCode("");
+    run(() => sendAgentSignInCode(kind, c));
+  };
+
+  let foot: ReactNode;
+  if (live) {
+    foot = (
+      <div className="agent-card-signin">
+        {/* Claude asks for a code in the same breath as it prints the page — but the browser tab it
+            opened itself finishes on its own, and only the page reached by "Open the page again"
+            shows a code. So the browser leads, and the field is there for whoever needs it. */}
+        <span className="agent-card-status" data-busy>
+          <Spinner size={12} />
+          {live.state === "starting" ? "Opening the sign-in page…" : "Finish signing in in your browser."}
+        </span>
+        {live.state === "code" && (
+          <>
+            <span className="agent-card-note">If the page shows a code, paste it here.</span>
+            <div className="agent-code-row">
+              {/* Enter would otherwise submit the whole page and start before the code went in. */}
+              <input className="agent-code" aria-label={`Code from ${copy.name}'s sign-in page`} value={code}
+                spellCheck={false} autoComplete="off" onChange={(e) => setCode(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); sendCode(); } }} />
+              <button type="button" className="btn primary" disabled={code.trim() === ""} onClick={sendCode}>Continue</button>
+            </div>
+          </>
+        )}
+        <span className="agent-card-actions">
+          {live.url && (
+            <button type="button" className="btn-quiet" onClick={() => window.open(live.url!, "_blank")}>Open the page again</button>
+          )}
+          <button type="button" className="btn-quiet" onClick={() => run(() => cancelAgentSignIn(kind))}>Cancel</button>
+        </span>
+      </div>
+    );
+  } else if (job?.state === "running") {
+    const tail = job.output.trimEnd().split("\n").at(-1) ?? "";
+    foot = (
+      <div className="agent-card-signin">
+        <span className="agent-card-status" data-busy><Spinner size={12} />Installing {copy.name}…</span>
+        {tail && <span className="agent-card-tail" title={job.command}>{tail}</span>}
+      </div>
+    );
+  } else if (a.state === "unknown") {
+    foot = <span className="agent-card-status" data-busy><Spinner size={12} />Checking…</span>;
+  } else if (a.state === "ready" || signIn?.state === "done") {
+    foot = (
+      <span className="agent-card-status" data-tone="ready">
+        <Icon name="checkCircle" size={14} />{loggedIn || signIn?.state === "done" ? "Signed in" : "Ready"}
+      </span>
+    );
+  } else if (a.state === "logged_out") {
+    foot = (
+      <div className="agent-card-signin">
+        {signIn?.state === "failed" && <span className="agent-card-note" data-tone="danger" title={signIn.detail ?? undefined}>The sign-in didn't finish. Try again.</span>}
+        <button type="button" className="btn agent-card-action" onClick={signInNow}>
+          <Icon name={AGENT_META[kind].icon} size={14} colored />{copy.signIn}
+        </button>
+      </div>
+    );
+  } else {
+    // Missing. The server offers the install it can actually run; where it cannot (no npm on this
+    // Mac), it says why, and the honest next step is the thing that provides npm.
+    const offer = cli && cli.action === "install" && cli.command ? cli.command : null;
+    foot = (
+      <div className="agent-card-signin">
+        {job?.state === "failed" && <span className="agent-card-note" data-tone="danger" title={job.error ?? undefined}>The install didn't finish. Try again.</span>}
+        {offer ? (
+          <button type="button" className="btn agent-card-action" title={offer} onClick={() => { onPick(); run(() => runCliAction(kind, "install")); }}>
+            <Icon name="download" size={14} />Install {copy.name}
+          </button>
+        ) : (
+          <>
+            <span className="agent-card-note">{cli?.refusal ?? `${copy.name} isn't on this Mac yet.`}</span>
+            {/node/i.test(cli?.refusal ?? "") && (
+              <button type="button" className="btn-quiet" onClick={() => window.open("https://nodejs.org/en/download", "_blank")}>Get Node.js</button>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="agent-card" data-selected={selected || undefined}>
+      <label className="agent-card-pick">
+        <input type="radio" name="default-agent" value={kind} checked={selected} onChange={onPick} />
+        <span className="agent-card-mark"><Icon name={AGENT_META[kind].icon} size={20} colored /></span>
+        <span className="agent-card-text">
+          <span className="agent-card-name">{copy.name}</span>
+          <span className="agent-card-by">{copy.by}</span>
+        </span>
+      </label>
+      <div className="agent-card-foot" aria-live="polite">{foot}</div>
     </div>
   );
 }

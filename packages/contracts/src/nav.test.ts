@@ -1,15 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { canNav, forgetNavItems, navEntry, NAV_HISTORY_LIMIT, pushNav, reconcileNav, stepNav, type PaneHistory } from "./nav";
 import type { Layout } from "./layout";
-import type { SpaceGroups } from "./groups";
 
 const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
 const split = (id: string, ...children: Layout[]): Layout =>
   ({ type: "split", id, dir: "row", sizes: children.map(() => 100 / children.length), children });
-const groups = (...layouts: Layout[]): SpaceGroups => ({
-  groups: layouts.map((l, i) => ({ id: `g${i + 1}`, name: `G${i + 1}`, layout: l, zoomedLeafId: null })),
-  activeGroupId: "g1",
-});
 
 describe("a pane's back/forward trail", () => {
   it("records stops, and stepping walks them without changing them", () => {
@@ -78,18 +73,18 @@ describe("a pane's back/forward trail", () => {
 
 describe("reconcileNav — the one recording site", () => {
   it("records a leaf's new occupant as a stop, whatever changed it", () => {
-    const h = reconcileNav({}, groups(split("s", leaf("l1", "a"), leaf("l2", "b"))));
+    const h = reconcileNav({}, (split("s", leaf("l1", "a"), leaf("l2", "b"))));
     expect(navEntry(h, "l1")).toEqual({ itemId: "a", view: null });
     expect(navEntry(h, "l2")).toEqual({ itemId: "b", view: null });
     // The pane's item is replaced (openItem, a drop, a preset) — the trail grows, Back is armed.
-    const after = reconcileNav(h, groups(split("s", leaf("l1", "c"), leaf("l2", "b"))));
+    const after = reconcileNav(h, (split("s", leaf("l1", "c"), leaf("l2", "b"))));
     expect(after.l1!.entries.map((e) => e.itemId)).toEqual(["a", "c"]);
     expect(canNav(after, "l1", -1)).toBe(true);
     expect(after.l2!.entries).toHaveLength(1); // the untouched pane records nothing
   });
 
   it("is idempotent — a resize or an unrelated write does not stuff the stack", () => {
-    const g = groups(leaf("l1", "a"));
+    const g = (leaf("l1", "a"));
     const h = reconcileNav({}, g);
     expect(reconcileNav(h, g)).toBe(h);
     expect(reconcileNav(reconcileNav(h, g), g).l1!.entries).toHaveLength(1);
@@ -97,10 +92,10 @@ describe("reconcileNav — the one recording site", () => {
 
   it("THE stall mutant: a step Back records nothing, so pressing Back twice moves twice", () => {
     // Standing on b with a behind; the step seats the cursor on a and swaps the leaf's item to a.
-    let h = reconcileNav({}, groups(leaf("l1", "a")));
-    h = reconcileNav(h, groups(leaf("l1", "b")));
+    let h = reconcileNav({}, (leaf("l1", "a")));
+    h = reconcileNav(h, (leaf("l1", "b")));
     h = stepNav(h, "l1", -1);
-    const afterWrite = reconcileNav(h, groups(leaf("l1", "a")));
+    const afterWrite = reconcileNav(h, (leaf("l1", "a")));
     expect(afterWrite.l1!.entries.map((e) => e.itemId)).toEqual(["a", "b"]); // no third entry
     expect(afterWrite.l1!.index).toBe(0);
     expect(canNav(afterWrite, "l1", 1)).toBe(true); // b is still ahead — the trail was not forked
@@ -110,35 +105,33 @@ describe("reconcileNav — the one recording site", () => {
     // The pane holds the notifications page and the user has opened row n7. A resize, a split, a
     // group switch — any layout write — must not read that as the pane having moved back to the bare
     // list and push `{np, null}` over the forward run.
-    let h = reconcileNav({}, groups(leaf("l1", "np")));
+    let h = reconcileNav({}, (leaf("l1", "np")));
     h = pushNav(h, "l1", { itemId: "np", view: "n7" });
-    const after = reconcileNav(h, groups(leaf("l1", "np")));
+    const after = reconcileNav(h, (leaf("l1", "np")));
     expect(after).toBe(h);
     expect(navEntry(after, "l1")).toEqual({ itemId: "np", view: "n7" });
 
     // …and the same holds mid-trail: stepping BACK onto the bare list leaves n7 reachable by Forward.
-    const back = reconcileNav(stepNav(h, "l1", -1), groups(leaf("l1", "np")));
+    const back = reconcileNav(stepNav(h, "l1", -1), (leaf("l1", "np")));
     expect(navEntry(back, "l1")).toEqual({ itemId: "np", view: null });
     expect(canNav(back, "l1", 1)).toBe(true);
     expect(back.l1!.entries).toHaveLength(2);
   });
 
-  it("keeps the trails of groups that are off screen, and forgets leaves that are truly gone", () => {
-    const two = groups(leaf("l1", "a"), leaf("l2", "b"));
-    let h = reconcileNav({}, two);
+  it("forgets a leaf that has left the view, and keeps the ones still in it", () => {
+    let h = reconcileNav({}, split("s", leaf("l1", "a"), leaf("l2", "b")));
     expect(Object.keys(h).sort()).toEqual(["l1", "l2"]);
-    // Switching groups changes nothing structural — both arrangements still exist, so both remember.
-    h = reconcileNav(h, { ...two, activeGroupId: "g2" });
-    expect(Object.keys(h).sort()).toEqual(["l1", "l2"]);
-    // Removing the group (or leaving the space) does forget it.
-    expect(Object.keys(reconcileNav(h, groups(leaf("l1", "a"))))).toEqual(["l1"]);
+    // One view per window: a pane that leaves it is gone, and the same item shown again later is a
+    // new pane with a trail of its own.
+    h = reconcileNav(h, leaf("l1", "a"));
+    expect(Object.keys(h)).toEqual(["l1"]);
     expect(Object.keys(reconcileNav(h, null))).toEqual([]);
   });
 
   it("an emptied leaf keeps the trail it had — closing a pane does not erase where it had been", () => {
-    let h = reconcileNav({}, groups(leaf("l1", "a")));
-    h = reconcileNav(h, groups(leaf("l1", "b")));
-    const closed = reconcileNav(h, groups(leaf("l1", null)));
+    let h = reconcileNav({}, (leaf("l1", "a")));
+    h = reconcileNav(h, (leaf("l1", "b")));
+    const closed = reconcileNav(h, (leaf("l1", null)));
     expect(closed.l1!.entries.map((e) => e.itemId)).toEqual(["a", "b"]);
   });
 });

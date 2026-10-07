@@ -29,12 +29,14 @@ export class RpcClient {
   private attempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
-  constructor(private url: string, private Impl: typeof WebSocket = WebSocket) {
+  constructor(private url: string, private Impl: typeof WebSocket = WebSocket, private protocols: string[] = []) {
     this.connect();
   }
   private connect() {
     if (this.disposed) return;
-    const ws = new this.Impl(this.url);
+    // The token goes on EVERY dial, redials included — the server refuses the handshake without it,
+    // so a reconnect that forgot it would look exactly like a server that never came back.
+    const ws = new this.Impl(this.url, this.protocols);
     this.ws = ws;
     this.opened = new Promise((res) => {
       ws.onopen = () => {
@@ -140,7 +142,9 @@ export function rpc(): RpcClient {
   if (!singleton) {
     const port = window.realm?.port;
     if (!Number.isFinite(port)) throw new Error("Realm: server port not provided to renderer (preload missing --realm-port)");
-    singleton = new RpcClient(`ws://127.0.0.1:${port}`);
+    const token = window.realm?.token;
+    if (!token) throw new Error("Realm: server token not provided to renderer (preload missing --realm-token)");
+    singleton = new RpcClient(`ws://127.0.0.1:${port}`, WebSocket, [`realm.${token}`]);
   }
   return singleton;
 }

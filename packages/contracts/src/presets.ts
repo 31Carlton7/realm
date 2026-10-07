@@ -1,7 +1,7 @@
 export const SPACE_COLORS = ["#7c6cff", "#3ddc97", "#ffb454", "#ff6b8b", "#4cc9f0", "#f4a261", "#a3e635", "#c084fc", "#38bdf8", "#fb7185"] as const;
 /**
  * Every glyph a space's icon picker offers under its "Default" section. Curated one-clean-variant-
- * per-concept from the much larger `@hugeicons-pro/core-stroke-standard` pack already vendored into
+ * per-concept from the much larger `@hugeicons-pro/core-stroke-rounded` pack already vendored into
  * `@realm/ui`'s `Icon` component (`packages/ui/src/Icon.tsx`) — this list and that map's keys must
  * stay in lockstep, since a name here with no matching entry there silently falls back to the folder
  * glyph. The first ten are the original set (unchanged order, so existing spaces keep their glyph).
@@ -41,8 +41,23 @@ export function parseSpaceIcon(icon: string): SpaceIconRef {
   return { kind: "hugeicon", name: kind === "hugeicon" ? rest : icon };
 }
 
-/** One pickable model: the id the wire transmits and the name the row shows. */
-export type AgentModel = { id: string; label: string };
+/** One pickable model: the id the wire transmits and the name the row shows. The two flags are only
+ *  ever set from a live catalog that states them (Codex's `model/list`); a curated list says nothing,
+ *  and absent is "not stated", never "no". */
+export type AgentModel = {
+  id: string;
+  label: string;
+  /** Whether the catalog offers fast mode on this model — Codex lists its `priority` tier per model —
+   *  and what the catalog says it costs and buys ("1.5x speed, increased usage"). */
+  fastMode?: boolean;
+  fastDescription?: string;
+  /** The model an un-pinned session runs, where the catalog marks one. */
+  isDefault?: boolean;
+  /** The reasoning efforts the catalog says this model takes, in its own order, and the one it runs
+   *  when none is asked for — Codex's `supportedReasoningEfforts` and `defaultReasoningEffort`. */
+  efforts?: string[];
+  defaultEffort?: string;
+};
 
 /**
  * STATIC fallback model lists — what the picker shows for a kind when no probe has answered yet
@@ -69,7 +84,7 @@ export type AgentModel = { id: string; label: string };
  *  - **acp:gemini** is empty because the kind is no longer offered (see SELECTABLE_AGENT_KINDS).
  */
 export const AGENT_MODELS = {
-  claude: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
+  claude: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
   codex: [], "acp:gemini": [], "acp:cursor": [],
   // Plan 18's ACP agents: empty for the same reason as Cursor's — where a catalog exists it is
   // enumerated live by the probe (through `configOptions` now, see acpSessionConfig), so a hardcoded
@@ -160,25 +175,57 @@ export const AGENT_SUPPORTS_PERMISSION_MODES = {
 /**
  * Whether an agent can be told to forget the turns a checkpoint restore undid (Plan 7 W4).
  *
- * Every value is `false`, and that is a finding rather than a placeholder. All three adapters were
- * read before this table was written, and not one of them exposes a rewind:
+ * **Claude is `true` as of `@anthropic-ai/claude-agent-sdk` 0.3.258, and it is the only one.** The SDK
+ * documents a truncating resume, which is the verb this table spent its whole life reporting the
+ * absence of: `resume` names the session, `resumeSessionAt` takes ANY chain-entry UUID and loads the
+ * conversation only up to and including it, and `resumeDropsTurn` declares the prompt UUID of the turn
+ * the truncation means to discard so the CLI can refuse a fork that would quietly drop anything else.
+ * So a Claude restore can put the FILES back and hand the model a conversation that ends where the
+ * files do.
  *
- *  - **Claude** — `StartOptions.resume` becomes the Agent SDK's `resume: <session id>`, which replays a
- *    conversation from its end. The SDK's query options have no "resume at message N".
+ * Three facts about that pair are exactly the kind that rot, so they are written down here rather than
+ * left to be rediscovered against a CLI that has moved on:
+ *
+ *  - **Print/headless lane only.** The pair is consumed by the print-mode CLI, the Agent SDK and
+ *    ProcessTransport, and by nothing else — an interactive `claude --resume` boot accepts both options
+ *    and silently ignores them, loading the whole chain with no truncation, no guard and no error.
+ *    Realm drives the Agent SDK (`ClaudeAdapter`), so Realm is on the supported lane. A future Realm
+ *    that shelled out to an interactive `claude` would be back to `false`, and would have to say so
+ *    here rather than inherit this `true`.
+ *  - **The fork point is the KEPT turn's LAST chain entry, whatever it is** — not simply its last
+ *    assistant message. An end-turn tool session ends on a tool_result carrier (and a
+ *    `structured_output` attachment after it), an interrupted turn ends on a completed tool_result, and
+ *    a transcript-only append persists as a bare user entry; forking before any of those leaves the
+ *    kept turn's own payload in the discarded range and the validator deliberately refuses. That is why
+ *    `ClaudeAdapter` records the last top-level chain entry of each turn rather than the last assistant
+ *    uuid.
+ *  - **The refusal is deterministic and must never be retried.** When the discarded range holds
+ *    anything the declared turn does not own — a queued user message the session absorbed mid-turn, a
+ *    task notification, a second turn — the CLI answers with an `error_during_execution` result whose
+ *    message begins `Resume rejected by --resume-drops-turn:`, and it will answer the same way forever
+ *    for the same request. Realm maps it to a recovery path in `SessionService` (forget the fork target,
+ *    resume plainly, keep the evidence, and drop that checkpoint's cursor so it can never be armed
+ *    again); it never re-sends it.
+ *
+ * Every other kind stays `false`, each for the reason measured against it and not a shared one:
+ *
  *  - **Codex** — `thread/resume { threadId }`. The app-server protocol has `turn/start`, `turn/steer`
  *    and `turn/interrupt`; there is no call that removes a completed turn from a thread.
- *  - **ACP (Cursor, Gemini)** — `session/load` replays the whole session as `session/update`
+ *  - **ACP (every `acp:*` kind)** — `session/load` replays the whole session as `session/update`
  *    notifications. The protocol has no truncation verb, and `loadSession` is itself optional.
  *
- * So a restore puts the FILES back and the agent still remembers writing them. Truncating Realm's own
- * transcript to hide that would be a lie about the provider's context — the model would still be told
- * about the work on the next turn — so Realm does not do it, and the confirmation says so instead.
+ * For those, a restore still puts the FILES back and leaves the agent remembering writing them — and
+ * Realm still refuses to truncate its own transcript there, because hiding the turns Realm stored
+ * would be a lie about the provider's context: the model would be told about that work again on the
+ * next turn. The two truncations happen together or not at all (`CheckpointService.restore`).
  *
- * When an adapter gains the ability, flip its entry and the UI stops apologising: `checkpoints.restore`
- * reads this table for the sentence it returns, so there is one place to change.
+ * A `true` here is a claim about the ADAPTER, never about a particular checkpoint. A row also needs
+ * both of its cursors (`Checkpoint.sessionSeq`, `Checkpoint.providerCursor`) before anything is
+ * rewound, which is why `RestorePreview.rewindsConversation` is computed per checkpoint and per session
+ * rather than read straight off this table.
  */
 export const AGENT_CONVERSATION_REWIND = {
-  claude: false, codex: false, "acp:cursor": false, "acp:gemini": false,
+  claude: true, codex: false, "acp:cursor": false, "acp:gemini": false,
   "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
   "acp:qwen": false, "acp:grok": false, "acp:fx": false,
   // dsh-acp supports no session load, resume, list, delete or fork at all — its own "Known
@@ -194,6 +241,54 @@ export const AGENT_CONVERSATION_REWIND = {
   "acp:hermes": false,
   fake: false,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
+
+/**
+ * Whether an agent can be asked to CONTINUE the conversation Realm already has a transcript of.
+ *
+ * Realm has always written `provider_session_id` from each adapter's `init` and passed it back as
+ * `resume` on the next send. What it has never said is whether that worked — and a resume that
+ * silently starts a fresh thread under an old transcript is the one lie this table exists to stop.
+ *
+ * Three modes, because there are three genuinely different situations:
+ *
+ *   - `native` — the adapter always makes a resume call. Claude's `Options.resume`, Codex's
+ *     `thread/resume`. Whether the provider HONOURS it is a per-request fact, reported on `init`.
+ *   - `advertised` — resume exists only if the binary said so. ACP: `AcpAdapter` calls `session/load`
+ *     only when `initialize` answered `loadSession: true`, which is a per-binary, per-run fact this
+ *     table has no business restating. Two builds of the same agent can differ.
+ *   - `none` — measured absent.
+ *
+ * **`minVersion` is null for every kind, and that is a finding rather than a placeholder.** Realm has
+ * measured no version boundary for any agent. Herdr's equivalent table can gate on versions because
+ * it ships its own integrations and knows when each gained the verb; Realm's three sources of truth
+ * are its own adapter code, what the binary advertises at runtime, and what actually happened on the
+ * last attempt — and design.md forbids claiming a capability whose owner has not stated it. A number
+ * invented here would be exactly that claim.
+ */
+export const AGENT_SESSION_RESUME = {
+  /** `Options.resume` in the SDK's options object. Note what "continued" can honestly mean here: the
+   *  SDK FORKS to a new session id on resume, so the only claim Realm can make is that the request
+   *  was accepted — see `resumeOutcome` in the init event. */
+  claude: { mode: "native", minVersion: null, note: "Options.resume" },
+  /** `thread/resume {threadId}`. Rejected when the thread is no longer in `~/.codex`, which the
+   *  adapter now falls back from rather than treating as a dead session. */
+  codex: { mode: "native", minVersion: null, note: "thread/resume" },
+  "acp:cursor": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:gemini": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:opencode": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:copilot": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:goose": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:qwen": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:grok": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:fx": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:openhands": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:hermes": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  /** Measured absent: dsh-acp's own "Known Limitations" heading says it supports no session load,
+   *  resume, list, delete or fork at all — the same source `AGENT_CONVERSATION_REWIND` cites. */
+  "acp:deepseek": { mode: "none", minVersion: null, note: "no session verbs at all" },
+  /** The scripted fake holds no conversation to continue. */
+  fake: { mode: "none", minVersion: null, note: "scripted; nothing to continue" },
+} as const satisfies Record<import("./entities").AgentKind, { mode: "native" | "advertised" | "none"; minVersion: string | null; note: string }>;
 
 /**
  * How much the agent may do without asking. Ordered least → most permissive.
@@ -409,6 +504,24 @@ export function acpAskMode(modes: readonly AcpSessionMode[] | null | undefined):
 }
 
 /**
+ * The modes THIS session can actually be put into.
+ *
+ * Build is always in the list — it is the absence of the other two rather than a capability — and
+ * each of the others is here only where something would enforce it: a per-kind answer for a
+ * first-party agent, and the agent's own advertised mode ids for an ACP one.
+ *
+ * It lives here rather than in the prompter because two surfaces ask it now: the mode chip's menu,
+ * and the prompter's `/plan` and `/ask` commands. Two copies of this filter would eventually offer a
+ * command for a mode the chip beside it says the agent does not have.
+ */
+export function offeredModes(kind: import("./entities").AgentKind, acpModes: readonly AcpSessionMode[] | null | undefined): SessionMode[] {
+  const acp = kind.startsWith("acp:");
+  const canPlan = acp ? acpPlanMode(acpModes) !== null : AGENT_SUPPORTS_PLAN_MODE[kind];
+  const canAsk = acp ? acpAskMode(acpModes) !== null : AGENT_SUPPORTS_ASK_MODE[kind];
+  return SESSION_MODES.filter((m) => (m.id === "plan" ? canPlan : m.id === "ask" ? canAsk : true)).map((m) => m.id);
+}
+
+/**
  * The advertised mode Build maps back onto: the agent's `agent` mode when it has one (Cursor's
  * default), else the mode the session BOOTED in — provided that is not the plan mode itself.
  * Null means leaving Plan has nowhere honest to go, and the adapter sends nothing.
@@ -447,7 +560,8 @@ export function acpWellKnownMode(id: string, wellKnown: "plan" | "agent" | "ask"
  */
 export type AcpConfigOption = {
   id: string;
-  /** `"mode"` and `"model"` are the two Realm consumes; anything else is carried and ignored. */
+  /** `"mode"`, `"model"` and `"thought_level"` (the spec's reasoning-level selector) are the three
+   *  Realm consumes; anything else is carried and ignored. */
   category: string | null;
   currentValue: string | null;
   options: { value: string; name: string | null; description: string | null }[];
@@ -468,6 +582,13 @@ export type AcpSessionConfig = {
   models: AgentModel[];
   currentModelId: string | null;
   modelConfigId: string | null;
+  /** The agent's reasoning levels, off a `thought_level` option — ACP's own category for "thought /
+   *  reasoning level" (`SessionConfigOptionCategory`, `@agentclientprotocol/sdk` 0.17.1) — with the one
+   *  it starts on and the id a write goes through. Empty, null and null for an agent that offers none,
+   *  which is every agent that has not adopted `configOptions`: the deprecated shape had no such axis. */
+  efforts: { id: string; label: string }[];
+  currentEffort: string | null;
+  effortConfigId: string | null;
 };
 
 const asObj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -519,7 +640,7 @@ export function parseAcpConfigOptions(raw: unknown): AcpConfigOption[] {
  * The axis Realm does not read is not lost, only unoffered: fx's provider is a real switch its own
  * `session/set_config_option` accepts, and a second axis in the picker is a feature, not a fix.
  */
-function pickConfigOption(cfg: readonly AcpConfigOption[], axis: "mode" | "model"): AcpConfigOption | undefined {
+function pickConfigOption(cfg: readonly AcpConfigOption[], axis: "mode" | "model" | "thought_level"): AcpConfigOption | undefined {
   const inCategory = cfg.filter((o) => o.category === axis);
   return inCategory.find((o) => o.id === axis) ?? inCategory[0];
 }
@@ -538,6 +659,7 @@ export function acpSessionConfig(session: unknown): AcpSessionConfig {
   const cfg = parseAcpConfigOptions(s.configOptions);
   const modeOpt = pickConfigOption(cfg, "mode");
   const modelOpt = pickConfigOption(cfg, "model");
+  const effortOpt = pickConfigOption(cfg, "thought_level");
 
   const legacyModes = asObj(s.modes);
   const legacyModeRows = (Array.isArray(legacyModes.availableModes) ? legacyModes.availableModes : [])
@@ -562,6 +684,9 @@ export function acpSessionConfig(session: unknown): AcpSessionConfig {
     models: modelOpt ? modelOpt.options.map((o) => ({ id: o.value, label: o.name ?? o.value })) : legacyModelRows,
     currentModelId: modelOpt ? modelOpt.currentValue : asStr(legacyModels.currentModelId),
     modelConfigId: modelOpt ? modelOpt.id : null,
+    efforts: effortOpt ? effortOpt.options.map((o) => ({ id: o.value, label: o.name ?? o.value })) : [],
+    currentEffort: effortOpt?.currentValue ?? null,
+    effortConfigId: effortOpt && effortOpt.options.length > 0 ? effortOpt.id : null,
   };
 }
 
@@ -773,3 +898,40 @@ export const AGENT_LOGIN_HINTS = {
   "acp:hermes": "Run `cd ~/.hermes/hermes-agent && uv pip install -e '.[acp]'` to add its ACP mode, then `hermes setup` (or `hermes model`) to pick a provider and sign in.",
   fake: "Scripted offline agent used for development.",
 } as const satisfies Record<import("./entities").AgentKind, string>;
+
+/**
+ * Settings key for what a message typed DURING a turn does (queue it, or send it straight through).
+ *
+ * Read server-side in `SessionService.send`, in one place, so the prompter, the quick-chat window and
+ * the palette cannot disagree about what pressing Enter mid-turn means. `"queue"` is the default for
+ * the reason `AGENT_MIDTURN_DELIVERY` spells out: on every kind but Codex, sending mid-turn costs an
+ * interrupt, and a default that silently aborts the tool call the agent is running is not a default.
+ */
+export const MID_TURN_MODE_KEY = "sessions.midTurnMode";
+
+export const MID_TURN_MODES = ["queue", "steer"] as const;
+export type MidTurnMode = (typeof MID_TURN_MODES)[number];
+
+/** The stored key, or `"queue"` for anything unrecognised — including the unset case on an existing
+ *  home, which must land on the safe rung rather than the interrupting one. */
+export function resolveMidTurnMode(stored: unknown): MidTurnMode {
+  return MID_TURN_MODES.includes(stored as MidTurnMode) ? (stored as MidTurnMode) : "queue";
+}
+
+/** Whether sending into THIS kind's live turn ends that turn. The one thing the prompter has to say
+ *  differently per agent, and the one `AGENT_MIDTURN_DELIVERY` was written to answer. */
+export const steerInterrupts = (kind: import("./entities").AgentKind): boolean => AGENT_MIDTURN_DELIVERY[kind] === "interrupt";
+
+/**
+ * What the steer action promises, named per kind because the two outcomes are not degrees of one
+ * thing (`AGENT_MIDTURN_DELIVERY`): Codex takes the message into the turn it is already running,
+ * every other kind has its turn stopped and is re-prompted. The interrupt's real costs — the
+ * in-flight tool call, any open permission prompt — are the ones a person would want back, so they
+ * are named rather than summarised as "may interrupt".
+ */
+export function steerNote(kind: import("./entities").AgentKind): string {
+  const label = AGENT_META[kind].label;
+  return steerInterrupts(kind)
+    ? `Sends now. ${label} stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting.`
+    : `Sends now, into the turn ${label} is already running. Nothing is interrupted.`;
+}

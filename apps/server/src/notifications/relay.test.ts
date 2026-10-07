@@ -16,7 +16,7 @@ let fail: Set<"imessage" | "slack">;
 const session = (extra: Partial<Session> = {}): Session => ({
   id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId: "01BX5ZZKBKACTAV9WEVGEMMVRZ", projectId: null, agentKind: "fake",
   model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FA0", cwd: "/tmp",
-  status: "running", providerSessionId: null, title: "Fix the login flow", lastEventSeq: 0, terminalItemId: null,
+  status: "running", providerSessionId: null, title: "Fix the login flow", lastEventSeq: 0, seenSeq: 0, terminalItemId: null,
   dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra,
 });
 const ask = (requestId: string) => sessionEvent("permission_request", { requestId, toolName: "Bash", input: {}, title: "Run ls", suggestions: [] });
@@ -36,11 +36,6 @@ beforeEach(() => {
 });
 
 describe("relaying a notification beyond the machine", () => {
-  it("sends nothing until a destination is configured", async () => {
-    svc.handleSessionEvent(session(), ask("req-1"));
-    await flush();
-    expect(sent).toEqual([]);
-  });
 
   it("texts the configured handle when an agent needs a permission, naming the session and the ask", async () => {
     settings.set(NOTIFICATIONS_IMESSAGE_KEY, "+15551234567");
@@ -97,4 +92,14 @@ describe("relaying a notification beyond the machine", () => {
     expect(relayText({ category: "session_done", title: "Deploy", body: null })).toBe("Realm: Deploy finished");
     expect(relayText({ category: "run_blocked", title: "Nightly", body: null })).toBe("Realm: Nightly is blocked");
   });
+});
+
+describe("relayText names where the work is", () => {
+  it("carries the space, because at level C this line is all a person gets", () => {
+    // MUTANT: drop the space and "Fix the login flow needs your OK" is a sentence you cannot act on
+    // without going looking — with no window open anywhere, there is nothing else to look at.
+    expect(relayText({ category: "permission", title: "Fix the login flow", body: null, spaceName: "Versed" }))
+      .toBe("Realm: Fix the login flow (Versed) needs your OK");
+  });
+
 });

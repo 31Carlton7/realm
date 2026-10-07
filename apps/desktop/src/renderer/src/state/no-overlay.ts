@@ -11,7 +11,9 @@ import { newId, type Layout, type LayoutLeaf } from "@realm/contracts";
  *
  *   - anchored surfaces (menus, pickers): `placeAnchored` — preferred side, flip, slide along the
  *     anchor edge, and only then a complement-centered fallback;
- *   - centered surfaces (palette, sheets): `centerOverComplement` — the widest non-browser column.
+ *   - centered surfaces (palette, sheets): `centerOverComplement` — the widest non-browser column;
+ *   - the toast stack: `placeToastStack`, along the window's foot (and `yieldViewTo` where nothing
+ *     along it is clear); the tooltip: `placeTooltip`, beside its anchor or not at all.
  *
  * Everything here is pure and jsdom-free so the numbers are testable directly (jsdom rects are all
  * zero, so wiring-level tests must mock measurements — these functions are where the real
@@ -100,15 +102,19 @@ export function placeAnchored(i: AnchoredInput): AnchoredPlacement {
   const primary = i.placement === "down" ? (fitsBelow || !fitsAbove ? below : above)
     : (fitsAbove || !fitsBelow ? above : below);
   const secondary = primary === below ? above : below;
+  // The other side only where it FITS. Clamped back into the window, a flip with no room is drawn
+  // over the anchor itself: a menu off a strip under the window's top edge, with a browser view below,
+  // came up over its own "+" and the tabs beside it. Sliding along the edge keeps both in sight.
+  const sides = (secondary.above ? fitsAbove : fitsBelow) ? [primary, secondary] : [primary];
   const clear = (r: Rect) => !i.avoid.some((b) => b.width > 0 && b.height > 0 && intersects(r, b));
   const at = (left: number, top: number): Rect => ({ x: left, y: clampY(top), width: size.width, height: size.height });
 
-  for (const s of [primary, secondary]) {
+  for (const s of sides) {
     if (clear(at(baseLeft, s.top))) return { left: baseLeft, top: clampY(s.top), above: s.above, fallback: false };
   }
   // Slide along the (horizontal) anchor edge: candidate lefts are just past the far edges of the
   // offending rects; the nearest clear one to the anchor-aligned left wins.
-  for (const s of [primary, secondary]) {
+  for (const s of sides) {
     const top = clampY(s.top);
     const slid = i.avoid
       .flatMap((b) => [b.x - size.width - margin, b.x + b.width + margin])
@@ -144,6 +150,107 @@ export function centerOverComplement(
   const width = Math.max(120, Math.min(preferredWidth, win.width - 2 * pad, col.width - 2 * pad));
   const left = Math.max(0, Math.min(col.x + (col.width - width) / 2, win.width - width));
   return { left, width };
+}
+
+/** `[lo, hi]` with every blocked span taken out of it, left to right. */
+function freeSpans(lo: number, hi: number, blocked: readonly (readonly [number, number])[]): [number, number][] {
+  const out: [number, number][] = [];
+  let cursor = lo;
+  for (const [a, b] of [...blocked].sort((p, q) => p[0] - q[0])) {
+    if (a > cursor) out.push([cursor, Math.min(a, hi)]);
+    cursor = Math.max(cursor, b);
+    if (cursor >= hi) break;
+  }
+  if (cursor < hi) out.push([cursor, hi]);
+  return out.filter(([a, b]) => b > a);
+}
+
+export type ToastPlacement = { left: number; bottom: number; width: number };
+
+/**
+ * Where the toast stack stands (v2): the window's bottom-right corner, unless something there must
+ * not be covered.
+ *
+ * - `avoid` — the browser views. A toast drawn over one is a toast nobody sees, so the stack moves
+ *   along the window's foot to the right-most stretch no view covers, shrinking to `minWidth` before
+ *   it gives up.
+ * - `lift` — the prompters. The stack may stand ABOVE one, never on it: the send button is at the
+ *   corner a bottom-right toast would land on, and a notice that covers the next action is in its way.
+ *
+ * `height` is the stack's height FANNED OUT, because that is what it becomes under the pointer — a spot
+ * clear only of the collapsed stack would let the hover push its upper toasts under a view.
+ *
+ * The order is the corner's: the right-most stretch the views leave, then the lowest spot in it no
+ * prompter is under, as wide as the stretch allows down to `minWidth`. A view moves the stack
+ * sideways and a prompter moves it up — never the other way round, which would send a toast across
+ * the window to dodge a send button it could simply have stood over. Null when no spot along the foot
+ * is clear at all: views cover it end to end, which with the sidebar open cannot happen (its column is
+ * never a view), so it means a browser filling a window whose sidebar is folded away. The caller then
+ * asks the view beneath to give up the corner instead (`yieldViewTo`).
+ */
+export function placeToastStack(i: {
+  win: Size; width: number; minWidth: number; height: number; margin: number;
+  avoid: readonly Rect[]; lift: readonly Rect[];
+}): ToastPlacement | null {
+  const { win, height, margin } = i;
+  const live = (r: Rect) => r.width > 0 && r.height > 0;
+  const lifts = i.lift.filter(live);
+  const bottoms = [margin, ...lifts.map((r) => win.height - r.y + margin)]
+    .filter((b, k, all) => all.indexOf(b) === k && b + height + margin <= win.height)
+    .sort((a, b) => a - b);
+  let best: (ToastPlacement & { right: number }) | null = null;
+  for (const bottom of bottoms) {
+    const top = win.height - bottom - height;
+    const views = i.avoid
+      .filter((r) => live(r) && r.y < top + height && top < r.y + r.height)
+      .map((r) => [r.x - margin, r.x + r.width + margin] as const);
+    for (const [a, b] of freeSpans(margin, win.width - margin, views)) {
+      if (b - a < i.minWidth) continue;
+      const width = Math.min(i.width, b - a);
+      if (lifts.some((r) => intersects({ x: b - width, y: top, width, height }, r))) continue;
+      // Bottoms run lowest first, so on a tie the lower spot is the one already held.
+      if (!best || b > best.right) best = { left: b - width, bottom, width, right: b };
+    }
+  }
+  return best && { left: best.left, bottom: best.bottom, width: best.width };
+}
+
+/**
+ * The bounds a browser view takes while the toasts hold `reserve`: its own, with the bottom given up
+ * down to the reserve's top wherever the two overlap. Only ever reached when `placeToastStack` had no
+ * spot — the view yields a strip for a few seconds, as the page gives the find bar its height, rather
+ * than painting over the one thing the window is trying to say.
+ */
+export function yieldViewTo(view: Rect, reserve: Rect | null): Rect {
+  if (!reserve || !intersects(view, reserve)) return view;
+  return { ...view, height: Math.max(0, Math.min(view.height, reserve.y - view.y)) };
+}
+
+export type TooltipSide = "below" | "above" | "right" | "left";
+
+/**
+ * A tooltip's spot against its anchor (v2): centred under it; over it where the window's foot or a
+ * browser view is in the way below; and beside it — right, then left — where neither is clear, which
+ * is a browser toolbar's button with the page under it and the window's top edge over it. Null where
+ * no side is: a tooltip is only worth anything next to the thing it names, so there is no further
+ * place to go, and the caller hands the element back to the system's own tooltip, which macOS draws
+ * above every view.
+ */
+export function placeTooltip(i: { anchor: Rect; size: Size; win: Size; gap: number; margin: number; avoid: readonly Rect[] }): { left: number; top: number; side: TooltipSide } | null {
+  const { anchor: a, size, win, gap, margin } = i;
+  const clear = (left: number, top: number) => left >= margin && left + size.width <= win.width - margin
+    && top >= margin && top + size.height <= win.height - margin
+    && !i.avoid.some((b) => b.width > 0 && b.height > 0 && intersects({ x: left, y: top, width: size.width, height: size.height }, b));
+  const across = Math.max(margin, Math.min(a.x + (a.width - size.width) / 2, win.width - size.width - margin));
+  const level = Math.max(margin, Math.min(a.y + (a.height - size.height) / 2, win.height - size.height - margin));
+  const spots: [TooltipSide, number, number][] = [
+    ["below", across, a.y + a.height + gap],
+    ["above", across, a.y - gap - size.height],
+    ["right", a.x + a.width + gap, level],
+    ["left", a.x - gap - size.width, level],
+  ];
+  for (const [side, left, top] of spots) if (clear(left, top)) return { left, top, side };
+  return null;
 }
 
 /**

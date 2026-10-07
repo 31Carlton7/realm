@@ -6,9 +6,71 @@
          served from it as a PNG (QuickLookView.tsx). That origin is already trusted here for
          `frame-src` and `connect-src`, and an image from it can do strictly less than the frame
          already can — it cannot script, navigate or post. It is Realm's own token-gated listener
-         either way. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: realm-media: http://127.0.0.1:*; media-src realm-media:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src http://127.0.0.1:*" />
+         either way.
+         `frame-src` also names the views MCP servers draw (MCP Apps), each served by Realm's views
+         listener on a host of its own under `.mcp-view.localhost`. It is the frame and nothing else:
+         this page never fetches from, scripts or images from those hosts, and a view that tries to
+         take its frame to any address outside these two is refused here before main is asked. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: realm-media: http://127.0.0.1:*; media-src realm-media:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src http://127.0.0.1:* http://*.mcp-view.localhost:*" />
     <title>Realm</title>
+    <!-- The boot mark. Inline — style AND geometry — because this exists to cover the gap BEFORE the
+         bundle runs, and anything it had to fetch would arrive on the far side of the gap it is for.
+         The renderer's CSP allows inline style; it allows no inline script, and this needs none. -->
+    <style>
+      #boot {
+        position: fixed; inset: 0; display: grid; place-items: center;
+        pointer-events: none; z-index: 2147483647;
+        /* Held back 200ms on purpose: a warm launch paints before that and shows nothing at all,
+           which is better than a logo that flashes for a single frame. */
+        animation: boot-in 240ms cubic-bezier(.23, 1, .32, 1) 200ms both;
+      }
+      #boot[data-done] { animation: boot-out 200ms ease-in both; }
+      @keyframes boot-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes boot-out { from { opacity: 1; } to { opacity: 0; } }
+      .boot-mark { width: 64px; height: auto; }
+      /* The house shimmer's timing (1.4s linear infinite — styles.css `.shimmer-text`), spent as a
+         highlight swept across the mark rather than across text. Clipped to the mark's own
+         silhouette, so the sweep is never a band crossing an empty window. */
+      .boot-shine { animation: boot-sweep 1.4s linear infinite; }
+      @keyframes boot-sweep { from { transform: translateX(0); } to { transform: translateX(84px); } }
+      /* On a light desktop the mark is silver on near-white and would dissolve. The edge is what
+         keeps it readable without repainting the brand in a second colour. */
+      @media (prefers-color-scheme: light) {
+        .boot-mark { filter: brightness(.86) drop-shadow(0 1px 2px rgba(0, 0, 0, .3)); }
+      }
+      /* The sweep is decoration and goes. The mark stays, because it is the content. */
+      @media (prefers-reduced-motion: reduce) {
+        .boot-shine { display: none; }
+        #boot, #boot[data-done] { animation-duration: 1ms; animation-delay: 0ms; }
+      }
+    </style>
   </head>
-  <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
+  <body><div id="boot" aria-hidden="true"><svg class="boot-mark" viewBox="0 0 40 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="b-top" x1="10" y1="6.6795" x2="20" y2="24" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f4f5f7"/><stop offset="1" stop-color="#e3e5e8"/></linearGradient>
+        <linearGradient id="b-left" x1="10" y1="24" x2="20" y2="41.3205" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#b4b8be"/><stop offset="1" stop-color="#9ea2a9"/></linearGradient>
+        <linearGradient id="b-right" x1="25" y1="15.3397" x2="35" y2="32.6603" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#6c7078"/><stop offset="1" stop-color="#575b63"/></linearGradient>
+        <linearGradient id="b-lit" x1="21.8" y1="20.8823" x2="29.5" y2="34.2191" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#f1f2f4"/></linearGradient>
+        <linearGradient id="b-jamb" x1="28.2" y1="14.3005" x2="35.9" y2="27.6373" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#9ea2a9"/><stop offset="1" stop-color="#9ea2a9"/></linearGradient>
+        <linearGradient id="b-floor" x1="29.5" y1="34.2191" x2="35.9" y2="27.6373" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#e3e5e8"/><stop offset="1" stop-color="#e3e5e8"/></linearGradient>
+        <clipPath id="b-silhouette"><path d="M0.5196 24.9A1.8 1.8 0 0 1 0.5196 23.1L9.4804 7.5795A1.8 1.8 0 0 1 11.0392 6.6795L28.9608 6.6795A1.8 1.8 0 0 1 30.5196 7.5795L39.4804 23.1A1.8 1.8 0 0 1 39.4804 24.9L30.5196 40.4205A1.8 1.8 0 0 1 28.9608 41.3205L11.0392 41.3205A1.8 1.8 0 0 1 9.4804 40.4205Z"/></clipPath>
+        <clipPath id="b-front"><path d="M24.4 20.8823L28.2 14.3005L35.9 27.6373L32.1 34.2191Z"/></clipPath>
+        <linearGradient id="b-shine" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+          <stop offset=".5" stop-color="#fff" stop-opacity=".72"/>
+          <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <g clip-path="url(#b-silhouette)">
+        <path fill="url(#b-top)" d="M20 24L0 24L10 6.6795L30 6.6795Z"/>
+        <path fill="url(#b-left)" d="M20 24L30 41.3205L10 41.3205L0 24Z"/>
+        <path fill="url(#b-right)" d="M20 24L30 6.6795L40 24L30 41.3205Z"/>
+        <g clip-path="url(#b-front)">
+          <path fill="url(#b-lit)" d="M21.8 20.8823L25.6 14.3005L33.3 27.6373L29.5 34.2191Z"/>
+          <path fill="url(#b-jamb)" d="M28.2 14.3005L25.6 14.3005L33.3 27.6373L35.9 27.6373Z"/>
+          <path fill="url(#b-floor)" d="M32.1 34.2191L35.9 27.6373L33.3 27.6373L29.5 34.2191Z"/>
+        </g>
+      </g>
+      <g clip-path="url(#b-silhouette)"><rect class="boot-shine" x="-44" y="-4" width="44" height="56" fill="url(#b-shine)"/></g>
+    </svg></div><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
 </html>

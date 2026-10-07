@@ -1,12 +1,13 @@
 /**
- * Live check for the sidebar's archived shelf (run with: node apps/desktop/scripts/disclosure-live.mjs)
+ * Live check for the sidebar's folding space sections (run with: node apps/desktop/scripts/disclosure-live.mjs)
  *
- * The shelf now unfolds on the tool row's `grid-template-rows: 0fr → 1fr`, which is a claim about
- * layout and nothing else — and jsdom has no layout, so every part of it is invisible to the suite:
+ * A section folds on the tool row's `grid-template-rows: 0fr → 1fr` — the archived shelf did, before
+ * Plan 27 took it out of the sidebar — which is a claim about layout and nothing else, and jsdom has
+ * no layout, so every part of it is invisible to the suite:
  *
  *   1. Folded really is ZERO. `0fr` only collapses if the row's content clips against an overflow
  *      container AND nothing in the chain refuses to shrink; one `min-height: auto` anywhere and the
- *      shelf sits permanently open at full height with a caret that lies about it. The sidebar is a
+ *      section sits permanently open at full height with a caret that lies about it. The sidebar is a
  *      flex column, which is exactly where that goes wrong.
  *   2. Open is the content's OWN height — `1fr` resolving to the rows' natural size, not to a
  *      guessed maximum that clips a long list or leaves a short one padded.
@@ -90,10 +91,10 @@ const check = (name, cond, detail) => {
   console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail !== undefined ? " " + JSON.stringify(detail) : ""}`);
 };
 
-/** The shelf's measured state. `rows` is what `1fr` has to resolve to; `hit` is what a click at the
- *  first archived row's centre actually lands on, which is the only honest read on "unreachable". */
+/** The Live section's measured state. `rows` is what `1fr` has to resolve to; `hit` is what a click at
+ *  its first session row's centre actually lands on, which is the only honest read on "unreachable". */
 const SHELF = `(() => {
-  const wrap = document.querySelector('.archived-wrap');
+  const wrap = document.querySelector('.sb-section[aria-label="Live"] .sb-section-wrap');
   if (!wrap) return null;
   const row = wrap.querySelector('.item-row');
   const r = row?.getBoundingClientRect();
@@ -101,7 +102,7 @@ const SHELF = `(() => {
   return {
     open: wrap.hasAttribute('data-open'),
     wrapH: Math.round(wrap.getBoundingClientRect().height),
-    rowsH: Math.round(wrap.querySelector('.archived-clip > *')?.scrollHeight ?? -1),
+    rowsH: Math.round(wrap.querySelector('.sb-section-clip > *')?.scrollHeight ?? -1),
     rowCount: wrap.querySelectorAll('.item-row').length,
     tabbable: [...wrap.querySelectorAll('button, a, input')].some((e) => e.tabIndex >= 0 && !e.closest('[inert]')),
     reachable: !!(hit && wrap.contains(hit)),
@@ -127,7 +128,7 @@ async function main() {
     env: {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),
-      REALM_ENABLE_FAKE_AGENT: "1",
+      REALM_ENABLE_FAKE_AGENT: "1", REALM_HTML_MENUS: "1",
       REALM_PORT: String(SERVER_PORT),
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
@@ -156,33 +157,20 @@ async function main() {
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 820, deviceScaleFactor: 1, mobile: false });
   await sleep(400);
 
-  // Two sessions, one shelved: the shelf only exists when something is on it, and one row left in
-  // the space above it keeps the sidebar's own scroll out of the measurement.
-  await evalIn(c, `(() => { document.querySelector('.new-row').click(); return true; })()`);
-  await until(() => evalIn(c, `document.querySelectorAll('.item-list .item-row').length >= 2`), 15000, "two sessions");
-  await evalIn(c, `(() => {
-    const row = document.querySelector('.item-list .item-row');
-    row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 300 }));
-    return true; })()`);
-  await evalIn(c, `(() => {
-    const it = [...document.querySelectorAll('[role="menuitem"]')].find((m) => m.textContent.trim() === 'Archive');
-    it.click(); return true; })()`);
-  const toggle = await until(() => evalIn(c, `!!document.querySelector('.archived-toggle')`), 15000, "the archived shelf's heading");
-  check("archiving puts the row on a shelf that appears only because something is on it", toggle === true);
-
-  /* ── 1. Before it has ever been opened, the shelf costs nothing ───────────────────────────── */
-  check("an unopened shelf builds no rows at all", (await evalIn(c, SHELF)) === null);
+  // Onboarding's session is the Live section's one row — all a fold needs to have something to hide.
+  const TOGGLE = `document.querySelector('.sb-section[aria-label="Live"] .sb-section-head .item-row')`;
+  const toggle = await until(() => evalIn(c, `!!${TOGGLE} && document.querySelectorAll('.sb-section[aria-label="Live"] .sb-section-clip .item-row').length === 1`), 15000, "the Live section with its session");
+  check("the space is a section whose head folds it", toggle === true);
 
   /* ── 2. Open: the wrap takes the rows' own height ─────────────────────────────────────────── */
-  await evalIn(c, `(() => { document.querySelector('.archived-toggle').click(); return true; })()`);
   await sleep(400); // longer than --dur-base, so this is the settled height
   const open = await evalIn(c, SHELF);
-  check("open, the shelf is exactly as tall as its rows — 1fr, not a guessed maximum",
+  check("open, the section is exactly as tall as its rows — 1fr, not a guessed maximum",
     open.open === true && open.rowCount === 1 && sameHeight(open.wrapH, open.rowsH) && open.wrapH > 20, open);
   check("and an open row is reachable by pointer and by tab", open.reachable === true && open.tabbable === true, open);
 
   /* ── 3. Folded: zero height, rows still mounted, nothing reachable ────────────────────────── */
-  await evalIn(c, `(() => { document.querySelector('.archived-toggle').click(); return true; })()`);
+  await evalIn(c, `(() => { ${TOGGLE}.click(); return true; })()`);
   const during = await evalIn(c, SHELF);
   // The whole point of `grid-template-rows`: the browser interpolates it, so a real transition is
   // running on the way down. A property it could not interpolate would jump and look identical to
@@ -196,9 +184,9 @@ async function main() {
   check("the rows stayed in the DOM, so both directions animate", folded.rowCount === 1, folded);
   check("…and a folded row is unreachable: no tab stop, no hit target",
     folded.tabbable === false && folded.reachable === false, folded);
-  // Without this the two checks above would pass on a shelf that had simply unmounted its rows.
+  // Without this the two checks above would pass on a section that had simply unmounted its rows.
   check("MUTANT: the rows are genuinely there to be unreachable, not merely gone",
-    (await evalIn(c, `document.querySelectorAll('.archived-clip .item-row').length`)) === 1);
+    (await evalIn(c, `document.querySelectorAll('.sb-section[aria-label="Live"] .sb-section-clip .item-row').length`)) === 1);
 
   const sidebar = await c.send("Page.captureScreenshot", { format: "png", clip: { x: 0, y: 0, width: 280, height: 820, scale: 2 } });
   const out = path.join(os.tmpdir(), "realm-disclosure-folded.png");
@@ -207,10 +195,10 @@ async function main() {
 
   /* ── 4. Reduced motion folds it instantly, and still to zero ──────────────────────────────── */
   await c.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
-  await evalIn(c, `(() => { document.querySelector('.archived-toggle').click(); return true; })()`);
-  await sleep(60); // well inside --dur-base: with the preference on, the shelf is already all the way open
+  await evalIn(c, `(() => { ${TOGGLE}.click(); return true; })()`);
+  await sleep(60); // well inside --dur-base: with the preference on, the section is already all the way open
   const reduced = await evalIn(c, SHELF);
-  check("under reduced motion the shelf is open at full height immediately, with no transition running",
+  check("under reduced motion the section is open at full height immediately, with no transition running",
     sameHeight(reduced.wrapH, reduced.rowsH) && reduced.wrapH > 20 && reduced.transitions.length === 0, reduced);
   await c.send("Emulation.setEmulatedMedia", { features: [] });
 

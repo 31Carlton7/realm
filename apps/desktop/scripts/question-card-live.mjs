@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9353), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8919);
@@ -64,8 +65,9 @@ function cdp(wsUrl) {
   };
 }
 
-function rpc(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+/** The socket refuses a handshake without the `realm.<token>` subprotocol; the token is in the home. */
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   const ready = new Promise((res) => ws.addEventListener("open", res));
@@ -110,7 +112,9 @@ async function main() {
   const electronBin = process.platform === "darwin"
     ? path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
     : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron");
-  electron = spawn(electronBin, [wrapper], {
+  // Opened behind the person's own window, Chromium stops laying this one out; and unfocused, Realm
+  // goes quiet. Both would read as a broken card.
+  electron = spawn(electronBin, [wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"], {
     env: {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),
@@ -130,6 +134,7 @@ async function main() {
   const c = cdp(rendererTarget.webSocketDebuggerUrl);
   await c.ready;
   await c.send("Runtime.enable");
+  await c.send("Emulation.setFocusEmulationEnabled", { enabled: true });
   await c.send("Page.enable");
 
   await until(() => evalIn(c, `!!document.querySelector('.onboarding input:not([type=radio])')`), 20000, "onboarding");
@@ -145,7 +150,7 @@ async function main() {
 
   // The trigger goes in over the session's own channel, so the permission arrives the way a real
   // agent's does and the renderer decides for itself what to draw — which is the layer under test.
-  const api = rpc(SERVER_PORT);
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const sessions = await until(async () => {
     const all = await api.call("sessions.listAll", {});
@@ -223,7 +228,11 @@ async function main() {
 
 main()
   .catch((e) => { console.log("FAIL", e.message); process.exitCode = 1; })
-  .finally(() => {
-    electron?.kill();
-    fs.rmSync(scratch, { recursive: true, force: true });
+  .finally(async () => {
+    // SIGKILL: with the fake agent's session still live, the app's quit policy holds a plain SIGTERM.
+    // The server outlives the app that started it, so it is stopped on its own; and the scratch home
+    // is removed with retries, since its last writes may still be landing.
+    electron?.kill("SIGKILL");
+    await stopDaemons(path.join(scratch, "home"));
+    fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });

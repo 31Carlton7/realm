@@ -14,6 +14,11 @@ import { RunConstraintsSchema } from "./runs";
  * So this file is only about WHEN. `runs.create` is what happens next, and everything a run's
  * vocabulary refuses — `bypassPermissions` above all — a schedule refuses too, by construction:
  * `RunConstraintsSchema` is reused verbatim rather than mirrored.
+ *
+ * WHEN has two spellings, and `nextFireOf` is the single gate in front of both: a cron expression for
+ * work that recurs, and `once:<epoch ms>` for a single moment. They share one field because they
+ * answer one question, and because a schedule that has nothing left to fire is already a state this
+ * model has — `nextRunAt === null` with `enabled` still true, which the page reads as Completed.
  */
 
 /* ────────────────────────────── cron ────────────────────────────── */
@@ -22,7 +27,9 @@ import { RunConstraintsSchema } from "./runs";
  * The five fields, in the order every crontab on earth writes them.
  *
  * Deliberately five, not six or seven: seconds are not a schedule anyone wants for work that spawns
- * an agent, and a year field is a way to write a schedule that fires once in 2031 and is forgotten.
+ * an agent, and a year field is a way to write a schedule that fires once in 2031 and is forgotten —
+ * a one-shot wearing a recurring expression's clothes. Something that happens once says so instead,
+ * in the `once:` spelling below, where the page can show it as finished rather than as armed.
  * Ranges are inclusive at both ends. Day-of-week takes 0–6 with 0 = Sunday, and 7 is accepted as a
  * second spelling of Sunday because half the world's crontabs use it.
  */
@@ -171,9 +178,115 @@ export function nextCronFire(cron: Cron, after: number): number | null {
   return null;
 }
 
-/** Parse and find the next fire in one step — what every caller outside the tests actually wants.
- *  Null covers both "not a valid expression" and "matches nothing ahead". */
+/* ────────────────────────────── once ────────────────────────────── */
+
+/** The one-shot spelling: `once:` followed by an absolute epoch millisecond. */
+export const ONCE_PREFIX = "once:";
+
+/** Write one. `Math.trunc` rather than a round, so the stored moment is never a millisecond LATER
+ *  than what the caller asked for — a schedule may fire late, but not early. */
+export const onceExpr = (ms: number): string => `${ONCE_PREFIX}${Math.trunc(ms)}`;
+
+/**
+ * The moment a one-shot names, or null when this is not one.
+ *
+ * Absolute milliseconds rather than a local wall-clock string, which is the opposite of the choice
+ * cron makes one section up, and deliberately: "every day at 9" means nine o'clock wherever the
+ * person is and has to survive a DST change, while "the 30th at 1pm" is a single instant somebody
+ * already picked. Storing that instant as local text would reintroduce the one hour a year that
+ * happens twice and the one that never happens at all, for a value that has no reason to be ambiguous.
+ *
+ * Digits only — `once:1e12`, `once:0x10` and `once:+1` are refused rather than coerced, because every
+ * one of them has a "helpful" reading and this field decides when unattended work runs.
+ */
+export function parseOnce(expr: string): number | null {
+  const trimmed = expr.trim().toLowerCase();
+  if (!trimmed.startsWith(ONCE_PREFIX)) return null;
+  const digits = trimmed.slice(ONCE_PREFIX.length);
+  if (!/^\d+$/.test(digits)) return null;
+  const ms = Number(digits);
+  return Number.isSafeInteger(ms) && ms > 0 ? ms : null;
+}
+
+/** Whether an expression fires once and is then finished. The runner reads this to decide that the
+ *  catch-up window does not apply (see `ScheduleService.tick`). */
+export const isOnce = (expr: string): boolean => parseOnce(expr) !== null;
+
+/**
+ * A local wall-clock moment, with no zone on it: `2026-09-30T13:00`, optionally with seconds, and a
+ * space accepted in place of the `T` because models write it both ways.
+ *
+ * Date-only is NOT accepted, and that is the rule worth stating out loud. `new Date("2026-09-30")` is
+ * UTC midnight by the language's own spec while `new Date("2026-09-30T13:00")` is local — the same
+ * string one character shorter changes zone, silently, by up to a day. And a bare date has to invent a
+ * time of day: midnight would start unattended work while nobody is awake to answer a permission
+ * prompt, which is the exact state `@daily` already points at 9am to avoid.
+ */
+const LOCAL_MOMENT = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
+const ZONED = /(?:[zZ]|[+-]\d{2}:?\d{2})$/;
+
+/**
+ * Text a person or a model wrote that names one moment, as absolute milliseconds — or null.
+ *
+ * Shared by the `once` picker in the UI and the `at` argument of `schedule_create`, because they are
+ * the same question asked in two places and two parsers would be two answers.
+ *
+ * The local form is built through `new Date(y, m, d, …)` and then read back, because the constructor
+ * ROLLS rather than refuses: February 30th becomes March 2nd and 25:00 becomes the next morning, both
+ * without complaint. Comparing the fields back is what turns those into a refusal. It also refuses the
+ * hour that does not exist on the day the clocks go forward, which is correct — there is no such
+ * moment to schedule, and picking 03:30 on the caller's behalf would be a guess about the one thing
+ * this file must not guess about.
+ */
+export function parseMoment(raw: string): number | null {
+  const s = raw.trim();
+  const m = LOCAL_MOMENT.exec(s);
+  if (m) {
+    const [y, mo, d, h, mi] = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5])];
+    const sec = m[6] === undefined ? 0 : Number(m[6]);
+    if (sec > 59) return null;
+    const t = new Date(y, mo - 1, d, h, mi, sec, 0);
+    if (t.getFullYear() !== y || t.getMonth() !== mo - 1 || t.getDate() !== d) return null;
+    if (t.getHours() !== h || t.getMinutes() !== mi) return null;
+    return t.getTime();
+  }
+  // An explicit offset or `Z` is unambiguous, so the language's own parser is trustworthy here in a
+  // way it is not above.
+  if (ZONED.test(s)) {
+    const t = Date.parse(s);
+    return Number.isFinite(t) ? t : null;
+  }
+  return null;
+}
+
+/** A moment as `<input type="datetime-local">` spells it — the inverse of `parseMoment`'s local form,
+ *  and local by construction, which `toISOString` is not. */
+export function momentInputValue(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/* ────────────────────────────── either one ────────────────────────────── */
+
+/**
+ * Parse and find the next fire in one step — what every caller outside the tests actually wants, and
+ * the single gate both spellings pass through.
+ *
+ * Null covers three things that are all "nothing will happen": not a valid expression, a cron that
+ * matches nothing ahead, and a one-shot whose moment has passed. The third is what makes a one-shot
+ * cost the rest of the system nothing — `claimDue` writes this value back after firing, so a
+ * one-shot advances itself to `nextRunAt === null` by the same statement that advances a daily
+ * schedule to tomorrow, and the page's Completed lens reads that pair without being taught about
+ * one-shots at all.
+ *
+ * Strictly after, for the same reason `nextCronFire` is: the runner writes `nextRunAt =
+ * nextFireOf(now)` immediately after firing, and an inclusive comparison here would hand back the
+ * moment that just fired and run it again on the next tick.
+ */
 export function nextFireOf(expr: string, after: number): number | null {
+  const once = parseOnce(expr);
+  if (once !== null) return once > after ? once : null;
   const cron = parseCron(expr);
   return cron ? nextCronFire(cron, after) : null;
 }
@@ -185,8 +298,21 @@ export function nextFireOf(expr: string, after: number): number | null {
  * expression in mono. That is the honest split — a general cron-to-prose translator gets the
  * gnarly cases subtly wrong, and a subtly wrong description of when unattended work runs is worse
  * than showing the expression the user wrote.
+ *
+ * A one-shot always gets its sentence, and it is the only place its moment survives: once the
+ * schedule has fired there is no next occurrence for the row's meta line to show, and a row reading
+ * only "No further runs" would have lost what it was ever for. The year appears when it is not the
+ * current one — `now` is a parameter for the same reason `whenLabel` takes one, so a test can ask
+ * about December from June.
  */
-export function describeCron(expr: string): string {
+export function describeSchedule(expr: string, now = Date.now()): string {
+  const once = parseOnce(expr);
+  if (once !== null) {
+    const d = new Date(once);
+    const sameYear = d.getFullYear() === new Date(now).getFullYear();
+    const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
+    return `Once, on ${date} at ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+  }
   const cron = parseCron(expr);
   if (!cron) return expr;
   const at = (h: Set<number>, m: Set<number>) => {
@@ -218,6 +344,58 @@ export const CRON_PRESETS = [
   { label: "Every Monday at 09:00", expr: "0 9 * * 1" },
   { label: "The 1st of each month at 09:00", expr: "0 9 1 * *" },
 ] as const;
+
+/* ────────────────────────────── cadence ────────────────────────────── */
+
+/** The repeats the task modal offers by name. Anything else is a hand-written expression, which the
+ *  modal keeps as one rather than forcing it into the nearest of these. */
+export const REPEATS = ["hourly", "daily", "weekdays", "weekly", "monthly"] as const;
+export type Repeat = (typeof REPEATS)[number];
+
+/** A recurring expression in the modal's terms: which repeat, and the clock fields it fixes. */
+export type Cadence =
+  | { repeat: "hourly"; minute: number }
+  | { repeat: "daily" | "weekdays"; hour: number; minute: number }
+  | { repeat: "weekly"; weekday: number; hour: number; minute: number }
+  | { repeat: "monthly"; day: number; hour: number; minute: number };
+
+/** The expression a cadence writes. Weekday 0 is Sunday, as `parseCron` folds it. */
+export function cronOf(c: Cadence): string {
+  switch (c.repeat) {
+    case "hourly": return `${c.minute} * * * *`;
+    case "daily": return `${c.minute} ${c.hour} * * *`;
+    case "weekdays": return `${c.minute} ${c.hour} * * 1-5`;
+    case "weekly": return `${c.minute} ${c.hour} * * ${c.weekday}`;
+    case "monthly": return `${c.minute} ${c.hour} ${c.day} * *`;
+  }
+}
+
+/**
+ * The cadence an expression is, or null when it is a one-shot or a shape the modal cannot name.
+ *
+ * Read off the PARSED fields rather than matched as text, so `@daily`, `0 9 * * *` and `00 09 * * *`
+ * all come back as the same Daily — an agent writing through `schedule_create` spells cron its own
+ * way, and the task it makes has to open in the modal looking like one made there. A shape that
+ * fixes fewer fields than its repeat needs (every fifteen minutes is not "hourly at :15") is not that
+ * repeat, and stays a custom expression the modal shows verbatim.
+ */
+export function cadenceOf(expr: string): Cadence | null {
+  if (isOnce(expr)) return null;
+  const c = parseCron(expr);
+  if (!c || c.month.size !== 12 || c.minute.size !== 1) return null;
+  const minute = [...c.minute][0]!;
+  if (c.hour.size === 24 && !c.domRestricted && !c.dowRestricted) return { repeat: "hourly", minute };
+  if (c.hour.size !== 1) return null;
+  const hour = [...c.hour][0]!;
+  if (!c.domRestricted && !c.dowRestricted) return { repeat: "daily", hour, minute };
+  if (c.dowRestricted && !c.domRestricted) {
+    if (c.dayOfWeek.size === 5 && [1, 2, 3, 4, 5].every((d) => c.dayOfWeek.has(d))) return { repeat: "weekdays", hour, minute };
+    if (c.dayOfWeek.size === 1) return { repeat: "weekly", weekday: [...c.dayOfWeek][0]!, hour, minute };
+    return null;
+  }
+  if (c.domRestricted && !c.dowRestricted && c.dayOfMonth.size === 1) return { repeat: "monthly", day: [...c.dayOfMonth][0]!, hour, minute };
+  return null;
+}
 
 /* ────────────────────────────── the row ────────────────────────────── */
 
@@ -256,9 +434,17 @@ export const ScheduleSchema = z.object({
   /** The run the last firing created, if it is still around. A plain string, not a foreign key: "this
    *  schedule produced run X" stays a true and useful statement after X is deleted. */
   lastRunId: z.string().nullable(),
-  /** The last time a firing was skipped for being older than the catch-up window. Null once a real
-   *  firing happens; the page shows it so a laptop's missed Monday is visible rather than silent. */
+  /** The last time a firing was skipped — older than the catch-up window, or (continuing one session)
+   *  due while the last run was still going. Null once a real firing happens; the page shows it so a
+   *  laptop's missed Monday is visible rather than silent. */
   lastSkippedAt: z.number().int().nullable(),
+  /** Each firing starts a session of its own (true), or continues the session the last run left —
+   *  the same conversation, one more turn. A run still going is never sent another turn: that firing
+   *  is skipped and recorded instead. */
+  newSessionPerRun: z.boolean(),
+  /** Put a run's session away once the run SUCCEEDS. A failed or interrupted run stays where the
+   *  sidebar shows it, because that is the one a person has to come back to. */
+  archiveSucceeded: z.boolean(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
 });
@@ -271,15 +457,21 @@ export const CreateScheduleSchema = z.object({
   cron: z.string().min(1).max(200),
   enabled: z.boolean().default(true),
   constraints: RunConstraintsSchema.nullable().default(null),
+  newSessionPerRun: z.boolean().default(true),
+  archiveSucceeded: z.boolean().default(false),
 });
 export type CreateScheduleInput = z.infer<typeof CreateScheduleSchema>;
 
 export const UpdateScheduleSchema = z.object({
   id: IdSchema,
+  /** Moves the schedule, and the runs it fires from then on, to another space. */
+  spaceId: IdSchema.optional(),
   title: z.string().min(1).max(200).optional(),
   goal: z.string().min(1).max(20_000).optional(),
   cron: z.string().min(1).max(200).optional(),
   enabled: z.boolean().optional(),
   constraints: RunConstraintsSchema.nullable().optional(),
+  newSessionPerRun: z.boolean().optional(),
+  archiveSucceeded: z.boolean().optional(),
 });
 export type UpdateScheduleInput = z.infer<typeof UpdateScheduleSchema>;

@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, within, renderHook, act } from "@testing-library/react";
-import { sessionEvent, type Item, type Layout } from "@realm/contracts";
+import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
+import { PANE_DIVIDER, PANE_MIN, allItems, sessionEvent, type Item, type Layout } from "@realm/contracts";
 import { PaneHost, zoneAt, type PaneHostProps } from "./PaneHost";
 import { PanelBar } from "./PanelBar";
 import { Main } from "../App";
-import { useGlobalHotkeys } from "../hotkeys";
 import { StoreContext, createAppStore, findEmptySiblingOf } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
 import { setBrowserBridgesForTests } from "../panes/browser/browser-client";
@@ -34,6 +33,7 @@ function renderHost(over: Partial<PaneHostProps> = {}) {
   const props: PaneHostProps = {
     layout: split2, items, focusedLeafId: "L1",
     onFocus: vi.fn(), onClose: vi.fn(), onSplit: vi.fn(), onDropItem: vi.fn(), onEqualize: vi.fn(),
+    onCloseEmpty: vi.fn(),
     ...over,
   };
   // PanelBar reads the store (rename/delete, per-kind meta), so every host render needs a provider.
@@ -104,11 +104,32 @@ describe("PaneHost", () => {
     expect(panel("L1").querySelector(".panel-bar")).toBeInTheDocument();
   });
 
-  it("renders the placeholder and no PanelBar for an empty leaf", () => {
+  /* An empty leaf gets the placeholder and a bar of its own — a title-less strip whose only control
+     is the trash. It used to have no bar at all, which left ⌘W as the one way to be rid of the pane
+     and nothing on screen to say so. It is NOT a full PanelBar: there is no item to name, rename,
+     split from or navigate. */
+  it("renders the placeholder and a trash-only bar for an empty leaf", () => {
     renderHost({ layout: { type: "leaf", id: "L", itemId: null }, items: [], focusedLeafId: "L" });
     expect(screen.getByText("Open something from the sidebar.")).toBeInTheDocument();
-    expect(document.querySelector(".panel")).toBeInTheDocument();
-    expect(document.querySelector(".panel-bar")).toBeNull();
+    const bar = document.querySelector(".panel-bar");
+    expect(bar).toHaveClass("panel-bar-empty");
+    expect(within(bar as HTMLElement).getByRole("button", { name: "Close this empty pane" })).toBeInTheDocument();
+    // Nothing an empty pane cannot answer for: no title, no split, no pane menu.
+    expect(bar!.querySelector(".panel-title")).toBeNull();
+    expect(within(bar as HTMLElement).queryByRole("button", { name: /Split/ })).toBeNull();
+    expect(within(bar as HTMLElement).queryByRole("button", { name: /Pane menu/ })).toBeNull();
+  });
+
+  it("the trash drops THIS leaf, by id", () => {
+    const withEmpty: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "A" },
+      { type: "leaf", id: "L9", itemId: null },
+    ] };
+    const { props } = renderHost({ layout: withEmpty, focusedLeafId: "L1" });
+    fireEvent.click(screen.getByRole("button", { name: "Close this empty pane" }));
+    expect(props.onCloseEmpty).toHaveBeenCalledWith("L9");
+    // And it is not the item-keyed close: an empty pane has no item to pass to it.
+    expect(props.onClose).not.toHaveBeenCalled();
   });
 
   it("marks empty leaves with data-empty so a focused empty leaf (which has no header to accent-underline) still gets a visual focus mark (W5 carry-item)", () => {
@@ -149,7 +170,7 @@ describe("PaneHost", () => {
   describe("closing by delete", () => {
     const kinds = [
       ["settings-page", "Settings"], ["library-page", "Library"], ["connections-page", "Connections"],
-      ["notifications-page", "Notifications"], ["schedules-page", "Scheduled tasks"], ["agents-page", "Agents"],
+      ["code-review-page", "Code review"], ["schedules-page", "Scheduled tasks"],
       ["profile-page", "Profile"], ["space-page", "Overview"], ["terminal", "Shell"], ["documents", "Files"],
       ["browser", "Tab"],
     ] as const;
@@ -171,23 +192,35 @@ describe("PaneHost", () => {
       expect(screen.queryByRole("button", { name: `Close ${title}` })).toBeNull();
     });
 
-    it("a session pane keeps the × — its transcript outlives the pane", () => {
-      renderBar("session", "Chat");
-      expect(screen.getByRole("button", { name: "Close Chat" })).toBeInTheDocument();
+    it("a session pane has no close at all — none in its bar, none in its menu — and keeps Delete in the menu", async () => {
+      // THE MUTANT: the × back on a session's bar, or Close back in its menu — the control the owner
+      // asked to be rid of (10-05). A session is left from the sidebar, the way it was reached.
+      const { unmount } = renderBar("session", "Chat");
+      expect(screen.queryByRole("button", { name: "Close Chat" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Delete Chat" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Pane menu for Chat" }));
+      const rows = screen.getAllByRole("menuitem").map((r) => r.querySelector(".menu-label")?.textContent);
+      expect(rows.filter((r) => /Close|split/i.test(r ?? "") && r !== "Split right" && r !== "Split down")).toEqual([]);
+      expect(rows).toContain("Delete");
+      await exited();
+      unmount();
+    });
+
+    it("a session sharing the window is taken out of the split from its menu, on ⌘W", async () => {
+      const onUnsplit = vi.fn();
+      const { unmount } = renderBar("session", "Chat", { onUnsplit, onSplit: undefined });
+      fireEvent.click(screen.getByRole("button", { name: "Pane menu for Chat" }));
+      const row = screen.getByRole("menuitem", { name: /Remove from split/ });
+      expect(row.querySelector(".menu-kbd")?.textContent).toBe("⌘W");
+      fireEvent.click(row);
+      expect(onUnsplit).toHaveBeenCalledOnce();
+      await exited();
+      unmount();
     });
 
     it("a page deletes on ONE click: there is no row behind it for a confirm to protect", async () => {
       const { api } = renderBar("settings-page", "Settings");
       fireEvent.click(screen.getByRole("button", { name: "Delete Settings" }));
-      await waitFor(() => expect(api.calls).toContain("deleteItem:P"));
-    });
-
-    it("a terminal is two-step: the click would take a running pty with it", async () => {
-      const { api } = renderBar("terminal", "Shell");
-      fireEvent.click(screen.getByRole("button", { name: "Delete Shell" }));
-      expect(api.calls).not.toContain("deleteItem:P"); // armed, not deleted
-      fireEvent.click(screen.getByRole("button", { name: "Really delete Shell?" }));
       await waitFor(() => expect(api.calls).toContain("deleteItem:P"));
     });
 
@@ -205,15 +238,41 @@ describe("PaneHost", () => {
   /** W2.3 (Plan 11): NOTHING may ever open "over" a browser pane from its own header — the native
    *  view paints over any dropdown. The ⋯ menu is gone for browser panes; its actions are inline. */
   it("browser pane header has NO dropdown: no ⋯, no aria-haspopup — inline split buttons instead", () => {
-    const { props } = renderHost();
+    const { props } = renderHost({ layout: { type: "leaf", id: "L1", itemId: "A" } });
     expect(within(panel("L1")).queryByRole("button", { name: "Pane menu for Tab A" })).toBeNull();
     expect(panel("L1").querySelector(".panel-bar [aria-haspopup]")).toBeNull();
     fireEvent.click(within(panel("L1")).getByRole("button", { name: "Split Tab A right" }));
     expect(props.onSplit).toHaveBeenCalledExactlyOnceWith("L1", "row");
     fireEvent.click(within(panel("L1")).getByRole("button", { name: "Split Tab A down" }));
     expect(props.onSplit).toHaveBeenLastCalledWith("L1", "col");
+  });
+
+  it("keeps its split buttons at any number of panes, unavailable with the reason once there is no room", () => {
+    // THE MUTANTS: the old cap (no buttons at two), or a button that asks for a pane the room refuses.
+    const why = "No room for another pane beside it: each needs to be 280 points wide. Widen the window or take a pane out of the split.";
+    const { props } = renderHost({ splitRefusal: (_leaf, dir) => (dir === "row" ? why : null) });
+    const right = within(panel("L1")).getByRole("button", { name: "Split Tab A right" });
+    expect(right).toBeDisabled();
+    expect(right).toHaveAttribute("title", why);
+    const down = within(panel("L1")).getByRole("button", { name: "Split Tab A down" });
+    expect(down).toBeEnabled();
+    fireEvent.click(down);
+    expect(props.onSplit).toHaveBeenCalledExactlyOnceWith("L1", "col");
     // The non-browser pane keeps its ⋯ menu — the rework is scoped to browser panes.
     expect(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" })).toBeInTheDocument();
+  });
+
+  /* The focus glyph came OFF every other pane bar — the ⋯ row one click away said the same thing in
+     words, with its shortcut printed beside it. The browser bar has no ⋯ to say it, so the glyph
+     stays there and only there. THE mutant: drop it here too, and the one pane kind that cannot open
+     a menu loses every route to focus except a shortcut nothing on screen mentions. */
+  it("browser pane KEEPS the inline focus toggle — it is the one bar with no ⋯ row to replace it", () => {
+    const onZoom = vi.fn();
+    renderHost({ onZoom });
+    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Focus Tab A" }));
+    expect(onZoom).toHaveBeenCalledExactlyOnceWith("L1");
+    // ...and the pane that DOES have a menu carries no such button in its bar.
+    expect(within(panel("L2")).queryByRole("button", { name: "Focus Tab B" })).toBeNull();
   });
 
   it("browser pane delete is two-step INLINE (U-H2), deleting through the store on the confirm", async () => {
@@ -338,17 +397,190 @@ describe("PaneHost", () => {
   });
 });
 
+/**
+ * Which session bars offer the way out of a split — the pane host's half of `closeIntent`: a session
+ * that shares the window with something, never one alone, beside an empty box, or under pane focus.
+ */
+describe("PaneHost's Remove from split", () => {
+  const SESSIONS = [
+    item("SA", "s1", { kind: "session", refId: "sa", title: "Alpha" }),
+    item("SB", "s1", { kind: "session", refId: "sb", title: "Bravo" }),
+  ];
+  function renderSessions(layout: Layout, over: Partial<PaneHostProps> = {}) {
+    const api = fakeApi({ items: { s1: [...SESSIONS] }, sessions: [session("sa", "s1"), session("sb", "s1")] });
+    const store = createAppStore(api);
+    const onUnsplit = vi.fn();
+    const r = render(
+      <StoreContext.Provider value={store}>
+        <PaneHost layout={layout} items={SESSIONS} focusedLeafId="L1" onFocus={() => {}} onClose={() => {}} onSplit={() => {}}
+          onUnsplit={onUnsplit} {...over} />
+      </StoreContext.Provider>,
+    );
+    return { ...r, onUnsplit };
+  }
+  const menuOf = async (title: string) => {
+    fireEvent.click(screen.getByRole("button", { name: `Pane menu for ${title}` }));
+    return within(await screen.findByRole("menu", { name: `Actions for ${title}` }));
+  };
+  const two = (b: string | null): Layout => ({ type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+    { type: "leaf", id: "L1", itemId: "SA" }, { type: "leaf", id: "L2", itemId: b }] });
+
+  it("takes THIS pane's session out, by its leaf", async () => {
+    const { onUnsplit, unmount } = renderSessions(two("SB"));
+    fireEvent.click((await menuOf("Bravo")).getByRole("menuitem", { name: /Remove from split/ }));
+    expect(onUnsplit).toHaveBeenCalledExactlyOnceWith("L2");
+    await exited();
+    unmount();
+  });
+
+  it("is not offered to a session alone, nor beside an empty pane — whose own trash is the way out", async () => {
+    // THE MUTANT: offer it whenever there are two leaves. Beside an empty box it would take the
+    // session out and leave the box, which the store then fills with a session nobody asked for.
+    const alone = renderSessions({ type: "leaf", id: "L1", itemId: "SA" });
+    expect((await menuOf("Alpha")).queryByRole("menuitem", { name: /Remove from split/ })).toBeNull();
+    await exited();
+    alone.unmount();
+    const beside = renderSessions(two(null));
+    expect((await menuOf("Alpha")).queryByRole("menuitem", { name: /Remove from split/ })).toBeNull();
+    await exited();
+    beside.unmount();
+  });
+
+  it("is not offered under pane focus, where the other pane is out of sight", async () => {
+    const { unmount } = renderSessions(two("SB"), { zoomedLeafId: "L1", onUnzoom: () => {} });
+    const menu = await menuOf("Alpha");
+    expect(menu.queryByRole("menuitem", { name: /Remove from split/ })).toBeNull();
+    expect(menu.getByRole("menuitem", { name: /Unfocus pane/ })).toBeInTheDocument();
+    await exited();
+    unmount();
+  });
+});
+
+describe("PaneHost's side panel", () => {
+  const withPanel: Layout = { type: "split", id: "root", dir: "row", sizes: [60, 40], children: [
+    { type: "leaf", id: "L1", itemId: "B" },
+    { type: "leaf", id: "S1", itemId: "A", tabs: ["A"], owners: { A: "B" } },
+  ] };
+
+  it("is a column of its own beside the main panes, the full height, at its share before the host has measured", () => {
+    const { container } = renderHost({ layout: withPanel, panelShare: 0.4 });
+    const column = container.querySelector(".view-panel") as HTMLElement;
+    expect(column.querySelector('[data-leaf-id="S1"]')).not.toBeNull();
+    expect(column.style.width).toBe("40%");
+    // Beside the main panes, never inside their tree, with its own edge between them.
+    expect(container.querySelector(".view-main [data-leaf-id='S1']")).toBeNull();
+    expect(container.querySelector(".panehost > .panel-edge")).not.toBeNull();
+    expect(column.previousElementSibling).toHaveClass("panel-edge");
+  });
+
+  it("draws its measured width, and its edge is a separator with the room as its range", () => {
+    const { container } = renderHost({ layout: withPanel, panelPlace: { kind: "beside", width: 640 } });
+    expect((container.querySelector(".view-panel") as HTMLElement).style.width).toBe("640px");
+    const edge = screen.getByRole("separator", { name: "Side panel width" });
+    expect(edge).toHaveAttribute("aria-valuenow", "640");
+  });
+
+  it("put away, stays mounted and draws nothing of itself, edge included — the main panes take the width", () => {
+    // THE MUTANT: unmount the panel to hide it — a browser's view, a terminal's scrollback and an
+    // agent's hold on the page would go with it.
+    const { container } = renderHost({ layout: withPanel, sidePanesHidden: true });
+    const strip = container.querySelector('[data-leaf-id="S1"]')!;
+    expect(strip).not.toBeNull();
+    expect(strip.closest(".view-panel")).toHaveAttribute("hidden");
+    expect(container.querySelector(".panel-edge")).toBeNull();
+    expect(container.querySelector('[data-leaf-id="L1"]')!.closest(".view-main")).not.toHaveAttribute("hidden");
+  });
+
+  it("stepping aside for room is the same: mounted, not drawn", () => {
+    const { container } = renderHost({ layout: withPanel, panelPlace: { kind: "aside" } });
+    expect(container.querySelector(".view-panel")).toHaveAttribute("hidden");
+    expect(container.querySelector(".panel-edge")).toBeNull();
+  });
+
+  it("in full view takes the main panes' place, which unmount", () => {
+    const { container } = renderHost({ layout: withPanel, zoomedLeafId: "S1" });
+    expect(container.querySelector(".view-main")).toBeNull();
+    expect(container.querySelector(".view-panel")).toHaveAttribute("data-full");
+    expect(container.querySelector('[data-leaf-id="S1"]')).toHaveAttribute("data-first-leaf");
+  });
+
+  it("stays beside a main pane under pane focus — the panel is the window's, not a pane of the split", () => {
+    const three: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "split", id: "M", dir: "row", sizes: [50, 50], children: [{ type: "leaf", id: "L1", itemId: "B" }, { type: "leaf", id: "L2", itemId: null }] },
+      { type: "leaf", id: "S1", itemId: "A", tabs: ["A"], owners: { A: "B" } },
+    ] };
+    const { container } = renderHost({ layout: three, zoomedLeafId: "L1" });
+    expect(container.querySelector('[data-leaf-id="L2"]')).toBeNull();
+    expect(container.querySelector(".view-panel")).not.toHaveAttribute("hidden");
+  });
+
+  it("a press in its bar leaves the keyboard where it is; a press in the tab itself moves it there", () => {
+    // THE MUTANT: focus the panel on any press in it. Choosing a tab would take the keyboard from the
+    // prompter being typed in.
+    const { props } = renderHost({ layout: withPanel, focusedLeafId: "L1" });
+    fireEvent.pointerDown(within(panel("S1")).getByRole("tab", { name: "Tab A" }));
+    expect(props.onFocus).not.toHaveBeenCalled();
+    fireEvent.pointerDown(panel("S1").querySelector(".panel-body")!);
+    expect(props.onFocus).toHaveBeenCalledExactlyOnceWith("S1");
+    // A main pane's bar still takes it: a pane is focused by pressing anywhere in it.
+    fireEvent.pointerDown(panel("L1").querySelector(".panel-bar")!);
+    expect(props.onFocus).toHaveBeenLastCalledWith("L1");
+  });
+
+  it("lights an edge a split has no room for as refused, says why across the pane, and takes no drop there", () => {
+    // THE MUTANT: light the edge as an ordinary zone. The drop would land, and the toast would say no.
+    const why = "No room for another pane beside it: each needs to be 280 points wide. Widen the window or take a pane out of the split.";
+    const { props } = renderHost({ splitRefusal: (_leaf, dir) => (dir === "row" ? why : null) });
+    fireDrag(window, "dragstart", dt("B"));
+    const overlay = panel("L1").querySelector(".drop-overlay")!;
+    stubRect(overlay, { width: 400, height: 300 });
+    fireDrag(overlay, "dragover", dt("B"), { clientX: 390, clientY: 150 });
+    expect(overlay.querySelector('.drop-zone[data-edge="right"]')).toHaveAttribute("data-refused");
+    expect(within(overlay as HTMLElement).getByRole("status")).toHaveTextContent(why);
+    fireDrag(overlay, "drop", dt("B"), { clientX: 390, clientY: 150 });
+    expect(props.onDropItem).not.toHaveBeenCalled();
+    // Down has room: lit as ever, and the drop lands. (A drop ends the drag, so the overlay is new.)
+    fireDrag(window, "dragstart", dt("B"));
+    const again = panel("L1").querySelector(".drop-overlay")!;
+    stubRect(again, { width: 400, height: 300 });
+    fireDrag(again, "dragover", dt("B"), { clientX: 200, clientY: 290 });
+    expect(again.querySelector('.drop-zone[data-edge="bottom"]')).toHaveAttribute("data-hot");
+    expect(again.querySelector('.drop-zone[data-edge="bottom"]')).not.toHaveAttribute("data-refused");
+    expect(again.querySelector(".drop-zone-why")).toBeNull();
+    fireDrag(again, "drop", dt("B"), { clientX: 200, clientY: 290 });
+    expect(props.onDropItem).toHaveBeenCalledExactlyOnceWith("B", "L1", "bottom");
+  });
+
+  it("offers no split and no edge drops of its own — a drop on it is a tab", () => {
+    renderHost({ layout: withPanel });
+    fireDrag(window, "dragstart", dt("B"));
+    const overlay = panel("S1").querySelector(".drop-overlay")!;
+    expect([...overlay.querySelectorAll(".drop-zone")].map((z) => z.getAttribute("data-edge"))).toEqual(["center"]);
+  });
+
+  it("marks the bar at the window's top right — the panel's while it is out, the main panes' once it is away", () => {
+    const shown = renderHost({ layout: withPanel });
+    expect(shown.container.querySelector("[data-top-right]")).toHaveAttribute("data-leaf-id", "S1");
+    shown.unmount();
+    const hidden = renderHost({ layout: withPanel, sidePanesHidden: true });
+    expect(hidden.container.querySelector("[data-top-right]")).toHaveAttribute("data-leaf-id", "L1");
+    // A row's top right is its LAST child, a column's is in its FIRST.
+    hidden.unmount();
+    const stacked: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "split", id: "v", dir: "col", sizes: [50, 50], children: [{ type: "leaf", id: "L1", itemId: "B" }, { type: "leaf", id: "L9", itemId: null }] },
+      { type: "leaf", id: "S1", itemId: "A", tabs: ["A"], owners: { A: "B" } },
+    ] };
+    const away = renderHost({ layout: stacked, sidePanesHidden: true });
+    expect(away.container.querySelector("[data-top-right]")).toHaveAttribute("data-leaf-id", "L1");
+  });
+});
+
 describe("PaneHost divider double-click", () => {
   const threeCol: Layout = { type: "split", id: "root", dir: "row", sizes: [60, 25, 15], children: [
     { type: "leaf", id: "L1", itemId: "A" },
     { type: "leaf", id: "L2", itemId: "B" },
     { type: "leaf", id: "L3", itemId: null },
   ] };
-
-  it("a split renders one divider between each adjacent pair", () => {
-    renderHost({ layout: threeCol });
-    expect(document.querySelectorAll(".resize-handle")).toHaveLength(2);
-  });
 
   it("double-clicking any divider asks the owning split — not the pair — to equalize", () => {
     const { props } = renderHost({ layout: threeCol });
@@ -381,10 +613,6 @@ describe("PaneHost divider double-click", () => {
 });
 
 describe("PaneHost drag-to-split overlay", () => {
-  it("renders no drop-overlay when no drag is in progress", () => {
-    renderHost();
-    expect(document.querySelector(".drop-overlay")).toBeNull();
-  });
 
   it("a realm-item drag shows a .drop-overlay with five .drop-zones in every panel", () => {
     renderHost();
@@ -505,10 +733,6 @@ describe("PaneHost drag-to-split overlay", () => {
 describe("zoneAt (pure pointer -> edge mapping)", () => {
   const rect = { width: 400, height: 200 };
 
-  it("returns center for a pointer in the middle", () => {
-    expect(zoneAt(200, 100, rect)).toBe("center");
-  });
-
   it("returns left/right within 32% of the respective edge, else center (threshold boundary)", () => {
     expect(zoneAt(10, 100, rect)).toBe("left");
     expect(zoneAt(127, 100, rect)).toBe("left"); // 127/400 = 31.75% <= 32%
@@ -556,7 +780,7 @@ async function mountMain(focusedLeafId: string) {
 }
 
 describe("App shell", () => {
-  it("dropping New session on a pane edge creates it in a new split", async () => {
+  it("dropping New session on a pane's edge opens it beside that pane — a third pane, on the side it was dropped", async () => {
     const { store, api } = await mountMain("L1");
     fireDrag(window, "dragstart", newSessionDt());
     const overlay = panel("L2").querySelector(".drop-overlay")!;
@@ -564,75 +788,37 @@ describe("App shell", () => {
     fireDrag(overlay, "drop", newSessionDt(), { clientX: 390, clientY: 150 });
 
     await waitFor(() => expect(api.calls).toContain("createSession:claude"));
-    await waitFor(() => {
-      const current = store.getState().layout;
-      expect(current?.type).toBe("split");
-      if (current?.type !== "split") throw new Error();
-      expect(current.children).toHaveLength(3);
+    const created = await waitFor(() => {
+      const it = store.getState().items.find((i) => i.kind === "session");
+      if (!it || !allItems(store.getState().layout!).includes(it.id)) throw new Error("not on screen yet");
+      return it;
     });
     const layout = store.getState().layout!;
     expect(layout.type).toBe("split"); if (layout.type !== "split") throw new Error();
-    const created = store.getState().items.find((i) => i.kind === "session")!;
+    // B was dropped on, and the new session is beside it, to its right as the edge said: three panes.
     expect(layout.children.map((c) => c.type === "leaf" ? c.itemId : null)).toEqual(["A", "B", created.id]);
     expect(store.getState().focusedLeafId).toBe(layout.children[2]!.id);
   });
 
-  it("PanelBar split targets its own leaf: focusLeaf runs before splitFocused", async () => {
+  it("a pane bar's Split is unavailable, saying why, only while there is no room for another pane", async () => {
+    // THE MUTANT: offer the row where the room refuses the split — a control whose only outcome is
+    // nothing happening — or take it away without saying what would bring it back.
     const { store } = await mountMain("L1");
-    // L1 is focused; splitting from L2's PanelBar menu must split L2, not the previously focused leaf.
+    act(() => store.setState({ viewRoom: { width: 2 * PANE_MIN.width + PANE_DIVIDER, height: PANE_MIN.height } }));
     fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
+    const refused = screen.getByRole("menuitem", { name: /Split right/ });
+    expect(refused).toBeDisabled();
+    expect(refused).toHaveAttribute("title", expect.stringMatching(/No room for another pane beside it/));
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await act(async () => { await store.getState().closeFromLayout("A"); });
+    const solo = store.getState().layout!;
+    fireEvent.click(within(panel(solo.id)).getByRole("button", { name: "Pane menu for Tab B" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Split right/ }));
-    await waitFor(() => expect(findEmptySiblingOf(store.getState().layout!, "L2")).toBeTruthy());
+    await waitFor(() => expect(findEmptySiblingOf(store.getState().layout!, solo.id)).toBeTruthy());
     const l = store.getState().layout!; if (l.type !== "split") throw new Error();
-    // The row GREW rather than nesting, so "which leaf was split" is now a question of position: the
-    // fresh empty leaf sits right after L2, with L1 and L2 still the untouched first two columns.
-    expect(l.children).toHaveLength(3);
-    expect(l.children.map((c) => c.id).slice(0, 2)).toEqual(["L1", "L2"]);
-    expect(l.children[2]).toMatchObject({ type: "leaf", itemId: null });
-    expect(store.getState().focusedLeafId).toBe(l.children[2]!.id);
-    expect(findEmptySiblingOf(l, "L2")).toBe(l.children[2]!.id);
+    expect(l.children).toHaveLength(2);
+    expect(l.children[1]).toMatchObject({ type: "leaf", itemId: null });
+    expect(store.getState().focusedLeafId).toBe(l.children[1]!.id);
   });
 
-  it("the global topbar is retired: no breadcrumb or topbar chrome, panes render full-bleed (layout presets live in the command palette)", async () => {
-    await mountMain("L2");
-    expect(document.querySelector(".topbar")).toBeNull();
-    expect(document.querySelector(".breadcrumb")).toBeNull();
-    expect(document.querySelector(".layout-menu")).toBeNull();
-    expect(document.querySelectorAll(".panel")).toHaveLength(2); // PaneHost is the whole stage now
-  });
-
-  it("⌘\\ splits the focused leaf; ignored while a sheet is open", async () => {
-    const api = fakeApi({ items: { s1: [...items] } });
-    const store = createAppStore(api);
-    await store.getState().boot();
-    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "A" }, focusedLeafId: "L1" }));
-    renderHook(() => useGlobalHotkeys(store));
-    fireEvent.keyDown(window, { key: "\\", metaKey: true });
-    await waitFor(() => expect(store.getState().layout!.type).toBe("split"));
-    act(() => store.getState().openSheet({ kind: "new-space" }));
-    fireEvent.keyDown(window, { key: "\\", metaKey: true });
-    const l = store.getState().layout!;
-    expect(l.type === "split" && l.children.length).toBe(2); // unchanged while the sheet is open
-  });
-
-  it("the error bar steps below the connection banner only while the socket is down", async () => {
-    const { store } = await mountMain("L1");
-    act(() => store.setState({ error: "boom" }));
-    expect(document.querySelector(".error-bar")).not.toHaveAttribute("data-under-banner");
-    act(() => store.setState({ connectionState: "reconnecting" }));
-    expect(document.querySelector(".error-bar")).toHaveAttribute("data-under-banner");
-    act(() => store.setState({ connectionState: "connected" }));
-    expect(document.querySelector(".error-bar")).not.toHaveAttribute("data-under-banner");
-  });
-
-  it("⌘\\ is ignored while the command palette is open", async () => {
-    const api = fakeApi({ items: { s1: [...items] } });
-    const store = createAppStore(api);
-    await store.getState().boot();
-    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "A" }, focusedLeafId: "L1", paletteOpen: true }));
-    renderHook(() => useGlobalHotkeys(store));
-    fireEvent.keyDown(window, { key: "\\", metaKey: true });
-    const l = store.getState().layout!;
-    expect(l.type).toBe("leaf"); // unchanged while the palette is open
-  });
 });

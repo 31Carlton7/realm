@@ -11,25 +11,20 @@ const boot = async (overrides: Parameters<typeof fakeApi>[0] = {}) => {
 };
 
 describe("store — the notifications slice (Plan 12 W5)", () => {
-  it("boot seeds the unread count from the server WITHOUT loading the feed — the pill needs no page", async () => {
+  it("boot seeds the unread count from the server WITHOUT loading the feed — the Dock needs no rows", async () => {
     const { api, store } = await boot({ notifications: [notification("n1"), notification("n2"), notification("n3", { readAt: 5 })] });
     expect(store.getState().notificationsUnread).toBe(2);
-    expect(store.getState().notifications).toEqual([]); // the page loads rows, not boot
+    expect(store.getState().notifications).toEqual([]); // a clicked toast loads rows, not boot
     expect(api.calls.filter((c) => c.startsWith("listNotifications"))).toEqual(["listNotifications:-:1"]);
   });
 
-  it("refreshNotifications replaces the held slice; loadMore pages on the cursor without duplicating", async () => {
+  it("refreshNotifications replaces the held slice with the feed's first page", async () => {
     // 51 rows: one page of 50 plus a tail, with distinct createdAt so the order is deterministic.
     const rows = Array.from({ length: 51 }, (_, i) => notification(`n${String(i).padStart(3, "0")}`, { createdAt: 1000 - i }));
     const { store } = await boot({ notifications: rows });
     await store.getState().refreshNotifications();
     expect(store.getState().notifications).toHaveLength(50);
-    expect(store.getState().notificationsCursor).not.toBeNull();
-    await store.getState().loadMoreNotifications();
-    const s = store.getState();
-    expect(s.notifications).toHaveLength(51);
-    expect(new Set(s.notifications.map((n) => n.id)).size).toBe(51);
-    expect(s.notificationsCursor).toBeNull(); // short page = honest end
+    expect(store.getState().notifications[0]!.id).toBe("n000");
   });
 
   it("markNotificationsRead applies the SERVER's returned unread and flips the held rows", async () => {
@@ -43,14 +38,6 @@ describe("store — the notifications slice (Plan 12 W5)", () => {
     expect(s.notifications.find((n) => n.id === "n2")!.readAt).toBeNull();
     await store.getState().markNotificationsRead("all");
     expect(store.getState().notificationsUnread).toBe(0);
-  });
-
-  it("THE second-derivation mutant: applyNotificationsChanged applies the payload's unread verbatim, never a count of held rows", async () => {
-    const { store } = await boot();
-    // No rows held at all — the count still lands, because it is the server's number, not ours.
-    store.getState().applyNotificationsChanged({ notification: null, unread: 7 });
-    expect(store.getState().notificationsUnread).toBe(7);
-    expect(store.getState().notifications).toEqual([]);
   });
 
   it("a surfaced row lands at the top of a held slice and MOVES on reopen rather than duplicating", async () => {
@@ -73,17 +60,6 @@ describe("store — the notifications slice (Plan 12 W5)", () => {
     expect(store.getState().notifications[0]!.readAt).not.toBeNull();
   });
 
-  it("session_done for the FOCUSED session pane is auto-read the moment it arrives (the renderer owns focus)", async () => {
-    const { api, store } = await boot({
-      items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "S" })] },
-      sessions: [session("se1", "s1")],
-    });
-    await store.getState().openItem("i1"); // focuses the session pane
-    store.getState().applyNotificationsChanged({ notification: notification("nd1", { category: "session_done", sessionId: "se1" }), unread: 1 });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(api.calls).toContain("markNotificationsRead:nd1");
-  });
-
   it("…and a settle for any OTHER session stays unread — no blanket auto-read", async () => {
     const { api, store } = await boot({
       items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "S" })] },
@@ -97,19 +73,6 @@ describe("store — the notifications slice (Plan 12 W5)", () => {
     expect(api.calls.some((c) => c.startsWith("markNotificationsRead"))).toBe(false);
   });
 
-  it("openNotificationTarget jumps cross-space to the session's item and marks the row read", async () => {
-    const { api, store } = await boot({
-      items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "S" })], s2: [item("i2", "s2", { kind: "session", refId: "se2", title: "T" })] },
-      sessions: [session("se1", "s1"), session("se2", "s2")],
-    });
-    await store.getState().refreshAllSessions();
-    expect(store.getState().activeSpaceId).toBe("s1");
-    await store.getState().openNotificationTarget(notification("n1", { sessionId: "se2", spaceId: "s2" }));
-    expect(store.getState().activeSpaceId).toBe("s2");
-    const focusedItem = store.getState().items.find((i) => i.refId === "se2");
-    expect(focusedItem).toBeTruthy();
-    expect(api.calls).toContain("markNotificationsRead:n1");
-  });
 });
 
 /** The OS hop is fire-and-forget from the broadcast handler (a failed toast must never take the feed
@@ -230,58 +193,74 @@ describe("store — the desktop (OS) hop", () => {
     expect(navEntry(store.getState().paneHistory, store.getState().focusedLeafId!)).toEqual({ itemId: pane.id, view: null });
   });
 
-  it("a row with no session opens the FEED with that row selected — an mcp_health toast has no pane to land on", async () => {
+  it("a row with no session lands on the page that owns it — an MCP server on Connections", async () => {
     const { api, store } = await boot({
       notifications: [notification("h1", { category: "mcp_health", sessionId: null, refId: "srv1", title: "srv1 stopped answering", actedAt: null })],
     });
+    const layout = allItems(store.getState().layout!);
     await store.getState().activateDesktopNotification("h1");
-    const page = store.getState().items.find((i) => i.kind === "notifications-page");
-    expect(page).toBeTruthy();
-    expect(allItems(store.getState().layout!)).toContain(page!.id);
-    expect(store.getState().notificationsSelectedId).toBe("h1");
+    // Over the workspace, as every page is: no item, no pane, no split.
+    expect(store.getState().pageOverlay?.kind).toBe("connections-page");
+    expect(store.getState().items.some((i) => i.kind.endsWith("-page"))).toBe(false);
+    expect(allItems(store.getState().layout!)).toEqual(layout);
     expect(api.calls).toContain("markNotificationsRead:h1");
   });
 
-  it("…and that landing is a STOP on the pane's trail, so the arrows retrace it like an in-page click", async () => {
-    const { store } = await boot({ notifications: [notification("b1", { category: "budget", sessionId: null, refId: "2026-09:0.8" })] });
+  it("…a probe on Engines, a budget on Usage, a run on Scheduled", async () => {
+    const { store } = await boot({ notifications: [
+      notification("p1", { category: "agent_probe", sessionId: null, refId: "codex" }),
+      notification("b1", { category: "budget", sessionId: null, refId: "2026-09:0.8" }),
+      notification("r1", { category: "run_done", sessionId: null, refId: "run1" }),
+    ] });
+    await store.getState().activateDesktopNotification("p1");
+    expect(store.getState().pageOverlay?.kind).toBe("settings-page");
+    expect(store.getState().settingsPageTab).toBe("engines");
     await store.getState().activateDesktopNotification("b1");
-    const leaf = store.getState().focusedLeafId!;
-    await store.getState().stepPaneNav(leaf, -1);
-    expect(store.getState().notificationsSelectedId).toBeNull(); // back to the bare list
-    await store.getState().stepPaneNav(leaf, 1);
-    expect(store.getState().notificationsSelectedId).toBe("b1");
+    expect(store.getState().settingsPageTab).toBe("usage");
+    await store.getState().activateDesktopNotification("r1");
+    expect(store.getState().pageOverlay?.kind).toBe("schedules-page");
   });
 
-  it("a session row whose pane no longer exists falls back to the feed rather than a space switch that opens nothing", async () => {
-    const { store } = await boot({
+  it("a session row whose pane no longer exists reads the row and moves nothing", async () => {
+    const { api, store } = await boot({
       items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "S" })], s2: [] },
       sessions: [session("se1", "s1"), session("se2", "s2")],
       notifications: [notification("d1", { category: "session_done", sessionId: "se2", spaceId: "s2" })],
     });
     await store.getState().refreshAllSessions();
+    const layout = store.getState().layout;
     await store.getState().activateDesktopNotification("d1");
-    expect(store.getState().activeSpaceId).toBe("s2");
-    expect(store.getState().notificationsSelectedId).toBe("d1");
+    // THE MUTANT: a landing that falls through to some page — there is no feed to stand in for it.
+    expect(store.getState().pageOverlay).toBeNull();
+    expect(store.getState().layout).toBe(layout);
+    expect(api.calls).toContain("markNotificationsRead:d1");
+  });
+});
+
+describe("store — coming back to the window reads the feed", () => {
+  it("reads everything announced while the window was away, once, on the way back", async () => {
+    // With no feed page there is nowhere else to read a row, and the Dock's count would only climb.
+    const { api, store } = await boot({ notifications: [notification("n1"), notification("n2")] });
+    expect(api.data.badgeCount).toBe(2);
+    store.getState().setWindowActive(false);
+    await tick();
+    expect(api.calls.some((c) => c.startsWith("markNotificationsRead"))).toBe(false);
+    store.getState().setWindowActive(true);
+    await tick();
+    expect(api.calls.filter((c) => c.startsWith("markNotificationsRead"))).toEqual(["markNotificationsRead:all"]);
+    expect(store.getState().notificationsUnread).toBe(0);
+    expect(api.data.badgeCount).toBe(0);
   });
 
-  it("THE read-after-the-jump mutant: the row is stamped read BEFORE the app goes anywhere", async () => {
-    const { api, store } = await boot({ notifications: [notification("a1", { category: "agent_probe", sessionId: null, refId: "claude" })] });
-    await store.getState().activateDesktopNotification("a1");
-    // The row is read because the user clicked it, not because the landing below turned out to be
-    // reachable — so the read lands before the page the jump has to create.
-    const order = api.calls.filter((c) => c === "markNotificationsRead:a1" || c.startsWith("createItem:"));
-    expect(order).toHaveLength(2);
-    expect(order[0]).toBe("markNotificationsRead:a1");
-  });
-
-  it("…and a row whose feed page is ALREADY open is selected in it, rather than opening a second one", async () => {
-    const { store } = await boot({
-      notifications: [notification("h2", { category: "mcp_health", sessionId: null, refId: "srv2", actedAt: null })],
-    });
-    await store.getState().openDestinationPage("notifications-page");
-    await store.getState().activateDesktopNotification("h2");
-    expect(store.getState().items.filter((i) => i.kind === "notifications-page")).toHaveLength(1);
-    expect(store.getState().notificationsSelectedId).toBe("h2");
+  it("asks nothing when there is nothing unread, and nothing for a focus that never left", async () => {
+    const { api, store } = await boot({ notifications: [notification("n1", { readAt: 1 })] });
+    store.getState().setWindowActive(false);
+    store.getState().setWindowActive(true);
+    const busy = await boot({ notifications: [notification("n2")] });
+    busy.store.getState().setWindowActive(true); // already active: no transition, no read
+    await tick();
+    expect(api.calls.some((c) => c.startsWith("markNotificationsRead"))).toBe(false);
+    expect(busy.api.calls.some((c) => c.startsWith("markNotificationsRead"))).toBe(false);
   });
 });
 

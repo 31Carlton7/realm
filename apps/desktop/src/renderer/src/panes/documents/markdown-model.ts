@@ -5,6 +5,7 @@ import MarkdownIt, { type Token } from "markdown-it";
 import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import { MarkdownParser, MarkdownSerializer, type MarkdownSerializerState } from "prosemirror-markdown";
 import type { Node as ProseNode, Schema } from "@tiptap/pm/model";
+import { fenceClosed } from "@realm/contracts";
 
 /**
  * Markdown ⇄ ProseMirror for the docs editor (Plan 17 W2).
@@ -348,6 +349,18 @@ export function parseMarkdown(text: string, schema: Schema = docSchema): ProseNo
 
   if (entries.length === 0) return schema.topNodeType.createAndFill()!;
   return schema.topNodeType.create(null, entries.map((e) => e.node));
+}
+
+/**
+ * Whether a code block came from a fence the file never closed — an agent still writing it.
+ *
+ * Read from the block's preserved source, because that is the only record of how the fence was
+ * written: a block the user has edited has none and is closed by construction, since the serializer
+ * writes its closing fence back. A drawn block (`UiBlockNode.tsx`) stays code while this is true.
+ */
+export function openFence(node: ProseNode): boolean {
+  const kept = blockSource.get(node);
+  return kept !== undefined && node.type.name === "codeBlock" && /^ {0,3}(?:`{3,}|~{3,})/.test(kept.text) && !fenceClosed(kept.text);
 }
 
 /**

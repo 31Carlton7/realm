@@ -1,6 +1,6 @@
 import {
-  CreateScheduleSchema, SCHEDULE_CATCHUP_MS, SCHEDULE_TICK_MS, nextFireOf,
-  type CreateScheduleInput, type Schedule, type UpdateScheduleInput,
+  CreateScheduleSchema, SCHEDULE_CATCHUP_MS, SCHEDULE_TICK_MS, isOnce, isRunLive, nextFireOf, parseOnce,
+  type CreateScheduleInput, type Run, type Schedule, type UpdateScheduleInput,
 } from "@realm/contracts";
 import type { SchedulesStore } from "../store/schedules";
 import type { RunService } from "../runs/service";
@@ -31,6 +31,12 @@ const dedupeKeyFor = (scheduleId: string, dueAt: number) => `schedule:${schedule
  * does not, and the row records `lastSkippedAt` so the page can say so. Running every missed
  * occurrence would start a week of agents at once, and running none would make schedules useless on
  * a machine that is not always on — neither is a thing to do silently.
+ *
+ * **A one-shot is the exception, and runs however late it is.** The catch-up window exists to stop a
+ * recurring schedule stampeding after a long sleep, and a one-shot cannot stampede: it has exactly
+ * one occurrence, so the only thing the window could do is drop it. "In two weeks, open the PR"
+ * dropped because the lid was shut on the day is the failure this whole feature would be judged on,
+ * and firing it late — visibly, with the run in the Tasks lens — is the better of the two answers.
  */
 export class ScheduleService {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -38,8 +44,12 @@ export class ScheduleService {
 
   constructor(private readonly d: {
     store: SchedulesStore;
-    runs: Pick<RunService, "create">;
+    runs: Pick<RunService, "create" | "latestForSchedule">;
     rpc: Pick<RpcServer, "broadcast">;
+    /** Put a session away, or bring it back — its sidebar row's archive flag (`runSettled`). */
+    archiveSession?: (sessionId: string, archived: boolean) => void;
+    /** Whether a space exists, for an edit that moves a schedule into one. */
+    spaceExists?: (spaceId: string) => boolean;
     /** Test seam only — production leaves this alone and uses the real clock. */
     clock?: () => number;
   }) {}
@@ -87,7 +97,10 @@ export class ScheduleService {
       // Too old to be worth starting. The occurrence is already advanced past by the claim, so this
       // is genuinely a skip rather than a deferral — and it is written down, because unattended work
       // that quietly did not happen is the worst thing this feature could do.
-      if (at - dueAt > SCHEDULE_CATCHUP_MS) {
+      //
+      // A one-shot is never old enough: the window guards against a backlog, and a schedule with one
+      // occurrence has no backlog to guard against. See the class comment.
+      if (!isOnce(schedule.cron) && at - dueAt > SCHEDULE_CATCHUP_MS) {
         this.d.store.recordFiring(schedule.id, { at, runId: null, skipped: true });
         this.announce(schedule.spaceId);
         continue;
@@ -105,8 +118,27 @@ export class ScheduleService {
     }
   }
 
-  /** One firing: create the run, record what it produced, tell the clients. */
+  /**
+   * One firing: create the run, record what it produced, tell the clients.
+   *
+   * A schedule that continues one session hands the run the session its last run left, and is the
+   * one case a firing can be refused for something other than age: while that run is still live —
+   * working, or `blocked` on a person — the session is mid-conversation, and a second turn sent into
+   * it would be settled as the first one's answer. The occurrence is skipped and written down, like a
+   * missed one, rather than forking the conversation the schedule was asked to keep.
+   */
   private fire(schedule: Schedule, dueAt: number, at: number): void {
+    let sessionId: string | null = null;
+    if (!schedule.newSessionPerRun) {
+      const last = this.d.runs.latestForSchedule(schedule.id);
+      if (last && isRunLive(last.state)) {
+        this.d.store.recordFiring(schedule.id, { at, runId: null, skipped: true });
+        this.announce(schedule.spaceId);
+        return;
+      }
+      // A session belongs to a space, so a schedule moved since its last run starts afresh there.
+      sessionId = last?.spaceId === schedule.spaceId ? last.sessionId : null;
+    }
     const { run } = this.d.runs.create({
       spaceId: schedule.spaceId,
       goal: schedule.goal,
@@ -120,9 +152,23 @@ export class ScheduleService {
       // No deadline: a run's bound is wall-clock and a schedule has no opinion about how long its
       // work should take. Cancelling one is a thing a person does, in the runs list.
       deadlineAt: null,
+      scheduleId: schedule.id,
+      sessionId,
     });
     this.d.store.recordFiring(schedule.id, { at, runId: run.id, skipped: false });
     this.announce(schedule.spaceId);
+  }
+
+  /**
+   * A run this schedule fired is over. With "archive successful runs" on, a success puts its session
+   * away and anything else brings it back — so a schedule that continues one session shows it again
+   * the moment a run in it fails, which is the run a person has to come back to.
+   */
+  runSettled(run: Run): void {
+    if (!run.scheduleId || !run.sessionId) return;
+    const schedule = this.d.store.get(run.scheduleId);
+    if (!schedule?.archiveSucceeded) return;
+    this.d.archiveSession?.(run.sessionId, run.state === "succeeded");
   }
 
   /* ── the API ───────────────────────────────────────────────────────────── */
@@ -134,9 +180,7 @@ export class ScheduleService {
     // Validated HERE, not at fire time. A schedule whose expression cannot be parsed would sit in
     // the list looking armed and never fire — the failure would be invisible until someone noticed
     // the work had not happened, which for unattended work can be weeks.
-    if (nextFireOf(parsed.cron, this.now()) === null) {
-      throw new RpcError("SCHEDULE_CRON", `\`${parsed.cron}\` is not a schedule that will ever run — check the expression`);
-    }
+    if (nextFireOf(parsed.cron, this.now()) === null) throw this.unfireable(parsed.cron);
     const made = this.d.store.create(parsed);
     this.announce(made.spaceId);
     return made;
@@ -149,10 +193,12 @@ export class ScheduleService {
     // sent: an edit that only flips `enabled` must not be re-validated into a failure, and an edit
     // that changes the expression must be.
     const cron = input.cron ?? before.cron;
-    if (nextFireOf(cron, this.now()) === null) {
-      throw new RpcError("SCHEDULE_CRON", `\`${cron}\` is not a schedule that will ever run — check the expression`);
-    }
+    if (nextFireOf(cron, this.now()) === null) throw this.unfireable(cron);
+    if (input.spaceId !== undefined && input.spaceId !== before.spaceId && this.d.spaceExists && !this.d.spaceExists(input.spaceId))
+      throw new NotFoundError("space", input.spaceId);
     const next = this.d.store.update(input.id, input)!;
+    // A move is a change to BOTH spaces' lists: the old one loses the row, the new one gains it.
+    if (next.spaceId !== before.spaceId) this.announce(before.spaceId);
     this.announce(next.spaceId);
     return next;
   }
@@ -176,9 +222,23 @@ export class ScheduleService {
   runNow(id: string): Schedule {
     const schedule = this.d.store.get(id);
     if (!schedule) throw new NotFoundError("schedule", id);
+    // The clock records a skip when the conversation is still busy; a person who clicked is told.
+    const last = schedule.newSessionPerRun ? null : this.d.runs.latestForSchedule(id);
+    if (last && isRunLive(last.state))
+      throw new RpcError("SCHEDULE_BUSY", "this task continues one session, and its last run is still going — let it finish, or start each run in a new session");
     const at = this.now();
     this.fire(schedule, at, at);
     return this.d.store.get(id)!;
+  }
+
+  /** Why an expression was refused, in the terms of the spelling it was written in. A one-shot in
+   *  the past is not a malformed expression and telling its author to "check the five fields" sends
+   *  them looking for a syntax error in a date that is simply behind them. */
+  private unfireable(expr: string): RpcError {
+    const once = parseOnce(expr);
+    return new RpcError("SCHEDULE_CRON", once !== null
+      ? `${new Date(once).toLocaleString()} has already passed — a one-shot can only be scheduled ahead of now`
+      : `\`${expr}\` is not a schedule that will ever run — check the expression`);
   }
 
   private announce(spaceId: string): void {

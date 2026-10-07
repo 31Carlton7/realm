@@ -35,7 +35,7 @@ export type DocsAgentToolsDeps = {
   /** `DocumentService.list` over the space's primary workspace (creating the workspace if needed). */
   listForSpace(spaceId: string, dir: string): Promise<DocumentEntry[]>;
   /** `DocumentService.openPath` — the same call the store makes. */
-  openPath(p: { spaceId: string; path: string }): Promise<{ documentsId: string; itemId: string; environmentId: string }>;
+  openPath(p: { spaceId: string; path: string; openedBy?: string }): Promise<{ documentsId: string; itemId: string; environmentId: string }>;
   /** A guide's sidecar (empty when none). */
   progressForSpace(spaceId: string, path: string): Promise<GuideProgress>;
 };
@@ -125,7 +125,7 @@ const HANDLERS: Record<string, Handler> = {
   async docs_open(d, ctx, a) {
     const path = str(a.path).replace(/^\/+/, "");
     if (!path) return err("path is required");
-    const r = await d.openPath({ spaceId: ctx.spaceId, path });
+    const r = await d.openPath({ spaceId: ctx.spaceId, path, openedBy: ctx.sessionId });
     return ok(`Opened ${path} in the Documents pane (workspace ${r.documentsId}).`);
   },
   async docs_progress(d, ctx, a) {

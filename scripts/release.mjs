@@ -14,8 +14,9 @@
  * It never pushes, never talks to a release API, and ends by printing exactly what a human does
  * next. `--dry-run` prints the whole plan (bump, entries, provenance) and touches nothing.
  */
-import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { closeSync, existsSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -127,7 +128,7 @@ export function nextStepsText({ tag, branch, artifacts }) {
 
 // ---------- orchestration (integration-tested with an injected exec) ----------
 
-export function release({ root, argv, exec, log }) {
+export function release({ root, argv, exec, log, smoke = smokeTestPackagedServer }) {
   const { kind, dryRun } = parseReleaseArgs(argv);
 
   const dirty = (exec("git", ["status", "--porcelain"], { cwd: root }) ?? "").trim();
@@ -186,6 +187,9 @@ export function release({ root, argv, exec, log }) {
   const missing = missingArtifacts(files, next);
   if (missing.length) throw new Error(`build finished but artifacts are missing: ${missing.join(", ")} (release/ has: ${files.join(", ") || "nothing"}) — NO commit or tag was made`);
 
+  log("[release] smoke-testing the packaged server…");
+  smoke(root, log);
+
   exec("git", ["add", "apps/desktop/package.json", "CHANGELOG.md"], { cwd: root });
   exec("git", ["commit", "-m", `release: ${tag}`], { cwd: root });
   exec("git", ["tag", tag], { cwd: root });
@@ -210,3 +214,62 @@ function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+
+/**
+ * Boot the server bundle that was just packaged, on a scratch home, and require it to say `ready`.
+ *
+ * v1.4.0 shipped a server that could not start: `@xterm/headless` is CommonJS and tsup leaves
+ * anything in `dependencies` external, so the bundle carried a bare `import { Terminal } from
+ * "@xterm/headless"` that Node refuses at load. Every gate was green — the suite passed, `tsc`
+ * passed, `pnpm build` passed — because none of them RUN the bundle. The first execution was the
+ * packaged app's, on a user's machine.
+ *
+ * So this executes it. `dist/main.js` prints one line of JSON when it is serving; anything else, or
+ * nothing before the timeout, fails the release BEFORE the commit and the tag exist. It catches the
+ * whole class — any top-level import that resolves at build time and explodes at load.
+ *
+ * REALM_HOME is a throwaway directory and the port is one nothing else uses: a release must never
+ * touch the real `~/Realm`, whose database it would migrate.
+ */
+export function smokeTestPackagedServer(root, log = () => {}, timeoutMs = 60_000) {
+  const entry = join(root, "apps", "server", "dist", "main.js");
+  if (!existsSync(entry)) throw new Error(`no packaged server at ${entry} — NO commit or tag was made`);
+  const home = mkdtempSync(join(tmpdir(), "realm-release-smoke-"));
+  const logPath = join(home, "boot.log");
+  /* The child writes to a FILE DESCRIPTOR, and this polls it with synchronous reads.
+     The obvious version — `spawn` plus `child.stdout.on("data", …)` — cannot work here and failed
+     silently the first time it ran: the wait below blocks the thread, so the event loop never turns,
+     so those handlers never fire, so the output is always empty and every release "fails". Writing
+     past Node's event loop is what makes a synchronous wait legitimate. */
+  const fd = openSync(logPath, "a");
+  const child = spawn(process.execPath, [entry], {
+    cwd: join(root, "apps", "server"),
+    env: { ...process.env, REALM_HOME: home, REALM_PORT: "8799" },
+    stdio: ["ignore", fd, fd],
+    detached: false,
+  });
+  const read = () => { try { return readFileSync(logPath, "utf8"); } catch { return ""; } };
+  /* A crash names itself, so it is worth failing on immediately rather than waiting out the clock —
+     these are the shapes a bundle that will not load actually produces. */
+  const FATAL = /SyntaxError|Cannot find (module|package)|ERR_MODULE_NOT_FOUND|ERR_REQUIRE_ESM|MODULE_NOT_FOUND|ERR_UNKNOWN_BUILTIN_MODULE|ERR_UNSUPPORTED_DIR_IMPORT/;
+  const deadline = Date.now() + timeoutMs;
+  try {
+    for (;;) {
+      const out = read();
+      if (out.includes('"type":"ready"')) { log("[release] packaged server booted."); return; }
+      if (FATAL.test(out)) throw new Error(smokeFailure("it could not load", out));
+      if (Date.now() >= deadline) throw new Error(smokeFailure("it never reported ready", out));
+      execFileSync("sleep", ["0.25"]);
+    }
+  } finally {
+    try { child.kill("SIGKILL"); } catch { /* already gone */ }
+    try { closeSync(fd); } catch { /* already closed */ }
+    try { rmSync(home, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+}
+
+function smokeFailure(why, out) {
+  return `the packaged server did not come up — ${why}. NO commit or tag was made.\n`
+    + `This is the gate v1.4.0 did not have: the suite and the build cannot catch an import that\n`
+    + `only fails when the bundle is executed.\n--- its output ---\n${(out || "(it printed nothing)").slice(0, 2000)}`;
+}

@@ -19,9 +19,23 @@ export class JsonRpcCallError extends Error {
  * answer lands on an already-settled promise. Every unbounded call into a child process goes through this:
  * a child that spawns and then answers nothing must never leave a promise pending forever.
  */
+/**
+ * A call that ran out of time, distinguishable from one the peer ANSWERED with an error.
+ *
+ * The difference decides what a caller may do next. A peer that said "no" has been heard from, and
+ * trying something else is reasonable; a peer that said nothing may be wedged, and a second bounded
+ * call would simply spend another whole budget waiting on the same silence. `CodexAdapter`'s resume
+ * fallback turns on exactly this.
+ */
+export class RpcTimeoutError extends Error {
+  constructor(message: string) { super(message); this.name = "RpcTimeoutError"; }
+}
+
+export const isRpcTimeout = (e: unknown): boolean => e instanceof RpcTimeoutError;
+
 export function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
+    const timer = setTimeout(() => reject(new RpcTimeoutError(message)), ms);
     p.then(resolve, reject).finally(() => clearTimeout(timer));
   });
 }
@@ -34,6 +48,10 @@ export type StdioJsonRpcOptions = {
   args: string[];
   cwd: string;
   env?: Record<string, string>;
+  /** Realm's execution sandbox, applied to `{command, args}` at the spawn and nowhere else — see
+   *  `StartOptions.wrap` in ../types. It may throw, and the throw is left to reach the constructor's
+   *  caller: a child that could not be confined must not be started unconfined. */
+  wrap?: (command: string, args: string[]) => { command: string; args: string[] };
   onNotification: (n: JsonRpcNotification) => void;
   /** MUST be answered with respond()/respondError() — an unanswered server request stalls the agent's turn forever. */
   onServerRequest: (r: JsonRpcServerRequest) => void;
@@ -64,7 +82,10 @@ export class StdioJsonRpc {
 
   constructor(private o: StdioJsonRpcOptions, deps: { spawn?: typeof nodeSpawn } = {}) {
     const spawnFn = deps.spawn ?? nodeSpawn;
-    this.child = spawnFn(o.command, o.args, { cwd: o.cwd, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...o.env } });
+    // Deliberately NOT inside a try: `wrap` throwing means the sandbox could not be applied, and the
+    // constructor must fail rather than fall through to an unconfined `spawnFn(o.command, ...)`.
+    const spawned = o.wrap ? o.wrap(o.command, o.args) : { command: o.command, args: o.args };
+    this.child = spawnFn(spawned.command, spawned.args, { cwd: o.cwd, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...o.env } });
     this.child.stdout?.setEncoding("utf8");
     this.child.stderr?.setEncoding("utf8");
     this.child.stdout?.on("data", (c: string) => this.onStdout(c));

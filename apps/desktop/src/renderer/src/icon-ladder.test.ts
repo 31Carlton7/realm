@@ -30,7 +30,7 @@ describe("icon ladder", () => {
 
   it("scans the whole renderer", () => {
     expect(files.length, "the source glob found nothing — the scan would pass vacuously").toBeGreaterThan(50);
-    expect(files.map(([n]) => n)).toContain("./components/GroupBar.tsx");
+    expect(files.map(([n]) => n)).toContain("./components/PanelBar.tsx");
     expect(files.map(([n]) => n)).toContain("./components/sidebar/ItemList.tsx");
   });
 

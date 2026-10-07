@@ -97,6 +97,28 @@ describe("toolInputView", () => {
   it("declines a command tool whose payload has no command — the raw well then shows what it does have", () => {
     expect(toolInputView("Bash", { timeout: 5000 })).toBeNull();
   });
+
+  it("draws a browser_upload as the file list it is, carrying the full path only where the server sent one", () => {
+    // "Allow" here means these bytes leave this Mac, so the list is the question — and the outside
+    // path is the part a reader has to actually see.
+    expect(toolInputView("browser_upload", {
+      browserId: "b1", ref: 11, origin: "devpost.com", element: "Choose files",
+      files: [{ name: "hero.png", size: "1.2 MB" }, { name: "demo.mp4", size: "40.0 MB", path: "/Users/me/Movies/demo.mp4" }],
+    })).toEqual({
+      kind: "upload", host: "devpost.com", element: "Choose files",
+      files: [
+        { name: "hero.png", size: "1.2 MB", path: null },
+        { name: "demo.mp4", size: "40.0 MB", path: "/Users/me/Movies/demo.mp4" },
+      ],
+    });
+  });
+
+  it("declines an upload payload it cannot fully read, so the raw well shows every file", () => {
+    // A half-drawn list would HIDE a file the user is being asked to send — the one failure this
+    // card may not have.
+    expect(toolInputView("browser_upload", { files: [{ name: "a.png" }, { size: "1 KB" }] })).toBeNull();
+    expect(toolInputView("browser_upload", { files: [] })).toBeNull();
+  });
 });
 
 describe("toolResultView", () => {

@@ -1,3 +1,5 @@
+import type { AgentKind } from "./entities";
+
 /**
  * Model IDENTITY across harnesses — the one thing that makes a model-first picker possible.
  *
@@ -23,6 +25,77 @@
  * so this needed no migration and no RPC of its own.
  */
 export const MODEL_FAVORITES_KEY = "models.favorites";
+
+/**
+ * The `settings` row holding what each harness last SAID about fast mode, per model a session asked
+ * for: `{ [fastSupportKey]: boolean }`.
+ *
+ * It exists so the switch can be offered before a session's first message. Whether a model can run
+ * fast mode is only ever stated by the harness, in the `init` it sends once a session is running, and
+ * a prompter that waited for that answer could not offer the switch until after the first prompt —
+ * which is exactly when switching it on is too late for that prompt. So the answer is remembered
+ * from the last session that heard it, and the next session on the same model starts with it.
+ *
+ * Remembered, never guessed: a model no session has run yet has no entry, and it keeps the old
+ * behaviour — no switch until its own harness has answered. Written by the server, which sees every
+ * session's `init` including the ones no pane has open; the prompter only reads it.
+ */
+export const MODEL_FAST_SUPPORT_KEY = "models.fastSupport";
+
+/** The entry for one agent and the model a session ASKED for. `""` is the harness's own default: a
+ *  session with no model of its own asks for that, and it is all that is knowable before it starts. */
+export const fastSupportKey = (kind: AgentKind, model: string | null): string => `${kind}:${model ?? ""}`;
+
+/** The row as a map, with anything but a boolean answer dropped — settings rows are user-editable JSON. */
+export function readFastSupport(raw: unknown): Record<string, boolean> {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw).filter((kv): kv is [string, boolean] => typeof kv[1] === "boolean"));
+}
+
+/**
+ * The `settings` row holding the reasoning levels each harness said a model takes, filed the way
+ * `MODEL_FAST_SUPPORT_KEY` files its answers: `{ [fastSupportKey]: string[] }`, `[]` being a model
+ * that takes none. Claude's levels are per model and only its CLI knows them (`supportedModels()`),
+ * so one session's answer is what lets the next session's effort control offer exactly those.
+ */
+export const MODEL_EFFORTS_KEY = "models.efforts";
+
+/** The row as a map, keeping only lists of strings — settings rows are user-editable JSON. */
+export function readEffortSupport(raw: unknown): Record<string, string[]> {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw).filter((kv): kv is [string, string[]] =>
+    Array.isArray(kv[1]) && kv[1].every((l) => typeof l === "string")));
+}
+
+/**
+ * Whether Realm can ASK this agent for fast mode at all. A fact about Realm's own adapters, not about
+ * any model: Claude takes it as a flag setting at start and mid-session, Codex as the `priority` service
+ * tier on each `turn/start`, and no other adapter has a channel to say it on. WHICH models can run it is
+ * only ever the harness's answer — its `init`, the probe's catalog, `MODEL_FAST_SUPPORT_KEY` — never a
+ * line in this file.
+ */
+export const AGENT_FAST_MODE = {
+  claude: true, codex: true,
+  "acp:cursor": false, "acp:gemini": false, "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
+  "acp:qwen": false, "acp:grok": false, "acp:fx": false, "acp:deepseek": false, "acp:openhands": false, "acp:hermes": false,
+  fake: false,
+} as const satisfies Record<AgentKind, boolean>;
+
+/**
+ * Whether Realm's adapter can hand this agent a reasoning level — and so whether its effort control
+ * can mean anything. Claude takes the SDK's `effort` at start and `applyFlagSettings({effortLevel})`
+ * mid-session; Codex takes `turn/start`'s `effort`; an ACP agent takes one only through a
+ * `thought_level` option of its own session config (`session/set_config_option`). WHICH levels a model
+ * takes is the harness's answer, never this table's: Codex's catalog, Claude's `supportedModels()`, the
+ * ACP option's values. Cursor writes effort into its model ids (`effort=high`) and offers no option, so
+ * an ACP agent that advertises none shows no control.
+ */
+export const AGENT_TAKES_EFFORT = {
+  claude: true, codex: true,
+  "acp:cursor": true, "acp:gemini": true, "acp:opencode": true, "acp:copilot": true, "acp:goose": true,
+  "acp:qwen": true, "acp:grok": true, "acp:fx": true, "acp:deepseek": true, "acp:openhands": true, "acp:hermes": true,
+  fake: false,
+} as const satisfies Record<AgentKind, boolean>;
 
 /**
  * Fold a model's displayed name to a comparison key.
@@ -98,6 +171,7 @@ export const MODEL_ALIASES: Record<string, string> = {
 export const MODEL_NOTES: ReadonlyMap<string, string> = new Map(([
   ["Claude Fable 5.1", "Anthropic's newest — strongest here at long agentic runs, big refactors and front-end work."],
   ["Claude Fable 5", "The previous Fable. Same shape as 5.1 and usually a step behind it on agentic coding."],
+  ["Claude Opus 5.5", "The newest Opus: long-running coding agents and research, at a lower price than the Fables."],
   ["Claude Opus 5", "Deep reasoning over long horizons: end-to-end tasks, code review, bug hunts."],
   ["Claude Sonnet 5", "Frontier coding at a fifth of Fable's price — the sensible everyday default."],
   ["Claude Haiku 4.5", "Fastest Claude. For small edits, lookups and subagents, where latency beats depth."],

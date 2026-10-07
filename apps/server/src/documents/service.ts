@@ -1,7 +1,8 @@
 import { readdir, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, isAbsolute } from "node:path";
 import {
-  documentTemplate, emptyGuideProgress, GuideProgressSchema, newId, progressSidecarPath, recordGuideAttempt,
+  documentTemplate, emptyGuideProgress, expandHome, GuideProgressSchema, newId, progressSidecarPath, recordGuideAttempt,
   type DocumentEntry, type DocumentKind, type DocumentWorkspace, type GuideProgress,
 } from "@realm/contracts";
 import type { DocumentPreviewServer } from "./preview";
@@ -78,7 +79,7 @@ export class DocumentService {
    * exist — opening a tab on nothing would show an empty editor that cannot save (`baseHash` null
    * + a later creation = conflict), so a missing file is an error here rather than a surprise later.
    */
-  async openPath(p: { spaceId: string; environmentId?: string; path: string }): Promise<{ documentsId: string; itemId: string; environmentId: string }> {
+  async openPath(p: { spaceId: string; environmentId?: string; path: string; openedBy?: string }): Promise<{ documentsId: string; itemId: string; environmentId: string; path: string }> {
     const { documentsId, itemId } = this.open({ spaceId: p.spaceId, environmentId: p.environmentId });
     const ws = this.get(documentsId);
     const root = this.rootOf(ws);
@@ -87,9 +88,10 @@ export class DocumentService {
        the transcript's own clickable paths, and what an agent writes into its prose is absolute
        (`/Users/…/scholarships/PROFILE.md`). Turning that into a tab is the whole point, and asking
        every caller to know the workspace root first would be asking them to reimplement `relInRoot`.
-       Outside the root is still a refusal, with a message that says so rather than one about
-       traversal. */
-    const rel = isAbsolute(p.path) ? relInRoot(root, p.path) : p.path;
+       `~/…` is absolute too, once expanded — it is how agents write most of them. Outside the root
+       is still a refusal, with a message that says so rather than one about traversal. */
+    const named = expandHome(p.path, homedir());
+    const rel = isAbsolute(named) ? relInRoot(root, named) : named;
     if (rel === null) throw new RpcError("BAD_PATH", `${p.path} is outside this workspace`);
     const abs = resolveInRoot(root, rel);
     let st;
@@ -97,8 +99,8 @@ export class DocumentService {
     if (!st.isFile()) throw new RpcError("BAD_PATH", `${rel} is not a file`);
     const openPaths = ws.openPaths.includes(rel) ? ws.openPaths : [...ws.openPaths, rel];
     await this.setTabs(documentsId, openPaths, rel);
-    this.d.rpc.broadcast("documents.openRequested", { spaceId: ws.spaceId, environmentId: ws.environmentId, documentsId, itemId, path: rel });
-    return { documentsId, itemId, environmentId: ws.environmentId };
+    this.d.rpc.broadcast("documents.openRequested", { spaceId: ws.spaceId, environmentId: ws.environmentId, documentsId, itemId, path: rel, ...(p.openedBy ? { openedBy: p.openedBy } : {}) });
+    return { documentsId, itemId, environmentId: ws.environmentId, path: rel };
   }
 
   /** A guide's quiz history from its sidecar; a missing or unreadable sidecar is simply empty. */
@@ -242,10 +244,21 @@ export class DocumentService {
     return entries;
   }
 
+  /**
+   * One file's text, for an editor to hold.
+   *
+   * This is the one read that refuses a file whose bytes are not text. `documentKindFor` is pure and
+   * extension-driven — it has to be, since it runs on a directory listing where nothing has been read
+   * — so it can say `.png` is not a document but it cannot say whether `notes.txt` is a note or a
+   * renamed zip. Only the read has the bytes, so the distinction is drawn here: a NUL byte is a
+   * binary and a decode failure is a file Realm would rewrite on save, and both are refused with a
+   * sentence that says which. The alternative is a pane full of U+FFFD and a save that destroys the
+   * file it opened.
+   */
   async read(documentsId: string, path: string): Promise<{ text: string; hash: string }> {
     const ws = this.get(documentsId);
     const abs = resolveInRoot(this.rootOf(ws), path);
-    const r = await readDocument(abs);
+    const r = await readDocument(abs, { refuseBinary: true });
     // Reading is what a tab opening does, so it is also the moment the watcher must learn this file's
     // current content — otherwise the first outside edit is compared against nothing.
     this.watcher.noteWrite(abs, r.hash);

@@ -28,7 +28,8 @@ if (!fs.existsSync(chrome)) throw new Error(`No Chrome at ${chrome}; point REALM
 const WIDTH = 1200
 const HEIGHT = 630
 const TIMEOUT_MS = 90_000
-const ALT = "Realm, with the words: One workspace for every coding agent, on your Mac."
+const ALT =
+  "Realm, with the words: Give your agents a world to work in. Below them, a Realm window in a lit portal: every space in the sidebar, a session that fixed a crash, and the file it named open beside it."
 const IEND = Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82])
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-share-"))
@@ -66,6 +67,8 @@ const child = spawn(
     "--use-angle=metal",
     "--hide-scrollbars",
     "--force-device-scale-factor=1",
+    // sRGB whatever the display: the card is read on other people's screens.
+    "--force-color-profile=srgb",
     // The still frame: the loop never starts, so the shot is the field at time zero every run.
     "--force-prefers-reduced-motion",
     "--virtual-time-budget=12000",

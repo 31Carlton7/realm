@@ -1,9 +1,10 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry } from "@realm/contracts";
-import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
-import { basenameOf, mimeForPath, nextFireOf } from "@realm/contracts";
-import type { CliStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
+import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
+import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
+import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { SavedTurn } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -21,15 +22,24 @@ export const emptyUsageSummary = (extra: Partial<UsageSummary> = {}): UsageSumma
   ...extra,
 });
 
+/** The page about you on a home where nothing has happened yet — what `usage.records` really
+ *  answers on a fresh install, and so what the page's empty state must be tested against. */
+export const emptyUsageRecords = (extra: Partial<UsageRecords> = {}): UsageRecords => ({
+  tokens: { input: 0, output: 0 }, unmeasuredSessions: 0, peakDay: null, longestTurn: null,
+  streak: { current: { days: 0, from: null, to: null }, longest: { days: 0, from: null, to: null } },
+  models: [], efforts: [], skills: [], tools: [],
+  ...extra,
+});
+
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
-  ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
+  ({ id, name, icon: "user", color: "#000000", sortOrder: 0, browserPartition: `persist:browser-${id}`, createdAt: 0, updatedAt: 0, ...extra });
 export const space = (id: string, profileId: string, name: string, extra: Partial<Space> = {}): Space =>
   ({ id, profileId, name, icon: "folder", color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", groups: null, layout: null, activeItemId: null, createdAt: 0, updatedAt: 0, ...extra });
 export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): Item =>
   ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, archived: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
-    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra });
+    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra });
 
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
   ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null,
@@ -51,7 +61,11 @@ export const agentsFileState = (extra: Partial<AgentsFileState> = {}): AgentsFil
 
 export const checkpoint = (id: string, environmentId: string, extra: Partial<Checkpoint> = {}): Checkpoint =>
   ({ id, environmentId, sessionId: null, kind: "turn", label: "a turn", ref: `refs/realm/checkpoints/${environmentId}/${id}`,
-    commitSha: `sha-${id}`, headSha: "head", headRef: "refs/heads/main", createdAt: 0, ...extra });
+    commitSha: `sha-${id}`, headSha: "head", headRef: "refs/heads/main",
+    /* Null by default so the base fake is the case that still exists in the wild: a checkpoint with
+       no conversation cursor, which restores files only. A test that wants the rewind path asks for
+       it by name through `extra`, rather than every unrelated test silently exercising it. */
+    sessionSeq: null, providerCursor: null, createdAt: 0, ...extra });
 export const preview = (id: string, environmentId: string, extra: Partial<RestorePreview> = {}): RestorePreview =>
   ({ checkpointId: id, environmentId, path: "/tmp", label: "a turn", createdAt: 0, filesChanged: 0, commitsRolledBack: 0,
     headMovable: true, headReason: null, intact: true, rewindsConversation: false, ...extra });
@@ -61,7 +75,7 @@ export const preview = (id: string, environmentId: string, extra: Partial<Restor
 export const mcpServer = (id: string, extra: Partial<McpServer> = {}): McpServer =>
   ({ id, name: `srv-${id}`, transport: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"], url: "",
     envKeys: [], headerKeys: [], authKind: "none", oauthStatus: "unconfigured", status: "idle", tools: [], allowedTools: null,
-    enabled: false, scope: { kind: "space", spaceId: null }, createdAt: 0, ...extra });
+    enabled: false, scope: { kind: "space", spaceId: null }, showViews: true, createdAt: 0, ...extra });
 export const mcpTool = (name: string, description = ""): McpTool => ({ name, description });
 /** A logged call (W7). `serverName: ""` + `tool` holding the full namespaced string is the
  *  blocked-attribution shape (plan amendment); tests that need it pass that combination explicitly. */
@@ -77,7 +91,7 @@ export const shipRow = (id: string, spaceId: string, extra: Partial<Ship> = {}):
 /** A durable run. Defaults to a queued run with no attempts yet. */
 export const runRow = (id: string, spaceId: string, extra: Partial<Run> = {}): Run =>
   ({ id, spaceId, title: `Run ${id}`, goal: `do ${id}`, agentKind: "claude", environmentId: null,
-    constraints: null, dedupeKey: null, state: "queued", attempt: 0, maxAttempts: 1, sessionId: null,
+    constraints: null, dedupeKey: null, state: "queued", attempt: 0, maxAttempts: 1, sessionId: null, scheduleId: null,
     deadlineAt: null, result: null, error: null, createdAt: 0, startedAt: null, settledAt: null, updatedAt: 0, ...extra });
 
 /** One attempt of a run. */
@@ -109,6 +123,19 @@ export const macRow = (id: string, label: string, group: MacAccessRow["group"], 
 };
 
 export type FakeData = {
+  /** `system.info.detachedSince` — when Realm's last window went away. Null (the default) is a server
+   *  with a window attached, which is what every test that does not care about it wants. */
+  detachedSince?: number | null;
+  /** Goal mode: the objective each session is pursuing, by session id. */
+  goals?: Record<string, Goal>;
+  /** Saved turns, by session id, as their prompts' seqs — and the Library's rows for them, which the
+   *  fake lists only while their seq is still saved, so an unsave anywhere takes the row out. */
+  savedTurns?: Record<string, number[]>;
+  savedEntries?: SavedTurn[];
+  /** Friend packs the fake server holds, the words that open them, and which are already open. */
+  eggPacks?: UnlockedEggPack[];
+  eggWords?: Record<string, string>;
+  eggsUnlocked?: string[];
   /** Plan 22: lectures per space, Plynn's meetings folder, and guide progress by `documentsId:path`. */
   lectures?: Record<string, Lecture[]>;
   plynn?: { available: boolean; folder: string; meetings: PlynnMeeting[] };
@@ -126,6 +153,10 @@ export type FakeData = {
   importScan?: ImportScan; importResult?: ImportResult;
   usageSummary?: UsageSummary;
   usageActiveDays?: UsageDay[];
+  usageRecords?: UsageRecords;
+  /** The server's copy of the picture on the page about you, or null for none. `setAvatar` writes
+   *  a new path here as the server would; `clearAvatar` empties it. */
+  avatarPath?: string | null;
   schedules?: Schedule[];
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
@@ -153,14 +184,48 @@ export type FakeData = {
   /** `checkpoints.preview` by checkpoint id. Mutate between calls to simulate the checkout moving
    *  under an open confirmation, which is exactly what the acknowledgement exists to catch. */
   checkpointPreview?: Record<string, RestorePreview>;
+  /** `checkpoints.turnDiff` by `${checkpointId}|${path}`. */
+  turnPatches?: Record<string, FileDiff>;
   /** `skills.list` by space id — what the prompter's @-mention picker offers (W4). Toggles via
    *  `setSkillEnabled` are applied per space on top of these rows, mirroring the disabled-set store. */
   skills?: Record<string, Skill[]>;
   /** The library folder `skills.list` reports. */
   skillsRoot?: string;
+  /** A space's user-defined slash commands, by space id. Absent → none, which is what a space with no
+   *  `commands/` directory really reports. */
+  commands?: Record<string, UserCommand[]>;
+  /** The folder `commands.list` reports as the space's own writable root. */
+  commandsRoot?: string;
+  /** A space's project scripts, by space id. Absent → none. */
+  scripts?: Record<string, Script[]>;
+  /** What `keybindings.get` answers with. Defaults to the shipped rules with no error — the state a
+   *  fresh install is in. */
+  keybindings?: KeybindingsFile;
+  /** What `sandbox.get` answers with. Defaults to the shipped posture (`off`) inherited from the
+   *  default, on a Mac where Seatbelt works — the state a fresh install is in. */
+  sandbox?: SandboxState;
+  /** What `project.grep` / `project.files` answer. Empty by default: a test that wants project search
+   *  results asks for them, rather than every palette test rendering rows it never mentioned. */
+  projectGrep?: ProjectGrepResult;
+  projectFiles?: ProjectFilesResult;
   /** What `skills.sources` answers, by space id. Absent → the library alone, which is what a machine
    *  with no other agent directories on it really does report. */
   skillSources?: Record<string, SkillSource[]>;
+  /** Imported VS Code themes, as `themes.list` answers. */
+  customThemes?: StoredTheme[];
+  /** Families downloaded into `~/Realm/fonts`, as `fonts.installed` answers. */
+  installedFonts?: InstalledFont[];
+  /** What `fonts.catalog` answers with. */
+  fontCatalog?: CatalogFont[];
+  /** What the native theme picker returns — null is "the user cancelled". */
+  pickedThemeFile?: string | null;
+  /** What `themes.import` answers with; absent gives a plausible dark theme. */
+  importedTheme?: StoredTheme;
+  /** What `skills.read` answers, by skill id: the `SKILL.md` body and the files bundled beside it.
+   *  Absent id → an empty document with no resources, which is what a one-line SKILL.md really is. */
+  skillDocs?: Record<string, { body?: string; frontmatter?: Record<string, string>; resources?: SkillResource[] }>;
+  /** What `skills.readFile` answers, keyed `<skillId>/<rel>`. Absent → NOT_FOUND, as on the server. */
+  skillFiles?: Record<string, string>;
   /** What `mcp.test` answers, by server id. Absent id → reached false, "no test result configured". */
   mcpTest?: Record<string, McpTestResult>;
   /** Realm memory documents by space id. */
@@ -177,6 +242,18 @@ export type FakeData = {
   /** The space's failover policy. Defaults to the real default (retry on, no chain), so a test that
    *  does not care about failover gets the behaviour a fresh install has. */
   failover?: FailoverPolicy;
+  /** Laya's status. Defaults to what a fresh install on a Mac with Homebrew's 3.13 says: not
+   *  installed, and off. */
+  laya?: LayaStatus;
+  /** The code editors `editors.list` reports as installed. None by default — a test that wants the
+   *  path menu's editor item says which. */
+  editors?: InstalledEditor[];
+  /** What main's app scan lists for the `@` list, and the icons it answers by bundle path. None by
+   *  default: a test that is not about apps should see no Apps group at all. */
+  installedApps?: InstalledApp[];
+  appIcons?: Record<string, string>;
+  /** Each session's checkout, as `mentions.files` ranks it. Keyed by session id. */
+  workspaceFiles?: Record<string, string[]>;
   /** What `cli.status` answers. Empty by default: a test that is not about the CLI manager should
    *  see no install or update offers at all. */
   cliStatus?: CliStatus[];
@@ -184,8 +261,17 @@ export type FakeData = {
   /** What the main-process TCC probe answers (W6's Permissions tab). Defaults to the two honest
    *  can't-check rows plus three probed ones, mirroring main/tcc.ts's shape. */
   tccRows?: TccRow[];
-  credentials?: BrowserCredential[];
+  /** Saved sign-ins. Each is profile p1's unless it names another `profileId` — sign-ins are a
+   *  profile's own, and the fake answers each profile with its rows alone, as main does. */
+  /** The profile this fake window was opened for (`window.realm.profileId`); absent = the first window. */
+  boundProfileId?: string | null;
+  /** Profiles another (fake) window is showing — what `focusProfileWindow` answers yes for. */
+  profilesInOtherWindows?: string[];
+  credentials?: (BrowserCredential & { profileId?: string })[];
   credentialStatus?: CredentialStatus;
+  /** Passkeys Realm holds. Like `credentials`, the fixture carries NO private key field — a fake
+   *  that kept one would be a fake that could pass a test main fails. p1's unless named. */
+  passkeys?: (Passkey & { profileId?: string })[];
   /** Toasts main actually posted, in order — an OUTPUT, read as `api.data.shownNotifications`. */
   shownNotifications?: { id: string; title: string; body: string | null }[];
   /** The dock badge's last pushed value — also an output. Starts at 0, like a fresh dock. */
@@ -224,7 +310,10 @@ export type FakeData = {
   mcpCalls?: McpCall[];
   /** Realm-native providers `mcp.providers.list` answers with (W4). Flat like `mcpServers`: these
    *  fakes exercise one space at a time. */
-  mcpProviders?: { name: string; enabled: boolean }[];
+  mcpProviders?: { name: string; enabled: boolean; offered: boolean | null; needs: string | null }[];
+  /** The same, per space, for a test where spaces must differ (Settings ▸ Computer use). A space
+   *  missing here answers with `mcpProviders`. */
+  mcpProvidersBySpace?: Record<string, { name: string; enabled: boolean; offered: boolean | null; needs: string | null }[]>;
   /** Profile memory docs by profile id (W4's Library page). */
   profileMemoryDocs?: Record<string, string>;
   /** Per-space disable override for the inherited profile doc — mirrors the server's polarity
@@ -237,12 +326,24 @@ export type FakeData = {
   reviews?: Record<string, ReviewResult | null>;
   /** The delegation engine's live registry by delegating session id — what `delegation.running` answers. */
   delegatedRuns?: Record<string, DelegatedRun[]>;
+  /** Each lead session's sub-agents — what `delegation.children` answers. */
+  delegatedChildren?: Record<string, DelegatedChild[]>;
+  /** What `delegation.models` answers, for every session. */
+  delegableModels?: DelegableModels;
   /** What `search.query` answers (Plan 16 W2), regardless of query — palette tests script the groups.
    *  Delay it with `delays["search"]` to hold results in flight. */
   searchResults?: SearchResults;
   /** The Library's file index, as one flat list. The fake pages and filters it here rather than
    *  answering a fixed page, so a test can prove the page's own paging without a server. */
   artifacts?: LibraryEntry[];
+  /** The profile each ADDED file in `artifacts` belongs to, by entry id — an added file has no space
+   *  for the fake to read its profile off, as it has none on the server. */
+  addedProfiles?: Record<string, string>;
+  /** What `library.add` answers. Absent, the fake copies every path in as an added file (folders are
+   *  whatever the test says they are: `addFolders`), and lists it in `artifacts` from then on. */
+  libraryAdd?: ((input: LibraryAddInput) => LibraryAddResult) | null;
+  /** The paths `library.add` should treat as folders, with what each holds. */
+  addFolders?: Record<string, { files: string[]; bytes: number; subfolders: number }>;
   /** `iconAssets.list` by profile id — the space icon picker's "Generated"/"Uploaded" library. */
   iconAssets?: Record<string, IconAsset[]>;
   /** What `pickIconImage()` answers with. Defaults to null (cancelled) — a test opts in by setting
@@ -251,14 +352,22 @@ export type FakeData = {
 };
 
 export type FakeApi = Api & {
-  /** Method-call log, e.g. `listItems:s1`, `setLayout:s1`, `setSetting:ui.theme=dark`. */
+  /** Method-call log, e.g. `listItems:s1`, `setSetting:ui.theme=dark`. */
   calls: string[];
   disposed: string[];
   /** Browser ids whose native view the store asked main to destroy. */
   destroyedBrowserViews: string[];
   /** Every `sendMessage`, with the attachments that actually went on the wire. `mentions` is present
    *  only when non-empty, so mention-free assertions stay byte-for-byte what they always were. */
-  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[] }[];
+  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[] }[];
+  /** What `scripts.save` was handed, verbatim — the fields a form sends are the thing worth
+   *  asserting, and the `calls` log only carries an id. */
+  savedScripts: { spaceId: string; script: ScriptInput }[];
+  /** What `sessions.queued` answers. Set by a test that needs a pane to mount over a queue. */
+  queuedPrompts: QueuedPrompt[];
+  /** What `limits.get` answers. Empty by default: an account nobody has asked about reports nothing,
+   *  which is the state the plan card has to render honestly. */
+  planLimitRows: PlanLimits[];
   /** Every `mcp.add`/`mcp.update` input exactly as sent — what the secrecy tests read: an update that
    *  should have omitted `env` is caught here, not inferred from state. */
   mcpWrites: (AddMcpServerInput | UpdateMcpServerInput)[];
@@ -268,6 +377,9 @@ export type FakeApi = Api & {
   /** Per-call artificial latency in ms, keyed like `calls` entries (used by race tests). */
   delays: Record<string, number>;
   onCreateTerminal: (() => void) | null;
+  /** Main's updater changing state on its own — a download's progress, its end, its failure — pushed
+   *  to whoever is watching, as `updates:changed` is. Also becomes what `updateStatus` answers. */
+  emitUpdateStatus: (status: UpdateStatus) => void;
   /** Live views of the fake's data (mutable). */
   data: Required<FakeData>;
 };
@@ -275,23 +387,37 @@ export type FakeApi = Api & {
 /** Defaults: profiles p1 "Work" / p2 "School"; spaces s1 "Versed" and s2 "Homework", BOTH under p1
  *  (#7c6cff / #3ddc97); items: s1 has one terminal (i1). Pass `overrides` to replace any of these.
  *
- *  Both default spaces share a profile because the sidebar is profile-scoped: the strip, the swiper,
- *  ⌃Tab and ⌘1…9 all page within one profile, so a fixture that split its two spaces across two
- *  profiles would model a strip with one button in it — not the two-space sidebar these tests mean.
+ *  Both default spaces share a profile because the sidebar is profile-scoped: its sections, ⌃Tab and
+ *  ⌘1…9 all stay within one profile, so a fixture that split its two spaces across two profiles
+ *  would model a sidebar with one section in it — not the two-space sidebar these tests mean.
  *  p2 is deliberately left empty; the profile-crossing tests pass their own spaces. */
 export function fakeApi(overrides: FakeData = {}): FakeApi {
   const calls: string[] = [];
   const disposed: string[] = [];
   const destroyedBrowserViews: string[] = [];
-  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[] }[] = [];
+  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[] }[] = [];
+  /** What `scripts.save` was handed, verbatim. A typed capture beside `sent`, because the fields a
+   *  form sends are the thing worth asserting and the `calls` log only carries an id. */
+  const savedScripts: { spaceId: string; script: ScriptInput }[] = [];
+  const queuedPrompts: QueuedPrompt[] = [];
+  const planLimitRows: PlanLimits[] = [];
   const data: Required<FakeData> = {
+    detachedSince: overrides.detachedSince ?? null,
     profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
+    boundProfileId: overrides.boundProfileId ?? null,
+    profilesInOtherWindows: overrides.profilesInOtherWindows ?? [],
     spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p1", "Homework", { color: "#3ddc97" })],
     items: overrides.items ?? { s1: [item("i1", "s1", { title: "Terminal" })] },
     projects: overrides.projects ?? {},
     environments: overrides.environments ?? {},
     settings: overrides.settings ?? {},
     computerAllowedApps: overrides.computerAllowedApps ?? {},
+    goals: overrides.goals ?? {},
+    savedTurns: overrides.savedTurns ?? {},
+    savedEntries: overrides.savedEntries ?? [],
+    eggPacks: overrides.eggPacks ?? [],
+    eggWords: overrides.eggWords ?? {},
+    eggsUnlocked: overrides.eggsUnlocked ?? [],
     sessions: overrides.sessions ?? [],
     sessionEvents: overrides.sessionEvents ?? {},
     sessionTerminals: overrides.sessionTerminals ?? {},
@@ -312,9 +438,33 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     runs: Object.fromEntries(Object.entries(overrides.runs ?? {}).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
     runAttempts: overrides.runAttempts ?? {},
     checkpointPreview: overrides.checkpointPreview ?? {},
+    turnPatches: overrides.turnPatches ?? {},
     skills: overrides.skills ?? {},
     skillsRoot: overrides.skillsRoot ?? "/realm-home/skills",
+    commands: overrides.commands ?? {},
+    commandsRoot: overrides.commandsRoot ?? "/realm-home/commands",
+    scripts: overrides.scripts ?? {},
+    keybindings: overrides.keybindings ?? { path: "/realm-home/keybindings.json", rules: [...DEFAULT_KEYBINDINGS], error: null },
+    sandbox: overrides.sandbox ?? {
+      prefs: { posture: "off", network: true }, inherited: true, defaults: { posture: "off", network: true },
+      policy: { posture: "off", network: true, writableRoots: [], readableRoots: [], readOnlyPaths: [], protectedRoots: [] },
+      summary: "Not sandboxed — this session runs with your full account.", available: true, unavailableReason: null,
+    },
+    projectGrep: overrides.projectGrep ?? { hits: [], source: "git", truncated: false },
+    projectFiles: overrides.projectFiles ?? { hits: [], source: "git", truncated: false },
     skillSources: overrides.skillSources ?? {},
+    customThemes: overrides.customThemes ?? [],
+    installedFonts: overrides.installedFonts ?? [],
+    fontCatalog: overrides.fontCatalog ?? [],
+    pickedThemeFile: overrides.pickedThemeFile ?? null,
+    importedTheme: overrides.importedTheme ?? {
+      id: "imported", label: "Imported", mode: "dark" as const,
+      seed: { bg: "#101014", ink: "#e6e6e6", accent: "#7aa2f7", green: "#3fb950", orange: "#d29922", red: "#f85149",
+        syntax: { comment: "#6a737d", keyword: "#bb9af7", string: "#9ece6a", number: "#ff9e64", title: "#7aa2f7", type: "#2ac3de", attr: "#e0af68" } },
+      source: { file: "/themes/Imported.json", derived: [] },
+    },
+    skillDocs: overrides.skillDocs ?? {},
+    skillFiles: overrides.skillFiles ?? {},
     mcpTest: overrides.mcpTest ?? {},
     memoryDocs: overrides.memoryDocs ?? {},
     agentsFiles: overrides.agentsFiles ?? {},
@@ -322,6 +472,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
     failover: overrides.failover ?? DEFAULT_FAILOVER_POLICY,
+    editors: overrides.editors ?? [],
+    installedApps: overrides.installedApps ?? [],
+    appIcons: overrides.appIcons ?? {},
+    workspaceFiles: overrides.workspaceFiles ?? {},
+    laya: overrides.laya ?? { mode: "off", installed: false, runtime: { state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }, stepsLogged: 0, dir: "/Users/u/Realm/laya", assist: { available: false, reason: "No checkpoint has been evaluated yet. Train Laya on this Mac first; Assist unlocks when one scores 95% on held-out steps.", threshold: null, accuracy: null } },
     cliStatus: overrides.cliStatus ?? [],
     // The model catalog the picker's detail pane reads. Empty by default because that is the state
     // every test but a catalog test wants: prices are additive, and a fixture that invented them
@@ -329,11 +484,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     modelCatalog: overrides.modelCatalog ?? [],
     credentials: overrides.credentials ?? [],
     credentialStatus: overrides.credentialStatus ?? { available: true, canPromptTouchID: true, presenceTtlMs: 0 },
+    passkeys: overrides.passkeys ?? [],
     lectures: overrides.lectures ?? {},
     plynn: overrides.plynn ?? { available: false, folder: "/tmp/plynn/Meetings", meetings: [] },
     guideProgress: overrides.guideProgress ?? {},
     usageSummary: overrides.usageSummary ?? emptyUsageSummary(),
     usageActiveDays: overrides.usageActiveDays ?? [],
+    usageRecords: overrides.usageRecords ?? emptyUsageRecords(),
+    avatarPath: overrides.avatarPath ?? null,
     schedules: overrides.schedules ?? [],
     importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
     importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
@@ -371,7 +529,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     mcpToolsResult: overrides.mcpToolsResult ?? {},
     mcpToolsError: overrides.mcpToolsError ?? {},
     mcpCalls: overrides.mcpCalls ?? [],
-    mcpProviders: overrides.mcpProviders ?? [{ name: "realm-browser", enabled: true }],
+    mcpProviders: overrides.mcpProviders ?? [{ name: "realm-browser", enabled: true, offered: true, needs: null }],
+    mcpProvidersBySpace: overrides.mcpProvidersBySpace ?? {},
     profileMemoryDocs: overrides.profileMemoryDocs ?? {},
     profileDocDisabled: overrides.profileDocDisabled ?? {},
     documentWorkspaces: overrides.documentWorkspaces ?? {},
@@ -379,12 +538,19 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     notifications: overrides.notifications ?? [],
     reviews: overrides.reviews ?? {},
     delegatedRuns: overrides.delegatedRuns ?? {},
+    delegatedChildren: overrides.delegatedChildren ?? {},
+    delegableModels: overrides.delegableModels ?? { models: [], own: { kind: "claude", label: "Fable 5.1" } },
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
     artifacts: overrides.artifacts ?? [],
+    addedProfiles: overrides.addedProfiles ?? {},
+    libraryAdd: overrides.libraryAdd ?? null,
+    addFolders: overrides.addFolders ?? {},
     iconAssets: overrides.iconAssets ?? {},
     pickIconImage: overrides.pickIconImage ?? null,
   };
   let n = 100;
+  /** `library.remove`'s holds, by removal id: what each took from `artifacts`, and where it stood. */
+  const removals = new Map<string, { entry: LibraryEntry; index: number }[]>();
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
   const findRun = (id: string) => {
     const r = Object.values(data.runs).flat().find((x) => x.id === id);
@@ -415,13 +581,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       },
     };
   };
+  const updateWatchers = new Set<(status: UpdateStatus) => void>();
   const api: FakeApi = {
-    calls, disposed, destroyedBrowserViews, sent, mcpWrites, importApplied, delays: {}, onCreateTerminal: null, data,
+    calls, disposed, destroyedBrowserViews, sent, savedScripts, queuedPrompts, planLimitRows, mcpWrites, importApplied, delays: {}, onCreateTerminal: null, data,
+    emitUpdateStatus: (status) => { data.updateStatus = status; for (const cb of updateWatchers) cb({ ...status }); },
     // Plan 17 W1. An in-memory filesystem keyed by workspace id: enough for the store's own tests to
     // exercise open/save without touching disk. The DocumentsPane's own behaviour is covered by
     // buffers.test.ts (the transitions) and the server's service.test.ts (the real filesystem).
-    createDocuments: async (spaceId) => {
-      calls.push(`createDocuments:${spaceId}`);
+    createDocuments: async (spaceId, environmentId) => {
+      calls.push(`createDocuments:${spaceId}${environmentId ? `:${environmentId}` : ""}`);
       const existing = (data.items[spaceId] ?? []).find((i) => i.kind === "documents");
       if (existing) return { documentsId: existing.refId, itemId: existing.id };
       const documentsId = `docs${++n}`;
@@ -467,10 +635,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     openDocumentPath: async (spaceId, path, environmentId) => {
       calls.push(`openDocumentPath:${spaceId}:${path}`);
       const { documentsId, itemId } = await api.createDocuments(spaceId, environmentId);
+      await wait(`openDocumentPath:${spaceId}`);
       const ws = data.documentWorkspaces[documentsId]!;
       const openPaths = ws.openPaths.includes(path) ? ws.openPaths : [...ws.openPaths, path];
       data.documentWorkspaces[documentsId] = { ...ws, openPaths, activePath: path };
-      return { documentsId, itemId, environmentId: ws.environmentId };
+      return { documentsId, itemId, environmentId: ws.environmentId, path };
     },
     readGuideProgress: async (documentsId, path) => {
       calls.push(`readGuideProgress:${documentsId}:${path}`);
@@ -493,7 +662,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const r = await api.openDocumentPath(spaceId, path);
       (data.documentFiles[r.documentsId] ??= {})[path] = `# ${title || "Lecture"}\n`;
       (data.lectures[spaceId] ??= []).unshift({ path, title: title || "Lecture 2026-09-02", date: "2026-09-02", hasTranscript: false, sizeBytes: 10 });
-      return { path, ...r };
+      return { ...r, path };
     },
     listLectures: async (spaceId) => { calls.push(`listLectures:${spaceId}`); return data.lectures[spaceId] ?? []; },
     plynnList: async () => { calls.push("plynnList"); return data.plynn; },
@@ -526,10 +695,36 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { path: to };
     },
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
-    createProfile: async (name) => {
-      calls.push(`createProfile:${name}`);
-      const p = profile(`p${++n}`, name, { icon: "user", color: "#6b7280", sortOrder: data.profiles.length });
+    createProfile: async (input) => {
+      calls.push(`createProfile:${input.name}`);
+      const p = profile(`p${++n}`, input.name, { icon: input.icon ?? "user", color: input.color ?? "#6b7280", sortOrder: data.profiles.length });
       data.profiles.push(p); return p;
+    },
+    updateProfile: async (input) => {
+      calls.push(`updateProfile:${input.id}:${JSON.stringify({ name: input.name, icon: input.icon, color: input.color })}`);
+      const p = data.profiles.find((x) => x.id === input.id);
+      if (!p) throw new Error(`profile ${input.id} not found`);
+      Object.assign(p, { ...(input.name !== undefined ? { name: input.name } : {}), ...(input.icon !== undefined ? { icon: input.icon } : {}), ...(input.color !== undefined ? { color: input.color } : {}) });
+      return { ...p };
+    },
+    deleteProfile: async (id) => {
+      calls.push(`deleteProfile:${id}`);
+      // The server's own rule: the last profile cannot go.
+      if (data.profiles.length <= 1) throw new Error("This is the only profile, so it can't be deleted. Make another profile first.");
+      data.profiles = data.profiles.filter((p) => p.id !== id);
+      data.spaces = data.spaces.filter((sp) => sp.profileId !== id);
+    },
+    profileUsage: async (id) => {
+      calls.push(`profileUsage:${id}`);
+      const spaces = data.spaces.filter((sp) => sp.profileId === id);
+      return { spaces: spaces.length, sessions: data.sessions.filter((se) => spaces.some((sp) => sp.id === se.spaceId)).length };
+    },
+    boundProfileId: () => data.boundProfileId ?? null,
+    openProfileWindow: async (profileId) => { calls.push(`openProfileWindow:${profileId}`); },
+    /** Another window shows the profile when the test says one does (`profilesInOtherWindows`). */
+    focusProfileWindow: async (profileId) => {
+      calls.push(`focusProfileWindow:${profileId}`);
+      return data.profilesInOtherWindows.includes(profileId);
     },
     listSpaces: async () => { calls.push("listSpaces"); await wait("listSpaces"); return [...data.spaces]; },
     listItems: async (sid) => { calls.push(`listItems:${sid}`); await wait(`listItems:${sid}`); return data.items[sid] ?? []; },
@@ -544,20 +739,78 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return data.searchResults;
     },
     libraryArtifacts: async (q) => {
-      calls.push(`libraryArtifacts:${q.spaceId ?? "all"}:${q.kind ?? "any"}:${q.query ?? ""}`);
+      // The profile first, so the query itself stays the call log's last word.
+      if (q.profileId != null) calls.push(`libraryArtifactsProfile:${q.profileId}`);
+      if (q.sessionId != null) calls.push(`libraryArtifactsSession:${q.sessionId}`);
+      calls.push(`libraryArtifacts:${q.spaceId ?? "all"}:${q.kind ?? "any"}:${q.type ?? "any"}:${q.query ?? ""}`);
       await wait("libraryArtifacts");
-      const all = data.artifacts;
+      // A profile narrows to its spaces, as the server's join does — and to its own added files, which
+      // are in no space.
+      const ofProfile = (a: LibraryEntry) => q.profileId == null
+        || (a.spaceId === null ? data.addedProfiles[a.id] === q.profileId : data.spaces.find((x) => x.id === a.spaceId)?.profileId === q.profileId);
+      const scoped = data.artifacts.filter((a) => ofProfile(a)
+        && (q.spaceId == null || a.spaceId === q.spaceId) && (q.sessionId == null || a.sessionId === q.sessionId));
+      // One row per file, its newest — the server's collapse, done before the keyset as it is there.
+      const collapse = (rows: LibraryEntry[]) => !q.perFile ? rows
+        : [...rows].sort((a, b) => b.ts - a.ts || (a.id < b.id ? 1 : -1)).filter((a, i, all) => all.findIndex((x) => x.path === a.path) === i);
       const needle = (q.query ?? "").trim().toLowerCase();
-      const matching = all.filter((a) =>
-        (q.spaceId == null || a.spaceId === q.spaceId)
-        && (q.kind == null || a.kind === q.kind)
-        && (needle === "" || a.name.toLowerCase().includes(needle)));
+      const matching = collapse(scoped.filter((a) =>
+        (q.kind == null || a.kind === q.kind)
+        && (q.type == null || artifactTypeOf(a.ext) === q.type)
+        && (needle === "" || a.name.toLowerCase().includes(needle))));
       // Same keyset the server uses, so a test that pages here is testing the page's real cursor.
       const before = q.before ?? null;
       const after = before === null ? matching
         : matching.filter((a) => a.ts < before.ts || (a.ts === before.ts && a.id < before.id));
-      const total = all.filter((a) => q.spaceId == null || a.spaceId === q.spaceId).length;
+      const total = collapse(scoped).length;
       return { entries: after.slice(0, q.limit ?? LIBRARY_PAGE_SIZE), total };
+    },
+    addLibraryFiles: async (input) => {
+      calls.push(`addLibraryFiles:${input.profileId}:${input.folders ? "folders:" : ""}${input.paths.join(",")}`);
+      await wait("addLibraryFiles");
+      if (data.libraryAdd) return data.libraryAdd(input);
+      const result: LibraryAddResult = { added: [], renamed: [], skipped: [], folders: [] };
+      const copy = (path: string) => {
+        const name = basenameOf(path);
+        const entry: LibraryEntry = { id: `added:${++n}`, sessionId: null, spaceId: null, kind: "added", path: `/realm-home/library/${input.profileId}/${name}`,
+          name, ext: extOf(name), ts: Date.now(), sessionTitle: null, agentKind: null };
+        data.artifacts.unshift(entry);
+        data.addedProfiles[entry.id] = input.profileId;
+        result.added.push(entry);
+      };
+      for (const path of input.paths) {
+        const folder = data.addFolders[path];
+        if (!folder) { copy(path); continue; }
+        if (input.folders) for (const f of folder.files) copy(f);
+        else result.folders.push({ path, name: basenameOf(path), files: folder.files.length, bytes: folder.bytes, subfolders: folder.subfolders, more: folder.files.length > LIBRARY_ADD_MAX });
+      }
+      return result;
+    },
+    /* The server's rule: only the profile's ADDED files are taken, and the index's other listings of
+       the same copy go with them — each remembered where it stood, so the undo puts it back there. */
+    removeLibraryFiles: async (input) => {
+      calls.push(`removeLibraryFiles:${input.profileId}:${input.paths.join(",")}`);
+      await wait("removeLibraryFiles");
+      const copies = new Set(data.artifacts.filter((a) => a.kind === "added" && input.paths.includes(a.path) && data.addedProfiles[a.id] === input.profileId).map((a) => a.path));
+      if (copies.size === 0) return { removed: [], messages: 0, removal: null };
+      const taken = data.artifacts.flatMap((entry, index) => (copies.has(entry.path) ? [{ entry, index }] : []));
+      data.artifacts = data.artifacts.filter((a) => !copies.has(a.path));
+      const removal = `removal:${++n}`;
+      removals.set(removal, taken);
+      return {
+        removed: taken.filter((t) => t.entry.kind === "added").map((t) => t.entry),
+        messages: taken.filter((t) => t.entry.kind === "upload").length,
+        removal,
+      };
+    },
+    restoreLibraryFiles: async (input) => {
+      calls.push(`restoreLibraryFiles:${input.removal}`);
+      await wait("restoreLibraryFiles");
+      const taken = removals.get(input.removal);
+      if (!taken) throw new Error("That removal can't be undone any more: Realm has deleted its copies.");
+      removals.delete(input.removal);
+      for (const { entry, index } of taken) data.artifacts.splice(index, 0, entry);
+      return { restored: taken.filter((t) => t.entry.kind === "added").map((t) => t.entry), renamed: [] };
     },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
     listEnvironments: async (sid) => { calls.push(`listEnvironments:${sid}`); await wait(`listEnvironments:${sid}`); return data.environments[sid] ?? []; },
@@ -571,6 +824,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     createSpace: async (input) => {
       const s = space(`s${++n}`, input.profileId, input.name, { icon: input.icon, color: input.color ?? "#ffb454", sortOrder: data.spaces.length });
       data.spaces.push(s); return s;
+    },
+    /** The server's slugs, under a home of `/home`, without the `-2` it adds for a folder on disk. */
+    spaceFolderFor: async (profileId, name) => {
+      calls.push(`spaceFolderFor:${profileId}:${name}`);
+      const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "space";
+      return `/home/${slug(data.profiles.find((p) => p.id === profileId)?.name ?? "")}/${slug(name)}`;
     },
     updateSpace: async (input) => {
       const i = data.spaces.findIndex((x) => x.id === input.id); if (i < 0) throw new Error(`no space ${input.id}`);
@@ -586,27 +845,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const pr: Project = { id: `pr${++n}`, spaceId, name, rootPath, defaultBranch: "main", createdAt: 0, updatedAt: 0 };
       (data.projects[spaceId] ??= []).push(pr); return pr;
     },
-    setLayout: async (sid, layout) => {
-      calls.push(`setLayout:${sid}`);
-      const i = data.spaces.findIndex((x) => x.id === sid);
-      const cur = i >= 0 ? data.spaces[i]! : findSpace(sid);
-      const groups = cur.groups ? setActiveLayout(cur.groups, layout) : null;
-      const s = { ...cur, groups, layout };
-      if (i >= 0) data.spaces[i] = s;
-      return s;
-    },
-    // Mirrors the server (apps/server/src/store/spaces.ts): `groups` is stored, `layout` is DERIVED
-    // from the active group — a test that reads the returned space's `layout` gets what the real one
-    // would return, so a store bug that persists the wrong active group shows up here rather than
-    // silently round-tripping.
-    setGroups: async (sid, groups) => {
-      calls.push(`setGroups:${sid}`);
-      const i = data.spaces.findIndex((x) => x.id === sid);
-      const s = { ...(i >= 0 ? data.spaces[i]! : findSpace(sid)), groups, layout: activeLayout(groups) };
-      if (i >= 0) data.spaces[i] = s;
-      return s;
-    },
-    createTerminal: async (sid) => {
+    createTerminal: async (sid, cwd) => {
+      calls.push(`createTerminal:${sid}${cwd ? `:${cwd}` : ""}`);
       const it = item(`i${++n}`, sid, { title: "Terminal" }); (data.items[sid] ??= []).push(it);
       api.onCreateTerminal?.(); await wait("createTerminal");
       return { terminalId: it.refId, itemId: it.id };
@@ -616,6 +856,48 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const it = item(`i${++n}`, sid, { kind: "browser", title: "Browser" }); (data.items[sid] ??= []).push(it);
       await wait("createBrowser");
       return { browserId: it.refId, itemId: it.id, url: "" };
+    },
+    createMachine: async (sid, name) => {
+      calls.push(`createMachine:${sid}`);
+      const it = item(`i${++n}`, sid, { kind: "machine", title: name }); (data.items[sid] ??= []).push(it);
+      await wait("createMachine");
+      return { machineId: it.refId, itemId: it.id };
+    },
+    goalGet: async (sessionId) => { calls.push(`goalGet:${sessionId}`); return { goal: data.goals[sessionId] ?? null }; },
+    eggsList: async () => { calls.push("eggsList"); return { packs: data.eggPacks.filter((p) => data.eggsUnlocked.includes(p.id)) }; },
+    eggsUnlock: async (passphrase) => {
+      calls.push(`eggsUnlock:${passphrase}`);
+      // The fake's "crypto": a pack opens for the word its fixture names. Everything the app does
+      // with the answer is the same either way, and a scrypt round in a unit test is 100ms of nothing.
+      const pack = data.eggPacks.find((p) => data.eggWords[p.id] === passphrase) ?? null;
+      if (pack && !data.eggsUnlocked.includes(pack.id)) data.eggsUnlocked.push(pack.id);
+      return { pack };
+    },
+    eggsForget: async (id) => { calls.push(`eggsForget:${id}`); data.eggsUnlocked = data.eggsUnlocked.filter((x) => x !== id); },
+    goalStart: async (sessionId, objective, tokenBudget) => {
+      calls.push(`goalStart:${sessionId}`);
+      const goal = { sessionId, objective, status: "active" as const, tokenBudget, tokensUsed: 0, turns: 0, note: null, startedAt: 0, updatedAt: 0 };
+      data.goals[sessionId] = goal;
+      return { goal };
+    },
+    goalSet: async (sessionId, status, note) => {
+      calls.push(`goalSet:${sessionId}=${status}`);
+      const goal = { ...(data.goals[sessionId] ?? { sessionId, objective: "", tokenBudget: null, tokensUsed: 0, turns: 0, startedAt: 0, updatedAt: 0 }), status, note };
+      data.goals[sessionId] = goal;
+      return { goal };
+    },
+    goalResume: async (sessionId) => {
+      calls.push(`goalResume:${sessionId}`);
+      const goal = { ...(data.goals[sessionId] ?? { sessionId, objective: "", tokenBudget: null, tokensUsed: 0, turns: 0, note: null, startedAt: 0, updatedAt: 0 }), status: "active" as const, note: null };
+      data.goals[sessionId] = goal;
+      return { goal };
+    },
+    goalClear: async (sessionId) => { calls.push(`goalClear:${sessionId}`); delete data.goals[sessionId]; },
+    createSimulator: async (sid, name) => {
+      calls.push(`createSimulator:${sid}`);
+      const it = item(`i${++n}`, sid, { kind: "simulator", title: name }); (data.items[sid] ??= []).push(it);
+      await wait("createSimulator");
+      return { simulatorId: it.refId, itemId: it.id };
     },
     updateItem: async (input) => {
       for (const list of Object.values(data.items)) {
@@ -635,7 +917,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.computerAllowedApps[spaceId] = stored;
       return stored;
     },
-    systemInfo: async () => { calls.push("systemInfo"); return { machineName: "Carlton's M4 MacBook Pro", userName: "Carlton" }; },
+    markSessionSeen: async (id, seq) => {
+      calls.push(`markSessionSeen:${id}@${seq}`);
+      const row = data.sessions.find((x) => x.id === id);
+      if (row) row.seenSeq = Math.max(row.seenSeq, seq);
+    },
+    systemInfo: async () => { calls.push("systemInfo"); return { machineName: "Carlton's M4 MacBook Pro", userName: "Carlton", detachedSince: data.detachedSince ?? null }; },
     pickFolder: async () => "/tmp/picked-repo",
     // Whatever a test parks in `data.pickFiles` is what the native picker "returns".
     pickFiles: async () => { calls.push("pickFiles"); return data.pickFiles.splice(0, data.pickFiles.length); },
@@ -675,7 +962,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     disposeTerminal: (id) => { disposed.push(id); },
     destroyBrowserView: (id) => { destroyedBrowserViews.push(id); },
     listSessions: async (sid) => { calls.push(`listSessions:${sid}`); return data.sessions.filter((s) => s.spaceId === sid); },
-    listAllSessions: async () => { calls.push("listAllSessions"); await wait("listAllSessions"); return [...data.sessions]; },
+    listAllSessions: async (profileId = null) => {
+      calls.push(`listAllSessions:${profileId ?? "all"}`);
+      await wait("listAllSessions");
+      // Mirrors the server's join rather than returning everything: a test that asserts the feed is
+      // profile-scoped must be able to fail.
+      const ids = new Set(data.spaces.filter((sp) => profileId === null || sp.profileId === profileId).map((sp) => sp.id));
+      return data.sessions.filter((s) => ids.has(s.spaceId));
+    },
     getSession: async (id) => { calls.push(`getSession:${id}`); const s = data.sessions.find((x) => x.id === id); if (!s) throw new Error(`no session ${id}`); return s; },
     createSession: async (input) => {
       // `cwd` is derived from the environment server-side (W1), so the fake derives it too — a
@@ -687,13 +981,29 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         ...(input.userDispatched ? { dispatchedBy: { kind: "user-dispatch" as const, sessionId: null } } : {}),
         ...(env ? { environmentId: env.id, cwd: env.path } : {}) });
       data.sessions.push(s);
-      const it = item(`i${++n}`, input.spaceId, { kind: "session", title: s.title, refId: s.id }); (data.items[input.spaceId] ??= []).push(it);
       calls.push(`createSession:${input.agentKind}`);
+      const it = item(`i${++n}`, input.spaceId, { kind: "session", title: s.title, refId: s.id }); (data.items[input.spaceId] ??= []).push(it);
       return { session: s, itemId: it.id };
     },
-    sendMessage: async (id, text, attachments, mentions, elements) => {
+    /** Mirrors the server: no item row at all, so the session appears in no list anywhere. */
+    createUnlistedSession: async (input) => {
+      calls.push(`createUnlistedSession:${input.agentKind}`);
+      const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, title: input.title ?? "Fake agent session" });
+      data.sessions.push(s);
+      return { session: s };
+    },
+    deleteSession: async (id) => {
+      calls.push(`deleteSession:${id}`);
+      data.sessions = data.sessions.filter((x) => x.id !== id);
+      for (const [sid, rows] of Object.entries(data.items)) data.items[sid] = rows.filter((x) => x.refId !== id);
+    },
+    sendMessage: async (id, text, attachments, mentions, elements, delivery, sessionRefs, mentionRefs) => {
       calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
-      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(elements?.length ? { elements } : {}) });
+      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(mentionRefs?.length ? { mentionRefs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
+    },
+    mentionFiles: async (sessionId, query, limit) => {
+      calls.push(`mentionFiles:${sessionId}:${query}`);
+      return { hits: rankPaths(data.workspaceFiles[sessionId] ?? [], query, limit ?? 8), truncated: false, source: "git" };
     },
     forkSession: async (checkpointId, agentKind) => {
       // The kind rides the call log, because "which agent did the fork land on" is the whole of what
@@ -715,13 +1025,91 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       (data.items[spaceId] ??= []).push(it);
       return { session: sess, itemId: it.id, environment: env };
     },
+    listThemes: async () => { calls.push("listThemes"); return { root: "/realm-home/themes", themes: [...data.customThemes] }; },
+    pickThemeFile: async () => { calls.push("pickThemeFile"); return data.pickedThemeFile; },
+    importTheme: async (path) => {
+      calls.push(`importTheme:${path}`);
+      const t = { ...data.importedTheme, source: { ...data.importedTheme.source, file: path } };
+      data.customThemes = [...data.customThemes.filter((x) => x.id !== t.id), t];
+      return t;
+    },
+    removeTheme: async (id) => { calls.push(`removeTheme:${id}`); data.customThemes = data.customThemes.filter((t) => t.id !== id); },
+    listInstalledFonts: async () => { calls.push("listInstalledFonts"); return { root: "/realm-home/fonts", fonts: [...data.installedFonts] }; },
+    fontCatalog: async () => { calls.push("fontCatalog"); return { fonts: [...data.fontCatalog] }; },
+    installFont: async (family) => {
+      calls.push(`installFont:${family}`);
+      const f = { family, weights: [400, 500], bytes: 1024 };
+      data.installedFonts = [...data.installedFonts.filter((x) => x.family !== family), f];
+      return f;
+    },
+    removeFont: async (family) => { calls.push(`removeFont:${family}`); data.installedFonts = data.installedFonts.filter((f) => f.family !== family); },
+    fontFaces: async (family) => { calls.push(`fontFaces:${family}`); return { faces: [{ weight: 400, base64: "AA==" }] }; },
     listSkills: async (spaceId) => { calls.push(`listSkills:${spaceId}`); return { root: data.skillsRoot, skills: [...(data.skills[spaceId] ?? [])] }; },
+    /* Empty by default: a space with no `commands/` directory is the overwhelmingly common case, and
+       a fake that invented one would make every unrelated test exercise the merge path. */
+    projectGrep: async (cwd, query) => { calls.push(`projectGrep:${cwd}:${query}`); return data.projectGrep; },
+    projectFiles: async (cwd, query) => { calls.push(`projectFiles:${cwd}:${query}`); return data.projectFiles; },
+    listScripts: async (spaceId) => { calls.push(`listScripts:${spaceId}`); return { scripts: [...(data.scripts[spaceId] ?? [])] }; },
+    runScript: async (spaceId, commandId) => { calls.push(`runScript:${spaceId}:${commandId}`); return { terminalId: "t-script", itemId: "i-script", cwd: "/repo" }; },
+    saveScript: async (spaceId, script) => {
+      calls.push(`saveScript:${spaceId}:${script.id ?? "new"}`);
+      savedScripts.push({ spaceId, script });
+      const list = (data.scripts[spaceId] ??= []);
+      // A real 26-char ULID: IdSchema is what `parseScriptCommandId` checks the id against, so a
+      // short placeholder here would be rejected as malformed rather than exercising the real path.
+      const row: Script = { ...script, id: script.id ?? `01HQ${"0".repeat(21)}${list.length}` };
+      const at = list.findIndex((sc) => sc.id === row.id);
+      if (at >= 0) list[at] = row; else list.push(row);
+      return row;
+    },
+    removeScript: async (spaceId, id) => {
+      calls.push(`removeScript:${spaceId}:${id}`);
+      data.scripts[spaceId] = (data.scripts[spaceId] ?? []).filter((sc) => sc.id !== id);
+    },
+    reorderScripts: async (spaceId, ids) => {
+      calls.push(`reorderScripts:${spaceId}:${ids.join(",")}`);
+      const by = new Map((data.scripts[spaceId] ?? []).map((sc) => [sc.id, sc]));
+      data.scripts[spaceId] = ids.flatMap((id) => { const sc = by.get(id); return sc ? [sc] : []; });
+      return { scripts: [...data.scripts[spaceId]!] };
+    },
+    getSandbox: async (spaceId) => { calls.push(`getSandbox:${spaceId}`); return { ...data.sandbox }; },
+    setSandbox: async (spaceId, prefs) => {
+      calls.push(`setSandbox:${spaceId}:${prefs === null ? "inherit" : `${prefs.posture}/${prefs.network ? "net" : "nonet"}`}`);
+      data.sandbox = { ...data.sandbox, prefs: prefs ?? data.sandbox.defaults, inherited: prefs === null };
+      return { ...data.sandbox };
+    },
+    getKeybindings: async () => { calls.push("getKeybindings"); return { ...data.keybindings }; },
+    writeKeybindings: async (rules) => { calls.push("writeKeybindings"); data.keybindings = { ...data.keybindings, rules: [...rules], error: null }; return { ...data.keybindings }; },
+    resetKeybindings: async () => { calls.push("resetKeybindings"); data.keybindings = { path: data.keybindings.path, rules: [...DEFAULT_KEYBINDINGS], error: null }; return { ...data.keybindings }; },
+    listCommands: async (spaceId) => { calls.push(`listCommands:${spaceId}`); return { root: data.commandsRoot, commands: [...(data.commands[spaceId ?? ""] ?? [])] }; },
+    expandCommand: async (spaceId, name, args) => {
+      calls.push(`expandCommand:${spaceId}:${name}`);
+      const command = (data.commands[spaceId ?? ""] ?? []).find((c) => c.name === name);
+      if (!command) throw new Error(`no such command: ${name}`);
+      /* The real expander, not a lookalike: placeholder handling is the whole behaviour here, and a
+         fake that substituted differently would let a test pass against semantics the server does
+         not have. */
+      return { command, ...expandCommand(command.body, args) };
+    },
     listSkillSources: async (spaceId) => {
       calls.push(`listSkillSources:${spaceId}`);
       const configured = data.skillSources[spaceId];
       if (configured) return { sources: [...configured] };
       return { sources: [{ kind: "library" as const, key: "library", label: "Realm library", path: data.skillsRoot,
         count: (data.skills[spaceId] ?? []).length, removable: false }] };
+    },
+    readSkill: async (spaceId, id) => {
+      calls.push(`readSkill:${spaceId}:${id}`);
+      const skill = (data.skills[spaceId] ?? []).find((s) => s.id === id);
+      if (!skill) throw new Error(`skill "${id}" is not in this space's skills`);
+      const doc = data.skillDocs[id] ?? {};
+      return { skill, body: doc.body ?? "", frontmatter: doc.frontmatter ?? {}, resources: doc.resources ?? [], truncated: false };
+    },
+    readSkillFile: async (spaceId, id, rel) => {
+      calls.push(`readSkillFile:${spaceId}:${id}:${rel}`);
+      const text = data.skillFiles[`${id}/${rel}`];
+      if (text === undefined) throw new Error(`no file at ${rel} in skill "${id}"`);
+      return { text, truncated: false };
     },
     addSkillScanRoot: async (path) => { calls.push(`addSkillScanRoot:${path}`); },
     removeSkillScanRoot: async (path) => { calls.push(`removeSkillScanRoot:${path}`); },
@@ -797,7 +1185,23 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return m;
     },
     interruptSession: async (id) => { calls.push(`interrupt:${id}`); },
+    dequeuePrompt: async (id, queuedId) => { calls.push(`dequeue:${id}:${queuedId}`); },
+    releaseQueuedPrompt: async (id, queuedId) => { calls.push(`releaseQueued:${id}:${queuedId}`); },
+    sessionQueue: async () => queuedPrompts,
+    planLimits: async () => { calls.push("planLimits"); return planLimitRows; },
     recordFeedback: async (id, messageId, rating) => { calls.push(`recordFeedback:${id}:${messageId}=${rating ?? "none"}`); },
+    savedTurns: async (id) => { calls.push(`savedTurns:${id}`); return data.savedTurns[id] ?? []; },
+    setTurnSaved: async (id, seq, saved) => {
+      calls.push(`setTurnSaved:${id}:${seq}=${saved}`);
+      const was = data.savedTurns[id] ?? [];
+      data.savedTurns[id] = saved ? [...new Set([...was, seq])].sort((a, b) => a - b) : was.filter((x) => x !== seq);
+      return data.savedTurns[id]!;
+    },
+    librarySaved: async (profileId) => {
+      calls.push(`librarySaved:${profileId}`);
+      const entries = data.savedEntries.filter((e) => data.savedTurns[e.sessionId]?.includes(e.seq));
+      return { entries, total: entries.length };
+    },
     respondPermission: async (id, requestId, decision) => { calls.push(`respondPermission:${id}:${requestId}:${decision}`); },
     setSessionOptions: async (id, o) => {
       calls.push(`setSessionOptions:${id}`);
@@ -805,6 +1209,53 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const s = { ...data.sessions[i]!, ...o }; data.sessions[i] = s; return s;
     },
     failoverGet: async (spaceId) => { calls.push(`failoverGet:${spaceId}`); return data.failover; },
+    layaStatus: async () => { calls.push("layaStatus"); return data.laya; },
+    layaInstall: async () => {
+      calls.push("layaInstall");
+      data.laya = { ...data.laya, runtime: { state: "installing", step: "environment", detail: "Creating a Python 3.13.12 environment", fraction: null } };
+      return data.laya;
+    },
+    layaSetMode: async (mode) => {
+      calls.push(`layaSetMode:${mode}`);
+      // The server's refusal, restated: Shadow needs an install.
+      if (mode === "shadow" && !data.laya.installed) throw Object.assign(new Error("Install Laya before switching it on."), { code: "LAYA_NOT_INSTALLED" });
+      data.laya = { ...data.laya, mode, runtime: mode === "off" ? { state: "off" } : { state: "starting" } };
+      return data.laya;
+    },
+    layaDeleteLog: async () => { calls.push("layaDeleteLog"); data.laya = { ...data.laya, stepsLogged: 0 }; return data.laya; },
+    layaTrain: async () => {
+      calls.push("layaTrain");
+      // The server's refusals, restated: an install to train in, and one run at a time.
+      if (!data.laya.installed) throw Object.assign(new Error("Install Laya before training it."), { code: "LAYA_NOT_INSTALLED" });
+      if (data.laya.training?.state === "running") throw Object.assign(new Error("Laya is already training."), { code: "LAYA_TRAINING" });
+      data.laya = { ...data.laya, training: { state: "running", step: "preparing", detail: "Writing the training set", fraction: null, startedAt: "2026-09-29T07:12:00.000Z" } };
+      return data.laya;
+    },
+    layaCancelTraining: async () => {
+      calls.push("layaCancelTraining");
+      data.laya = { ...data.laya, training: { state: "cancelled", at: "2026-09-29T07:13:00.000Z" } };
+      return data.laya;
+    },
+    layaRecord: async (simulatorId, apps) => {
+      calls.push(`layaRecord:${simulatorId}:${apps.join(",")}`);
+      // The server's refusal, restated: one recording at a time.
+      if (data.laya.recording) throw Object.assign(new Error(`Laya is already recording ${data.laya.recording.device}. Stop that first.`), { code: "LAYA_RECORDING" });
+      // No app named is the app in front, which the server reads; here it is always Instagram.
+      data.laya = { ...data.laya, recording: { id: "rec-1", simulatorId, device: "Test iPhone", apps: apps.length ? apps : ["Instagram"], seen: [], screens: 0, startedAt: "2026-09-29T07:12:00.000Z", endedAt: null, lastError: null } };
+      return data.laya;
+    },
+    layaStopRecording: async () => {
+      calls.push("layaStopRecording");
+      const r = data.laya.recording ?? null;
+      const was = data.laya.recorded ?? { recordings: 0, screens: 0, apps: [] };
+      data.laya = { ...data.laya, recording: null, recorded: r ? { recordings: was.recordings + 1, screens: was.screens + r.screens, apps: [...new Set([...was.apps, ...r.seen])] } : was };
+      return data.laya;
+    },
+    layaDeleteRecordings: async () => {
+      calls.push("layaDeleteRecordings");
+      data.laya = { ...data.laya, recording: null, recorded: { recordings: 0, screens: 0, apps: [] } };
+      return data.laya;
+    },
     failoverSet: async (spaceId, policy) => {
       calls.push(`failoverSet:${spaceId}`);
       // Mirrors the server: unknown kinds are dropped rather than refused, so a test that asserts on
@@ -841,7 +1292,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       // rewired to the destination and the server tears the terminal trio down (null column).
       const cur = data.sessions[i]!;
       const s = { ...cur, spaceId, projectId: null, terminalItemId: cur.lastEventSeq > 0 ? cur.terminalItemId : null };
-      data.sessions[i] = s; return s;
+      data.sessions[i] = s;
+      // …and its item moves with it, keeping its id (ItemsStore.moveToSpace).
+      for (const [sid, list] of Object.entries(data.items)) {
+        const at = list.findIndex((it) => it.kind === "session" && it.refId === id);
+        if (at < 0 || sid === spaceId) continue;
+        const [moved] = list.splice(at, 1);
+        (data.items[spaceId] ??= []).push({ ...moved!, spaceId });
+      }
+      return s;
     },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
     // Mirrors the server: get-or-create, so a second call for the same session returns the same trio —
@@ -863,21 +1322,50 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     // The fake store mirrors main's asymmetry exactly: `credentials` holds no value field, and
     // `credentialAdd` DISCARDS the value it is handed rather than stashing it somewhere a test could
     // read it back. A fake that kept the password would be a fake that could pass a test main fails.
-    credentialList: async () => { calls.push("credentialList"); return [...data.credentials]; },
+    credentialList: async (profileId) => {
+      calls.push("credentialList");
+      return data.credentials.filter((c) => (c.profileId ?? "p1") === profileId).map(({ profileId: _p, ...c }) => c);
+    },
     credentialStatus: async () => { calls.push("credentialStatus"); return { ...data.credentialStatus }; },
-    credentialAdd: async (input) => {
+    credentialAdd: async (profileId, input) => {
       calls.push(`credentialAdd:${input.origin}`);
-      const row = { id: `cred-${data.credentials.length + 1}`, origin: input.origin, username: input.username, label: input.label, createdAt: 0 };
-      data.credentials.push(row);
+      const row = { id: `cred-${data.credentials.length + 1}`, origin: input.origin, username: input.username, label: input.label, createdAt: 0, generated: false };
+      data.credentials.push({ ...row, profileId });
       return row;
     },
-    credentialRemove: async (id) => {
+    credentialRemove: async (profileId, id) => {
       calls.push(`credentialRemove:${id}`);
       const before = data.credentials.length;
-      data.credentials = data.credentials.filter((c) => c.id !== id);
+      data.credentials = data.credentials.filter((c) => !(c.id === id && (c.profileId ?? "p1") === profileId));
       return data.credentials.length !== before;
     },
+    credentialShare: async (profileId, id, toProfileId) => {
+      calls.push(`credentialShare:${profileId}:${id}:${toProfileId}`);
+      const row = data.credentials.find((c) => c.id === id && (c.profileId ?? "p1") === profileId);
+      const target = data.profiles.find((p) => p.id === toProfileId);
+      if (!row || !target) return { ok: false, error: "That sign-in is no longer saved here." };
+      data.credentials.push({ ...row, id: `${row.id}-shared-${toProfileId}`, profileId: toProfileId });
+      return { ok: true, profileName: target.name };
+    },
     credentialSetPresenceTtl: async (ms) => { calls.push(`credentialSetPresenceTtl:${ms}`); data.credentialStatus.presenceTtlMs = ms; return ms; },
+    passkeyList: async (profileId) => {
+      calls.push("passkeyList");
+      return data.passkeys.filter((p) => (p.profileId ?? "p1") === profileId).map(({ profileId: _p, ...p }) => p);
+    },
+    passkeyRemove: async (profileId, id) => {
+      calls.push(`passkeyRemove:${id}`);
+      const before = data.passkeys.length;
+      data.passkeys = data.passkeys.filter((p) => !(p.id === id && (p.profileId ?? "p1") === profileId));
+      return data.passkeys.length !== before;
+    },
+    passkeyShare: async (profileId, id, toProfileId) => {
+      calls.push(`passkeyShare:${profileId}:${id}:${toProfileId}`);
+      const row = data.passkeys.find((p) => p.id === id && (p.profileId ?? "p1") === profileId);
+      const target = data.profiles.find((p) => p.id === toProfileId);
+      if (!row || !target) return { ok: false, error: "That passkey is no longer saved here." };
+      data.passkeys.push({ ...row, id: `${row.id}-shared-${toProfileId}`, profileId: toProfileId });
+      return { ok: true, profileName: target.name };
+    },
     openTccPane: async (pane) => { calls.push(`openTccPane:${pane}`); },
     macAccessStatus: async () => { calls.push("macAccessStatus"); return structuredClone(data.macAccess); },
     /** Models the real thing: the prompt goes up, the user answers, and the WHOLE audit is re-read —
@@ -912,7 +1400,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       await wait("checkUpdates");
       return { ...data.updateStatus };
     },
+    // Main's own rule (updater.ts): only an `available` update starts downloading.
+    downloadUpdate: async () => {
+      calls.push("downloadUpdate");
+      const st = data.updateStatus.state;
+      if (st.kind === "available") data.updateStatus = { ...data.updateStatus, state: { kind: "downloading", version: st.version, percent: null } };
+      return { ...data.updateStatus };
+    },
     installUpdate: async () => { calls.push("installUpdate"); },
+    onUpdateStatus: (cb) => { updateWatchers.add(cb); return () => { updateWatchers.delete(cb); }; },
     // Mirrors main's gate exactly (notify.ts): a focused window suppresses the toast, and the call is
     // logged either way — so a test can tell "the renderer never asked" from "main said no".
     showDesktopNotification: async (input) => {
@@ -923,11 +1419,27 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     // The request IS the observable, so the suite can assert cue and volume with no Web Audio in it.
     playCue: (cue, volume) => { calls.push(`playCue:${cue}@${volume}`); },
+    resyncTerminals: () => { calls.push("resyncTerminals"); },
     setBadgeCount: async (count) => { calls.push(`setBadgeCount:${count}`); data.badgeCount = count; },
+    setReducedMotion: async (pref) => { calls.push(`setReducedMotion:${pref}`); },
+    setPreventSleep: async (on) => { calls.push(`setPreventSleep:${on}`); },
+    listEditors: async () => { calls.push("listEditors"); return [...data.editors]; },
+    installedApps: async () => { calls.push("installedApps"); return [...data.installedApps]; },
+    appIcons: async (paths) => {
+      calls.push(`appIcons:${paths.join(",")}`);
+      // Main answers only for bundles its own scan found, which is what the fake's list stands for.
+      return Object.fromEntries(paths.filter((p) => data.installedApps.some((a) => a.path === p)).map((p) => [p, data.appIcons[p] ?? null]));
+    },
+    openInEditor: async (id, path, base) => { calls.push(`openInEditor:${id}:${path}${base ? `@${base}` : ""}`); return data.editors.some((e) => e.id === id); },
     probeAgents: async (force) => {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");
       return data.agentProbe;
+    },
+    probeAgent: async (kind) => {
+      calls.push(`probeAgent:${kind}`);
+      await wait("probeAgent");
+      return data.agentProbe.find((r) => r.kind === kind) ?? null;
     },
     cliStatus: async (force) => {
       calls.push(`cliStatus:${force}`);
@@ -942,12 +1454,30 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (!row || row.action !== action) throw new Error(`Realm is not offering to ${action} ${kind} right now`);
       return { id: `job-${kind}`, kind, action, command: row.command ?? "" };
     },
+    startSignIn: async (spaceId, kind, sessionId) => {
+      calls.push(`startSignIn:${spaceId}:${kind}${sessionId ? `:${sessionId}` : ""}`);
+      return { terminalId: `term-${kind}`, command: `${kind} auth login` };
+    },
+    // The space-less sign-in answers with the page already up, as a real CLI does within a second; a
+    // test moves it on by applying events itself.
+    agentSignInStart: async (kind) => {
+      calls.push(`agentSignInStart:${kind}`);
+      return { id: `si-${kind}`, kind, state: "browser", url: `https://example.com/oauth/authorize?client=${kind}`, detail: null };
+    },
+    agentSignInCode: async (id, code) => { calls.push(`agentSignInCode:${id}:${code.length}`); },
+    agentSignInCancel: async (id) => { calls.push(`agentSignInCancel:${id}`); },
     modelCatalog: async (force) => {
       calls.push(`modelCatalog:${force}`);
       await wait("modelCatalog");
       return data.modelCatalog;
     },
     usageActiveDays: async (p) => { calls.push(`usageActiveDays:${p.from}:${p.to}`); return data.usageActiveDays; },
+    usageRecords: async () => { calls.push("usageRecords"); return data.usageRecords; },
+    getAvatar: async () => { calls.push("getAvatar"); return data.avatarPath; },
+    // A fresh name under the home on every pick, as the server's copy has: the path handed in is
+    // never what comes back.
+    setAvatar: async (path) => { calls.push(`setAvatar:${path}`); data.avatarPath = `/realm-home/avatar/${++n}.png`; return data.avatarPath; },
+    clearAvatar: async () => { calls.push("clearAvatar"); data.avatarPath = null; },
     listSchedules: async (spaceId) => { calls.push(`listSchedules:${spaceId}`); return data.schedules.filter((r) => r.spaceId === spaceId); },
     createSchedule: async (input) => {
       calls.push(`createSchedule:${input.spaceId}`);
@@ -955,6 +1485,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         id: `sch${data.schedules.length + 1}`, spaceId: input.spaceId, title: input.title, goal: input.goal,
         cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints ?? null,
         nextRunAt: nextFireOf(input.cron, Date.now()), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
+        newSessionPerRun: input.newSessionPerRun ?? true, archiveSucceeded: input.archiveSucceeded ?? false,
         createdAt: Date.now(), updatedAt: Date.now(),
       };
       data.schedules = [made, ...data.schedules];
@@ -975,7 +1506,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     runScheduleNow: async (id) => {
       calls.push(`runScheduleNow:${id}`);
-      const next = data.schedules.map((r) => (r.id === id ? { ...r, lastRunAt: Date.now(), lastRunId: "run1", lastSkippedAt: null } : r));
+      // A firing is a run under the task, as the server's is: queued, in the schedule's space.
+      const fired = data.schedules.find((r) => r.id === id)!;
+      const run = runRow(`run${++n}`, fired.spaceId, { scheduleId: id, title: fired.title, goal: fired.goal, createdAt: Date.now() });
+      (data.runs[fired.spaceId] ??= []).unshift(run);
+      const next = data.schedules.map((r) => (r.id === id ? { ...r, lastRunAt: Date.now(), lastRunId: run.id, lastSkippedAt: null } : r));
       data.schedules = next;
       return next.find((r) => r.id === id)!;
     },
@@ -1060,6 +1595,17 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const page = rows.slice(0, cap);
       return { runs: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
     },
+    listScheduleRuns: async (spaceId, scheduleId, cursor, limit) => {
+      calls.push(`listScheduleRuns:${scheduleId}`);
+      let rows = [...(data.runs[spaceId] ?? [])].filter((r) => r.scheduleId === scheduleId)
+        .sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      if (cursor) {
+        const [ts, id] = [Number(cursor.slice(0, cursor.indexOf(":"))), cursor.slice(cursor.indexOf(":") + 1)];
+        rows = rows.filter((r) => r.createdAt < ts || (r.createdAt === ts && r.id < id));
+      }
+      const page = rows.slice(0, limit);
+      return { runs: page, nextCursor: page.length === limit && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
+    },
     createRun: async ({ spaceId, goal, title }) => {
       calls.push(`createRun:${spaceId}|${goal}`);
       const r = runRow(`run${++n}`, spaceId, { goal, title: title ?? goal.slice(0, 40), createdAt: Date.now() });
@@ -1112,7 +1658,16 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       (data.checkpoints[p.environmentId] ??= []).unshift(undo);
       return { environmentId: p.environmentId, path: p.path, undoCheckpointId: undo.id,
         headMoved: p.headMovable, filesChanged: p.filesChanged, commitsRolledBack: p.headMovable ? p.commitsRolledBack : 0,
-        filesRemoved: 0, conversationRewound: false };
+        /* Mirrors the server: the same conditions that make `rewindsConversation` true on the preview
+           are what make the restore actually rewind. A fake hardcoding `false` would make the rewind
+           path unreachable from any test. */
+        filesRemoved: 0, conversationRewound: p.rewindsConversation };
+    },
+    turnDiff: async (id, afterTree, path) => {
+      calls.push(`turnDiff:${id}|${afterTree}|${path}`);
+      const p = data.turnPatches[`${id}|${path}`];
+      if (!p) throw new Error(`no turn patch for ${id}|${path}`);
+      return p;
     },
     listMcpServers: async (spaceId) => {
       calls.push(`listMcpServers:${spaceId}`);
@@ -1164,6 +1719,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
       data.mcpServers[i] = { ...data.mcpServers[i]!, enabled };
     },
+    setMcpShowViews: async (id, show) => {
+      calls.push(`setMcpShowViews:${id}=${show}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, showViews: show };
+    },
     promoteMcpServer: async (spaceId, id) => {
       calls.push(`promoteMcpServer:${spaceId}:${id}`);
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
@@ -1174,11 +1734,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
       data.mcpServers[i] = { ...data.mcpServers[i]!, scope: { kind: "space", spaceId } };
     },
-    listMcpProviders: async (spaceId) => { calls.push(`listMcpProviders:${spaceId}`); return data.mcpProviders.map((p) => ({ ...p })); },
+    listMcpProviders: async (spaceId) => { calls.push(`listMcpProviders:${spaceId}`); return (data.mcpProvidersBySpace[spaceId] ?? data.mcpProviders).map((p) => ({ ...p })); },
     setMcpProviderEnabled: async (spaceId, name, enabled) => {
       calls.push(`setMcpProviderEnabled:${spaceId}:${name}=${enabled}`);
-      const i = data.mcpProviders.findIndex((p) => p.name === name); if (i < 0) throw new Error(`no provider ${name}`);
-      data.mcpProviders[i] = { ...data.mcpProviders[i]!, enabled };
+      const list = data.mcpProvidersBySpace[spaceId] ?? data.mcpProviders;
+      const i = list.findIndex((p) => p.name === name); if (i < 0) throw new Error(`no provider ${name}`);
+      list[i] = { ...list[i]!, enabled };
     },
     mcpToolsList: async (id) => {
       calls.push(`mcpToolsList:${id}`);
@@ -1255,6 +1816,17 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     getReview: async (environmentId) => { calls.push(`getReview:${environmentId}`); return { review: data.reviews[environmentId] ?? null }; },
     dismissReview: async (environmentId) => { calls.push(`dismissReview:${environmentId}`); data.reviews[environmentId] = null; },
     listDelegatedRuns: async (sessionId) => { calls.push(`listDelegatedRuns:${sessionId}`); return data.delegatedRuns[sessionId] ?? []; },
+    listDelegatedChildren: async (sessionId) => { calls.push(`listDelegatedChildren:${sessionId}`); return data.delegatedChildren[sessionId] ?? []; },
+    delegableModels: async (sessionId) => { calls.push(`delegableModels:${sessionId}`); return data.delegableModels; },
+    agentsTab: async (sessionId) => {
+      calls.push(`agentsTab:${sessionId}`);
+      const spaceId = data.sessions.find((x) => x.id === sessionId)?.spaceId ?? Object.keys(data.items)[0]!;
+      const existing = (data.items[spaceId] ?? []).find((i) => i.kind === "agents" && i.refId === sessionId);
+      if (existing) return { itemId: existing.id };
+      const it = item(`i${++n}`, spaceId, { kind: "agents", title: "Agents", refId: sessionId });
+      (data.items[spaceId] ??= []).push(it);
+      return { itemId: it.id };
+    },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

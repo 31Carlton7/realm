@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  LayoutSchema, allItems, closeItem, emptyLayout, findLeafOfItem, firstLeaf,
-  equalSizes, equalizeSplit, gridPreset, migrateLayout, openItem, splitLeaf, updateSizes,
-  type Layout, type LayoutLeaf, type LayoutSplit,
-} from "./layout";
+import { LayoutSchema, allItems, closeItem, closeLeaf, emptyLayout, findLeafOfItem, findPanel, firstLeaf, equalizeSplit, findSidePane, itemIdOfLeaf, migrateLayout, moveTab, openInSidePane, openItem, sideTabsOf, splitLeaf, updateSizes, type Layout, type LayoutLeaf, type LayoutSplit } from "./layout";
 
 const leaf = (itemId: string | null): LayoutLeaf => ({ type: "leaf", id: `L-${itemId ?? "empty"}`, itemId });
 const row = (children: Layout[], sizes = children.map(() => 100 / children.length)): Layout =>
@@ -30,20 +26,8 @@ describe("migrateLayout", () => {
     const out = migrateLayout(mixed) as { children: LayoutLeaf[] };
     expect(out.children).toEqual([{ type: "leaf", id: "a", itemId: "t1" }, { type: "leaf", id: "b", itemId: "t9" }]);
   });
-  it("LayoutSchema parses legacy shapes into the new shape", () => {
-    const parsed = LayoutSchema.parse({ type: "leaf", id: "a", tabs: ["t1", "t2"], activeTab: "t2" });
-    expect(parsed).toEqual({ type: "leaf", id: "a", itemId: "t2" });
-  });
   it("LayoutSchema still rejects structural garbage", () => {
     expect(() => LayoutSchema.parse({ type: "split", id: "s", dir: "row", sizes: [100], children: [leaf("x")] })).toThrow();
-  });
-  it("LayoutSchema rejects a split with 1 child after legacy migration collapses shapes", () => {
-    // A legacy split whose only child is itself a legacy leaf: migration converts the leaf,
-    // but the split still has just 1 child post-migration, which must still fail validation.
-    expect(() => LayoutSchema.parse({
-      type: "split", id: "s", dir: "row", sizes: [100],
-      children: [{ type: "leaf", id: "a", tabs: ["t1"], activeTab: "t1" }],
-    })).toThrow();
   });
   it("LayoutSchema rejects a split whose sizes.length mismatches children.length, independent of the children>=2 check", () => {
     // Two children (satisfies the >=2 invariant) but only one size — isolates the sizes check from
@@ -278,11 +262,6 @@ describe("splitLeaf", () => {
 });
 
 describe("equalizeSplit", () => {
-  it("equalSizes splits 100 evenly", () => {
-    expect(equalSizes(2)).toEqual([50, 50]);
-    expect(equalSizes(4)).toEqual([25, 25, 25, 25]);
-    expect(equalSizes(3).reduce((x, y) => x + y, 0)).toBeCloseTo(100, 5);
-  });
 
   it("puts a dragged split back on equal shares", () => {
     const out = equalizeSplit(row([leaf("a"), leaf("b"), leaf("c")], [60, 25, 15]), "S1") as LayoutSplit;
@@ -314,42 +293,6 @@ describe("equalizeSplit", () => {
   });
 });
 
-describe("gridPreset", () => {
-  it("fills leaves one item each; extras stay unopened", () => {
-    const out = gridPreset("two-col", ["a", "b", "c"]);
-    expect(allItems(out)).toEqual(["a", "b"]);
-  });
-  it("leaves trailing leaves empty when items run short", () => {
-    const out = gridPreset("grid-2x2", ["a"]);
-    expect(allItems(out)).toEqual(["a"]);
-    let empties = 0;
-    const walk = (n: Layout) => { if (n.type === "leaf") { if (n.itemId === null) empties++; } else n.children.forEach(walk); };
-    walk(out);
-    expect(empties).toBe(3);
-  });
-  it("three-col produces a single row split with exactly 3 leaf children", () => {
-    const out = gridPreset("three-col", ["a", "b", "c"]) as LayoutSplit;
-    expect(out.type).toBe("split");
-    expect(out.dir).toBe("row");
-    expect(out.children).toHaveLength(3);
-    expect(out.children.every((c) => c.type === "leaf")).toBe(true);
-    expect(out.children.map((c) => (c as LayoutLeaf).itemId)).toEqual(["a", "b", "c"]);
-  });
-  it("grid-3x3 produces a col split of 3 row splits, each with 3 leaf children", () => {
-    const out = gridPreset("grid-3x3", ["a"]) as LayoutSplit;
-    expect(out.type).toBe("split");
-    expect(out.dir).toBe("col");
-    expect(out.children).toHaveLength(3);
-    out.children.forEach((rowNode) => {
-      expect(rowNode.type).toBe("split");
-      const r = rowNode as LayoutSplit;
-      expect(r.dir).toBe("row");
-      expect(r.children).toHaveLength(3);
-      r.children.forEach((c) => expect(c.type).toBe("leaf"));
-    });
-  });
-});
-
 describe("plumbing", () => {
   it("emptyLayout / firstLeaf / findLeafOfItem / updateSizes", () => {
     expect(emptyLayout().itemId).toBeNull();
@@ -358,5 +301,168 @@ describe("plumbing", () => {
     expect(findLeafOfItem(l, "b")?.id).toBe("L-b");
     expect(findLeafOfItem(l, "zz")).toBeNull();
     expect((updateSizes(l, "S1", [60, 40]) as { sizes: number[] }).sizes).toEqual([60, 40]);
+  });
+});
+
+/**
+ * Dropping a deliberately-empty pane.
+ *
+ * Keyed by LEAF, unlike `closeItem` — an empty leaf has nothing to look it up by except where it is,
+ * which is also why `closeItem` deliberately keeps every empty leaf it finds.
+ */
+describe("closeLeaf", () => {
+  it("prunes the empty leaf and hands its space to the sibling", () => {
+    const l = row([leaf("a"), leaf(null)]);
+    expect(closeLeaf(l, "L-empty")).toEqual(leaf("a"));
+  });
+
+  /* The control only ever means "drop this empty box". Pruning a leaf with something in it would lift
+     an open session out of the layout from a button that never said it would. */
+  it("leaves a leaf that holds an item completely alone", () => {
+    const l = row([leaf("a"), leaf("b")]);
+    expect(closeLeaf(l, "L-a")).toEqual(l);
+  });
+
+  it("keeps ONE empty leaf when the tree would otherwise become nothing", () => {
+    // The state this function is usually asked to remove is also the only honest answer when it is
+    // the last pane there is — so the id survives and the box stays.
+    const only = leaf(null);
+    expect(closeLeaf(only, "L-empty")).toEqual(only);
+  });
+
+  it("keeps the other empty panes — only the one pointed at goes", () => {
+    const a: LayoutLeaf = { type: "leaf", id: "L1", itemId: null };
+    const b: LayoutLeaf = { type: "leaf", id: "L2", itemId: null };
+    expect(closeLeaf(row([a, b]), "L2")).toEqual(a);
+  });
+
+  it("ignores a leaf id that is not in the tree", () => {
+    const l = row([leaf("a"), leaf(null)]);
+    expect(closeLeaf(l, "L-nope")).toEqual(l);
+  });
+
+  it("renormalises the sizes of what is left, as closeItem does", () => {
+    const l = row([leaf("a"), leaf("b"), leaf(null)], [50, 30, 20]);
+    const out = closeLeaf(l, "L-empty") as LayoutSplit;
+    expect(out.type).toBe("split");
+    expect(out.sizes.reduce((x, y) => x + y, 0)).toBeCloseTo(100);
+    expect(out.sizes[0]! / out.sizes[1]!).toBeCloseTo(50 / 30);
+  });
+});
+
+describe("side panes (tabbed leaves)", () => {
+  const side = (tabs: string[], active: string, owner = "s1"): LayoutLeaf => ({ type: "leaf", id: "SIDE", itemId: active, tabs, owner });
+
+  it("opens a session's first agent pane to its right, as a one-tab panel whose tab is the session's", () => {
+    const l = openInSidePane(leaf("s1"), "s1", "b1")!;
+    expect(l).toMatchObject({ type: "split", dir: "row", children: [{ itemId: "s1" }, { itemId: "b1", tabs: ["b1"], owners: { b1: "s1" } }] });
+  });
+
+  it("puts every later open in the SAME pane as a tab, on screen, after the one showing", () => {
+    // THE MUTANT this pins: a split per open — eight agent browsers as eight columns.
+    let l: Layout = openInSidePane(leaf("s1"), "s1", "b1")!;
+    l = openInSidePane(l, "s1", "b2")!;
+    l = openInSidePane(l, "s1", "b3")!;
+    expect((l as LayoutSplit).children).toHaveLength(2);
+    expect(findSidePane(l, "s1")).toMatchObject({ itemId: "b3", tabs: ["b1", "b2", "b3"] });
+  });
+
+  it("is the session's that asked, not whichever pane has focus, and opens at the right of everything", () => {
+    const l = openInSidePane(row([leaf("s1"), leaf("s2")]), "s2", "b1")!;
+    expect((l as LayoutSplit).children).toHaveLength(2);
+    expect(findPanel(l)).toMatchObject({ tabs: ["b1"], owners: { b1: "s2" } });
+    expect(findSidePane(l, "s1")).toBeNull();
+  });
+
+  it("gives every session's tabs one strip, each session's its own run", () => {
+    // THE MUTANT this pins: a strip per session — two sessions with tabs would be four columns.
+    let l: Layout = openInSidePane(row([leaf("s1"), leaf("s2")]), "s1", "b1")!;
+    l = openInSidePane(l, "s2", "b2")!;
+    l = openInSidePane(l, "s1", "b3")!;
+    expect(findSidePane(l, "s1")).toBe(findSidePane(l, "s2"));
+    expect(sideTabsOf(l, "s1")).toEqual(["b1", "b3"]);
+    expect(sideTabsOf(l, "s2")).toEqual(["b2"]);
+  });
+
+  it("hands a tab to another session when it is dropped into that session's run", () => {
+    let l: Layout = openInSidePane(row([leaf("s1"), leaf("s2")]), "s1", "b1")!;
+    l = openInSidePane(l, "s2", "b2")!;
+    const panel = findPanel(l)!;
+    const moved = moveTab(l, panel.id, "b1", 1, "s2");
+    expect(sideTabsOf(moved, "s2")).toEqual(["b2", "b1"]);
+    expect(sideTabsOf(moved, "s1")).toEqual([]);
+    expect(moveTab(l, panel.id, "b1", 1)).toMatchObject({ children: [{}, { owners: { b1: "s1" } }] });
+  });
+
+  it("what a previewed sub-agent opens joins the strip it is a tab of, not a side pane of its own", () => {
+    const l = openInSidePane(row([leaf("s1"), side(["child"], "child")]), "child", "b1")!;
+    expect((l as LayoutSplit).children).toHaveLength(2);
+    expect(findSidePane(l, "s1")).toMatchObject({ itemId: "b1", tabs: ["child", "b1"] });
+  });
+
+  it("is null when the session is not in the layout, so nothing lands beside a stranger", () => {
+    expect(openInSidePane(leaf("s1"), "s9", "b1")).toBeNull();
+  });
+
+  it("brings an item already open elsewhere in as a tab instead of duplicating it", () => {
+    const l = openInSidePane(row([leaf("s1"), side(["b1"], "b1"), leaf("b2")]), "s1", "b2")!;
+    expect(allItems(l).filter((i) => i === "b2")).toHaveLength(1);
+    expect(findSidePane(l, "s1")?.tabs).toEqual(["b1", "b2"]);
+  });
+
+  it("counts a tab behind another as open — one place per item, on screen or not", () => {
+    const l = row([leaf("s1"), side(["b1", "b2"], "b1")]);
+    expect(allItems(l)).toEqual(["s1", "b1", "b2"]);
+    expect(findLeafOfItem(l, "b2")?.id).toBe("SIDE");
+    expect(itemIdOfLeaf(l, "SIDE")).toBe("b1");
+  });
+
+  it("closing the tab on screen shows the next one, else the one before", () => {
+    const l = row([leaf("s1"), side(["b1", "b2", "b3"], "b2")]);
+    expect(findSidePane(closeItem(l, "b2"), "s1")).toMatchObject({ itemId: "b3", tabs: ["b1", "b3"] });
+    expect(findSidePane(closeItem(row([leaf("s1"), side(["b1", "b2"], "b2")]), "b2"), "s1")).toMatchObject({ itemId: "b1" });
+  });
+
+  it("closing a tab behind another leaves the one on screen alone", () => {
+    expect(findSidePane(closeItem(row([leaf("s1"), side(["b1", "b2"], "b1")]), "b2"), "s1")).toMatchObject({ itemId: "b1", tabs: ["b1"] });
+  });
+
+  it("closing the last tab takes the side pane with it", () => {
+    expect(closeItem(row([leaf("s1"), side(["b1"], "b1")]), "b1")).toEqual(leaf("s1"));
+  });
+
+  it("opening a tab that is already there brings it to the front", () => {
+    const l = openItem(row([leaf("s1"), side(["b1", "b2"], "b1")]), "SIDE", "b2");
+    expect(findSidePane(l, "s1")).toMatchObject({ itemId: "b2", tabs: ["b1", "b2"] });
+  });
+
+  it("an item dropped onto a side pane joins its tabs rather than replacing the one showing", () => {
+    const l = openItem(row([leaf("s1"), side(["b1"], "b1"), leaf("d1")]), "SIDE", "d1");
+    expect(findSidePane(l, "s1")).toMatchObject({ itemId: "d1", tabs: ["b1", "d1"] });
+  });
+
+  it("dragging a tab out to an edge makes it a pane of its own and leaves the strip", () => {
+    const l = splitLeaf(row([leaf("s1"), side(["b1", "b2"], "b1")]), "L-s1", "col", "b2");
+    expect(findSidePane(l, "s1")?.tabs).toEqual(["b1"]);
+    expect(findLeafOfItem(l, "b2")).toMatchObject({ itemId: "b2" });
+    expect(findLeafOfItem(l, "b2")?.tabs).toBeUndefined();
+  });
+
+  it("reorders a tab within its strip", () => {
+    const l = moveTab(row([leaf("s1"), side(["b1", "b2", "b3"], "b1")]), "SIDE", "b3", 0);
+    expect(findSidePane(l, "s1")?.tabs).toEqual(["b3", "b1", "b2"]);
+  });
+
+  it("survives a persist round trip, and repairs a strip whose active tab is not in it", () => {
+    const l = row([leaf("s1"), side(["b1", "b2"], "b2")]);
+    expect(LayoutSchema.parse(JSON.parse(JSON.stringify(l)))).toEqual(l);
+    const bad = LayoutSchema.parse(row([leaf("s1"), side(["b1", "b2"], "gone")]));
+    expect(findSidePane(bad, "s1")).toMatchObject({ itemId: "b1" });
+  });
+
+  it("dedupes tabs across the tree like any other open item", () => {
+    const parsed = LayoutSchema.parse(row([leaf("b1"), side(["b1", "b2"], "b1")]));
+    expect(allItems(parsed)).toEqual(["b1", "b2"]);
+    expect(findSidePane(parsed, "s1")).toMatchObject({ itemId: "b2", tabs: ["b2"] });
   });
 });

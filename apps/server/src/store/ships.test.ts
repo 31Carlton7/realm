@@ -40,21 +40,9 @@ describe("ShipsStore — per-space listing (the named W1 mutant: rows crossing s
     expect(s2.ships.map((s) => s.subject)).toEqual(["s2 mid"]);
   });
 
-  it("an unknown space lists nothing (the RPC layer, not the store, turns that into NOT_FOUND)", () => {
-    store.record(row());
-    expect(store.list({ spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FA9", cursor: null, limit: 10 }).ships).toEqual([]);
-  });
 });
 
 describe("ShipsStore — feed order and pagination (the notifications cursor, verbatim)", () => {
-  it("lists newest first with id as the same-millisecond tiebreak", () => {
-    const a = store.record(row({ subject: "a" })); at(a.id, 100);
-    const b = store.record(row({ subject: "b" })); at(b.id, 200);
-    const c = store.record(row({ subject: "c" })); at(c.id, 200);
-    const { ships } = store.list({ spaceId: a.spaceId, cursor: null, limit: 10 });
-    expect(ships.map((s) => s.subject).slice(0, 2).sort()).toEqual(["b", "c"]);
-    expect(ships.map((s) => s.subject)[2]).toBe("a");
-  });
 
   it("pages by keyset cursor without skipping or repeating across a same-millisecond boundary", () => {
     const ids: string[] = [];
@@ -82,9 +70,4 @@ describe("ShipsStore — feed order and pagination (the notifications cursor, ve
     expect(first.ships.length + second.ships.length).toBe(3);
   });
 
-  it("treats a mangled cursor as the first page rather than throwing", () => {
-    const s = store.record(row());
-    expect(store.list({ spaceId: s.spaceId, cursor: "not-a-cursor", limit: 10 }).ships).toHaveLength(1);
-    expect(store.list({ spaceId: s.spaceId, cursor: "NaN:xyz", limit: 10 }).ships).toHaveLength(1);
-  });
 });

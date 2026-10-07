@@ -57,6 +57,16 @@ pnpm dist            # or pnpm release — same packing path
 Expect `[pack] signing ENABLED …`, several minutes of `[notarize] submitting …`, then
 `[notarize] accepted and stapled`.
 
+## Local installs keep your macOS permissions
+
+`pnpm app:update` (scripts/app-update.mjs) signs the local build with the same identity, read from
+`~/.config/realm-signing.env`, and leaves notarization out: a local install is never quarantined, and
+notarizing would upload every build to Apple. Signing is not optional here, because macOS keys every
+grant Realm holds (Accessibility, Screen Recording, Automation, Calendar, Contacts) to the app's
+signature. An unsigned build is a different app to TCC, and installing one over a signed Realm drops
+all of them at once. `scripts/install-local.mjs` refuses that swap unless
+`REALM_ALLOW_PERMISSION_RESET=1`.
+
 ## Verify the artifact
 
 ```sh

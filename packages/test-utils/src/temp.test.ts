@@ -29,6 +29,9 @@ function testFiles(dir: string): string[] {
   return out;
 }
 
+/** Source with comments removed — see the scan below. */
+const strip = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
 const suite = ["apps", "packages", "scripts"]
   .flatMap((d) => testFiles(join(ROOT, d)))
   .map((p) => relative(ROOT, p))
@@ -44,7 +47,11 @@ describe("temp directories go through tempDir", () => {
   });
 
   it("no test file calls mkdtemp itself", () => {
-    const offenders = suite.filter((p) => readFileSync(join(ROOT, p), "utf8").includes("mkdtemp"));
+    /* Comments stripped first, and for the reason `styles.test.ts` gives about `transition: all`:
+       prose about a thing must not read as a use of it. A file explaining WHY it goes through
+       `tempDir` says the other name while doing the right thing, and failing it for that teaches
+       people to stop writing the explanation. */
+    const offenders = suite.filter((p) => strip(readFileSync(join(ROOT, p), "utf8")).includes("mkdtemp"));
     expect(offenders).toEqual([]);
   });
 

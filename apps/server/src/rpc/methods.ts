@@ -1,10 +1,17 @@
-import { Methods, type MethodName, type MethodResult } from "@realm/contracts";
+import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@realm/contracts";
 import type { z } from "zod";
 import type { RpcServer } from "./server";
+import { TERMINALS_HISTORY_KEY } from "@realm/contracts";
+import { BOOT_ID } from "../daemon/state";
+
+/** When this process came up, for `daemon.info`. A constant for the same reason `BOOT_ID` is one. */
+const STARTED_AT = Date.now();
 import type { ProfilesStore } from "../store/profiles";
 import type { SpacesStore } from "../store/spaces";
 import type { IconAssetsStore } from "../store/icon-assets";
+import type { AvatarStore } from "../store/avatar";
 import type { IconGenerationService } from "../icons/service";
+import type { PlanLimitsService } from "../limits/service";
 import type { ProjectsStore } from "../store/projects";
 import type { EnvironmentsStore } from "../store/environments";
 import type { EnvironmentService } from "../environments/service";
@@ -15,17 +22,31 @@ import type { ModelCatalogService } from "../models/catalog";
 import type { CliService } from "../cli/service";
 import { specFor, updateSpecFor, type CliInstaller } from "../cli/install";
 import type { SkillsService } from "../skills/service";
+import type { UserCommandsService } from "../commands/service";
+import type { ScriptService } from "../scripts/service";
+import type { KeybindingsService } from "../keybindings/service";
+import type { ThemesService } from "../themes/service";
+import type { FontsService } from "../fonts/service";
 import type { McpService } from "../mcp/service";
 import type { ComputerAppAllowlist } from "../computer/allowlist";
+import { announceSignIn, type SignInFlow } from "../browsers/signin-flow";
+import type { AgentSignInService } from "../agents/signin-service";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
 import type { McpHub } from "../mcp/hub";
 import type { McpGateway } from "../mcp/gateway";
 import { oauthSecretBox, type McpOauth } from "../mcp/oauth";
-import { spaceDownloadDir } from "../browsers/agent-tools";
+import { spaceDownloadDir, spaceScreenshotDir } from "../browsers/agent-tools";
 import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
 import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
+import type { MachineService } from "../machines/service";
+import type { SimulatorService } from "../simulators/service";
+import type { GoalService } from "../goals/service";
+import type { EggService } from "../eggs/service";
+import { eggSecretBox } from "../eggs/service";
+import { machineSecretBox } from "../machines/secret";
+import { CATALOG_ABSENT_NOTE } from "../machines/catalog-data";
 import type { DocumentService } from "../documents/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
@@ -35,9 +56,14 @@ import type { GraphifyService } from "../graphify/service";
 import type { RunService } from "../runs/service";
 import type { ScheduleService } from "../schedules/service";
 import type { ReviewService } from "../delegation/review";
+import type { CodeReviewService } from "../code-review/service";
 import type { DelegationEngine } from "../delegation/engine";
+import type { DelegatedChildren } from "../delegation/children";
+import type { AgentRunService } from "../delegation/agent-run";
 import type { SearchService } from "../search/service";
 import type { ArtifactsStore } from "../store/artifacts";
+import type { SavedTurnsStore } from "../store/saved-turns";
+import type { LibraryFilesStore } from "../store/library-files";
 import type { ForkService } from "../sessions/fork";
 import type { FailoverService } from "../sessions/failover";
 import type { ImportService } from "../import/service";
@@ -45,9 +71,14 @@ import type { LectureService } from "../school/lectures";
 import type { PlynnService } from "../school/plynn";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
+import type { ProjectSearchService } from "../workspace/grep";
+import type { MentionFiles } from "../workspace/mention-files";
 import type { GitWriteService } from "../workspace/git-write";
 import type { ShipsStore } from "../store/ships";
 import type { PortAllocator } from "../workspace/ports";
+import type { ExecutionSandboxService } from "../sandbox/service";
+import type { LayaService } from "../laya/service";
+import type { AppViewService } from "../apps/service";
 import { NotFoundError, RpcError } from "../store/rows";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
@@ -56,21 +87,86 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string; userName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller;
-  iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
+  /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
+   *  the watcher owns the clock and the close, this owns the refusals. */
+  onDrain?: () => void;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
+  iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
+  planLimits: PlanLimitsService;
   delegation: DelegationEngine;
+  /** A session's sub-agents read back from the tables, and its Agents tab. */
+  children: DelegatedChildren;
+  agentRuns: AgentRunService;
+  laya: LayaService;
+  agentSignIn: AgentSignInService;
+  /** The views MCP servers draw for tool calls (MCP Apps). */
+  appViews: AppViewService;
+  /** Pull requests through the person's own `gh` (the Code Review page). */
+  codeReview: CodeReviewService;
+  /** The turns a reader saved from a session's scroll track. */
+  savedTurns: SavedTurnsStore;
+  /** The files a person added to the Library themselves, copied in under the profile. */
+  libraryFiles: LibraryFilesStore;
 };
 
 export function registerMethods(d: Deps): void {
+  /**
+   * Whether this daemon is going quiet for a handoff.
+   *
+   * Module-scoped to the registration rather than to the module, so two apps in one test process do
+   * not share it. The refusals it drives are the visible half of a drain; the half that actually
+   * prevents a crash is `SessionService.ensureLive` refusing to start a COLD handle, because that is
+   * the one that would exec a bundle `install-local.mjs` has already deleted.
+   */
+  let draining = false;
+  const refuseWhileDraining = (what: string): void => {
+    if (draining) throw new RpcError("DAEMON_DRAINING", `Realm is finishing an update — you can ${what} again in a moment`);
+  };
   const { rpc } = d;
   const reg = <M extends MethodName>(name: M, fn: (p: Params<M>) => Result<M>) =>
     rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
 
-  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName }));
+  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, detachedSince: d.browserBridge.detachedSince }));
+
+  /* The daemon, as seen by the app attached to it. `daemon.stop` signals THIS process rather than
+     reaching for a close handle, because that is the same path an external `pnpm daemon:stop`, the
+     supervisor and the launcher's handoff all take — one shutdown sequence, not two. The reply is
+     sent first; the signal lands on the next tick, so the caller is not waiting on a socket being
+     torn down underneath its answer. */
+  reg("daemon.info", () => {
+    const counts = d.sessions.statusCounts();
+    return {
+      pid: process.pid, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, startedAt: STARTED_AT,
+      state: draining ? ("draining" as const) : ("running" as const),
+      working: counts.working, needsYou: counts.needsYou,
+      activeRuns: d.runs.activeCount(), liveHandles: d.sessions.liveCount(),
+    };
+  });
+  reg("daemon.stop", () => {
+    setTimeout(() => process.kill(process.pid, "SIGTERM"), 50);
+    return { ok: true as const };
+  });
+  reg("daemon.stopAgents", async () => ({ stopped: await d.sessions.stopAll() }));
+  reg("daemon.drain", () => {
+    const already = draining;
+    if (!already) {
+      draining = true;
+      // Schedules stop FIRST: a tick that fires between here and quiescence would start the very
+      // thing the drain is waiting to see the end of.
+      d.schedules.close();
+      d.sessions.setDraining(true);
+      d.onDrain?.();
+    }
+    return { draining: true as const, alreadyDraining: already };
+  });
 
   reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
   reg("workspace.diff", (p) => d.gitDiff.summary(p.cwd));
   reg("workspace.fileDiff", (p) => d.gitDiff.file(p.cwd, p.path, p.staged));
+  reg("project.grep", (p) => d.projectSearch.grep(p.cwd, p.query, { limit: p.limit }));
+  reg("project.files", (p) => d.projectSearch.files(p.cwd, p.query, p.limit));
+  // The session's own checkout, resolved here from the row — never a directory the caller names.
+  reg("mentions.files", (p) => d.mentionFiles.files(d.sessions.get(p.sessionId).cwd, p.query, p.limit));
   // Realm just changed this working tree, so the numbers `workspace.gitInfo` is holding for it are
   // wrong. Invalidating here (rather than trusting the 3s TTL) is what makes the composer's chips
   // and the diff pane agree the moment an action finishes.
@@ -109,16 +205,34 @@ export function registerMethods(d: Deps): void {
   reg("profiles.list", () => d.profiles.list());
   reg("profiles.create", (p) => { const r = d.profiles.create(p); rpc.broadcast("profiles.changed", {}); return r; });
   reg("profiles.update", (p) => { const r = d.profiles.update(p); rpc.broadcast("profiles.changed", {}); return r; });
-  reg("profiles.delete", (p) => { d.profiles.delete(p.id); rpc.broadcast("profiles.changed", {}); return { ok: true as const }; });
+  reg("profiles.delete", async (p) => {
+    // Refused up front for the last profile, before anything below is stopped: a delete that fails
+    // halfway must not have killed the sessions of a profile it then kept.
+    if (d.profiles.get(p.id) && d.profiles.list().length <= 1) d.profiles.delete(p.id);
+    // Each space goes the way `spaces.delete` takes it — live sockets, ptys and agent turns stopped —
+    // rather than leaving the cascade to drop rows out from under running processes.
+    for (const sp of d.spaces.list(p.id)) {
+      d.machines.closeAllInSpace(sp.id); d.simulators.closeAllInSpace(sp.id); d.terminals.closeAllInSpace(sp.id);
+      await d.sessions.deleteAllInSpace(sp.id);
+    }
+    d.profiles.delete(p.id);
+    rpc.broadcast("spaces.changed", {});
+    rpc.broadcast("profiles.changed", {});
+    return { ok: true as const };
+  });
+  reg("profiles.usage", (p) => d.profiles.usage(p.id));
 
   reg("spaces.list", () => d.spaces.listAll());
   reg("spaces.create", (p) => { const r = d.spaces.create(p); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.folderFor", (p) => ({ path: d.spaces.folderFor(p.profileId, p.name) }));
   reg("spaces.update", (p) => { const r = d.spaces.update(p); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.reorder", (p) => { d.spaces.reorder(p.ids); rpc.broadcast("spaces.changed", {}); return { ok: true as const }; });
   reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", {}); return r; });
-  reg("spaces.setGroups", (p) => { const r = d.spaces.setGroups(p.id, p.groups); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.setGroups", (p) => { const r = d.spaces.setGroups(p.id, p.groups, p.activeItemId); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.delete", async (p) => {
-    if (d.spaces.get(p.id)) { d.terminals.closeAllInSpace(p.id); await d.sessions.deleteAllInSpace(p.id); }
+    // Machines first: their rows go with the space by ON DELETE CASCADE, but a live socket to
+    // somebody else's Mac does not, and a leaked connection is worse than a leaked row.
+    if (d.spaces.get(p.id)) { d.machines.closeAllInSpace(p.id); d.simulators.closeAllInSpace(p.id); d.terminals.closeAllInSpace(p.id); await d.sessions.deleteAllInSpace(p.id); }
     d.spaces.delete(p.id);
     rpc.broadcast("spaces.changed", {});
     return { ok: true as const };
@@ -130,8 +244,49 @@ export function registerMethods(d: Deps): void {
   reg("iconAssets.upload", (p) => d.iconGeneration.upload(p.profileId, p.path));
   reg("iconAssets.delete", (p) => { d.iconAssets.delete(p.id); return { ok: true as const }; });
 
+  // Imported VS Code themes. `list` never throws on a bad file — one unreadable theme is one theme,
+  // not the whole folder — so the only failure a client can see here is an import it just asked for.
+  reg("themes.list", () => ({ root: d.themes.root, themes: d.themes.list() }));
+  reg("themes.import", (p) => { const t = d.themes.import(p.path); rpc.broadcast("themes.changed", {}); return t; });
+  reg("themes.remove", (p) => { d.themes.remove(p.id); rpc.broadcast("themes.changed", {}); return { ok: true as const }; });
+  // Google Fonts. `catalog` and `install` reach the network; everything else is the local folder.
+  reg("fonts.installed", () => ({ root: d.fonts.root, fonts: d.fonts.list() }));
+  reg("fonts.catalog", async () => ({ fonts: await d.fonts.catalog() }));
+  reg("fonts.install", async (p) => { const f = await d.fonts.install(p.family); rpc.broadcast("fonts.changed", {}); return f; });
+  reg("fonts.remove", (p) => { d.fonts.remove(p.family); rpc.broadcast("fonts.changed", {}); return { ok: true as const }; });
+  reg("fonts.faces", (p) => ({ faces: d.fonts.faces(p.family) }));
+  /* Answers on the terminal, not on the outcome — see the method's own doc comment. The waiting half
+     is deliberately not awaited: it opens the consent pane by itself, announced as the asking
+     session's when there is one, and it cannot reject. */
+  reg("signin.start", async (p) => {
+    const started = await d.signIn.start(p.spaceId, p.kind);
+    if (!started.ok) throw new RpcError("BAD_REQUEST", started.reason);
+    void (p.sessionId ? announceSignIn(rpc, p.spaceId, p.sessionId, started) : started.settled);
+    return { terminalId: started.terminalId, command: started.command };
+  });
+  /* The first run's sign-in, with no space around it. `start` answers with the first state at once;
+     the service broadcasts every one after it as `agentSignIn.changed`. Refused mid-drain like the
+     other things that start work: the daemon closing would kill the CLI under the person in the
+     browser. */
+  reg("agentSignIn.start", (p) => { refuseWhileDraining("sign in"); return d.agentSignIn.start(p.kind); });
+  reg("agentSignIn.code", (p) => { d.agentSignIn.code(p.id, p.code); return { ok: true as const }; });
+  reg("agentSignIn.cancel", (p) => { d.agentSignIn.cancel(p.id); return { ok: true as const }; });
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
-  reg("settings.set", (p) => { d.settings.set(p.key, p.value); return { ok: true as const }; });
+  reg("settings.set", (p) => {
+    d.settings.set(p.key, p.value);
+    // Turning terminal scrollback off purges what was kept. A switch that leaves yesterday's output
+    // on disk is not an off switch, and the thing being kept is whatever a shell printed.
+    if (p.key === TERMINALS_HISTORY_KEY && p.value !== true) d.terminals.purgeHistory();
+    return { ok: true as const };
+  });
+
+  /* The execution sandbox. Nothing is restarted by a write here — see the note on `sandbox.get` in
+     rpc.ts: Seatbelt is applied at exec, so a change reaches the next spawn and a live session keeps
+     what it booted with. `set` answers with `state` rather than with what was stored, because the
+     resolved policy and the availability verdict are what the picker draws and neither is in the row. */
+  reg("sandbox.get", (p) => d.sandbox.state(p.spaceId));
+  reg("sandbox.set", (p) => { d.sandbox.setSpacePrefs(p.spaceId, p.prefs); return d.sandbox.state(p.spaceId); });
+  reg("sandbox.setDefaults", (p) => d.sandbox.setDefaults(p.prefs));
 
   // Both check the space exists: the enabled set is keyed by space id, so a typo would silently read and
   // write preferences for a space that is not there rather than saying so.
@@ -160,6 +315,16 @@ export function registerMethods(d: Deps): void {
     skillsScopeChanged();
     return { ok: true as const };
   });
+  // Both read one skill's directory, and both go through the service's `list` so scope reach is
+  // decided in exactly one place. A space that does not exist is a NOT_FOUND here as it is above.
+  reg("skills.read", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.skills.detail(p.spaceId, p.id);
+  });
+  reg("skills.readFile", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.skills.readFile(p.spaceId, p.id, p.rel);
+  });
   reg("skills.sources", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     return { sources: d.skills.sources(p.spaceId) };
@@ -168,6 +333,48 @@ export function registerMethods(d: Deps): void {
   // the same "tell them all" rule promote/demote already follows, for the same reason.
   reg("skills.addScanRoot", (p) => { d.skills.addScanRoot(p.path); skillsScopeChanged(); return { ok: true as const }; });
   reg("skills.removeScanRoot", (p) => { d.skills.removeScanRoot(p.path); skillsScopeChanged(); return { ok: true as const }; });
+
+  // The space is checked only when one was named: `spaceId: null` is the palette asking outside a
+  // session, which is a smaller list and not an error.
+  const commandSpace = (spaceId: string | null): string | null => {
+    if (spaceId !== null && !d.spaces.get(spaceId)) throw new NotFoundError("space", spaceId);
+    return spaceId;
+  };
+  reg("commands.list", (p) => d.userCommands.list(commandSpace(p.spaceId)));
+  reg("commands.expand", (p) => d.userCommands.expand(commandSpace(p.spaceId), p.name, p.args));
+  reg("commands.sources", (p) => ({ sources: d.userCommands.sources(commandSpace(p.spaceId)) }));
+
+  // Every one of these checks the space exists first, for the reason the skills pair does: the blob
+  // is keyed by space id, so a typo would read and write another space's scripts rather than saying so.
+  const scriptSpace = (spaceId: string): string => {
+    if (!d.spaces.get(spaceId)) throw new NotFoundError("space", spaceId);
+    return spaceId;
+  };
+  reg("scripts.list", (p) => ({ scripts: d.scripts.list(scriptSpace(p.spaceId)) }));
+  reg("scripts.save", (p) => {
+    const saved = d.scripts.save(scriptSpace(p.spaceId), p.script);
+    rpc.broadcast("scripts.changed", { spaceId: p.spaceId });
+    return saved;
+  });
+  reg("scripts.remove", (p) => {
+    d.scripts.remove(scriptSpace(p.spaceId), p.id);
+    rpc.broadcast("scripts.changed", { spaceId: p.spaceId });
+    return { ok: true as const };
+  });
+  reg("scripts.reorder", (p) => {
+    const scripts = d.scripts.reorder(scriptSpace(p.spaceId), p.ids);
+    rpc.broadcast("scripts.changed", { spaceId: p.spaceId });
+    return { scripts };
+  });
+  // No broadcast: running a script changes no script. The terminal it opens announces itself through
+  // `items.changed`, which TerminalService.open already sends.
+  reg("scripts.run", (p) => d.scripts.runCommand(scriptSpace(p.spaceId), p.commandId));
+
+  // The user's keymap. `get` is also the seed/merge path, so every client asking what the bindings
+  // are is the moment the file is brought up to date — there is no install step to miss.
+  reg("keybindings.get", () => d.keybindings.read());
+  reg("keybindings.set", (p) => { const f = d.keybindings.write(p.rules); rpc.broadcast("keybindings.changed", {}); return f; });
+  reg("keybindings.reset", () => { const f = d.keybindings.reset(); rpc.broadcast("keybindings.changed", {}); return f; });
 
   // Every one of these checks the space exists first, for the same reason the skills pair does: the
   // enable set is keyed by space id, so a typo would silently read and write preferences for a space
@@ -241,6 +448,12 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
   });
+  // A server's views, on or off everywhere. `mcp.changed` is what tells a view already on screen.
+  reg("mcp.setShowViews", (p) => {
+    d.mcp.setShowsViews(p.id, p.show);
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
   // Promote is effective-set neutral and demote strips siblings (`McpService.promote`/`demote` doc
   // comments), but visibility moves for every space of the profile either way — and a pre-scoping row
   // leaves other profiles' lists on promote — so every space re-lists and every session is nudged.
@@ -266,7 +479,9 @@ export function registerMethods(d: Deps): void {
    *  registry, `enabled` from McpService's per-space disable set (default ON). */
   reg("mcp.providers.list", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
-    return { providers: d.gateway.providerNames().map((name) => ({ name, enabled: d.mcp.providerEnabled(p.spaceId, name) })) };
+    // `offered`/`needs` beside `enabled`: the switch is what the space asked for, and a provider that
+    // needs a toolchain this Mac lacks does nothing whatever it says — the row has to show both.
+    return { providers: d.gateway.providerNames().map((name) => ({ name, enabled: d.mcp.providerEnabled(p.spaceId, name), ...d.gateway.providerOffer(name) })) };
   });
   reg("mcp.setProviderEnabled", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
@@ -285,6 +500,9 @@ export function registerMethods(d: Deps): void {
     try { return { tools: (await d.hub.tools(p.id)).map((t) => ({ name: t.name, description: t.description })), error: null }; }
     catch (e) { return { tools: [], error: e instanceof Error ? e.message : String(e) }; }
   });
+  reg("apps.view", (p) => d.appViews.open(p.viewId));
+  reg("apps.release", (p) => { d.appViews.release(p.url); return { ok: true as const }; });
+  reg("apps.callTool", (p) => d.appViews.callTool(p.viewId, p.name, p.arguments));
   reg("mcp.setAllowedTools", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     d.mcp.setAllowedTools(p.spaceId, p.id, p.tools);
@@ -419,6 +637,7 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("checkpoints.changed", { environmentId: result.environmentId });
     return result;
   });
+  reg("checkpoints.turnDiff", (p) => d.checkpoints.turnFileDiff(p));
 
   // Deep search (Plan 16 W1). Profile-scoped server-side — the service's joins are the enforcement,
   // and the service itself checks the profile exists (a typo'd id should say so, not answer empty).
@@ -426,7 +645,13 @@ export function registerMethods(d: Deps): void {
 
   // The Library's file browser. One indexed range scan and a count; no transcript is read, which is
   // the whole point of the `artifacts` index existing (see migration v25).
-  reg("library.artifacts", (p) => ({ entries: d.artifacts.list(p), total: d.artifacts.count(p.spaceId) }));
+  reg("library.artifacts", (p) => ({ entries: d.artifacts.list(p), total: d.artifacts.count(p.spaceId, p.profileId ?? null, { sessionId: p.sessionId ?? null, perFile: p.perFile }) }));
+  reg("library.saved", (p) => d.savedTurns.list(p.profileId, p.limit));
+  // Files a person adds to the Library: copied in under the profile, and listed beside the index.
+  reg("library.add", (p) => d.libraryFiles.add(p));
+  // …and taken out again: only what was added, and only Realm's copy, held a while for the undo.
+  reg("library.remove", (p) => d.libraryFiles.remove(p));
+  reg("library.restore", (p) => d.libraryFiles.restore(p));
 
   // Import from the agent CLIs' own stores. `scan` is a pure read — it opens ~/.claude, ~/.codex and
   // ~/.cursor read-only and answers; nothing is created by looking. `apply` is the only writer, and
@@ -442,6 +667,8 @@ export function registerMethods(d: Deps): void {
     const it = d.items.get(p.id);
     if (it?.kind === "terminal") { d.terminals.close(it.refId); return { ok: true as const }; } // closes pty + row + item, broadcasts
     if (it?.kind === "browser") { d.browsers.close(it.refId); return { ok: true as const }; } // deletes row + item, broadcasts
+    if (it?.kind === "machine") { d.machines.close(it.refId); return { ok: true as const }; } // disconnects + row + item, broadcasts
+    if (it?.kind === "simulator") { d.simulators.close(it.refId); return { ok: true as const }; } // drops the row + item; the stream is not ours to kill
     if (it?.kind === "documents") { d.documents.close(it.refId); return { ok: true as const }; } // deletes row + item, broadcasts
     if (it?.kind === "session") { await d.sessions.delete(it.refId); return { ok: true as const }; } // disposes handle + row + item, broadcasts
     d.items.delete(p.id);
@@ -457,16 +684,127 @@ export function registerMethods(d: Deps): void {
     if (env) await d.ports.ensureBlock(env.id);
     return d.terminals.open(p);
   });
+  reg("terminals.read", (p) => d.terminals.read(p.terminalId, p.cursor));
   reg("terminals.write", (p) => { d.terminals.write(p.terminalId, p.data); return { ok: true as const }; });
   reg("terminals.prefill", async (p) => { await d.terminals.prefill(p.terminalId, p.command); return { ok: true as const }; });
   reg("terminals.resize", (p) => { d.terminals.resize(p.terminalId, p.cols, p.rows); return { ok: true as const }; });
   reg("terminals.close", (p) => { d.terminals.close(p.terminalId); return { ok: true as const }; });
+  reg("terminals.programs", () => d.terminals.programs());
 
   reg("browsers.create", (p) => d.browsers.open(p));
   reg("browsers.get", (p) => d.browsers.get(p.browserId));
+  reg("browsers.profile", (p) => d.browsers.profileOf(p.browserId, d.profiles));
   reg("browsers.update", (p) => { d.browsers.update(p.browserId, p); return { ok: true as const }; });
   reg("browsers.close", (p) => { d.browsers.close(p.browserId); return { ok: true as const }; });
   reg("browsers.downloadDir", (p) => ({ dir: spaceDownloadDir(d.projects, p.spaceId) }));
+  reg("browsers.screenshotDir", (p) => ({ dir: spaceScreenshotDir(d.spaces, p.spaceId) }));
+  reg("browsers.suggest", (p) => ({ pages: d.browsers.suggest(p.spaceId, p.query, p.limit) }));
+  reg("browsers.recent", (p) => ({ pages: d.browsers.recent(p.spaceId, p.limit) }));
+  reg("browsers.clearHistory", (p) => { d.browsers.clearHistory(p.profileId); return { ok: true as const }; });
+
+  /* Machines (Plan 25 W3). `create` and `update` are the only two that take a password, and neither
+     hands one back: `passwordStored` is a boolean about what happened, because with no encryption
+     key the server refuses to store one and the form must not claim otherwise. */
+  reg("machines.create", (p) => {
+    const r = d.machines.create(p);
+    // The guest's shape is Realm's own configuration rather than a secret or an address, so it goes
+    // in `settings` keyed by machine id — no column, no migration, and it survives a restart.
+    if (p.guest) d.settings.set(`machine.guest:${r.machineId}`, p.guest);
+    return r;
+  });
+  reg("machines.list", (p) => ({ machines: d.machines.list(p.spaceId), states: d.machines.states(p.spaceId) }));
+  reg("machines.get", (p) => ({ machine: d.machines.get(p.machineId), state: d.machines.stateOf(p.machineId) }));
+  reg("machines.update", (p) => {
+    const { passwordStored } = d.machines.update(p.machineId, p);
+    // Persisted here for the same reason `create` does it: the guest's shape is Realm's own
+    // configuration, so it lives in `settings` rather than earning a column.
+    if (p.guest) d.settings.set(`machine.guest:${p.machineId}`, p.guest);
+    return { machine: d.machines.get(p.machineId), passwordStored };
+  });
+  reg("machines.start", (p) => ({ state: d.machines.start(p.machineId) }));
+  reg("machines.stop", (p) => ({ state: d.machines.stop(p.machineId) }));
+  reg("machines.endpoint", (p) => ({ state: d.machines.stateOf(p.machineId) }));
+  reg("machines.close", (p) => { d.machines.close(p.machineId); return { ok: true as const }; });
+
+  reg("simulators.create", (p) => {
+    const r = d.simulators.create({ spaceId: p.spaceId, name: p.name, udid: p.udid });
+    return r;
+  });
+  reg("simulators.devices", async () => ({ devices: await d.simulators.devices(), available: await d.simulators.available() }));
+  reg("simulators.list", (p) => ({ simulators: d.simulators.list(p.spaceId), states: d.simulators.states(p.spaceId) }));
+  reg("simulators.get", (p) => ({ simulator: d.simulators.get(p.simulatorId), state: d.simulators.stateOf(p.simulatorId) }));
+  reg("simulators.start", (p) => ({ state: d.simulators.start(p.simulatorId, p.udid, p.platform, p.physical) }));
+  reg("simulators.stop", async (p) => ({ state: await d.simulators.stop(p.simulatorId) }));
+  reg("simulators.close", (p) => { d.simulators.close(p.simulatorId); return { ok: true as const }; });
+  reg("simulators.ui", async (p) => ({ ui: await d.simulators.ui(p.simulatorId) }));
+  reg("simulators.setUi", (p) => d.simulators.setUi(p.simulatorId, p.option, p.value));
+  reg("simulators.poke", (p) => d.simulators.poke(p.simulatorId, p.poke));
+  reg("simulators.ax", async (p) => ({ tree: await d.simulators.ax(p.simulatorId) }));
+  reg("simulators.apps", async (p) => ({ apps: await d.simulators.apps(p.simulatorId) }));
+  reg("simulators.screenshot", (p) => d.simulators.screenshot(p.simulatorId));
+  reg("simulators.webcams", async () => ({ webcams: await d.simulators.webcams() }));
+  reg("simulators.events", async (p) => ({ events: await d.simulators.events(p.simulatorId, p.limit) }));
+  reg("simulators.act", (p) => d.simulators.act(p.simulatorId, p.act));
+
+  reg("goals.get", (p) => ({ goal: d.goals.get(p.sessionId) }));
+  reg("goals.start", async (p) => ({ goal: await d.goals.start(p.sessionId, p.objective, p.tokenBudget) }));
+  reg("goals.set", (p) => ({ goal: d.goals.set(p.sessionId, p.status, p.note) }));
+  reg("goals.resume", async (p) => ({ goal: await d.goals.resume(p.sessionId) }));
+  reg("goals.clear", (p) => { d.goals.clear(p.sessionId); return { ok: true as const }; });
+
+  reg("eggs.list", () => ({ packs: d.eggs.unlocked() }));
+  reg("eggs.unlock", (p) => ({ pack: d.eggs.unlock(p.passphrase) }));
+  reg("eggs.forget", (p) => { d.eggs.forget(p.id); return { ok: true as const }; });
+
+  /* What this Mac can offer. The connect flow leaves the local-VM route out ENTIRELY when qemu is
+     unavailable rather than offering it disabled — design.md, "where the owner has said nothing,
+     show nothing". */
+  reg("machines.capabilities", async () => {
+    const { qemu, catalog } = await d.machines.capabilities();
+    return {
+      qemu: {
+        available: qemu.unavailable === null,
+        unavailable: qemu.unavailable,
+        version: qemu.version,
+        hvf: qemu.hvf,
+        arches: Object.keys(qemu.binaries) as ("aarch64" | "x86_64")[],
+      },
+      catalog: catalog.map((e) => ({
+        id: e.id, name: e.name, summary: e.summary, arch: e.arch, bytes: e.bytes, kind: e.kind,
+        memoryMb: e.memoryMb, cpus: e.cpus, diskGb: e.diskGb,
+        // An entry with no published checksum is offered as an IMPORT, not a download: a hash
+        // nobody verified would look like a guarantee.
+        verified: e.sha256.length === 64,
+      })),
+      absent: CATALOG_ABSENT_NOTE,
+    };
+  });
+  reg("machines.images.list", async () => ({ images: await d.machines.images().list() }));
+  reg("machines.images.download", async (p) => {
+    const { catalog } = await d.machines.capabilities();
+    const entry = catalog.find((e) => e.id === p.catalogId);
+    if (!entry) throw new RpcError("NOT_FOUND", `no catalog image "${p.catalogId}"`);
+    // Fire-and-follow: the answer is that it started, and the pane reads the progress events. An RPC
+    // that awaited two gigabytes would hold a socket for minutes and time out on any slow link.
+    void d.machines.fetchImage(p.machineId, { id: entry.id, url: entry.url, sha256: entry.sha256, bytes: entry.bytes, kind: entry.kind, name: entry.name });
+    return { ok: true as const };
+  });
+  reg("machines.images.cancel", (p) => { d.machines.cancelImage(p.machineId); return { ok: true as const }; });
+  reg("machines.apps", async () => {
+    try {
+      const r = (await d.browserBridge.call("computerListApps", {})) as { apps?: { bundleId: string; name: string }[]; accessibility?: boolean };
+      // An ungranted Mac answers `accessibility: false`, and the honest shape of that is an empty
+      // list: the route disappears rather than offering a picker whose every choice would refuse.
+      return { apps: r.accessibility === false ? [] : (r.apps ?? []).map((a) => ({ bundleId: a.bundleId, name: a.name })) };
+    } catch { return { apps: [] }; }
+  });
+  reg("machines.capture", async (p) => {
+    const driver = await d.machines.driverFor(p.machineId);
+    if (!driver) throw new RpcError("NOT_FOUND", "that machine has nothing to capture");
+    const frame = await driver.screenshot();
+    return { data: frame.data.toString("base64"), mimeType: "image/jpeg", width: frame.width, height: frame.height };
+  });
+  reg("machines.images.remove", async (p) => { await d.machines.images().remove(p.sha256, p.kind); return { ok: true as const }; });
 
   // The document workspace (Plan 17 W1). Unlike the browser methods above, these carry file CONTENT:
   // the server is the only process that reads and writes documents, which is what lets an agent edit
@@ -495,15 +833,37 @@ export function registerMethods(d: Deps): void {
   // The browser agent host's bridge (Plan 11 W3). `register` is raw `rpc.register` rather than `reg`
   // because it is the one method that needs its caller's socket — the bridge sends that exact client
   // its `browserHost.op` events from then on.
-  rpc.register("browserHost.register", Methods["browserHost.register"].params, async (_p, ctx) => {
-    d.browserBridge.register(ctx.client);
+  rpc.register("browserHost.register", Methods["browserHost.register"].params, async (p, ctx) => {
+    d.browserBridge.register(ctx.client, { hasWindow: p.hasWindow });
     // Adopt the `oauth` domain key from main's Keychain-anchored keyring, so `oauthJson` stops being
     // plaintext in realm.db. Fire-and-forget on purpose: registration must not block on it, and a
     // failure is the pre-existing plaintext posture rather than a broken bridge. Re-fetched on every
     // register, so an Electron main that restarted re-supplies it.
+    //
+    // Both keys land in module-level secret boxes, which is what makes them survive the app rather
+    // than the window. Quitting Realm costs nothing here: the daemon holds the keys for its whole
+    // life, and a new Electron re-supplies them on its next register. The one case that loses them is
+    // a daemon that restarts with no Electron running to ask — after that, oauth falls back to its
+    // documented plaintext posture and machines refuse to store a password at all, until the next
+    // time the app is opened.
     void d.browserBridge.call("oauthKey", {})
       .then((r) => { oauthSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); })
       .catch(() => { /* no key: writes stay plaintext, exactly as before this existed */ });
+    // And the `machine` key beside it (Plan 25 W3), on the same terms and for the same reason: the
+    // server is what performs a machine's RFB handshake, so it is what has to be able to open the
+    // password. Its failure mode is NOT the same as oauth's — no key means machines refuse to store
+    // a password at all rather than writing one in the clear.
+    void d.browserBridge.call("machineKey", {})
+      .then((r) => { machineSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); })
+      .catch(() => { /* no key: a machine that needs a password says so instead of storing one */ });
+    /* …and the `eggs` key, which remembers a friend group's word between launches. Its own domain
+       and its own key, like the two above: `secret-box` mixes the domain in as AAD, so a blob from
+       here could not be opened as a machine password even by accident. No key means the word is
+       remembered in the clear — see `eggSecretBox.seal` for why that is the right trade here and
+       the wrong one for a machine password. */
+    void d.browserBridge.call("eggsKey", {})
+      .then((r) => { eggSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); })
+      .catch(() => {});
     return { ok: true as const };
   });
   reg("browserHost.result", (p) => { d.browserBridge.handleResult(p); return { ok: true as const }; });
@@ -529,7 +889,7 @@ export function registerMethods(d: Deps): void {
 
   reg("runs.list", (p) => d.runs.list(p));
   reg("runs.get", (p) => d.runs.get(p.id));
-  reg("runs.create", (p) => d.runs.create({ spaceId: p.spaceId, goal: p.goal, title: p.title, constraints: p.constraints, dedupeKey: p.dedupeKey, maxAttempts: p.maxAttempts, deadlineAt: p.deadlineAt }));
+  reg("runs.create", (p) => { refuseWhileDraining("start a task"); return d.runs.create({ spaceId: p.spaceId, goal: p.goal, title: p.title, constraints: p.constraints, dedupeKey: p.dedupeKey, maxAttempts: p.maxAttempts, deadlineAt: p.deadlineAt }); });
   reg("runs.cancel", (p) => d.runs.cancel(p.id));
   reg("runs.retry", (p) => d.runs.retry(p.id));
   reg("runs.approve", (p) => d.runs.approve(p.id, p.approved, p.note));
@@ -543,11 +903,37 @@ export function registerMethods(d: Deps): void {
   reg("review.request", (p) => d.reviews.request(p.environmentId));
   reg("review.get", (p) => ({ review: d.reviews.get(p.environmentId) }));
   reg("review.dismiss", (p) => { d.reviews.dismiss(p.environmentId); return { ok: true as const }; });
+  // The Code Review page. Every read is the service's cached `gh`; `codeReview.submit` is the one
+  // write, and the page's Submit button is the only thing that sends it.
+  reg("codeReview.status", (p) => d.codeReview.ghStatus(p.force));
+  reg("codeReview.list", (p) => d.codeReview.list(p.section, p.cursor, p.force));
+  reg("codeReview.search", (p) => d.codeReview.search(p.query, p.cursor));
+  reg("codeReview.detail", (p) => d.codeReview.detail(p.ref, p.force));
+  reg("codeReview.files", (p) => d.codeReview.files(p.ref, p.headSha));
+  reg("codeReview.patches", async (p) => ({ patches: await d.codeReview.patches(p.ref, p.headSha, p.paths) }));
+  reg("codeReview.fileLines", async (p) => ({ lines: await d.codeReview.fileLines(p.ref, p.headSha, p.path) }));
+  reg("codeReview.submit", (p) => d.codeReview.submit(p));
+  reg("codeReview.instructions", (p) => d.codeReview.instructions(p.profileId));
+  reg("codeReview.setInstructions", (p) => d.codeReview.setInstructions(p.profileId, p.text));
+  reg("codeReview.reviewerPick", (p) => ({ pick: d.codeReview.reviewerPick(p.profileId) }));
+  reg("codeReview.setReviewerPick", (p) => d.codeReview.setReviewerPick(p.profileId, p.pick));
+  reg("codeReview.pins", (p) => ({ pins: d.codeReview.pins(p.profileId) }));
+  reg("codeReview.setPinned", (p) => ({ pins: d.codeReview.setPinned(p.profileId, p.pr, p.pinned) }));
+  reg("codeReview.review", (p) => d.codeReview.review(p));
+  reg("codeReview.reviewGet", (p) => ({ review: d.codeReview.reviewOf(p.ref) }));
+  reg("codeReview.places", async (p) => ({ places: await d.codeReview.places(p.profileId) }));
+  reg("codeReview.thread", (p) => { const t = d.codeReview.thread(p.ref); return { sessionId: t?.sessionId ?? null, spaceId: t?.spaceId ?? null }; });
+  reg("codeReview.ask", (p) => d.codeReview.ask(p));
   // Live registry state, not a table: the engine holds it in memory and it dies with the process, so
   // a pane mounting mid-run has no other way to learn what its session is waiting on.
   reg("delegation.running", (p) => ({ running: d.delegation.liveRuns(p.sessionId) }));
+  // The tables' side of the same subject: every child a session ever started, settled ones included.
+  reg("delegation.children", (p) => ({ children: d.children.list(p.sessionId) }));
+  reg("delegation.models", (p) => d.agentRuns.catalogFor(p.sessionId));
+  reg("delegation.tab", (p) => d.children.tab(p.sessionId));
 
   reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
+  reg("agents.probeOne", async (p) => (await d.sessions.probeAgent(p.kind)) ?? null);
   reg("models.catalog", async (p) => ({ rows: await d.modelCatalog.list({ force: p.force }) }));
 
   reg("cli.status", async (p) => ({ rows: await d.cli.status({ force: p.force }) }));
@@ -583,23 +969,53 @@ export function registerMethods(d: Deps): void {
   });
   reg("usage.activeDays", (p) => d.usage.activeDays(p));
   reg("usage.setBudget", (p) => d.usage.setBudget(p));
+  reg("usage.records", () => d.usage.records());
+  // The picture on the page about you. Broadcast on every change, so a second window — and the
+  // profile chip's menu, which wears the same face — never shows the one that was replaced.
+  reg("avatar.get", () => ({ path: d.avatar.get() }));
+  reg("avatar.set", (p) => { const path = d.avatar.set(p.path); rpc.broadcast("avatar.changed", { path }); return { path }; });
+  reg("avatar.clear", () => { d.avatar.clear(); rpc.broadcast("avatar.changed", { path: null }); return { path: null }; });
   reg("graphify.probe", (p) => d.graphify.probe({ force: p.force }));
   reg("graphify.update", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     return d.graphify.update(p.spaceId);
   });
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
-  reg("sessions.listAll", () => d.sessions.listAll());
+  reg("sessions.listAll", (p) => d.sessions.listAll(p.profileId));
+  reg("sessions.markSeen", (p) => { d.sessions.markSeen(p.id, p.seq); return { ok: true as const }; });
   reg("sessions.get", (p) => d.sessions.get(p.id));
   // `userDispatched` (W2's ⌘⇧↩) maps to the ONE origin a client may claim; the agent origins are
   // recorded by the server-side tools that create those children, never over RPC.
-  reg("sessions.create", (p) => d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }));
-  reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements }); return { ok: true as const }; });
+  reg("sessions.create", (p) => { refuseWhileDraining("start a session"); return d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }); });
+  reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs: p.mentionRefs }, p.delivery); return { ok: true as const }; });
+  reg("sessions.dequeue", async (p) => { d.sessions.dequeue(p.id, p.queuedId); return { ok: true as const }; });
+  reg("limits.get", async () => ({ limits: d.planLimits.list() }));
+  reg("sessions.releaseQueued", async (p) => { await d.sessions.releaseQueued(p.id, p.queuedId); return { ok: true as const }; });
+  reg("sessions.queued", async (p) => ({ queued: d.sessions.queuedPrompts(p.id) }));
   reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });
   reg("sessions.recordFeedback", (p) => { d.sessions.recordFeedback(p.id, p.messageId, p.rating); return { ok: true as const }; });
+  reg("sessions.saved", (p) => ({ seqs: d.savedTurns.forSession(p.id) }));
+  reg("sessions.setSaved", (p) => {
+    const seqs = d.savedTurns.set(p.id, p.seq, p.saved);
+    // Every window: the session's pane may be open in any of them, and the Library's list in another.
+    rpc.broadcast("session.saved", { sessionId: p.id, seqs });
+    return { seqs };
+  });
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers); return { ok: true as const }; });
   reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode, fastMode: p.fastMode }));
   reg("sessions.setAgent", (p) => d.sessions.setAgent(p.id, p.agentKind));
+  /* Laya (`laya/service.ts`). The service makes every refusal — an install with no Python to make it
+     from, Shadow before an install — so nothing here decides anything. */
+  reg("laya.status", () => d.laya.status());
+  reg("laya.install", () => d.laya.install());
+  reg("laya.setMode", (p) => d.laya.setMode(p.mode));
+  reg("laya.deleteLog", () => d.laya.deleteLog());
+  reg("laya.train", () => d.laya.train());
+  reg("laya.cancelTraining", () => d.laya.cancelTraining());
+  reg("laya.record", (p) => d.laya.record(p.simulatorId, p.apps));
+  reg("laya.stopRecording", () => d.laya.stopRecording());
+  reg("laya.deleteRecordings", () => d.laya.deleteRecordings());
+
   reg("failover.get", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     return d.failover.policy(p.spaceId);

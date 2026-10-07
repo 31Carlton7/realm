@@ -8,7 +8,7 @@ import { useApp } from "../state/store";
  * Renders a `Space.icon` string regardless of which of the four sources it names — built-in glyph,
  * emoji, or a saved `IconAsset` (upload or AI-generated), via `parseSpaceIcon`. The one place that
  * union gets resolved, so every call site that used to do `<Icon name={space.icon} />` (SpacePage,
- * SpaceHeader, SpaceStrip, the command palette, ...) does `<SpaceIcon icon={space.icon} />` instead.
+ * the sidebar's space sections, the command palette, ...) does `<SpaceIcon icon={space.icon} />` instead.
  *
  * `asset:` sanitization happens HERE, on every render — not once at generation/upload time — because
  * that is the actual XSS boundary: a stored SVG is untrusted on the way back out just as much as it

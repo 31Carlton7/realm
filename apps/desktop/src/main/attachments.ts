@@ -1,9 +1,10 @@
+import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { nativeImage } from "electron";
-import { DIRECTORY_MIME, isImageMime, isOpenablePath, mimeForPath } from "@realm/contracts";
+import { DIRECTORY_MIME, expandHome, isImageMime, isOpenablePath, mimeForPath } from "@realm/contracts";
 
 /** What the picker and the paste path hand the renderer. `size` is here so the prompter can refuse a
  *  file over MAX_ATTACHMENT_BYTES before it is ever attached; only `path` and `mime` go on the wire. */
@@ -31,10 +32,15 @@ export const TEMP_ATTACHMENT_TTL_MS = 24 * 60 * 60 * 1000;
  * a basename, then to a conservative character set, so nothing can escape the directory or collide with
  * a name the sweep is meant to recognise. The extension is preserved when there is one — it is what
  * `mimeForPath` reads, and what makes the file openable.
+ *
+ * `fallback` is for the name that sanitizes away to nothing (`...`, `///`, an empty string). Pastes
+ * want "pasted"; a download wants "download", and since downloads stopped requiring an extension
+ * that case reaches disk where it never used to. One sanitizer with a caller-chosen word beats a
+ * second sanitizer that drifts from this one.
  */
-export function safeAttachmentName(name: string): string {
+export function safeAttachmentName(name: string, fallback = "pasted"): string {
   const base = basename(name.replace(/\\/g, "/")).replace(/[^\w.\- ]+/g, "_").replace(/^\.+/, "").trim();
-  return base.length === 0 ? "pasted" : base.slice(0, 120);
+  return base.length === 0 ? fallback : base.slice(0, 120);
 }
 
 /**
@@ -218,10 +224,20 @@ export async function statFile(path: unknown): Promise<{ path: string; size: num
  *
  * Safe to be loose because `showItemInFolder` neither reads nor runs what it selects. Anything that
  * OPENS a path stays behind `openablePath`'s mime table.
+ *
+ * The path is taken as an agent writes it in prose, because that is where the transcript's path menu
+ * gets it: `~/…` is this account's home, and a relative path (`./out`, `src/main.ts`) is relative to
+ * `base` — the session's working directory, which is where the agent that wrote it was standing.
+ * Refusing both as "not absolute" is how Reveal in Finder on `~/Realm/school/…` did nothing at all.
+ * A relative path with no absolute `base` is still refused: the renderer's cwd is the app bundle, and
+ * resolving against it would answer a question nobody asked.
  */
-export async function existingPath(path: unknown): Promise<string | null> {
-  if (typeof path !== "string" || !isAbsolute(path)) return null;
-  const resolved = resolve(path);
+export async function existingPath(path: unknown, base?: unknown, home = homedir()): Promise<string | null> {
+  if (typeof path !== "string" || path === "") return null;
+  const named = expandHome(path, home);
+  const absolute = isAbsolute(named) ? named : typeof base === "string" && isAbsolute(base) ? join(base, named) : null;
+  if (absolute === null) return null;
+  const resolved = resolve(absolute);
   try { await stat(resolved); return resolved; } catch { return null; }
 }
 

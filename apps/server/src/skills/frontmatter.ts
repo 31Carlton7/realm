@@ -28,6 +28,18 @@ const indentOf = (line: string): number => line.length - line.trimStart().length
  * either way, which is all a one-line description cares about.
  */
 export function parseFrontmatter(text: string): Frontmatter | null {
+  return parseSkillDocument(text)?.frontmatter ?? null;
+}
+
+/**
+ * The same read, keeping the BODY as well — what a viewer shows, and what is left of the file once
+ * the frontmatter has done its job.
+ *
+ * One scanner for both, because where the body starts is defined by where the frontmatter ends, and
+ * two readers of one fence would eventually disagree about a block scalar. The body is the author's
+ * text unchanged from the line after the closing fence; only that newline is dropped.
+ */
+export function parseSkillDocument(text: string): { frontmatter: Frontmatter; body: string } | null {
   const lines = text.replace(/^﻿/, "").split(/\r?\n/);
   if (lines[0]?.trim() !== "---") return null;
   const out: Frontmatter = {};
@@ -35,7 +47,8 @@ export function parseFrontmatter(text: string): Frontmatter | null {
   for (; i < lines.length; i++) {
     const line = lines[i]!;
     const trimmed = line.trim();
-    if (trimmed === "---" || trimmed === "...") return out; // closed: whatever we read is the answer
+    // Closed: whatever we read is the answer, and everything after this line is the document.
+    if (trimmed === "---" || trimmed === "...") return { frontmatter: out, body: lines.slice(i + 1).join("\n") };
     if (trimmed === "" || trimmed.startsWith("#")) continue;
     if (indentOf(line) > 0) continue; // a nested mapping or list under some other key — not ours to read
     const colon = line.indexOf(":");

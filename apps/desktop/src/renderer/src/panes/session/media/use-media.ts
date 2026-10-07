@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MAX_MEDIA_CANDIDATES, type MediaFile } from "@realm/contracts";
 
 /**
@@ -45,14 +45,22 @@ function useResolveMedia(candidates: readonly string[]): void {
   const [, bump] = useState(0);
   useEffect(() => {
     if (candidates.length === 0) return;
-    const unknown = candidates.filter((p) => !resolved.has(p) && !inflight.has(p)).slice(0, MAX_MEDIA_CANDIDATES);
-    if (unknown.length === 0) return;
+    const open = candidates.filter((p) => !resolved.has(p));
+    const unknown = open.filter((p) => !inflight.has(p)).slice(0, MAX_MEDIA_CANDIDATES);
+    /* A path already in flight was asked by another reader, and that answer is this reader's too —
+       so it waits on that ask rather than skipping the path. Skipping is what held the file
+       browser's lightbox on its fallback preview for good: the preview is the lightbox's CHILD,
+       children's effects run before their parent's, so the preview asked first, and the lightbox
+       found the path in flight, asked nothing, and was never told the answer had come. */
+    const waits = new Set(open.flatMap((p) => inflight.get(p) ?? []));
+    if (unknown.length > 0) {
+      const p = ask(unknown).finally(() => { for (const path of unknown) inflight.delete(path); });
+      for (const path of unknown) inflight.set(path, p);
+      waits.add(p);
+    }
+    if (waits.size === 0) return;
     let live = true;
-    const p = ask(unknown).finally(() => {
-      for (const path of unknown) inflight.delete(path);
-      if (live) bump((n) => n + 1);
-    });
-    for (const path of unknown) inflight.set(path, p);
+    void Promise.allSettled(waits).then(() => { if (live) bump((n) => n + 1); });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` IS the candidate list, stably
   }, [key]);
@@ -96,6 +104,19 @@ export function useMediaFiles(candidates: readonly string[]): MediaFile[] {
     out.push(file);
   }
   return out;
+}
+
+/**
+ * One path's answer, with the wait kept apart from the miss: the file, `null` for "not media, or not
+ * there", and `undefined` while main has not said. The media viewer needs the difference — it draws a
+ * picture for the first, a preview or a sentence for the second, and nothing yet for the third,
+ * where a list that can draw nothing either way does not.
+ */
+export function useMediaFile(path: string | null): MediaFile | null | undefined {
+  const candidates = useMemo(() => (path ? [path] : []), [path]);
+  useResolveMedia(candidates);
+  if (!path) return null;
+  return resolved.has(path) ? resolved.get(path) ?? null : undefined;
 }
 
 /** A video's poster frame, cached the same way and for the same reason. Null until QuickLook

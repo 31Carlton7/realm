@@ -1,18 +1,49 @@
 import { Icon } from "@realm/ui";
-import { memo, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import type { SessionStatus } from "@realm/contracts";
 import { Spinner } from "../../components/Spinner";
-import { clip, editStat, prettyJson, toolSummary } from "./tool-summary";
+import { useDissolve } from "../../components/ScrollFades";
+import { fileIconFor } from "../../components/file-icon";
+import { clip, editStat, editTarget, prettyJson, resultEditStat, toolSummary } from "./tool-summary";
 import { flattenRun, formatDuration, formatToolRun, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
 import { ToolInputBody, ToolResultBody } from "./rich/ToolViews";
 import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolMediaPath, toolResultView } from "./rich/tool-view";
 import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
+import { ChildSessions, delegatedChildIds } from "./DelegatedRuns";
+import { DelegationLine, DelegationWait, isDelegationLine, isDelegationWait } from "./DelegationLine";
 import { useElapsed } from "./use-elapsed";
+import { AppView } from "../app-view/AppView";
 
 type ToolState = "running" | "ok" | "error" | "none";
 
 /** How long the copy button holds its ✓ before cross-fading back to the copy glyph (§6 icon swap). */
 const COPIED_MS = 1400;
+
+/** The session's directory, for saying an edited file's path from where the agent stands. Provided
+ *  by the transcript; absent — a card drawn somewhere with no session — the path is said whole. */
+export const ToolCwd = createContext<string | null>(null);
+
+/**
+ * The file an editing call changed, named the way the turn's edit card and the prose name it: the
+ * file type's mark, the directory dimmed and the name bright. One shape for Claude's `Edit`, Codex's
+ * `apply_patch` and an ACP agent's edit, because to the reader they are the same act — and a mono
+ * chip of the raw path said less, at more width, than the three parts of it a reader looks for.
+ */
+function ToolFile({ path, more }: { path: string; more: number }) {
+  const cwd = useContext(ToolCwd)?.replace(/\/+$/, "") ?? null;
+  const shown = cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
+  const cut = shown.lastIndexOf("/");
+  return (
+    <span className="tool-file" title={path}>
+      <Icon name={fileIconFor(path)} size={14} className="tool-file-mark" />
+      <span className="tool-file-path">
+        {cut >= 0 && <span className="tool-file-dir">{shown.slice(0, cut + 1)}</span>}
+        <span className="tool-file-name">{shown.slice(cut + 1)}</span>
+      </span>
+      {more > 0 && <span className="tool-file-more">and {more} more</span>}
+    </span>
+  );
+}
 
 /** Giant tool results are clamped to this many chars behind a "Show all" expander (A-M2) — an agent
  *  cat-ing a bundle must not wedge the transcript. Copy always takes the full text.
@@ -29,6 +60,8 @@ export const RESULT_CLAMP = DRAW_LIMIT;
  *  picture Realm drew of it. `label` doubles as the button's accessible object ("Copy result"). */
 function Well({ label, text, error = false, rich = null }: { label: string; text: string; error?: boolean; rich?: ReactNode }) {
   const [showAll, setShowAll] = useState(false);
+  const well = useRef<HTMLPreElement>(null);
+  useDissolve(well);
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -51,7 +84,7 @@ function Well({ label, text, error = false, rich = null }: { label: string; text
           <Icon name="check" size={12} className="copied-icon" />
         </button>
       </div>
-      {rich ?? <pre className="tool-well" data-error={error || undefined}>{clamped ? text.slice(0, RESULT_CLAMP) : text}</pre>}
+      {rich ?? <pre className="tool-well" ref={well} data-error={error || undefined}>{clamped ? text.slice(0, RESULT_CLAMP) : text}</pre>}
       {!rich && clamped && (
         <button className="tool-expand" onClick={() => setShowAll(true)}>
           Show all ({Math.ceil(text.length / 1024)} KB)
@@ -82,6 +115,14 @@ function expand(e: ReactMouseEvent<HTMLButtonElement>, next: boolean): boolean {
   return next;
 }
 
+type ToolCardProps = {
+  block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean;
+  /** The calls a sub-agent made under this one (`groupTranscript`). Empty for every card but a
+   *  Task/Agent one whose child did some work — and empty via `withEnter`'s shared array, which is
+   *  what keeps the memo above holding for the other 299 cards. */
+  nested?: readonly ToolStep[];
+};
+
 /** A tool call the agent made: BUI ThinkingState's coding-row shape (Plan 9 W2) — a leading status
  *  glyph whose spinner→muted-check progression is the block's REAL settled state (result present),
  *  never a clock; the tool name; the target as a mono chip (ToolChips' chip language); measured
@@ -91,21 +132,28 @@ function expand(e: ReactMouseEvent<HTMLButtonElement>, next: boolean): boolean {
  *  the block ARRAY on each update but keeps every settled block's object, so a card whose call has
  *  landed compares equal on all four props and is skipped — a 300-call transcript stops re-deriving
  *  300 summaries and edit stats behind an assistant message that is still typing. `enter` is stable
- *  for a key's whole life (transcript-enter.ts), so memoizing cannot strand a card mid-animation. */
-export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = false, nested }: {
-  block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean;
-  /** The calls a sub-agent made under this one (`groupTranscript`). Empty for every card but a
-   *  Task/Agent one whose child did some work — and empty via `withEnter`'s shared array, which is
-   *  what keeps the memo above holding for the other 299 cards. */
-  nested?: readonly ToolStep[];
-}) {
+ *  for a key's whole life (transcript-enter.ts), so memoizing cannot strand a card mid-animation.
+ *
+ *  A call that starts a Realm sub-agent is drawn as its line instead (DelegationLine) — a different
+ *  component rather than a branch inside this one, because a call can turn from one into the other
+ *  when a refusal lands, and the two hold different hooks. */
+export const ToolCard = memo(function ToolCard(props: ToolCardProps) {
+  if (isDelegationLine(props.block)) return <DelegationLine block={props.block} sessionStatus={props.sessionStatus} enter={props.enter} />;
+  if (isDelegationWait(props.block)) return <DelegationWait block={props.block} sessionStatus={props.sessionStatus} enter={props.enter} />;
+  return <ToolCardBody {...props} />;
+});
+
+function ToolCardBody({ block, sessionStatus, enter = false, nested }: ToolCardProps) {
   const [open, setOpen] = useState(false);
   const everOpened = useRef(false);
   everOpened.current ||= open;
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
   const state: ToolState = block.result ? (block.result.isError ? "error" : "ok") : live ? "running" : "none";
   const summary = clip(toolSummary(block.name, block.input));
-  const stat = editStat(block.name, block.input);
+  /* An edit names its file and its counts, from the call's own two sides where it carries them, or
+     from the diff an ACP agent's result carries (map-acp.ts). */
+  const target = editTarget(block);
+  const stat = editStat(block.name, block.input) ?? resultEditStat(block);
   /* The drawn forms of this call's payloads, or null where the raw well is still the best showing
      (rich/tool-view.ts). Computed only once the body has been built — a transcript of 300 collapsed
      cards must not diff 300 payloads to render a row nobody opened. */
@@ -118,9 +166,10 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
      being made, right now. Bound to `state === "running"` — the call's REAL settled state — so the
      canvas cannot outlive the work, and a failure leaves a failed card rather than a shimmer. */
   const work = state === "running" ? mediaWorkFor(block.name, block.input) : null;
+  /* Every other call answers with an empty list on the name alone, before the result is read. */
+  const children = delegatedChildIds(block);
   return (
-    /* The id on the element, so anything that needs to point AT a specific call can find it — the
-       delegation dock scrolls a running sub-agent's row to its card this way. */
+    /* The id on the element, so anything that needs to point AT a specific call can find it. */
     <div className="tool-card" data-tool-use-id={block.toolUseId}
       data-state={state} data-open={open || undefined} data-enter={enter || undefined}>
       <button className="tool-row" aria-expanded={open} aria-label={`${block.name} tool call`} onClick={(e) => setOpen(expand(e, !open))}>
@@ -132,7 +181,8 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
           {state === "error" && <Icon name="errorCircle" size={14} />}
         </span>
         <span className="tool-name">{block.name}</span>
-        {summary && <span className="tool-summary" title={summary}>{summary}</span>}
+        {target ? <ToolFile path={target.path} more={target.more} />
+          : summary && <span className="tool-summary" title={summary}>{summary}</span>}
         {stat && (
           /* A zero side is dropped rather than printed: "−0" on a pure addition is a count of
              nothing, and it reads as a deletion until the eye gets to the digit. */
@@ -147,6 +197,13 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
           happens, and a canvas the reader has to open a card to find would be a spinner with extra
           steps. It leaves of its own accord when the result lands. */}
       {work && <GeneratingCanvas label={work.label} detail={work.detail} aspect={work.aspect} />}
+      {/* The view the server drew for this call, outside the expander: it is what the call was for,
+          and a reader should not have to open a card to find it. */}
+      {block.view && <AppView viewId={block.view.viewId} viewRef={block.view} mode="inline" />}
+      {/* The sessions a delegation call started or collected, outside the expander for the ledger's
+          reason below: a finished child's pane may already be gone from the layout, and this is the
+          way back to it from the report it produced. */}
+      {children.length > 0 && <ChildSessions ids={children} />}
       {/* The sub-agent's own ledger, hanging off the call that spawned it and ABOVE the expander:
           what the child is doing is the thing worth seeing, and burying it under the raw input and
           result wells would make it something the reader has to go looking for. */}
@@ -171,7 +228,7 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
       </div>
     </div>
   );
-});
+}
 
 /** The collapsed row's duration (Ara refresh §4: `Worked for <duration> ›`). While the run is still
  *  working it ticks live off the group's own first timestamp; once settled it freezes on the ledger's

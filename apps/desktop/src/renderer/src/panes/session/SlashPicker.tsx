@@ -2,6 +2,7 @@ import { Icon } from "@realm/ui";
 import { useRef, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
+import { usePickerScroller } from "./MentionPicker";
 import type { SlashCommand } from "./slash-commands";
 
 /**
@@ -28,21 +29,24 @@ export function SlashPicker({ commands, activeIndex, anchorRef, onPick, onHover,
   // it trailing the caret while the sentence carries on is noise rather than motion.
   const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
   const active = Math.min(activeIndex, commands.length - 1);
+  const { list, hovered } = usePickerScroller(active);
   return createPortal(
     <div ref={ref} id="slash-list" className="mention-picker slash-picker" role="listbox" aria-label="Commands"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
         visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom left" }}>
-      {commands.map((c, i) => (
-        <div key={c.id} id={`slash-${c.id}`} role="option" tabIndex={-1}
-          className="mention-row slash-row" aria-selected={i === active} data-active={i === active || undefined}
-          onMouseEnter={() => onHover(i)}
-          onMouseDown={(e) => e.preventDefault() /* the textarea keeps focus; the caret must not move */}
-          onClick={() => onPick(c)}>
-          <Icon name={c.icon} size={12} className="slash-row-glyph" />
-          <span className="mention-row-id">/{c.id}</span>
-          <span className="mention-row-desc">{c.hint}</span>
-        </div>
-      ))}
+      <div ref={list} className="mention-list" role="presentation">
+        {commands.map((c, i) => (
+          <div key={c.id} id={`slash-${c.id}`} role="option" tabIndex={-1}
+            className="mention-row slash-row" aria-selected={i === active} data-active={i === active || undefined}
+            onMouseEnter={() => { hovered.current = i; onHover(i); }}
+            onMouseDown={(e) => e.preventDefault() /* the textarea keeps focus; the caret must not move */}
+            onClick={() => onPick(c)}>
+            <Icon name={c.icon} size={12} className="slash-row-glyph" />
+            <span className="mention-row-id">/{c.id}</span>
+            <span className="mention-row-desc">{c.hint}</span>
+          </div>
+        ))}
+      </div>
     </div>,
     document.body,
   );

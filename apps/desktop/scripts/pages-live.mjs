@@ -11,7 +11,6 @@
  *      is that its box is not the OS's size and its tick is drawn by us — both facts about the
  *      rendered element, and neither readable from the stylesheet, since `appearance: none` either
  *      takes or it does not.
- *   3. **Notifications.** One measured column of cards, no wash, and a modal for the row you pick.
  *
  * Ports: env-overridable. Touches only a scratch dir; kills only the process it started.
  */
@@ -21,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9365), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8931);
@@ -73,8 +73,8 @@ function cdp(wsUrl) {
 /** A client for the server's own RPC socket. The fake agent has to be selected over the wire — a
  *  fresh session defaults to an engine this scratch home has no CLI for, and the summary needs an
  *  actual answer to summarise. Same helper `message-actions-live.mjs` uses, for the same reason. */
-function rpc(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   const ready = new Promise((res) => ws.addEventListener("open", res));
@@ -102,10 +102,27 @@ globalThis.__live = {
     Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
     el.dispatchEvent(new Event("input", { bubbles: true }));
   },
-  dest(label) {
-    const row = [...document.querySelectorAll('.sb-destinations .dest-row')].find((b) => b.textContent.trim().startsWith(label));
-    if (!row) throw new Error('no destination: ' + label);
-    row.click();
+  async dest(label) {
+    if (label === "Settings") {
+      // Settings sits behind the rail's avatar, whose menu is the system's and out of a page script's
+      // reach — the palette's "Open settings" is the same action.
+      if (document.querySelector(".settings-page-pane")) return true;
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+      for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await new Promise((r) => setTimeout(r, 25));
+      const input = document.querySelector(".palette input");
+      if (!input) throw new Error('no palette');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "settings");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      for (let i = 0; i < 40; i++) {
+        const hit = [...document.querySelectorAll(".palette-list [role=option], .palette-list button")].find((b) => /open settings/i.test(b.textContent));
+        if (hit) { hit.click(); return true; }
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error('no destination: Settings');
+    }
+    const b = [...document.querySelectorAll('.app-rail .rail-btn')].find((x) => (x.getAttribute('aria-label') ?? '').startsWith(label));
+    if (!b) throw new Error('no destination: ' + label);
+    b.click();
     return true;
   },
 };
@@ -175,8 +192,67 @@ async function main() {
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1400, height: 900, deviceScaleFactor: 2, mobile: false });
   await sleep(400);
 
-  const api = rpc(SERVER_PORT);
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
+
+  /* ── 0. A page's own sections take the sidebar's place (components/page-nav.tsx) ──────── */
+  await c.send("Emulation.setDeviceMetricsOverride", { width: 1500, height: 950, deviceScaleFactor: 2, mobile: false });
+  await sleep(300);
+  // The sidebar's row text edge, from the column itself before any page is up: 8px in from its padding.
+  const rowEdge = await evalIn(c, `(() => { const l = document.querySelector('.sb-list'); const cs = getComputedStyle(l);
+    return Math.round(l.getBoundingClientRect().left + parseFloat(cs.paddingLeft) + 8); })()`);
+  // …and where it starts its content under the head row: the list's padding edge, whatever comes first
+  // in it (the lens nudges itself 2px further; Needs you, when something waits, does not).
+  const listTop = await evalIn(c, `(() => { const b = document.querySelector('.space-body'); const cs = getComputedStyle(b);
+    return Math.round(b.getBoundingClientRect().top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop)); })()`);
+  await evalIn(c, `__live.dest("Settings")`);
+  await until(() => evalIn(c, `!!document.querySelector('.sb-page-nav .settings-rail')`), 10000, "Settings' sections in the sidebar");
+  await sleep(400);
+  const nav = await evalIn(c, `(() => {
+    const tabs = [...document.querySelectorAll('.sb-page-nav .settings-tab')];
+    const textLeft = (el) => { const n = [...el.childNodes].find((x) => x.nodeType === 3 && x.textContent.trim()); if (!n) return null;
+      const r = document.createRange(); r.selectNodeContents(n); const box = r.getClientRects()[0]; return box ? Math.round(box.left) : null; };
+    const back = document.querySelector('.sb-page-back').getBoundingClientRect();
+    return { inPage: !!document.querySelector('.page-overlay .page-rail'), listHidden: document.querySelector('.sb-list').hidden,
+      tabs: tabs.length, text: tabs.slice(0, 3).map(textLeft), h: Math.round(tabs[0].getBoundingClientRect().height),
+      glyph: tabs.slice(0, 3).map((t) => { const g = t.querySelector('.page-rail-glyph'); return g ? Math.round(g.getBoundingClientRect().left) : null; }),
+      // Not inherited: what decides a click is the nearest box that sets a region at all.
+      region: (() => { for (let el = tabs[0]; el; el = el.parentElement) { const v = getComputedStyle(el).getPropertyValue('-webkit-app-region');
+        if (v && v !== 'none') return v; } return null; })(),
+      back: { t: Math.round(back.top), b: Math.round(back.bottom) } };
+  })()`);
+  check("Settings' sections are in the sidebar, the spaces hidden under them, and none left in the page",
+    nav.tabs > 5 && !nav.inPage && nav.listHidden === true, nav);
+  /* A section wears its glyph first, as a sidebar row wears its kind's: the GLYPH stands on the row
+     edge and the text follows it, one glyph-and-gap on — the same anatomy as the spaces' own rows. */
+  check("…their glyph on the sidebar's own row edge and their text after it, at the sidebar's row height",
+    nav.glyph.every((x) => x !== null && Math.abs(x - rowEdge) <= 1)
+      && nav.text.every((x, i) => x !== null && x - nav.glyph[i] >= 16 && x - nav.glyph[i] <= 28) && nav.h >= 32,
+    { rowEdge, glyph: nav.glyph, text: nav.text, h: nav.h });
+  check("…under a Back in the header band", nav.back.t >= 0 && nav.back.b <= 40, nav.back);
+  // THE BUG: the search sat flush on the frame's rim, under Back, with nothing between them.
+  const searchTop = await evalIn(c, `Math.round(document.querySelector('.sb-page-nav .settings-search').getBoundingClientRect().top)`);
+  check("…and the search starts where the spaces list starts its content, clear of the head row", Math.abs(searchTop - listTop) <= 1 && searchTop - 40 >= 12, { searchTop, listTop });
+  // The column is a window-drag region, and these rows are labels; drag would take the click.
+  if (nav.region !== null) check("…and the rows answer clicks rather than dragging the window", nav.region === "no-drag", { region: nav.region });
+  await shot(c, "takeover-settings", { x: 0, y: 0, width: 760, height: 520 });
+  // The light face too, through Appearance's own switch picked from the column: the rows take the
+  // face's tokens, not new ones.
+  const theme = (mode) => evalIn(c, `(() => { [...document.querySelectorAll('.sb-page-nav .settings-tab')].find((t) => t.textContent.trim() === 'Appearance').click();
+    return true; })()`).then(() => until(() => evalIn(c, `(() => { const r = document.querySelector('input[name="settings-theme"][value="${mode}"]'); if (!r) return false; r.click(); return document.documentElement.dataset.mode === '${mode}'; })()`), 10000, `the ${mode} face`));
+  await theme("light");
+  await sleep(500);
+  await shot(c, "takeover-settings-light", { x: 0, y: 0, width: 760, height: 520 });
+  await theme("dark");
+  await sleep(300);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.sb-page-nav .settings-tab')].find((t) => t.textContent.trim() === 'General').click(); return true; })()`);
+  await sleep(300);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.sb-page-nav .settings-tab')].find((t) => t.textContent.trim() === 'Usage').click(); return true; })()`);
+  const usage = await until(() => evalIn(c, `document.querySelector('.sb-page-nav .settings-tab[data-selected]')?.textContent.trim() === 'Usage' && !!document.querySelector('.page-overlay .checkbox')`), 10000, "Usage from the sidebar").catch(() => false);
+  check("a section picked in the sidebar is the one the page shows", usage === true);
+  await evalIn(c, `(() => { document.querySelector('.sb-page-back').click(); return true; })()`);
+  const back = await until(() => evalIn(c, `!document.querySelector('.page-overlay') && !document.querySelector('.sb-page') && document.querySelector('.sb-list').hidden === false`), 10000, "the spaces back").catch(() => false);
+  check("Back closes the page and gives the sidebar its spaces back", back === true);
 
   /* ── 1. Page headers ────────────────────────────────────────────────────── */
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1500, height: 950, deviceScaleFactor: 2, mobile: false });
@@ -192,9 +268,12 @@ async function main() {
       /* The content column's own first child, not the column element itself. That element carries a
          4px padding with a matching negative margin so a focus ring inside it is not clipped, which
          puts its BORDER box 4px left of anything a reader sees. Lining a title up with a box nobody
-         can see is how you ship an off-by-four. (No backticks in here: this whole block is inside a
-         template literal, and one would end it.) */
-      const contentEl = page.querySelector('.page-content, .page-body > *:last-child');
+         can see is how you ship an off-by-four. The column is asked for by name first: a selector
+         list answers with whichever match comes first in the document, and the .page-scroll wrapper
+         that now holds the column is a .page-body child that comes before it — its first child is the
+         column's bleed box again. (No backticks in here: this whole block is inside a template
+         literal, and one would end it.) */
+      const contentEl = page.querySelector('.page-content') ?? page.querySelector('.page-body > *:last-child');
       const content = contentEl?.firstElementChild ?? contentEl;
       return { title: h1.textContent, h1: __live.box(h1),
                rail: rail ? __live.box(rail) : null, content: content ? __live.box(content) : null,
@@ -282,24 +361,6 @@ async function main() {
   check("and the tick it draws is ours", box.tickOpacity === "1" && parseFloat(box.tickWidth) > 0, box);
   await shot(c, "checkbox", { x: box.box.l - 30, y: box.box.t - 20, width: 320, height: 70 });
 
-  /* ── 3. Notifications ───────────────────────────────────────────────────── */
-  await evalIn(c, `__live.dest("Notifications")`);
-  await until(() => evalIn(c, `!!document.querySelector('.notifications-page-pane')`), 15000, "notifications");
-  await sleep(400);
-  const notif = await evalIn(c, `(() => {
-    const page = document.querySelector('.notifications-page-pane');
-    const feed = page.querySelector('.notif-feed');
-    return { wash: page.classList.contains('wash'), split: !!page.querySelector('.notif-split'),
-             feed: feed ? __live.box(feed) : null, page: __live.box(page),
-             bg: getComputedStyle(page).backgroundImage };
-  })()`);
-  check("no decorated ground under the feed", !notif.wash && notif.bg === "none", notif);
-  check("no two-column split", !notif.split, notif);
-  if (notif.feed) {
-    const slackL = notif.feed.l - notif.page.l, slackR = notif.page.r - notif.feed.r;
-    check("the feed is centred in its pane", Math.abs(slackL - slackR) <= 24, { slackL, slackR });
-  }
-  await shot(c, "notifications", { x: notif.page.l, y: 0, width: Math.min(1000, notif.page.w), height: 520 });
   api.close();
 
   check("no renderer console errors", c.events.length === 0, c.events.slice(0, 5));

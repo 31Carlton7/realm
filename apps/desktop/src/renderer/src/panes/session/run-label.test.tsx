@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { RUN_LABELS, runLabelFor } from "./run-label";
-import { finishedAt } from "./tool-group";
+import { EGG_RUN_LABELS, PLAN_RUN_LABEL, RUN_LABELS, runLabelFor } from "./run-label";
+import { stampLabel } from "./timestamps";
 import { Transcript } from "./Transcript";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 
@@ -46,15 +46,116 @@ describe("the word a run wears", () => {
   });
 });
 
+describe("what an unlocked friend pack takes over", () => {
+  const PACK = [
+    { present: "Asking Alice", past: "Asked Alice" },
+    { present: "Blaming Bob", past: "Blamed Bob" },
+  ];
+
+  it("takes the vocabulary over, so the house verbs stop showing up entirely", () => {
+    /* THE mutant is the arrangement this replaced: the pack's lines joining the pool on a one-in-four
+       roll, which spent three runs in four saying "Percolating" to a group that unlocked a pack to
+       stop reading that. A single house verb in two thousand runs fails this. */
+    for (let i = 0; i < 2_000; i++) {
+      const label = runLabelFor(1_756_900_000_000 + i, undefined, true, PACK);
+      expect(PACK, `seed +${i}`).toContain(label);
+    }
+  });
+
+  it("uses every line in the pack rather than whichever one the roll favours", () => {
+    const seen = new Set(Array.from({ length: 500 }, (_, i) => runLabelFor(1_756_900_000_000 + i, undefined, true, PACK).present));
+    expect(seen).toEqual(new Set(PACK.map((l) => l.present)));
+  });
+
+  it("holds one line for the whole of a run, the way the house list does", () => {
+    // Same reason as the house verbs: the shimmer re-renders on every delta and the settled line is
+    // recomputed from the event log, so a name that re-rolled would resolve into a different friend.
+    const seed = 1_756_900_000_123;
+    const first = runLabelFor(seed, undefined, true, PACK);
+    for (let i = 0; i < 50; i++) expect(runLabelFor(seed, undefined, true, PACK)).toEqual(first);
+  });
+
+  it("adds nothing at all with the eggs off", () => {
+    // The switch is still the consent boundary. An unlocked pack is not a second way to turn the
+    // feature on.
+    for (let i = 0; i < 400; i++) {
+      const label = runLabelFor(1_756_900_000_000 + i * 7, undefined, false, PACK);
+      expect(PACK).not.toContain(label);
+      expect(RUN_LABELS).toContain(label);
+    }
+  });
+
+  it("hands the verbs back, unchanged, to a group that forgets the pack", () => {
+    // Forgetting a pack is a thing Settings offers, so the state it returns to has to be the state
+    // the switch alone gives — not a third arrangement that only exists after an unlock.
+    for (let i = 0; i < 500; i++) {
+      const seed = 1_756_900_000_000 + i * 37;
+      expect(runLabelFor(seed, undefined, true, [])).toBe(runLabelFor(seed, undefined, true));
+    }
+  });
+
+  it("does not put a name on a plan either, pack or no pack", () => {
+    expect(runLabelFor(NAMED_SEED, "plan", true, PACK)).toBe(PLAN_RUN_LABEL);
+  });
+
+  it("ships no names of its own, which is what the packs are for", () => {
+    /* Realm is open source; somebody's friends' nicknames are not Realm's to publish. THE mutant is
+       a name typed back into this list "just as a default" — which would put it in the repository,
+       in the app, and in every screenshot anyone takes. */
+    for (const l of [...EGG_RUN_LABELS, ...RUN_LABELS]) {
+      // The leading verb is capitalised on every label; a NAME shows up after it, which is where
+      // "Summoning Mustafa" put one before the packs existed.
+      const tail = l.present.split(" ").slice(1);
+      expect(tail.filter((w) => /^[A-Z][a-z]{2,}$/.test(w)), l.present).toEqual([]);
+    }
+  });
+});
+
+/** A start time the second roll lands a friend's name on, and one it does not. */
+const NAMED_SEED = 1_756_900_000_000;
+const PLAIN_SEED = 1_756_900_000_001;
+
+describe("the friends the switch lets in", () => {
+
+  it("leaves the verb of every run it does NOT rename exactly where it was", () => {
+    // THE longer-pool mutant: append the friends to RUN_LABELS instead of rolling a second time.
+    // Every seed lands on a different entry the moment the pool grows — and the settled line is
+    // recomputed from the event log rather than stored, so the whole transcript would take new
+    // verbs as the switch moved, retelling turns that happened weeks ago.
+    for (let i = 0; i < 500; i++) {
+      const seed = 1_756_900_000_000 + i * 37;
+      const on = runLabelFor(seed, undefined, true);
+      if (EGG_RUN_LABELS.includes(on)) continue;
+      expect(on).toBe(runLabelFor(seed));
+    }
+  });
+
+  it("names someone about one run in four, which is what keeps it a surprise", () => {
+    const runs = Array.from({ length: 2_000 }, (_, i) => runLabelFor(1_756_900_000_000 + i * 1_000, undefined, true));
+    const named = runs.filter((l) => EGG_RUN_LABELS.includes(l)).length;
+    expect(named / runs.length).toBeGreaterThan(0.15);
+    expect(named / runs.length).toBeLessThan(0.35);
+  });
+
+  it("uses all five names rather than whichever one the roll happens to favour", () => {
+    const seen = new Set(Array.from({ length: 2_000 }, (_, i) => runLabelFor(1_756_900_000_000 + i, undefined, true))
+      .filter((l) => EGG_RUN_LABELS.includes(l)));
+    expect(seen.size).toBe(EGG_RUN_LABELS.length);
+  });
+
+  it("pairs its tenses the way the house list does", () => {
+    for (const l of EGG_RUN_LABELS) {
+      expect(l.present).not.toBe(l.past);
+      expect(l.present.split(" ").slice(1)).toEqual(l.past.split(" ").slice(1));
+    }
+  });
+
+});
+
 const model = (blocks: Block[], run: TranscriptModel["run"] = null): TranscriptModel =>
-  ({ blocks, run, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {}, summary: null });
+  ({ blocks, run, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {}, summary: null, promptHint: null });
 
 describe("what the transcript says about the run", () => {
-  it("shimmers this run's verb while it works, not a generic `Working…`", () => {
-    const startedAt = 1_756_900_000_123;
-    render(<Transcript transcript={model([], { startedAt, waitedMs: 0, waitingSince: null })} sessionStatus="running" onDecide={() => {}} />);
-    expect(document.querySelector(".msg-working")!.textContent).toBe(`${runLabelFor(startedAt).present}…`);
-  });
 
   it("settles into the same verb, past tense, with how long it took", () => {
     const startedAt = 1_756_900_000_123;
@@ -63,6 +164,27 @@ describe("what the transcript says about the run", () => {
     // screen a second ago reads as a message from somewhere else entirely.
     expect(screen.getByText(`${runLabelFor(startedAt).past} for 2m 5s`)).toBeTruthy();
     expect(document.querySelector(".msg-working")).toBeNull();
+  });
+
+  it("carries the switch to the line a run settles into, not only to the shimmer", () => {
+    // THE dropped-argument mutant: pass the flag where the shimmer is and leave the settled call
+    // reading the default. "Scheming…" would resolve into some other verb entirely a second later,
+    // which reads as a line about a different run.
+    const named = runLabelFor(NAMED_SEED, undefined, true);
+    expect(EGG_RUN_LABELS).toContain(named);
+    const { rerender } = render(<Transcript eggs sessionStatus="running" onDecide={() => {}}
+      transcript={model([], { startedAt: NAMED_SEED, waitedMs: 0, waitingSince: null })} />);
+    expect(document.querySelector(".msg-working")!.textContent).toBe(`${named.present}…`);
+    rerender(<Transcript eggs sessionStatus="idle" onDecide={() => {}}
+      transcript={model([{ kind: "run", ms: 4_000, startedAt: NAMED_SEED, ts: NAMED_SEED + 4_000 }])} />);
+    expect(screen.getByText(`${named.past} for 4s`)).toBeTruthy();
+  });
+
+  it("says what it always said with the switch off", () => {
+    render(<Transcript sessionStatus="idle" onDecide={() => {}}
+      transcript={model([{ kind: "run", ms: 4_000, startedAt: NAMED_SEED, ts: NAMED_SEED + 4_000 }])} />);
+    expect(screen.getByText(`${runLabelFor(NAMED_SEED).past} for 4s`)).toBeTruthy();
+    expect(RUN_LABELS).toContain(runLabelFor(NAMED_SEED));
   });
 
   it("keeps every run's line, so a scrolled-back turn still says what it cost", () => {
@@ -78,6 +200,6 @@ describe("what the transcript says about the run", () => {
     // And each line says WHEN it ended: a duration alone reads the same whether the run finished a
     // minute ago or last Tuesday.
     expect([...document.querySelectorAll(".msg-run-at")].map((el) => el.textContent))
-      .toEqual([finishedAt(a + 4_000), finishedAt(b + 9_000)]);
+      .toEqual([stampLabel(a + 4_000, Date.now()), stampLabel(b + 9_000, Date.now())]);
   });
 });

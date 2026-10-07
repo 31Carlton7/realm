@@ -1,9 +1,10 @@
 import { Icon } from "@realm/ui";
 import DOMPurify from "dompurify";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useDissolve } from "../../../components/ScrollFades";
 import { DiffView, PathLabel } from "./DiffView";
 import { grammarForPath, highlightToHtml } from "./highlight";
-import type { MatchGroup, ToolInputView, ToolResultView, Todo } from "./tool-view";
+import type { MatchGroup, ToolInputView, ToolResultView, Todo, UploadFile } from "./tool-view";
 
 /** The drawn forms of a tool call's input and result (AICSS's tool/structured-output blocks, fitted
  *  to the tools Realm's agents actually call). Each one is chosen by `tool-view.ts` and rendered
@@ -39,15 +40,21 @@ export function CodeBlock({ text, lang, firstLine = null, clamp = LINE_CLAMP }: 
   // runs anyway: the sanitizer is this app's single gate for generated markup, and carving out an
   // exception for "markup we believe is safe" is how the one that is not gets in.
   const html = useMemo(() => DOMPurify.sanitize(highlightToHtml(shown, lang)), [shown, lang]);
+  /* The block scrolls down past its cap and its body scrolls across: each dissolves where it runs on
+     downwards, and neither sideways — a code line is read to its last character. */
+  const block = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLPreElement>(null);
+  useDissolve(block);
+  useDissolve(body);
   return (
     <>
-      <div className="code-block">
+      <div className="code-block" ref={block}>
         {firstLine !== null && (
           <div className="code-gutter" aria-hidden="true">
             {Array.from({ length: lineCount(shown) }, (_, i) => firstLine + i).join("\n")}
           </div>
         )}
-        <pre className="code-body"><code className="hljs" dangerouslySetInnerHTML={{ __html: html }} /></pre>
+        <pre className="code-body" ref={body}><code className="hljs" dangerouslySetInnerHTML={{ __html: html }} /></pre>
       </div>
       {!showAll && total > clamp && <More label={`Show all ${total} lines`} onClick={() => setShowAll(true)} />}
     </>
@@ -81,9 +88,11 @@ export function TerminalView({ output, exitCode }: { output: string; exitCode: n
   const [showAll, setShowAll] = useState(false);
   const total = lineCount(output);
   const shown = showAll || total <= LINE_CLAMP ? output : output.split("\n").slice(0, LINE_CLAMP).join("\n");
+  const out = useRef<HTMLPreElement>(null);
+  useDissolve(out);
   return (
     <>
-      <pre className="term-out">{shown || "(no output)"}</pre>
+      <pre className="term-out" ref={out}>{shown || "(no output)"}</pre>
       {!showAll && total > LINE_CLAMP && <More label={`Show all ${total} lines`} onClick={() => setShowAll(true)} />}
       {exitCode !== null && <span className="term-exit" data-bad={exitCode !== 0 || undefined}>exit {exitCode}</span>}
     </>
@@ -117,8 +126,10 @@ export function TodoTrack({ todos }: { todos: readonly Todo[] }) {
 }
 
 export function TodoItems({ todos }: { todos: readonly Todo[] }) {
+  const list = useRef<HTMLUListElement>(null);
+  useDissolve(list);
   return (
-    <ul className="todo-list">
+    <ul className="todo-list" ref={list}>
       {todos.map((t, i) => (
         <li key={i} data-status={t.status}>
           {/* off-ladder: the dot is 13px, so the inline rung would fill it edge to edge. */}
@@ -200,6 +211,38 @@ export function RequestView({ url, query, prompt }: { url: string | null; query:
   );
 }
 
+/**
+ * The files a `browser_upload` is about to send, and where they are going.
+ *
+ * Drawn rather than left in the raw JSON because this is the one permission whose subject is a LIST:
+ * "Allow" here means these bytes leave this Mac, and a reader who cannot see which files is not
+ * consenting to anything. Two things are given weight for that reason — the host, which is the
+ * destination, and the full path of any file from outside the space's folder, which is the case the
+ * approval is really for. Files inside the space folder show their name and size only; their
+ * location is the thing the user already chose by working there.
+ */
+export function UploadView({ host, element, files }: { host: string; element: string; files: UploadFile[] }) {
+  return (
+    <div className="upl">
+      <div className="req-head">
+        <Icon name="browser" size={12} />
+        {host && <span className="req-host">{host}</span>}
+        {element && <span className="req-target" title={element}>{element}</span>}
+      </div>
+      <ul className="upl-files">
+        {files.map((f, i) => (
+          <li key={`${f.name}-${i}`} className="upl-file" data-outside={f.path ? "" : undefined}>
+            <span className="upl-name" title={f.name}>{f.name}</span>
+            <span className="upl-size">{f.size}</span>
+            {f.path && <span className="upl-path" title={f.path}>{f.path}</span>}
+          </li>
+        ))}
+      </ul>
+      {files.some((f) => f.path) && <div className="upl-note">Paths shown in full are outside this space's folder.</div>}
+    </div>
+  );
+}
+
 /** The input view for a tool call, or null when there is no better drawing than the raw payload. */
 export function ToolInputBody({ view }: { view: ToolInputView }) {
   switch (view.kind) {
@@ -207,6 +250,7 @@ export function ToolInputBody({ view }: { view: ToolInputView }) {
     case "todos": return <TodoList todos={view.todos} />;
     case "command": return <CommandView command={view.command} cwd={view.cwd} description={view.description} />;
     case "request": return <RequestView url={view.url} query={view.query} prompt={view.prompt} />;
+    case "upload": return <UploadView host={view.host} element={view.element} files={view.files} />;
   }
 }
 

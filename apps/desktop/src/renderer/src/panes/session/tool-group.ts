@@ -1,7 +1,21 @@
+import { bareToolName } from "@realm/contracts";
 import { blockKey, type Block } from "./transcript-model";
 import { toolSummary } from "./tool-summary";
 
 export type ToolBlock = Extract<Block, { kind: "tool" }>;
+
+/** The calls that start a Realm sub-agent, drawn as that sub-agent's own line (DelegationLine). A
+ *  refused call is an ordinary card, whose Error well is the only place the refusal's words show. */
+const SPAWNS = new Set(["agent_start", "agent_run"]);
+export const isDelegationLine = (b: ToolBlock): boolean => SPAWNS.has(bareToolName(b.name)) && !b.result?.isError;
+/** The call that collects them, drawn as a line of its own too (DelegationWait). */
+export const isDelegationWait = (b: ToolBlock): boolean => bareToolName(b.name) === "agent_wait" && !b.result?.isError;
+
+/** Calls that never fold into a run. A fan-out is two starts and a wait in a row — a run by the rule
+ *  below — and a run collapses to "Worked for 8s" once it settles, which hid the one thing a reader
+ *  of a delegation wants to see: each sub-agent, and how it ended. A call that drew a view is the
+ *  same case: the view is what the call was for, and a ledger line is no place to keep it. */
+const standsAlone = (b: ToolBlock): boolean => isDelegationLine(b) || isDelegationWait(b) || b.view !== undefined;
 
 /** §2.8: "the agent's work is a quiet ledger" — a run of consecutive tool calls collapses to one
  *  summary line ("18 tools · 5 files · 2 commands · 6m 12s") that expands into its steps.
@@ -58,39 +72,68 @@ const NO_NESTED: readonly ToolNode[] = [];
  *
  *  Lifting a sub-agent's calls out of the top level closes the gaps they left, so a parent's own
  *  calls that were only separated by its child's now group as the one run they always were. */
-export function groupTranscript(blocks: readonly Block[]): TranscriptItem[] {
-  // Only calls ALREADY seen are candidate parents — the map is written after the lookup, one pass,
-  // in arrival order. That is true of every real transcript (a sub-agent cannot act before the call
-  // that spawned it) and it is also what makes a cycle unrepresentable: a malformed pair of ids
-  // would otherwise nest into each other, vanish from the render, and recurse until the stack went.
-  const nodes = new Map<string, ToolNode>();
-  /** `node` is null for everything that is not a tool call, and IS the node otherwise — carried
-   *  rather than rebuilt so a card's `nested` keeps its identity across renders. */
-  const top: { key: string; block: Block; node: ToolNode | null }[] = [];
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i]!;
-    if (b.kind !== "tool") { top.push({ key: blockKey(b, i), block: b, node: null }); continue; }
-    const parent = b.parentToolUseId === undefined ? undefined : nodes.get(b.parentToolUseId);
-    const node: ToolNode = { key: blockKey(b, i), block: b, nested: [] };
-    nodes.set(b.toolUseId, node);
-    // A parent this transcript does not hold leaves the call where it is. An id Realm cannot resolve
-    // is still work the agent did, and hiding it would lose the call rather than nest it.
-    if (parent) parent.nested.push(node); else top.push({ key: node.key, block: b, node });
-  }
-
+export function groupTranscript(blocks: readonly Block[], base = 0): TranscriptItem[] {
+  const { top } = buildToolTree(blocks, base);
   const out: TranscriptItem[] = [];
   let i = 0;
   while (i < top.length) {
     const e = top[i]!;
-    if (!e.node) { out.push({ kind: "block", key: e.key, block: e.block, nested: NO_NESTED }); i++; continue; }
+    if (!e.node || standsAlone(e.node.block)) { out.push({ kind: "block", key: e.key, block: e.block, nested: e.node?.nested ?? NO_NESTED }); i++; continue; }
     const steps: ToolNode[] = [];
-    for (let n = top[i]?.node; n; n = top[i]?.node) { steps.push(n); i++; }
+    for (let n = top[i]?.node; n && !standsAlone(n.block); n = top[i]?.node) { steps.push(n); i++; }
     // Keyed on the run's first tool: a run only ever grows at its tail, so the group keeps its
     // identity — and the user's expand/collapse choice — as more tools land in it.
     if (steps.length >= GROUP_MIN) out.push({ kind: "group", key: `group:${steps[0]!.key}`, steps });
     else for (const s of steps) out.push({ kind: "block", key: s.key, block: s.block, nested: s.nested });
   }
   return out;
+}
+
+/**
+ * One tool call and everything a sub-agent did under it, by the call's own id.
+ *
+ * What the sub-agent drawer reads: a `Task`/`Agent`/`Workflow` call IS its sub-agent, and the calls
+ * nested beneath it are that agent's whole visible working — there is no session, no transcript row
+ * and no other trace of it anywhere.
+ *
+ * Built by the SAME pass `groupTranscript` uses rather than a second walk of its own. The nesting
+ * rules here are not obvious (arrival order is what makes a cycle unrepresentable, and an unresolved
+ * parent leaves its call at the top level), and two readers of them would eventually disagree about
+ * which agent a call belonged to.
+ */
+export function findToolNode(blocks: readonly Block[], toolUseId: string): ToolNode | null {
+  return buildToolTree(blocks).nodes.get(toolUseId) ?? null;
+}
+
+/**
+ * Blocks as a forest: every call with its sub-agents' calls hung off it, in arrival order.
+ *
+ * Only calls ALREADY seen are candidate parents — the map is written after the lookup, one pass, in
+ * arrival order. That is true of every real transcript (a sub-agent cannot act before the call that
+ * spawned it) and it is also what makes a cycle unrepresentable: a malformed pair of ids would
+ * otherwise nest into each other, vanish from the render, and recurse until the stack went.
+ */
+function buildToolTree(blocks: readonly Block[], base = 0): {
+  /** `node` is null for everything that is not a tool call, and IS the node otherwise — carried
+   *  rather than rebuilt so a card's `nested` keeps its identity across renders. */
+  top: { key: string; block: Block; node: ToolNode | null }[];
+  nodes: Map<string, ToolNode>;
+} {
+  const nodes = new Map<string, ToolNode>();
+  const top: { key: string; block: Block; node: ToolNode | null }[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i]!;
+    // `base` is where `blocks` starts in the whole transcript: a window onto a long one keeps every
+    // key the full transcript would give it, so drawing further back remounts nothing.
+    if (b.kind !== "tool") { top.push({ key: blockKey(b, base + i), block: b, node: null }); continue; }
+    const parent = b.parentToolUseId === undefined ? undefined : nodes.get(b.parentToolUseId);
+    const node: ToolNode = { key: blockKey(b, base + i), block: b, nested: [] };
+    nodes.set(b.toolUseId, node);
+    // A parent this transcript does not hold leaves the call where it is. An id Realm cannot resolve
+    // is still work the agent did, and hiding it would lose the call rather than nest it.
+    if (parent) parent.nested.push(node); else top.push({ key: node.key, block: b, node });
+  }
+  return { top, nodes };
 }
 
 /** Marks a tool tree with the enter flags the transcript's tracker just decided (transcript-enter).
@@ -123,25 +166,8 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /** The `Worked for <this>` half of the collapsed ledger row (Ara refresh §4): "<1s", "42s",
  *  "6m 12s", "1h 4m". A settled sub-second run says "<1s" rather than the lie "0s". Seconds drop
  *  past the hour: at that length they are noise, and "124m 3s" is arithmetic the reader should not
- *  have to do. Shared with the per-run line the transcript settles on (Transcript's `run` block). */
-/**
- * When a turn finished, as a clock time — the answer to "was that just now, or before lunch?".
- *
- * A duration alone cannot answer it: "Cooked for 2m" reads the same whether the run ended a minute
- * ago or last Tuesday, and a transcript you come back to is exactly where that matters. Locale
- * formatting, because a clock is one of the few things in this app that is genuinely the reader's
- * convention rather than ours.
- */
-export function finishedAt(ts: number): string {
-  return new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
-/** The same moment in full, for the line's `title` — a time with no date is ambiguous the moment a
- *  session spans midnight, and the tooltip is where that ambiguity is cheap to resolve. */
-export function finishedOn(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
+ *  have to do. Shared with the per-run line the transcript settles on (Transcript's `run` block),
+ *  whose finish time is `timestamps.ts`'s. */
 export function formatDuration(ms: number): string {
   const secs = Math.round(ms / 1000);
   if (secs < 1) return "<1s";
@@ -155,7 +181,7 @@ export function formatToolRun(s: ToolRunSummary): string {
   const parts = [plural(s.tools, "tool")];
   if (s.files > 0) parts.push(plural(s.files, "file"));
   if (s.commands > 0) parts.push(plural(s.commands, "command"));
-  const secs = Math.round(s.durationMs / 1000);
-  if (secs > 0) parts.push(secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`);
+  // The row's own clock, so a run past the hour reads "1h 4m" in the tooltip as it does on the row.
+  if (Math.round(s.durationMs / 1000) > 0) parts.push(formatDuration(s.durationMs));
   return parts.join(" · ");
 }

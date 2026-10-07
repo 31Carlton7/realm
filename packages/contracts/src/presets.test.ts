@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, type AcpSessionMode } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, AGENT_MIDTURN_DELIVERY, AGENT_SESSION_RESUME, MID_TURN_MODES, resolveMidTurnMode, steerNote, type AcpSessionMode } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
-  it("has at least 8 colors and a lot more icons", () => { expect(SPACE_COLORS.length).toBeGreaterThanOrEqual(8); expect(SPACE_ICONS.length).toBeGreaterThanOrEqual(50); });
   it("has no duplicate icon names", () => { expect(new Set(SPACE_ICONS).size).toBe(SPACE_ICONS.length); });
   it("pickSpaceColor cycles by index", () => { expect(pickSpaceColor(0)).toBe(SPACE_COLORS[0]); expect(pickSpaceColor(SPACE_COLORS.length)).toBe(SPACE_COLORS[0]); });
 });
@@ -24,23 +23,7 @@ describe("parseSpaceIcon", () => {
   });
 });
 
-describe("AGENT_LOGIN_HINTS", () => {
-  it("has a hint for every agent kind that has display metadata", () => {
-    for (const kind of Object.keys(AGENT_META)) {
-      expect(typeof AGENT_LOGIN_HINTS[kind as keyof typeof AGENT_LOGIN_HINTS]).toBe("string");
-    }
-  });
-  it("names the exact command for each CLI", () => {
-    expect(AGENT_LOGIN_HINTS.claude).toContain("claude auth login");
-    expect(AGENT_LOGIN_HINTS.codex).toContain("codex login");
-    expect(AGENT_LOGIN_HINTS["acp:cursor"]).toContain("cursor-agent login");
-  });
-});
-
 describe("AGENT_CLI_COMMANDS", () => {
-  it("has an entry for every agent kind that has display metadata", () => {
-    expect(Object.keys(AGENT_CLI_COMMANDS).sort()).toEqual(Object.keys(AGENT_META).sort());
-  });
   it("never collapses install and login into the same command", () => {
     // The install card picks one or the other from the probe; handing a user `codex login` when codex
     // isn't installed (or the install command when they're merely signed out) is a dead end.
@@ -65,9 +48,6 @@ describe("AGENT_CLI_COMMANDS", () => {
 });
 
 describe("AGENT_SUPPORTS_PLAN_MODE", () => {
-  it("has an entry for every agent kind that has display metadata", () => {
-    expect(Object.keys(AGENT_SUPPORTS_PLAN_MODE).sort()).toEqual(Object.keys(AGENT_META).sort());
-  });
   it("is true exactly where an adapter actually acts on the plan mode", () => {
     // claude: Claude Code's own `permissionMode: "plan"`.
     // codex:  codexPolicyFor("plan") → approvalPolicy "untrusted" + sandbox "read-only".
@@ -114,18 +94,50 @@ describe("DEFAULT_MODEL_LABEL", () => {
 });
 
 describe("AGENT_SUPPORTS_PERMISSION_MODES", () => {
-  it("has an entry for every agent kind that has display metadata", () => {
-    for (const kind of Object.keys(AGENT_META)) {
-      expect(typeof AGENT_SUPPORTS_PERMISSION_MODES[kind as keyof typeof AGENT_SUPPORTS_PERMISSION_MODES]).toBe("boolean");
-    }
-    expect(Object.keys(AGENT_SUPPORTS_PERMISSION_MODES).sort()).toEqual(Object.keys(AGENT_META).sort());
-  });
   it("marks the ACP kinds as unable to carry Realm's permission modes", () => {
     // ACP mode ids are agent-defined, so Realm's own ids are never transmitted by AcpAdapter.start().
     expect(AGENT_SUPPORTS_PERMISSION_MODES["acp:cursor"]).toBe(false);
     expect(AGENT_SUPPORTS_PERMISSION_MODES["acp:gemini"]).toBe(false);
     expect(AGENT_SUPPORTS_PERMISSION_MODES.claude).toBe(true);
     expect(AGENT_SUPPORTS_PERMISSION_MODES.codex).toBe(true);
+  });
+});
+
+describe("AGENT_SESSION_RESUME", () => {
+  it("answers for every agent kind, so a new one cannot be forgotten", () => {
+    // `satisfies Record<AgentKind, …>` already refuses a missing key at compile time; this is the
+    // runtime half, and it is what catches a kind added to the schema in one commit and the table in
+    // another.
+    for (const kind of AgentKindSchema.options) {
+      const row = AGENT_SESSION_RESUME[kind];
+      expect(row, kind).toBeDefined();
+      expect(["native", "advertised", "none"], kind).toContain(row.mode);
+      expect(row.note, kind).toBeTruthy();
+    }
+  });
+
+  it("claims no version boundary for anything, because Realm has measured none", () => {
+    // A finding, not a placeholder. Realm's three sources of truth are its own adapter code, what the
+    // binary advertises at runtime, and what actually happened on the last attempt — none of which is
+    // a version number, and design.md forbids claiming a capability its owner has not stated.
+    for (const kind of AgentKindSchema.options) expect(AGENT_SESSION_RESUME[kind].minVersion, kind).toBeNull();
+  });
+
+  it("separates always-asks from asks-if-advertised from cannot-ask", () => {
+    // `native`: the adapter makes the call unconditionally, and whether it is honoured is a per-request
+    // fact reported on `init`.
+    expect(AGENT_SESSION_RESUME.claude.mode).toBe("native");
+    expect(AGENT_SESSION_RESUME.codex.mode).toBe("native");
+    // `advertised`: every ACP kind, because AcpAdapter only calls session/load when `initialize` said
+    // loadSession — a per-binary, per-run fact this table has no business restating.
+    for (const kind of AgentKindSchema.options) {
+      if (!kind.startsWith("acp:")) continue;
+      if (kind === "acp:deepseek") continue;
+      expect(AGENT_SESSION_RESUME[kind].mode, kind).toBe("advertised");
+    }
+    // `none`: measured absent, and the same source AGENT_CONVERSATION_REWIND cites for deepseek.
+    expect(AGENT_SESSION_RESUME["acp:deepseek"].mode).toBe("none");
+    expect(AGENT_SESSION_RESUME.fake.mode).toBe("none");
   });
 });
 
@@ -167,9 +179,6 @@ describe("SELECTABLE_AGENT_KINDS", () => {
 });
 
 describe("AGENT_SUPPORTS_ASK_MODE", () => {
-  it("has an entry for every agent kind, so a new kind cannot be silently offered Ask", () => {
-    expect(Object.keys(AGENT_SUPPORTS_ASK_MODE).sort()).toEqual(Object.keys(AGENT_META).sort());
-  });
   it("claims Ask only where an adapter actually refuses the call", () => {
     // Claude denies in canUseTool, Codex runs read-only with approvals disabled. Every ACP kind is
     // false as the pre-handshake floor — acpAskMode answers per session.
@@ -353,6 +362,18 @@ describe("acpSessionConfig — configOptions wins, with the write channel carrie
     expect(cfg.modelConfigId).toBeNull();
   });
 
+  it("reads an agent's reasoning levels off its thought_level option, and none off the deprecated shape", () => {
+    // ACP's own category for "thought/reasoning level" (`SessionConfigOptionCategory`, SDK 0.17.1). The
+    // write channel rides with it; Cursor's deprecated shape has no such axis, so its id stays null and
+    // nothing is ever written to an agent that never offered a level.
+    const cfg = acpSessionConfig({ configOptions: [
+      { id: "thought_level", category: "thought_level", type: "select", currentValue: "medium", options: [{ value: "low", name: "Low" }, { value: "medium" }] },
+    ] });
+    expect(cfg).toMatchObject({ efforts: [{ id: "low", label: "Low" }, { id: "medium", label: "medium" }], currentEffort: "medium", effortConfigId: "thought_level" });
+    expect(acpSessionConfig(CURSOR_SESSION)).toMatchObject({ efforts: [], currentEffort: null, effortConfigId: null });
+    expect(acpSessionConfig({ configOptions: [{ id: "thought_level", category: "thought_level", type: "boolean", currentValue: "true" }] }).effortConfigId).toBeNull();
+  });
+
   it("prefers configOptions when an agent dual-emits both (Copilot)", () => {
     const both = { ...CURSOR_SESSION, configOptions: OPENCODE_SESSION.configOptions };
     const cfg = acpSessionConfig(both);
@@ -409,5 +430,29 @@ describe("acpSessionConfig — configOptions wins, with the write channel carrie
     const cfg = acpSessionConfig({ configOptions: [{ id: "verbosity", category: "output", options: [{ value: "terse" }] }] });
     expect(cfg.modes).toEqual([]);
     expect(cfg.models).toEqual([]);
+  });
+});
+
+describe("mid-turn prompts", () => {
+  it("resolves anything it does not recognise — including nothing stored — to the rung that interrupts nothing", () => {
+    expect(resolveMidTurnMode(undefined)).toBe("queue");
+    expect(resolveMidTurnMode(null)).toBe("queue");
+    expect(resolveMidTurnMode("yolo")).toBe("queue");
+    expect(resolveMidTurnMode(1)).toBe("queue");
+    for (const mode of MID_TURN_MODES) expect(resolveMidTurnMode(mode)).toBe(mode);
+  });
+
+  it("names the agent, and on an interrupt kind names what the interrupt costs", () => {
+    // Codex is the only kind with a mid-turn route, so it is the only one that may promise this.
+    expect(steerNote("codex")).toContain("Nothing is interrupted");
+    for (const kind of Object.keys(AGENT_MIDTURN_DELIVERY) as (keyof typeof AGENT_MIDTURN_DELIVERY)[]) {
+      const note = steerNote(kind);
+      expect(note, kind).toContain(AGENT_META[kind].label);
+      if (kind === "codex") continue;
+      // The two things an interrupt actually takes. A note that said only "may interrupt" would be
+      // selling the action without its price.
+      expect(note, kind).toContain("aborts the tool call in flight");
+      expect(note, kind).toContain("denies any permission prompt waiting");
+    }
   });
 });

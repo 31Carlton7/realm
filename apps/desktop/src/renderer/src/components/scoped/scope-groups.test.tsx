@@ -4,7 +4,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ItemScope } from "@realm/contracts";
-import { ScopeGroups, scopeGroupOf } from "./ScopeGroups";
+import { ScopeGroups } from "./ScopeGroups";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi } from "../../state/store.test-fakes";
 
@@ -57,11 +57,6 @@ describe("ScopeGroups — the one grouped-scope renderer (Plan 12 W4)", () => {
     expect(screen.queryByText(/^From /)).toBeNull();
   });
 
-  it("scopeGroupOf: profile → its own group; space null → everywhere; space id → this space", () => {
-    expect(scopeGroupOf(profileScope("p9"))).toBe("profile:p9");
-    expect(scopeGroupOf(spaceScope(null))).toBe("everywhere");
-    expect(scopeGroupOf(spaceScope("s1"))).toBe("this-space");
-  });
 });
 
 /* ——— The structural half (the W2 discipline, apps/server/src/scoping.test.ts's grep, renderer-side):
@@ -108,11 +103,12 @@ describe("the shared group-list component is kept single (W4's structural rule)"
 
   it("every scoped surface renders through ScopeGroups — the Library/Connections pages and the space-page tabs share it, not fork it", () => {
     // LibraryPage's skills tab and ConnectionsPage's body reuse SkillsPanel/McpSection, so the
-    // component set below covers all four surfaces.
+    // component set below covers all four surfaces. The Library's Memory is not one of them any
+    // more: it is an index of every space's document, not one vantage's scoped list, so it has no
+    // "This space / From <profile>" to group by.
     expect(filesMentioning("<ScopeGroups")).toEqual([
       "components/settings/SkillsPanel.tsx",
       "components/sidebar/McpSection.tsx",
-      "panes/library/LibraryPage.tsx",
     ]);
   });
 });

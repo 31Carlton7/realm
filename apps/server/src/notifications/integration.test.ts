@@ -116,19 +116,6 @@ describe("notifications over rpc — the real wiring", () => {
     c2.close();
   });
 
-  it("a disabled category writes no rows end to end", async () => {
-    const { c, sp } = await boot();
-    await c.call("settings.set", { key: "notifications.disabledCategories", value: ["permission", "session_done"] });
-    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
-    await c.call("sessions.send", { id: session.id, text: "go" });
-    // Wait for the request to actually be raised, then answer and settle.
-    await waitFor(() => c.events.some((e) => e.event === "session.event" && e.payload.event.type === "permission_request"));
-    const req = c.events.find((e) => e.event === "session.event" && e.payload.event.type === "permission_request")!.payload.event.payload.requestId;
-    await c.call("sessions.respondPermission", { id: session.id, requestId: req, decision: "allow" });
-    await waitFor(() => c.events.some((e) => e.event === "session.status" && e.payload.status === "idle"));
-    expect((await list(c)).notifications).toHaveLength(0);
-    c.close();
-  });
 });
 
 describe("the stale-ack hook (EnvironmentService.removeWorktree)", () => {

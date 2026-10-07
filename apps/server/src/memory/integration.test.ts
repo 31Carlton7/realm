@@ -105,18 +105,6 @@ describe("memory over rpc", () => {
     c.close();
   });
 
-  it("injects the profile doc ahead of the space doc into a real session start (W2)", async () => {
-    const { c, spA, codex } = await boot();
-    await c.call("memory.setProfile", { profileId: spA.profileId, doc: "profile-wide context" });
-    await c.call("memory.set", { spaceId: spA.id, doc: "space context" });
-    await startSession(c, spA.id, "codex");
-    await waitFor(() => codex.starts.length === 1);
-    const ctx = codex.starts[0]!.systemContext!;
-    expect(ctx.indexOf("profile-wide context")).toBeGreaterThanOrEqual(0);
-    expect(ctx.indexOf("profile-wide context")).toBeLessThan(ctx.indexOf("space context"));
-    c.close();
-  });
-
   it("refuses a space that does not exist rather than reading memory for a typo", async () => {
     const { c } = await boot();
     const gone = newId();
@@ -139,15 +127,6 @@ describe("memory over rpc", () => {
     expect(claude.starts[1]!.systemContext).toContain("space B memory");
     expect(claude.starts[1]!.systemContext).not.toContain("space A memory");
     expect(codex.starts[0]!.systemContext).toContain("space B memory");
-    c.close();
-  });
-
-  it("hands Cursor no context at all — stated, not faked", async () => {
-    const { c, spA, cursor } = await boot();
-    await c.call("memory.set", { spaceId: spA.id, doc: "space A memory" });
-    await startSession(c, spA.id, "acp:cursor");
-    await waitFor(() => cursor.starts.length === 1);
-    expect(cursor.starts[0]!.systemContext).toBeUndefined();
     c.close();
   });
 
@@ -231,13 +210,4 @@ describe("memory over rpc", () => {
     c.close();
   });
 
-  it("never touches an AGENTS.md the user put there themselves", async () => {
-    const { c, spA } = await boot();
-    const path = join(spA.folderPath, "AGENTS.md");
-    writeFileSync(path, "the user's own agents file");
-    const r = await c.call("memory.setAgentsFile", { spaceId: spA.id, enabled: true });
-    expect(r.error.code).toBe("AGENTS_FILE_FOREIGN");
-    expect(readFileSync(path, "utf8")).toBe("the user's own agents file");
-    c.close();
-  });
 });

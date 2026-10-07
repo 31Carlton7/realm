@@ -34,3 +34,39 @@ export class TerminalsStore {
     this.db.prepare("DELETE FROM terminals WHERE id = ?").run(id);
   }
 }
+
+/** The screen a terminal left behind, and the size it was printed at. */
+export type TerminalHistoryRow = { terminalId: string; data: string; cols: number; rows: number; capturedAt: number };
+type HistoryRow = { terminal_id: string; data: string; cols: number; rows: number; captured_at: number };
+
+/**
+ * Scrollback on disk — a separate table from `terminals` on purpose (see migration v30): that row is
+ * read with `SELECT *` and every one of them is read at boot, and a 128KB blob riding along on each
+ * would be paid for by every question that never mentions scrollback.
+ *
+ * Rows are removed by the cascade on `terminals`, so nothing here needs a sweeper. The one exception
+ * is `deleteAll`, which is what turning the setting off does: a switch that leaves yesterday's output
+ * on disk is not an off switch.
+ */
+export class TerminalHistoryStore {
+  constructor(private db: Db) {}
+  put(input: { terminalId: string; data: string; cols: number; rows: number }): void {
+    this.db.prepare(`INSERT INTO terminal_history (terminal_id, data, cols, rows, captured_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(terminal_id) DO UPDATE SET data = excluded.data, cols = excluded.cols, rows = excluded.rows, captured_at = excluded.captured_at`)
+      .run(input.terminalId, input.data, input.cols, input.rows, now());
+  }
+  get(terminalId: string): TerminalHistoryRow | null {
+    const r = this.db.prepare("SELECT * FROM terminal_history WHERE terminal_id = ?").get(terminalId) as HistoryRow | undefined;
+    return r ? { terminalId: r.terminal_id, data: r.data, cols: r.cols, rows: r.rows, capturedAt: r.captured_at } : null;
+  }
+  delete(terminalId: string): void {
+    this.db.prepare("DELETE FROM terminal_history WHERE terminal_id = ?").run(terminalId);
+  }
+  /** Turning the setting off. Off means off. */
+  deleteAll(): void {
+    this.db.prepare("DELETE FROM terminal_history").run();
+  }
+  count(): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM terminal_history").get() as { n: number }).n;
+  }
+}

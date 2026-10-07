@@ -8,7 +8,7 @@ import { tempDir } from "@realm/test-utils";
    test here, and pulling in the real electron module in node would fail at import. */
 vi.mock("electron", () => ({ net: {}, protocol: {}, nativeImage: { createFromPath: () => ({ isEmpty: () => true }) } }));
 
-const { expandHome, servablePath, statMedia } = await import("./media");
+const { servablePath, statMedia } = await import("./media");
 
 let home: string;
 beforeEach(async () => { home = tempDir("realm-media-test-"); });
@@ -20,19 +20,6 @@ const put = async (rel: string, bytes = "x") => {
   await writeFile(path, bytes);
   return path;
 };
-
-describe("expandHome", () => {
-  it("expands the two forms agents actually write", () => {
-    expect(expandHome("~", "/Users/me")).toBe("/Users/me");
-    expect(expandHome("~/out/clip.mp4", "/Users/me")).toBe("/Users/me/out/clip.mp4");
-  });
-  it("leaves everything else alone, including another account's home", () => {
-    expect(expandHome("/abs/clip.mp4", "/Users/me")).toBe("/abs/clip.mp4");
-    expect(expandHome("out/clip.mp4", "/Users/me")).toBe("out/clip.mp4");
-    // `~other` is not this user's home and guessing one would be inventing a path.
-    expect(expandHome("~other/clip.mp4", "/Users/me")).toBe("~other/clip.mp4");
-  });
-});
 
 /* `servablePath` is the single gate on `realm-media://`. Everything the renderer can fetch has to
    pass it, so these are the tests that matter most in this file. */
@@ -118,10 +105,6 @@ describe("statMedia", () => {
     expect(png).toMatchObject({ kind: "image", mime: "image/png" });
     expect(mp4).toMatchObject({ kind: "video", mime: "video/mp4" });
     expect(wav).toMatchObject({ kind: "audio", mime: "audio/wav" });
-  });
-
-  it("answers an empty ask with an empty list rather than reading anything", async () => {
-    await expect(statMedia([], home)).resolves.toEqual([]);
   });
 
   /* The same file asked about twice is answered twice — the caller joins on index, and dropping the

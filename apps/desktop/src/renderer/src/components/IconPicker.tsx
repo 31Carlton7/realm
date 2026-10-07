@@ -7,6 +7,7 @@ import { SpaceIcon } from "./SpaceIcon";
 import { Spinner } from "./Spinner";
 import { useAnchoredPopover } from "./use-anchored-popover";
 import { useFileDrop } from "./use-file-drop";
+import { useDissolve } from "./ScrollFades";
 
 /** The image types the server accepts as an icon (icons/service.ts's `ALLOWED_UPLOAD_MIMES`), by the
  *  MIME Chromium puts on a dropped File. Anything else is refused here with a sentence rather than
@@ -42,8 +43,14 @@ const TABS: { id: Tab; label: string }[] = [
  * four sources, replacing the old bare `.icon-grid` fieldset (`SpacePage.tsx`'s `GeneralTab`).
  * Generated/uploaded icons are a per-PROFILE library (`iconAssets.*`) — reusable by every space
  * under that profile, not thrown away after this one pick.
+ *
+ * `variant="tile"` draws the trigger as the icon alone, in the space's colour (`tint`), beside the
+ * name of a space being made — the preview of how it will look and the control that changes it, as
+ * one thing (`space-fields.tsx`).
  */
-export function IconPicker({ icon, profileId, onPick }: { icon: string; profileId: string; onPick: (icon: string) => void }) {
+export function IconPicker({ icon, profileId, onPick, variant = "button", tint }: {
+  icon: string; profileId: string; onPick: (icon: string) => void; variant?: "button" | "tile"; tint?: string;
+}) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [dropError, setDropError] = useState<string | null>(null);
@@ -60,14 +67,21 @@ export function IconPicker({ icon, profileId, onPick }: { icon: string; profileI
       (e: unknown) => setDropError(e instanceof Error ? e.message : "Upload failed."),
     );
   }, true);
+  const trigger = { ref: btn, type: "button" as const, "aria-haspopup": "dialog" as const, "aria-expanded": open,
+    "data-dropping": drop.dropping || undefined, ...drop.handlers, onClick: () => setOpen((v) => !v) };
   return (
     <>
-      <button ref={btn} type="button" className="icon-picker-trigger" aria-haspopup="dialog" aria-expanded={open}
-        data-dropping={drop.dropping || undefined} {...drop.handlers}
-        onClick={() => setOpen((v) => !v)}>
-        <SpaceIcon icon={icon} size={20} />
-        <span>{drop.dropping ? "Drop to use as icon" : "Change icon…"}</span>
-      </button>
+      {variant === "tile" ? (
+        <button {...trigger} className="space-tile" aria-label="Change icon" title={drop.dropping ? "Drop to use as icon" : "Change icon"}
+          style={tint ? { color: tint } : undefined}>
+          <SpaceIcon icon={icon} size={20} />
+        </button>
+      ) : (
+        <button {...trigger} className="icon-picker-trigger">
+          <SpaceIcon icon={icon} size={20} />
+          <span>{drop.dropping ? "Drop to use as icon" : "Change icon…"}</span>
+        </button>
+      )}
       {dropError && <p className="ip-error" role="alert">{dropError}</p>}
       {open && <IconPickerPopover icon={icon} profileId={profileId} anchorRef={btn} onClose={() => setOpen(false)}
         onPick={(v) => { onPick(v); setOpen(false); }} />}
@@ -80,8 +94,18 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
   onClose: () => void; onPick: (icon: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  /* One grid is drawn at a time, whichever tab is open, so one ref follows it (the emoji chunk's
+     grid dissolves on its own). */
+  const grid = useRef<HTMLDivElement>(null);
+  useDissolve(grid);
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, onClose, exit: true });
   const [tab, setTab] = useState<Tab>("default");
+  /* The search takes the keyboard once the surface is placed, and again on a tab that has one. The
+     popover renders hidden until it is measured and a hidden field cannot be focused, so the
+     `autoFocus` this replaces came to nothing outside jsdom. */
+  const placed = pos !== null;
+  useEffect(() => { if (placed) search.current?.focus(); }, [placed, tab]);
   const [query, setQuery] = useState("");
   const [prompt, setPrompt] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -147,12 +171,12 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
       {(tab === "default" || tab === "emoji") && (
         <div className="ip-search">
           <Icon name="search" size={14} />
-          <input autoFocus type="text" value={query} onChange={(e) => setQuery(e.target.value)}
+          <input ref={search} type="text" value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder={tab === "default" ? "Search icons…" : "Search emoji…"} aria-label="Search" />
         </div>
       )}
       {tab === "default" && (
-        <div className="ip-grid" role="radiogroup" aria-label="Default icons">
+        <div className="ip-grid" ref={grid} role="radiogroup" aria-label="Default icons">
           {defaultIcons.map((n) => (
             <button key={n} type="button" role="radio" aria-checked={icon === n} aria-label={`Icon ${n}`} className="icon-choice"
               data-selected={icon === n || undefined} onClick={() => onPick(n)}><Icon name={n} size={18} /></button>
@@ -162,7 +186,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
       )}
       {tab === "emoji" && (
         // The chunk is local, so the fallback is a frame or two — a spinner would flash rather than inform.
-        <Suspense fallback={<div className="ip-grid" aria-busy="true" />}>
+        <Suspense fallback={<div className="ip-grid" ref={grid} aria-busy="true" />}>
           <IconPickerEmoji icon={icon} query={query} onPick={onPick} />
         </Suspense>
       )}
@@ -178,7 +202,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
             {generating ? <><Spinner size={14} /> Generating…</> : <><Icon name="sparkles" size={14} /> Generate</>}
           </button>
           {genError && <p className="ip-error">{genError}</p>}
-          <div className="ip-grid">
+          <div className="ip-grid" ref={grid}>
             {generated.map((a) => (
               <button key={a.id} type="button" role="radio" aria-checked={icon === `asset:${a.id}`} aria-label={a.prompt ?? "Generated icon"}
                 title={a.prompt ?? undefined} className="icon-choice" data-selected={icon === `asset:${a.id}` || undefined}
@@ -195,7 +219,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
           </button>
           <p className="ip-hint">Or drop an image anywhere on this panel.</p>
           {uploadError && <p className="ip-error" role="alert">{uploadError}</p>}
-          <div className="ip-grid">
+          <div className="ip-grid" ref={grid}>
             {uploaded.map((a) => (
               <button key={a.id} type="button" role="radio" aria-checked={icon === `asset:${a.id}`} aria-label="Uploaded icon"
                 className="icon-choice" data-selected={icon === `asset:${a.id}` || undefined}

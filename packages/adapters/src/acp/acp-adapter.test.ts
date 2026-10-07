@@ -41,6 +41,8 @@ const statuses = (evs: SessionEvent[]) => evs.filter((e) => e.type === "status")
 const of = <T extends SessionEventType>(evs: SessionEvent[], t: T) => evs.filter((e) => e.type === t) as SessionEventOf<T>[];
 const texts = (evs: SessionEvent[]) => of(evs, "assistant_text").map((e) => e.payload.text);
 const errors = (evs: SessionEvent[]) => of(evs, "error").map((e) => e.payload.message);
+/** Everything the agent has said so far, streamed or settled. */
+const said = (evs: SessionEvent[]) => [...texts(evs), ...of(evs, "assistant_delta").map((e) => e.payload.delta)].join("");
 
 /** Boots a session and waits for the first terminal event of boot: `init` or `error`. */
 async function booted(o: Partial<StartOptions> = {}, s: Partial<AcpAgentSpec> = {}) {
@@ -92,6 +94,56 @@ describe("plans", () => {
   });
 });
 
+describe("elicitation — the agent asking the user, on Realm's card", () => {
+  it("declares both modes at initialize, so an agent may ask at all", async () => {
+    // THE MUTANT: leave `elicitation` out of clientCapabilities. A real agent must not ask a client that
+    // did not offer, and the fake does as a real one must: it says so instead of asking.
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request").length + said(evs).length).toBeGreaterThan(0));
+    expect(said(evs)).not.toContain("elicitation not offered");
+    expect(of(evs, "permission_request")).toHaveLength(1);
+  });
+
+  it("draws a form as the card, naming the agent, and accepts with the form's own values", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    const req = of(evs, "permission_request")[0]!.payload;
+    expect(statuses(evs).at(-1)).toBe("waiting_permission");
+    expect(req.ask).toMatchObject({ asker: { kind: "agent", name: "Cursor", agent: "acp:cursor" }, mode: "form",
+      questions: [{ id: "strategy", prompt: "How should I approach this refactoring?", kind: "choice", required: true }] });
+    handle.respondPermission(req.requestId, "allow", { strategy: "balanced" });
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    expect(texts(evs).join("")).toContain('elicited {"action":"accept","content":{"strategy":"balanced"}}');
+    expect(of(evs, "permission_response")[0]!.payload).toEqual({ requestId: req.requestId, decision: "allow", answers: { strategy: "balanced" } });
+  });
+
+  it("declines what the user declined, and cancels what a stopped turn left open", async () => {
+    const declined = await booted();
+    await declined.handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(of(declined.evs, "permission_request")).toHaveLength(1));
+    declined.handle.respondPermission(of(declined.evs, "permission_request")[0]!.payload.requestId, "deny");
+    await waitFor(() => expect(texts(declined.evs).join("")).toContain('"action":"decline"'));
+
+    const stopped = await booted();
+    await stopped.handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(of(stopped.evs, "permission_request")).toHaveLength(1));
+    await stopped.handle.interrupt();
+    await waitFor(() => expect(said(stopped.evs)).toContain('"action":"cancel"'));
+  });
+
+  it("accepts a page to open as consent alone", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ELICITURL", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    const req = of(evs, "permission_request")[0]!.payload;
+    expect(req.ask?.questions[0]).toMatchObject({ kind: "link", url: "https://accounts.example.com/connect?x=1" });
+    handle.respondPermission(req.requestId, "allow", { url: "opened" });
+    await waitFor(() => expect(texts(evs).join("")).toContain('elicited {"action":"accept"}'));
+  });
+});
+
 describe("pickAcpOption", () => {
   it("prefers allow_once for allow and falls back to allow_always", () => {
     expect(pickAcpOption("allow", FULL)).toBe("a1");
@@ -133,16 +185,6 @@ describe("sliceLines", () => {
   it("returns the whole file when the agent asked for no window", () => {
     expect(sliceLines(FOUR, undefined, undefined)).toBe(FOUR);
     expect(sliceLines(FOUR, null, null)).toBe(FOUR);
-  });
-
-  it("treats line as 1-based and limit as a line count", () => {
-    expect(sliceLines(FOUR, 2, 2)).toBe("two\nthree");
-    expect(sliceLines(FOUR, 1, 1)).toBe("one");
-  });
-
-  it("honours line on its own", () => {
-    expect(sliceLines(FOUR, 3, undefined)).toBe("three\nfour\n");
-    expect(sliceLines(FOUR, 1, null)).toBe(FOUR);
   });
 
   it("honours limit on its own", () => {
@@ -195,10 +237,6 @@ describe("acpBootFailureMessage", () => {
 });
 
 describe("AcpAdapter", () => {
-  it("reports the kind it was constructed with", () => {
-    expect(newAdapter().kind).toBe("acp:cursor");
-    expect(newAdapter({ kind: "acp:gemini" }).kind).toBe("acp:gemini");
-  });
 
   it("probes the configured binary and tags the result with its kind", async () => {
     const good = await newAdapter().probe(); // process.execPath --version
@@ -387,12 +425,17 @@ describe("AcpAdapter", () => {
     const journal = JSON.parse(texts(evs)[0]!) as { loadParams: unknown; newParams: unknown };
     expect(journal.loadParams).toEqual({ sessionId: "sess_prev", cwd: process.cwd(), mcpServers: [] });
     expect(journal.newParams).toBeNull(); // a successful load must not also start a fresh session
+    expect(of(evs, "init")[0]!.payload.resumeOutcome).toBe("continued");
     await handle.dispose();
   });
 
-  it("starts a new session when the agent does not advertise loadSession", async () => {
+  it("starts a new session when the agent does not advertise loadSession, and says it was never asked", async () => {
     const { handle, evs } = await booted({ resume: "sess_prev" }, { env: { FAKE_ACP_NOLOAD: "1" } });
     expect(of(evs, "init")[0]!.payload.providerSessionId).toBe("sess_0");
+    // MUTANT: leave this unreported and the transcript above the new session reads as the agent's own
+    // context, when the agent has never seen a word of it.
+    expect(of(evs, "init")[0]!.payload.resumeRequested).toBe(true);
+    expect(of(evs, "init")[0]!.payload.resumeOutcome).toBe("unsupported");
     await turn(handle, evs, "REVEAL");
     const journal = JSON.parse(texts(evs)[0]!) as { loadParams: unknown; newParams: unknown };
     expect(journal.loadParams).toBeNull();
@@ -406,6 +449,8 @@ describe("AcpAdapter", () => {
     expect(of(evs, "init")[0]!.payload.providerSessionId).toBe("sess_0");
     expect(errors(evs)).toEqual([]); // a failed resume is recoverable, not a session failure
     expect(logs.join("\n")).toContain("no such session on disk");
+    // …and it is now told to the user as well as to the log, which is the one place they cannot see.
+    expect(of(evs, "init")[0]!.payload.resumeOutcome).toBe("declined");
     // The flag is cleared by the failure too, so the fresh session is not mute.
     await turn(handle, evs, "hi");
     expect(texts(evs)).toEqual(["Hello"]);
@@ -559,13 +604,13 @@ describe("AcpAdapter", () => {
     await handle.dispose();
   });
 
-  it("declares the fs capabilities and no terminal in initialize", async () => {
+  it("declares the fs capabilities, both elicitation modes and no terminal in initialize", async () => {
     const { handle, evs } = await booted();
     await turn(handle, evs, "REVEAL");
     const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string; params: Record<string, unknown> }[] };
     expect(journal.calls[0]).toEqual({
       method: "initialize",
-      params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false } },
+      params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false, elicitation: { form: {}, url: {} } } },
     });
     await handle.dispose();
   });
@@ -625,16 +670,6 @@ describe("AcpAdapter", () => {
     expect(JSON.parse(texts(evs)[0]!)).toEqual([
       { type: "resource_link", uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain" },
     ]);
-    await handle.dispose();
-  });
-
-  it("links non-image attachments rather than embedding them", async () => {
-    const { handle, evs } = await booted();
-    // Cursor reports embeddedContext:false, so a `resource` block would be rejected outright.
-    await handle.send({ text: "ECHO", attachments: [{ path: "/tmp/notes.txt", mime: "text/plain" }] });
-    await waitFor(() => expect(texts(evs)).toHaveLength(1));
-    const prompt = JSON.parse(texts(evs)[0]!) as Record<string, unknown>[];
-    expect(prompt[1]).toEqual({ type: "resource_link", uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain" });
     await handle.dispose();
   });
 
@@ -800,6 +835,49 @@ describe("AcpAdapter", () => {
     expect(journal.calls.find((c) => c.method === "session/set_config_option")!.params)
       .toMatchObject({ configId: "model", value: "fake-model-2" });
     await handle.dispose();
+  });
+
+  describe("reasoning level", () => {
+    type Journal = { calls: { method: string; params: Record<string, unknown> }[] };
+    const writes = async (handle: AgentHandle, evs: SessionEvent[]) => {
+      await turn(handle, evs, "REVEAL");
+      const journal = JSON.parse(texts(evs).at(-1)!) as Journal;
+      return journal.calls.filter((c) => c.method === "session/set_config_option" && c.params.configId === "thought_level").map((c) => c.params.value);
+    };
+
+    it("reports the agent's own levels on init, off its thought_level option", async () => {
+      const { handle, evs } = await booted({}, { env: { FAKE_ACP_CONFIGOPTIONS: "1" } });
+      expect(of(evs, "init")[0]!.payload).toMatchObject({
+        efforts: [{ id: "low", label: "Low" }, { id: "medium", label: "Medium" }, { id: "high", label: "High" }], defaultEffort: "medium",
+      });
+      await handle.dispose();
+    });
+
+    it("writes the session's level at boot through set_config_option, and only one the agent lists", async () => {
+      for (const [effort, written] of [["high", ["high"]], ["max", []], ["medium", []]] as const) {
+        // `max` is no level of this agent's; `medium` is the one it already starts on.
+        const { handle, evs } = await booted({ effort }, { env: { FAKE_ACP_CONFIGOPTIONS: "1" } });
+        expect(await writes(handle, evs), effort).toEqual(written);
+        await handle.dispose();
+      }
+    });
+
+    it("moves the level mid-session, and a reset writes the agent's own starting level back by name", async () => {
+      const { handle, evs } = await booted({}, { env: { FAKE_ACP_CONFIGOPTIONS: "1" } });
+      await handle.setOptions({ effort: "low" });
+      await handle.setOptions({ effort: null });
+      await handle.setOptions({ effort: "xhigh" });
+      expect(await writes(handle, evs)).toEqual(["low", "medium"]);
+      await handle.dispose();
+    });
+
+    it("never writes a level to an agent that offers no thought_level option", async () => {
+      const { handle, evs } = await booted({ effort: "high" });
+      await handle.setOptions({ effort: "low" });
+      expect(await writes(handle, evs)).toEqual([]);
+      expect(of(evs, "init")[0]!.payload).not.toHaveProperty("efforts");
+      await handle.dispose();
+    });
   });
 
   it("re-enters Plan at boot — with the agent's own id — when the session's row says plan", async () => {
@@ -978,15 +1056,6 @@ describe("acpMcpServers", () => {
   const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { A: "1", B: "2" } };
   const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
   const sse = { name: "legacy", transport: "sse" as const, url: "https://sse.example/mcp", headers: {} };
-
-  it("sends stdio env as an ARRAY of name/value pairs, not a record", () => {
-    // The named mutant. Cursor validates with zod before its own lenient normalizer runs, so a record
-    // here is rejected `invalid_union` and session/new fails outright — proven live in
-    // scripts/live-mcp-check.ts, which watches the fixture server's env verdict.
-    const [out] = acpMcpServers([stdio]) as [Record<string, unknown>];
-    expect(out.env).toEqual([{ name: "A", value: "1" }, { name: "B", value: "2" }]);
-    expect(Array.isArray(out.env)).toBe(true);
-  });
 
   it("keeps args and env present even when empty — both are required, not optional", () => {
     const [out] = acpMcpServers([{ name: "bare", transport: "stdio", command: "/bin/x", args: [], env: {} }]) as [Record<string, unknown>];

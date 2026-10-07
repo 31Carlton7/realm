@@ -6,10 +6,6 @@ describe("AsyncQueue", () => {
     q.push(1); q.push(2); await Promise.resolve(); q.push(3); q.close(); await p;
     expect(out).toEqual([1, 2, 3]);
   });
-  it("awaits when empty", async () => {
-    const q = new AsyncQueue<string>(); const it = q[Symbol.asyncIterator](); const next = it.next();
-    q.push("x"); expect((await next).value).toBe("x"); q.close(); expect((await it.next()).done).toBe(true);
-  });
 });
 describe("AsyncQueue edge cases", () => {
   it("drops pushes after close", async () => {

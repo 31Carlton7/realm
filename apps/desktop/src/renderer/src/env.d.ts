@@ -3,15 +3,76 @@ interface ScrollPhaseMessage { phase: string; momentum: string; dx: number; dy: 
 /** Mirrors PickedFile in the preload: `size` and `name` are for the prompter's own checks; only
  *  `path` and `mime` ever reach `sessions.send`. */
 interface PickedFile { path: string; mime: string; name: string; size: number }
+/** One row of a menu the OS draws — mirrors `NativeMenuItem` in main/native-menu.ts, the other end of
+ *  the call. A row with an `id` answers it when chosen; a row without one is a line of information. */
+type NativeMenuItem =
+  | { type: "separator" }
+  | { separator: true }
+  | { id?: string; label: string; enabled?: boolean; checked?: boolean; accelerator?: string; toolTip?: string; icon?: string; submenu?: NativeMenuItem[] };
 interface Window {
   realm: {
     port: number; home: string;
+    /** The RPC token from the preload, sent as the `realm.<token>` subprotocol on every dial. */
+    token: string;
+    /** The profile this window was opened for (Plan 27 Phase 2: a window per profile), or undefined for
+     *  the first window, which shows whichever profile its saved space is in. Boot lands in it. */
+    profileId?: string;
+    /** A window per profile. Optional like every bridge: jsdom has none. */
+    windows?: {
+      openProfile(profileId: string): Promise<void>;
+      focusProfile(profileId: string): Promise<boolean>;
+      setProfile(profileId: string | null): void;
+    };
+    /** The window's page zoom, 1 at 100% (`webFrame.getZoomFactor`). Optional like every other
+     *  bridge: jsdom has none, and a renderer without it reads as 100%, which is what the app
+     *  assumed before anything asked. */
+    zoomFactor?(): number;
+    /** A session picked from the menu-bar item while the window was closed. */
+    onOpenSession(cb: (target: { sessionId: string; spaceId: string | null }) => void): () => void;
+    /** Quit Realm and stop every agent. Confirms in main when anything is working. */
+    quitAndStopAgents(): Promise<void>;
+    /** The agent server's health, as main sees it. Replayed on every new window. */
+    onDaemonState(cb: (state: { kind: string; attempt?: number; logPath?: string; why?: string }) => void): () => void;
+    /** Whether the window is key (AppKit's sense: it has the keyboard), as main sees it. */
+    onWindowKey(cb: (key: boolean) => void): () => void;
+    isWindowKey(): Promise<boolean>;
+    setMenuKeybindings?(rules: unknown[]): void;
+    onAppCommand?(cb: (command: string) => void): () => void;
+    /** OS menus (main/native-menu.ts): the chosen row's id, or null. Optional: absent in jsdom, where
+     *  `Menu` draws its own. */
+    popupMenu?(items: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null>;
+    closeMenu?(): Promise<void>;
+    /** REALM_HTML_MENUS=1: the app's `Menu` draws its own, for a live script to drive over CDP. */
+    htmlMenus?: boolean;
     /** `process.platform` from the preload. Absent in jsdom, which has no bridge — every reader has
      *  to treat "unknown" as "no window material" rather than guessing macOS. */
     platform?: string;
+    /** Settings ▸ Appearance ▸ Reduce motion: main changes what this window reports for
+     *  `prefers-reduced-motion`. Optional like the other late bridges — jsdom has none. */
+    motion?: { set(pref: import("@realm/contracts").ReducedMotionPref): Promise<void> };
+    /** The element picker over this window (main/app-pick.ts). Optional like the other late bridges. */
+    appPick?: {
+      arm(on: boolean): void;
+      capture(rect: { x: number; y: number; w: number; h: number }, ground: [number, number, number] | null, name: string): Promise<{ file: PickedFile | null; webView: boolean }>;
+    };
+    /** Settings ▸ General ▸ Power: tells main the keep-awake switch moved. */
+    power?: { preventSleep(on: boolean): Promise<void> };
+    /** The apps installed on this Mac and their icons (the prompter's `@` list). Optional like every
+     *  late bridge: jsdom has none, and a renderer without it simply lists no apps. */
+    apps?: {
+      list(): Promise<import("@realm/contracts").InstalledApp[]>;
+      icons(paths: string[]): Promise<Record<string, string | null>>;
+    };
+    /** The code editors installed on this Mac, and opening a path in one. */
+    editors?: {
+      list(): Promise<import("@realm/contracts").InstalledEditor[]>;
+      open(id: import("@realm/contracts").EditorId, path: string, base?: string): Promise<boolean>;
+    };
     pickFolder(): Promise<string | null>;
     /** Native multi-select file picker; [] when cancelled. */
     pickFiles(): Promise<PickedFile[]>;
+    /** The path of a VS Code colour theme the user chose, or null if they cancelled. */
+    pickThemeFile(): Promise<string | null>;
     /** Downscaled data: URL for an image attachment; null for anything not a readable image. */
     /** `tile` (the default) is a 96px mark beside a name; `card` is the Library's preview. */
     attachmentThumbnail(path: string, size?: "tile" | "card"): Promise<string | null>;
@@ -41,18 +102,38 @@ interface Window {
      *  path an agent merely named. `media` above admits only what a media element can decode, so it
      *  is right to refuse a `.ts`; these are gated on existence instead. Optional for the same
      *  reason: every call site degrades to "cannot", and jsdom has no bridge at all. */
+    /** Realm's theme preference, so the window's native material, menus and panels match it
+     *  (main/appearance.ts). Optional: a renderer with no bridge has no native appearance to set. */
+    setAppearance?(pref: "system" | "light" | "dark"): void;
+    /** The Dock icon (main/app-icon.ts). Optional: only the desktop app has a Dock to change. */
+    appIcon?: {
+      get(): Promise<string>;
+      set(id: string, png: Uint8Array): Promise<boolean>;
+    };
     files?: {
       /** Size and mtime, or null when nothing is there — how a preview learns to say the file is
        *  gone rather than drawing actions that would each fail in turn. */
       stat(path: string): Promise<{ path: string; size: number; mtimeMs: number } | null>;
+      /** One folder of a space or a checkout, newest first (`main/browse.ts`). Null when it cannot
+       *  be read, or when the path would leave the root — the session file browser's data source,
+       *  and the one list that shows a file a shell command made. */
+      browse?(root: string, dir: string): Promise<{ dir: string; truncated: boolean;
+        entries: { path: string; name: string; isDir: boolean; size: number; mtimeMs: number }[] } | null>;
       /** A readable picture of the file (a decoded image, or QuickLook's render of a PDF, a sheet,
-       *  a page of source). Null for a type macOS has no generator for. */
-      preview(path: string): Promise<string | null>;
-      reveal(path: string): Promise<void>;
+       *  a page of source). Null for a type macOS has no generator for. `page` is the media viewer's
+       *  window-sized render; the default is a preview's. */
+      preview(path: string, size?: "page"): Promise<string | null>;
+      /** Select it in the Finder. `~/…` is the home folder and a relative path is relative to `base`
+       *  — the way an agent writes them. False when nothing is there to select. */
+      reveal(path: string, base?: string): Promise<boolean>;
       /** Finder's own icon as a data URL, read off this machine. Null when it cannot be read. */
       finderIcon(): Promise<string | null>;
       /** Copy it where the user points; the saved path, or null when they cancelled. */
       saveCopy(path: string): Promise<string | null>;
+      /** Quick Look, Share and drag-out (main/file-actions.ts). Optional, like every bridge. */
+      quickLook?(path: string, base?: string): Promise<void>;
+      share?(path: string, at: { x: number; y: number }, base?: string): Promise<void>;
+      startDrag?(path: string): void;
     };
     /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
     saveTempAttachment(name: string, mime: string, bytes: Uint8Array): Promise<PickedFile>;
@@ -60,6 +141,11 @@ interface Window {
     pathForFile(file: File): string;
     /** Native trackpad scroll phases (macOS helper); optional — may never fire. */
     onScrollPhase?(cb: (m: ScrollPhaseMessage) => void): () => void;
+    /** A real iPhone's picture, live (the phone pane's Show live). Raises macOS's camera prompt — it
+     *  reaches a connected iPhone's screen as a camera — and answers the camera's status after. */
+    phoneScreen?: {
+      showLive(): Promise<string>;
+    };
     /** macOS Permissions tab (Plan 12 W6): TCC rows with honest states; probe never prompts. */
     permissions: {
       probe(): Promise<TccRow[]>;
@@ -90,7 +176,11 @@ interface Window {
     updates: {
       status(): Promise<UpdateStatus>;
       check(): Promise<UpdateStatus>;
+      /** Start the download of an `available` update; any other state answers itself unchanged. */
+      download(): Promise<UpdateStatus>;
       install(): Promise<void>;
+      /** Every change of the updater's state, a download's progress included. */
+      onChanged(cb: (status: UpdateStatus) => void): () => void;
     };
     /** Desktop notifications (the feed's last hop). `show` answers whether a toast was posted — main
      *  suppresses one while the window is focused. `onActivate` carries a clicked toast's row id. */
@@ -100,14 +190,25 @@ interface Window {
       onActivate(cb: (id: string) => void): () => void;
     };
     /** Settings → Sign-ins. One-way by construction: `add` takes a value, nothing gives one back. */
+    /** Every door names the PROFILE whose sign-ins it is: they are a profile's own (Plan 27 Phase 2). */
     credentials: {
-      list(): Promise<import("@realm/contracts").BrowserCredential[]>;
+      list(profileId: string): Promise<import("@realm/contracts").BrowserCredential[]>;
       status(): Promise<{ available: boolean; canPromptTouchID: boolean; presenceTtlMs: number }>;
-      add(input: import("@realm/contracts").BrowserCredentialInput): Promise<import("@realm/contracts").BrowserCredential>;
-      remove(id: string): Promise<boolean>;
+      add(profileId: string, input: import("@realm/contracts").BrowserCredentialInput): Promise<import("@realm/contracts").BrowserCredential>;
+      remove(profileId: string, id: string): Promise<boolean>;
+      /** COPY one into another profile; the original stays. */
+      share(profileId: string, id: string, toProfileId: string): Promise<{ ok: true; profileName: string } | { ok: false; error: string }>;
       setPresenceTtl(ms: number): Promise<number>;
     };
+    /** Settings → Sign-ins, the passkey half. No `add`: a passkey is created by a site asking for one
+     *  in a pane and the user answering Touch ID, so there is nothing for a person to type. */
+    passkeys: {
+      list(profileId: string): Promise<import("@realm/contracts").Passkey[]>;
+      remove(profileId: string, id: string): Promise<boolean>;
+      share(profileId: string, id: string, toProfileId: string): Promise<{ ok: true; profileName: string } | { ok: false; error: string }>;
+    };
     /** Browser pane (Plan 11 W1): drives the native WebContentsView main owns for a browser item. */
+    clipboard: { readText(): Promise<string> };
     browser: {
       create(id: string, url: string, allowlist: string[] | null): Promise<void>;
       destroy(id: string): Promise<void>;
@@ -116,18 +217,43 @@ interface Window {
       /** Resolves the normalized URL actually loaded, or null when refused (allowlist) / empty. */
       navigate(id: string, input: string): Promise<string | null>;
       nav(id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void>;
+      /** The typed text as a web search, even when it looks like an address. */
+      search(id: string, query: string): Promise<string | null>;
+      historyMenu(id: string, dir: "back" | "forward", at: { x: number; y: number }): Promise<void>;
       /** Arms the element picker. See `BrowserHostBridge` for the promise's lifetime. */
       pickElement(id: string): Promise<import("@realm/contracts").BrowserPickedElement | null>;
       cancelPick(id: string): Promise<void>;
+      /** Plan 26 W7d: annotate — pending until Send in the page's toolbar, or the session ends. */
+      annotate(id: string, accent?: string, dir?: string | null): Promise<import("@realm/contracts").BrowserAnnotateResult>;
+      cancelAnnotate(id: string): Promise<void>;
+      setAccent(accent: string): void;
       /** Plan 23 W4: downloads the pane blocked, and the user's own consent to fetch one. */
       blockedDownloads(id: string): Promise<import("@realm/contracts").BlockedDownload[]>;
       saveDownload(id: string, blockedId: string, dir: string): Promise<import("@realm/contracts").BrowserDownloadResult>;
       dismissDownload(id: string, blockedId: string): Promise<void>;
       onDownloadBlocked(cb: (m: { browserId: string; blocked: import("@realm/contracts").BlockedDownload }) => void): () => void;
+      /** A passkey request the pane refused, so a sign-in that goes nowhere says why. */
+      onPasskey(cb: (m: import("@realm/contracts").PasskeyNotice) => void): () => void;
       setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
       /** Per-frame, fire-and-forget: placeholder rect (CSS px) + devicePixelRatio + visibility. */
       setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;
       onState(cb: (s: BrowserViewState) => void): () => void;
+      /** Plan 26 W7b — the ⋯ menu's facts, and its rows. */
+      menuState(id: string): Promise<import("@realm/contracts").BrowserMenuState>;
+      goToIndex(id: string, index: number): Promise<void>;
+      find(id: string, query: string, step: "start" | "next" | "previous"): Promise<void>;
+      stopFind(id: string): Promise<void>;
+      onFound(cb: (m: import("@realm/contracts").BrowserFindResult) => void): () => void;
+      /** ⌘F pressed inside a pane's page, which this window never hears directly. */
+      onFindRequest(cb: (m: { browserId: string }) => void): () => void;
+      zoom(id: string, step: "in" | "out" | "reset" | null): Promise<number>;
+      print(id: string): Promise<void>;
+      setDevice(id: string, preset: "phone" | "tablet" | "desktop" | null): Promise<void>;
+      screenshot(id: string, dir: string): Promise<import("@realm/contracts").BrowserScreenshotSaved>;
+      /** Clears the PANE's profile's partition, after main asks; answers whose it was. */
+      clearData(id: string): Promise<{ cleared: boolean; profileId: string | null }>;
+      /** Copy the page's site's cookies into another profile's partition. */
+      shareSignIn(id: string, toProfileId: string): Promise<import("@realm/contracts").BrowserSignInShare>;
     };
   };
 }
@@ -138,7 +264,8 @@ type UpdateState =
   | { kind: "idle" }
   | { kind: "checking" }
   | { kind: "up-to-date" }
-  | { kind: "downloading"; version: string }
+  | { kind: "available"; version: string }
+  | { kind: "downloading"; version: string; percent: number | null }
   | { kind: "downloaded"; version: string }
   | { kind: "error"; message: string };
 interface UpdateStatus { version: string; state: UpdateState }
@@ -195,4 +322,35 @@ interface ComputerAccessStatus {
   helperAvailable: boolean;
 }
 /** Mirrors BrowserViewState in the preload — the main→renderer browser state channel's payload. */
-interface BrowserViewState { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean }
+interface BrowserViewState { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean;
+  /** The device preset the page is shown at (Plan 26 W7e), or null when it fits the pane. */
+  device: "phone" | "tablet" | "desktop" | null;
+  /** The page's own icon, a `data:` URL main fetched on the pane's session; null until it has one. */
+  favicon: string | null;
+  /** The page did not load — main's `PageLoad` — and the pane draws its error page in the view's place. */
+  error: import("@realm/contracts").BrowserLoadError | null;
+  /** The view has a document of its own to show; until then the pane shows its own ground. */
+  ready: boolean }
+
+/**
+ * noVNC ships no types (Plan 25 W3). Declared here rather than pulled from DefinitelyTyped, which
+ * carries a full surface for a library this app touches through exactly one constructor and the
+ * handful of members `RfbLike` names — and a full surface would let a call site reach for something
+ * the hub's seam has no way to fake.
+ *
+ * The package's exports map is a single string (`"exports": "./core/rfb.js"`), so this bare
+ * specifier is the only one that resolves.
+ */
+declare module "@novnc/novnc" {
+  export default class RFB {
+    constructor(target: HTMLElement, url: string, options?: Record<string, unknown>);
+    disconnect(): void;
+    focus(): void;
+    blur(): void;
+    addEventListener(type: string, fn: (e: Event) => void): void;
+    viewOnly: boolean;
+    scaleViewport: boolean;
+    sendKey(keysym: number, code: string | null, down?: boolean): void;
+    clipboardPasteFrom(text: string): void;
+  }
+}

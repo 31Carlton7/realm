@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode } from "./claude-adapter";
-import type { SessionEvent } from "@realm/contracts";
+import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel } from "./claude-adapter";
+import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
@@ -12,6 +12,12 @@ type FakeOpts = {
   concurrentPermissions?: number;
   /** abort the canUseTool signal instead of waiting for a response */
   abortPermission?: boolean;
+  /** the tool input canUseTool is asked about (default `{ file_path }`) */
+  permissionInput?: unknown;
+  /** record what each canUseTool call resolved with — what the agent itself was handed */
+  permissionResults?: unknown[];
+  /** a `rate_limit_info` to stream as a `rate_limit_event` just before the turn's result */
+  rateLimit?: Record<string, unknown>;
   /** throw from the generator after this many fixture messages */
   throwAfter?: number;
   /** write these lines to options.stderr before the first message */
@@ -27,9 +33,11 @@ type FakeOpts = {
   /** record the Options object the adapter handed `query` (start-time option assertions) */
   captureOptions?: Record<string, unknown>[];
   /** what `supportedModels()` answers; omitted means the control request is declined (a CLI may). */
-  models?: { value: string; supportsFastMode?: boolean }[];
+  models?: { value: string; resolvedModel?: string; supportsFastMode?: boolean; supportsEffort?: boolean; supportedEffortLevels?: string[] }[];
   /** record every `applyFlagSettings` merge (the mid-session fast-mode path). */
   flagSettings?: Record<string, unknown>[];
+  /** answer this many prompts with the fixture's turn instead of only the first (multi-turn assertions) */
+  turns?: number;
   /** what `getContextUsage()` answers; omitted means the control request is declined (a CLI may). */
   contextUsage?: { totalTokens: number; maxTokens: number; rawMaxTokens: number };
   /** record the options `getContextUsage` was called with — `detail` is the expensive knob. */
@@ -50,13 +58,22 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
           asked = true;
           const cut = options.canUseTool as (n: string, i: unknown, o: unknown) => Promise<{ behavior: string }>;
           const ac = new AbortController();
-          const asks = Array.from({ length: opts.concurrentPermissions ?? 1 }, (_, i) => cut(opts.permissionOnTool!, { file_path: `a${i}` }, { signal: ac.signal, title: `Read a${i}?` }));
+          const asks = Array.from({ length: opts.concurrentPermissions ?? 1 }, (_, i) => cut(opts.permissionOnTool!, opts.permissionInput ?? { file_path: `a${i}` }, { signal: ac.signal, title: `Read a${i}?` }));
           if (opts.abortPermission) setTimeout(() => ac.abort(), 5);
           const rs = await Promise.all(asks); const r = rs[0]!;
+          opts.permissionResults?.push(...rs);
           if (r.behavior === "deny") { yield { type: "result", subtype: "success", session_id: "sess_1", uuid: "r", duration_ms: 1, duration_api_ms: 1, is_error: false, num_turns: 1, result: "denied", stop_reason: "end_turn", total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0 }, modelUsage: {}, permission_denials: [] }; break; }
         }
+        if ((m as { type: string }).type === "result" && opts.rateLimit) yield { type: "rate_limit_event", rate_limit_info: opts.rateLimit, uuid: "rl", session_id: "sess_1" };
         if ((m as { type: string }).type === "result" && opts.errorResult) { yield { ...(m as object), subtype: "error_during_execution", is_error: true, errors: ["turn failed"] }; break; }
         yield m;
+      }
+      // Each later prompt gets the same turn again, minus the session's `init`, which a session sends once.
+      for (let t = 1; t < (opts.turns ?? 1); t++) {
+        const next = await it.next();
+        if (next.done) return;
+        opts.capture?.push(next.value);
+        for (const m of fixture) if ((m as { type: string }).type !== "system") yield m;
       }
       if (opts.abortable) {
         const signal = (options.abortController as AbortController).signal;
@@ -172,6 +189,69 @@ describe("ClaudeAdapter", () => {
     expect(statuses(got)).toEqual(["running", "waiting_permission", "running", "idle"]);
     const resp = got.find((e) => e.type === "permission_response");
     expect(resp?.type === "permission_response" && resp.payload.decision).toBe("deny");
+  });
+  it("a masked answer reaches the agent and never Realm's log", async () => {
+    const handed: unknown[] = [];
+    const input = { questions: [
+      { question: "API key?", header: "Key", options: [], multiSelect: false, secret: true },
+      { question: "Name?", header: "Name", options: [], multiSelect: false },
+    ] };
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "AskUserQuestion", permissionInput: input, permissionResults: handed }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const answers = { "API key?": "sk-live-1234", "Name?": "Ada" };
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"),
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "allow", answers); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    const resp = got.find((e) => e.type === "permission_response");
+    // The persisted, broadcast event keeps the ordinary answer and only a mark for the masked one…
+    expect(resp?.type === "permission_response" && resp.payload.answers).toEqual({ "API key?": HIDDEN_ANSWER, "Name?": "Ada" });
+    expect(JSON.stringify(got)).not.toContain("sk-live-1234");
+    // …while the agent, who asked for it, is handed the real value.
+    expect(handed[0]).toMatchObject({ behavior: "allow", updatedInput: { answers } });
+  });
+  it("marks AskUserQuestion as a question Claude asked, and hands several picks back comma-joined", async () => {
+    const handed: unknown[] = [];
+    const input = { questions: [
+      { question: "Which?", header: "Pick", multiSelect: true, options: [{ label: "A" }, { label: "B" }], allowOther: false },
+      { question: "Where?", header: "Region", multiSelect: false, options: [{ label: "us" }], allowOther: false },
+    ] };
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "AskUserQuestion", permissionInput: input, permissionResults: handed }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"),
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "allow", { "Which?": ["A", "B"], "Where?": "eu" }); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    const req = got.find((e) => e.type === "permission_request");
+    expect(req?.type === "permission_request" && req.payload.ask).toMatchObject({ asker: { kind: "agent", name: "Claude" }, mode: "question" });
+    // "eu" was never offered and the question takes no answer of its own: it does not reach Claude.
+    expect(handed[0]).toMatchObject({ behavior: "allow", updatedInput: { answers: { "Which?": "A, B" } } });
+    expect((handed[0] as { updatedInput: { answers: Record<string, string> } }).updatedInput.answers).not.toHaveProperty("Where?");
+  });
+  it("never marks another tool a question, whatever its arguments look like", async () => {
+    // THE MUTANT: build the card from the input's shape alone. A Bash call whose arguments carry a
+    // `questions` array would then draw as a question, and answering it would allow the command.
+    const input = { command: "rm -rf /", questions: [{ question: "Pick?", options: [{ label: "A" }] }] };
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Bash", permissionInput: input }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"),
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "deny"); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    const req = got.find((e) => e.type === "permission_request");
+    expect(req?.type === "permission_request" && req.payload.ask).toBeUndefined();
+  });
+  it("puts the stream's limit reading in the panel's units: a fraction as percent, seconds as ms", async () => {
+    // The CLI reads these straight off the API's headers: it draws `Math.floor(utilization * 100)` and
+    // waits until `resetsAt * 1000`. Taken as-is, an 86% week read "at 1%" and reset in January 1970.
+    const resetsAt = 1_791_480_000; // epoch SECONDS: Oct 8 2026, 9:38 AM Pacific
+    const a = new ClaudeAdapter({ query: fakeQuery({ rateLimit: { status: "allowed_warning", rateLimitType: "seven_day", utilization: 0.86, resetsAt } }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("rate_limit"));
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    const ev = got.find((e) => e.type === "rate_limit");
+    expect(ev?.type === "rate_limit" && ev.payload).toMatchObject({ alert: "approaching", alertWindow: "seven_day" });
+    const w = ev?.type === "rate_limit" ? ev.payload.windows.find((x) => x.id === "seven_day") : undefined;
+    expect(w?.utilization).toBeCloseTo(86, 6);
+    expect(w?.resetsAt).toBe(resetsAt * 1000);
+    expect(new Date(w!.resetsAt!).getUTCFullYear()).toBe(2026);
   });
   it("concurrent canUseTool calls: one waiting_permission → running transition for the whole batch", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Read", concurrentPermissions: 2 }) as never });
@@ -364,6 +444,82 @@ describe("ClaudeAdapter", () => {
       expect(last.type === "init" && last.payload.providerSessionId).toBe(inits[0]!.type === "init" ? inits[0]!.payload.providerSessionId : null);
     });
 
+    const supportFrom = async (models: NonNullable<FakeOpts["models"]>) => {
+      const a = new ClaudeAdapter({ query: fakeQuery({ models }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [] });
+      // Collected to the END, not to the first idle: the answer is a round trip behind the handshake,
+      // and a restatement that landed after the loop stopped listening would read as "unstated".
+      const seen: SessionEvent[] = [];
+      const c = collectUntil(h.events, () => false, (e) => seen.push(e));
+      await h.send({ text: "hi", attachments: [] });
+      await new Promise<void>((res) => { const t = setInterval(() => { if (statuses(seen).includes("idle")) { clearInterval(t); res(); } }, 5); });
+      await new Promise((r) => setTimeout(r, 20));
+      await h.dispose(); await c;
+      const stated = seen.filter((e) => e.type === "init" && e.payload.supportsFastMode !== undefined).at(-1);
+      return stated?.type === "init" ? stated.payload.supportsFastMode : undefined;
+    };
+
+    it("finds the model where the CLI lists it only under a context-window variant", async () => {
+      /* THE BUG: the CLI lists Opus 5.5 only as `opus[1m]` → `claude-opus-5-5[1m]`, and a session that
+         picked plain `claude-opus-5-5` matched nothing — so its Speed control never appeared at all.
+         Every Opus 5.5 session the user started by name had its answer silently dropped. */
+      expect(await supportFrom([{ value: "opus[1m]", resolvedModel: `${MODEL}[1m]`, supportsFastMode: true }])).toBe(true);
+    });
+
+    it("lets an entry naming this very id outrank a variant of it", async () => {
+      expect(await supportFrom([
+        { value: "opus[1m]", resolvedModel: `${MODEL}[1m]`, supportsFastMode: true },
+        { value: MODEL, supportsFastMode: false },
+      ])).toBe(false);
+    });
+
+    it("does not mistake a different model that shares a prefix for a variant", async () => {
+      // `claude-opus-5-5` is not a build of `claude-opus-5`; only a bracketed suffix is a variant.
+      expect(await supportFrom([{ value: "opus[1m]", resolvedModel: `${MODEL}-5[1m]`, supportsFastMode: true }])).toBeUndefined();
+    });
+
+    it("restates the answer for EVERY model the CLI listed, so the next session on any of them knows", async () => {
+      /* THE BUG the owner hit: a new session on a model no earlier session had run showed no fast-mode
+         switch at all, because only the model each session asked for was ever remembered. The CLI
+         answers for its whole list in the same round trip, and that list is what this files. */
+      const a = new ClaudeAdapter({ query: fakeQuery({ models: [
+        { value: "default", resolvedModel: "claude-fable-5-1", supportsFastMode: false },
+        { value: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]", supportsFastMode: true },
+        { value: MODEL, supportsFastMode: true },
+        { value: "haiku", resolvedModel: "claude-haiku-4-5" },
+      ] }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [] });
+      const seen: SessionEvent[] = [];
+      const c = collectUntil(h.events, () => false, (e) => seen.push(e));
+      await h.send({ text: "hi", attachments: [] });
+      await new Promise<void>((res) => { const t = setInterval(() => { if (seen.some((e) => e.type === "init" && e.payload.fastModeModels)) { clearInterval(t); res(); } }, 5); });
+      await h.dispose(); await c;
+      const last = seen.filter((e) => e.type === "init").at(-1)!;
+      // The default row is the CLI's own default, filed under "" — what a session with no model asks
+      // for — and the model it resolves to; a model that stated nothing is left out, not filed `false`.
+      expect(last.type === "init" && last.payload.fastModeModels).toEqual({
+        "": false, "claude-fable-5-1": false, "claude-opus-5-5": true, [MODEL]: true,
+      });
+      expect(last.type === "init" && last.payload.supportsFastMode).toBe(true);
+    });
+
+    it("lets a model's own entry outrank a variant of it, and the default's resolution, in that map", () => {
+      // The single-model precedence above, applied across the list: listed in either order, the
+      // entry naming the id is the answer for it.
+      expect(fastModeByModel([
+        { value: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]", supportsFastMode: true },
+        { value: "claude-opus-5-5", supportsFastMode: false },
+      ])).toEqual({ "claude-opus-5-5": false });
+      expect(fastModeByModel([
+        { value: "claude-opus-5-5", supportsFastMode: false },
+        { value: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]", supportsFastMode: true },
+      ])).toEqual({ "claude-opus-5-5": false });
+      expect(fastModeByModel([
+        { value: "default", resolvedModel: "claude-sonnet-5", supportsFastMode: true },
+        { value: "sonnet", resolvedModel: "claude-sonnet-5", supportsFastMode: false },
+      ])).toEqual({ "": true, "claude-sonnet-5": false });
+    });
+
     it("says nothing at all when the CLI declines the question, or does not know the model", async () => {
       // Both are "not stated", and the prompter reads that as "offer no switch" — never as "no".
       for (const models of [undefined, [{ value: "some-other-model", supportsFastMode: true }]]) {
@@ -386,7 +542,13 @@ describe("ClaudeAdapter", () => {
       const c = collectUntil(h.events, () => false);
       await h.send({ text: "hi", attachments: [] });
       await h.dispose(); await c;
-      expect(captureOptions[0]!.fastMode).toBe(true);
+      /* In `settings`, the flag layer, because that is the one the CLI's opt-in gate reads: under the
+         SDK it refuses fast mode as `sdk_opt_in_required` unless `flagSettings.fastMode` is true.
+         THE BUG this pins: this test used to assert a top-level `fastMode`. The fake takes any key,
+         so it agreed; the real SDK has no such option, dropped it without a word, and no session
+         ever started fast. */
+      expect(captureOptions[0]!.settings).toEqual({ fastMode: true });
+      expect("fastMode" in captureOptions[0]!).toBe(false);
     });
 
     it("leaves the option off the start entirely when it was not asked for", async () => {
@@ -399,6 +561,7 @@ describe("ClaudeAdapter", () => {
       await h.send({ text: "hi", attachments: [] });
       await h.dispose(); await c;
       expect("fastMode" in captureOptions[0]!).toBe(false);
+      expect("settings" in captureOptions[0]!).toBe(false);
     });
 
     it("moves it mid-session through the flag settings layer — there is no setFastMode", async () => {
@@ -413,6 +576,101 @@ describe("ClaudeAdapter", () => {
       await h.setOptions({ model: "claude-sonnet-5" });
       await h.dispose(); await c;
       expect(flagSettings).toEqual([{ fastMode: true }, { fastMode: false }]);
+    });
+
+    describe("reasoning effort", () => {
+      it("hands the SDK a level it has a word for, and never one from another harness", async () => {
+        for (const [effort, sent] of [["max", "max"], ["minimal", undefined], [null, undefined]] as const) {
+          const captureOptions: Record<string, unknown>[] = [];
+          const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+          const h = a.start({ cwd: "/tmp", mcpServers: [], effort });
+          const c = collectUntil(h.events, () => false);
+          await h.send({ text: "hi", attachments: [] });
+          await h.dispose(); await c;
+          // `minimal` is Codex's; kept across an agent switch, it is no `EffortLevel` the CLI takes.
+          expect(captureOptions[0]!.effort, String(effort)).toBe(sent);
+        }
+      });
+
+      it("moves the level mid-session through the flag layer, and a reset is the SDK's own null", async () => {
+        /* `applyFlagSettings({effortLevel: null})` "goes to the model's default effort" — the SDK's
+           words — which is exactly what the picker's reset means. A level from another harness is not
+           sent at all, and an options call that says nothing about effort leaves the layer alone. */
+        const flagSettings: Record<string, unknown>[] = [];
+        const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings }) as never });
+        const h = a.start({ cwd: "/tmp", mcpServers: [] });
+        const c = collectUntil(h.events, () => false);
+        await h.send({ text: "hi", attachments: [] });
+        await h.setOptions({ effort: "low" });
+        await h.setOptions({ effort: null });
+        await h.setOptions({ effort: "minimal" });
+        await h.setOptions({ model: "claude-sonnet-5" });
+        await h.dispose(); await c;
+        expect(flagSettings).toEqual([{ effortLevel: "low" }, { effortLevel: null }]);
+      });
+
+      it("files each listed model's own levels, an explicit none included", () => {
+        expect(effortByModel([
+          { value: "default", resolvedModel: "claude-fable-5-1", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+          { value: "haiku", resolvedModel: "claude-haiku-4-5", supportsEffort: false },
+          { value: "sonnet", resolvedModel: "claude-sonnet-5", supportedEffortLevels: ["low", "medium", "high", "minimal"] },
+          { value: "opus" },
+        ])).toEqual({
+          "": ["low", "medium", "high", "xhigh", "max"], "claude-fable-5-1": ["low", "medium", "high", "xhigh", "max"],
+          // `supportsEffort: false` is an answer — no levels — where silence (`opus`) is filed as nothing.
+          "claude-haiku-4-5": [], "claude-sonnet-5": ["low", "medium", "high"],
+        });
+      });
+
+      it("restates init with those levels, for the next session on any of them", async () => {
+        const a = new ClaudeAdapter({ query: fakeQuery({ models: [
+          { value: MODEL, supportsFastMode: true, supportsEffort: true, supportedEffortLevels: ["low", "high"] },
+        ] }) as never });
+        const h = a.start({ cwd: "/tmp", mcpServers: [] });
+        const seen: SessionEvent[] = [];
+        const c = collectUntil(h.events, () => false, (e) => seen.push(e));
+        await h.send({ text: "hi", attachments: [] });
+        await new Promise<void>((res) => { const t = setInterval(() => { if (seen.some((e) => e.type === "init" && e.payload.effortModels)) { clearInterval(t); res(); } }, 5); });
+        await h.dispose(); await c;
+        const last = seen.filter((e) => e.type === "init").at(-1)!;
+        expect(last.type === "init" && last.payload.effortModels).toEqual({ [MODEL]: ["low", "high"] });
+      });
+    });
+
+    const requested = (evs: SessionEvent[]) => evs.flatMap((e) => (e.type === "usage" ? [e.payload.fastModeRequested] : []));
+
+    it("says on each turn's report whether that turn asked for it", async () => {
+      // What the picker needs to tell "fast mode was refused" from "fast mode was not asked for".
+      for (const fastMode of [true, false]) {
+        const a = new ClaudeAdapter({ query: fakeQuery({}) as never });
+        const h = a.start({ cwd: "/tmp", mcpServers: [], fastMode });
+        const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+        await h.send({ text: "hi", attachments: [] });
+        const got = await c; await h.dispose();
+        expect(requested(got), String(fastMode)).toEqual([fastMode]);
+      }
+    });
+
+    it("keeps a switch flipped mid-turn off the turn in flight, and puts it on the next", async () => {
+      /* THE BUG this closes: the picker read the last turn's refusal as a verdict on the switch just
+         flipped, and said fast mode could not run — about a turn that never asked for it. Turn one
+         parks on a permission, the switch moves while it waits, and only turn two carries it. */
+      const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Read", turns: 2, hang: true }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [] });
+      let parked!: (id: string) => void; const asked = new Promise<string>((r) => { parked = r; });
+      let settled!: () => void; const turnOne = new Promise<void>((r) => { settled = r; });
+      const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && requested(all).length === 2, (e) => {
+        if (e.type === "permission_request") parked(e.payload.requestId);
+        if (e.type === "status" && e.payload.status === "idle") settled();
+      });
+      await h.send({ text: "one", attachments: [] });
+      const id = await asked;
+      await h.setOptions({ fastMode: true });
+      h.respondPermission(id, "allow");
+      await turnOne;
+      await h.send({ text: "two", attachments: [] });
+      const got = await c; await h.dispose();
+      expect(requested(got)).toEqual([false, true]);
     });
   });
 
@@ -590,12 +848,6 @@ describe("@-mention resolution on the Claude wire (W4)", () => {
     await handle.dispose();
   });
 
-  it("without a resolved skill the text goes through verbatim — no prepend, and never a literal @name (the server already stripped it)", async () => {
-    const { handle, first } = captureFirstMessage();
-    await handle.send({ text: "plain text, mac not mentioned", attachments: [] });
-    expect(textOf(await first)).toBe("plain text, mac not mentioned");
-    await handle.dispose();
-  });
 });
 
 describe("claudeMcpServers", () => {
@@ -603,20 +855,10 @@ describe("claudeMcpServers", () => {
   const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
   const sse = { name: "legacy", transport: "sse" as const, url: "https://sse.example/mcp", headers: {} };
 
-  it("is a RECORD keyed by name, not an array (sdk.d.ts:1734 — some docs say otherwise)", () => {
-    const out = claudeMcpServers([stdio, http]);
-    expect(Array.isArray(out)).toBe(false);
-    expect(Object.keys(out)).toEqual(["airtable", "vercel"]);
-  });
-
   it("tags each entry with its transport and carries only that transport's fields", () => {
     expect(claudeMcpServers([stdio])).toEqual({ airtable: { type: "stdio", command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } } });
     expect(claudeMcpServers([http])).toEqual({ vercel: { type: "http", url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } } });
     expect(claudeMcpServers([sse])).toEqual({ legacy: { type: "sse", url: "https://sse.example/mcp", headers: {} } });
-  });
-
-  it("keeps every entry — no per-agent transport filtering happens here any more", () => {
-    expect(Object.keys(claudeMcpServers([stdio, http, sse]))).toHaveLength(3);
   });
 
   it("is empty — not absent — when there is nothing configured", () => {
@@ -670,5 +912,117 @@ describe("realm-browser allowedTools (Plan 11 W4)", () => {
     await handle.send({ text: "hi", attachments: [] });
     expect((seen as unknown as Record<string, unknown>).allowedTools).toEqual(claudeAllowedTools([gatewayEntry]));
     await handle.dispose();
+  });
+});
+
+/**
+ * The truncating resume (`Options.resumeSessionAt` + `Options.resumeDropsTurn`) — what a checkpoint
+ * restore arms. Everything here is asserted on the Options object the adapter hands `query`, because
+ * that is the whole of Realm's part: the truncation itself happens inside the CLI, on the print/headless
+ * lane this adapter is on, and no test in this suite can reach it.
+ */
+describe("truncating resume", () => {
+  const start = (opts: Partial<StartOptions & { resumeAt?: string | null; resumeDropsTurn?: string | null }>, captureOptions: Record<string, unknown>[]) => {
+    const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+    return a.start({ cwd: "/tmp", mcpServers: [], ...opts });
+  };
+  const optionsFor = async (opts: Partial<StartOptions & { resumeAt?: string | null; resumeDropsTurn?: string | null }>) => {
+    const captureOptions: Record<string, unknown>[] = [];
+    const h = start(opts, captureOptions);
+    await h.send({ text: "hi", attachments: [] });
+    await h.dispose();
+    return captureOptions[0]!;
+  };
+
+  it("sends the fork point and the dropped turn alongside the resume", async () => {
+    const o = await optionsFor({ resume: "sess-1", resumeAt: "u-end", resumeDropsTurn: "u-prompt" });
+    expect(o).toMatchObject({ resume: "sess-1", resumeSessionAt: "u-end", resumeDropsTurn: "u-prompt" });
+  });
+
+  it("sends NEITHER when the dropped turn is unknown — an unguarded truncation is not on offer", async () => {
+    /* The named mutant: passing `resumeSessionAt` on its own. The SDK's documented behaviour without
+       `resumeDropsTurn` is an UNVALIDATED truncation, which silently discards whatever else landed past
+       the fork point — a queued user message, a task notification. The guard is the feature; its absence
+       is not a degraded version of it. */
+    const o = await optionsFor({ resume: "sess-1", resumeAt: "u-end" });
+    expect(o.resume).toBe("sess-1");
+    expect("resumeSessionAt" in o).toBe(false);
+    expect("resumeDropsTurn" in o).toBe(false);
+  });
+
+  it("sends neither when there is no session to resume", async () => {
+    // `resumeSessionAt` names a position in the chain `resume` loads. With no `resume` there is no
+    // chain, and the pair would be an instruction about nothing.
+    const o = await optionsFor({ resume: null, resumeAt: "u-end", resumeDropsTurn: "u-prompt" });
+    expect("resumeSessionAt" in o).toBe(false);
+    expect("resumeDropsTurn" in o).toBe(false);
+  });
+
+  it("leaves an ordinary resume exactly as it was", async () => {
+    const o = await optionsFor({ resume: "sess-1" });
+    expect(o.resume).toBe("sess-1");
+    expect("resumeSessionAt" in o).toBe(false);
+    expect("resumeDropsTurn" in o).toBe(false);
+  });
+
+  it("reports the settled turn's chain cursor off the handle", async () => {
+    // The server reads this on the settle to write a checkpoint's cursor. The fixture's turn ends on an
+    // assistant entry (`a2`) after a tool_result carrier (`r1`), and carries no prompt replay — which is
+    // exactly what a cursor with no `dropsTurn` looks like, and why such a cursor is stored as none.
+    const captureOptions: Record<string, unknown>[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ captureOptions }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+    await h.send({ text: "hi", attachments: [] });
+    await c;
+    expect(h.chainCursor()).toEqual({ promptUuid: null, endUuid: "a2" });
+    await h.dispose();
+  });
+});
+
+/**
+ * Realm's execution sandbox on the Claude side. The SDK owns the argv, so the only place to stand is
+ * its own `spawnClaudeCodeProcess` seam — and the tests that matter are about when Realm stands on
+ * it and when it deliberately does not.
+ */
+describe("the sandbox wrap", () => {
+  const options = async (start: Partial<StartOptions>) => {
+    const captureOptions: Record<string, unknown>[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], ...start });
+    const c = collectUntil(h.events, () => false);
+    await h.send({ text: "hi", attachments: [] });
+    await h.dispose(); await c;
+    return captureOptions[0]!;
+  };
+
+  it("leaves the SDK's own spawn alone for a session with no sandbox", async () => {
+    // The un-opted-in path, which is what this release ships. The SDK's `spawnLocalProcess` does
+    // more than `spawn` — windowsHide, a stderr tail, an exit it holds until stderr closes — and a
+    // user who never asked for a sandbox must keep all of it.
+    //
+    // MUTANT: install the seam unconditionally and this key appears for everybody.
+    expect(await options({})).not.toHaveProperty("spawnClaudeCodeProcess");
+  });
+
+  it("hands the wrap the SDK's own argv and spawns what it answers with", async () => {
+    const seen: { command: string; args: string[] }[] = [];
+    const o = await options({
+      wrap: (command, args) => { seen.push({ command, args }); return { command, args: ["WRAPPED"] }; },
+    });
+    const spawn = o.spawnClaudeCodeProcess as (so: { command: string; args: string[]; cwd?: string; env: NodeJS.ProcessEnv; signal: AbortSignal }) => { stdout: NodeJS.ReadableStream; kill(s: NodeJS.Signals): boolean };
+    const child = spawn({ command: "/bin/echo", args: ["ORIGINAL"], cwd: process.cwd(), env: process.env, signal: new AbortController().signal });
+    // MUTANT: pass `so.command`/`so.args` straight to spawn and this prints ORIGINAL — an agent the
+    // user asked to confine, running unconfined.
+    const printed = await new Promise<string>((res) => { let out = ""; child.stdout.on("data", (d) => { out += String(d); }); child.stdout.on("end", () => res(out)); });
+    expect(printed.trim()).toBe("WRAPPED");
+    expect(seen).toEqual([{ command: "/bin/echo", args: ["ORIGINAL"] }]);
+  });
+
+  it("lets a wrap's throw out of the spawn rather than starting the CLI unconfined", async () => {
+    const o = await options({ wrap: () => { throw new Error("sandbox-exec is missing"); } });
+    const spawn = o.spawnClaudeCodeProcess as (so: { command: string; args: string[]; env: NodeJS.ProcessEnv; signal: AbortSignal }) => unknown;
+    expect(() => spawn({ command: "/bin/echo", args: [], env: process.env, signal: new AbortController().signal }))
+      .toThrow(/sandbox-exec is missing/);
   });
 });

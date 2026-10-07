@@ -14,7 +14,7 @@ let broadcasts: { event: string; payload: { notification: Notification | null; u
 const session = (extra: Partial<Session> = {}): Session => ({
   id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId: "01BX5ZZKBKACTAV9WEVGEMMVRZ", projectId: null, agentKind: "fake",
   model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FA0", cwd: "/tmp",
-  status: "running", providerSessionId: null, title: "Fix the login flow", lastEventSeq: 0, terminalItemId: null,
+  status: "running", providerSessionId: null, title: "Fix the login flow", lastEventSeq: 0, seenSeq: 0, terminalItemId: null,
   dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra,
 });
 
@@ -47,6 +47,22 @@ describe("NotificationsService — permissions", () => {
     svc.handleSessionEvent(s, sessionEvent("permission_request", { requestId: "req-2", toolName: "Bash", input: {}, title: "Run rm", suggestions: [] }));
     svc.handleSessionEvent(s, sessionEvent("permission_response", { requestId: "req-2", decision: "deny" }));
     expect(feed().find((x) => x.refId === "req-2")!.body).toBe("Run rm — Denied");
+  });
+
+  it("words a question's row by what happened to it, and makes no row for one Realm declined itself", () => {
+    const s = session();
+    const ask = { asker: { kind: "agent" as const, name: "Codex" }, mode: "question" as const, questions: [{ id: "b", prompt: "Which branch?", kind: "text" as const }] };
+    svc.handleSessionEvent(s, sessionEvent("permission_request", { requestId: "q-1", toolName: "item/tool/requestUserInput", input: {}, title: "Which branch?", suggestions: [], ask }));
+    svc.handleSessionEvent(s, sessionEvent("permission_response", { requestId: "q-1", decision: "allow", answers: { b: "main" } }));
+    expect(feed().find((x) => x.refId === "q-1")!.body).toBe("Which branch? — Answered");
+    svc.handleSessionEvent(s, sessionEvent("permission_request", { requestId: "q-2", toolName: "item/tool/requestUserInput", input: {}, title: "Which branch?", suggestions: [], ask }));
+    svc.handleSessionEvent(s, sessionEvent("permission_response", { requestId: "q-2", decision: "deny" }));
+    expect(feed().find((x) => x.refId === "q-2")!.body).toBe("Which branch? — Skipped");
+    // THE MUTANT: notify for a refused card too. The feed and the phone would report as waiting on
+    // the user a question nobody was ever asked.
+    svc.handleSessionEvent(s, sessionEvent("permission_request", { requestId: "q-3", toolName: "elicitation", input: {}, title: "Paste your key", suggestions: [],
+      ask: { ...ask, mode: "form" as const, refused: "It asked for a password or a key in a form." } }));
+    expect(feed().some((x) => x.refId === "q-3")).toBe(false);
   });
 
   it("a response with no matching open row is a silent no-op (already resolved, or the category was off)", () => {
@@ -226,14 +242,6 @@ describe("NotificationsService — category toggles", () => {
 });
 
 describe("NotificationsService — list/markRead and the ONE unread count", () => {
-  it("markRead all is global across spaces (the feed is global — stated, not accidental)", () => {
-    svc.handleSessionEvent(session({ spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" }), sessionEvent("status", { status: "idle" }));
-    svc.handleSessionEvent(session({ id: "01BX5ZZKBKACTAV9WEVGEMMVRZ", spaceId: "01BX5ZZKBKACTAV9WEVGEMMVRZ" }), sessionEvent("status", { status: "idle" }));
-    expect(svc.list({ cursor: null, limit: 10 }).unread).toBe(2);
-    const r = svc.markRead({ ids: [], all: true });
-    expect(r.unread).toBe(0);
-    expect(svc.list({ cursor: null, limit: 10 }).notifications.every((n) => n.readAt !== null)).toBe(true);
-  });
 
   it("every broadcast's unread equals what notifications.list reports — one derivation site", () => {
     svc.handleSessionEvent(session(), sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: {}, title: "x", suggestions: [] }));

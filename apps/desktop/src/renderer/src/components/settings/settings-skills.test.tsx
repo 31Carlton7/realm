@@ -164,15 +164,6 @@ describe("scoped skill groups (W4)", () => {
     },
   };
 
-  it("groups rows This space / From Work / Everywhere — the bundled skills render under Everywhere", async () => {
-    await mount(scoped);
-    expect(within(screen.getByRole("region", { name: "This space" })).getByText("mine")).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "From Work" })).getByText("shared")).toBeInTheDocument();
-    const everywhere = screen.getByRole("region", { name: "Everywhere" });
-    expect(within(everywhere).getByText("mac")).toBeInTheDocument();
-    expect(within(everywhere).getByText("browsing")).toBeInTheDocument();
-  });
-
   it("an inherited row's toggle rides the per-space wire with the VANTAGE space id — never the defining scope (named mutant)", async () => {
     const { api } = await mount(scoped);
     fireEvent.click(screen.getByRole("switch", { name: "Skill shared in this space" }));

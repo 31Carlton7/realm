@@ -21,7 +21,9 @@ export default function FeaturesPage() {
       <main className="mx-auto flex w-full max-w-[92rem] min-h-0 flex-1 flex-col px-6 pt-2 pb-7 sm:px-10 sm:pb-9">
         <Carousel features={shown} />
       </main>
-      <p className="pb-5 text-center font-mono text-[11px] text-ink-3">
+      {/* The page's own side inset: without it the line ran edge to edge on a phone, the only
+          text on the site touching the glass. */}
+      <p className="px-6 pb-5 text-center font-mono text-[11px] text-ink-3 sm:px-10">
         Captured from the app. The agent&rsquo;s answers are scripted, so the runs reproduce.
       </p>
     </div>

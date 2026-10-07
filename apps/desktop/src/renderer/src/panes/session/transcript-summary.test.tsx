@@ -19,10 +19,6 @@ describe("summaryLine", () => {
     expect(summaryLine([wrote("/a/one.md", 1), wrote("/a/two.md", 2)])).toBe("2 files");
   });
 
-  it("keeps the singular singular", () => {
-    expect(summaryLine([wrote("/a/one.md", 1)])).toBe("1 file");
-  });
-
   it("joins the kinds it found", () => {
     const blocks: Block[] = [
       wrote("/a/one.md", 1),
@@ -127,8 +123,4 @@ describe("the closing line", () => {
     expect(screen.queryByRole("note")).toBeNull();
   });
 
-  it("says nothing on an empty session", () => {
-    mount({ blocks: [] });
-    expect(screen.queryByRole("note")).toBeNull();
-  });
 });

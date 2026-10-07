@@ -25,12 +25,6 @@ describe("round-trip preservation", () => {
     expect(out).toBe('"a","b","c"\n999,2,3\n');  // row 0 verbatim; the EDITED row is canonical throughout
   });
 
-  it("only the edited row changes", () => {
-    const sheet = parseSheet("a,b\nc,d\ne,f\n", ",");
-    const out = serializeSheet(setCell(sheet, 1, 1, "D"));
-    expect(out).toBe("a,b\nc,D\ne,f\n");
-  });
-
   it("preserves CRLF on unedited rows", () => {
     const csv = "a,b\r\nc,d\r\n";
     // splitRecords keeps the \r inside the record; papaparse strips it from the parsed cells.

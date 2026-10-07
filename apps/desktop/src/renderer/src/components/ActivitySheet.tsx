@@ -1,8 +1,9 @@
 import { Icon } from "@realm/ui";
 import type { McpCall, Session } from "@realm/contracts";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useApp } from "../state/store";
 import { Sheet } from "./Sheet";
+import { useDissolve } from "./ScrollFades";
 import { relTime } from "./CommandPalette";
 
 /**
@@ -17,7 +18,7 @@ import { relTime } from "./CommandPalette";
  * for that case — an accepted conflation, since the gateway's own clock is ms-resolution and a "0ms"
  * label would be indistinguishable noise either way.
  */
-function formatCallDuration(ms: number): string {
+export function formatCallDuration(ms: number): string {
   if (ms <= 0) return "—";
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
@@ -29,7 +30,7 @@ function formatCallDuration(ms: number): string {
  * `serverName: ""` with `tool` already holding the full namespaced string, so prefixing it again would
  * double it up into `__realserver__tool`.
  */
-function callLabel(call: McpCall): string {
+export function callLabel(call: McpCall): string {
   return call.serverName ? `${call.serverName}__${call.tool}` : call.tool;
 }
 
@@ -54,8 +55,15 @@ const TRUNCATED_ID_LEN = 8;
  * has nothing to resolve against here. Falling back to a truncated id rather than hiding the row is the
  * accepted v1 gap named in the plan — a full session browser is out of scope for a call log.
  */
-function sessionLabel(sessionId: string, sessions: Record<string, Session>): string {
+export function sessionLabel(sessionId: string, sessions: Record<string, Session>): string {
   return sessions[sessionId]?.title ?? `${sessionId.slice(0, TRUNCATED_ID_LEN)}…`;
+}
+
+/** A call's arguments or result, in the transcript's own well, dissolving where it is capped. */
+function Well({ text }: { text: string }) {
+  const well = useRef<HTMLPreElement>(null);
+  useDissolve(well);
+  return <pre className="tool-well" ref={well}>{text}</pre>;
 }
 
 /**
@@ -78,6 +86,8 @@ export function ActivitySheet() {
   const closeSheet = useApp((s) => s.closeSheet);
   const run = useApp((s) => s.run);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const scroller = useRef<HTMLUListElement>(null);
+  useDissolve(scroller);
   const toggle = (id: string) => setExpanded((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -138,7 +148,7 @@ export function ActivitySheet() {
             </p>
           )
           : (
-            <ul className="activity-list">
+            <ul className="activity-list" ref={scroller}>
               {calls.map((c) => (
                 <li key={c.id} className="activity-row">
                   <button type="button" className="tool-row activity-row-main" aria-expanded={expanded.has(c.id)} onClick={() => toggle(c.id)}>
@@ -154,10 +164,10 @@ export function ActivitySheet() {
                   </button>
                   {expanded.has(c.id) && (
                     <div className="activity-detail">
-                      <div className="field"><span>Arguments</span><pre className="tool-well">{prettyArgs(c.argsJson)}</pre></div>
+                      <div className="field"><span>Arguments</span><Well text={prettyArgs(c.argsJson)} /></div>
                       {/* Verbatim, per the binding rule: the gateway already sanitized this — re-parsing
                           or reformatting it here would be pretending Realm knows something it doesn't. */}
-                      <div className="field"><span>Result</span><pre className="tool-well">{c.resultSummary}</pre></div>
+                      <div className="field"><span>Result</span><Well text={c.resultSummary} /></div>
                     </div>
                   )}
                 </li>

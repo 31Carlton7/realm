@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  importedLectureHeader, importedLecturePath, lecturePath, lectureTemplate, localDateStamp, parseLectureFile,
-  parsePlynnFilename, StartLectureResultSchema,
-} from "./school";
+import { importedLectureHeader, importedLecturePath, lecturePath, lectureTemplate, localDateStamp, parseLectureFile, parsePlynnFilename } from "./school";
 
 const d = new Date(2026, 8, 2, 19, 30); // 2 Sep 2026, 7:30pm local
 
@@ -65,8 +62,3 @@ describe("Plynn filenames", () => {
   });
 });
 
-describe("schemas", () => {
-  it("StartLectureResult carries what the store needs to arrange panes", () => {
-    expect(StartLectureResultSchema.safeParse({ path: "lectures/a.md", documentsId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", itemId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" }).success).toBe(true);
-  });
-});
