@@ -1,15 +1,19 @@
 import DOMPurify from "dompurify";
 import { brandMarks, type BrandName } from "@realm/ui";
-import { LINK_SERVICE_META, describeLink, type LinkService } from "@realm/contracts";
+import { LINK_SERVICE_META, describeLink, type LinkService, type MediaFile } from "@realm/contracts";
 import { marked } from "marked";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { grammarFor, highlightToHtml } from "./rich/highlight";
 import { mathExtension } from "./rich/math";
 import { mediaExtension, mediaRefsIn } from "./media/md-media";
-import { MediaFrame, MediaLightbox } from "./media/MediaView";
+import { MediaFrame } from "./media/MediaView";
+import { useOpenViewer } from "../../components/viewer/open";
 import { useMediaByCandidate } from "./media/use-media";
 import { markPaths } from "./file-paths";
+import { markFileRefs, useFileLinks, type FileLinkContext } from "./file-links";
+import { NO_ARRIVALS, arrivalLength, markArrivals, noteArrival, type Arrivals } from "./arrival-fade";
+import { blockFenceAttrs, parkUiBlock, useUiBlockPortals } from "./rich/ui-block-md";
 
 marked.setOptions({ gfm: true, breaks: false });
 /* Fenced code is tokenised here rather than left as plain text (Plan 24 W1). It happens BEFORE
@@ -19,13 +23,15 @@ marked.setOptions({ gfm: true, breaks: false });
  * `decorate` below can still label the block's header. */
 marked.use({
   renderer: {
-    code({ text, lang }) {
+    code({ text, lang, raw }) {
       const name = (lang ?? "").trim().split(/\s+/)[0] ?? "";
-      const grammar = grammarFor(name);
+      // A chart's or a comparison's body is JSON, and reads as JSON for as long as it is code.
+      const grammar = grammarFor(/^realm-(?:chart|compare)$/i.test(name) ? "json" : name);
       const cls = ["hljs", name && `language-${name.toLowerCase().replace(/[^\w+-]/g, "")}`].filter(Boolean).join(" ");
       // The trailing newline is marked\'s own: a fence\'s last line ends in one, and dropping it
-      // changes what the copy button puts on the clipboard.
-      return `<pre><code class="${cls}">${highlightToHtml(text, grammar)}\n</code></pre>\n`;
+      // changes what the copy button puts on the clipboard. A block fence that has CLOSED is marked
+      // to be drawn (rich/ui-block-md.tsx); one still streaming in stays code.
+      return `<pre${blockFenceAttrs(name, raw)}><code class="${cls}">${highlightToHtml(text, grammar)}\n</code></pre>\n`;
     },
   },
 });
@@ -160,6 +166,7 @@ function decorate(html: string, cite: readonly string[]): string {
     head.append(label, copy);
     pre.replaceWith(wrap);
     wrap.append(head, pre);
+    parkUiBlock(wrap);
   }
   return doc.body.innerHTML;
 }
@@ -175,12 +182,14 @@ export function renderMarkdown(text: string, cite: readonly string[] = []): stri
   return decorate(DOMPurify.sanitize(html, { USE_PROFILES: { html: true, mathMl: true, svg: true }, ADD_ATTR: ["target"] }), cite);
 }
 
-/** The sanitized html with its file paths marked (see `file-paths.ts`). Split from `renderMarkdown`
- *  so the citation tests can read one without the other, and so a caller that has no session to open
- *  a path INTO can skip the pass entirely. */
+/** The sanitized html with its file paths marked (see `file-paths.ts`), and the places a file in the
+ *  session's checkout might be named marked for `useFileLinks` to confirm (`file-links.ts`). Split
+ *  from `renderMarkdown` so the citation tests can read one without the other, and so a caller that
+ *  has no session to open a path INTO can skip the pass entirely. */
 export function renderMarkdownWithPaths(text: string, cite: readonly string[] = []): string {
   const doc = new DOMParser().parseFromString(renderMarkdown(text, cite), "text/html");
   markPaths(doc.body);
+  markFileRefs(doc.body);
   return doc.body.innerHTML;
 }
 
@@ -189,20 +198,43 @@ export function renderMarkdownWithPaths(text: string, cite: readonly string[] = 
  *
  *  §6's entrance is NOT this component's to carry: the rule reaches `.transcript-col`'s direct
  *  children, and the prose has a wrapper above it that owns the mark instead. */
-export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath }: {
+export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, arrive = false, files }: {
   text: string; className?: string; cite?: readonly string[];
+  /** The session's checkout, for drawing a file the prose names as a link that opens it. Absent — a
+   *  read-only mount, a message still streaming — leaves every such name as the agent wrote it. */
+  files?: FileLinkContext;
+  /** Fade in text that arrives after the first render (`arrival-fade.ts`). For prose that STREAMS —
+   *  everything else that renders markdown is written once and has nothing arriving. */
+  arrive?: boolean;
   /** A path in the prose was clicked. Absent (a read-only mount, a plan sheet) leaves paths as plain
    *  text — a control that cannot do anything is worse than none. */
   onPath?: (path: string, at: HTMLElement) => void;
 }) {
-  const html = useMemo(() => (onPath ? renderMarkdownWithPaths(text, cite) : renderMarkdown(text, cite)), [text, cite, onPath]);
+  /* Keyed on WHETHER there is a path handler, not on which one: it only picks the renderer, and the
+     caller's handler is usually an inline arrow, new on every render. Keyed on its identity, every
+     message in the transcript re-parsed and re-sanitised its Markdown whenever the pane re-rendered —
+     each keystroke, each streamed event. The handler itself is read at click time, below. */
+  const withPaths = onPath !== undefined;
+  const html = useMemo(() => (withPaths ? renderMarkdownWithPaths(text, cite) : renderMarkdown(text, cite)), [text, cite, withPaths]);
   const body = useRef<HTMLDivElement>(null);
   const media = useMediaPortals(body, html);
+  const blocks = useUiBlockPortals(body, html);
+  // After `useMediaPortals`, whose layout effect writes the markup this one marks: a component's
+  // layout effects run in the order its hooks were called.
+  useArrivalFade(body, html, arrive);
+  // Last: it replaces marked runs with links, and the arrival fade must have read the text first.
+  useFileLinks(body, html, files);
   // Copy buttons live inside dangerouslySetInnerHTML, so they are wired by delegation; the ✓ hold
   // is a DOM attribute (the injected nodes are outside React's tree), timers cleared on unmount.
   const timers = useRef(new Map<Element, ReturnType<typeof setTimeout>>());
   useEffect(() => () => { for (const t of timers.current.values()) clearTimeout(t); }, []);
   const onClick = (e: ReactMouseEvent) => {
+    const file = e.target instanceof Element ? e.target.closest<HTMLElement>(".md-file") : null;
+    if (file && files) {
+      const line = file.getAttribute("data-line");
+      files.onOpen(file.getAttribute("data-file") ?? "", line ? Number(line) : null);
+      return;
+    }
     const path = e.target instanceof Element ? e.target.closest<HTMLElement>(".md-path") : null;
     if (path && onPath) { onPath(path.getAttribute("data-path") ?? "", path); return; }
     const btn = e.target instanceof Element ? e.target.closest(".md-copy") : null;
@@ -224,15 +256,44 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath }: 
         // The inline-code paths are `<code role="button" tabindex="0">`, which the browser does not
         // activate on Enter or Space the way it does a real `<button>`. The bare-text ones are real
         // buttons and already work; handling both here costs one branch and keeps them equivalent.
+        // A file link is an inline `role="link"` for the same reason, and answers the same keys.
         if (e.key !== "Enter" && e.key !== " ") return;
+        const file = e.target instanceof Element ? e.target.closest<HTMLElement>(".md-file") : null;
+        if (file && files) {
+          e.preventDefault();
+          const line = file.getAttribute("data-line");
+          files.onOpen(file.getAttribute("data-file") ?? "", line ? Number(line) : null);
+          return;
+        }
         const el = e.target instanceof Element ? e.target.closest<HTMLElement>("code.md-path") : null;
         if (!el || !onPath) return;
         e.preventDefault();
         onPath(el.getAttribute("data-path") ?? "", el);
       }} />
       {media}
+      {blocks}
     </div>
   );
+}
+
+/**
+ * Marks the text that arrived since the last write, so it fades in rather than stamping on.
+ *
+ * Runs on every write of the markup, because every write destroys the marks the last one made —
+ * which is why the record lives in a ref and the DOM is only ever its projection. Keyed to the
+ * markup ALONE, so it runs after a write and never without one: `on` is read, not watched, because
+ * a pass over markup that was not rewritten would find the last pass's spans still there and stack
+ * a second fade inside them.
+ */
+function useArrivalFade(body: React.RefObject<HTMLDivElement | null>, html: string, on: boolean) {
+  const seen = useRef<Arrivals>(NO_ARRIVALS);
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!on || !el) return;
+    const now = performance.now();
+    seen.current = noteArrival(seen.current, arrivalLength(el), now);
+    markArrivals(el, seen.current.runs, now);
+  }, [html, body]);
 }
 
 /**
@@ -261,14 +322,19 @@ function useMediaPortals(body: React.RefObject<HTMLDivElement | null>, html: str
   // Keyed by the candidate, not the resolved path: the placeholder holds `~/out/clip.mp4` and main
   // answers `/Users/me/out/clip.mp4`, so a by-path lookup would find nothing for every `~` embed.
   const byCandidate = useMediaByCandidate(refs.map((r) => r.path));
-  const [open, setOpen] = useState<import("@realm/contracts").MediaFile | null>(null);
+  const open = useOpenViewer();
+  // Every embed main confirmed, in the order the prose has them: an answer showing three renders
+  // opens on the one clicked, and ← and → walk the other two.
+  const shown = refs.flatMap(({ path }) => { const f = byCandidate.get(path); return f ? [f] : []; });
+  const expand = (file: MediaFile) => open?.({
+    files: shown.map((f) => ({ path: f.path, mime: f.mime })), index: Math.max(0, shown.findIndex((f) => f.path === file.path)),
+  });
   return (
     <>
       {refs.map(({ path, el }) => {
         const file = byCandidate.get(path);
-        return file ? createPortal(<MediaFrame file={file} onExpand={() => setOpen(file)} />, el, file.path) : null;
+        return file ? createPortal(<MediaFrame file={file} onExpand={open ? () => expand(file) : undefined} />, el, file.path) : null;
       })}
-      {open && <MediaLightbox file={open} onClose={() => setOpen(null)} />}
     </>
   );
 }

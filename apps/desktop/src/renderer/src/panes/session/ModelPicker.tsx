@@ -1,470 +1,587 @@
-import { AGENT_META, AGENT_NOTES, DEFAULT_MODEL_LABEL, formatContext, formatPrice, type AgentKind, type ModelInfo } from "@realm/contracts";
+import { AGENT_META, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ScrollFades, ScrollFadesX } from "../../components/ScrollFades";
+import { ScrollFades } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
-import { filterRows, flatten, groupRows, modelDetail, modelIdOn, type ModelRow } from "./model-rows";
+import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
+import {
+  agentRowHint, billingLead, chipLabel, chipTitle, effortCurrent, fastModeHint, fastModeShown, fastModeTitle, fastModeUntried, filterRows, flatten,
+  formatEffort, groupRows, holdRows, isHarnessDefault, modelAbout, modelIdOn, modelLabel, type EffortControl, type FastMode, type ModelRow,
+} from "./model-catalog";
+
+export { formatEffort };
 
 /** How many favourites get a ⌘-digit shortcut. Nine because ⌘0 is not a tenth — it is a different
  *  key users read as "zero", and a tenth badge nobody can press is worse than no badge. */
 const MAX_SHORTCUTS = 9;
 
-/**
- * The prompter's model selector: ONE chip that owns every part of "who is answering this".
- *
- * There used to be two chips and two mechanisms — a harness menu beside a model popover — which asked
- * the user to hold a distinction the product had never explained: a *harness* is the CLI Realm drives,
- * a *model* is what that CLI talks to, and most models are reachable through several harnesses. Split
- * across two controls, picking Opus from a Codex session was a two-step move through a state nobody
- * intended, and neither control ever said what either choice would cost or be good at.
- *
- * So the two collapse into one popover with three jobs, in this order:
- *
- * 1. **Find a model** — one search over every model and every harness that can run it. Grouped by
- *    harness when idle, flat when searching.
- * 2. **Understand it** — the detail pane says what the model is FOR, what it costs per million
- *    tokens, how much context it has, and which effort levels it accepts. The numbers come from a
- *    public catalog (`models.catalog`); the sentence is Realm's own where we have written one.
- * 3. **Choose the route** — "Run it through" names every harness that offers this model, so the
- *    harness decision lives WITH the model it applies to instead of in a chip beside it.
- *
- * The chip itself keeps the harness's brand mark (the CLI actually running the session), the model's
- * name and the effort level, so nothing the two-chip layout said is lost.
- */
-/** Controls the control row could not fit (Ara refresh §3): when the prompter's left group overflows,
- *  the permission chip collapses into this menu as labelled option groups instead of wrapping the
- *  row. Items mirror the chips' own menu items exactly — same labels, same handlers. */
+/** The most of the list a box held after a pick insists on keeping (`ModelPopover`'s `floor`): three
+ *  rows and the list's own padding, which is enough to see the row just pressed and its neighbours. */
+const LIST_FLOOR = 32 * 3 + 22;
+
+/** Controls the prompter's control row could not fit: when its left group overflows, the permission
+ *  chip collapses into this popover as a labelled group instead of wrapping the row. Items mirror the
+ *  chip's own menu items exactly — same labels, same handlers. */
 export type OverflowGroup = { label: string; items: { label: string; checked?: boolean; onSelect: () => void }[] };
 
-/** Display form of an effort level: capitalised, with `xhigh` as "XHigh" — the id's two morphemes
- *  each get their cap, and no hyphen is invented that the CLIs never print. One formatter for the
- *  chip's suffix and the picker's effort buttons, so the two can never disagree. */
-export const formatEffort = (e: string): string => (e === "xhigh" ? "XHigh" : e.charAt(0).toUpperCase() + e.slice(1));
+/** A sentence with its commands set as code: `AGENT_NOTES` marks them with backticks, which read as
+ *  stray punctuation printed raw. The plain form is for a tooltip, which has no code face. */
+const withCode = (text: string) => text.split(/`([^`]+)`/).map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
+const plain = (text: string) => text.replace(/`/g, "");
+
+/** The levels Realm's light answers to — the track's field, the knob's shine, the chip's pass. Below
+ *  these it stays out of the way entirely: a treatment every level wore would say nothing about the
+ *  one that was picked. */
+export const HEAVY_EFFORTS = new Set(["xhigh", "max"]);
+
+/** Whether the app is holding its motion still: the reader asked (`prefers-reduced-motion`, which the
+ *  app's own Reduce motion setting drives), or Low power is on. A moment that cannot play is not
+ *  started, rather than started and frozen at its first frame. */
+const motionHeld = (): boolean =>
+  (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false) || document.documentElement.dataset.quiet === "always";
 
 /**
- * Fast mode as the picker knows it: what the session ASKED for, and what the harness last DID.
- *
- * The two are separate fields because they disagree routinely — a plan that does not include it, a
- * rate limit, a model swapped mid-session — and a switch that showed only the request would keep
- * claiming a speed the agent is not running at. `state` is null until a turn has finished, which is
- * the honest reading of "nothing has been reported yet" rather than "off".
+ * Play a one-shot animation by setting `attr` on `el`, and take the attribute off when THAT animation
+ * ends. Stateless in the same way the hero greeting's nod is: the mark goes on, the `animationend` the
+ * browser is about to fire takes it off. Returns the listener's cleanup.
  */
-export type FastMode = {
-  /** The session's own switch. */
-  on: boolean;
-  /** What the last finished turn reported, or null when none has. */
-  state: "off" | "cooldown" | "on" | null;
-  /** The harness's reason, in its own vocabulary. */
-  reason: string | null;
-  onChange: (on: boolean) => void;
-};
-
-/** The harness's reason codes, said out loud. An unrecognised code is shown verbatim rather than
- *  swallowed: a build newer than this one knows something worth passing on. */
-const FAST_REASON: Record<string, string> = {
-  free: "your plan does not include fast mode",
-  preference: "it is turned off in Claude Code's own settings",
-  extra_usage_disabled: "extra usage is turned off for this account",
-  network_error: "the request to enable it did not get through",
-  not_first_party: "this route does not offer it",
-  disabled_by_env: "an environment variable turns it off here",
-  model_not_allowed: "this model cannot run it",
-  sdk_opt_in_required: "this Claude Code build needs it enabled explicitly",
-  pending: "it is still being set up",
-  unknown: "the harness did not say why",
-};
-
-/** One line under the switch, or null when there is nothing to correct. Silent in the ordinary
- *  cases — asked for and serving, or not asked for at all — because a note that appears every time
- *  is a note nobody reads by the third session. */
-export function fastModeNote(f: FastMode): string | null {
-  if (!f.on) return null;
-  if (f.state === null) return "Takes effect on the next turn.";
-  if (f.state === "on") return null;
-  if (f.state === "cooldown") return "Paused by a rate limit — it will resume on its own.";
-  return `Not running: ${FAST_REASON[f.reason ?? "unknown"] ?? f.reason ?? "the harness did not say why"}.`;
+function replay(el: HTMLElement | null, attr: string, value: string, animation: string): (() => void) | undefined {
+  if (!el || motionHeld()) return;
+  // Removing and re-adding in one frame would replay nothing: reading a layout property forces the
+  // removal to land first.
+  el.removeAttribute(attr);
+  void el.offsetWidth;
+  el.setAttribute(attr, value);
+  // Its OWN end, by name: the focus ring's halo can be running on the same element and end first.
+  const done = (e: AnimationEvent) => {
+    if (e.animationName !== animation) return;
+    el.removeAttribute(attr);
+    el.removeEventListener("animationend", done);
+  };
+  el.addEventListener("animationend", done);
+  return () => el.removeEventListener("animationend", done);
 }
 
-export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, effortItems, overflow, fast }: {
+/**
+ * The chip answers when the session commits to more: a pass of light when it moves up to one of the
+ * heavy levels (two at Max), and a quicker glint when fast mode is switched on. Switching either off
+ * is quiet.
+ *
+ * One mechanism for both, because the chip has one `animation`: two that each claimed it would cancel
+ * each other, and the later commit is the one the chip should answer. Watches what the session
+ * actually holds rather than a click — the chip is the control that outlives the change — so a level
+ * the session was opened at, or a re-render that changed nothing, plays nothing.
+ */
+function useChipSweep(ref: RefObject<HTMLButtonElement | null>, effort: string | null, fastOn: boolean) {
+  const previous = useRef({ effort, fastOn });
+  useEffect(() => {
+    const was = previous.current;
+    previous.current = { effort, fastOn };
+    const kind = fastOn && !was.fastOn ? "fast"
+      : effort !== was.effort && effort && HEAVY_EFFORTS.has(effort) ? effort : null;
+    if (kind) return replay(ref.current, "data-sweep", kind, "rl-chip-sweep");
+  }, [ref, effort, fastOn]);
+}
+
+/**
+ * The prompter's model selector: one chip, and one compact list behind it.
+ *
+ * The chip says who is answering — the harness's mark, the model, its effort, a bolt when fast mode
+ * is asked for — and the popover is the shortest path to changing any of it:
+ *
+ * - **A list, one click per model.** Grouped by the harness a click would run it through, the current
+ *   model ticked and in view the moment it opens, search at the top, the keyboard everywhere.
+ * - **The harness only where there is a choice.** A model another harness can also run carries that
+ *   harness's mark on its row, one click away; every other row shows nothing about routes at all.
+ * - **Specs as a line, not a column.** What the highlighted model is for, its context and its price
+ *   sit in one fixed strip under the list.
+ * - **How it runs, on the same surface.** Effort and fast mode are the popover's foot — Codex's own
+ *   card: the bolt, the level by name, a reset to the model's default, a track with a dot per level —
+ *   adjusted without leaving it, and each drawn only where the harness will actually receive it.
+ * - **Open until you leave it.** A pick changes the model and leaves the card to set its level and its
+ *   speed in the same visit; a click outside, the chip again, or Escape put the picker away.
+ */
+export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, overflow, fast, eggs = false }: {
   kind: AgentKind;
   model: string | null;
-  /** The session's effort level — the chip's gray suffix. `null` (unset) shows nothing at all. */
-  effort: string | null;
-  /** Built by the Composer rather than here, so anything else that resolves a route resolves it
-   *  against the very rows the list is showing — two `modelRows` calls could drift apart. */
+  /** The session's reasoning level and what its model takes, or absent where the harness takes none —
+   *  the chip's grey suffix names the level in force. */
+  effort?: EffortControl;
+  /** Built by the Composer, so anything else that resolves a route resolves it against these rows. */
   rows: ModelRow[];
-  /** The model catalog by canonical key (`store.modelInfo`). Empty is a supported state, not a
-   *  loading one: rows render without prices rather than waiting for a network round trip. */
+  /** The model catalog by canonical key (`store.modelInfo`). Empty is a supported state: rows render
+   *  without prices rather than waiting for a network round trip. */
   info: Record<string, ModelInfo>;
   onToggleFavorite: (key: string) => void;
   onPick: (kind: AgentKind, modelId: string | null) => void;
-  /** The effort options, permanently housed in the popover. Same shape as an overflow group's items. */
-  effortItems: OverflowGroup["items"];
-  /** Fast mode, or absent where the harness has not said this model can run it — which is every
-   *  engine but `claude`, and every Claude model whose list entry says no. A switch offered on a
-   *  guess is a control whose only outcome is a refusal. */
+  /** Fast mode, or absent where Realm cannot ask this harness for it at all. */
   fast?: FastMode;
   overflow?: OverflowGroup[];
+  /** Whether the easter eggs are on. They run the heavy levels' light hot, and nothing else here. */
+  eggs?: boolean;
 }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  // A model id the current agent does not list (a stale row, or a model retired since) still deserves
-  // its name shown rather than being silently replaced by the default label.
-  const label = rows.find((r) => r.selected)?.label ?? model ?? DEFAULT_MODEL_LABEL[kind];
+  const label = chipLabel(kind, model, rows);
+  // The tooltip spells the whole thing out, the vendor's word included, for anyone who needs it.
+  const fullName = rows.find((r) => r.selected)?.label ?? label;
+  const bolt = fast ? fastModeShown(fast) : false;
+  // The level in force, by name — the session's own, or the model's default where one is named.
+  const level = effort && effort.levels.length > 0 ? effortCurrent(effort).choice?.label ?? null : null;
+  useChipSweep(btn, effort?.value ?? null, fast?.on ?? false);
 
   return (
     <>
-      {/* The mark is the HARNESS's, in colour: it is the one fact the model's own name cannot carry,
-          and after the harness chip's retirement this chip is the only place a session says which CLI
-          is running it. The title spells the whole triple out for anyone who needs it in words. */}
+      {/* The mark is the HARNESS's, in colour: the one fact the model's own name cannot carry, and the
+          only place a session says which CLI is running it. */}
       <button ref={btn} type="button" className="ghost-chip model-chip" aria-label="Model"
-        title={`${label} through ${AGENT_META[kind].label}${effort ? ` · ${formatEffort(effort)} effort` : ""}${fast?.on ? " · fast mode" : ""}`}
+        title={chipTitle(fullName, kind, level, bolt)}
         aria-haspopup="dialog" aria-expanded={open}
         onClick={() => setOpen((v) => !v)}>
-        <Icon name={AGENT_META[kind].icon} size={14} colored className="chip-brand" />
-        <span className="chip-label">{label}</span>
-        {effort && <span className="chip-effort">{formatEffort(effort)}</span>}
-        {/* The speed the session asked for, in the same grey as the effort: both are "how", not
-            "who". Shown only where the harness has said the model can run it — the switch's own
-            rule — so the chip never claims a speed nothing could be serving. */}
-        {fast?.on && <span className="chip-effort chip-fast">Fast</span>}
+        <ModelChipText kind={kind} label={label} level={level} fast={bolt} />
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
-      {open && <ModelPopover rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
-        onToggleFavorite={onToggleFavorite} effortItems={effortItems} overflow={overflow} fast={fast} />}
+      {open && <ModelPopover kind={kind} name={label} rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
+        onToggleFavorite={onToggleFavorite} effort={effort} overflow={overflow} fast={fast} eggs={eggs} />}
     </>
   );
 }
 
-function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite, effortItems, overflow, fast }: {
+/**
+ * What the model chip says, in its own words: the harness's mark, the model, the level in force and
+ * the bolt. Anything else that names how work will run reads the same way — a scheduled task's card
+ * and its row in the column — because they are the same four facts about the same session to come.
+ */
+export function ModelChipText({ kind, label, level, fast }: { kind: AgentKind; label: string; level: string | null; fast: boolean }) {
+  return (
+    <>
+      <Icon name={AGENT_META[kind].icon} size={14} colored className="chip-brand" />
+      <span className="chip-label">{label}</span>
+      {level && <span className="chip-effort">{level}</span>}
+      {/* The bolt Codex's own chip wears for its Fast tier: the speed asked for, on a model nothing
+          has said cannot serve it. */}
+      {fast && <Icon name="zap" size={12} className="chip-fast" />}
+    </>
+  );
+}
+
+function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onToggleFavorite, effort, overflow, fast, eggs }: {
+  kind: AgentKind;
+  /** The current model's name, as the chip shows it — what the fast-mode line talks about. */
+  name: string;
   rows: ModelRow[];
   info: Record<string, ModelInfo>;
-  anchorRef: React.RefObject<HTMLButtonElement | null>;
+  anchorRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void; onPick: (kind: AgentKind, modelId: string | null) => void;
   onToggleFavorite: (key: string) => void;
-  effortItems: OverflowGroup["items"];
+  effort?: EffortControl;
   fast?: FastMode;
   overflow?: OverflowGroup[];
+  eggs?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  /* Right-aligned, opening leftward from the chip. The chip lives at the RIGHT end of the prompter's
-     control row, so a left-aligned 620px surface has to travel most of the pane's width before it
-     even starts — and in anything narrower than that it was clamped hard against the window edge,
-     flush to it, with the detail column's prose cut off. Anchoring the picker's right edge to the
-     chip's puts the whole surface in the room that is actually there. */
-  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, placement: "up", align: "right", onClose, exit: true });
-  const [query, setQuery] = useState("");
-  /** The highlighted PLACEMENT (`row.id`, never `row.key`): a model listed under two harnesses is
-   *  two things to point at, and the highlight has to know which. */
-  const [activeKey, setActiveKey] = useState<string | null>(null);
-  /** The harness the user has chosen for a given row, when they have overridden the resolved one.
-   *  Keyed by placement so switching route on one model does not silently re-route the next one you
-   *  look at — a route is a property of the choice being made, not a mode the picker is in. */
-  const [routes, setRoutes] = useState<Record<string, AgentKind>>({});
-
-  const strip = useRef<HTMLDivElement>(null);
-  const list = useRef<HTMLDivElement>(null);
-  const queried = useMemo(() => filterRows(rows, query), [rows, query]);
-  const groups = useMemo(() => groupRows(queried, { query }), [queried, query]);
-  const shown = useMemo(() => flatten(groups), [groups]);
-  /** The separators the strip can reach, each with the mark its heading wears. A search flattens the
-   *  list into one unlabelled group, and a strip of one button pointing at the only thing on screen
-   *  is chrome — so it goes with the headings it names. */
-  const jumps = useMemo(() => groups.filter((g) => g.label).map((g) => ({ label: g.label, kind: g.kind })), [groups]);
-  /** Which button is the strip's single tab stop. A toolbar is ONE stop with ←/→ walking inside it,
-   *  the same bargain the list makes: the popover opens for typing, and neither strip may put a
-   *  dozen stops between the search field and the models. */
-  const [jumpAt, setJumpAt] = useState(0);
-  // Every jump is to a heading that is on screen already — the strip scrolls the list, it does not
-  // change what is in it. `block: "start"` puts the heading at the top of `.mp-list`, which is where
-  // someone who asked for "Codex" is looking. Optional-called because jsdom has no scrolling.
-  const jumpTo = (label: string, i: number) => {
-    setJumpAt(i);
-    document.getElementById(`mp-group-${label}`)?.scrollIntoView?.({ block: "start", behavior: "smooth" });
-  };
-  // Roving focus, the toolbar way: the arrows carry focus to whichever button they just moved to, or
-  // the next press would come from a button nobody is on.
+  // Right-aligned, opening upward from the chip, which sits at the right end of the control row.
+  const { pos, closing } = useAnchoredPopover({ ref, anchorRef, placement: "up", align: "right", onClose, exit: true });
+  /* No taller than the roomier side of the chip, less the placement's margins. A brand-new session's
+     prompter sits mid-window, where neither side held the whole list, and the picker either landed on
+     the chip that opened it or ran off the bottom of the window. Capped, the list — the one part
+     that can give — gives, and the popover opens whole beside its chip. */
+  const [room, setRoom] = useState<number | null>(null);
   useLayoutEffect(() => {
-    const el = strip.current;
-    // Only when the strip already had focus: a mouse jump must not pull it out of the search field.
-    if (!el || !el.contains(document.activeElement)) return;
-    el.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
-  }, [jumpAt]);
-  // Bound on the strip and not on the popover, which is what lets these share a keystroke with the
-  // ←/→ that walks the highlighted model's routes: that handler is the search field's, and these keys
-  // mean "next separator" only while focus is in here.
-  const onJumpKey = (e: KeyboardEvent) => {
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" || jumps.length === 0) return;
-    e.preventDefault();
-    const next = (jumpAt + (e.key === "ArrowRight" ? 1 : jumps.length - 1)) % jumps.length;
-    jumpTo(jumps[next]!.label, next);
-  };
-  // Numbered by POSITION IN THE LIST, not by when they were starred: a badge column that reads
-  // 1,2,3 down the page is legible, and one that reads 3,1,2 because that was the starring order is
-  // not. The cost is that starring a model renumbers the ones below it, which is a rare thing the
-  // user just did on purpose and can watch happen.
-  const shortcuts = useMemo(() => shown.filter((r) => r.favorite && !r.blockedReason).slice(0, MAX_SHORTCUTS), [shown]);
-  // Anchored to the ROW, not to its index. ⌥↩ re-sorts the starred row into Favourites from under the
-  // highlight, and an index would leave the highlight on whatever slid into that slot — the user
-  // stars one model and finds another one selected. A key the list no longer holds (search narrowed
-  // it away, or nothing is highlighted yet) resolves to the first row, so Enter never dead-ends.
+    const a = anchorRef.current?.getBoundingClientRect();
+    if (a) setRoom(Math.floor(Math.max(a.top, window.innerHeight - a.bottom)) - 10);
+  }, [anchorRef]);
+  const [query, setQuery] = useState("");
+  /** The highlighted row by id, starting on the current model. Anchored to the ROW rather than an
+   *  index: ⌥↩ re-sorts a starred row into Favourites from under the highlight. */
+  const [activeKey, setActiveKey] = useState<string | null>(() => rows.find((r) => r.selected)?.id ?? null);
+  /** The harness chosen for a row with more than one, where the user changed it with ←/→ or picked it
+   *  through one. Keyed by row, so re-routing one model never re-routes the next one looked at. */
+  const [routes, setRoutes] = useState<Record<string, AgentKind>>({});
+  /* The list and the harness it leads with, as they were when the picker opened (`holdRows`): a pick
+     that moves the session to another harness must not re-sort the list under the pointer. */
+  const [opened] = useState(() => ({ rows, kind }));
+  const held = useMemo(() => holdRows(rows, opened.rows), [rows, opened]);
+  /** The box's height from the first pick on. The new model's card can be another size — more levels,
+   *  none, no bolt — and the popover hangs from its chip, so a card that changed height moved
+   *  everything above it, the row just pressed included. Held, the list takes up the difference: it is
+   *  the one part that scrolls. A search lets go, because a shorter list is a smaller box. */
+  const [height, setHeight] = useState<number | null>(null);
+  /** How much of the list a held box keeps, so a card that grew cannot squeeze it to nothing: past
+   *  that, the box grows by what the card still needs rather than clip it. */
+  const [floor, setFloor] = useState(0);
+  /** Room under the list's last row, for a list scrolled near its end when a card smaller than the one
+   *  it replaces gives the list the difference: with nothing more to show, the browser pulls the
+   *  scroll back and every row comes down under the pointer. */
+  const [slack, setSlack] = useState(0);
+  /** A model has just been picked here: until the highlight moves or the search changes, ←/→ in the
+   *  search field step that model's level, which is what the keyboard reaches for next. */
+  const [tuning, setTuning] = useState(false);
+  const search = useRef<HTMLInputElement>(null);
+  const wrap = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  useAutoHideScrollbar(list);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (height !== null && el && el.scrollHeight > height) setHeight(el.scrollHeight);
+  });
+
+  const queried = useMemo(() => filterRows(held, query), [held, query]);
+  const groups = useMemo(() => groupRows(queried, { query, kind: opened.kind }), [queried, query, opened.kind]);
+  const shown = useMemo(() => flatten(groups), [groups]);
+  /** Matches this session can no longer switch to — left out of the list, and said so. */
+  const locked = queried.filter((r) => r.blockedReason).length;
+  // Numbered by position in the list, so the badges read 1, 2, 3 down the page.
+  const shortcuts = useMemo(() => shown.filter((r) => r.favorite).slice(0, MAX_SHORTCUTS), [shown]);
   const cur = Math.max(0, shown.findIndex((r) => r.id === activeKey));
   const activeRow = shown[cur];
-  // The route a pick would take: the user's override where they made one, the row's own resolution
-  // otherwise. Never a harness the row cannot reach — an override left behind by a probe that has
-  // since changed the row's routes falls back rather than transmitting an id that harness rejects.
-  const route = activeRow && routes[activeRow.id] && activeRow.harnesses.includes(routes[activeRow.id]!)
-    ? routes[activeRow.id]! : activeRow?.kind;
+  const routeOf = (r: ModelRow): AgentKind => (routes[r.id] && r.harnesses.includes(routes[r.id]!) ? routes[r.id]! : r.kind);
+  const waysOf = (r: ModelRow): AgentKind[] => (r.alternates.length > 0 ? [r.kind, ...r.alternates] : []);
 
-  // With live catalogs the list runs to 40+ rows inside `.mp-list`'s max-height, so arrowing past the
-  // fold must bring the highlight along. `nearest` keeps this a no-op for rows already visible, which
-  // also makes the mouseEnter -> setActiveKey path scroll-free.
-  useEffect(() => {
-    if (activeRow) document.getElementById(`mp-${activeRow.id}`)?.scrollIntoView?.({ block: "nearest" });
-  }, [activeRow]);
+  // The current model in view the moment the list can be measured: centred on the first placement,
+  // then only nudged as the highlight walks past an edge.
+  const placed = useRef(false);
+  useLayoutEffect(() => {
+    const row = activeRow && document.getElementById(`mp-${activeRow.id}`);
+    const box = list.current;
+    if (!row || !box || !pos) return;
+    if (!placed.current) {
+      placed.current = true;
+      const r = row.getBoundingClientRect(), b = box.getBoundingClientRect();
+      box.scrollTop += r.top - b.top - (b.height - r.height) / 2;
+      return;
+    }
+    row.scrollIntoView?.({ block: "nearest" });
+  }, [activeRow, pos]);
 
+  /* A pick changes the model and leaves the picker open, so the card under the list can set how the
+     new model runs in the same visit (the owner, 10-05). */
   const pick = (row: ModelRow | undefined, harness?: AgentKind) => {
-    if (!row || row.blockedReason) return; // blocked rows are readable, never actionable
+    if (!row || row.blockedReason) return;
     const target = harness && row.harnesses.includes(harness) ? harness : row.kind;
-    // `modelIdOn` re-reads the id for THAT harness rather than re-sending the resolved one: the same
-    // model is `claude-fable-5-1` to the Claude CLI and `claude-fable-5-1` through Cursor's ACP only
-    // by luck, and a foreign id is rejected on the wire.
+    const box = ref.current?.offsetHeight ?? 0;
+    if (height === null && box > 0) {
+      setHeight(box);
+      setFloor(Math.min(wrap.current?.offsetHeight ?? 0, LIST_FLOOR));
+    }
+    // The most the list can be given is the whole of the card now under it.
+    const foot = ref.current?.querySelector<HTMLElement>(".mp-foot")?.offsetHeight ?? 0;
+    const l = list.current;
+    if (l && foot > 0) setSlack((was) => was + Math.max(0, foot - (l.scrollHeight - l.clientHeight - l.scrollTop)));
+    setRoutes((rs) => ({ ...rs, [row.id]: target }));
+    setActiveKey(row.id);
+    setTuning(true);
+    // `modelIdOn` re-reads the id for THAT harness rather than re-sending the resolved one: a foreign
+    // id is rejected on the wire.
     onPick(target, modelIdOn(row, target) ?? null);
-    close();
+    // The keyboard stays in the search with its words selected, so the next one typed starts afresh
+    // and the list stays as it is until then.
+    search.current?.focus();
+    search.current?.select();
+  };
+  const move = (by: number) => {
+    setTuning(false);
+    setActiveKey(shown[Math.min(shown.length - 1, Math.max(0, cur + by))]?.id ?? null);
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "ArrowDown") { e.preventDefault(); setActiveKey(shown[Math.min(shown.length - 1, cur + 1)]?.id ?? null); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveKey(shown[Math.max(0, cur - 1)]?.id ?? null); }
-    // ←/→ walk the highlighted model's routes, so a keyboard user can reach "the same model, through
-    // Cursor" without leaving the search field. A row with one route ignores them.
-    else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && activeRow && activeRow.harnesses.length > 1) {
+    if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+    else if (e.key === "PageDown") { e.preventDefault(); move(8); }
+    else if (e.key === "PageUp") { e.preventDefault(); move(-8); }
+    // Right after a pick, ←/→ step the picked model's level, as they do on the track.
+    else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && tuning && effort && effort.levels.length > 1) {
       e.preventDefault();
-      const at = activeRow.harnesses.indexOf(route ?? activeRow.kind);
-      const next = activeRow.harnesses[(at + (e.key === "ArrowRight" ? 1 : activeRow.harnesses.length - 1)) % activeRow.harnesses.length]!;
-      setRoutes({ ...routes, [activeRow.id]: next });
+      stepLevel(effort, e.key === "ArrowRight" ? 1 : -1);
     }
-    // ⌥↩ stars the highlighted row. The star is a <button> that focus never enters (rows are
-    // options, not stops), so without this a keyboard user could reach every model and favourite
-    // none of them.
+    // Otherwise they walk the highlighted model's harnesses, where it has more than one; anywhere
+    // else they are the search field's own caret keys.
+    else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && activeRow && waysOf(activeRow).length > 1) {
+      e.preventDefault();
+      const ways = waysOf(activeRow);
+      const at = ways.indexOf(routeOf(activeRow));
+      setRoutes({ ...routes, [activeRow.id]: ways[(at + (e.key === "ArrowRight" ? 1 : ways.length - 1)) % ways.length]! });
+    }
+    // ⌥↩ stars the highlighted row — the keyboard's path to a star focus never enters.
     else if (e.key === "Enter" && e.altKey) { e.preventDefault(); if (activeRow) onToggleFavorite(activeRow.key); }
-    else if (e.key === "Enter") { e.preventDefault(); pick(activeRow, route); }
-    // ⌘1…⌘9 jump to a favourite. Free to bind here without touching hotkeys.ts: the window-level
-    // ⌘1…⌘9 "nth space" binding does not opt into `inInputs`, so it is already swallowed while this
-    // search field holds focus — which, autofocused, is the whole time the picker is open.
+    else if (e.key === "Enter") { e.preventDefault(); if (activeRow) pick(activeRow, routeOf(activeRow)); }
+    // ⌘1…⌘9 pick a favourite. Free to bind here: the window's ⌘-digit space binding does not run
+    // while this search field, autofocused for the popover's whole life, holds the keyboard.
     else if (e.metaKey && e.key >= "1" && e.key <= "9") { e.preventDefault(); pick(shortcuts[Number(e.key) - 1]); }
   };
 
+  const harness = AGENT_META[kind].label;
+  const runs = (effort?.levels.length ?? 0) > 0 || !!fast;
+  const hasFoot = runs || (overflow?.length ?? 0) > 0;
   return createPortal(
     <div ref={ref} className="model-picker" aria-label="Model picker" role="dialog"
-      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
-        visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom right" }}
-      data-closing={closing || undefined} inert={closing}>
+      style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: room ?? undefined,
+        height: height ?? undefined, "--mp-floor": `${floor}px`, "--mp-slack": `${slack}px`,
+        visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom right" } as CSSProperties}
+      data-held={height !== null || undefined} data-closing={closing || undefined} data-eggs={eggs || undefined} inert={closing}>
       <div className="mp-search">
         <Icon name="search" size={14} />
-        {/* Autofocused because the picker opens for typing — the same bargain the command palette
-            makes. The placeholder names the harness axis too, because searching "cursor" is how you
-            answer "what could I run through Cursor" now that the icon rail is gone. */}
-        <input autoFocus type="text" value={query} placeholder="Search models and harnesses…" aria-label="Search models"
+        {/* Autofocused because the picker opens for typing — the command palette's bargain. */}
+        <input ref={search} autoFocus type="text" value={query} placeholder="Search models" aria-label="Search models"
           role="combobox" aria-expanded aria-controls="mp-list" aria-activedescendant={activeRow ? `mp-${activeRow.id}` : undefined}
-          onChange={(e) => { setQuery(e.target.value); setActiveKey(null); }} onKeyDown={onKeyDown} />
+          onChange={(e) => { setQuery(e.target.value); setActiveKey(null); setTuning(false); setHeight(null); }} onKeyDown={onKeyDown} />
       </div>
-      {/* The list's own separators, hoisted into a strip: every label here is a heading a few pixels
-          below, and the button is the way to it. Navigation, not a second filter — the search field
-          above already decides WHAT is in the list, and a strip that also removed rows would be two
-          controls that look alike and do different things, inches apart. Nothing is ever hidden by
-          pressing one, so nothing has to be put back. */}
-      {jumps.length > 1 && (
-        // The strip runs off both ends at this width, so it dissolves the way every other scroller in
-        // the app does — the same primitive, turned on its side. A hard cut mid-word at the edge is
-        // the one thing that would say "there is more" by looking broken.
-        <div className="mp-jumps-wrap">
-          <div ref={strip} className="mp-jumps" role="toolbar" aria-label="Jump to harness" aria-orientation="horizontal" onKeyDown={onJumpKey}>
-            {jumps.map((j, i) => (
-              // The mark, then the name: the heading this button scrolls to wears it, and so does
-              // every row under that heading. Without it the strip was the one run of harness names
-              // in the picker with nothing to recognise at a glance.
-              <button key={j.label} type="button" className="mp-jump" aria-label={`Jump to ${j.label}`}
-                tabIndex={i === jumpAt ? 0 : -1} onClick={() => jumpTo(j.label, i)}>
-                {j.kind && <Icon name={AGENT_META[j.kind].icon} size={12} colored className="mp-jump-mark" />}
-                {j.label}
-              </button>
-            ))}
-          </div>
-          <ScrollFadesX scroller={strip} />
-        </div>
-      )}
-      <div className="mp-body">
-        {/* The list dissolves at both ends rather than stopping at a hard edge. The band is short and
-            the list keeps a matching pad, so a row under it is still reachable — a fade that ate its
-            own last row would be a fade you have to scroll past to click. Through `ScrollFades`
-            because the bands are opacity-gated on there being something under them: written as bare
-            spans, as they were, neither one ever painted. */}
-        <div className="mp-list-wrap">
+      <div ref={wrap} className="mp-list-wrap">
         <ScrollFades scroller={list} />
         <div ref={list} className="mp-list" id="mp-list" role="listbox" aria-label="Models">
           {groups.map((g) => (
-            <div key={g.label} id={`mp-group-${g.label}`} className="mp-group" role="group" aria-label={g.label || "Results"}>
-              {g.label && <div className="mp-group-label">{g.label}</div>}
+            <div key={g.id} id={`mp-group-${g.id}`} className="mp-group" role="group" aria-label={g.label || "Results"}>
+              {g.label && <div className="mp-group-label" aria-hidden="true">{g.label}</div>}
               {g.rows.map((r) => {
-                const price = info[r.key];
+                const active = r === activeRow;
+                const ways = waysOf(r);
+                const title = g.byHarness ? AGENT_META[r.kind].label : modelLabel(r);
+                const hint = g.byHarness ? agentRowHint(r) : null;
+                const n = shortcuts.indexOf(r);
                 return (
-                  <div key={r.id} id={`mp-${r.id}`} role="option" tabIndex={-1}
-                    className="mp-row" aria-selected={r.selected} aria-disabled={r.blockedReason ? true : undefined}
-                    data-active={r === activeRow || undefined} data-blocked={r.blockedReason ? "" : undefined}
+                  <div key={r.id} id={`mp-${r.id}`} role="option" tabIndex={-1} className="mp-row"
+                    aria-selected={r.selected}
+                    aria-label={[g.byHarness ? AGENT_META[r.kind].label : r.label, hint, r.note].filter(Boolean).join(", ")}
+                    data-active={active || undefined}
                     onMouseEnter={() => setActiveKey(r.id)}
-                    onClick={() => pick(r, routes[r.id])}>
+                    // A press keeps the keyboard in the search field, star and routes included: the
+                    // picker outlives the click, and the keys it answers next are the field's.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pick(r, routeOf(r))}>
                     <Icon name={r.icon} size={16} colored className="mp-row-mark" />
-                    <span className="mp-row-text">
-                      <span className="mp-row-name">
-                        {r.label}
-                        {r.selected && <Icon name="check" size={12} className="mp-check" />}
-                      </span>
-                      <span className="mp-row-sub">
-                        {r.agentLabel}
-                        {r.note && <span className="mp-note"> — {r.note}</span>}
-                        {r.blockedReason && <span className="mp-note"> — unavailable here</span>}
-                      </span>
+                    <span className="mp-row-name">{title}</span>
+                    {hint && <span className="mp-row-hint">{hint}</span>}
+                    {r.note && <span className="mp-row-hint" data-tone="warning">{r.note}</span>}
+                    <span className="mp-row-end">
+                      {/* The model's other harnesses, on the row a person is looking at and nowhere
+                          else: one click runs it through that one. The lit mark is where Enter goes. */}
+                      {active && ways.length > 1 && (
+                        <span className="mp-ways" role="group" aria-label={`Run ${r.label} through`}>
+                          {ways.map((h) => (
+                            <button key={h} type="button" className="mp-way" tabIndex={-1} aria-pressed={h === routeOf(r)}
+                              aria-label={`Run ${r.label} through ${AGENT_META[h].label}`} title={`Through ${AGENT_META[h].label}${r.notes[h] ? ` — ${r.notes[h]}` : ""}`}
+                              onClick={(e) => { e.stopPropagation(); pick(r, h); }}>
+                              <Icon name={AGENT_META[h].icon} size={12} colored />
+                            </button>
+                          ))}
+                        </span>
+                      )}
+                      {n >= 0 && <kbd className="mp-kbd">⌘{n + 1}</kbd>}
+                      {/* On the row under the pointer, and on a starred one — never a column of
+                          hollow stars down the whole list. Starring a model is not choosing it. */}
+                      {(active || r.favorite) && (
+                        <button type="button" className="mp-star" tabIndex={-1} aria-pressed={r.favorite}
+                          aria-label={r.favorite ? `Unfavourite ${r.label}` : `Favourite ${r.label}`}
+                          title={r.favorite ? "Unfavourite (⌥↩)" : "Favourite (⌥↩)"}
+                          onClick={(e) => { e.stopPropagation(); onToggleFavorite(r.key); }}>
+                          <Icon name="star" size={12} />
+                        </button>
+                      )}
+                      {r.selected && <Icon name="check" size={14} className="mp-check" />}
                     </span>
-                    {shortcuts.indexOf(r) >= 0 && <kbd className="mp-kbd">⌘{shortcuts.indexOf(r) + 1}</kbd>}
-                    {/* Output price alone on the row: it is the number that dominates an agent's
-                        bill, and two numbers per row would turn the list into a table. The pair is
-                        in the detail pane, labelled. */}
-                    {price?.priceOut != null && <span className="mp-row-price">{formatPrice(price.priceOut)}</span>}
-                    {/* tabIndex -1 keeps the listbox's one-stop focus model intact (rows are options,
-                        not tab stops); the keyboard path to this is ⌥↩ on the highlighted row. The
-                        click must not also pick the row — starring a model is not choosing it. */}
-                    <button type="button" className="mp-star" tabIndex={-1} aria-pressed={r.favorite}
-                      aria-label={r.favorite ? `Unfavourite ${r.label}` : `Favourite ${r.label}`}
-                      title={r.favorite ? "Unfavourite (⌥↩)" : "Favourite (⌥↩)"}
-                      onClick={(e) => { e.stopPropagation(); onToggleFavorite(r.key); }}>
-                      <Icon name="star" size={12} />
-                    </button>
                   </div>
                 );
               })}
             </div>
           ))}
-          {/* One constraint left to name: the strip only scrolls, so an empty list is the query's
-              doing and nothing else. */}
-          {shown.length === 0 && <div className="mp-empty">{`No models match “${query.trim()}”.`}</div>}
+          {shown.length === 0 && (
+            <div className="mp-empty">{locked > 0
+              ? `No ${harness} model matches “${query.trim()}” — this session has already run, so other agents’ models are not offered.`
+              : `No models match “${query.trim()}”.`}</div>
+          )}
+          {shown.length > 0 && !query.trim() && locked > 0 && (
+            <p className="mp-locked">This session has already run on {harness}, so other agents’ models are not offered.</p>
+          )}
         </div>
-        </div>
-        {activeRow && route && (
-          <ModelDetail row={activeRow} route={route} info={info}
-            onRoute={(h) => setRoutes({ ...routes, [activeRow.id]: h })}
-            onUse={() => pick(activeRow, route)} effortItems={effortItems} overflow={overflow} fast={fast} onClose={close} />
-        )}
       </div>
+      {activeRow && <About row={activeRow} route={routeOf(activeRow)} info={info} />}
+      {hasFoot && (
+        <div className="mp-foot">
+          {/* Nothing on this surface closes it: the model, the level, fast mode and a folded chip's
+              choice are settings on the card you are looking at, and each answers in place. */}
+          {runs && <RunCard effort={effort} fast={fast} model={name} />}
+          {(overflow ?? []).map((g) => <Segments key={g.label} label={g.label} items={g.items} />)}
+        </div>
+      )}
     </div>,
     document.body,
   );
 }
 
 /**
- * Everything Realm knows about the highlighted model, and the two choices that ride with it.
+ * The highlighted model, in two lines that never change height: what it is for (or the one thing
+ * about its route that would surprise someone), then its context and price — the public catalog's
+ * API list price, with who actually bills for this harness one hover away.
  *
- * The order is the order the question is asked in: what IS this (name, sentence), what does it cost
- * (the stats), how would it run (route pills, and what that harness is like), and then the two
- * controls that belong to the answer rather than to the model — effort, and whatever the prompter's
- * control row could not fit.
- *
- * Every number is allowed to be missing. Cursor's Composer, and every harness's "Default" row, have
- * no catalog entry at all, and a picker that hid them or invented a price would be worse than one
- * that shows the sentence and stops.
+ * Fixed because the popover grows UPWARD from the chip: a strip that took a line more for one model
+ * than the next would move every row above it, and the row under the pointer with them.
  */
-function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, fast, onClose }: {
-  row: ModelRow; route: AgentKind; info: Record<string, ModelInfo>;
-  onRoute: (h: AgentKind) => void; onUse: () => void;
-  effortItems: OverflowGroup["items"]; overflow?: OverflowGroup[]; fast?: FastMode; onClose: () => void;
-}) {
-  const { note, catalog } = modelDetail(row, info);
-  const harness = AGENT_NOTES[route];
+function About({ row, route, info }: { row: ModelRow; route: AgentKind; info: Record<string, ModelInfo> }) {
+  const { note, warning, specs, billing } = modelAbout(row, route, info);
+  // Led by the model's name: the strip sits under whichever row the list happens to end on, and it
+  // is about the highlighted one, which may be a screen away.
+  const name = isHarnessDefault(row) ? AGENT_META[route].label : modelLabel({ ...row, kind: route });
   return (
-    <div className="mp-detail" aria-live="polite">
-      {/* Everything the model has to SAY scrolls; the two controls below it never do. A long blurb
-          on a small window used to push "Use model" past the popover's edge — the one control the
-          whole pane exists to lead to. */}
-      <div className="mp-detail-body">
-      <div className="mp-detail-head">
-        <Icon name={AGENT_META[route].icon} size={18} colored />
-        <h3>{row.label}</h3>
-      </div>
-      {note && <p className="mp-detail-note">{note}</p>}
-      {catalog && (catalog.priceIn != null || catalog.context != null) && (
-        <div className="mp-stats">
-          {catalog.priceIn != null && <Stat k="Input" v={`${formatPrice(catalog.priceIn)} / Mtok`} />}
-          {catalog.priceOut != null && <Stat k="Output" v={`${formatPrice(catalog.priceOut)} / Mtok`} />}
-          {catalog.context != null && <Stat k="Context" v={formatContext(catalog.context)} />}
-          {catalog.efforts.length > 0 && <Stat k="Effort" v={`${formatEffort(catalog.efforts[catalog.efforts.length - 1]!)} → ${formatEffort(catalog.efforts[0]!)}`} />}
-        </div>
-      )}
-      <div className="mp-routes">
-        <div className="mp-group-label">Run it through</div>
-        <div className="mp-route-pills">
-          {/* Each pill is labelled with the whole sentence, not just the harness's name: out of
-              context "Cursor" is a button that could do anything, and these are the one control here
-              whose meaning depends entirely on which row is highlighted. */}
-          {row.harnesses.map((h) => (
-            <button key={h} type="button" className="mp-route" aria-pressed={h === route}
-              disabled={!!row.blockedReason}
-              aria-label={`Run ${row.label} through ${AGENT_META[h].label}`}
-              onClick={() => onRoute(h)}>
-              <Icon name={AGENT_META[h].icon} size={12} colored />
-              {AGENT_META[h].label}
-            </button>
-          ))}
-        </div>
-        <p className="mp-harness-note">{harness.good}</p>
-        {/* Billing sits directly under the price, and always: a per-token number is a lie about the
-            bill for a harness that runs on a subscription, and this is the line that says so. */}
-        <p className="mp-harness-billing">{harness.billing}</p>
-        {harness.limits && <p className="mp-harness-limits"><Icon name="alert" size={12} /> {harness.limits}</p>}
-        {row.blockedReason && <p className="mp-harness-limits"><Icon name="alert" size={12} /> {row.blockedReason}</p>}
-      </div>
-      </div>
-      <div className="mp-detail-foot">
-        {/* Effort lives here permanently: the chip's gray suffix names the level, this strip edits it.
-            Collapsed control-row groups (§3) append below when the prompter's row overflows —
-            rendered whole rather than filtered, because the search box narrows MODELS and hiding a
-            permission mode behind a model query would be absurd. */}
-        {[{ label: "Effort", items: effortItems }, ...(overflow ?? [])].map((g) => (
-          <div key={g.label} className="mp-seg-group" role="group" aria-label={g.label}>
-            <span className="mp-seg-label">{g.label}</span>
-            <div className="mp-seg">
-              {g.items.map((it, i) => (
-                <button key={i} type="button" className="mp-seg-opt" aria-pressed={!!it.checked}
-                  onClick={() => { it.onSelect(); onClose(); }}>{it.label}</button>
-              ))}
-            </div>
-          </div>
+    <div className="mp-about">
+      <p className="mp-about-note" data-tone={warning ? "warning" : undefined} title={plain(warning ?? note)}>
+        {warning
+          ? <><Icon name="alert" size={12} />{withCode(warning)}</>
+          : <><span className="mp-about-name">{name}</span>{withCode(note)}</>}
+      </p>
+      <p className="mp-about-specs" title={plain(billing)}>{withCode(specs ?? billingLead(billing))}</p>
+    </div>
+  );
+}
+
+function Segments({ label, items }: { label: string; items: OverflowGroup["items"] }) {
+  return (
+    <div className="mp-seg-group" role="group" aria-label={label}>
+      <span className="mp-seg-label">{label}</span>
+      <div className="mp-seg">
+        {items.map((it, i) => (
+          <button key={i} type="button" className="mp-seg-opt" aria-pressed={!!it.checked} onClick={it.onSelect}>{it.label}</button>
         ))}
-        {/* Speed sits with effort because it is the same kind of choice — how the answer is produced,
-            not which model produces it — and because both are properties only some models have.
-            Unlike effort, this one does NOT close the popover on click: the note below it is the
-            point, and a control that dismissed the surface carrying its own answer would be telling
-            the user something they never get to read. */}
-        {fast && (
-          <div className="mp-seg-group mp-fast" role="group" aria-label="Speed">
-            <span className="mp-seg-label">Speed</span>
-            <div className="mp-seg">
-              {([["Standard", false], ["Fast", true]] as const).map(([label, on]) => (
-                <button key={label} type="button" className="mp-seg-opt" aria-pressed={fast.on === on}
-                  onClick={() => fast.onChange(on)}>{label}</button>
-              ))}
-            </div>
-            {fastModeNote(fast) && <p className="mp-fast-note" data-tone={fast.state === "on" || fast.state === null ? undefined : "warning"}>{fastModeNote(fast)}</p>}
-          </div>
-        )}
-        <button type="button" className="mp-use" disabled={!!row.blockedReason} onClick={onUse}>
-          {row.selected && row.kind === route ? "Keep model" : "Use model"}
-        </button>
       </div>
     </div>
   );
 }
 
-function Stat({ k, v }: { k: string; v: string }) {
-  return <div className="mp-stat"><span className="mp-stat-k">{k}</span><span className="mp-stat-v">{v}</span></div>;
+/** Put the level at the `i`th of the model's own, held to the ends of the list. A pointer event
+ *  without a position (a synthetic one) names no dot, and changes nothing. */
+function setLevel(effort: EffortControl, i: number) {
+  if (!Number.isFinite(i)) return;
+  const level = effort.levels[Math.max(0, Math.min(effort.levels.length - 1, i))]!;
+  if (level.id !== effort.value) effort.onChange(level.id);
+}
+
+/** One level up or down from the one in force; from a level nobody chose and the harness never named,
+ *  the lightest is the first step. */
+function stepLevel(effort: EffortControl, by: number) {
+  const { index } = effortCurrent(effort);
+  setLevel(effort, index < 0 ? 0 : index + by);
+}
+
+/**
+ * How the answer is produced — Codex's card, laid into the picker's foot. The bolt is fast mode, the
+ * name in the middle is the level in force with the model it is for, the arrow puts the level back to
+ * the model's own default, and the track under them has a dot for every level the model takes.
+ *
+ * Every part is drawn only where it means something: no bolt where Realm cannot ask the harness for
+ * fast mode, no track where the harness takes no level, no reset when nothing has been changed.
+ */
+function RunCard({ effort, fast, model }: { effort?: EffortControl; fast?: FastMode; model: string }) {
+  const levels = effort?.levels ?? [];
+  const cur = effort && levels.length > 0 ? effortCurrent(effort) : null;
+  const def = levels.find((l) => l.id === effort?.defaultId) ?? null;
+  const hint = fast ? fastModeHint(fast, model) : null;
+  /* Switching fast mode on is a moment: the bolt charges and a glint runs the length of the track,
+     the chip catching the same light below. Off is quiet. Read from the request the session holds, so
+     the card answers whatever switched it — the bolt, the keyboard, another window — and opening the
+     picker on a session already asking for it plays nothing. */
+  const bolt = useRef<HTMLButtonElement>(null);
+  const [glint, setGlint] = useState(0);
+  const wasOn = useRef(fast?.on ?? false);
+  useEffect(() => {
+    const on = fast?.on ?? false;
+    const switchedOn = on && !wasOn.current;
+    wasOn.current = on;
+    if (!switchedOn || motionHeld()) return;
+    setGlint((n) => n + 1);
+    return replay(bolt.current, "data-charge", "", "rl-bolt-charge");
+  }, [fast?.on]);
+  // A refusal of a turn that DID ask is a warning; everything else on this line is information.
+  const refused = !!fast && fast.on && fast.state !== null && fast.state !== "on" && !fastModeUntried(fast);
+  const unavailable = fast?.availability.state === "unavailable";
+  return (
+    <div className="mp-run">
+      <div className="mp-run-head">
+        {fast ? (
+          <button ref={bolt} type="button" className="mp-bolt" aria-label="Fast mode" aria-pressed={fast.on && !unavailable}
+            aria-disabled={unavailable || undefined} title={fastModeTitle(fast, model)}
+            onClick={() => { if (!unavailable) fast.onChange(!fast.on); }}>
+            <Icon name="zap" size={14} />
+          </button>
+        ) : <span className="mp-run-gap" aria-hidden="true" />}
+        <span className="mp-run-title">
+          <span className="mp-run-level" data-unset={cur && !cur.choice ? "" : undefined}>
+            {cur ? cur.choice?.label ?? "Default" : "Fast mode"}
+          </span>
+          {cur && <span className="mp-run-model">{model}</span>}
+        </span>
+        {effort && cur?.chosen && effort.value !== effort.defaultId ? (
+          <button type="button" className="mp-run-reset" aria-label="Reset effort"
+            title={def ? `Back to ${model}’s default, ${def.label}` : "Back to the model’s own default"}
+            onClick={() => effort.onChange(null)}>
+            <Icon name="undo" size={14} />
+          </button>
+        ) : <span className="mp-run-gap" aria-hidden="true" />}
+      </div>
+      {effort && levels.length > 1 && <EffortTrack effort={effort} glint={glint} />}
+      {/* Held open whenever there is a bolt, empty or not: the popover grows upward from its chip, so a
+          line arriving under the track lifted the bolt out from under the pointer that had just
+          switched it on, and the press meant to switch it off again landed on the track instead. */}
+      {fast && (
+        <p className="mp-fast-note" data-tone={hint && (refused || unavailable) ? "warning" : undefined} title={hint ?? undefined}>{hint}</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The level as a track: a dot for every level the model takes, the knob on the one in force and the
+ * fill up to it. A slider for the keyboard — ←/→ (and ↑/↓) step a level, Home and End go to the ends —
+ * and for the pointer a press or a drag lands on the nearest dot. A level the session never chose and
+ * the harness never named has no knob at all: there is nothing to point at.
+ *
+ * At a heavy level the session chose, the fill carries Realm's light, as the landing page draws it:
+ * streams running up the fill into a core at the knob, faint facets of the mark's cube drifting under
+ * them, and a light circling the knob — stronger at Max than at XHigh (styles.css). `glint` counts
+ * fast mode being switched on, and each count runs one pass of light along the whole track.
+ */
+function EffortTrack({ effort, glint = 0 }: { effort: EffortControl; glint?: number }) {
+  const { levels } = effort;
+  const cur = effortCurrent(effort);
+  const heavy = cur.chosen && !!cur.choice && HEAVY_EFFORTS.has(cur.choice.id);
+  const ref = useRef<HTMLDivElement>(null);
+  const span = levels.length - 1;
+  const set = (i: number) => setLevel(effort, i);
+  // The dot nearest the pointer, along the run between the first and the last.
+  const nearest = (clientX: number) => {
+    const r = ref.current!.getBoundingClientRect();
+    const inset = r.height / 2;
+    return Math.round(((clientX - r.left - inset) / Math.max(1, r.width - inset * 2)) * span);
+  };
+  const onKeyDown = (e: KeyboardEvent) => {
+    const step = e.key === "ArrowRight" || e.key === "ArrowUp" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 0;
+    if (step !== 0) { e.preventDefault(); stepLevel(effort, step); }
+    else if (e.key === "Home") { e.preventDefault(); set(0); }
+    else if (e.key === "End") { e.preventDefault(); set(span); }
+  };
+  return (
+    <div ref={ref} className="mp-track" role="slider" tabIndex={0} aria-label="Effort"
+      aria-valuemin={0} aria-valuemax={span} aria-valuenow={Math.max(0, cur.index)} aria-valuetext={cur.choice?.label ?? "Default"}
+      data-effort={cur.chosen ? cur.choice?.id : undefined}
+      style={{ "--at": cur.index < 0 ? 0 : cur.index / span } as CSSProperties}
+      onKeyDown={onKeyDown}
+      onPointerDown={(e) => { e.currentTarget.setPointerCapture?.(e.pointerId); set(nearest(e.clientX)); }}
+      onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture?.(e.pointerId)) set(nearest(e.clientX)); }}>
+      {cur.index >= 0 && (
+        <span className="mp-track-fill">
+          {heavy && <>
+            <span className="mp-track-facets" aria-hidden="true" />
+            <span className="mp-track-flow" aria-hidden="true" />
+            <span className="mp-track-core" aria-hidden="true" />
+          </>}
+        </span>
+      )}
+      {levels.map((l, i) => (
+        <span key={l.id} className="mp-track-dot" data-passed={i <= cur.index || undefined}
+          style={{ "--at": i / span } as CSSProperties} />
+      ))}
+      {/* Keyed by the count, so each switch-on mounts a fresh pass rather than replaying a finished one. */}
+      {glint > 0 && <span key={glint} className="mp-track-glint" aria-hidden="true" />}
+      {cur.index >= 0 && <span className="mp-track-knob">{heavy && <span className="mp-track-shine" aria-hidden="true" />}</span>}
+    </div>
+  );
 }

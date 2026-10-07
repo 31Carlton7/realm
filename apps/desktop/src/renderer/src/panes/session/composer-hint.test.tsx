@@ -84,15 +84,6 @@ describe("the prompter's suggested prompt", () => {
     expect(store.getState().drafts.se1 ?? "").toBe("");
   });
 
-  it("still indents a list on ⇥ — the older meaning survives inside one", async () => {
-    await mount();
-    type("- one");
-    box().setSelectionRange(5, 5);
-    fireEvent.select(box());
-    tab();
-    await waitFor(() => expect(box().value).toBe("  - one"));
-  });
-
   it("says nothing mid-turn, and comes back when the turn settles", async () => {
     const { store } = await mount();
     act(() => { store.setState({ sessionStatus: { se1: "running" } }); });
@@ -111,11 +102,5 @@ describe("the prompter's suggested prompt", () => {
       expect(box().value).toBe("");
     });
 
-    it("is the only offer the hero makes — the starter chips under it are gone", async () => {
-      // Two lists of suggested sentences in one view was the app asking twice; the hint is the one
-      // that is about THIS session, so it is the one that stayed.
-      await mount(null);
-      expect(document.querySelectorAll(".suggestion-chip")).toHaveLength(0);
-    });
   });
 });

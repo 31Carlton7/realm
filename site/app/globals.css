@@ -133,6 +133,35 @@ p {
   color: var(--color-ink-2);
 }
 
+/* A capture of the app, set off from the prose by air rather than by a card. The figure is as wide as
+   its picture and the caption wraps inside that, rather than running past the edge of a narrow crop;
+   `contain: inline-size` is what keeps the caption's own length out of the figure's width. The
+   outline is drawn INSIDE the picture, one device pixel of white at low opacity, which is what keeps
+   a dark capture's edge from dissolving into the page it is laid on. */
+.prose figure {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+}
+
+.prose figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  outline: 1px solid oklch(1 0 0 / 0.1);
+  outline-offset: -1px;
+}
+
+.prose figcaption {
+  contain: inline-size;
+  margin-top: 0.7rem;
+  color: var(--color-ink-3);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 /* The app's own corner, on the controls that carry it. `corner-shape` is a recent property; where
    it is not supported the `border-radius` beside it still applies, so the fallback is a large
    rounded rect rather than a broken one — which is why every use pairs the two. */

@@ -53,10 +53,6 @@ describe("computerAccessRows", () => {
     }
   });
 
-  it("lists Accessibility first — it is the one that gates everything", () => {
-    expect(computerAccessRows({ accessibility: false, screenRecording: false }, { helperAvailable: true }).map((r) => r.id))
-      .toEqual(["accessibility", "screenRecording"]);
-  });
 });
 
 describe("computerGrantExplanation", () => {

@@ -3,9 +3,18 @@ import type { Block } from "./transcript-model";
 
 /**
  * The ONE prompt the prompter offers as its hint text — the placeholder the user is already reading,
- * which ⇥ fills in (Composer's `onKeyDown`). Pure and deterministic on purpose: this is read on every
- * render of every visible session pane, so it must not call an agent, and a suggestion that changed
- * under the user between renders would be a moving target for the key that accepts it.
+ * which ⇥ fills in (Composer's `onKeyDown`).
+ *
+ * Still pure, and still read on every render of every visible session pane, so it still must not
+ * call an agent. What changed is that it now takes a `generated` hint as an input: the model-written
+ * one the server produces once per settled turn (`PromptHintService`), which arrives as a
+ * `prompt_hint` event and is already in the transcript by the time this runs. The call happens on
+ * the settle, not here — that ordering is the whole reason ⇥ still accepts a stable target.
+ *
+ * The rules below are the FLOOR, not the fallback of last resort: they answer while the generated
+ * one is still in flight, on every build with no generator configured, on a machine with no Claude
+ * CLI, and whenever the model declined to better them. That is most turns, so they are not dead
+ * weight — they are what the prompter says when nothing more specific is true.
  *
  * The register is plain and SHORT on purpose — a handful of words, never a sentence carrying the
  * session's own text back at it. Every hint here used to embed the user's last request and, on a
@@ -27,11 +36,18 @@ export function promptHint(ctx: {
   status: SessionStatus;
   /** Session is in Plan — the agent is drafting, not doing. */
   inPlan: boolean;
+  /** The model-written hint for the last settled turn, or null. Cleared by the reducer the moment
+   *  the user sends anything, so a non-null value here is always about the turn on screen. */
+  generated?: string | null;
 }): string | null {
   const { blocks, gitInfo, status, inPlan } = ctx;
   // Mid-turn there is no "next prompt" yet: the thing the follow-up would be about is still being
-  // written. The hint returns on its own the moment the turn settles.
+  // written. The hint returns on its own the moment the turn settles. BEFORE the generated one is
+  // consulted, because a hint written for the previous turn is not an answer about this one.
   if (status === "running" || status === "waiting_permission") return null;
+  // It beat the floor or it would not exist: the generator is told to answer NONE rather than write
+  // something generic, and a decline never becomes an event.
+  if (ctx.generated) return ctx.generated;
 
   const reviewChanges = gitInfo && gitInfo.dirty > 0 ? freshChangesHint(gitInfo) : null;
 

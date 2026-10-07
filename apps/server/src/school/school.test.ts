@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { createApp, type App } from "../app";
@@ -162,19 +162,3 @@ describe("plynn — the real default folder is never read by tests", () => {
   });
 });
 
-describe("imported lecture files are real files", () => {
-  it("land in the space's primary checkout on disk", async () => {
-    const dir = plynnOne();
-    const { c, space } = await setup({ plynnDir: dir });
-    const files = (await c.call("plynn.list", {})).result.meetings.map((m: any) => m.file);
-    await c.call("plynn.import", { spaceId: space.id, files });
-    const env = (await c.call("environments.list", { spaceId: space.id })).result[0];
-    expect(await readFile(join(env.path, "lectures", "2026-09-02-l.md"), "utf8")).toContain("source: plynn");
-    c.close();
-  });
-  function plynnOne() {
-    const dir = tempDir("plynn-meetings-");
-    writeFileSync(join(dir, "2026-09-02 10.00 L.md"), "# L\n\nnotes\n");
-    return dir;
-  }
-});

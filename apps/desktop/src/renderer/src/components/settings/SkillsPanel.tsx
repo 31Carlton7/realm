@@ -19,7 +19,12 @@ import { MoveScopeConfirm, ScopeGroups } from "../scoped/ScopeGroups";
  * Invalid skills are LISTED with their reason — silence about a broken `SKILL.md` is the failure mode
  * W1 designed against. They get no toggle because they are never staged regardless of the flag.
  */
-export function SkillsPanel({ spaceId }: { spaceId: string }) {
+export function SkillsPanel({ spaceId, onOpen }: {
+  spaceId: string;
+  /** Open one skill's own page (the Library's skill viewer). Absent on a surface with nowhere to go —
+   *  the row then behaves as it always did, and no control appears claiming otherwise. */
+  onOpen?: (id: string) => void;
+}) {
   const skills = useApp((s) => s.spaceSkills[spaceId]);
   const sources = useApp((s) => s.spaceSkillSources[spaceId]);
   const root = useApp((s) => s.skillsRoot);
@@ -86,13 +91,13 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
               <>
                 {library.length > 0 && (
                   // W4: the shared scope grouping — "This space" / "From <profile>" / "Everywhere".
-                  <ScopeGroups entries={library.map((sk) => ({ key: sk.id, scope: sk.scope, row: <SkillRow key={sk.id} spaceId={spaceId} skill={sk} /> }))} />
+                  <ScopeGroups entries={library.map((sk) => ({ key: sk.id, scope: sk.scope, row: <SkillRow key={sk.id} spaceId={spaceId} skill={sk} onOpen={onOpen} /> }))} />
                 )}
                 {external.map((g) => (
                   <div key={g.label} className="skills-origin-group">
                     <div className="skills-origin-label">{g.label}</div>
                     <ul className="settings-list">
-                      {g.skills.map((sk) => <SkillRow key={sk.id} spaceId={spaceId} skill={sk} />)}
+                      {g.skills.map((sk) => <SkillRow key={sk.id} spaceId={spaceId} skill={sk} onOpen={onOpen} />)}
                     </ul>
                   </div>
                 ))}
@@ -210,7 +215,7 @@ function SourcesField({ spaceId, sources }: { spaceId: string; sources: SkillSou
  * here is movement: "Move to profile…" on a space/pre-scoping row, "Move to this space…" on an
  * inherited one, both behind the shared confirm that states the reach semantics.
  */
-function SkillRow({ spaceId, skill: sk }: { spaceId: string; skill: Skill }) {
+function SkillRow({ spaceId, skill: sk, onOpen }: { spaceId: string; skill: Skill; onOpen?: (id: string) => void }) {
   const profiles = useApp((s) => s.profiles);
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
   const setSkillEnabled = useApp((s) => s.setSkillEnabled);
@@ -244,7 +249,13 @@ function SkillRow({ spaceId, skill: sk }: { spaceId: string; skill: Skill }) {
   return (
     <li className="settings-row skill-row" data-invalid={!sk.valid || undefined}>
       <div className="settings-row-main">
-        <span className="settings-row-name">{sk.name}</span>
+        {/* The NAME is the door. A row that opens has to say so on the thing a reader would click,
+            and the description below it is the two-line summary it has always been — clicking that
+            still unclamps it in place, because "let me read the whole sentence" and "take me to the
+            skill" are two different asks and the second one costs a page. */}
+        {onOpen
+          ? <button type="button" className="settings-row-name skill-open" onClick={() => onOpen(sk.id)}>{sk.name}</button>
+          : <span className="settings-row-name">{sk.name}</span>}
         {sk.valid ? (
           <button type="button" className="skill-desc" aria-expanded={expanded} title={sk.description}
             data-expanded={expanded || undefined} onClick={() => setExpanded((v) => !v)}>

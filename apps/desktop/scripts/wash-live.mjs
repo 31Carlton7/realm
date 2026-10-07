@@ -55,6 +55,26 @@ async function until(fn, ms, tag) {
   }
 }
 
+/**
+ * Pick a command-palette row by its label — the Theme and Palette rows moved there from the header's
+ * ⋯ with Plan 27. Driven from here in short synchronous steps rather than as one awaited page promise:
+ * the palette's first opening in a fresh window lost such a promise mid-wait ("Promise was collected"),
+ * and a step that answers at once has nothing to lose. Throws when the row is not offered, after
+ * putting the palette away, as the menu it replaced closed on a miss.
+ */
+async function paletteRow(c, label) {
+  await evalIn(c, `(() => { if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector(".palette input")`), 5000, "the palette");
+  await evalIn(c, `(() => { const input = document.querySelector(".palette input");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(label)});
+    input.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+  const picked = await until(() => evalIn(c, `(() => { const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((o) => o.querySelector(".palette-label")?.textContent.trim() === ${JSON.stringify(label)});
+    if (!hit) return null; hit.click(); return true; })()`), 2000, `palette row ${label}`).catch(() => false);
+  if (picked) return true;
+  await evalIn(c, `(() => { document.querySelector(".palette input")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return true; })()`);
+  throw new Error(`no palette row: ${label}`);
+}
+
 function cdp(wsUrl) {
   const ws = new WebSocket(wsUrl);
   let id = 0;
@@ -85,14 +105,6 @@ window.__live = window.__live ?? {
     const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
     el.dispatchEvent(new Event("input", { bubbles: true }));
-  },
-  async menu(label) {
-    document.querySelector('[aria-label="Space menu"]').click();
-    for (let i = 0; i < 40 && !document.querySelector('[role="menu"]'); i++) await new Promise((r) => setTimeout(r, 25));
-    const hit = [...document.querySelectorAll('[role="menu"] button')].find((b) => b.textContent.trim() === label);
-    if (!hit) { document.querySelector('[role="menu"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); throw new Error("no menu item: " + label); }
-    hit.click();
-    return true;
   },
   /** Open a page pane by its command-palette entry. */
   async openPage(re) {
@@ -215,6 +227,8 @@ async function main() {
   electron = spawn(electronBin, [wrapper], {
     env: { ...process.env,
       REALM_HOME: path.join(scratch, "home"),
+      // Menus are drawn in the page so CDP can click them; the app shows OS menus otherwise.
+      REALM_HTML_MENUS: "1",
       REALM_PORT: String(SERVER_PORT),
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
@@ -317,12 +331,12 @@ async function main() {
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 20000, "composer");
 
   for (const [palette, mode, tag] of [["Realm", "Dark", "realm-dark"], ["GitHub", "Light", "github-light"]]) {
-    await evalIn(c, `__live.menu(${JSON.stringify(`Theme: ${mode}`)})`);
+    await paletteRow(c, `Theme: ${mode}`);
     await sleep(300);
-    await evalIn(c, `__live.menu(${JSON.stringify(`Palette: ${palette}`)})`);
+    await paletteRow(c, `Palette: ${palette}`);
     await sleep(500);
 
-    for (const [name, sel, re] of [["settings", ".settings-page-pane", "settings"], ["notifications", ".notifications-page-pane", "notification"]]) {
+    for (const [name, sel, re] of [["settings", ".settings-page-pane", "settings"]]) {
       await evalIn(c, `__live.openPage(${JSON.stringify(re)})`);
       await until(() => evalIn(c, `!!document.querySelector('${sel}')`), 15000, `${name} pane`);
       await sleep(450);

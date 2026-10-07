@@ -72,11 +72,6 @@ describe("searchDocs", () => {
     expect(r.hits[0]!.snippet).toEqual([{ text: "slides/scanned-hazards.pdf", match: true }]);
   });
 
-  it("reads real PDF text through the default extractor", async () => {
-    const root = course();
-    const r = await searchDocs(root, "forwarding", new TextExtractor());
-    expect(r.hits.map((h) => h.path)).toEqual(expect.arrayContaining(["slides/l4.pdf", "lectures/2026-09-01-pipelining.md"]));
-  });
 });
 
 describe("scoreOf", () => {

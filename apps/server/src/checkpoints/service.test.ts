@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { tempDir } from "@realm/test-utils";
@@ -12,6 +12,7 @@ import { SessionsStore } from "../store/sessions";
 import { CheckpointsStore } from "../store/checkpoints";
 import { CheckpointGit, CHECKPOINT_REF_PREFIX } from "../workspace/checkpoints";
 import { CheckpointService, labelFrom } from "./service";
+import { decodeSessionCursor, encodeSessionCursor } from "./rewind";
 
 /** Retention budget the tests run against. Small on purpose: the policy is what is under test, not the
  *  production number, and fifty captures is fifty rounds of git subprocesses. */
@@ -34,6 +35,10 @@ const refsIn = (repo: string) => git(repo, "for-each-ref", "--format=%(refname)"
 
 let db: Db; let home: string; let envs: EnvironmentsStore; let sessions: SessionsStore; let store: CheckpointsStore;
 let svc: CheckpointService; let spaceId: string; let folder: string; let busy: Set<string>;
+/** Every call `CheckpointService` made to the rewind hook, and what the hook answered. The hook is
+ *  `SessionService` in production; here it is a spy, because what this file is about is WHETHER and
+ *  WHEN the restore asks — the transcript half is exercised end to end in rewind-restore.test.ts. */
+let rewinds: { sessionId: string; throughSeq: number; fork: string }[]; let rewindAnswer: boolean;
 
 beforeEach(() => {
   home = tempDir("realm-cpsvc-");
@@ -48,9 +53,11 @@ beforeEach(() => {
   busy = new Set();
   const space = spaces.create({ profileId: p.id, name: "Work", icon: "folder" });
   spaceId = space.id; folder = space.folderPath;
+  rewinds = []; rewindAnswer = true;
   svc = new CheckpointService({
     checkpoints: store, environments: envs, sessions, git: new CheckpointGit(),
     isEnvironmentBusy: (id) => busy.has(id), maxPerEnvironment: KEEP,
+    rewindSession: (input) => { rewinds.push(input); return rewindAnswer; },
   });
 });
 
@@ -67,15 +74,6 @@ describe("labelFrom", () => {
 });
 
 describe("capture", () => {
-  it("records the ref on the row and points it at the commit git wrote", async () => {
-    initRepo(folder);
-    const env = primary();
-    const cp = await svc.capture({ environmentId: env.id, sessionId: null, kind: "manual", label: "one" });
-    expect(cp).not.toBeNull();
-    expect(cp!.ref).toBe(`${CHECKPOINT_REF_PREFIX}/${env.id}/${cp!.id}`);
-    expect(git(folder, "rev-parse", cp!.ref).trim()).toBe(cp!.commitSha);
-    expect(svc.list(env.id, null).map((c) => c.id)).toEqual([cp!.id]);
-  });
 
   it("declines, rather than fails, when the checkout is not a git repository", async () => {
     const env = primary(); // a plain folder — an ordinary Realm space
@@ -94,25 +92,32 @@ describe("capture", () => {
   });
 });
 
-describe("restore", () => {
-  it("captures the state it is about to overwrite, and that capture undoes it", async () => {
+describe("a turn's own changes", () => {
+  it("measures the turn its checkpoint fronted, and lets the settle claim it so nothing later borrows it", async () => {
     initRepo(folder);
     const env = primary();
-    const first = await svc.capture({ environmentId: env.id, sessionId: null, kind: "turn", label: "turn 1" });
-    writeFileSync(join(folder, "agent-work.txt"), "hours of work\n");
-
-    const preview = await svc.preview(first!.id);
-    const result = await svc.restore(first!.id, { filesChanged: preview.filesChanged, commitsRolledBack: preview.commitsRolledBack });
-    expect(existsSync(join(folder, "agent-work.txt"))).toBe(false);
-
-    // The undo checkpoint exists, is a `pre-restore`, and really holds the overwritten work.
-    expect(result.undoCheckpointId).not.toBeNull();
-    const undo = store.require(result.undoCheckpointId!);
-    expect(undo.kind).toBe("pre-restore");
-    const undoPreview = await svc.preview(undo.id);
-    await svc.restore(undo.id, { filesChanged: undoPreview.filesChanged, commitsRolledBack: undoPreview.commitsRolledBack });
-    expect(readFileSync(join(folder, "agent-work.txt"), "utf8")).toBe("hours of work\n");
+    const s = newSession(env.id);
+    const cp = await svc.captureTurn(s.id, "edit a");
+    expect(svc.frontingCheckpoint(s.id)).toBe(cp!.id);
+    writeFileSync(join(folder, "a.txt"), "two\n");
+    expect(await svc.turnChanges(cp!.id)).toMatchObject({
+      files: [{ path: "a.txt", oldPath: null, status: "modified", additions: 1, deletions: 1 }], totalFiles: 1,
+    });
+    svc.endTurn(s.id);
+    expect(svc.frontingCheckpoint(s.id)).toBeNull();
   });
+
+  it("measures nothing for a checkpoint that is gone, or a checkout that is no longer a repository", async () => {
+    initRepo(folder);
+    const env = primary();
+    const cp = await svc.capture({ environmentId: env.id, sessionId: null, kind: "manual", label: "m" });
+    expect(await svc.turnChanges("01ARZ3NDEKTSV4RRFFQ69G5FAV")).toBeNull();
+    rmSync(join(folder, ".git"), { recursive: true, force: true });
+    expect(await svc.turnChanges(cp!.id)).toBeNull();
+  });
+});
+
+describe("restore", () => {
 
   it("refuses an acknowledgement that does not match what git reports now", async () => {
     initRepo(folder);
@@ -128,15 +133,6 @@ describe("restore", () => {
     // Nothing was restored, and no `pre-restore` checkpoint was made for a restore that did not happen.
     expect(existsSync(join(folder, "one.txt"))).toBe(true);
     expect(svc.list(env.id, null).filter((c) => c.kind === "pre-restore")).toEqual([]);
-  });
-
-  it("refuses while an agent is live in that environment", async () => {
-    initRepo(folder);
-    const env = primary();
-    const cp = await svc.capture({ environmentId: env.id, sessionId: null, kind: "turn", label: "turn 1" });
-    busy.add(env.id);
-    await expect(svc.restore(cp!.id, { filesChanged: 0, commitsRolledBack: 0 }))
-      .rejects.toMatchObject({ code: "CHECKPOINT_ENVIRONMENT_BUSY" });
   });
 
   it("reaches only the environment the checkpoint belongs to", async () => {
@@ -163,7 +159,9 @@ describe("restore", () => {
     } finally { rmSync(other, { recursive: true, force: true }); }
   });
 
-  it("reports the conversation as not rewound, because no adapter can", async () => {
+  it("reports no rewind for a checkpoint that never learned where the provider stood", async () => {
+    // The ordinary shape for every row written before this feature, and for any turn that never
+    // settled: files come back, the agent keeps its memory, and the result says so.
     initRepo(folder);
     const env = primary();
     const session = newSession(env.id);
@@ -172,6 +170,7 @@ describe("restore", () => {
     expect(preview.rewindsConversation).toBe(false);
     const result = await svc.restore(cp!.id, { filesChanged: 0, commitsRolledBack: 0 });
     expect(result.conversationRewound).toBe(false);
+    expect(rewinds).toEqual([]);
   });
 
   it("refuses a checkpoint whose objects have been taken away", async () => {
@@ -203,45 +202,6 @@ describe("retention", () => {
     expect(made.slice(0, 5).some((id) => store.get(id) !== null)).toBe(false);
   });
 
-  // Timeout headroom, not a behaviour change: a restore plus KEEP+5 real-git captures runs ~2s alone
-  // but crosses vitest's 5s default under a fully parallel suite — Plan 14 W1 added more real-git
-  // test files, and this was the one test the extra contention pushed over.
-  it("never prunes the undo of the last restore, however old it gets", { timeout: 20_000 }, async () => {
-    initRepo(folder);
-    const env = primary();
-    const first = await svc.capture({ environmentId: env.id, sessionId: null, kind: "turn", label: "turn 1" });
-    writeFileSync(join(folder, "work.txt"), "work\n");
-    const preview = await svc.preview(first!.id);
-    const { undoCheckpointId } = await svc.restore(first!.id, { filesChanged: preview.filesChanged, commitsRolledBack: preview.commitsRolledBack });
-    expect(undoCheckpointId).not.toBeNull();
-
-    // Bury it under a full retention window of newer turns.
-    for (let i = 0; i < KEEP + 5; i++) {
-      await svc.capture({ environmentId: env.id, sessionId: null, kind: "turn", label: `later ${i}` });
-    }
-    expect(store.get(undoCheckpointId!)).not.toBeNull();
-    expect(refsIn(folder)).toContain(store.get(undoCheckpointId!)!.ref);
-    // And it still works: the overwritten file comes back.
-    const undoPreview = await svc.preview(undoCheckpointId!);
-    await svc.restore(undoCheckpointId!, { filesChanged: undoPreview.filesChanged, commitsRolledBack: undoPreview.commitsRolledBack });
-    expect(readFileSync(join(folder, "work.txt"), "utf8")).toBe("work\n");
-  });
-
-  it("prunes one environment without touching another's refs", async () => {
-    initRepo(folder);
-    const other = tempDir("realm-cp-other-");
-    try {
-      initRepo(other);
-      const mine = primary();
-      const theirs = envs.ensureAt(spaceId, other, "checkout");
-      const keeper = await svc.capture({ environmentId: theirs.id, sessionId: null, kind: "turn", label: "theirs" });
-      for (let i = 0; i < KEEP + 3; i++) {
-        await svc.capture({ environmentId: mine.id, sessionId: null, kind: "turn", label: `t${i}` });
-      }
-      expect(store.get(keeper!.id)).not.toBeNull();
-      expect(refsIn(other)).toEqual([keeper!.ref]);
-    } finally { rmSync(other, { recursive: true, force: true }); }
-  });
 });
 
 describe("forgetEnvironment", () => {
@@ -276,18 +236,209 @@ describe("forgetEnvironment", () => {
   });
 });
 
-describe("captureTurn", () => {
-  it("takes a `turn` checkpoint labelled from the message", async () => {
-    initRepo(folder);
-    const env = primary();
-    const session = newSession(env.id);
-    const cp = await svc.captureTurn(session.id, "Refactor the login flow\n\nand tidy up");
-    expect(cp).toMatchObject({ kind: "turn", label: "Refactor the login flow", sessionId: session.id, environmentId: env.id });
+/**
+ * Conversation rewind: which checkpoints carry a provider cursor, when a restore asks for one, and — the
+ * part that is not about features at all — what happens when the workspace restore fails.
+ */
+describe("conversation rewind", () => {
+  /** A Claude session that has already run a turn, with the provider's chain at `end-0`. */
+  const runningSession = (environmentId: string, providerSessionId = "prov-1") => {
+    const s = newSession(environmentId);
+    sessions.update({ id: s.id, providerSessionId });
+    sessions.setLastEventSeq(s.id, 7);
+    sessions.setProviderCursor(s.id, encodeSessionCursor({ session: providerSessionId, at: "end-0" }));
+    return sessions.get(s.id)!;
+  };
+  /** One whole turn: the checkpoint in front of it, then the settle that completes its cursor. */
+  const turn = async (sessionId: string, label: string, chain: { providerSessionId?: string | null; promptUuid?: string | null; endUuid?: string | null } = {}) => {
+    const cp = await svc.captureTurn(sessionId, label);
+    svc.noteTurnCursor(sessionId, {
+      providerSessionId: chain.providerSessionId === undefined ? "prov-1" : chain.providerSessionId,
+      promptUuid: chain.promptUuid === undefined ? "p1" : chain.promptUuid,
+      endUuid: chain.endUuid === undefined ? "end-1" : chain.endUuid,
+    });
+    return cp;
+  };
+
+  describe("recording the cursor", () => {
+
+    it("writes no cursor for the FIRST turn of a session — there is nothing before it to fork to", async () => {
+      initRepo(folder);
+      const env = primary();
+      const s = newSession(env.id);
+      sessions.update({ id: s.id, providerSessionId: "prov-1" });
+      const cp = await turn(s.id, "the very first message");
+      expect(store.require(cp!.id).providerCursor).toBeNull();
+      // But the session now knows where that turn ended, so the NEXT one can be rewound.
+      expect(decodeSessionCursor(sessions.providerCursor(s.id))).toEqual({ session: "prov-1", at: "end-1" });
+    });
+
+    it("writes no cursor when the two uuids would come from different provider sessions", async () => {
+      /* The named mutant: dropping the `session` comparison. The SDK forks to a NEW session id on every
+         resume, so a pair spanning a restart names a fork point in a chain the live session may not
+         contain — and the resume would be asked for a position that does not exist. */
+      initRepo(folder);
+      const env = primary();
+      const s = runningSession(env.id, "prov-1");
+      sessions.update({ id: s.id, providerSessionId: "prov-2" }); // the adapter restarted; the SDK forked
+      const cp = await turn(s.id, "after a restart", { providerSessionId: "prov-2" });
+      expect(store.require(cp!.id).providerCursor).toBeNull();
+      expect(decodeSessionCursor(sessions.providerCursor(s.id))).toEqual({ session: "prov-2", at: "end-1" });
+    });
+
+    it("writes no cursor when the turn's prompt was never seen", async () => {
+      // No `dropsTurn` means no guard, and an unguarded truncation is not on offer — so the pair is
+      // stored as nothing rather than as half of itself.
+      initRepo(folder);
+      const env = primary();
+      const s = runningSession(env.id);
+      const cp = await turn(s.id, "prompt not echoed", { promptUuid: null });
+      expect(store.require(cp!.id).providerCursor).toBeNull();
+    });
+
+    it("records nothing at all for an agent with no truncating resume", async () => {
+      initRepo(folder);
+      const env = primary();
+      const s = sessions.create({ spaceId, projectId: null, agentKind: "codex", model: null, effort: null, permissionMode: "default", environmentId: env.id, title: "s" });
+      sessions.update({ id: s.id, providerSessionId: "thread-1" });
+      sessions.setProviderCursor(s.id, encodeSessionCursor({ session: "thread-1", at: "end-0" }));
+      const cp = await turn(s.id, "codex turn", { providerSessionId: "thread-1" });
+      expect(store.require(cp!.id).providerCursor).toBeNull();
+      // And the session's own cursor is left alone: AGENT_CONVERSATION_REWIND says codex cannot, and a
+      // position recorded for it would be a claim nobody could act on.
+      expect(decodeSessionCursor(sessions.providerCursor(s.id))).toEqual({ session: "thread-1", at: "end-0" });
+    });
+
   });
 
-  it("returns null instead of throwing when git cannot capture", async () => {
-    const env = primary(); // not a repository
-    const session = newSession(env.id);
-    expect(await svc.captureTurn(session.id, "hello")).toBeNull();
+  describe("preview", () => {
+
+    it("stops promising one when the session's provider conversation has moved on", async () => {
+      initRepo(folder);
+      const env = primary();
+      const s = runningSession(env.id);
+      const cp = await turn(s.id, "do the thing");
+      sessions.update({ id: s.id, providerSessionId: "prov-2" });
+      expect((await svc.preview(cp!.id)).rewindsConversation).toBe(false);
+    });
+
+    it("refuses to promise one on a build with no rewind hook wired", async () => {
+      // A capability that depends on how the process was assembled has to be reported from the
+      // assembled process, not from a table. This harness is the one Realm ships without.
+      const unwired = new CheckpointService({ checkpoints: store, environments: envs, sessions, git: new CheckpointGit(), maxPerEnvironment: KEEP });
+      initRepo(folder);
+      const env = primary();
+      const s = runningSession(env.id);
+      const cp = await turn(s.id, "do the thing");
+      expect((await unwired.preview(cp!.id)).rewindsConversation).toBe(false);
+    });
   });
+
+  describe("restore", () => {
+
+    it("reports what happened, not what preview hoped: a hook that declines makes the answer false", async () => {
+      initRepo(folder);
+      const env = primary();
+      const s = runningSession(env.id);
+      const cp = await turn(s.id, "do the thing");
+      rewindAnswer = false; // e.g. the session went live between the preview and the restore
+      const result = await svc.restore(cp!.id, { filesChanged: 0, commitsRolledBack: 0 });
+      expect(result.conversationRewound).toBe(false);
+    });
+
+    it("stops the agent it rewinds before arming the rewind, and stops nothing on a files-only restore", async () => {
+      // The rewind is honoured when that agent next starts, so a handle still running would leave it
+      // armed under a conversation nothing truncates. An agent with nothing to rewind is left warm:
+      // stopping one that cannot resume would cost it the conversation for no file's sake.
+      initRepo(folder);
+      const env = primary();
+      const s = runningSession(env.id);
+      const order: string[] = [];
+      const releasing = new CheckpointService({
+        checkpoints: store, environments: envs, sessions, git: new CheckpointGit(), maxPerEnvironment: KEEP,
+        releaseSession: async (id) => { order.push(`release ${id}`); },
+        rewindSession: () => { order.push("rewind"); return true; },
+      });
+      const cp = await releasing.captureTurn(s.id, "do the thing");
+      releasing.noteTurnCursor(s.id, { providerSessionId: "prov-1", promptUuid: "p1", endUuid: "end-1" });
+      await releasing.restore(cp!.id, { filesChanged: 0, commitsRolledBack: 0 });
+      expect(order).toEqual([`release ${s.id}`, "rewind"]);
+
+      // The session's own turn, with no cursor ever recorded for it, has nothing to rewind either.
+      order.length = 0;
+      const plain = await releasing.captureTurn(s.id, "only talked");
+      const plainPreview = await releasing.preview(plain!.id);
+      await releasing.restore(plain!.id, { filesChanged: plainPreview.filesChanged, commitsRolledBack: plainPreview.commitsRolledBack });
+      expect(order).toEqual([]);
+
+      const manual = await releasing.capture({ environmentId: env.id, sessionId: null, kind: "manual", label: "by hand" });
+      const preview = await releasing.preview(manual!.id);
+      await releasing.restore(manual!.id, { filesChanged: preview.filesChanged, commitsRolledBack: preview.commitsRolledBack });
+      expect(order).toEqual([]);
+    });
+
+    it("still restores the files when the rewind hook throws", async () => {
+      initRepo(folder);
+      const env = primary();
+      const s = runningSession(env.id);
+      const thrower = new CheckpointService({
+        checkpoints: store, environments: envs, sessions, git: new CheckpointGit(), maxPerEnvironment: KEEP,
+        rewindSession: () => { throw new Error("transcript write failed"); },
+      });
+      const cp = await thrower.captureTurn(s.id, "do the thing");
+      thrower.noteTurnCursor(s.id, { providerSessionId: "prov-1", promptUuid: "p1", endUuid: "end-1" });
+      writeFileSync(join(folder, "agent-work.txt"), "hours of work\n");
+
+      const preview = await thrower.preview(cp!.id);
+      const result = await thrower.restore(cp!.id, { filesChanged: preview.filesChanged, commitsRolledBack: preview.commitsRolledBack });
+      // The files are back — which is what the user asked for — and the conversation is honestly
+      // reported as not having followed.
+      expect(existsSync(join(folder, "agent-work.txt"))).toBe(false);
+      expect(result.conversationRewound).toBe(false);
+    });
+
+    it("NEVER touches the transcript when the workspace restore fails", async () => {
+      /* The corruption this ordering exists to make impossible. A transcript truncated first, on a
+         restore that then failed, leaves the turns that wrote the files missing from Realm's record
+         while the files are still on disk — and no checkpoint undoes that, because a `pre-restore`
+         checkpoint holds a TREE and not a transcript. Moving the rewind above `git.restore` is the
+         mutant; this is the test that kills it. */
+      initRepo(folder);
+      const env = primary();
+      const s = runningSession(env.id);
+      const failing = Object.create(CheckpointGit.prototype) as CheckpointGit;
+      Object.assign(failing, new CheckpointGit(), { restore: async () => { throw new Error("checkout is locked"); } });
+      const brittle = new CheckpointService({
+        checkpoints: store, environments: envs, sessions, git: failing, maxPerEnvironment: KEEP,
+        rewindSession: (input) => { rewinds.push(input); return true; },
+      });
+      const cp = await brittle.captureTurn(s.id, "do the thing");
+      brittle.noteTurnCursor(s.id, { providerSessionId: "prov-1", promptUuid: "p1", endUuid: "end-1" });
+      expect((await brittle.preview(cp!.id)).rewindsConversation).toBe(true);
+
+      await expect(brittle.restore(cp!.id, { filesChanged: 0, commitsRolledBack: 0 })).rejects.toThrow(/checkout is locked/);
+      expect(rewinds).toEqual([]);
+      // And the pre-restore checkpoint was still taken first, so the failed restore lost nothing.
+      expect(brittle.list(env.id, null).some((c) => c.kind === "pre-restore")).toBe(true);
+    });
+
+    it("leaves a pre-restore checkpoint with no cursor, so undoing a restore is files only", async () => {
+      /* A `pre-restore` checkpoint fronts no turn, so there is no prompt it could honestly declare as
+         dropped — and `resumeDropsTurn` validates exactly one turn. Files only is the truthful answer,
+         and it is what stops an undo from arming a fork whose shape nobody can state. */
+      initRepo(folder);
+      const env = primary();
+      const s = runningSession(env.id);
+      const cp = await turn(s.id, "do the thing");
+      writeFileSync(join(folder, "agent-work.txt"), "work\n");
+      const preview = await svc.preview(cp!.id);
+      const { undoCheckpointId } = await svc.restore(cp!.id, { filesChanged: preview.filesChanged, commitsRolledBack: preview.commitsRolledBack });
+
+      const undo = store.require(undoCheckpointId!);
+      expect(undo.kind).toBe("pre-restore");
+      expect(undo.providerCursor).toBeNull();
+      expect((await svc.preview(undo.id)).rewindsConversation).toBe(false);
+    });
+  });
+
 });

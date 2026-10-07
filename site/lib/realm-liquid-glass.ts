@@ -1,5 +1,7 @@
 import { clock, effect, frame, frameLoop, init, sampler, surface, target, type Target } from "vgpu"
 
+import { DOOR, MARK_CENTER, WALLS } from "./mark"
+
 /**
  * vGPU's liquid-glass example (vgpu.sh/examples/typegpu-liquid-glass) with Realm's mark as the
  * refractive field and Realm's palette as the light. The passes and the maths are the example's,
@@ -13,23 +15,8 @@ import { clock, effect, frame, frameLoop, init, sampler, surface, target, type T
 
 const FIELD_SIZE = 1024
 
-/**
- * The faces of public/realm-mark.svg, flattened to polygons (each rounded corner became three
- * points). The mark's viewBox is 40 × 48, so these are in that space; the union of the six is the
- * mark's field, and their shared edges are where the glass changes facet.
- */
-const FACES: readonly (readonly [number, number][])[] = [
-  [[9.725, 41.798], [28.221, 41.798], [29.444, 41.582], [30.504, 40.969], [31.303, 40.018], [35.413, 32.899], [14.865, 32.899]],
-  [[25.145, 15.101], [4.588, 15.101], [8.698, 7.982], [9.497, 7.032], [10.558, 6.419], [11.781, 6.203], [30.277, 6.203]],
-  [[39.527, 25.78], [39.951, 24.612], [39.951, 23.388], [39.527, 22.221], [35.417, 15.101], [30.279, 24], [9.729, 24], [14.866, 32.899], [35.414, 32.899]],
-  [[14.863, 32.899], [9.726, 24], [4.588, 32.899], [9.726, 41.798]],
-  [[25.145, 15.101], [4.589, 15.101], [0.48, 22.221], [0.057, 23.388], [0.057, 24.612], [0.481, 25.78], [4.592, 32.899], [9.73, 24], [30.28, 24]],
-  [[35.418, 15.101], [30.28, 6.203], [25.143, 15.101], [30.28, 24]],
-]
-
 /** Mark units per unit of field space; 20 puts the 40-wide mark exactly across the field's -1..1. */
 const MARK_SCALE = 20
-const MARK_CENTER: readonly [number, number] = [20, 24]
 
 /** Realm's tokens as the shader sees them. sRGB-encoded, since the surface is not an sRGB view. */
 const PAGE = [0.0906, 0.0943, 0.1017] as const
@@ -73,12 +60,16 @@ fn face${index}(p: vec2f) -> f32 {
 }
 
 const sdfBakeShader = /* wgsl */ `
-${FACES.map((vertices, index) => faceSdf(index, vertices)).join("\n")}
+${WALLS.map((vertices, index) => faceSdf(index, vertices)).join("\n")}
+${faceSdf(WALLS.length, DOOR)}
 
 fn logoSdf(point: vec2f) -> f32 {
   let p = point * ${MARK_SCALE}.0 + vec2f(${MARK_CENTER[0]}.0, ${MARK_CENTER[1]}.0);
   var distance = face0(p);
-  ${FACES.slice(1).map((_, index) => `distance = min(distance, face${index + 1}(p));`).join("\n  ")}
+  ${WALLS.slice(1).map((_, index) => `distance = min(distance, face${index + 1}(p));`).join("\n  ")}
+  // The doorway is knocked out of the field, as the flat mark knocks it out of the silhouette, so the
+  // light bends round the opening rather than across it.
+  distance = max(distance, -face${WALLS.length}(p));
   return distance / ${MARK_SCALE}.0;
 }
 

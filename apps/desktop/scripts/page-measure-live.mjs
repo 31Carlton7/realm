@@ -2,7 +2,7 @@
  * Live check for the page panes' measure (run with: node apps/desktop/scripts/page-measure-live.mjs)
  *
  * Boots the REAL app on a scratch REALM_HOME and measures where a page's parts actually land: the
- * head's glyph, the rail, the reading column, and the notifications split, at pane widths from 340
+ * head's glyph, the rail and the reading column, at pane widths from 340
  * to ~1500. Alignment is the one property jsdom cannot hold an opinion about — it has no layout, so
  * `max-width` and `margin-inline: auto` are to it just two declarations that parse.
  *
@@ -22,6 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9347), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8913);
@@ -30,7 +31,7 @@ let electron = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Window widths. The sidebar takes 280 of each, so the pane sweeps ~340…~1520 — across the 640px
- *  narrow breakpoint, the notifications page's 760, and both sides of every measure. */
+ *  narrow breakpoint and both sides of every measure. */
 const WIDTHS = [1800, 1400, 1200, 1000, 860, 700, 620];
 
 /** `scrollbar-color`'s second value is the track. Chromium serialises the computed value, so the
@@ -53,6 +54,26 @@ async function until(fn, ms, tag) {
     if (Date.now() - t0 > ms) throw new Error(`timeout:${tag}`);
     await sleep(150);
   }
+}
+
+/**
+ * Pick a command-palette row by its label — the Theme and Palette rows moved there from the header's
+ * ⋯ with Plan 27. Driven from here in short synchronous steps rather than as one awaited page promise:
+ * the palette's first opening in a fresh window lost such a promise mid-wait ("Promise was collected"),
+ * and a step that answers at once has nothing to lose. Throws when the row is not offered, after
+ * putting the palette away, as the menu it replaced closed on a miss.
+ */
+async function paletteRow(c, label) {
+  await evalIn(c, `(() => { if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector(".palette input")`), 5000, "the palette");
+  await evalIn(c, `(() => { const input = document.querySelector(".palette input");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(label)});
+    input.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+  const picked = await until(() => evalIn(c, `(() => { const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((o) => o.querySelector(".palette-label")?.textContent.trim() === ${JSON.stringify(label)});
+    if (!hit) return null; hit.click(); return true; })()`), 2000, `palette row ${label}`).catch(() => false);
+  if (picked) return true;
+  await evalIn(c, `(() => { document.querySelector(".palette input")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return true; })()`);
+  throw new Error(`no palette row: ${label}`);
 }
 
 function cdp(wsUrl) {
@@ -79,8 +100,8 @@ function cdp(wsUrl) {
   };
 }
 
-function rpc(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   const ready = new Promise((res) => ws.addEventListener("open", res));
@@ -101,11 +122,29 @@ function rpc(port) {
 
 const HELPERS = `
 window.__live = window.__live ?? {
-  /** Click a sidebar destination by its label, and wait for its page to be the one on screen. */
+  /** Click a rail destination by its label (Agents is the rail's Home), and wait for its page to be
+   *  the one on screen. */
   async destination(label) {
-    const row = [...document.querySelectorAll('.sb-destinations .dest-row')].find((b) => b.textContent.trim().startsWith(label));
-    if (!row) throw new Error('no destination: ' + label);
-    row.click();
+    if (label === "Settings") {
+      // Behind the rail's avatar menu, which is the system's: the palette's "Open settings" instead.
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+      for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await new Promise((r) => setTimeout(r, 25));
+      const input = document.querySelector(".palette input");
+      if (!input) throw new Error('no palette');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "settings");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      let hit = null;
+      for (let i = 0; i < 40 && !hit; i++) {
+        hit = [...document.querySelectorAll(".palette-list [role=option]")].find((b) => /open settings/i.test(b.textContent)) ?? null;
+        if (!hit) await new Promise((r) => setTimeout(r, 25));
+      }
+      if (!hit) throw new Error('no destination: Settings');
+      hit.click();
+    } else {
+      const row = [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith(label));
+      if (!row) throw new Error('no destination: ' + label);
+      row.click();
+    }
     for (let i = 0; i < 60; i++) {
       if (document.querySelector('.page')) return true;
       await new Promise((r) => setTimeout(r, 25));
@@ -128,14 +167,6 @@ window.__live = window.__live ?? {
       await new Promise((r) => setTimeout(r, 25));
     }
     throw new Error('no palette entry: ' + label);
-  },
-  async menu(label) {
-    document.querySelector('[aria-label="Space menu"]').click();
-    for (let i = 0; i < 40 && !document.querySelector('[role="menu"]'); i++) await new Promise((r) => setTimeout(r, 25));
-    const hit = [...document.querySelectorAll('[role="menu"] button')].find((b) => b.textContent.trim() === label);
-    if (!hit) { document.querySelector('[role="menu"]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); throw new Error('no menu item: ' + label); }
-    hit.click();
-    return true;
   },
   box(e) { if (!e) return null; const r = e.getBoundingClientRect();
     return { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; },
@@ -184,28 +215,29 @@ window.__live = window.__live ?? {
       ? { l: Math.min(headSpan.l, bodySpan.l), r: Math.max(headSpan.r, bodySpan.r) } : null;
     return {
       page: p, head: this.box(head), body: this.box(body), headSpan, bodySpan,
-      rail: q('.page-rail'), content: q('.page-content'), split: q('.notif-split'), chips: this.span(page.querySelector('.profile-spaces')),
-      list: q('.notif-list'), detail: q('.notif-detail'), lens: q('.task-lens'), lensDetail: q('.task-detail'),
+      rail: q('.page-rail'), content: q('.page-content'), chips: this.span(page.querySelector('.profile-spaces')),
+      lens: q('.task-lens'), lensDetail: q('.task-detail'),
       gaps: band ? { left: band.l - p.l, right: p.r - band.r } : null,
     };
   },
-  /** The rail against the scroll bands, with the column scrolled far enough that both bands are on.
+  /** The rail against the dissolve, with the column scrolled far enough that both ends are live.
    *
-   *  The bands are pointer-transparent chrome painted with a backdrop filter, so nothing about them
-   *  can be asserted except where they are: a band that overlaps the rail IS the rail rendered
-   *  through a blur, which is what a screenshot showed and no jsdom test can. */
+   *  The dissolve is a mask on the column, so what there is to check is which ELEMENT carries it: a
+   *  mask on anything that also holds the rail is the rail dissolving with the content, which is
+   *  what a screenshot showed when the effect was two bands hung off .page-body. Masks do not
+   *  overlap things — they belong to a box — so this reports the boxes rather than an intersection. */
   async railUnderFade() {
     const content = document.querySelector('.page-content');
     const rail = document.querySelector('.page-rail');
     if (!content || !rail) return null;
     content.scrollTop = 200;
     await new Promise((r) => setTimeout(r, 300));
-    const rr = rail.getBoundingClientRect();
-    const on = [...document.querySelectorAll('.edge-fade')].filter((b) => b.hasAttribute('data-on'));
-    const over = on.map((b) => b.getBoundingClientRect())
-      .filter((r) => r.left < rr.right && r.right > rr.left && r.top < rr.bottom && r.bottom > rr.top)
-      .map((r) => this.box({ getBoundingClientRect: () => r }));
-    return { scrolled: Math.round(content.scrollTop), on: on.length, over, rail: this.box(rail) };
+    const masked = [...document.querySelectorAll('.page-scroll, .page-body, .page-rail, .page-content')]
+      .filter((el) => getComputedStyle(el).maskImage !== 'none');
+    const ends = (content.dataset.dissolve ?? '').split(' ').filter(Boolean);
+    return { scrolled: Math.round(content.scrollTop), on: ends.length,
+             over: masked.filter((el) => el !== content).map((el) => el.className),
+             rail: this.box(rail) };
   },
   /** Any CSS colour as the sRGB triple the compositor will paint, via the compositor itself. */
   srgb(color) {
@@ -222,6 +254,8 @@ window.__live = window.__live ?? {
     const r = e.getBoundingClientRect();
     return { sel, gutter: e.offsetWidth - e.clientWidth, overflow: e.scrollHeight - e.clientHeight,
       scrollTop: e.scrollTop, width: cs.scrollbarWidth, color: cs.scrollbarColor,
+      overlay: document.documentElement.hasAttribute('data-overlay-scrollbars'),
+      dissolve: e.hasAttribute('data-dissolve') || e.hasAttribute('data-dissolve-x'),
       box: { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom) } };
   },
   /** Pixels down the gutter of a scroller, each PAIRED with the page's own ground at the same y.
@@ -234,9 +268,9 @@ window.__live = window.__live ?? {
    *
    *  The reference is therefore read at the SAME y, at the nearest x outside the scroller that the
    *  page shows through: seeThrough walks up from the hit element and takes the point only if
-   *  nothing between it and .page paints a background of its own. .page-body and .notif-detail are
-   *  both transparent, so a usable reference is usually a few pixels away and the wash's own drift
-   *  between the two columns stays inside a unit. */
+   *  nothing between it and .page paints a background of its own. .page-body is transparent, so a
+   *  usable reference is usually a few pixels away and the wash's own drift between the two columns
+   *  stays inside a unit. */
   async gutterPixels(b64, box, gutter, sel) {
     const img = new Image();
     img.src = 'data:image/png;base64,' + b64;
@@ -360,8 +394,7 @@ async function sweep(c, label, tag) {
     console.log(`  pane ${String(r.page.w).padStart(4)}  gaps L${String(r.gaps?.left ?? "-").padStart(4)} R${String(r.gaps?.right ?? "-").padStart(4)}` +
       `  head[${r.headSpan?.l},${r.headSpan?.r}] body[${r.bodySpan?.l},${r.bodySpan?.r}]` +
       (r.rail ? `  rail w${r.rail.w}@${r.rail.l}` : "") +
-      (r.content ? `  content w${r.content.w}@${r.content.l}` : "") +
-      (r.list ? `  list w${r.list.w}@${r.list.l} detail w${r.detail?.w}@${r.detail?.l}` : ""));
+      (r.content ? `  content w${r.content.w}@${r.content.l}` : ""));
   }
   if (tag) {
     await c.send("Emulation.setDeviceMetricsOverride", { width: WIDTHS[0], height: 900, deviceScaleFactor: 1, mobile: false });
@@ -389,7 +422,7 @@ async function main() {
     env: {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),
-      REALM_ENABLE_FAKE_AGENT: "1",
+      REALM_ENABLE_FAKE_AGENT: "1", REALM_HTML_MENUS: "1",
       REALM_PORT: String(SERVER_PORT),
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
@@ -419,26 +452,15 @@ async function main() {
     return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 20000, "composer");
 
-  /* A feed with rows in it. `session_done` is the notification a finished turn raises, and the fake
-     agent finishes one immediately — the page's empty state would measure a single paragraph and
-     say nothing about the split. */
-  const api = rpc(SERVER_PORT);
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const first = (await until(async () => {
     const all = await api.call("sessions.listAll", {});
     return all.length ? all : null;
   }, 15000, "a session"))[0];
-  const spaceId = first.spaceId;
-  const TITLES = ["Rename the pane group", "Port the importer", "Trim the transcript", "Fix the diff gutter",
-    "Teach the rail to wrap", "Drop the dead migration", "Seed the scratch repo", "Re-probe the engines",
-    "Widen the commit field", "Collapse the sidebar"];
-  for (const title of TITLES) {
-    const made = await api.call("sessions.create", { spaceId, agentKind: "fake", title });
-    await api.call("sessions.send", { id: made.session.id, text: "hello", attachments: [], mentions: [] });
-  }
   await api.call("sessions.setAgent", { id: first.id, agentKind: "fake" });
   await api.call("sessions.send", { id: first.id, text: "hello", attachments: [], mentions: [] });
-  await until(() => evalIn(c, `!!document.querySelector('.sb-destinations')`), 10000, "the sidebar");
+  await until(() => evalIn(c, `!!document.querySelector('.app-rail .rail-btn')`), 10000, "the rail");
   await sleep(2500);
 
   /* ── Settings: rail + reading column ─────────────────────────────────────────────────────── */
@@ -462,50 +484,31 @@ async function main() {
     wide.map((r) => ({ pane: r.page.w, head: r.headSpan.l, column: text(r) })));
   check("settings: the reading column keeps its 720px measure at every width",
     settings.every((r) => r.content.w - BLEED * 2 <= 720), settings.map((r) => ({ pane: r.page.w, content: r.content.w - BLEED * 2 })));
-  check("settings: the rail stays beside the column at the body's own 20px gap",
-    settings.filter((r) => r.page.w > 640).every((r) => text(r) - r.rail.r === 20),
-    settings.map((r) => ({ pane: r.page.w, gap: text(r) - r.rail.r })));
+  /* Over the panes, Settings' sections are in the sidebar's column (page-nav.tsx), so the page has no
+     rail of its own to keep beside the column — at any width. */
+  const railHome = await evalIn(c, `({ inSidebar: !!document.querySelector('.sb-page-nav .settings-rail'), inPage: !!document.querySelector('.page-overlay .page-rail') })`);
+  check("settings: its sections are in the sidebar's column, and the page has no rail beside its own",
+    railHome.inSidebar && !railHome.inPage && settings.every((r) => r.rail === null), { ...railHome, rails: settings.map((r) => r.rail) });
   const narrow = settings.filter((r) => r.page.w <= 640);
   check("settings: a narrow pane is spent on content, not on margins — the column stays full-bleed",
     narrow.length > 0 && narrow.every((r) => r.gaps.left <= 16),
     narrow.map((r) => ({ pane: r.page.w, l: r.gaps.left })));
 
-  /* The bands, against the rail they must never be drawn over. The App tab, because it is the
-     longest — a tab that does not overflow has no bands to judge. */
+  /* The bands, against the rail they must never be drawn over. General, because it is the
+     longest — a page that does not overflow has no bands to judge. */
   const fades = [];
   for (const width of WIDTHS) {
     await c.send("Emulation.setDeviceMetricsOverride", { width, height: 700, deviceScaleFactor: 1, mobile: false });
     await sleep(250);
-    await evalIn(c, `__live.settingsTab("App")`);
+    await evalIn(c, `__live.settingsTab("General")`);
     await sleep(200);
     fades.push({ width, ...(await evalIn(c, `__live.railUnderFade()`)) });
   }
-  console.log("\n── Settings: the scroll bands against the rail ──────────────────");
-  for (const f of fades) console.log(`  window ${String(f.width).padStart(4)}  bands on ${f.on}  over the rail ${f.over.length}  rail ${JSON.stringify(f.rail)}`);
-  check("settings: a scrolled column dissolves at its ends and the rail is never under a band",
+  console.log("\n── Settings: the dissolve against the rail ─────────────────────");
+  for (const f of fades) console.log(`  window ${String(f.width).padStart(4)}  ends live ${f.on}  other masked boxes ${f.over.length}  rail ${JSON.stringify(f.rail)}`);
+  check("settings: a scrolled column dissolves at its ends and nothing but the column is masked",
     fades.every((f) => f.on > 0 && f.over.length === 0), fades.map((f) => ({ width: f.width, on: f.on, over: f.over })));
   await evalIn(c, `__live.settingsTab("Engines")`);
-
-  /* ── Notifications: a two-column split, not a form ───────────────────────────────────────── */
-  await evalIn(c, `__live.destination('Notifications')`);
-  await sleep(500);
-  const notifs = await sweep(c, "Notifications", "wide-notifications");
-  /* The feed is a COLUMN now, not a list beside a detail panel: it opted out of the shared measure
-     upward, to a two-column page whose right half stood empty until something was selected. So what
-     has to hold is what holds for every other page — one column, the shared measure, centred with
-     the head that names it. (These three checks were written against the split and could not go
-     green after it went; `.notif-detail` has not existed since Plan 12's reading-column pass.) */
-  check("notifications: the feed is the shared reading column, at the same measure as every other page",
-    notifs.every((r) => r.content && r.content.w - 8 <= 720),
-    notifs.map((r) => ({ pane: r.page.w, content: r.content?.w })));
-  const nWide = notifs.filter((r) => r.page.w >= 1200);
-  check("notifications: the column is centred as one unit with its head",
-    nWide.length > 0 && nWide.every((r) => Math.abs(r.gaps.left - r.gaps.right) <= 1),
-    nWide.map((r) => ({ pane: r.page.w, l: r.gaps.left, r: r.gaps.right })));
-  const nStack = notifs.filter((r) => r.page.w <= 640);
-  check("notifications: a narrow pane is spent on the feed, not on margins",
-    nStack.length > 0 && nStack.every((r) => r.gaps.left <= 24),
-    nStack.map((r) => ({ pane: r.page.w, l: r.gaps.left })));
 
   /* ── The other three shapes on the same shell ────────────────────────────────────────────── */
   await evalIn(c, `__live.destination('Connections')`);
@@ -519,12 +522,11 @@ async function main() {
   await until(() => evalIn(c, `!!document.querySelector('.profile-page-pane')`), 10000, "the profile page");
   await sleep(500);
   const profile = await sweep(c, "Profile", "wide-profile");
-  /* Within the column's 4px focus-ring bleed: narrow, the band's leftmost child IS the scrolling
-     column, whose border box starts 4px early. The tolerance is still an order of magnitude under
-     the gutter this catches — chips at the pane's edge are 24px out. */
-  check("profile: the space chips share the column, rather than starting at the pane's edge",
-    profile.every((r) => Math.abs(r.chips.l - r.bodySpan.l) <= BLEED),
-    profile.map((r) => ({ pane: r.page.w, chips: r.chips?.l, body: r.bodySpan?.l })));
+  /* The profile's spaces were a band of chips over the column, and this measured that they shared
+     it. They are a list in the page's rail now (480b2e56), where the rail's own measures above reach
+     them; what is left to say here is that the band is gone and the list is in the rail. */
+  const spacesAt = await evalIn(c, `({ inRail: !!document.querySelector('.page-rail [aria-label^="Spaces of"]'), band: !!document.querySelector('.profile-page-pane .profile-spaces') })`);
+  check("profile: its spaces are a list in the rail, not a band of chips over the column", spacesAt.inRail && !spacesAt.band, { ...spacesAt, widths: profile.length });
 
   await evalIn(c, `__live.palette('Open space')`);
   await until(() => evalIn(c, `!!document.querySelector('.space-page-pane')`), 10000, "the space page");
@@ -546,12 +548,12 @@ async function main() {
 
   await evalIn(c, `__live.destination('Settings')`);
   await sleep(500);
-  /* ── Settings → App: the Appearance controls, against the other tabs ─────────────────────────
+  /* ── Settings → Appearance, against the other pages ─────────────────────────────────────────
      "Fix the padding here" reads most naturally as Appearance disagreeing with the tabs above it,
      so the gutters are measured on every tab rather than on the one that was complained about — a
      number from Appearance alone cannot tell an inconsistency from a taste. The App tab is also the
      only one whose content is a GRID of cards, which is the thing that escapes a measure first. */
-  const SETTINGS_TABS = ["Engines", "Usage", "App", "Sign-ins", "Import", "Permissions"];
+  const SETTINGS_TABS = ["General", "Appearance", "Keys", "Notifications", "Engines", "Usage", "Sign-ins", "Permissions", "Import"];
   const perTab = [];
   for (const width of WIDTHS) {
     await c.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -583,11 +585,11 @@ async function main() {
   for (const width of WIDTHS) {
     await c.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
     await sleep(250);
-    await evalIn(c, `__live.settingsTab("App")`);
+    await evalIn(c, `__live.settingsTab("Appearance")`);
     await sleep(200);
     appearance.push({ width, ...(await evalIn(c, `__live.appearance()`)) });
   }
-  console.log("\n── Settings → App: the theme grids ──────────────────────────────");
+  console.log("\n── Settings → Appearance: the theme grids ───────────────────────");
   for (const a of appearance) {
     console.log(`  window ${String(a.width).padStart(4)}  column w${a.content.w}@${a.content.l}  ` +
       a.grids.map((g) => `${g.sel} ${g.cards.n}×${g.cards.min}–${g.cards.max}@[${g.cards.l},${g.cards.r}]`).join("  "));
@@ -596,8 +598,10 @@ async function main() {
     appearance.every((a) => a.grids.every((g) => g.cards.l >= a.content.l - 1 && g.cards.r <= a.content.r + 1)),
     appearance.map((a) => ({ width: a.width, col: [a.content.l, a.content.r],
       grids: a.grids.map((g) => [g.cards.l, g.cards.r]) })));
-  check("appearance: nothing in the App tab scrolls sideways at any width",
-    appearance.every((a) => a.overflowX <= 0 && a.grids.every((g) => g.overflowX <= 0)),
+  /* At any width a window can be: main's minWidth is 900, and the rail and the sidebar take a third
+     of that, so the sweep's two narrowest widths measure a page no window can show. */
+  check("appearance: nothing in the App tab scrolls sideways at any width a window can be",
+    appearance.filter((a) => a.width >= 900).every((a) => a.overflowX <= 0 && a.grids.every((g) => g.overflowX <= 0)),
     appearance.map((a) => ({ width: a.width, content: a.overflowX, grids: a.grids.map((g) => g.overflowX) })));
 
   // Back to the widest and to the tab the page opens on, the way `sweep` leaves it. The App tab is
@@ -608,30 +612,25 @@ async function main() {
   await sleep(300);
 
   /* ── Scrollbars, in both modes, on a scroller that is actually overflowing ───────────────── */
+  /* On a Mac whose system draws OVERLAY bars, Realm's styling stands down (App.tsx,
+     overlayScrollbars) and the bar is the system's — both properties stay at auto. A scroller that
+     dissolves at its ends hands both back too, on any Mac: its bar is the ::-webkit-scrollbar one,
+     whose track margins keep the thumb out of the fade, and the pixel read of the gutter below is what
+     judges it. Everywhere else the bar is Realm's thin line with a transparent track. */
+  const barAsDesigned = (x) => (x.overlay || x.dissolve ? x.color === "auto" && x.width === "auto" : TRACKLESS.test(x.color) && x.width === "thin");
   await evalIn(c, `__live.destination('Settings')`);
   await sleep(400);
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1400, height: 620, deviceScaleFactor: 1, mobile: false });
   await sleep(400);
   for (const mode of ["Dark", "Light"]) {
-    await evalIn(c, `__live.menu(${JSON.stringify(`Theme: ${mode}`)})`);
+    await paletteRow(c, `Theme: ${mode}`);
     await sleep(500);
     const s = await evalIn(c, `__live.scroller('.page-content')`);
     check(`${mode.toLowerCase()}: the settings column is genuinely overflowing, so there is a bar to judge`,
       s && s.overflow > 40, s);
-    check(`${mode.toLowerCase()}: the track is transparent — the thumb is the only thing the bar paints`,
-      TRACKLESS.test(s.color) && s.width === "thin", { color: s.color, width: s.width, gutter: s.gutter });
+    check(`${mode.toLowerCase()}: the bar is the one designed for this scroller — the system's, the dissolve's, or a thin line with no track`,
+      barAsDesigned(s), { overlay: s.overlay, dissolve: s.dissolve, color: s.color, width: s.width, gutter: s.gutter });
     await gutter(c, mode, s, await shot(c, `settings-${mode.toLowerCase()}`));
-
-    await evalIn(c, `__live.destination('Notifications')`);
-    await sleep(400);
-    // `.notif-feed`, not `.notif-list`: the feed is one scrolling column now, not a list beside a
-    // detail panel.
-    const n = await evalIn(c, `__live.scroller('.notif-feed')`);
-    check(`${mode.toLowerCase()}: the notifications feed is overflowing too, and its bar is the same thin one`,
-      n && n.overflow > 40 && TRACKLESS.test(n.color) && n.width === "thin", n);
-    await gutter(c, mode, n, await shot(c, `notifications-${mode.toLowerCase()}`));
-    await evalIn(c, `__live.destination('Settings')`);
-    await sleep(300);
   }
 
   const errs = c.events.filter((e) => !e.includes("Autofill"));

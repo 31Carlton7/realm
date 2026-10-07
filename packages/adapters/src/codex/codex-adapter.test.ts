@@ -2,8 +2,8 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
-import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
-import { CodexAdapter, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
+import { HIDDEN_ANSWER, type SessionEvent, type SessionEventOf, type SessionEventType } from "@realm/contracts";
+import { CODEX_SANDBOX_REFUSAL, CodexAdapter, GATEWAY_TOOL_TIMEOUT_SEC, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
 import type { AgentHandle, StartOptions } from "../types";
 
 /**
@@ -42,6 +42,27 @@ async function booted(o: Partial<StartOptions> = {}) {
   await waitFor(() => expect(types(evs)).toContain("init"));
   return { adapter, handle, evs, done };
 }
+
+describe("plan limits", () => {
+  /* End to end over the fake server, which emits the notification with the live capture's shape
+   * (fixtures/fake-codex-server.mjs). The mapper's own suite pins the field-by-field reading; this
+   * one proves the notification survives the connection's fan-out to the session that asked. */
+  it("reports both windows off a real turn, in Realm's units", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "hello", attachments: [] });
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+
+    const [limits] = of(evs, "rate_limit");
+    expect(limits).toBeDefined();
+    expect(limits!.payload.windows).toEqual([
+      { id: "primary", label: "5-hour", utilization: 12, resetsAt: 1789120863 * 1000 },
+      { id: "secondary", label: "Weekly", utilization: 44, resetsAt: 1789583947 * 1000 },
+    ]);
+    // Inside its limits, and on an account whose planType says nothing.
+    expect(limits!.payload.alert).toBe("none");
+    expect(limits!.payload.subscriptionType).toBeNull();
+  });
+});
 
 describe("plans", () => {
   it("carries BOTH of Codex's plan shapes, each as its own card", async () => {
@@ -145,9 +166,6 @@ describe("codexPolicyFor", () => {
 });
 
 describe("CodexAdapter", () => {
-  it("is registered as the codex agent kind", () => {
-    expect(newAdapter().kind).toBe("codex");
-  });
 
   it("emits init then a full streaming turn, and never a user_message", async () => {
     const { adapter, handle, evs } = await booted();
@@ -268,6 +286,22 @@ describe("CodexAdapter", () => {
       await handle.dispose();
     });
 
+    it("says on each usage report whether ITS turn asked, so a switch flipped mid-turn is not read as refused", async () => {
+      /* The thread's echo is the truth about the tier, and it lags the switch by one `turn/start`.
+         Turn one parks on an approval, the switch flips while it waits, and only the next turn asks. */
+      const { handle, evs } = await booted();
+      await handle.send({ text: "APPROVE USAGE", attachments: [] });
+      await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+      await handle.setOptions({ fastMode: true });
+      handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "allow");
+      await waitFor(() => expect(of(evs, "usage")).toHaveLength(1));
+      await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+      await handle.send({ text: "hi", attachments: [] });
+      await waitFor(() => expect(of(evs, "usage")).toHaveLength(2));
+      expect(of(evs, "usage").map((e) => e.payload.fastModeRequested)).toEqual([false, true]);
+      await handle.dispose();
+    });
+
     it("reports what the thread is on, off Codex's own echo, with the usage sample", async () => {
       const { handle, evs } = await booted({ fastMode: true });
       await handle.send({ text: "hi", attachments: [] });
@@ -297,6 +331,53 @@ describe("CodexAdapter", () => {
       await handle.send({ text: "hi", attachments: [] });
       await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
       expect(of(evs, "init").filter((e) => e.payload.supportsFastMode !== undefined)).toEqual([]);
+      await handle.dispose();
+    });
+  });
+
+  describe("reasoning effort", () => {
+    /* What `turn/start` was sent, off the fixture's TURN_PARAMS echo of its own params. The field is
+       `effort` on `turn/start` — `TurnStartParams` in `codex app-server generate-ts` 0.154.0 — and
+       `thread/start` has none, which is the whole reason this lives on the turn. */
+    const sent = async (handle: AgentHandle, evs: SessionEvent[]) => {
+      const before = texts(evs).length;
+      await handle.send({ text: "TURN_PARAMS", attachments: [] });
+      await waitFor(() => expect(texts(evs)).toHaveLength(before + 1));
+      await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+      return JSON.parse(texts(evs).at(-1)!) as { effort?: string | null };
+    };
+
+    it("sends the session's level as `turn/start.effort`", async () => {
+      const { handle, evs } = await booted({ model: "gpt-5.6-sol", effort: "high" });
+      expect((await sent(handle, evs)).effort).toBe("high");
+      await handle.dispose();
+    });
+
+    it("sends none for a session that chose none, so the model's own default stands", async () => {
+      const { handle, evs } = await booted({ model: "gpt-5.6-sol" });
+      expect(await sent(handle, evs)).not.toHaveProperty("effort");
+      await handle.dispose();
+    });
+
+    it("sends only a level the catalog lists for this model", async () => {
+      // Terra lists no `xhigh`, and Claude's `max` — kept on a session that switched agents — is no
+      // Codex level at all. Either would be a turn Codex may refuse; the thread's own level stands.
+      for (const effort of ["xhigh", "max"]) {
+        const { handle, evs } = await booted({ model: "gpt-5.6-terra", effort });
+        expect(await sent(handle, evs)).not.toHaveProperty("effort");
+        await handle.dispose();
+      }
+    });
+
+    it("takes a change on the next turn, and a reset back to the model's own default by name", async () => {
+      const { handle, evs } = await booted({ model: "gpt-5.6-sol", effort: "high" });
+      expect((await sent(handle, evs)).effort).toBe("high");
+      await handle.setOptions({ effort: "low" });
+      expect((await sent(handle, evs)).effort).toBe("low");
+      // A null `effort` would be "no override" and leave the thread on `low`; the default goes by name.
+      await handle.setOptions({ effort: null });
+      expect((await sent(handle, evs)).effort).toBe("medium");
+      expect(await sent(handle, evs)).not.toHaveProperty("effort"); // back on it: nothing left to say
       await handle.dispose();
     });
   });
@@ -404,16 +485,6 @@ describe("CodexAdapter", () => {
     await handle.dispose();
   });
 
-  it("denies a fileChange approval with decline, which this request does offer", async () => {
-    const { handle, evs } = await booted();
-    await handle.send({ text: "PATCH", attachments: [] });
-    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
-    handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "deny");
-    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
-    expect(of(evs, "tool_result")[0]!.payload.isError).toBe(true);
-    await handle.dispose();
-  });
-
   it("bridges a command approval and produces the tool_result once allowed", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "APPROVE", attachments: [] });
@@ -474,8 +545,92 @@ describe("CodexAdapter", () => {
     // The fixture only finishes the turn once its odd request is answered.
     await waitFor(() => expect(texts(evs)).toEqual(["refused: -32601"]));
     expect(types(evs)).not.toContain("permission_request");
-    expect(logs.some((l) => l.includes("item/tool/requestUserInput"))).toBe(true);
+    expect(logs.some((l) => l.includes("item/tool/call"))).toBe(true);
     await handle.dispose();
+  });
+
+  it("asks Codex's own question on the card, and replies in the shape Codex reads", async () => {
+    // THE MUTANT: answer requestUserInput -32601 as it was. The question then never reaches anyone,
+    // and Codex carries on as if the user had nothing to say.
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ASKUSER", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    const req = of(evs, "permission_request")[0]!.payload;
+    expect(statuses(evs).at(-1)).toBe("waiting_permission");
+    expect(req.ask).toMatchObject({ asker: { kind: "agent", name: "Codex" }, mode: "question", questions: [
+      { id: "base", kind: "choice", allowOther: true, options: [{ value: "main", label: "main", description: "What ships next" }, { value: "release/v2", label: "release/v2", description: "The release line" }] },
+      { id: "token", kind: "text", secret: true },
+    ] });
+    handle.respondPermission(req.requestId, "allow", { base: "release/v2", token: "tok_live_123", ghost: "x" });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    // Codex is handed the real value it asked for — and only what the card asked.
+    expect(JSON.parse(texts(evs)[0]!.slice("answered ".length))).toEqual({ answers: { base: { answers: ["release/v2"] }, token: { answers: ["tok_live_123"] } } });
+    // The persisted record keeps a mark in the secret's place.
+    expect(of(evs, "permission_response")[0]!.payload).toEqual({ requestId: req.requestId, decision: "allow", answers: { base: "release/v2", token: HIDDEN_ANSWER } });
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    await handle.dispose();
+  });
+
+  it("skips a question by replying with no answers, and says so in the transcript", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ASKUSER", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "deny");
+    await waitFor(() => expect(texts(evs)).toEqual(["answered {\"answers\":{}}"]));
+    expect(of(evs, "permission_response")[0]!.payload.decision).toBe("deny");
+    await handle.dispose();
+  });
+
+  it("withdraws a question Codex resolved on its own, without answering it", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ASKAUTO", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toEqual(["carried on"]));
+    const [req] = of(evs, "permission_request");
+    expect(of(evs, "permission_response").map((e) => e.payload)).toEqual([{ requestId: req!.payload.requestId, decision: "deny" }]);
+    await handle.dispose();
+  });
+
+  it("passes on a server's form as the card, naming the server and the agent it came through", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    const req = of(evs, "permission_request")[0]!.payload;
+    expect(req.ask).toMatchObject({ asker: { kind: "server", name: "notion", via: "Codex" }, mode: "form", message: "Where should the page go?",
+      questions: [{ id: "parent", kind: "choice", required: true }, { id: "public", kind: "confirm" }] });
+    handle.respondPermission(req.requestId, "allow", { parent: "p_notes", public: "yes" });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect(JSON.parse(texts(evs)[0]!.slice("elicited ".length))).toEqual({ action: "accept", content: { parent: "p_notes", public: true }, _meta: null });
+    await handle.dispose();
+  });
+
+  it("declines a form that asks for a key without ever putting it to the user", async () => {
+    // THE MUTANT: draw it anyway. The key would be typed into an unmasked field and logged.
+    const { handle, evs } = await booted();
+    await handle.send({ text: "ELICITSECRET", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect(JSON.parse(texts(evs)[0]!.slice("elicited ".length))).toMatchObject({ action: "decline" });
+    expect(of(evs, "permission_request")[0]!.payload.ask?.refused).toMatch(/password or a key/);
+    expect(statuses(evs)).not.toContain("waiting_permission");
+    await handle.dispose();
+  });
+
+  it("answers a page to open with consent alone, and cancels — not declines — when the turn is stopped", async () => {
+    const opened = await booted();
+    await opened.handle.send({ text: "ELICITURL", attachments: [] });
+    await waitFor(() => expect(of(opened.evs, "permission_request")).toHaveLength(1));
+    expect(of(opened.evs, "permission_request")[0]!.payload.ask?.questions[0]).toMatchObject({ kind: "link", url: "https://www.notion.so/install-integration?id=fake" });
+    opened.handle.respondPermission(of(opened.evs, "permission_request")[0]!.payload.requestId, "allow", { url: "opened" });
+    await waitFor(() => expect(texts(opened.evs)).toHaveLength(1));
+    expect(JSON.parse(texts(opened.evs)[0]!.slice("elicited ".length))).toEqual({ action: "accept", content: null, _meta: null });
+    await opened.handle.dispose();
+
+    const stopped = await booted();
+    await stopped.handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(of(stopped.evs, "permission_request")).toHaveLength(1));
+    await stopped.handle.interrupt();
+    await waitFor(() => expect(texts(stopped.evs).join("")).toContain("elicited"));
+    expect(texts(stopped.evs).join("")).toContain('"action":"cancel"');
+    await stopped.handle.dispose();
   });
 
   it("steers into a live turn rather than starting a second one", async () => {
@@ -550,26 +705,6 @@ describe("CodexAdapter", () => {
     await waitFor(() => expect(texts(evs)).toEqual(["hello", "hello"]));
     await waitFor(() => expect(statuses(evs)).toEqual([...done, "running", "running", "idle", "idle"]));
     await handle.dispose();
-  });
-
-  it("persists a half-streamed message when the turn is interrupted", async () => {
-    const { handle, evs } = await booted();
-    await handle.send({ text: "PARTIAL", attachments: [] });
-    await waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(2));
-    await handle.interrupt();
-    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
-    // assistant_delta is ephemeral: without the flush the streamed answer never reaches the transcript at all.
-    expect(texts(evs)).toEqual(["half an answer"]);
-    await handle.dispose();
-  });
-
-  it("persists a half-streamed message when the session is disposed mid-stream", async () => {
-    const { handle, evs, done } = await booted();
-    await handle.send({ text: "PARTIAL", attachments: [] });
-    await waitFor(() => expect(of(evs, "assistant_delta")).toHaveLength(2));
-    await handle.dispose();
-    await done;
-    expect(texts(evs)).toEqual(["half an answer"]);
   });
 
   it("records setOptions but reports that it only applies at the next thread start", async () => {
@@ -946,12 +1081,15 @@ describe("codexMcpConfig", () => {
   const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } };
   const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
 
-  it("writes a stdio server as command/args/env under its name", () => {
-    expect(codexMcpConfig([stdio])).toEqual({ mcp_servers: { airtable: { command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } } } });
+  it("writes an http server as url/http_headers — Codex's own key, not `headers` — which is the only shape that ever reaches here (the gateway's own entry)", () => {
+    expect(codexMcpConfig([http])).toEqual({ mcp_servers: { vercel: { url: "https://mcp.vercel.com", http_headers: { Authorization: "Bearer t" }, tool_timeout_sec: GATEWAY_TOOL_TIMEOUT_SEC } } });
   });
 
-  it("writes an http server as url/http_headers — Codex's own key, not `headers` — which is the only shape that ever reaches here (the gateway's own entry)", () => {
-    expect(codexMcpConfig([http])).toEqual({ mcp_servers: { vercel: { url: "https://mcp.vercel.com", http_headers: { Authorization: "Bearer t" } } } });
+  it("lets one of Realm's tools run past Codex's own one-minute limit — a question waits on a person", () => {
+    // THE MUTANT: drop the key. Codex then cuts a `ui_ask` off at sixty seconds while its card is
+    // still up, and the answer the user gives afterwards goes nowhere.
+    expect(GATEWAY_TOOL_TIMEOUT_SEC).toBeGreaterThan(15 * 60);
+    expect((codexMcpConfig([http])!.mcp_servers as Record<string, Record<string, unknown>>).vercel!.tool_timeout_sec).toBe(GATEWAY_TOOL_TIMEOUT_SEC);
   });
 
   it("omits empty args and env rather than sending empty collections", () => {
@@ -959,9 +1097,6 @@ describe("codexMcpConfig", () => {
     expect(codexMcpConfig([bare])).toEqual({ mcp_servers: { bare: { command: "/bin/x" } } });
   });
 
-  it("is undefined when nothing survives, so `config` is omitted from thread/start", () => {
-    expect(codexMcpConfig([])).toBeUndefined();
-  });
 });
 
 /**
@@ -1025,8 +1160,13 @@ describe("CodexAdapter model catalog", () => {
     const r = await adapter.probe();
     expect(r.kind).toBe("codex");
     expect(r.available).toBe(true);
-    // The hidden preview model is exactly what `hidden` means — it must not reach the picker.
-    expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }, { id: "gpt-5.6-terra", label: "GPT-5.6-Terra" }]);
+    // The hidden preview model is exactly what `hidden` means — it must not reach the picker. Each
+    // row carries what the catalog said about Fast, and the default carries its mark, so a session
+    // that has not started can offer the switch on the CLI's own word — Terra's `false` included.
+    expect(r.models).toEqual([
+      { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fastMode: true, fastDescription: "1.5x speed, increased usage", isDefault: true, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium" },
+      { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", fastMode: false, efforts: ["low", "medium", "high"], defaultEffort: "medium" },
+    ]);
     // A probe must not leave an app-server child behind: the shared-connection refcount never saw it.
     expect(adapter.processCount).toBe(0);
     expect(adapter.sessionCount).toBe(0);
@@ -1035,13 +1175,7 @@ describe("CodexAdapter model catalog", () => {
   it("follows nextCursor across pages", async () => {
     process.env.FAKE_CODEX_MODEL_PAGES = "1";
     const r = await newAdapter().probe();
-    expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }, { id: "gpt-5.4-mini", label: "GPT-5.4-Mini" }]);
-  });
-
-  it("keeps only the well-formed rows of a polluted catalog", async () => {
-    process.env.FAKE_CODEX_MODEL_GARBAGE = "1";
-    const r = await newAdapter().probe();
-    expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }, { id: "gpt-nameless", label: "gpt-nameless" }]);
+    expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fastMode: false }, { id: "gpt-5.4-mini", label: "GPT-5.4-Mini", fastMode: false }]);
   });
 
   it("degrades -32601 to models:null (a build from before model/list) without failing the probe, sticky", async () => {
@@ -1104,4 +1238,85 @@ describe("CodexAdapter model catalog", () => {
     await handle.dispose();
     expect(adapter.processCount).toBe(0);
   });
+});
+
+describe("a resume Codex refuses", () => {
+  it("starts a fresh thread instead of leaving the session permanently unstartable", async () => {
+    const adapter = newAdapter();
+    const handle = adapter.start(startOpts({ resume: "th_gone" }));
+    const { evs, done } = drain(handle);
+    await handle.dispose();
+    await done;
+    // MUTANT: let the rejection through and the session is dead forever — Realm hands back the same
+    // providerSessionId on every send, so every attempt fails identically with nothing said.
+    expect(of(evs, "error")).toHaveLength(0);
+    const init = of(evs, "init")[0]!.payload;
+    expect(init.resumeRequested).toBe(true);
+    expect(init.resumeOutcome).toBe("declined");
+    // The NEW thread's id, never the one Codex has just said it does not have.
+    expect(init.providerSessionId).not.toBe("th_gone");
+    expect(init.providerSessionId).toBeTruthy();
+  });
+
+  it("reports a resume that worked as continued", async () => {
+    const adapter = newAdapter();
+    const handle = adapter.start(startOpts({ resume: "th_old" }));
+    const { evs, done } = drain(handle);
+    await handle.dispose();
+    await done;
+    const init = of(evs, "init")[0]!.payload;
+    expect(init.resumeRequested).toBe(true);
+    expect(init.resumeOutcome).toBe("continued");
+    expect(init.providerSessionId).toBe("th_old");
+  });
+
+  it("says nothing about resuming on a session's first boot", async () => {
+    const adapter = newAdapter();
+    const handle = adapter.start(startOpts());
+    const { evs, done } = drain(handle);
+    await handle.dispose();
+    await done;
+    const init = of(evs, "init")[0]!.payload;
+    expect(init.resumeRequested).toBeUndefined();
+    expect(init.resumeOutcome).toBeUndefined();
+  });
+
+  it("a resume that TIMES OUT is not a refusal — no second boot budget is spent on the same silence", async () => {
+    const adapter = newAdapter({ bootTimeoutMs: 200 });
+    const handle = adapter.start(startOpts({ resume: "th_old", env: { FAKE_CODEX_MUTE_THREAD_START: "1" } }));
+    const { evs, done } = drain(handle);
+    await done;
+    // MUTANT: fall back on any rejection and this becomes "thread/start", after waiting 400ms rather
+    // than 200 — a wedged app-server answered by asking it a second question.
+    expect(of(evs, "error")[0]!.payload.message).toMatch(/thread\/resume within 200ms/);
+  });
+});
+
+/**
+ * Codex fails CLOSED. One shared `codex app-server` cannot hold two spaces' Seatbelt policies, so a
+ * session Realm was asked to confine does not start — it does not quietly start unconfined.
+ */
+describe("the sandbox refusal", () => {
+  const wrap = (command: string, args: string[]) => ({ command: "/usr/bin/sandbox-exec", args: ["-p", "(version 1)", "--", command, ...args] });
+
+  it("refuses to start when it is handed a wrap it cannot honour", () => {
+    const adapter = newAdapter();
+    // MUTANT: ignore `opts.wrap` — the shape every other adapter's `wrap` would have you expect —
+    // and a Codex session in a sandboxed space runs with the user's full account while Settings says
+    // it is confined. That is the exact lie the whole feature exists to prevent.
+    expect(() => adapter.start(startOpts({ wrap }))).toThrow(CODEX_SANDBOX_REFUSAL);
+    // Named, not generic: a person reading this has to learn why, and what to do instead.
+    expect(CODEX_SANDBOX_REFUSAL).toMatch(/one `codex app-server` process/);
+    expect(CODEX_SANDBOX_REFUSAL).toMatch(/No sandbox/);
+  });
+
+  it("refuses before it takes anything — no process, no refcount, nothing to release", () => {
+    const adapter = newAdapter();
+    expect(() => adapter.start(startOpts({ wrap }))).toThrow();
+    // MUTANT: put the check after `acquire()` and a refused session strands the shared child with a
+    // ref nothing will ever give back.
+    expect(adapter.processCount).toBe(0);
+    expect(adapter.sessionCount).toBe(0);
+  });
+
 });

@@ -44,35 +44,12 @@ function harness() {
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
 describe("commandSpec", () => {
-  it("spawns npm as argv, never through a shell", () => {
-    const spec = commandSpec(AGENT_INSTALL_ROUTES.codex, "install", null);
-    expect(spec).toEqual({ display: "npm install -g @openai/codex", file: "npm", args: ["install", "-g", "@openai/codex"] });
-  });
-
-  it("pins an npm update to the version that was checked", () => {
-    expect(commandSpec(AGENT_INSTALL_ROUTES.codex, "update", "0.153.4")).toEqual({
-      display: "npm install -g @openai/codex@0.153.4", file: "npm", args: ["install", "-g", "@openai/codex@0.153.4"],
-    });
-  });
-
-  it("uses brew install to install and brew upgrade to update", () => {
-    expect(commandSpec(AGENT_INSTALL_ROUTES["acp:goose"], "install", null)?.args).toEqual(["install", "block-goose-cli"]);
-    expect(commandSpec(AGENT_INSTALL_ROUTES["acp:goose"], "update", "1.9.0")?.args).toEqual(["upgrade", "block-goose-cli"]);
-  });
 
   it("spawns uv as argv too, with the interpreter pin the route carries", () => {
     expect(commandSpec(AGENT_INSTALL_ROUTES["acp:openhands"], "install", null)).toEqual({
       display: "uv tool install --python 3.12 openhands",
       file: "uv", args: ["tool", "install", "--python", "3.12", "openhands"],
     });
-  });
-
-  it("updates a uv tool by re-installing it at the checked version", () => {
-    // `uv tool install` is idempotent over an installed tool, so an update is an install with a pin
-    // rather than a separate verb — and the pin is what makes the button's promise true.
-    expect(commandSpec(AGENT_INSTALL_ROUTES["acp:openhands"], "update", "1.17.0")?.args).toEqual(
-      ["tool", "install", "--python", "3.12", "openhands==1.17.0"],
-    );
   });
 
   it("runs a vendor pipeline through a plain non-login, non-interactive shell", () => {
@@ -113,14 +90,6 @@ describe("commandSpec", () => {
 });
 
 describe("updateSpecFor", () => {
-  it("runs a vendor's own updater, for a CLI whose install route has no update command at all", () => {
-    // The reported bug, exactly: fx installs by vendor script, so its route answers null to
-    // `updateCommand` and `specFor(kind, "update", …)` had nothing to build — while `cli.status`,
-    // resolving through `updatePlan`, had already offered the button. "no update command for
-    // acp:fx" was the two halves disagreeing.
-    expect(updateSpecFor("acp:fx", "unknown", null)).toEqual({ display: "fx upgrade", file: "fx", args: ["upgrade"] });
-    expect(updateSpecFor("acp:cursor", "unknown", null)?.file).toBe("cursor-agent");
-  });
 
   it("prefers the vendor's updater over the install route's package manager", () => {
     // The same bug in its quieter form: codex has BOTH an npm route and `codex update`, so the

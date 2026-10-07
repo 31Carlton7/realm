@@ -15,6 +15,9 @@ import { allItems, findLeafOfItem, type Item, type Layout } from "@realm/contrac
  *
  * Null means no session is open in this group at all, and the pane says so rather than picking a
  * session from another group the user cannot see receiving it.
+ *
+ * Select in Realm (app-pick/) asks the same question when ⌘⇧C starts it, for the same reason: the
+ * part of Realm worth pointing at is as often a sidebar row or a settings page as a session.
  */
 export function sessionForPick(items: readonly Item[], layout: Layout | null, focusedLeafId: string | null): Item | null {
   if (!layout) return null;

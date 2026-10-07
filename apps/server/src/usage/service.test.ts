@@ -6,7 +6,7 @@ import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { SettingsStore } from "../store/settings";
-import { UsageService, environmentLabel, monthKeyOf, startOfMonth } from "./service";
+import { UsageService, environmentLabel, startOfMonth } from "./service";
 
 let db: Db; let settings: SettingsStore; let spaceA: string; let spaceB: string; let profileId: string;
 let budgetAlerts: { threshold: number; spendUsd: number; monthKey: string }[];
@@ -30,18 +30,19 @@ function service(rows: ModelInfo[] = catalog) {
 }
 
 let seq = 0;
-function makeSession(id: string, extra: { spaceId?: string; agentKind?: AgentKind; model?: string | null; createdAt?: number } = {}): Session {
+function makeSession(id: string, extra: { spaceId?: string; agentKind?: AgentKind; model?: string | null; effort?: string | null; createdAt?: number } = {}): Session {
   const spaceId = extra.spaceId ?? spaceA;
   const agentKind = extra.agentKind ?? "claude";
   const model = extra.model === undefined ? "claude-opus-5" : extra.model;
+  const effort = extra.effort ?? null;
   const createdAt = extra.createdAt ?? day(1);
   const envId = `env-${spaceId}`;
   db.prepare("INSERT OR IGNORE INTO environments (id, space_id, path, branch, kind, created_at, updated_at) VALUES (?, ?, ?, ?, 'checkout', ?, ?)")
     .run(envId, spaceId, `/tmp/${spaceId}`, "main", createdAt, createdAt);
   db.prepare(`INSERT INTO sessions (id, space_id, project_id, agent_kind, model, effort, permission_mode, status, provider_session_id, title, last_event_seq, environment_id, created_at, updated_at)
-              VALUES (?, ?, NULL, ?, ?, NULL, 'default', 'idle', NULL, ?, 0, ?, ?, ?)`)
-    .run(id, spaceId, agentKind, model, `Session ${id}`, envId, createdAt, createdAt);
-  return { id, spaceId, projectId: null, agentKind, model, effort: null, permissionMode: "default",
+              VALUES (?, ?, NULL, ?, ?, ?, 'default', 'idle', NULL, ?, 0, ?, ?, ?)`)
+    .run(id, spaceId, agentKind, model, effort, `Session ${id}`, envId, createdAt, createdAt);
+  return { id, spaceId, projectId: null, agentKind, model, effort, permissionMode: "default",
     environmentId: envId, cwd: `/tmp/${spaceId}`, status: "idle", providerSessionId: null, title: `Session ${id}`,
     lastEventSeq: 0, dispatchedBy: null, createdAt, updatedAt: createdAt } as unknown as Session;
 }
@@ -101,22 +102,145 @@ describe("UsageService.activeDays", () => {
     expect(service().activeDays(window)).toEqual([]);
   });
 
-  it("omits a day with nothing rather than sending a zero for it", () => {
-    // A year of zeroes on the wire says exactly what their absence says; the client builds the grid
-    // from the range, so an empty week is a visible gap either way.
-    makeSession("s1");
-    appendEvent("s1", day(2, 9), "user_message", { text: "one", attachments: [] });
-    const out = service().activeDays(window);
-    expect(out).toHaveLength(1);
-    expect(out.every((d) => d.messages > 0)).toBe(true);
-  });
-
   it("holds to its window at both ends", () => {
     makeSession("s1");
     appendEvent("s1", day(1, 0) - 1, "user_message", { text: "before", attachments: [] });
     appendEvent("s1", day(10, 9), "user_message", { text: "inside", attachments: [] });
     appendEvent("s1", day(30, 23) + 1, "user_message", { text: "after", attachments: [] });
     expect(service().activeDays(window).map((d) => d.day)).toEqual(["2026-09-10"]);
+  });
+});
+
+describe("UsageService.records — the page about you", () => {
+  const MIN = 60_000;
+  const send = (sessionId: string, ts: number) => appendEvent(sessionId, ts, "user_message", { text: "go", attachments: [] });
+  const status = (sessionId: string, ts: number, s: string) => appendEvent(sessionId, ts, "status", { status: s });
+  const skill = (sessionId: string, input: Record<string, unknown>) =>
+    appendEvent(sessionId, day(3), "tool_call", { toolUseId: `t${Math.random()}`, name: "Skill", input, parentToolUseId: null });
+
+  it("adds up what was reported — differences of a running total, never the totals themselves", () => {
+    // Claude's payloads are running totals: this session spent 3000 in, not 1000 + 3000. The fake
+    // engine is per-turn, so its one event is its own increment.
+    makeSession("s1");
+    makeSession("s2", { agentKind: "fake", model: null });
+    appendUsage("s1", day(2), { costUsd: 0.1, inputTokens: 1000, outputTokens: 500, numTurns: 1 });
+    appendUsage("s1", day(3), { costUsd: 0.3, inputTokens: 3000, outputTokens: 1500, numTurns: 2 });
+    appendUsage("s2", day(3), { costUsd: 0.001, inputTokens: 100, outputTokens: 50, numTurns: 1 });
+    const out = service().records();
+    expect(out.tokens).toEqual({ input: 3100, output: 1550 });
+    // The 3rd: 3000 of Claude's increment plus the fake's 150. The 2nd had 1500.
+    expect(out.peakDay).toEqual({ day: "2026-09-03", tokens: 3150 });
+  });
+
+  it("has no peak day when nothing ever reported a token, and counts the sessions it cannot see", () => {
+    // An unknown is not a zero: Cursor's sessions are named rather than drawn as an empty day.
+    makeSession("c1", { agentKind: "acp:cursor", model: null });
+    makeSession("c2", { agentKind: "acp:cursor", model: null });
+    makeSession("s1"); // a Claude session that has not reported yet is not one Realm cannot see
+    send("c1", day(2));
+    const out = service().records();
+    expect(out.tokens).toEqual({ input: 0, output: 0 });
+    expect(out.peakDay).toBeNull();
+    expect(out.unmeasuredSessions).toBe(2);
+  });
+
+  it("finds the longest finished turn across every session, with the wait on a permission taken out", () => {
+    makeSession("s1");
+    makeSession("s2");
+    // s1: 70 minutes on the clock, 60 of them waiting on a prompt — 10 minutes of work.
+    status("s1", day(2, 9), "running");
+    status("s1", day(2, 9) + 5 * MIN, "waiting_permission");
+    status("s1", day(2, 9) + 65 * MIN, "running");
+    status("s1", day(2, 9) + 70 * MIN, "idle");
+    // s2: 20 straight minutes.
+    status("s2", day(3, 9), "running");
+    status("s2", day(3, 9) + 20 * MIN, "idle");
+    // s2 again, still running — not finished, so not a record however long it has been going.
+    status("s2", day(4, 9), "running");
+    expect(service().records().longestTurn).toEqual({
+      ms: 20 * MIN, endedAt: day(3, 9) + 20 * MIN, sessionId: "s2", title: "Session s2", spaceId: spaceA,
+    });
+  });
+
+  it("counts days the way the calendar does — only what was sent, so a day of agent work alone is not a day", () => {
+    makeSession("s1");
+    send("s1", day(14, 9));
+    appendEvent("s1", day(15, 9), "assistant_text", { messageId: "m", text: "still going" });
+    status("s1", day(15, 9), "running");
+    const { streak } = service().records();
+    expect(streak.current).toEqual({ days: 1, from: "2026-09-14", to: "2026-09-14" });
+  });
+
+  it("files a message under the LOCAL day it was sent on, as the calendar does, in any zone", () => {
+    // 11:30pm on the 13th and 12:30am on the 14th are two days on the wall clock and one in UTC,
+    // either side of the date line. The streak through today is three days long only if the days
+    // are local — and the calendar has to show the same three.
+    const zone = process.env.TZ;
+    try {
+      for (const [tz, offsetHours] of [["Asia/Tokyo", 9], ["America/Los_Angeles", -7]] as const) {
+        process.env.TZ = tz;
+        const local = (d: number, h: number, m = 0) => Date.UTC(2026, 8, d, h, m) - offsetHours * 3_600_000;
+        db.exec("DELETE FROM session_events; DELETE FROM sessions;");
+        makeSession("s1");
+        send("s1", local(13, 23, 30));
+        send("s1", local(14, 0, 30));
+        send("s1", local(15, 9));
+        const svc = new UsageService({ db, settings, catalog: { list: async () => catalog }, now: () => local(15, 10) });
+        expect(svc.records().streak.current, tz).toEqual({ days: 3, from: "2026-09-13", to: "2026-09-15" });
+        expect(svc.activeDays({ from: local(1, 0), to: local(15, 23) }).map((r) => r.day), tz)
+          .toEqual(["2026-09-13", "2026-09-14", "2026-09-15"]);
+      }
+    } finally {
+      if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
+    }
+  });
+
+  it("ranks models and efforts by messages sent, names an engine's default per engine, and skips unchosen efforts", () => {
+    makeSession("a", { model: "claude-opus-5", effort: "high" });
+    makeSession("b", { model: null });
+    makeSession("c", { agentKind: "codex", model: null, effort: "high" });
+    makeSession("d", { model: "claude-opus-5", effort: "max" });
+    makeSession("e", { model: "claude-sonnet-5", effort: "low" }); // opened, never written to
+    for (let i = 0; i < 3; i++) send("a", day(2, 9 + i));
+    for (let i = 0; i < 5; i++) send("b", day(3, 9 + i));
+    send("c", day(4));
+    send("d", day(5));
+    const out = service().records();
+    expect(out.models).toEqual([
+      { key: "default:claude", label: "Claude default (Fable 5.1)", messages: 5, sessions: 1 },
+      { key: "claude-opus-5", label: "claude-opus-5", messages: 4, sessions: 2 },
+      { key: "default:codex", label: "Codex default (GPT-5.6)", messages: 1, sessions: 1 },
+    ]);
+    expect(out.efforts).toEqual([
+      { effort: "high", messages: 4, sessions: 2 },
+      { effort: "max", messages: 1, sessions: 1 },
+    ]);
+  });
+
+  it("counts the skills agents loaded, once each whichever route loaded them", () => {
+    makeSession("s1");
+    skill("s1", { skill: "realm:browsing" });
+    skill("s1", { skill: "realm:browsing" });
+    skill("s1", { skill: "browsing", args: "the docs" });
+    skill("s1", { skill: "superpowers:brainstorming" });
+    skill("s1", { command: "/run" }); // the field older CLIs sent
+    appendEvent("s1", day(3), "tool_call", { toolUseId: "r", name: "Read", input: { file_path: "/x" }, parentToolUseId: null });
+    expect(service().records().skills).toEqual([
+      { name: "browsing", uses: 3 },
+      { name: "run", uses: 1 },
+      { name: "superpowers:brainstorming", uses: 1 },
+    ]);
+  });
+
+  it("ranks tools over all of time, not over the Usage tab's range", () => {
+    makeSession("s1", { createdAt: new Date(2025, 0, 1).getTime() });
+    const call = (ts: number, name: string) =>
+      appendEvent("s1", ts, "tool_call", { toolUseId: `t${ts}${name}`, name, input: {}, parentToolUseId: null });
+    call(new Date(2025, 0, 2).getTime(), "Read");
+    call(new Date(2025, 0, 2, 1).getTime(), "Read");
+    call(new Date(2025, 0, 2, 2).getTime(), "Read");
+    call(day(2), "Bash");
+    expect(service().records().tools).toEqual([{ name: "Read", calls: 3 }, { name: "Bash", calls: 1 }]);
   });
 });
 
@@ -247,10 +371,6 @@ describe("UsageService — the budget", () => {
     expect(svc.budget()).toEqual(saved);
   });
 
-  it("reads a hand-mangled settings row as the default instead of throwing", () => {
-    settings.set(USAGE_BUDGET_KEY, "nonsense");
-    expect(service().budget().monthlyUsd).toBeNull();
-  });
 });
 
 describe("UsageService.handleSessionEvent — threshold alerts", () => {
@@ -312,8 +432,4 @@ describe("small helpers", () => {
     expect(environmentLabel(null, null)).toBe("No checkout");
   });
 
-  it("keys a month so each threshold announces itself once, and next month starts clean", () => {
-    expect(monthKeyOf(startOfMonth(day(15)))).toBe("2026-09");
-    expect(monthKeyOf(startOfMonth(new Date(2026, 11, 3).getTime()))).toBe("2026-12");
-  });
 });

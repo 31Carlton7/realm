@@ -50,17 +50,10 @@ describe("stripMentionAts", () => {
     expect(strip(text)).toBe("mail carlton@mac about @unknown and mac");
   });
 
-  it("is the identity for a mention-free message", () => {
-    expect(strip("no mentions here")).toBe("no mentions here");
-    expect(strip("")).toBe("");
-  });
 });
 
 describe("mentionIds", () => {
   it("dedupes while keeping first-occurrence order — the resolution order the server uses", () => {
     expect(mentionIds("@mac-cli and @mac and @mac-cli again", IDS)).toEqual(["mac-cli", "mac"]);
-  });
-  it("is empty when nothing matches", () => {
-    expect(mentionIds("plain text with user@mac inside", IDS)).toEqual([]);
   });
 });

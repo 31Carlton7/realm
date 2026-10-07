@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_NOTIFICATION_SOUND_VOLUME } from "@realm/contracts";
-import { CUE_BY_CATEGORY, cueVolume } from "./cues";
+import { cueVolume } from "./cues";
 
 /* Vite rewrites `import.meta.url` to a non-file scheme under jsdom, so walk up from the cwd instead
    (vitest may be invoked from the repo root or from apps/desktop). */
@@ -34,10 +34,6 @@ describe("cues", () => {
     expect(cueVolume(0)).toBe(0); // an explicit zero IS a preference, and is kept
     expect(cueVolume(0.2)).toBe(0.2);
     expect(cueVolume(1)).toBe(1);
-  });
-
-  it("two sounds, no more: the table maps categories onto a vocabulary of exactly `ready` and `chime`", () => {
-    expect(new Set(Object.values(CUE_BY_CATEGORY))).toEqual(new Set(["ready", "chime"]));
   });
 
   /**

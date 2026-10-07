@@ -30,8 +30,8 @@ function renderPane(files: Record<string, string>, openPaths: string[] = [], act
     ...extra,
   });
   const store = createAppStore(api);
-  render(<StoreContext.Provider value={store}><DocumentsPane item={paneItem} visible /></StoreContext.Provider>);
-  return { api, store };
+  const r = render(<StoreContext.Provider value={store}><DocumentsPane item={paneItem} visible /></StoreContext.Provider>);
+  return { api, store, ...r };
 }
 
 beforeEach(() => { listeners.clear(); });
@@ -83,10 +83,41 @@ describe("DocumentsPane — html guides (Plan 22)", () => {
     expect(api.calls.filter((c) => c.startsWith("recordGuideAttempt"))).toHaveLength(1);
   });
 
+  it("remembers where a guide was left and hands the offset back on its next ready", async () => {
+    /* The frame is cross-origin: `scroll-memory.ts` works by touching an element, and there is no
+       element here to touch. So the runtime reports its own offset and is told it back — this is
+       the whole mechanism, and the pane half of it is what this pins.
+       THE MUTANT: remember it but never send it. Every reading position survives in a Map nothing
+       reads, and a reader comes back to the top of the guide having been told nothing went wrong. */
+    const { unmount } = renderPane({ "g.html": "<p>hi</p>" }, ["g.html"], "g.html");
+    const frame = await screen.findByTitle("Guide preview of g.html") as HTMLIFrameElement;
+    const posted: unknown[] = [];
+    Object.defineProperty(frame, "contentWindow", { value: { postMessage: (m: unknown) => posted.push(m) } });
+    const from = (source: unknown, data: unknown) => act(() => { window.dispatchEvent(new MessageEvent("message", { data, source: source as Window })); });
+
+    from(frame.contentWindow, { type: "realm-guide:ready" });
+    // Nothing remembered yet, so ready answers with progress and nothing else.
+    await waitFor(() => expect(posted.some((m) => (m as any).type === "realm-guide:progress")).toBe(true));
+    expect(posted.some((m) => (m as any).type === "realm-guide:scroll")).toBe(false);
+
+    from(frame.contentWindow, { type: "realm-guide:scroll", top: 640 });
+    // A number from another window is not this guide's position.
+    from({}, { type: "realm-guide:scroll", top: 99999 });
+    unmount();
+
+    const again = renderPane({ "g.html": "<p>hi</p>" }, ["g.html"], "g.html");
+    const frame2 = await screen.findByTitle("Guide preview of g.html") as HTMLIFrameElement;
+    const posted2: unknown[] = [];
+    Object.defineProperty(frame2, "contentWindow", { value: { postMessage: (m: unknown) => posted2.push(m) } });
+    act(() => { window.dispatchEvent(new MessageEvent("message", { data: { type: "realm-guide:ready" }, source: frame2.contentWindow as Window })); });
+    await waitFor(() => expect(posted2).toContainEqual({ type: "realm-guide:scroll", top: 640 }));
+    expect(again.api.calls.length).toBeGreaterThan(0);
+  });
+
   it("offers Guide among the new-document kinds, and creating one needs no name up front", async () => {
     const { api } = renderPane({});
-    fireEvent.click(await screen.findByRole("button", { name: "Add a document" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "New guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Study guide" }));
     await waitFor(() => expect(api.calls).toContain("createDocumentFile:docs1:Untitled guide.html"));
   });
 });
@@ -104,8 +135,8 @@ describe("DocumentsPane — pdf (Plan 22)", () => {
 
   it("the picker lets a PDF be opened", async () => {
     renderPane({ "slides/l4.pdf": "" });
-    fireEvent.click(await screen.findByRole("button", { name: "Add a document" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Open a file…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "A file in this folder…" }));
     const row = await screen.findByRole("button", { name: /l4\.pdf/ });
     expect(row).toBeEnabled();
   });

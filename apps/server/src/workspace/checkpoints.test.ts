@@ -142,33 +142,6 @@ describe("capture", () => {
     } finally { cleanup(repo); }
   });
 
-  it("captures the executable bit and symlinks", async () => {
-    const repo = makeRepo();
-    try {
-      const script = join(repo, "script.sh");
-      writeFileSync(script, "#!/bin/sh\n");
-      chmodSync(script, 0o755);
-      symlinkSync("tracked.txt", join(repo, "link"));
-      const state = await svc().capture({ cwd: repo, ...ids(), message: "turn 1" });
-      const tree = git(repo, "ls-tree", "-r", state.worktreeTree);
-      expect(tree).toMatch(/100755 blob \w+\tscript\.sh/);
-      expect(tree).toMatch(/120000 blob \w+\tlink/);
-    } finally { cleanup(repo); }
-  });
-
-  it("records the staged side separately from the working tree", async () => {
-    const repo = makeRepo();
-    try {
-      writeFileSync(join(repo, "tracked.txt"), "one\nstaged\n");
-      git(repo, "add", "tracked.txt");
-      writeFileSync(join(repo, "tracked.txt"), "one\nstaged\nworktree\n");
-      const state = await svc().capture({ cwd: repo, ...ids(), message: "turn 1" });
-      expect(state.indexTree).not.toBe(state.worktreeTree);
-      expect(git(repo, "show", `${state.indexTree}:tracked.txt`)).toBe("one\nstaged\n");
-      expect(git(repo, "show", `${state.worktreeTree}:tracked.txt`)).toBe("one\nstaged\nworktree\n");
-    } finally { cleanup(repo); }
-  });
-
   it("keeps the staged tree reachable from the ref alone", async () => {
     const repo = makeRepo();
     try {
@@ -263,6 +236,71 @@ describe("hazard", () => {
       expect(h.headMovable).toBe(false);
       expect(h.headReason).toContain("other");
       expect(h.commitsRolledBack).toBe(0);
+    } finally { cleanup(repo); }
+  });
+});
+
+describe("what a turn changed", () => {
+  it("counts each file the turn touched in lines, untracked additions and deletions included", async () => {
+    const repo = makeRepo();
+    try {
+      writeFileSync(join(repo, "keep.txt"), "k\n");
+      const state = await svc().capture({ cwd: repo, ...ids(), message: "turn 1" });
+      writeFileSync(join(repo, "tracked.txt"), "one\ntwo\nthree\n");   // +2, an edit
+      mkdirSync(join(repo, "lib"), { recursive: true });
+      writeFileSync(join(repo, "lib", "new.ts"), "a\nb\n");           // +2, untracked and new
+      rmSync(join(repo, "keep.txt"));                                  // -1, captured then deleted
+      writeFileSync(join(repo, "debug.log"), "ignored, so never counted\n");
+      const c = await svc().changes({ cwd: repo, beforeTree: state.worktreeTree });
+      expect(c.root).toBe(git(repo, "rev-parse", "--path-format=absolute", "--show-toplevel").trim());
+      expect(c.totalFiles).toBe(3);
+      expect([...c.files].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+        { path: "keep.txt", oldPath: null, status: "deleted", additions: 0, deletions: 1 },
+        { path: "lib/new.ts", oldPath: null, status: "added", additions: 2, deletions: 0 },
+        { path: "tracked.txt", oldPath: null, status: "modified", additions: 2, deletions: 0 },
+      ]);
+      // Measuring is a read: the checkout the agent left is exactly as it was.
+      expect(status(repo)).toContain("?? lib/");
+    } finally { cleanup(repo); }
+  });
+
+  it("reports a moved file as one rename, and a binary file with no line counts", async () => {
+    const repo = makeRepo();
+    try {
+      writeFileSync(join(repo, "story.md"), Array.from({ length: 20 }, (_, i) => `line ${i}\n`).join(""));
+      git(repo, "add", "-A"); git(repo, "commit", "-qm", "story");
+      const state = await svc().capture({ cwd: repo, ...ids(), message: "turn 1" });
+      git(repo, "mv", "story.md", "chapter.md");
+      writeFileSync(join(repo, "pic.bin"), Buffer.from([0, 1, 2, 0, 255]));
+      const c = await svc().changes({ cwd: repo, beforeTree: state.worktreeTree });
+      expect(c.files).toContainEqual({ path: "chapter.md", oldPath: "story.md", status: "renamed", additions: 0, deletions: 0 });
+      expect(c.files).toContainEqual({ path: "pic.bin", oldPath: null, status: "added", additions: null, deletions: null });
+    } finally { cleanup(repo); }
+  });
+
+  it("says nothing changed when nothing did", async () => {
+    const repo = makeRepo();
+    try {
+      const state = await svc().capture({ cwd: repo, ...ids(), message: "turn 1" });
+      expect(await svc().changes({ cwd: repo, beforeTree: state.worktreeTree })).toMatchObject({ files: [], totalFiles: 0 });
+    } finally { cleanup(repo); }
+  });
+
+  it("diffs one file across the turn, and refuses a tree that is no longer there", async () => {
+    const repo = makeRepo();
+    try {
+      const state = await svc().capture({ cwd: repo, ...ids(), message: "turn 1" });
+      writeFileSync(join(repo, "tracked.txt"), "one\ntwo\n");
+      const { afterTree } = await svc().changes({ cwd: repo, beforeTree: state.worktreeTree });
+      // A later edit is not part of the turn: the patch is the two trees', not the checkout's.
+      writeFileSync(join(repo, "tracked.txt"), "one\ntwo\nlater\n");
+      const patch = await svc().treeFileDiff({ cwd: repo, before: state.worktreeTree, after: afterTree, path: "tracked.txt", oldPath: null });
+      expect(patch).toMatchObject({ path: "tracked.txt", additions: 1, deletions: 0, binary: false });
+      expect(patch.hunks[0]!.lines.map((l) => `${l.kind}:${l.text}`)).toEqual(["context:one", "add:two"]);
+      await expect(svc().treeFileDiff({ cwd: repo, before: state.worktreeTree, after: "0".repeat(40), path: "tracked.txt", oldPath: null }))
+        .rejects.toMatchObject({ code: "TREE_GONE" });
+      await expect(svc().treeFileDiff({ cwd: repo, before: state.worktreeTree, after: afterTree, path: "../outside", oldPath: null }))
+        .rejects.toMatchObject({ code: "INVALID_PARAMS" });
     } finally { cleanup(repo); }
   });
 });

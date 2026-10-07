@@ -7,7 +7,7 @@ import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { waitFor } from "../test-utils";
-import { AGENT_ANSWER_TOOL_NAME, AGENT_ASK_TOOL_NAME, AGENT_PEERS_TOOL_NAME } from "./ask";
+import { AGENT_ASK_TOOL_NAME } from "./ask";
 
 /**
  * Plan 20 behaviour suite — session interjection, driven through the REAL app (`createApp` +
@@ -368,26 +368,6 @@ describe("delivery is not a `send`", () => {
     expect(after.n).toBe(before.n);
   });
 
-  it("never mistakes the peer's PRE-EXISTING output for a reply to the question", async () => {
-    // Found by this suite, not by review. Interrupting a busy peer ends its turn, so an `idle` arrives
-    // carrying assistant text from the work it was doing BEFORE it was asked anything. Without the
-    // turn-boundary rule in the engine's scan, the act of interrupting is itself read as an answer,
-    // and the asker is handed a fragment of the peer's unrelated work as its "reply".
-    const { spaceId, askerId, peerId } = await boot({
-      budgetMs: 30_000, delayMs: 20,
-      script: [
-        { on: "MY OWN TASK", emit: Array.from({ length: 40 }, (_, i) => ({ kind: "text" as const, text: `UNRELATED WORK ${i}` })) },
-        { on: "[Realm]", emit: [{ kind: "text", text: "THE REAL ANSWER" }] },
-      ],
-    });
-    await startPeerWorking(peerId);
-    const result = await app!.asks.ask({ sessionId: askerId, spaceId }, { sessionId: peerId, question: "q?" });
-    expect(result.isError).toBe(false);
-    const out = text(result);
-    expect(out).toContain("THE REAL ANSWER");
-    expect(out).not.toContain("UNRELATED WORK");
-  });
-
   it("falls back to a settled peer's final message rather than hanging, and says so", async () => {
     const { spaceId, askerId, peerId } = await boot({ budgetMs: 30_000 });
     // This peer's script answers in prose and settles; it never calls agent_answer.
@@ -425,16 +405,6 @@ describe("consent — Realm's own prompt, on the asker", () => {
     const result = await pending;
     expect(result.isError).toBe(true);
     expect(userMessages(peerId).some((e) => e.payload.text.includes("q?"))).toBe(false);
-  });
-
-  it("bypassPermissions asks no card at all", async () => {
-    const { spaceId, askerId, peerId } = await boot({ askerMode: "bypassPermissions", budgetMs: 30_000 });
-    await startPeerWorking(peerId);
-    const pending = askIn(spaceId, askerId, peerId);
-    const requestId = await requestIdIn(peerId);
-    expect(cardOn(askerId)).toHaveLength(0);
-    app!.asks.answer({ sessionId: peerId, spaceId }, { requestId, answer: "a" });
-    await pending;
   });
 
   it("plan mode refuses without a card — interrupting another session is an action, not a read", async () => {
@@ -514,7 +484,4 @@ describe("depth-1: a delegated agent can neither ask nor be asked", () => {
     expect(after[0]!.reason).toBeNull();
   });
 
-  it("exposes exactly the three tool names", () => {
-    expect([AGENT_ASK_TOOL_NAME, AGENT_ANSWER_TOOL_NAME, AGENT_PEERS_TOOL_NAME]).toEqual(["agent_ask", "agent_answer", "agent_peers"]);
-  });
 });

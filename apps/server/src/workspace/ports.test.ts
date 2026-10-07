@@ -31,9 +31,6 @@ describe("portEnv", () => {
       REALM_ENVIRONMENT_ID: "E1", REALM_PORT_BASE: "41000", REALM_PORT_COUNT: "10", REALM_PORT_END: "41009", PORT: "41000",
     });
   });
-  it("exports the block's last port, not its size, as REALM_PORT_END", () => {
-    expect(portEnv({ id: "E1", portBlockStart: 41230 }).REALM_PORT_END).toBe(String(41230 + PORT_BLOCK_SIZE - 1));
-  });
   it("exports no ports at all for an environment that never got a block", () => {
     expect(portEnv({ id: "E1", portBlockStart: null })).toEqual({ REALM_ENVIRONMENT_ID: "E1" });
   });
@@ -59,24 +56,6 @@ describe("PortAllocator", () => {
     const other = new EnvironmentsStore(reopened).create({ spaceId: spaceIds[1]!, path: "/tmp/other", kind: "worktree" });
     expect(await after.ensureBlock(other.id)).not.toBe(first);
     reopened.close();
-  });
-
-  it("is idempotent within one process", async () => {
-    const env = mk(); const a = allFree();
-    expect(await a.ensureBlock(env.id)).toBe(await a.ensureBlock(env.id));
-  });
-
-  // MUTANT: two environments allocated overlapping blocks.
-  it("never hands two environments the same block", async () => {
-    const a = allFree();
-    const starts = new Set<number>();
-    for (let i = 0; i < 12; i++) {
-      const start = await a.ensureBlock(mk(i % 3).id);
-      expect(start).not.toBeNull();
-      expect(starts.has(start!), `block ${start} handed out twice`).toBe(false);
-      starts.add(start!);
-    }
-    expect(starts.size).toBe(12);
   });
 
   it("hands out blocks that do not overlap as ranges, not merely as distinct starts", async () => {

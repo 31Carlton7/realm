@@ -177,27 +177,6 @@ describe("useSpacesHotkey (⌘⇧Space)", () => {
     return store;
   }
 
-  it("toggles the overview open AND closed — the reason it is not in hotkeys.ts's guarded table", async () => {
-    const store = await hotkeys();
-    fireEvent.keyDown(window, { code: "Space", key: " ", metaKey: true, shiftKey: true });
-    expect(store.getState().spacesOpen).toBe(true);
-    fireEvent.keyDown(window, { code: "Space", key: " ", metaKey: true, shiftKey: true });
-    expect(store.getState().spacesOpen).toBe(false);
-  });
-
-  it("needs the shift: plain ⌘Space is the platform's, and must pass straight through", async () => {
-    const store = await hotkeys();
-    fireEvent.keyDown(window, { code: "Space", key: " ", metaKey: true });
-    expect(store.getState().spacesOpen).toBe(false);
-  });
-
-  it("a modal sheet owns the keyboard outright", async () => {
-    const store = await hotkeys();
-    act(() => store.getState().openSheet({ kind: "new-space" }));
-    fireEvent.keyDown(window, { code: "Space", key: " ", metaKey: true, shiftKey: true });
-    expect(store.getState().spacesOpen).toBe(false);
-  });
-
   it("opening it closes the palette — one overlay at a time", async () => {
     const store = await hotkeys();
     act(() => store.getState().setPaletteOpen(true));

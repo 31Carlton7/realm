@@ -15,8 +15,40 @@ export type SlashCommand = {
   /** What running it does, in the imperative. Shown beside the name, so it earns its width. */
   hint: string;
   icon: IconName;
-  run: () => void;
+  /**
+   * Run it, with whatever the user had typed after the command.
+   *
+   * `/goal ship the release notes` is the reason this takes an argument at all: a command that only
+   * knew its own name would make the objective a second step. Most commands ignore it and the
+   * prompter keeps it in the draft either way — `/plan look at the auth code` flips the mode and
+   * leaves the sentence ready to send.
+   */
+  run: (rest: string) => void;
+  /**
+   * This command is nothing without an argument — `/goal <objective>`.
+   *
+   * It changes both ends of the gesture. Picking it from the list ARMS the box (`/goal ` with the
+   * caret after it) instead of running on nothing, and Enter on a draft that starts with it runs the
+   * command on the rest of the line instead of sending the line to the agent.
+   *
+   * The second half is the part that could not be done any other way: the picker closes as soon as
+   * the caret leaves the token (`slashQueryAt`, deliberately), so by the time an objective has been
+   * typed there is no list left to pick from. Enter is the only gesture still available, and for an
+   * argument-taking command it has to mean "run it".
+   */
+  takesArgument?: boolean;
 };
+
+/** The command a draft is a call to, and its argument — for Enter, which has no picker to consult.
+ *  Null unless the draft opens with the name of an argument-taking command. */
+export function slashCallIn(text: string, commands: readonly SlashCommand[]): { command: SlashCommand; rest: string } | null {
+  const token = slashQueryAt(text, 1);
+  if (!token) return null;
+  const id = text.slice(1, token.end);
+  const command = commands.find((c) => c.takesArgument && c.id === id);
+  if (!command) return null;
+  return { command, rest: text.slice(token.end).replace(/^\s+/, "") };
+}
 
 /**
  * The `/`-token governing the caret, if any.

@@ -1,28 +1,72 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { LINK_SERVICE_META, chipRuns, mediaCandidatesIn, type SessionMode, type SessionStatus } from "@realm/contracts";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
+import { fileMark } from "./mention-sources";
+import { CommandCopy } from "../../components/CommandCopy";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
 import { MessageActions } from "./MessageActions";
+import { SelectionBar } from "./SelectionBar";
 import { MessageSources } from "./MessageSources";
 import { sourcesFor, type Source } from "./message-sources";
-import { PermissionCard } from "./PermissionCard";
-import { PlanCard, PlanDecision, isPlanDecision } from "./PlanCard";
-import { QuestionCard, questionCardFor } from "./QuestionCard";
-import { ToolCard, ToolGroup } from "./ToolCard";
-import { finishedAt, finishedOn, formatDuration, groupTranscript, withEnter } from "./tool-group";
-import { blockKey, lastUserMessage, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
-import { runLabelFor } from "./run-label";
+import { PendingRequest } from "./PendingRequest";
+import { PlanCard } from "./PlanCard";
+import { AnsweredQuestion } from "./QuestionCard";
+import { ToolCard, ToolCwd, ToolGroup } from "./ToolCard";
+import { LeadSessionContext } from "./DelegationLine";
+import { formatDuration, groupTranscript, withEnter } from "./tool-group";
+import { blockKey, goalTurnLabel, lastUserMessage, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
+import { stampLabel, stampTitle, useNow } from "./timestamps";
+import { touchedFiles, type FileLinkContext } from "./file-links";
+import { EditSummary } from "./EditSummary";
+import { turnEdits, undoOffer, type TurnEdits } from "./turn-edits";
+import { useDissolve } from "../../components/ScrollFades";
+import { runLabelFor, type RunLabel } from "./run-label";
 import { formatTokens } from "./SessionUsage";
 import { useEnterTracker } from "./transcript-enter";
 import { TranscriptSummary } from "./TranscriptSummary";
 import { MediaStrip } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
+import { NEAR_END_PX, SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type ScrollMark } from "../scroll-memory";
+import { ScrollTrack } from "./ScrollTrack";
+import { samePrompts, trackPrompts, type TrackPrompt } from "./scroll-track";
 
-const NEAR_BOTTOM_PX = 80;
 /** Permission cards share the blocks' key space; the prefix keeps a requestId from colliding with one. */
 const permKey = (requestId: string) => `perm:${requestId}`;
+
+/**
+ * How much of a long transcript is drawn: the newest WINDOW_BLOCKS blocks, and EARLIER_BLOCKS more
+ * each time the reader goes further back.
+ *
+ * Every block on screen is work on every event — each streamed word re-renders the column, and the
+ * per-message passes (sources, the enter tracker, the scroll track) walk what is drawn. A session a
+ * few weeks long is tens of thousands of blocks: drawn whole, the column was ~70,000 nodes, opening it
+ * took four seconds, and a reply streaming into it held frames for 400ms at a time. A window keeps
+ * that cost the size of the window, whatever the length of the session. Earlier turns come back as the
+ * reader scrolls up to them, the way a chat app loads its history.
+ */
+export const WINDOW_BLOCKS = 400;
+export const EARLIER_BLOCKS = 400;
+/** How far before the cut the window may reach to open on a prompt rather than mid-answer. */
+const SNAP_BLOCKS = 200;
+
+/** Where the drawn part of a transcript starts, aiming for `want` blocks: on the prompt just before
+ *  the cut when there is one within reach, so the window opens on a question rather than mid-answer. */
+export function windowStart(blocks: readonly Block[], want = WINDOW_BLOCKS, end = blocks.length): number {
+  if (end <= want) return 0;
+  const cut = end - want;
+  for (let i = cut; i >= Math.max(0, cut - SNAP_BLOCKS); i--) if (blocks[i]!.kind === "user") return i;
+  return cut;
+}
+/** A turn's edit card, keyed off the run line it sits above. */
+const editKey = (runKey: string) => `edit:${runKey}`;
+/** A turn's measured changes, listed the way its card lists them (in the order the turn edited
+ *  them), so Review opens on the files in the order the reader just read them. */
+const inCardOrder = (c: TurnChanges, card: TurnEdits): TurnChanges => {
+  const byPath = new Map(c.files.map((f) => [f.path, f]));
+  return { ...c, files: card.files.map((f) => byPath.get(f.shown)).filter((f): f is TurnChanges["files"][number] => f !== undefined) };
+};
 
 function Thinking({ text, enter }: { text: string; enter?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -34,8 +78,29 @@ function Thinking({ text, enter }: { text: string; enter?: boolean }) {
   );
 }
 
+/**
+ * What a settled turn's line says about it. The run's own verb in the past tense — "Simmered for 4s"
+ * under the "Simmering…" the reader was watching — except where that would misreport the turn: one
+ * the user stopped, one that failed, and one measured from the outside because it never reported
+ * running, which has no verb of its own to settle into.
+ */
+function runSummary(b: Extract<Block, { kind: "run" }>, eggs: boolean, packLabels: readonly RunLabel[]): string {
+  const took = formatDuration(b.ms);
+  if (b.stopped) return `Stopped after ${took}`;
+  if (b.failed) return `Failed after ${took}`;
+  if (b.derived) return `Worked for ${took}`;
+  return `${runLabelFor(b.startedAt, undefined, eggs, packLabels).past} for ${took}`;
+}
+
+/** Stable empty default: a fresh array per render would re-run the label memo every keystroke. */
+const NO_PACK_LABELS: readonly RunLabel[] = [];
 const NO_MENTIONS: readonly string[] = [];
+const NO_APP_ICONS: Readonly<Record<string, string | null>> = {};
 const NO_SOURCES: readonly Source[] = [];
+const NO_PROMPTS: readonly TrackPrompt[] = [];
+const NO_SAVED: readonly number[] = [];
+
+const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 /**
  * A user message's text, with its chips drawn as chips.
@@ -48,40 +113,92 @@ const NO_SOURCES: readonly Source[] = [];
  * deleted since the message was sent goes back to being the `@name` the user typed — which is also
  * what the agent was told, the server having failed to resolve it too.
  */
-function UserText({ text, mentionIds }: { text: string; mentionIds: readonly string[] }) {
+/**
+ * A turn goal mode started, in the log: one line, and the prompt behind it.
+ *
+ * Nobody typed this, so it is attributed like a peer session's question — a reader who came away
+ * believing they had asked for it would be reading their own log wrong.
+ *
+ * Shut by default, and that is the whole reason this is a component rather than another bubble. The
+ * continuation is five paragraphs of instructions, it is nearly identical every turn, and it is
+ * derived from an objective that is already on screen in the prompter's strip. Drawn open, a goal
+ * that ran ten turns would be ninety percent boilerplate with the work buried in it. It is still
+ * HERE — what the agent was handed is a fact about the run, and a log that hid it would be lying by
+ * omission — it is just not the loudest thing in the column.
+ */
+/** An error's own words, capped, in a box that dissolves at an end once there is more of them. */
+function ErrorText({ text }: { text: string }) {
+  const box = useRef<HTMLPreElement>(null);
+  useDissolve(box);
+  return <pre ref={box}>{text}</pre>;
+}
+
+function GoalTurn({ kind, text }: { kind: "continuation" | "budget"; text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="msg-user-from msg-goal-turn" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {goalTurnLabel(kind)}
+        <Icon name="chevronRight" size={12} className="msg-goal-caret" />
+      </button>
+      {open && <div className="msg-user msg-goal-prompt">{text}</div>}
+    </>
+  );
+}
+
+/** What a named thing's chip says under the pointer: where the file is, what the app mention did. */
+function refTitle(ref: MentionRef): string {
+  return ref.kind === "app" ? `${ref.name} — computer use for this session (${ref.bundleId})` : ref.path;
+}
+
+function UserText({ text, mentionIds, refs, appIcons }: { text: string; mentionIds: readonly string[]; refs?: readonly MentionRef[]; appIcons: Readonly<Record<string, string | null>> }) {
   const runs = useMemo(() => chipRuns(text, mentionIds), [text, mentionIds]);
+  const byLabel = useMemo(() => new Map((refs ?? []).map((r) => [r.label, r])), [refs]);
   return (
     <div className="msg-user">
-      {runs.map((r, i) => (r.chip
-        // A mention shows the characters the user typed, `@` included: the sigil is part of what they
-        // wrote and part of what the agent was told. An element chip shows its label alone, because
-        // `@[` and `]` are delimiters rather than content — the full token stays on the title.
-        ? <span key={i} className="msg-chip" data-kind={r.chip.kind} data-service={r.chip.service} title={r.chip.kind === "link" ? r.chip.url : r.text}>
+      {runs.map((r, i) => {
+        if (!r.chip) return r.text;
+        // A named file or app rides an element's `@[…]` token; the message's own refs say which.
+        const ref = r.chip.kind === "element" ? byLabel.get(r.chip.label) ?? null : null;
+        const appIcon = ref?.kind === "app" ? appIcons[ref.path] : null;
+        const icon = r.chip.kind === "link" && r.chip.service ? LINK_SERVICE_META[r.chip.service].icon
+          : ref ? (ref.kind === "app" ? "pointer" : fileMark(ref.path))
+          : r.chip.kind === "element" ? "target"
+          : r.text === `@${MAC_SKILL_ID}` ? "apple" : "sparkles";
+        return (
+          // A mention shows the characters the user typed, `@` included: the sigil is part of what they
+          // wrote and part of what the agent was told. An element chip shows its label alone, because
+          // `@[` and `]` are delimiters rather than content — the full token stays on the title.
+          <span key={i} className="msg-chip" data-kind={r.chip.kind} data-service={r.chip.service} data-ref={ref?.kind}
+            title={r.chip.kind === "link" ? r.chip.url : ref ? refTitle(ref) : r.text}>
             {/* Every chip is an icon and a name: a skill's spark, a picked element's target, a link's
-                app mark — the same picture the composer drew before send. The sigils are delimiters,
-                not content, and stay on the title; a link's URL does too. */}
-            <Icon name={r.chip.kind === "link" && r.chip.service ? LINK_SERVICE_META[r.chip.service].icon : r.chip.kind === "element" ? "target" : "sparkles"} size={12} className="msg-chip-mark" />
+                app mark, a file's type, an app's own icon, @mac's Apple mark — the same picture the
+                composer drew before send. The sigils are delimiters, not content, and stay on the
+                title; a link's URL does too. */}
+            {appIcon
+              ? <img src={appIcon} alt="" className="msg-chip-mark msg-chip-app" draggable={false} />
+              : <Icon name={icon} size={12} className="msg-chip-mark" />}
             {r.chip.kind === "mention" ? r.text : r.chip.label}
           </span>
-        : r.text))}
+        );
+      })}
     </div>
   );
 }
 
 /**
- * The tiles above a user message. Media among them opens in the lightbox on click.
+ * The tiles above a user message. Each opens in the media viewer on click, with the message's other
+ * files beside it.
  *
  * A screenshot was already visible as a 56px thumbnail, which answers "did I attach the right file"
  * and nothing else; a video attachment could not be played at all. Both are files the user chose,
- * so both are files they should be able to look at without leaving for Finder.
- *
- * Non-media attachments keep the plain tile. A PDF's tile shows its first page and there is nothing
- * more Realm can do with it here, so making it look clickable would be a promise it cannot keep.
+ * so both are files they should be able to look at without leaving for Finder — and a PDF too, in
+ * macOS's own render of it, with the session's prompter under it to ask about it.
  */
 function UserAttachments({ attachments }: { attachments: readonly { path: string; mime: string }[] }) {
   return (
     <ul className="msg-user-files" aria-label="Attached files">
-      {attachments.map((a) => <li key={a.path}><AttachmentTile path={a.path} mime={a.mime} /></li>)}
+      {attachments.map((a) => <li key={a.path}><AttachmentTile path={a.path} mime={a.mime} siblings={attachments} /></li>)}
     </ul>
   );
 }
@@ -98,8 +215,13 @@ function UserAttachments({ attachments }: { attachments: readonly { path: string
  * strip that appeared, changed and disappeared as the sentence completed would be worse than one
  * that waits for the full stop.
  */
-function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetry, retryBusy, rating, onRate, onPath, sources = NO_SOURCES }: {
+function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetry, retryBusy, rating, onRate, onPath, onImplementWith, sources = NO_SOURCES, fileLinks }: {
   text: string; streaming: boolean; enter: boolean; cwd: string | null;
+  /** Hand this answer to other models as the work to build — see `Transcript`'s prop. */
+  onImplementWith?: (text: string) => void;
+  /** The checkout, for the files this message names — handed over only once it has finished, for
+   *  the media strip's reason: half a path is a different path. */
+  fileLinks?: FileLinkContext;
   /** A file path in the prose was clicked. Absent in the read-only mounts, which leave paths as
    *  plain text rather than drawing a control that opens nothing. */
   onPath?: (path: string, at: HTMLElement) => void;
@@ -119,9 +241,10 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
     // direct children only, and the message stopped being one the moment it grew a wrapper.
     <div className="msg-assistant-row" data-enter={enter || undefined}
       data-state={streaming ? "streaming" : "complete"} aria-busy={streaming}>
-      <Markdown className="msg-assistant" text={text} cite={cite} onPath={onPath} />
+      <Markdown className="msg-assistant" text={text} cite={cite} onPath={onPath} arrive files={streaming ? undefined : fileLinks} />
       <MediaStrip files={files} />
-      {actions && !streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate} />}
+      {actions && !streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate}
+        onImplementWith={onImplementWith && (() => onImplementWith(text))} />}
       {!streaming && sources.length > 0 && <MessageSources sources={sources} />}
     </div>
   );
@@ -130,8 +253,33 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, onExpandPlan, mode }: {
-  transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed }: {
+  transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
+  /** Draw the scroll track down the log's left edge (ScrollTrack.tsx) — every session pane's. Off in the
+   *  quick chat, whose 380px window is one short exchange with no scrollback to find a place in. */
+  track?: boolean;
+  /** The turns the reader saved in this log, by their prompts' event seqs — marked on the track. */
+  saved?: readonly number[];
+  /** Save a turn, or unsave it, from the track. Absent draws no bookmark rather than a dead one. */
+  onSave?: (seq: number, saved: boolean) => void;
+  /** A prompt the track should go to as soon as it has it, as a pulse, and the word that it did. */
+  reveal?: { seq: number; n: number } | null;
+  onRevealed?: (n: number) => void;
+  /** The session this log is — what a sub-agent's line links back to (its row in this session's
+   *  Agents tab). Null in the read-only mounts, where the line reads and links nowhere. */
+  sessionId?: string | null;
+  /** Hand a plan, or an answer, to other models: the Agents tab, opened with it. Absent in the
+   *  read-only mounts, which draw no button for it rather than a dead one. */
+  onImplementWith?: (text: string) => void;
+  /** The session's checkout and how to open a file in it — what turns a file the prose names into a
+   *  link (file-links.ts). Null in the read-only mounts, which leave those names as text. `onOpen`
+   *  must be stable: it is part of what every finished message re-checks its links against. */
+  checkout?: { root: string; onOpen: (path: string, line: number | null) => void } | null;
+  /** What the "Edited N files" cards need beyond the checkout: whose turns these are, every
+   *  checkpoint in the checkout (what decides whether Undo is honest), and where Review and Undo go.
+   *  Null in the read-only mounts, which draw no card. */
+  turnEditing?: { sessionId: string; checkpoints: readonly Checkpoint[] | undefined;
+    onReview: (changes: TurnChanges, asked: string | null) => void; onUndo: (checkpointId: string) => void } | null;
   /** Ask the last user message again. Offered on the newest assistant message only: "retry" names
    *  the turn that just finished, and a button on message three of forty would silently act on
    *  message forty instead. Absent in the read-only mounts the suite and the fork preview use. */
@@ -139,6 +287,9 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   /** Record what the reader made of one answer, or with null take an earlier verdict back. Absent
    *  means the thumbs are not drawn at all, rather than drawn dead. */
   onRate?: (messageId: string, rating: Rating | null) => void;
+  /** Put a passage the reader selected into the prompter as a quote. Absent — the read-only mounts —
+   *  leaves the selection bar its Copy button and no Quote, rather than a Quote that does nothing. */
+  onQuote?: (text: string) => void;
   /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4). */
   focused?: boolean;
   /** The session's working directory — the base a message's bare filenames are joined against when
@@ -155,6 +306,9 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
    *  the same scan the composer uses. Empty means nothing chips, which is the honest state for a
    *  session whose agent Realm cannot inject skills into at all. */
   mentionIds?: readonly string[];
+  /** App icons by bundle path, for the chips of the apps a message named. Absent draws each with
+   *  computer use's pointer instead — the read-only mounts have no icon cache to read. */
+  appIcons?: Readonly<Record<string, string | null>>;
   /** Open one plan in full. Absent in the read-only mounts, which have no sheet host to open into,
    *  and the card then draws no Expand button rather than a dead one. */
   onExpandPlan?: (planId: string) => void;
@@ -162,9 +316,43 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
    *  has already settled carries no record of the mode it ran under, so labelling the settled line
    *  from the current mode would rename every earlier run the moment the user switches. */
   mode?: SessionMode;
+  /** Whether the run labels may name one of Carlton's friends. Unlike `mode` above, this one DOES
+   *  reach the settled line: flipping the switch does rename the runs already in the log, but the
+   *  alternative renames three runs in four at the moment they settle, which is the pairing the
+   *  labels exist to keep. A rare deliberate switch beats a constant broken promise. */
+  eggs?: boolean;
+  /** Working labels from an unlocked friend pack. They join the egg pool rather than replacing it. */
+  packLabels?: readonly RunLabel[];
+  /** What this log is, for the scroll memory that survives the unmount a space switch causes — the
+   *  session id, from the pane. Null (the default) opts out entirely, which is right for the
+   *  read-only mounts: a fork preview and a test are not somebody's place in a log. */
+  scrollKey?: string | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const atBottom = useRef(true);
+  /* Where this reader was last time this log was on screen, read ONCE at mount. A space switch
+     unmounts every pane in the space being left (store.selectSpace clears `items` and `sessions`),
+     so coming back is a fresh mount over a transcript the store never threw away — and without this
+     the reader landed at the newest message no matter where they had been reading. Null on a first
+     open and after a relaunch, which is what keeps a cold start opening at the end as it always
+     has. See scroll-memory.ts. */
+  const [mark] = useState(() => (scrollKey ? recallScroll(scrollKey) : null));
+  const atBottom = useRef(mark ? mark.atEnd : true);
+  /* The offset the first paints owe this reader, and the flag that stops the two mount-time effects
+     below from overruling it. Held until it LANDS rather than cleared on the first attempt: a
+     transcript's media strips arrive several frames after its text (use-media resolves them through
+     main), so the column is short at mount and an offset written into it is silently clamped. */
+  const restore = useRef(mark && !mark.atEnd ? mark.top : null);
+  const restoring = mark !== null && !mark.atEnd;
+  /* The window's start (`windowStart`). Null follows the newest blocks: a reader at the bottom of a
+     live session has the oldest rows drop away above them as new ones arrive. A number holds it — set
+     the moment the reader scrolls up, so what they are reading never moves, and moved back each time
+     they reach for more. A remount puts back the window the remembered offset was measured in. */
+  const [floor, setFloor] = useState<number | null>(() => (mark && !mark.atEnd ? mark.from ?? null : null));
+  const auto = windowStart(transcript.blocks);
+  const start = floor === null ? auto : Math.min(floor, auto);
+  const startRef = useRef(start);
+  startRef.current = start;
+  const shown = useMemo(() => (start === 0 ? transcript.blocks : transcript.blocks.slice(start)), [transcript.blocks, start]);
   const [pill, setPill] = useState(false);
   const count = transcript.blocks.length;
   const lastText = transcript.blocks.at(-1);
@@ -197,33 +385,154 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   // one list at the bottom would credit the newest message with everything ever read.
   const sourcesByKey = useMemo(() => {
     const out = new Map<string, Source[]>();
-    transcript.blocks.forEach((b, i) => {
-      if (b.kind !== "assistant" || b.streaming) return;
+    for (let i = start; i < transcript.blocks.length; i++) {
+      const b = transcript.blocks[i]!;
+      if (b.kind !== "assistant" || b.streaming) continue;
       const found = sourcesFor(transcript.blocks, i);
       if (found.length > 0) out.set(blockKey(b, i), found);
-    });
+    }
     return out;
-  }, [transcript.blocks]);
+  }, [transcript.blocks, start]);
   // §6: 180ms enter, new items only. Everything on screen at mount is seeded as already-seen, so
   // re-rendering, scrolling, or coming back to this session never replays an entrance.
+  /* Each settled turn's edits, and every turn as Undo weighs it (turn-edits.ts). The card is its own
+     entry in the enter tracker: it lands a beat after its run line, when git's account arrives. */
+  const edits = useMemo(() => (turnEditing
+    ? turnEdits(transcript.blocks, { changes: transcript.changes, checkpoints: turnEditing.checkpoints, sessionId: turnEditing.sessionId, cwd, root: checkout?.root ?? null })
+    : null), [transcript.blocks, transcript.changes, turnEditing, cwd, checkout?.root]);
+  /* What the window has just drawn further back is history, not news: it is told to the tracker as
+     seen so it does not play the entrance new blocks get. */
+  const drawnFrom = useRef(start);
+  const quiet = start < drawnFrom.current ? transcript.blocks.slice(start, drawnFrom.current).map((b, j) => blockKey(b, start + j)) : undefined;
+  drawnFrom.current = Math.min(drawnFrom.current, start);
   const isEntering = useEnterTracker([
-    ...transcript.blocks.map(blockKey),
+    ...shown.map((b, j) => blockKey(b, start + j)),
     ...permissions.map((p) => permKey(p.requestId)),
-  ]);
+    ...[...(edits?.cards.keys() ?? [])].map(editKey),
+  ], quiet);
+  /* The scroll track's prompts, and which of them changed files — counted off the Edited cards this
+     log draws, and off git's measurements where it draws none, so a tick marked as an edit is always
+     a turn with a card or a measurement behind it. Kept as the SAME list while it says the same thing:
+     every streamed token rebuilds the blocks, and the track would otherwise re-render every tick. */
+  const promptsRef = useRef<readonly TrackPrompt[]>(NO_PROMPTS);
+  const prompts = useMemo(() => {
+    if (!track) return NO_PROMPTS;
+    const next = trackPrompts(transcript.blocks, (i) => {
+      const b = transcript.blocks[i]!;
+      if (b.kind !== "run") return 0;
+      if (edits) return edits.cards.get(blockKey(b, i))?.totalFiles ?? 0;
+      const measured = transcript.changes?.[b.ts];
+      return measured && measured.files.length > 0 ? measured.totalFiles : 0;
+    }, new Set(saved));
+    // Only the prompts the window draws: a tick is placed on its row, and a row that is not drawn has
+    // nowhere to be measured.
+    const drawn = start === 0 ? next : next.filter((p) => Number(p.key.slice(p.key.indexOf(":") + 1)) >= start);
+    return samePrompts(promptsRef.current, drawn) ? promptsRef.current : (promptsRef.current = drawn);
+  }, [track, transcript.blocks, transcript.changes, edits, saved, start]);
+
+  /* The ONE place the pin is written, so the pin and the remembered mark can never disagree — and
+     so a programmatic jump is remembered too. Only `onScroll` would otherwise record anything, and
+     a scroll event is async: a reader who scrolls up, sends, and immediately switches space would
+     be put back halfway up a log they had already asked to be at the bottom of. */
+  const pin = (m: ScrollMark) => {
+    atBottom.current = m.atEnd;
+    if (scrollKey) rememberScroll(scrollKey, { ...m, from: startRef.current });
+  };
+  /** Follow the content down, and record that this is where the reader chose to be. */
+  const stick = (el: HTMLElement) => { el.scrollTop = el.scrollHeight; pin({ top: el.scrollTop, atEnd: true }); };
 
   const onScroll = () => {
     const el = ref.current; if (!el) return;
-    atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    pin(markOf(el));
     if (atBottom.current) setPill(false);
+    // Leaving the bottom holds the window where it is, so the rows being read stay put while more
+    // arrive below them.
+    else if (floor === null && startRef.current > 0) setFloor(startRef.current);
   };
-  const scrollToBottom = () => { const el = ref.current; if (el) el.scrollTop = el.scrollHeight; atBottom.current = true; setPill(false); };
+  /* Draw further back, keeping the reader's view where it is: the column grows ABOVE them, so the
+     distance to the bottom is what is held, not the offset from the top. */
+  const holdFromEnd = useRef<number | null>(null);
+  const showEarlier = useCallback(() => {
+    const el = ref.current, from = startRef.current;
+    if (from === 0) return;
+    if (el) holdFromEnd.current = el.scrollHeight - el.scrollTop;
+    setFloor(windowStart(transcript.blocks, EARLIER_BLOCKS, from));
+  }, [transcript.blocks]);
+  useLayoutEffect(() => {
+    const el = ref.current, held = holdFromEnd.current;
+    if (!el || held === null) return;
+    holdFromEnd.current = null;
+    el.scrollTop = el.scrollHeight - held;
+  }, [start]);
+  /* Reaching the top of what is drawn draws more, before the reader gets there: the sentinel is the
+     "Show earlier" control itself, watched with a margin of most of a screen. */
+  const earlierRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const el = earlierRef.current, root = ref.current;
+    if (!el || !root || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting) && !atBottom.current) showEarlier(); },
+      { root, rootMargin: "600px 0px 0px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [showEarlier, start]);
+  /* A prompt asked for by its seq (a saved turn opened from the Library) has to be drawn before the
+     track can go to it. */
+  useLayoutEffect(() => {
+    if (!reveal) return;
+    const at = transcript.blocks.findIndex((b) => b.kind === "user" && b.seq === reveal.seq);
+    if (at >= 0 && at < startRef.current) setFloor(at);
+  }, [reveal?.n]);
+  const scrollToBottom = () => { const el = ref.current; if (el) stick(el); else atBottom.current = true; setPill(false); };
+  /* A prompt picked on the scroll track. The reader has chosen where to be, so it is recorded as their
+     own scroll would be — and recorded FIRST: a smooth scroll reports itself a frame at a time, and a
+     token arriving before the first frame would stick a log that was at its end straight back there.
+     A restore still settling is the reader's no longer, as a wheel would have made it. `instant` is a
+     landing rather than a move: a saved turn opened from the Library. */
+  const jumpRef = useRef((_top: number, _instant?: boolean) => {});
+  jumpRef.current = (top, instant = false) => {
+    const el = ref.current; if (!el) return;
+    restore.current = null;
+    const to = Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
+    pin({ top: to, atEnd: el.scrollHeight - to - el.clientHeight < NEAR_END_PX });
+    el.scrollTo({ top: to, behavior: instant || reducedMotion() ? "instant" : "smooth" });
+  };
+  const jump = useCallback((top: number, instant?: boolean) => jumpRef.current(top, instant), []);
 
   useLayoutEffect(() => {
-    if (atBottom.current) { const el = ref.current; if (el) el.scrollTop = el.scrollHeight; }
+    const el = ref.current;
+    // Coming back to a reader who had scrolled up: put them where they were, and raise NO pill —
+    // nothing arrived, the pane was simply rebuilt around the same log.
+    const top = restore.current;
+    if (top !== null) { if (!el || applyScrollTop(el, top)) restore.current = null; return; }
+    if (atBottom.current) { if (el) stick(el); }
     else if (count > 0) setPill(true);
   }, [count, lastLen, permissions.length, visible]);
-  // First paint of a restored transcript starts at the end, and so does every send.
-  useLayoutEffect(() => { scrollToBottom(); }, [sends]);
+  // First paint of a restored transcript starts at the end, and so does every send — except the one
+  // paint that is putting a reader back where they were, which the effect above owns.
+  const firstPaint = useRef(true);
+  useLayoutEffect(() => {
+    const owned = firstPaint.current && restoring;
+    firstPaint.current = false;
+    if (!owned) scrollToBottom();
+  }, [sends]);
+
+  /* A restore cannot stay owed forever. A log that has genuinely got SHORTER — a compaction, a
+     session whose media is gone — would otherwise have every resize drag the scroller back to a
+     position it can no longer reach, against a reader who has moved on. So it expires: on landing
+     (above), on the reader reaching for the scroller, or on the deadline, whichever comes first. */
+  useEffect(() => {
+    if (restore.current === null) return;
+    const el = ref.current;
+    const drop = () => { restore.current = null; };
+    const timer = setTimeout(drop, SETTLE_MS);
+    el?.addEventListener("wheel", drop, { passive: true });
+    el?.addEventListener("pointerdown", drop);
+    return () => {
+      clearTimeout(timer);
+      el?.removeEventListener("wheel", drop);
+      el?.removeEventListener("pointerdown", drop);
+    };
+  }, []);
 
   /* Content that grows AFTER its block arrived. The effect above fires on new blocks and on the
      streaming message getting longer, and neither describes a media strip: it appears once main has
@@ -234,18 +543,53 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
     const col = ref.current?.querySelector(".transcript-col");
     if (!col) return;
     const ro = new ResizeObserver(() => {
-      const el = ref.current;
-      if (atBottom.current && el) el.scrollTop = el.scrollHeight;
+      const el = ref.current; if (!el) return;
+      // A restore still owed takes the column growing as its cue: this observer fires exactly when
+      // the media that was missing at mount lands, which is the frame the offset finally fits in.
+      const top = restore.current;
+      if (top !== null) { if (applyScrollTop(el, top)) restore.current = null; return; }
+      if (atBottom.current) stick(el);
     });
     ro.observe(col);
     return () => ro.disconnect();
   }, []);
 
+  /* The transcript dissolves at BOTH edges instead of being clipped at either: the column's own
+     alpha runs out over the last band rather than anything being painted on top of it, which is the
+     only dissolve that works on a pane showing the window's material. The top end matters now that
+     the pane bar rules no line — without it a message scrolling up to the bar arrives at a hard cut. */
+  useDissolve(ref);
+  const wrap = useRef<HTMLDivElement>(null);
+  // The reader's day, for choosing how each timestamp is said — never for what time it says.
+  const now = useNow();
+  /* What a bare file name in the prose may resolve to. Kept as the SAME set while its contents hold:
+     every streaming delta rebuilds the block list, and a new set each time would have every finished
+     message on screen re-check its links once per token. */
+  const touchedRef = useRef<Set<string> | null>(null);
+  const touched = useMemo(() => {
+    const next = cwd ? touchedFiles(transcript.blocks, transcript.changes, cwd) : null;
+    const prev = touchedRef.current;
+    if (prev && next && prev.size === next.size && [...next].every((p) => prev.has(p))) return prev;
+    return (touchedRef.current = next);
+  }, [cwd, transcript.blocks, transcript.changes]);
+  const fileLinks = useMemo<FileLinkContext | undefined>(() => (checkout && cwd && touched
+    ? { cwd, root: checkout.root, known: touched, onOpen: checkout.onOpen } : undefined), [checkout, cwd, touched]);
+
   return (
-    <div className="transcript-wrap">
+    <div className="transcript-wrap" ref={wrap}>
+      {/* Outside the scroller, and that is load-bearing: `.transcript` carries the edge dissolve,
+          and a mask applies to everything its element paints. A bar mounted inside would be faded by
+          it against the bottom end — the deeper of the two bands — which is measured rather than
+          asserted (see `selection-bar-live.mjs`). */}
+      <SelectionBar scrollRef={ref} wrapRef={wrap} onQuote={onQuote} />
       <div className="transcript" ref={ref} onScroll={onScroll} role="log" aria-live="polite" aria-label="Transcript">
+        <LeadSessionContext.Provider value={sessionId}>
         <div className="transcript-col">
-        {groupTranscript(transcript.blocks).map((it) => {
+        <ToolCwd.Provider value={cwd}>
+        {start > 0 && (
+          <button ref={earlierRef} type="button" className="btn-quiet transcript-earlier" onClick={showEarlier}>Show earlier messages</button>
+        )}
+        {groupTranscript(shown, start).map((it) => {
           if (it.kind === "group")
             // The group container itself never animates in: when a run crosses the grouping
             // threshold the cards it swallows are already on screen, and wrapping them in a fresh
@@ -259,19 +603,31 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
               // footnote to the text. It is also the only arrangement that survives the two
               // degenerate cases — an attachment-only message has no bubble to sit inside, and a long
               // message would otherwise push its own files off the bottom of the card.
-              <div key={key} className="msg-user-row" data-enter={enter || undefined} data-from={b.from ? "" : undefined}>
+              <div key={key} className="msg-user-row" data-prompt={key} data-enter={enter || undefined} data-from={b.from || b.goal ? "" : undefined}
+                data-scheduled={b.scheduled ? "" : undefined}>
                 {/* A question another session asked is NOT the user's words. Rendering it as a plain
                     user bubble would have the user believing they typed it — a lie by omission — so
                     the bubble is attributed and styled apart. The fenced text itself is left exactly
                     as the peer received it: the user should see what the agent was actually handed. */}
                 {b.from && <span className="msg-user-from">Asked by {b.from.title}</span>}
+                {/* A scheduled run's first message IS the person's words — the task's instructions — so
+                    its bubble stays theirs; it is the clock that sent it, and the line above says so.
+                    The note Realm added for the agent is under the pointer, not in the bubble. */}
+                {b.scheduled && <span className="msg-user-from" title={b.scheduled.note}>Scheduled run · {b.scheduled.task}</span>}
                 {b.attachments && <UserAttachments attachments={b.attachments} />}
                 {/* An attachment-only message has no text at all, and an empty bubble would read as a
                     send that lost its words rather than one that carried only files. */}
-                {b.text && <UserText text={b.text} mentionIds={mentionIds} />}
+                {b.goal
+                  ? <GoalTurn kind={b.goal} text={b.text} />
+                  : b.text && <UserText text={b.text} mentionIds={mentionIds} refs={b.refs} appIcons={appIcons} />}
+                {/* When it was sent, under the bubble — shown to the pointer, and to the keyboard,
+                    which is why it takes focus: a time only a mouse can reveal is one a keyboard
+                    reader never gets. */}
+                <time className="msg-user-at" dateTime={new Date(b.ts).toISOString()} title={stampTitle(b.ts)}
+                  aria-label={`Sent ${stampTitle(b.ts)}`} tabIndex={0}>{stampLabel(b.ts, now)}</time>
               </div>);
             case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
-              actions={settled && key === lastAssistantKey} onPath={onPath}
+              actions={settled && key === lastAssistantKey} onPath={onPath} onImplementWith={onImplementWith} fileLinks={fileLinks}
               onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy}
               rating={transcript.feedback[b.messageId] ?? null}
               onRate={onRate && ((r) => onRate(b.messageId, r))}
@@ -279,20 +635,48 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter}
-              onExpand={onExpandPlan && (() => onExpandPlan(b.planId))} />;
-            case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}><Icon name="alert" size={14} /><pre>{b.message}</pre></div>;
+              onExpand={onExpandPlan && (() => onExpandPlan(b.planId))} onImplementWith={onImplementWith} />;
+            // Drawn once it is answered. While it waits, the live card at the foot of the column IS the
+            // question, and a second copy of it here would be two places to answer one thing.
+            case "question": return b.decision ? <AnsweredQuestion key={key} card={b.card} decision={b.decision} answers={b.answers} enter={enter} /> : null;
+            // A failure Realm knows the answer to says the answer here, under the message, because
+            // this is where the reader is already looking. The command is offered to copy and
+            // nothing more: the transcript is content, and the controls that act on this session —
+            // "Check again", "Open in terminal" — live on the prompter, which takes over entirely
+            // when the agent's own probe confirms it is signed out.
+            case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}>
+              <Icon name="alert" size={14} />
+              <div className="msg-error-body">
+                <ErrorText text={b.message} />
+                {b.fix?.command && <CommandCopy command={b.fix.command} />}
+              </div>
+            </div>;
             // The shimmer the reader was watching, settled: same verb, past tense, with the wait it
             // cost them. It stays in the scrollback rather than vanishing with the spinner — "how
             // long did that take" is a question asked after the fact, not during.
             // A turn the user stopped says so, on the same quiet line and in the same place. It does
             // not get the run's playful past tense: "Simmered for 4s" reads as a job that finished.
-            case "run": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>
-              <span>{b.stopped ? `Stopped after ${formatDuration(b.ms)}` : `${runLabelFor(b.startedAt).past} for ${formatDuration(b.ms)}`}</span>
-              {/* When it finished. A duration alone reads the same whether the run ended a minute
-                  ago or last Tuesday, and a transcript you come back to is where that matters. The
-                  full date rides the tooltip, because a clock time is ambiguous across midnight. */}
-              <span className="msg-run-at" title={finishedOn(b.ts)}>{finishedAt(b.ts)}</span>
-            </div>;
+            case "run": {
+              /* What the turn changed, just above the line that closes it — the "Edited N files" card,
+                 Codex's. Only on a turn that changed something, and only where a transcript can act
+                 on one. */
+              const edited = edits?.cards.get(key);
+              const measured = transcript.changes?.[b.ts];
+              return <Fragment key={key}>
+                {edited && turnEditing && <EditSummary edits={edited} enter={isEntering(editKey(key))}
+                  undo={undoOffer(edited, edits!.turns, turnEditing.checkpoints, turnEditing.sessionId)}
+                  onOpen={(p) => checkout?.onOpen(p, null)}
+                  onReview={measured ? () => turnEditing.onReview(inCardOrder(measured, edited), edited.asked) : undefined}
+                  onUndo={turnEditing.onUndo} />}
+                <div className="msg-run muted" data-enter={enter || undefined}>
+                  <span>{runSummary(b, eggs, packLabels)}</span>
+                  {/* When it finished. A duration alone reads the same whether the run ended a minute
+                      ago or last Tuesday, and a transcript you come back to is where that matters.
+                      Dated from the settle itself, and the full date rides the tooltip. */}
+                  <time className="msg-run-at" dateTime={new Date(b.ts).toISOString()} title={stampTitle(b.ts)}>{stampLabel(b.ts, now)}</time>
+                </div>
+              </Fragment>;
+            }
             // The seam. Everything above it is one agent's voice and everything below is another's,
             // so it is drawn AS a seam — a rule across the column with the sentence set into it —
             // rather than as a card, which would read as one more thing an agent said.
@@ -304,8 +688,13 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             </div>;
             // Present tense, because this one is about right now: it is the only block in the
             // transcript that will be replaced rather than joined by what comes next.
+            // An auth wait says what it is waiting ON. "Retrying…" under a message that just said
+            // the session expired reads as Realm ignoring it; the agent's credentials having been
+            // re-read, and found sound, is the fact that makes another attempt sensible.
             case "retrying": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>
-              {b.attempt === 1 ? "Retrying…" : `Retrying (attempt ${b.attempt})…`}
+              {b.reason === "auth"
+                ? (b.attempt === 1 ? "Signed in — trying again…" : `Signed in — trying again (attempt ${b.attempt})…`)
+                : (b.attempt === 1 ? "Retrying…" : `Retrying (attempt ${b.attempt})…`)}
             </div>;
             // The other seam, wearing the handover's shape because it reports the same kind of thing:
             // the transcript above this line is no longer what the agent below it is reading. Sharing
@@ -315,38 +704,45 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
               <span>Context compacted</span>
               {b.postTokens !== undefined && <span className="msg-handoff-tries">{formatTokens(b.preTokens)} → {formatTokens(b.postTokens)}</span>}
             </div>;
+            // The third seam, and the same class again for the same reason: what a reader needs from
+            // all three is "what is above this line is not what is below it", and drawing that three
+            // slightly different ways would be a distinction that means nothing. The sentence is
+            // built server-side so every surface tells it identically — this renders it, never
+            // rewrites it.
+            case "context_reset": return <div key={key} className="msg-handoff" role="note" data-enter={enter || undefined}>
+              <span>{b.note}</span>
+            </div>;
+            // Not a seam: nothing changed about the agent here, and wearing the seam's class would
+            // say it had. This is a mark about the READER — where they stopped — so it is the one
+            // rule in the column that carries the accent, and it says so in the second person.
+            case "unseen-mark": return <div key={key} className="msg-unseen" role="separator" aria-label="New since you were here" data-enter={enter || undefined}>
+              <span>New since you were here</span>
+            </div>;
           }
         })}
-        {permissions.map((p, i) => {
-          // Only what really is a permission keeps the Allow / Allow always / Deny gate.
-          const questions = questionCardFor(p);
-          if (questions) return <QuestionCard key={p.requestId} questions={questions} autoFocus={focused && i === 0}
-            enter={isEntering(permKey(p.requestId))}
-            onAnswer={(answers) => onDecide(p.requestId, "allow", answers)} onSkip={() => onDecide(p.requestId, "deny")} />;
-          // A plan is not a permission. The plan itself is already a block above (mapped off the same
-          // tool call), so this is only the answer to it — repeating the markdown here would print the
-          // plan twice.
-          if (isPlanDecision(p)) return <PlanDecision key={p.requestId} autoFocus={focused && i === 0}
-            enter={isEntering(permKey(p.requestId))} onDecide={(d) => onDecide(p.requestId, d)} />;
-          return <PermissionCard key={p.requestId} permission={p} autoFocus={focused && i === 0}
-            enter={isEntering(permKey(p.requestId))} onDecide={(d) => onDecide(p.requestId, d)} />;
-        })}
+        {/* Only what really is a permission keeps the Allow / Allow always / Deny gate — a question
+            and a plan get cards of their own (`PendingRequest`). */}
+        {permissions.map((p, i) => (
+          <PendingRequest key={p.requestId} permission={p} autoFocus={focused && i === 0}
+            enter={isEntering(permKey(p.requestId))} onDecide={(...decision) => onDecide(p.requestId, ...decision)} />
+        ))}
         {/* Plan 9 W2: BUI LoadingState's shimmer label — shown by the session's real status, never a clock.
             The word is this run's (run-label.ts), and `run.startedAt` holds it still: seeding it on
             anything that moves would re-roll the verb on every streaming delta. */}
-        {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">{runLabelFor(transcript.run?.startedAt ?? 0, mode).present}…</span></div>}
+        {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">{runLabelFor(transcript.run?.startedAt ?? 0, mode, eggs, packLabels).present}…</span></div>}
         {/* Last in the column, so it reads as the closing line of the session rather than as another
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}
         <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} written={transcript.summary?.text ?? null} />
+        </ToolCwd.Provider>
         </div>
+        </LeadSessionContext.Provider>
       </div>
-      {/* The transcript dissolves at BOTH edges instead of being clipped at either — siblings of the
-          scroller (not children) so their backdrop-filter still sees the text scrolling underneath.
-          The top band matters now that the pane bar rules no line: without it a message scrolling up
-          to the bar arrives at a hard cut. */}
-      <div className="transcript-fade-top" aria-hidden="true" />
-      <div className="transcript-fade" aria-hidden="true" />
+      {/* Outside the scroller for the same reason, and AFTER it: the track reads the scroller's ref in
+          its first layout effect, which React runs for an earlier sibling before this one's ref is
+          attached. It also leaves the track just behind the prompter in the tab order, rather than
+          behind every timestamp in the log. */}
+      {track && <ScrollTrack scrollRef={ref} prompts={prompts} onJump={jump} now={now} onSave={onSave} reveal={reveal} onRevealed={onRevealed} />}
       {pill && <button className="new-msgs-pill" onClick={scrollToBottom}><Icon name="arrowDown" size={12} /> New messages</button>}
     </div>
   );

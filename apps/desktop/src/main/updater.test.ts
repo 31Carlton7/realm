@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RealmUpdater, updaterDecision, UPDATE_FEED_LIVE, type UpdaterLike } from "./updater";
+import { CHECK_EVERY_MS, CHECK_ON_FOCUS_AFTER_MS, CHECK_TICK_MS, RealmUpdater, scheduleUpdateChecks, updaterDecision, UPDATE_FEED_LIVE, type UpdaterLike } from "./updater";
 
 describe("updaterDecision — the hard gate (Plan 15 W1)", () => {
   it("dev is absolute: never enabled unpackaged, whatever else claims to be true", () => {
@@ -29,18 +29,29 @@ describe("updaterDecision — the hard gate (Plan 15 W1)", () => {
 });
 
 function fakeUpdater() {
-  const u: UpdaterLike & { checks: number; installed: number; fireDownloaded: (v: string) => void; nextResult: { isUpdateAvailable: boolean; updateInfo: { version: string } } | null; fail: Error | null } = {
+  const handlers = new Map<string, (arg: never) => void>();
+  const fire = (event: string, arg: unknown) => {
+    const h = handlers.get(event);
+    if (!h) throw new Error(`no ${event} listener registered`);
+    h(arg as never);
+  };
+  const u: UpdaterLike & { checks: number; downloads: number; installed: number; fireDownloaded: (v: string) => void; fireProgress: (percent: number) => void;
+    fireError: (message: string) => void; nextResult: { isUpdateAvailable: boolean; updateInfo: { version: string } } | null; fail: Error | null } = {
     autoDownload: false,
     checks: 0,
+    downloads: 0,
     installed: 0,
     nextResult: null,
     fail: null,
-    fireDownloaded: () => { throw new Error("no listener registered"); },
+    fireDownloaded: (v) => fire("update-downloaded", { version: v }),
+    fireProgress: (percent) => fire("download-progress", { percent }),
+    fireError: (message) => fire("error", new Error(message)),
     checkForUpdates() {
       this.checks++;
       return this.fail ? Promise.reject(this.fail) : Promise.resolve(this.nextResult);
     },
-    on(_event, cb) { this.fireDownloaded = (v) => cb({ version: v }); return this; },
+    downloadUpdate() { this.downloads++; return Promise.resolve([]); },
+    on(event: string, cb: (arg: never) => void) { handlers.set(event, cb); return this; },
     quitAndInstall() { this.installed++; },
   };
   return u;
@@ -77,7 +88,7 @@ describe("RealmUpdater", () => {
     const fake = fakeUpdater();
     const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
     fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
-    expect((await up.check()).state).toEqual({ kind: "downloading", version: "1.1.0" });
+    expect((await up.check()).state).toEqual({ kind: "downloading", version: "1.1.0", percent: null });
     up.install(); // not downloaded yet — must be a no-op
     expect(fake.installed).toBe(0);
     fake.fireDownloaded("1.1.0");
@@ -122,6 +133,74 @@ describe("RealmUpdater", () => {
     expect((await up.check()).state).toEqual({ kind: "up-to-date" });
   });
 
+  it("reports a download's progress while it runs, clamped, and nothing once it has finished", async () => {
+    const fake = fakeUpdater();
+    const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
+    await up.check();
+    fake.fireProgress(42.5);
+    expect(up.status().state).toEqual({ kind: "downloading", version: "1.1.0", percent: 42.5 });
+    fake.fireProgress(140);
+    expect(up.status().state).toEqual({ kind: "downloading", version: "1.1.0", percent: 100 });
+    fake.fireDownloaded("1.1.0");
+    // A late progress event must not drag a finished download back to "downloading".
+    fake.fireProgress(99);
+    expect(up.status().state).toEqual({ kind: "downloaded", version: "1.1.0" });
+  });
+
+  it("a failed download leaves the version available, and only then can a click start it again", async () => {
+    const fake = fakeUpdater();
+    const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
+    await up.check();
+    // THE MUTANT: download() honoured from `downloading` — a second fetch of the same update.
+    expect((await up.download()).state).toEqual({ kind: "downloading", version: "1.1.0", percent: null });
+    expect(fake.downloads).toBe(0);
+    fake.fireError("net::ERR_CONNECTION_RESET");
+    expect(up.status().state).toEqual({ kind: "available", version: "1.1.0" });
+    expect((await up.download()).state).toEqual({ kind: "downloading", version: "1.1.0", percent: null });
+    expect(fake.downloads).toBe(1);
+    up.install(); // not downloaded yet
+    expect(fake.installed).toBe(0);
+  });
+
+  it("a check's own failure is the check's error, not a lost download", async () => {
+    const fake = fakeUpdater();
+    const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
+    fake.checkForUpdates = function () {
+      this.checks++;
+      // electron-updater emits `error` AND rejects when the check itself fails.
+      this.fireError("ENOTFOUND github.com");
+      return Promise.reject(new Error("ENOTFOUND github.com"));
+    };
+    expect((await up.check()).state).toEqual({ kind: "error", message: "ENOTFOUND github.com" });
+  });
+
+  it("tells main about every change of state, so the windows hear progress without asking", async () => {
+    const fake = fakeUpdater();
+    const heard: string[] = [];
+    const up = new RealmUpdater({
+      version: "1.0.0", decision: { enabled: true }, load: async () => fake,
+      onChange: (s) => heard.push(s.state.kind === "downloading" ? `downloading:${s.state.percent}` : s.state.kind),
+    });
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
+    await up.check();
+    fake.fireProgress(10);
+    fake.fireDownloaded("1.1.0");
+    expect(heard).toEqual(["checking", "downloading:null", "downloading:10", "downloaded"]);
+  });
+
+  it("a check during a download, or after it, does not start electron-updater over", async () => {
+    const fake = fakeUpdater();
+    const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
+    await up.check();
+    expect((await up.check()).state.kind).toBe("downloading");
+    fake.fireDownloaded("1.1.0");
+    expect((await up.check()).state).toEqual({ kind: "downloaded", version: "1.1.0" });
+    expect(fake.checks).toBe(1);
+  });
+
   it("a check while checking does not start a second electron-updater check", async () => {
     const fake = fakeUpdater();
     const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
@@ -133,5 +212,62 @@ describe("RealmUpdater", () => {
     settle(null);
     expect((await first).state).toEqual({ kind: "up-to-date" });
     expect(fake.checks).toBe(1);
+  });
+});
+
+describe("an open Realm keeps looking for updates", () => {
+  /* It checked once, at launch, so a Realm left open never heard of a release and the rail's button
+     could not appear (2.0.1, 2026-10-06). THE mutant: drop the schedule from main, or have
+     checkIfStale always skip. */
+  const clock = () => { let t = 1_000_000; return { now: () => t, advance: (ms: number) => { t += ms; } }; };
+
+  it("checks again once the last check is older than the age it is given, and not before", async () => {
+    const fake = fakeUpdater(); const c = clock();
+    const up = new RealmUpdater({ version: "2.0.0", decision: { enabled: true }, load: async () => fake, now: c.now });
+    fake.nextResult = { isUpdateAvailable: false, updateInfo: { version: "2.0.0" } };
+    await up.checkIfStale(CHECK_ON_FOCUS_AFTER_MS);      // never checked: checks
+    expect(fake.checks).toBe(1);
+    c.advance(CHECK_ON_FOCUS_AFTER_MS - 1);
+    await up.checkIfStale(CHECK_ON_FOCUS_AFTER_MS);      // too soon
+    expect(fake.checks).toBe(1);
+    c.advance(1);
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "2.0.1" } };
+    expect((await up.checkIfStale(CHECK_ON_FOCUS_AFTER_MS)).state).toEqual({ kind: "downloading", version: "2.0.1", percent: null });
+    expect(fake.checks).toBe(2);
+  });
+
+  it("never stacks a check on a download, and a gated build never loads the updater", async () => {
+    const fake = fakeUpdater(); const c = clock();
+    const up = new RealmUpdater({ version: "2.0.0", decision: { enabled: true }, load: async () => fake, now: c.now });
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "2.0.1" } };
+    await up.check();
+    c.advance(CHECK_EVERY_MS * 2);
+    await up.checkIfStale(CHECK_EVERY_MS);
+    expect(fake.checks).toBe(1);
+    let loads = 0;
+    const gated = new RealmUpdater({ version: "2.0.0", decision: { enabled: false, reason: "unsigned" }, load: async () => { loads++; return fakeUpdater(); } });
+    await gated.checkIfStale(0);
+    expect(loads).toBe(0);
+  });
+
+  it("is scheduled hourly against a four-hour age, and on focus against an hour", async () => {
+    const asked: number[] = [];
+    let tick: () => void = () => {}, focus: () => void = () => {}, tickMs = 0;
+    scheduleUpdateChecks({ checkIfStale: async (age) => { asked.push(age); } }, {
+      every: (fn, ms) => { tick = fn; tickMs = ms; }, onFocus: (fn) => { focus = fn; },
+    });
+    expect(tickMs).toBe(CHECK_TICK_MS);
+    tick(); focus();
+    expect(asked).toEqual([CHECK_EVERY_MS, CHECK_ON_FOCUS_AFTER_MS]);
+  });
+});
+
+describe("main schedules the checks", () => {
+  it("wires the schedule to the app's updater, an interval and window focus", async () => {
+    // Read as text: importing main would start an Electron app.
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const src = readFileSync(join(__dirname, "index.ts"), "utf8");
+    expect(src).toMatch(/scheduleUpdateChecks\(updater, \{[\s\S]*?setInterval\(fn, ms\)[\s\S]*?app\.on\("browser-window-focus", fn\)/);
   });
 });

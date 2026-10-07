@@ -295,6 +295,105 @@ export function activityLevel(messages: number, max: number): 0 | 1 | 2 | 3 | 4 
   return 4;
 }
 
+/* ──────────────────────────── records: the page about you ──────────────────────────── */
+
+/**
+ * The day after a `dayKey`, on the local calendar.
+ *
+ * Through the date constructor at noon, never by adding 86,400,000 to a midnight: the night the
+ * clocks change, a fixed-length day lands on the same date twice or skips one, and a streak that
+ * broke every March would be a bug nobody could reproduce in October.
+ */
+export function nextDayKey(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  return dayKey(new Date(y!, m! - 1, d! + 1, 12).getTime());
+}
+
+/** A streak: how many days in a row, and which days. Both ends are null when the count is zero. */
+export type UsageStreakRun = { days: number; from: string | null; to: string | null };
+
+/**
+ * Runs of consecutive days with activity, from the days that had any.
+ *
+ * `current` is the run that is still alive: one ending today, or ending YESTERDAY when today has
+ * nothing in it yet. The second half is the whole difficulty. Counting only runs that reach today
+ * would read every streak as broken from midnight until the first message of the morning — a
+ * figure that is wrong for most of the hours anyone looks at it. A run whose last day is before
+ * yesterday is over, and the current streak is zero.
+ *
+ * `longest` is the longest run ever, the most recent one when two tie: a record you are close to is
+ * more worth showing than the same length three years ago.
+ *
+ * `days` are LOCAL calendar dates (`dayKey`), the same days the activity calendar draws, so the
+ * streak and the grid beside it can never disagree about which days were used. Days after `today`
+ * are ignored rather than trusted — a clock that was wrong once must not hand out a streak.
+ */
+export function usageStreaks(days: Iterable<string>, today: string): { current: UsageStreakRun; longest: UsageStreakRun } {
+  const sorted = [...new Set(days)].filter((d) => d <= today).sort();
+  let longest: UsageStreakRun = { days: 0, from: null, to: null };
+  let run: UsageStreakRun = { days: 0, from: null, to: null };
+  for (const day of sorted) {
+    run = run.to !== null && nextDayKey(run.to) === day
+      ? { days: run.days + 1, from: run.from, to: day }
+      : { days: 1, from: day, to: day };
+    if (run.days >= longest.days) longest = run;
+  }
+  const alive = run.to !== null && (run.to === today || nextDayKey(run.to) === today);
+  return { current: alive ? run : { days: 0, from: null, to: null }, longest };
+}
+
+/** How many entries each of the page's "most used" lists carries. */
+export const USAGE_RECORDS_TOP = 6;
+
+const DayKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const StreakRunSchema = z.object({ days: z.number().int().nonnegative(), from: DayKeySchema.nullable(), to: DayKeySchema.nullable() });
+
+/**
+ * Everything the page about you counts, over all of time.
+ *
+ * One payload for the same reason `usage.summary` is one: the five figures sit side by side, and two
+ * reads taken a moment apart could disagree about a turn that finished in between.
+ *
+ * What is measured, and what it can claim:
+ *
+ * - `tokens` and `peakDay` come from the `usage` events, and so from the two engines that send any
+ *   (`USAGE_REPORTING`). They are what was REPORTED, never an estimate of the rest — the sessions
+ *   they cannot see are counted in `unmeasuredSessions` so the page can say so. `peakDay` is null
+ *   when nothing ever reported a token, which is an unknown, not a zero.
+ * - `longestTurn` comes from the session's own status rail, which Realm writes for every engine.
+ *   It is WORKING time: the stretch the agent spent waiting on a permission is taken out, because a
+ *   turn left on a prompt overnight measures the night, not the work.
+ * - `streak` comes from sent messages, the measure the activity calendar uses (`usage.activeDays`).
+ * - `models` and `efforts` rank by messages sent, which every engine has; a session that changed
+ *   model halfway is filed under the one it ended on, because that is the one its row holds.
+ * - `skills` counts the times an agent loaded a skill through its `Skill` tool. Realm's own library
+ *   namespace (`realm:`) is dropped, so a skill counts once whichever route loaded it.
+ */
+export const UsageRecordsSchema = z.object({
+  tokens: z.object({ input: z.number().nonnegative(), output: z.number().nonnegative() }),
+  /** Sessions on an engine that reports no usage at all — their tokens are unknown, not zero. */
+  unmeasuredSessions: z.number().int().nonnegative(),
+  peakDay: z.object({ day: DayKeySchema, tokens: z.number().nonnegative() }).nullable(),
+  longestTurn: z.object({
+    ms: z.number().nonnegative(), endedAt: z.number().int(),
+    sessionId: z.string(), title: z.string(), spaceId: z.string(),
+  }).nullable(),
+  streak: z.object({ current: StreakRunSchema, longest: StreakRunSchema }),
+  models: z.array(z.object({ key: z.string(), label: z.string(), messages: z.number().int(), sessions: z.number().int() })),
+  efforts: z.array(z.object({ effort: z.string(), messages: z.number().int(), sessions: z.number().int() })),
+  skills: z.array(z.object({ name: z.string(), uses: z.number().int() })),
+  tools: z.array(z.object({ name: z.string(), calls: z.number().int() })),
+});
+export type UsageRecords = z.infer<typeof UsageRecordsSchema>;
+
+/** A skill's name as the page lists it: what the `Skill` tool was handed, without the slash a
+ *  command carries or Realm's own plugin namespace, which is a fact about how the skill was
+ *  delivered rather than about which skill it is. Another plugin's namespace stays: it is part of
+ *  what tells two skills of the same name apart. */
+export function skillUseName(raw: string): string {
+  return raw.trim().replace(/^\//, "").replace(/^realm:/, "");
+}
+
 /* ────────────────────────────── budget ────────────────────────────── */
 
 /** `settings` row holding the budget. Generic table, so no migration (the `models.catalog` posture). */

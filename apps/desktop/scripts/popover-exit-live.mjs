@@ -5,7 +5,7 @@
  * wrong about at runtime. jsdom can see that `data-closing` is set and that the node eventually
  * goes; it cannot see any of these:
  *
- *   1. The exit actually RUNS. `rl-menu-out` is a compositor animation on a portalled node — jsdom
+ *   1. The exit actually RUNS. `rl-fade-out` (NSMenu's fade, no travel) is a compositor animation on a portalled node — jsdom
  *      has no animation clock, so only `getAnimations()` on a real document can say the fade is
  *      playing rather than the mark being set over nothing.
  *   2. A closing menu is not in the way. It is still painted, so the question is whether the app
@@ -152,7 +152,7 @@ async function main() {
     env: {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),
-      REALM_ENABLE_FAKE_AGENT: "1",
+      REALM_ENABLE_FAKE_AGENT: "1", REALM_HTML_MENUS: "1",
       REALM_PORT: String(SERVER_PORT),
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
@@ -192,7 +192,7 @@ async function main() {
   await escape(c);
   const mid = await evalIn(c, SNAPSHOT);
   check("Escape starts the exit rather than unmounting: the menu is still there, marked closing", mid.closing === true, mid);
-  check("and the exit is genuinely playing — rl-menu-out, on the compositor", mid.animations?.includes("rl-menu-out"), mid.animations);
+  check("and the exit is genuinely playing — rl-fade-out, on the compositor", mid.animations?.includes("rl-fade-out"), mid.animations);
   check("a closing menu is inert and pointer-dead", mid.inert === true && mid.pointerEvents === "none", { inert: mid.inert, pointerEvents: mid.pointerEvents });
   // The one that matters: the app behind a fading menu has to be reachable. `pointer-events: none`
   // and `inert` are both claims about hit-testing, and this is the only way to read the answer.
@@ -245,16 +245,24 @@ async function main() {
   check("the moved menu still left when its exit was up", (await evalIn(c, SNAPSHOT)).count === 0);
 
   /* ── 3. A parent that unmounts mid-exit takes the surface with it ─────────────────────────── */
-  // "Close" removes the pane the menu hangs off, PanelBar and all. The exit's timer has to die with
-  // it: firing afterwards would drive a parent that no longer exists.
-  await press(c, DOTS);
+  // "Close tab" removes the pane the menu hangs off, PanelBar and all. The exit's timer has to die
+  // with it: firing afterwards would drive a parent that no longer exists. A session has no close of
+  // its own, so the pane is a terminal tab of its side pane — opened from the new-tab page the
+  // window's toggle shows, and the strip's only tab, so closing it takes the whole pane.
+  await press(c, '.window-trail button');
+  await until(() => evalIn(c, `(() => { const r = [...document.querySelectorAll('.new-tab .new-tab-row')].find((b) => b.textContent.includes('Terminal'));
+    if (!r) return false; r.click(); return true; })()`), 10000, "the new-tab page's Terminal");
+  const TAB_DOTS = '.panel[data-tabbed] .panel-bar button[aria-label^="Pane menu"]';
+  await until(() => evalIn(c, `!!document.querySelector(${JSON.stringify(TAB_DOTS)}) && !document.querySelector('.new-tab')`), 15000, "the terminal tab's ⋯");
+  await press(c, TAB_DOTS);
   await until(() => evalIn(c, `!!document.querySelector('.menu')`), 5000, "menu open (3)");
   await sleep(250);
   await evalIn(c, `(() => {
-    const it = [...document.querySelectorAll('[role="menuitem"]')].find((m) => m.textContent.trim().startsWith('Close'));
+    const it = [...document.querySelectorAll('[role="menuitem"]')].find((m) => m.textContent.trim().startsWith('Close tab'));
     it.click(); return true; })()`);
   await sleep(400);
-  check("the pane closed and its menu went with it", (await evalIn(c, SNAPSHOT)).count === 0);
+  check("the pane closed and its menu went with it", (await evalIn(c, SNAPSHOT)).count === 0
+    && !(await evalIn(c, `!!document.querySelector('.panel[data-tabbed]')`)));
 
   /* ── 4. Ten cycles faster than the exit: no pile-up, nothing left ─────────────────────────── */
   await until(() => evalIn(c, `!!document.querySelector(${JSON.stringify(DOTS)})`), 15000, "a pane with a ⋯ again");

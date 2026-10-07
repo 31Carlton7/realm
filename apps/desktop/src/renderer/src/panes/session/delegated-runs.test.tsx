@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { allItems, type DelegatedRun } from "@realm/contracts";
+import { findSidePane, type DelegatedRun } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
-import { SessionPane } from "./SessionPane";
+import { SessionMeta, SessionPane } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
 import { sessionEvent } from "@realm/contracts";
 
@@ -26,15 +26,18 @@ async function mount(delegatedRuns: Record<string, DelegatedRun[]> = {}) {
   const store = createAppStore(api); await store.getState().boot();
   store.setState({ sessionStatus: { se1: "running", se2: "running" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
   await store.getState().openItem("i9");
-  const r = render(<StoreContext.Provider value={store}><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>);
+  const r = render(<StoreContext.Provider value={store}><SessionMeta item={ITEMS.s1[0]!} /><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>);
   return { api, store, ...r };
 }
 
-const dock = () => screen.queryByRole("button", { name: /agents? in flight for Parent/ });
+/** The running-agents control in the session's bar. */
+const dock = () => screen.queryByRole("button", { name: /agents? working for Parent/ });
+/** Open its list — every row lives in the popover. */
+const openAgents = async () => fireEvent.click(await screen.findByRole("button", { name: /agents? working for Parent/ }));
 
 afterEach(() => cleanup());
 
-describe("the delegating session's dock", () => {
+describe("the delegating session's running-agents control", () => {
   it("draws nothing at all for a session that is waiting on no one", async () => {
     await mount();
     expect(dock()).toBeNull();
@@ -47,6 +50,7 @@ describe("the delegating session's dock", () => {
     // show nothing until the run ENDED, which is exactly when it stops being worth showing.
     await waitFor(() => expect(dock()).not.toBeNull());
     expect(api.calls).toContain("listDelegatedRuns:se1");
+    await openAgents();
     expect(screen.getByRole("button", { name: /Agent: audit the mapper/ })).toBeInTheDocument();
   });
 
@@ -81,17 +85,21 @@ describe("the delegating session's dock", () => {
     expect(store.getState().delegatedRuns["se1"]).toEqual([PEER]);
   });
 
-  it("opens a sub-agent BESIDE its parent, never over the top of it", async () => {
+  it("previews a sub-agent as a tab of its parent's side pane, never over the top of it", async () => {
     const { store } = await mount({ se1: [KID] });
-    await waitFor(() => expect(dock()).not.toBeNull());
+    await openAgents();
+    const focused = store.getState().focusedLeafId;
     fireEvent.click(screen.getByRole("button", { name: /Agent: audit the mapper/ }));
-    // THE MUTANT: open in place. The pane the user pressed the button in is the parent whose work
-    // they are trying to follow, and evicting it to show the child destroys the comparison.
-    await waitFor(() => expect(allItems(store.getState().layout!)).toEqual(expect.arrayContaining(["i9", "i8"])));
+    // THE MUTANTS: open in place, which evicts the parent whose work the user is following; or open
+    // beside the focused pane, a column per child — the layout this control exists to replace.
+    await waitFor(() => expect(findSidePane(store.getState().layout!, "i9")?.tabs).toEqual(["i8"]));
+    // The keyboard stays in the parent's prompter.
+    expect(store.getState().focusedLeafId).toBe(focused);
   });
 
   it("does not call a peer it merely asked a question a sub-agent", async () => {
     await mount({ se1: [PEER] });
+    await openAgents();
     // THE MUTANT: read the origin off the session row for every run. A peer was doing its own work
     // before the question arrived and keeps doing it after — `agent_ask` neither spawned it nor owns
     // it, and its own row says nothing about this session at all.
@@ -111,34 +119,49 @@ describe("sub-agents the HARNESS is running", () => {
 
   /** The DOCK's own rows. The same text is also in the transcript's tool card for that call — which
    *  is right, and is why every assertion here is scoped rather than global. */
-  const dockText = () => [...document.querySelectorAll(".delegation-item .delegation-title")].map((n) => n.textContent);
+  const dockText = () => [...document.querySelectorAll(".agents-pop .delegation-item .delegation-title")].map((n) => n.textContent);
 
   async function mountWith(events: ReturnType<typeof sessionEvent>[], delegatedRuns: Record<string, DelegatedRun[]> = {}) {
     const api = fakeApi({ items: ITEMS, sessions: SESSIONS, delegatedRuns });
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ sessionStatus: { se1: "running" }, transcripts: { se1: { lastSeq: 0, t: reduceAll(events) } } });
     await store.getState().openItem("i9");
-    return render(<StoreContext.Provider value={store}><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>);
+    return { store, ...render(<StoreContext.Provider value={store}><SessionMeta item={ITEMS.s1[0]!} /><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>) };
   }
 
   it("shows a card for in-flight Task calls, which have no session behind them", async () => {
     await mountWith([...task("t1", "audit the mapper"), ...task("t2", "check the tests")]);
-    await waitFor(() => expect(screen.getByText("2 agents running")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("2 working")).toBeInTheDocument());
+    await openAgents();
     expect(dockText()).toEqual(["audit the mapper", "check the tests"]);
   });
 
-  it("points at the tool card rather than at a pane — that is where the run's own calls land", async () => {
+  it("opens the sub-agent's panel — there is no pane to jump to, but there is work to watch", async () => {
     /* There is no session behind a harness sub-agent, so a jump to a pane would be a button that
-       cannot work. There IS somewhere to look: the tool card in the transcript, which fills with the
-       run's nested calls as they arrive. The row scrolls to it and opens it. */
-    await mountWith(task("t1", "audit the mapper"));
+       cannot work. There IS something to watch: every call it makes lands in this transcript under
+       its launching call, and the drawer is where those are read. */
+    const { store } = await mountWith(task("t1", "audit the mapper"));
+    await openAgents();
     await waitFor(() => expect(dockText()).toEqual(["audit the mapper"]));
     expect(screen.getAllByText("in the agent")).toHaveLength(1);
-    const card = document.querySelector('[data-tool-use-id="t1"]')!;
-    const toggle = card.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(screen.getByRole("button", { name: "Show audit the mapper in the transcript" }));
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Watch audit the mapper" }));
+    expect(store.getState().sessionDock.se1).toEqual({ kind: "subagent", toolUseId: "t1" });
+    expect(await screen.findByRole("dialog", { name: "Sub-agent: audit the mapper" })).toBeInTheDocument();
+  });
+
+  it("the row is the control that closes it too — a lit row says the state and undoes it", async () => {
+    const { store } = await mountWith(task("t1", "audit the mapper"));
+    await openAgents();
+    const row = () => screen.getByRole("button", { name: "Watch audit the mapper" });
+    fireEvent.click(row());
+    // Opening the panel puts the list away: two overlays both answering Escape answer it in mount
+    // order, and the list would swallow the Escape meant for the panel.
+    await waitFor(() => expect(document.querySelector(".agents-pop")).toBeNull());
+    await openAgents();
+    expect(row()).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(row());
+    expect(store.getState().sessionDock.se1).toBeUndefined();
+    expect(screen.queryByRole("dialog", { name: /Sub-agent/ })).toBeNull();
   });
 
   it("names a Workflow by the name in its own script", async () => {
@@ -148,17 +171,18 @@ describe("sub-agents the HARNESS is running", () => {
     await mountWith([sessionEvent("tool_call", { toolUseId: "w1", name: "Workflow",
       input: { script: "export const meta = { name: 'diamond-stuart-research', description: 'Parallel research' }" },
       parentToolUseId: null })]);
+    await openAgents();
     await waitFor(() => expect(dockText()).toEqual(["diamond-stuart-research"]));
   });
 
   it("drops one the moment its result lands", async () => {
     await mountWith([...task("t1", "audit the mapper", true)]);
-    expect(document.querySelector(".delegation-dock")).toBeNull();
+    expect(dock()).toBeNull();
   });
 
   it("counts a Task alongside a real delegated run, in one card", async () => {
     await mountWith(task("t1", "audit the mapper"), { se1: [KID] });
-    await waitFor(() => expect(screen.getByText("2 agents running")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("2 working")).toBeInTheDocument());
   });
 
   it("does not list a call made UNDER a Task — that is the Task's business, not a second row", async () => {
@@ -166,7 +190,8 @@ describe("sub-agents the HARNESS is running", () => {
       ...task("t1", "audit the mapper"),
       sessionEvent("tool_call", { toolUseId: "t2", name: "Task", input: { description: "nested" }, parentToolUseId: "t1" }),
     ]);
-    await waitFor(() => expect(screen.getByText("1 agent running")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("1 working")).toBeInTheDocument());
+    await openAgents();
     expect(dockText()).toEqual(["audit the mapper"]);
   });
 });
@@ -187,40 +212,102 @@ describe("background sub-agents the harness is running", () => {
     sessionEvent("background_task", { toolUseId: id, status: "running" }),
   ];
   const stopped = (id: string) => sessionEvent("background_task", { toolUseId: id, status: "stopped", summary: "finished" });
-  const dockText = () => [...document.querySelectorAll(".delegation-item .delegation-title")].map((n) => n.textContent);
+  const dockText = () => [...document.querySelectorAll(".agents-pop .delegation-item .delegation-title")].map((n) => n.textContent);
 
   async function mountWith(events: ReturnType<typeof sessionEvent>[]) {
     const api = fakeApi({ items: ITEMS, sessions: SESSIONS, delegatedRuns: {} });
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ sessionStatus: { se1: "running" }, transcripts: { se1: { lastSeq: 0, t: reduceAll(events) } } });
     await store.getState().openItem("i9");
-    return render(<StoreContext.Provider value={store}><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>);
+    return render(<StoreContext.Provider value={store}><SessionMeta item={ITEMS.s1[0]!} /><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>);
   }
 
   it("lists agents whose launch call has ALREADY returned — the case that showed nothing", async () => {
     await mountWith([...launch("t1", "Agent 1: hold 10m"), ...launch("t2", "Agent 2: hold 10m")]);
     // THE MUTANT: keep the old `result === null` rule. Both calls have results, so the dock does not
     // render at all — which is exactly the bug this was reported as.
-    await waitFor(() => expect(screen.getByText("2 agents running")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("2 working")).toBeInTheDocument());
+    await openAgents();
     expect(dockText()).toEqual(["Agent 1: hold 10m", "Agent 2: hold 10m"]);
   });
 
   it("drops the row when the harness notifies that the agent stopped", async () => {
     await mountWith([...launch("t1", "Agent 1"), ...launch("t2", "Agent 2"), stopped("t1")]);
+    await openAgents();
     await waitFor(() => expect(dockText()).toEqual(["Agent 2"]));
-    expect(screen.getByText("1 agent running")).toBeInTheDocument();
+    expect(screen.getByText("1 working")).toBeInTheDocument();
   });
 
   it("leaves entirely once the last one stops", async () => {
     await mountWith([...launch("t1", "Agent 1"), stopped("t1")]);
     // THE MUTANT: fold the stop onto nothing (or read only the launch). A row for an agent that
     // finished ten minutes ago is worse than the blank the dock used to show.
-    expect(document.querySelector(".delegation-dock")).toBeNull();
+    expect(dock()).toBeNull();
   });
 
-  it("ignores a notification naming a call this transcript has never seen", async () => {
-    await mountWith([...launch("t1", "Agent 1"), stopped("nonexistent")]);
-    // A stray notification must not close somebody else's run, and must not invent a row of its own.
-    await waitFor(() => expect(dockText()).toEqual(["Agent 1"]));
+});
+
+/**
+ * The way back to a child from the call that delegated to it. The running-agents control lists a
+ * child only while it runs, and a child has no pane of its own — so once it has finished, the
+ * delegation call in the lead's transcript is the one place left that names the child.
+ */
+describe("a delegation call links the sessions it started", () => {
+  // ULID-shaped, as the server's ids are: the call's result is read for ids of exactly that shape.
+  // (Crockford base32 has no I, L, O or U — hence the spellings.)
+  const LEAD = "01HZHEAD".padEnd(26, "0"), KID_ID = "01HZK1D".padEnd(26, "0"), PEER_ID = "01HZPEER".padEnd(26, "0");
+  const items = { s1: [
+    item("i-lead", "s1", { kind: "session", title: "Lead", refId: LEAD }),
+    item("i-kid", "s1", { kind: "session", title: "Agent: audit the mapper", refId: KID_ID }),
+    item("i-peer", "s1", { kind: "session", title: "A colleague", refId: PEER_ID }),
+  ] };
+  const sessions = [
+    session(LEAD, "s1", { title: "Lead" }),
+    session(KID_ID, "s1", { title: "Agent: audit the mapper", dispatchedBy: { sessionId: LEAD, kind: "browser_agent_run" } }),
+    session(PEER_ID, "s1", { title: "A colleague" }),
+  ];
+  /** One finished call, with the trail the server writes after `agent_run`'s report. */
+  const call = (name: string, content: string) => [
+    sessionEvent("tool_call", { toolUseId: "c1", name, input: { goal: "audit the mapper" }, parentToolUseId: null }),
+    sessionEvent("tool_result", { toolUseId: "c1", content, isError: false }),
+  ];
+  const trail = (report: string) =>
+    `Delegated agent finished.\n\nChild session: {"sessionId":"${KID_ID}","title":"Agent: audit the mapper","status":"done"} — its full trace is in that session's pane.\n\n${report}`;
+  const links = () => [...document.querySelectorAll(".tool-card .delegation-item .delegation-title")].map((n) => n.textContent);
+
+  async function mountWith(events: ReturnType<typeof sessionEvent>[]) {
+    const api = fakeApi({ items, sessions });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { [LEAD]: { lastSeq: 0, t: reduceAll(events) } } });
+    await store.getState().openItem("i-lead"); // a child has no pane of its own
+    render(<StoreContext.Provider value={store}><SessionPane item={items.s1[0]!} visible /></StoreContext.Provider>);
+    return store;
+  }
+
+  /* A browser agent's call keeps its list of the child it started. The `agent_run` family is drawn as
+     each sub-agent's own line instead, linked to its row in the Agents tab (delegation-line.test.tsx). */
+  it("names the child on the call, and previews it in the lead's side pane", async () => {
+    const store = await mountWith(call("mcp__realm__realm-agent__browser_agent_run", trail("The mapper is fine.")));
+    // THE MUTANT: compare the raw tool name. Every harness prefixes it — Claude's `mcp__realm__…`,
+    // Codex's `realm.…` — so a set of bare names would never match one, and there is no way back.
+    expect(links()).toEqual(["Agent: audit the mapper"]);
+    fireEvent.click(screen.getByRole("button", { name: "Agent: audit the mapper — Browser agent" }));
+    // A tab beside the lead, like the control's row: the lead is the context the child is read in.
+    await waitFor(() => expect(findSidePane(store.getState().layout!, "i-lead")?.tabs).toEqual(["i-kid"]));
+  });
+
+  it("links only a delegated session, never another id a report happens to mention", async () => {
+    // The child's report is the child's words, and it may name any session it likes. THE MUTANT:
+    // link every id that resolves to a session, and a colleague the child merely mentioned becomes
+    // a row on the lead's call, drawn as though the lead had delegated to it.
+    await mountWith(call("mcp__realm__realm-agent__browser_agent_run", trail(`I compared notes with ${PEER_ID}.`)));
+    expect(links()).toEqual(["Agent: audit the mapper"]);
+  });
+
+  it("reads delegation calls only — any other tool naming a child id draws nothing", async () => {
+    // THE MUTANT: drop the name check, and a `cat` of a log that prints a child's id hangs a row off
+    // a shell command.
+    await mountWith(call("Bash", `grep found ${KID_ID} in the log`));
+    expect(links()).toEqual([]);
   });
 });

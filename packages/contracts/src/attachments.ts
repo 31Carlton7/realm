@@ -94,6 +94,16 @@ export function basenameOf(path: string): string {
   return cut === -1 ? trimmed : trimmed.slice(cut + 1);
 }
 
+/** `~` and `~/…` against `home` — which is how agents write paths in prose far more often than they
+ *  write `/Users/…`. Anything else is returned unchanged; a bare `~user` form is NOT expanded,
+ *  because guessing another account's home would be inventing a path rather than resolving one.
+ *  `home` is the caller's to supply: only a process with a filesystem knows where it is. */
+export function expandHome(path: string, home: string): string {
+  if (path === "~") return home;
+  if (path.startsWith("~/")) return `${home.replace(/\/+$/, "")}/${path.slice(2)}`;
+  return path;
+}
+
 /**
  * What an agent actually does with an attachment.
  *

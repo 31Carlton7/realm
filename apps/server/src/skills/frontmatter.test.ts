@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseFrontmatter } from "./frontmatter";
+import { parseFrontmatter, parseSkillDocument } from "./frontmatter";
 
 describe("parseFrontmatter", () => {
   it("reads name and description out of a normal SKILL.md", () => {
@@ -27,11 +27,6 @@ describe("parseFrontmatter", () => {
     expect(parseFrontmatter("---\nname: mac\ndescription: x\n")).toBeNull();
   });
 
-  it("reads a folded block scalar as one line", () => {
-    const fm = parseFrontmatter("---\nname: mac\ndescription: >-\n  Use when the task\n  touches Calendar.\n---\n");
-    expect(fm).toEqual({ name: "mac", description: "Use when the task touches Calendar." });
-  });
-
   it("reads a literal block scalar keeping its line breaks", () => {
     const fm = parseFrontmatter("---\nname: mac\ndescription: |\n  one\n  two\n---\n");
     expect(fm!.description).toBe("one\ntwo");
@@ -48,5 +43,24 @@ describe("parseFrontmatter", () => {
 
   it("accepts a `...` terminator and a leading BOM", () => {
     expect(parseFrontmatter("﻿---\nname: mac\n...\n")).toEqual({ name: "mac" });
+  });
+});
+
+describe("parseSkillDocument", () => {
+  it("returns the document that follows the closing fence, indentation and blank lines intact", () => {
+    const doc = parseSkillDocument("---\nname: mac\ndescription: x\n---\n\n# Using mac\n\n    indented\n");
+    expect(doc).toEqual({ frontmatter: { name: "mac", description: "x" }, body: "\n# Using mac\n\n    indented\n" });
+  });
+
+  it("finds the fence past a block scalar, so the scalar's own lines are not read as the document", () => {
+    // The bug this catches is a second reader of the same fence: a body taken from the first `---`
+    // after line 1 would start inside the description.
+    const doc = parseSkillDocument("---\nname: mac\ndescription: >-\n  one\n  two\n---\n# Heading\n");
+    expect(doc!.frontmatter.description).toBe("one two");
+    expect(doc!.body).toBe("# Heading\n");
+  });
+
+  it("has an empty body when the fence closes at the end of the file", () => {
+    expect(parseSkillDocument("---\nname: mac\n---")!.body).toBe("");
   });
 });

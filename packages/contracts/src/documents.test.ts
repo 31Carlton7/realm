@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DOCUMENT_MAX_BYTES, documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, refineDocumentKind, shouldSurfaceWrite, writtenPathOf } from "./documents";
+import { documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, isPictureFile, refineDocumentKind, shouldSurfaceWrite, writtenPathOf } from "./documents";
 
 describe("documentKindFor", () => {
   it("routes each extension to its editor", () => {
@@ -24,10 +24,26 @@ describe("documentKindFor", () => {
   });
 
   it("answers unsupported for binaries and extensionless files", () => {
-    expect(documentKindFor("image.png")).toBe("unsupported");
+    expect(documentKindFor("disk.dmg")).toBe("unsupported");
+    // Extensionless, so nothing to match on. `Makefile` and `Dockerfile` are genuinely editable text
+    // and this is the honest limit of an extension-only table, not a judgement that they are not code.
     expect(documentKindFor("Makefile")).toBe("unsupported");
-    // A dotfile is name-only; its leading dot must not read as an extension.
-    expect(documentKindFor(".gitignore")).toBe("unsupported");
+    expect(documentKindFor("archive.zip")).toBe("unsupported");
+  });
+
+  it("answers code for source files, and leaves the rich-text kinds where they were", () => {
+    expect(documentKindFor("src/app.tsx")).toBe("code");
+    expect(documentKindFor("main.py")).toBe("code");
+    expect(documentKindFor("Cargo.toml")).toBe("code");
+    // A dotfile's name lands in the extension slot, which is how `.gitignore` finds an editor at all.
+    expect(documentKindFor(".gitignore")).toBe("code");
+    /* THE MUTANT: add `md`, `html` or `csv` to CODE_EXT. Each already has an editor a user relies on,
+       and moving one here turns every Markdown document in the app into a code buffer — a regression
+       wearing a feature's clothes. */
+    expect(documentKindFor("notes.md")).toBe("doc");
+    expect(documentKindFor("page.html")).toBe("html");
+    expect(documentKindFor("rows.csv")).toBe("sheet");
+    expect(documentKindFor("paper.tex")).toBe("latex");
   });
 
   it("answers preview for the formats macOS can render and Realm cannot edit", () => {
@@ -40,15 +56,25 @@ describe("documentKindFor", () => {
     }
   });
 
-  it("does not take a format Realm has a real editor for", () => {
-    // The named mutant: adding `csv` or `md` to the preview set, which would swap an editable
-    // document for a picture of one.
-    expect(documentKindFor("data.csv")).toBe("sheet");
-    expect(documentKindFor("notes.md")).toBe("doc");
-    expect(documentKindFor("paper.tex")).toBe("latex");
-    expect(documentKindFor("guide.html")).toBe("html");
-    expect(documentKindFor("spec.pdf")).toBe("pdf");
+  it("previews a picture rather than refusing it", () => {
+    // THE MUTANT: leave images out of the set. Opening one then put a tab on the strip that the pane
+    // would not draw, under "Nothing open yet" — and an agent's docs_open reported it opened.
+    for (const name of ["after-on-hover.png", "Screenshot 2026-10-01.PNG", "photo.jpeg", "shot.jpg", "anim.gif", "img.webp", "IMG_0001.HEIC"]) {
+      expect(documentKindFor(name), name).toBe("preview");
+    }
   });
+
+  it("tells a picture from a document drawn as one", () => {
+    // The pane's note about unselectable text and first pages is for documents; a picture has
+    // neither. Case-blind, by the last extension only, and a bare word is no picture.
+    for (const name of ["shots/after-on-hover.png", "Screenshot 2026-10-01.PNG", "photo.jpeg", "IMG_0001.HEIC"]) {
+      expect(isPictureFile(name), name).toBe(true);
+    }
+    for (const name of ["report.docx", "deck.key", "png", "notes.png.md", "archive/png"]) {
+      expect(isPictureFile(name), name).toBe(false);
+    }
+  });
+
 });
 
 describe("refineDocumentKind", () => {
@@ -87,10 +113,6 @@ describe("documentTemplate", () => {
   it("gives an unsupported file no content to write", () => {
     expect(documentTemplate("unsupported", "x")).toBe("");
   });
-});
-
-it("caps openable files at 2 MiB", () => {
-  expect(DOCUMENT_MAX_BYTES).toBe(2097152);
 });
 
 // ---- Plan 22: preview kinds, guide template, progress sidecar -----------------------------------
@@ -213,9 +235,10 @@ describe("surfacing a document an agent wrote", () => {
     expect(shouldSurfaceWrite("Write", { file_path: "/w/budget.csv" })).toBe("/w/budget.csv");
   });
 
-  it("ignores a kind the pane cannot render", () => {
-    // Opening a `.ts` in a documents pane puts source code behind a rich-text editor, and a `.zip`
-    // opens nothing at all. The pane is for documents; this is the line that keeps it that way.
+  it("ignores source code and anything the pane cannot render", () => {
+    /* A `.zip` opens nothing at all. A `.ts` now HAS an editor — and is still not surfaced, because
+       an agent writing source files is the ordinary business of a coding tool and a tab per file
+       would bury the session under its own output. See `shouldSurfaceWrite`. */
     expect(shouldSurfaceWrite("Write", { file_path: "/w/index.ts" })).toBeNull();
     expect(shouldSurfaceWrite("Write", { file_path: "/w/bundle.zip" })).toBeNull();
   });

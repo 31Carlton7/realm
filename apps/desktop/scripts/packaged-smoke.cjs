@@ -17,7 +17,7 @@
  * Exits 0 on pass, 1 on fail, and always kills the app it launched (only that one).
  */
 const { spawn } = require("node:child_process");
-const { existsSync, mkdtempSync, rmSync, readdirSync } = require("node:fs");
+const { existsSync, mkdtempSync, rmSync, readdirSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
 const os = require("node:os");
 
@@ -33,11 +33,25 @@ const env = {
   HOME: process.env.HOME, USER: process.env.USER, LOGNAME: process.env.LOGNAME,
   TMPDIR: process.env.TMPDIR, SHELL: process.env.SHELL || "/bin/zsh",
   PATH: "/usr/bin:/bin", REALM_HOME: home, REALM_PORT: String(PORT),
+  // This launches the REAL packaged app, where realm-server would otherwise run as a daemon that
+  // outlives the smoke test — a scratch home with a server still holding it open, left behind on
+  // every run. The child shape is also what the exit assertions below already assume.
+  REALM_DAEMON: "0",
 };
 
 const results = [];
 const check = (name, ok, detail) => { results.push({ name, ok, detail }); console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+
+/** The RPC token realm-server minted at boot. It lives only in the 0600 `<home>/daemon.json` — never
+ *  on stdout — and the socket refuses a handshake that does not offer it as a subprotocol. */
+function daemonToken(home) {
+  try {
+    const raw = JSON.parse(readFileSync(join(home, "daemon.json"), "utf8"));
+    return typeof raw.token === "string" && raw.token ? raw.token : null;
+  } catch { return null; }
+}
 
 let child;
 async function connect() {
@@ -45,7 +59,9 @@ async function connect() {
   for (;;) {
     if (Date.now() > deadline) throw new Error("server socket never opened");
     try {
-      const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
+      const token = daemonToken(home);
+      if (!token) { await sleep(500); continue; }
+      const ws = new WebSocket(`ws://127.0.0.1:${PORT}`, [`realm.${token}`]);
       await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error("connect failed")); });
       return ws;
     } catch { await sleep(500); }

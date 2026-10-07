@@ -5,7 +5,14 @@
  * live runs. Executed in Electron MAIN (the process that owns `webContents.debugger`); realm-server
  * reaches it over the browserHost bridge.
  */
-import { normalizeOrigin, PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal, type BrowserSnapshotResult } from "@realm/contracts";
+import {
+  acceptsUpload, AGENT_FRAME, AGENT_MARK_ATTR, AGENT_MARK_FRAME, mimeForPath, normalizeOrigin,
+  PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX,
+  UPLOAD_CHOOSER_TIMEOUT_MS, UPLOAD_DROP_MAX_BYTES, UPLOAD_MAX_FILES,
+  type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal,
+  type BrowserSnapshotElement, type BrowserSnapshotResult, type BrowserUploadFile, type BrowserUploadMethod, type BrowserUploadResult,
+} from "@realm/contracts";
+import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, type CursorForm, type CursorFormName } from "./agent-cursor";
 
 export type CdpSend = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -60,6 +67,7 @@ type Candidate = {
   checked: boolean | null;
   disabled: boolean;
   password: boolean;
+  focused: boolean;
   interactive: boolean;
   sweepCandidate: boolean;
   offscreen: boolean;
@@ -91,10 +99,13 @@ const clip = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n -
  * plus the fingerprint index the next snapshot diffs against.
  */
 export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | null): Promise<BrowserSnapshotResult & { index: SnapshotIndex }> {
-  // Any lingering W4 action highlight is removed BEFORE the capture (belt to the filter's braces):
-  // the ring is the watcher's, and an agent that sees it — even as a phantom layout box — is an
-  // agent chasing its own tail. Best-effort: a page that refuses the evaluate still snapshots.
-  await send("Runtime.evaluate", { expression: REMOVE_HIGHLIGHTS_JS }).catch(() => {});
+  // Any lingering action RING is removed BEFORE the capture (belt to the filter's braces): the ring
+  // is the watcher's, and an agent that sees it — even as a phantom layout box — is an agent chasing
+  // its own tail. Rings only, deliberately: the cursor and the frame last the whole drive, and a
+  // sweep that took them would blink them on every snapshot of a `browser_batch`. They are invisible
+  // to the capture anyway, by the attribute filter below. Best-effort: a page that refuses the
+  // evaluate still snapshots.
+  await send("Runtime.evaluate", { expression: REMOVE_RINGS_JS }).catch(() => {});
   const [snapRaw, axRaw, metricsRaw] = await Promise.all([
     send("DOMSnapshot.captureSnapshot", { computedStyles: [...SNAPSHOT_STYLES], includePaintOrder: true }),
     send("Accessibility.getFullAXTree").catch(() => ({ nodes: [] })),
@@ -143,26 +154,61 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
   const visible = interactive.filter((c) => c.offscreen || !isCovered(c, layoutByDoc[c.docIndex]!));
   const coveredCount = interactive.length - visible.length;
 
+  // A file input's `value` is not in the DOMSnapshot: `inputValue` carries the value ATTRIBUTE, which
+  // for `type=file` is the empty string however many files are attached — the names live on
+  // `input.files`, a property only script can read. So they are fetched here, bounded, for the
+  // visible file inputs only. It is what makes "did the upload land" answerable from the tree, the
+  // way a textbox's `value=` answers "did the typing land".
+  await fillFileInputValues(send, visible.filter(isFileInput).slice(0, FILE_INPUT_READ_MAX));
+
   const index: SnapshotIndex = new Map();
   const lines: string[] = [];
+  const elements: BrowserSnapshotElement[] = [];
   for (const c of visible.slice(0, MAX_ELEMENTS)) {
     const fingerprint = `${c.role}|${c.name}|${c.value ?? ""}|${Math.round(c.rect.x / 8)},${Math.round(c.rect.y / 8)}`;
     index.set(c.backendNodeId, fingerprint);
     const isNew = previous !== null && previous.get(c.backendNodeId) !== fingerprint;
     lines.push(formatLine(c, isNew));
+    elements.push({
+      ref: c.backendNodeId, role: c.role, name: c.name, value: c.value, rect: { ...c.rect },
+      checked: c.checked, disabled: c.disabled, password: c.password, focused: c.focused, offscreen: c.offscreen,
+    });
   }
   const notes: string[] = [];
   if (visible.length > MAX_ELEMENTS) notes.push(`(${visible.length - MAX_ELEMENTS} more elements not listed — scroll or read instead)`);
   if (coveredCount > 0) notes.push(`(${coveredCount} interactive element(s) hidden behind overlays — not actionable, not listed)`);
 
   const doc0 = snap.documents?.[0];
+  const measured = metrics.cssVisualViewport?.clientWidth !== undefined && metrics.cssVisualViewport.clientHeight !== undefined;
   return {
     url: doc0 ? s(snap.strings, doc0.documentURL) : "",
     title: doc0 ? s(snap.strings, doc0.title) : "",
     text: [...lines, ...notes].join("\n"),
     elementCount: Math.min(visible.length, MAX_ELEMENTS),
+    elements,
+    ...(measured ? { viewport: { width: viewport.w, height: viewport.h } } : {}),
     index,
   };
+}
+
+/** A visible `<input type="file">` among the snapshot's candidates. */
+const isFileInput = (c: Candidate): boolean => c.tag === "INPUT" && (c.attrs.type ?? "").toLowerCase() === "file";
+
+/** How many file inputs one snapshot reads `files` off. A page with more than this many VISIBLE file
+ *  inputs is not a page; the cap is here so a pathological one cannot turn a snapshot into a
+ *  round-trip storm. Note the limit this leaves standing: an input the page hides behind a styled
+ *  label is not in the layout tree at all, so it is not listed and its names are not read — what the
+ *  agent reads there is `browser_upload`'s own returned post-state. */
+const FILE_INPUT_READ_MAX = 12;
+
+/** Read each file input's attached names onto its candidate `value`, so `formatLine` prints them the
+ *  way it prints a textbox's. Best-effort per input: one that will not answer keeps an empty value
+ *  rather than failing the snapshot. */
+async function fillFileInputValues(send: CdpSend, candidates: Candidate[]): Promise<void> {
+  await Promise.all(candidates.map(async (c) => {
+    const state = await readFileInputState(send, c.backendNodeId).catch(() => null);
+    if (state) c.value = clip(fileInputValue(state.names), VALUE_MAX);
+  }));
 }
 
 /** What occlusion needs about every layout box in a document — rects, paint order, the tree shape
@@ -217,8 +263,10 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
     const attrs: Record<string, string> = {};
     const flat = attrsRaw[ni] ?? [];
     for (let k = 0; k + 1 < flat.length; k += 2) attrs[s(strings, flat[k]).toLowerCase()] = s(strings, flat[k + 1]);
-    // W4's action highlight is Realm's own furniture, never page content: a snapshot that lists it
-    // hands the agent a `[new]` element that is its OWN last click's ring — and it chases it.
+    // Every mark Realm draws in the page — ring, cursor, frame, stylesheet — is Realm's own
+    // furniture, never page content: a snapshot that lists one hands the agent a `[new]` element
+    // that is its OWN last click, and it chases it. Presence, not a value: a filter written as
+    // `[attr=""]` would start listing the cursor the moment the attribute took a value.
     if (attrs[HIGHLIGHT_ATTR] !== undefined) return;
 
     const backendNodeId = backendIds[ni] ?? -1;
@@ -254,6 +302,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
       value: rawValue === null ? null : clip(rawValue, VALUE_MAX),
       checked: tag === "INPUT" && ["checkbox", "radio"].includes((attrs.type ?? "").toLowerCase()) ? checkedSet.has(ni) : null,
       disabled: attrs.disabled !== undefined || axNode?.properties?.some((p) => p.name === "disabled" && p.value?.value === true) === true,
+      focused: axNode?.properties?.some((p) => p.name === "focused" && p.value?.value === true) === true,
       password, interactive, sweepCandidate, offscreen,
     });
   });
@@ -324,6 +373,10 @@ export function isOpaqueColor(cssColor: string): boolean {
 function formatLine(c: Candidate, isNew: boolean): string {
   const flags = [
     c.password ? "password field — typing is blocked, hand this to the user" : null,
+    // Named explicitly because the AX tree reports a file input as a plain `button`, so nothing else
+    // on the line says what it takes. The agent needs to see that `browser_upload` is the tool here:
+    // clicking it opens a picker, and typing a path into it does nothing at all.
+    isFileInput(c) ? `file input — use browser_upload${c.attrs.multiple !== undefined ? ", takes several files" : ""}` : null,
     c.disabled ? "disabled" : null,
     c.checked === true ? "checked" : c.checked === false ? "unchecked" : null,
     c.offscreen ? "offscreen" : null,
@@ -417,8 +470,7 @@ export async function performAct(send: CdpSend, action: BrowserAction): Promise<
       case "scroll": {
         let point = action.ref !== undefined ? await resolvePoint(send, action.ref) : null;
         if (!point) {
-          const metrics = (await send("Page.getLayoutMetrics")) as LayoutMetrics;
-          point = { x: (metrics.cssVisualViewport?.clientWidth ?? 800) / 2, y: (metrics.cssVisualViewport?.clientHeight ?? 600) / 2 };
+          point = viewportCentre((await send("Page.getLayoutMetrics")) as LayoutMetrics);
         }
         await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: point.x, y: point.y, deltaX: action.deltaX ?? 0, deltaY: action.deltaY ?? 0 });
         return { ok: true, detail: `scrolled by (${action.deltaX ?? 0}, ${action.deltaY ?? 0})` };
@@ -438,8 +490,13 @@ export async function performAct(send: CdpSend, action: BrowserAction): Promise<
  * thing this file ever sees is the `type` closure it wrote itself.
  */
 export type CredentialFill = {
-  /** Metadata only. `origin` is the enrolled origin the live page must EXACTLY equal. */
-  credential: { id: string; origin: string };
+  /** The origin the live page must EXACTLY equal: the one an enrolled credential is pinned to, or —
+   *  for a generated fill — the one the approval card named and the store is about to pin a new row
+   *  to. Either way it is Realm's own normalized string, never the agent's and never the page's. */
+  origin: string;
+  /** Which kind of sign-in this is, and the ONLY thing it decides: the nouns in the result strings.
+   *  Every gate below is identical for the two, which is the property the feature rests on. */
+  kind: "saved" | "generated";
   reveal(type: (value: string) => Promise<void>): Promise<{ ok: true } | { ok: false; refused: BrowserRefusal }>;
 };
 
@@ -449,19 +506,28 @@ export type CredentialFill = {
  * is unconditional and stays unconditional, because it governs a `type` action carrying agent-authored
  * text. This op carries no text at all.
  *
+ * It serves both halves of the tool: filling a credential the user enrolled, and filling one the store
+ * mints during this call. The difference lives entirely behind `reveal`; every gate below runs
+ * identically for the two, and that is deliberate rather than convenient. A generated password is
+ * still a secret going into a page, so it is worth the same origin check, the same presence check and
+ * the same approval — and a second executor for the new case is how one of the three quietly goes
+ * missing from one of them.
+ *
  * The order of the three gates is load-bearing:
  *
  *   1. **Origin, from CDP, before anything else.** `Page.getNavigationHistory`'s current entry is the
  *      browser's own record of what it loaded — the same class of trustworthy identity
  *      `browser_describe` reports, and specifically NOT page text, a snapshot, a title, or anything a
- *      page can author. It must normalize to exactly the enrolled origin: no subdomain match, no
+ *      page can author. It must normalize to exactly the origin the fill names: no subdomain match, no
  *      registrable-domain fallback (see `normalizeOrigin`). A lookalike host gets `origin_mismatch`.
  *   2. **Presence, only after the origin matched.** Deliberately second. Prompting for Touch ID on a
  *      phishing page and then refusing would teach the user that the fingerprint prompt is noise to
  *      swat away; by the time a prompt appears, Realm has already established the page is the right
  *      one and the only question left is whether the human is there.
  *   3. **Type, into the ref, character by character** — the same key events `performAct`'s `type`
- *      dispatches, because a password field behind React ignores value writes.
+ *      dispatches, because a password field behind React ignores value writes. For a generated fill
+ *      the store has written the row by then, so a failure here leaves a password the user can find
+ *      in Settings rather than one only the page ever saw.
  *
  * FAIL CLOSED everywhere: an unreadable navigation history, a ref that will not focus, or a thrown
  * CDP call all refuse. No branch here falls through to typing.
@@ -471,7 +537,8 @@ export type CredentialFill = {
  * into a tool result, which goes into the model's context.
  */
 export async function performFillCredential(send: CdpSend, ref: number, fill: CredentialFill): Promise<BrowserActResult> {
-  const { credential } = fill;
+  const generated = fill.kind === "generated";
+  const noun = generated ? "new sign-in" : "saved sign-in";
   let pageOrigin: string | null;
   try {
     pageOrigin = await currentOrigin(send);
@@ -481,14 +548,17 @@ export async function performFillCredential(send: CdpSend, ref: number, fill: Cr
   if (pageOrigin === null) {
     return { ok: false, refused: "origin_mismatch", error: "could not establish the page's current origin from the browser, so nothing was filled" };
   }
-  if (pageOrigin !== credential.origin) {
+  if (pageOrigin !== fill.origin) {
     // Both origins are named because both are Realm's own normalized strings — neither is page-authored
     // text, and the user (who sees this through the tool error) needs to know which page they are on.
-    return { ok: false, refused: "origin_mismatch", error: `this pane is on ${pageOrigin}, but that saved sign-in is for ${credential.origin} — nothing was filled` };
+    // For a generated fill this is the navigation that happened between the approval and the typing:
+    // the card named an origin, the pane is somewhere else now, and nothing is minted or typed.
+    return { ok: false, refused: "origin_mismatch", error: `this pane is on ${pageOrigin}, but that ${noun} is for ${fill.origin} — nothing was filled` };
   }
 
   // Focus BEFORE presence: a ref that is already gone should fail as a stale ref, not burn a Touch ID
-  // prompt on an act that cannot land.
+  // prompt on an act that cannot land — and, for a generated fill, not mint a password for a field
+  // that was never going to receive it.
   if (!(await focusRef(send, ref))) {
     return { ok: false, error: `could not focus ref=${ref} — it may be gone; take a fresh browser_snapshot` };
   }
@@ -496,20 +566,26 @@ export async function performFillCredential(send: CdpSend, ref: number, fill: Cr
   try {
     const outcome = await fill.reveal(async (value) => { await typeCharacters(send, value); });
     if (!outcome.ok) {
-      return { ok: false, refused: outcome.refused, error: REVEAL_REFUSALS[outcome.refused] ?? "the saved sign-in was not available" };
+      return { ok: false, refused: outcome.refused, error: REVEAL_REFUSALS[outcome.refused] ?? `the ${noun} was not available` };
     }
   } catch {
     // The catch is bare ON PURPOSE. A CDP failure mid-typing can carry the characters it was
     // dispatching in its message, and that message would otherwise reach a tool result. Nothing about
     // the caught error is inspected, formatted, or forwarded.
-    return { ok: false, error: "the saved sign-in could not be typed into that field" };
+    return { ok: false, error: `the ${noun} could not be typed into that field` };
   }
-  return { ok: true, detail: `filled saved credential for ${credential.origin}` };
+  return {
+    ok: true,
+    detail: generated
+      ? `generated a password for ${fill.origin}, saved it to Realm's sign-ins, and filled it`
+      : `filled saved credential for ${fill.origin}`,
+  };
 }
 
 /** Refusal wording for the reasons the STORE decides (this module never learns more than the code). */
 const REVEAL_REFUSALS: Partial<Record<BrowserRefusal, string>> = {
   no_credential: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins",
+  no_store: "macOS is not offering Realm an encryption key right now, so Realm will not generate a password it cannot store — nothing was filled",
   no_presence: "the Touch ID / login check was cancelled or failed, so nothing was filled",
 };
 
@@ -591,6 +667,430 @@ async function pressNamedKey(send: CdpSend, name: string): Promise<void> {
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: k.key, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk });
 }
 
+/* ------------------------------------ upload ------------------------------------ */
+
+/**
+ * Putting a file INTO a page, without ever opening the OS file panel.
+ *
+ * The panel is the thing this whole section exists to avoid: on macOS it is a modal NSOpenPanel, and
+ * once one is up the pane is wedged — CDP cannot type into it, cannot cancel it, and cannot even see
+ * it, so an agent that opens one has taken the user's pane away until the user comes back. Driving it
+ * would need Accessibility/UI scripting, which is a machine-wide grant to automate a file picker.
+ *
+ * So there are three routes and the panel is none of them, in the order `performUpload` tries them:
+ *
+ *   1. **Set the input's files directly** (`DOM.setFileInputFiles`). Works whether the ref IS the
+ *      `<input type="file">` or merely the visible label/button a hidden one hangs off — which is
+ *      how nearly every styled uploader is built. No chooser, no click, no side effects.
+ *   2. **Intercept the chooser, then click.** For a button that opens a picker from script, where
+ *      there is no input to find until the page names one. `Page.setInterceptFileChooserDialog` is
+ *      armed FIRST — the ordering is the whole safety property, because a click that lands before
+ *      interception is armed produces the native panel — and `Page.fileChooserOpened` then hands
+ *      back the very node the page meant to fill.
+ *   3. **Synthesize a drop.** For a "drag and drop" zone with no input behind it at all: a real
+ *      `DataTransfer` carrying real `File`s, and `dragenter`/`dragover`/`drop` dispatched on the
+ *      element. Last, and size-capped (`UPLOAD_DROP_MAX_BYTES`), because it is the only route where
+ *      the bytes have to travel through the page.
+ */
+
+/** Everything `performUpload` needs that is not a CDP call on a node: the chooser's event plumbing
+ *  (owned by the host, which is where CDP events arrive) and the disk. Injected so this module stays
+ *  a pure function of `CdpSend` and can be tested without either. */
+export type UploadSeams = {
+  /** A chooser the host is ALREADY holding for this pane — an earlier `browser_act` click opened one
+   *  and it was intercepted rather than shown. Fulfilling it is better than clicking again: the
+   *  second click would open a second chooser and leave the first still pending. */
+  pending(): InterceptedChooser | null;
+  /** Turn interception on. Must complete before any click that could open a chooser. */
+  arm(): Promise<void>;
+  /** Turn it back off, so the USER's own clicks still get a real panel. */
+  disarm(): Promise<void>;
+  /** The next `Page.fileChooserOpened`, or null if none arrives within `timeoutMs`. */
+  awaitChooser(timeoutMs: number): Promise<InterceptedChooser | null>;
+  /** Hand a chooser BACK unanswered — the page is still waiting on it, so it has to stay findable by
+   *  `browser_dismiss_dialog` and by the next `browser_upload`. Called when the files were refused
+   *  after the chooser had already opened, which is the only way to learn a page's `accept=`. */
+  retain(chooser: InterceptedChooser): void;
+  /** File bytes — only the drop route reads any. */
+  readFile(path: string): Promise<Uint8Array>;
+};
+
+/** A file chooser the page opened and Realm caught instead of macOS. `backendNodeId` is the input
+ *  element the page wants filled; `multiple` is that input's own `multiple` flag as Chromium reports
+ *  the chooser's mode, which is the page's statement of how many files it will take. */
+export type InterceptedChooser = { backendNodeId: number; multiple: boolean };
+
+/** What the input looks like after (or before) an attach — read off the live node rather than echoed
+ *  from the request, so "did the upload land" is answered by the page and not by Realm's optimism. */
+export type FileInputState = { accept: string | null; multiple: boolean; names: string[] };
+
+export async function performUpload(send: CdpSend, ref: number, files: BrowserUploadFile[], seams: UploadSeams): Promise<BrowserUploadResult> {
+  try {
+    // Route 2a, checked FIRST: a chooser this pane already has open. An earlier click (an ordinary
+    // `browser_act`, or a `browser_upload` whose files were refused) left one intercepted, and the
+    // page is waiting on exactly that node. Clicking again would strand it.
+    const held = seams.pending();
+    if (held) {
+      const result = await fulfil(send, held.backendNodeId, files, "chooser", held.multiple);
+      if (!result.ok) seams.retain(held);
+      return result;
+    }
+
+    // Route 1: the input itself, or the hidden one this element stands for.
+    const direct = await resolveFileInput(send, ref);
+    if (direct !== null) return await fulfil(send, direct, files, "input", null);
+
+    // Route 2b: arm, click, and take whatever node the page names. Armed before the click, always.
+    await seams.arm();
+    let opened: InterceptedChooser | null = null;
+    try {
+      const clicked = await performAct(send, { kind: "click", ref, button: "left", clickCount: 1, modifiers: [] });
+      if (!clicked.ok) return { ok: false, error: clicked.error };
+      opened = await seams.awaitChooser(UPLOAD_CHOOSER_TIMEOUT_MS);
+    } finally {
+      // Disarmed whether or not a chooser arrived. Leaving a pane armed is how the USER's own
+      // "Choose files" button silently stops working — interception belongs to the page, not to the
+      // caller who turned it on.
+      if (opened === null) await seams.disarm();
+    }
+    if (opened) {
+      const result = await fulfil(send, opened.backendNodeId, files, "chooser", opened.multiple);
+      // A refusal here leaves the page mid-pick. Handing the chooser back is what keeps it
+      // recoverable: without this the node is known to nobody, `browser_dismiss_dialog` finds
+      // nothing, and the page waits for a file that can never arrive.
+      if (!result.ok) seams.retain(opened);
+      return result;
+    }
+
+    // Route 3: no input, no chooser — is it a dropzone? Asked of the element's own listeners rather
+    // than of its class names, and only now, because a dropzone that is ALSO a picker button has
+    // already been served better by the click above.
+    if (await hasDropListeners(send, ref)) return await performDrop(send, ref, files, seams);
+
+    return {
+      ok: false,
+      refused: (await hasClickListeners(send, ref)) ? "no_chooser" : "not_a_file_target",
+      error:
+        `ref=${ref} did not take files: it is not a file input, no file input is associated with it, clicking it opened no file chooser, and it accepts no drops. ` +
+        "Take a fresh browser_snapshot and look for an element whose role is a file input or whose name mentions choosing/uploading a file.",
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Attach `files` to a known input node, then read the input back.
+ *
+ * The two page-stated constraints are checked HERE rather than at the tool surface, because this is
+ * the first point at which the actual target node is known — for the chooser route the page does not
+ * name it until after the click. A refusal leaves the input untouched; for a chooser it leaves the
+ * chooser pending, which `browser_dismiss_dialog` can then clear.
+ */
+async function fulfil(send: CdpSend, backendNodeId: number, files: BrowserUploadFile[], method: BrowserUploadMethod, chooserMultiple: boolean | null): Promise<BrowserUploadResult> {
+  const before = await readFileInputState(send, backendNodeId);
+  const multiple = before?.multiple ?? chooserMultiple ?? false;
+  const accept = before?.accept ?? null;
+
+  if (files.length > 1 && !multiple) {
+    return {
+      ok: false, refused: "too_many",
+      error: `that input takes one file (it has no "multiple" attribute) and ${files.length} were offered — nothing was attached. Upload them one call at a time, or find the input that takes several.`,
+    };
+  }
+  const rejected = files.filter((f) => !acceptsUpload(accept, f.name, mimeForPath(f.name)));
+  if (rejected.length > 0) {
+    return {
+      ok: false, refused: "accept_mismatch",
+      error: `the page's own accept="${clip(accept ?? "", 120)}" excludes ${rejected.map((f) => `"${f.name}"`).join(", ")} — nothing was attached. Convert the file or pick an input that accepts this type.`,
+    };
+  }
+
+  await send("DOM.setFileInputFiles", { backendNodeId, files: files.map((f) => f.path) });
+  const after = await readFileInputState(send, backendNodeId);
+  // The names come from `input.files` AFTER the set — the page's own record of what it holds. If the
+  // node will not answer (it was replaced by a re-render between the set and the read), fall back to
+  // what was asked for and leave `value` null, which is the result's way of saying "not read back"
+  // rather than claiming a readback that did not happen.
+  return {
+    ok: true, method,
+    names: after?.names ?? files.map((f) => f.name),
+    value: after ? fileInputValue(after.names) : null,
+    accept: after?.accept ?? accept,
+    multiple: after?.multiple ?? multiple,
+  };
+}
+
+/**
+ * The file input this ref stands for, or null when there is none to find WITHOUT clicking.
+ *
+ * Three shapes, in the order a page is likely to use them: the ref is the input; the ref is (or sits
+ * inside) a `<label>` bound to one; the ref CONTAINS exactly one. The "exactly one" is the whole
+ * safety of the third case — a page whose button wraps two file inputs has not said which it means,
+ * and guessing there would attach a gallery's photos to the avatar field. Ambiguity falls through to
+ * the click route, where the page itself names the node.
+ */
+export async function resolveFileInput(send: CdpSend, ref: number): Promise<number | null> {
+  const objectId = await resolveObject(send, ref);
+  if (!objectId) return null;
+  try {
+    const result = (await send("Runtime.callFunctionOn", {
+      objectId, functionDeclaration: FIND_FILE_INPUT_JS, returnByValue: false,
+    })) as { result?: { objectId?: string; subtype?: string } };
+    const found = result.result?.objectId;
+    if (!found) return null;
+    try {
+      const described = (await send("DOM.describeNode", { objectId: found })) as { node?: { backendNodeId?: number } };
+      return described.node?.backendNodeId ?? null;
+    } finally {
+      void send("Runtime.releaseObject", { objectId: found }).catch(() => {});
+    }
+  } catch {
+    return null;
+  } finally {
+    void send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
+}
+
+const FIND_FILE_INPUT_JS = `function () {
+  const isFile = (n) => !!n && n.tagName === "INPUT" && (n.getAttribute("type") || "").toLowerCase() === "file";
+  const el = this;
+  if (isFile(el)) return el;
+  const doc = el.ownerDocument;
+  const forTarget = (n) => {
+    const id = n.getAttribute && n.getAttribute("for");
+    return id && doc ? doc.getElementById(id) : null;
+  };
+  const only = (n) => {
+    const all = n.querySelectorAll ? n.querySelectorAll("input[type=file]") : [];
+    return all.length === 1 ? all[0] : null;
+  };
+  const fromLabel = (n) => {
+    const t = forTarget(n);
+    if (isFile(t)) return t;
+    const c = n.control;
+    if (isFile(c)) return c;
+    return only(n);
+  };
+  if (el.tagName === "LABEL") {
+    const hit = fromLabel(el);
+    if (hit) return hit;
+  }
+  const inside = only(el);
+  if (inside) return inside;
+  let cur = el.parentElement, hops = 0;
+  while (cur && hops++ < 4) {
+    if (cur.tagName === "LABEL") {
+      const hit = fromLabel(cur);
+      if (hit) return hit;
+    }
+    cur = cur.parentElement;
+  }
+  return null;
+}`;
+
+/** The live input's `accept`, `multiple` and attached file NAMES. Null when the node is gone or will
+ *  not answer — the caller treats that as "I could not read it back", never as "it is empty". */
+export async function readFileInputState(send: CdpSend, backendNodeId: number): Promise<FileInputState | null> {
+  const objectId = await resolveObject(send, backendNodeId);
+  if (!objectId) return null;
+  try {
+    const result = (await send("Runtime.callFunctionOn", {
+      objectId, functionDeclaration: READ_FILE_INPUT_JS, returnByValue: true,
+    })) as { result?: { value?: { accept?: unknown; multiple?: unknown; names?: unknown } } };
+    const v = result.result?.value;
+    if (!v || typeof v !== "object") return null;
+    const names = Array.isArray(v.names) ? v.names.filter((n): n is string => typeof n === "string") : [];
+    return {
+      accept: typeof v.accept === "string" && v.accept !== "" ? v.accept : null,
+      multiple: v.multiple === true,
+      // Page-authored (the site chose nothing here — the FILENAME is the user's, but it reaches the
+      // agent through the page's `File` object), so bounded like every other page string in a
+      // snapshot line rather than trusted to be short.
+      names: names.slice(0, UPLOAD_MAX_FILES).map((n) => clip(n, NAME_MAX)),
+    };
+  } catch {
+    return null;
+  } finally {
+    void send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
+}
+
+const READ_FILE_INPUT_JS = `function () {
+  if (!this || this.tagName !== "INPUT") return null;
+  const files = this.files ? Array.prototype.slice.call(this.files) : [];
+  return { accept: this.getAttribute("accept") || "", multiple: this.multiple === true, names: files.map((f) => f.name) };
+}`;
+
+/** How an attached file input reads in a snapshot line and in an upload result — the same string in
+ *  both places, so "did it land" has one answer however the agent looks. */
+export function fileInputValue(names: readonly string[]): string {
+  return names.length === 0 ? "" : names.join(", ");
+}
+
+/**
+ * Does this element (or a close ancestor) actually handle drops?
+ *
+ * Asked of `DOMDebugger.getEventListeners`, the same instrument the snapshot's div-soup sweep uses,
+ * rather than of class names or the words "drag and drop" in the page's text — those are what the
+ * page says about itself, and a drop dispatched at something that does not listen fails silently,
+ * which is the one failure mode an upload may not have. The ancestor walk is short and bounded: a
+ * dropzone commonly listens on the wrapper and paints the inner box.
+ */
+async function hasDropListeners(send: CdpSend, ref: number): Promise<boolean> {
+  const objectId = await resolveObject(send, ref);
+  if (!objectId) return false;
+  try {
+    const result = (await send("DOMDebugger.getEventListeners", { objectId, depth: 0, pierce: false })) as { listeners?: { type: string }[] };
+    if ((result.listeners ?? []).some((l) => DROP_LISTENER_TYPES.has(l.type))) return true;
+  } catch {
+    return false;
+  } finally {
+    void send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
+  // `depth: -1` on the ancestors is not available, so walk them explicitly — bounded, and each hop
+  // is one getEventListeners on one node.
+  const ancestors = await ancestorObjects(send, ref, 3);
+  for (const id of ancestors) {
+    try {
+      const result = (await send("DOMDebugger.getEventListeners", { objectId: id, depth: 0 })) as { listeners?: { type: string }[] };
+      if ((result.listeners ?? []).some((l) => DROP_LISTENER_TYPES.has(l.type))) return true;
+    } catch { /* an ancestor that will not answer is not a dropzone */ }
+    finally { void send("Runtime.releaseObject", { objectId: id }).catch(() => {}); }
+  }
+  return false;
+}
+
+const DROP_LISTENER_TYPES = new Set(["drop", "dragover", "dragenter"]);
+
+/** Up to `limit` ancestor element objects, nearest first. */
+async function ancestorObjects(send: CdpSend, ref: number, limit: number): Promise<string[]> {
+  const objectId = await resolveObject(send, ref);
+  if (!objectId) return [];
+  try {
+    const out: string[] = [];
+    let current = objectId;
+    for (let i = 0; i < limit; i++) {
+      const result = (await send("Runtime.callFunctionOn", {
+        objectId: current, functionDeclaration: "function () { return this.parentElement; }", returnByValue: false,
+      })) as { result?: { objectId?: string } };
+      const parent = result.result?.objectId;
+      if (!parent) break;
+      out.push(parent);
+      current = parent;
+    }
+    return out;
+  } catch {
+    return [];
+  } finally {
+    void send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
+}
+
+/**
+ * The dropzone route: build a real `DataTransfer` of real `File`s inside the page and dispatch the
+ * three events a dropzone listens for.
+ *
+ * The bytes go base64 through one CDP argument, which is why `UPLOAD_DROP_MAX_BYTES` is small and
+ * why this route is last. It is also the only route where Realm reads the file itself — the other
+ * two hand Chromium a path and let the browser process open it.
+ */
+async function performDrop(send: CdpSend, ref: number, files: BrowserUploadFile[], seams: UploadSeams): Promise<BrowserUploadResult> {
+  const oversized = files.filter((f) => f.bytes > UPLOAD_DROP_MAX_BYTES);
+  if (oversized.length > 0) {
+    return {
+      ok: false, refused: "too_large",
+      error:
+        `${oversized.map((f) => `"${f.name}"`).join(", ")} exceeds ${Math.round(UPLOAD_DROP_MAX_BYTES / 1024 / 1024)} MB, and this element is a drop target rather than a file input — a synthesized drop has to carry the bytes through the page, so that is the cap for this route. ` +
+        "Find the page's own file input (or the button that opens its picker) and upload to that instead; those have no such limit.",
+    };
+  }
+  const objectId = await resolveObject(send, ref);
+  if (!objectId) return { ok: false, error: `ref=${ref} could not be resolved — take a fresh browser_snapshot` };
+  try {
+    const payload = {
+      files: await Promise.all(files.map(async (f) => ({
+        name: f.name,
+        mime: mimeForPath(f.name),
+        b64: bytesToBase64(await seams.readFile(f.path)),
+      }))),
+    };
+    const result = (await send("Runtime.callFunctionOn", {
+      objectId, functionDeclaration: DROP_JS, arguments: [{ value: payload }], returnByValue: true,
+    })) as { result?: { value?: unknown }; exceptionDetails?: unknown };
+    if (result.exceptionDetails) return { ok: false, error: "the page rejected the synthesized drop" };
+    const dropped = Number(result.result?.value ?? 0);
+    if (dropped !== files.length) return { ok: false, error: "the synthesized drop did not carry every file — the page may have replaced the element mid-drop" };
+    // A dropzone has no input to read back, so the confirmation is what the DROP carried — `value`
+    // is null rather than a restatement of it, and `method: "drop"` is what tells the agent the
+    // difference. Whether the page KEPT them is a question only the page can answer: take a snapshot.
+    return { ok: true, method: "drop", names: files.map((f) => f.name), value: null, accept: null, multiple: files.length > 1 };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    void send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
+}
+
+const DROP_JS = `function (payload) {
+  const dt = new DataTransfer();
+  for (const f of payload.files) {
+    const bin = atob(f.b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    dt.items.add(new File([arr], f.name, { type: f.mime }));
+  }
+  const r = this.getBoundingClientRect();
+  const init = {
+    bubbles: true, cancelable: true, composed: true,
+    clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+    dataTransfer: dt,
+  };
+  this.dispatchEvent(new DragEvent("dragenter", init));
+  this.dispatchEvent(new DragEvent("dragover", init));
+  this.dispatchEvent(new DragEvent("drop", init));
+  return dt.files.length;
+}`;
+
+/** Base64 without `Buffer`: this module has no node imports and does not start now. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000; // String.fromCharCode's argument list has a limit; chunk under it.
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+/** A backendNodeId as a Runtime object, or null. Every caller releases what it gets. */
+async function resolveObject(send: CdpSend, backendNodeId: number): Promise<string | null> {
+  try {
+    const resolved = (await send("DOM.resolveNode", { backendNodeId })) as { object?: { objectId?: string } };
+    return resolved.object?.objectId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cancel an intercepted file chooser: tell the page the user picked nothing.
+ *
+ * An empty `setFileInputFiles` is what "cancelled" looks like from inside the page — the chooser
+ * closes, `change` does not fire with new files, and the site's own handler takes its no-op path.
+ * There is nothing on screen to close, which is the point: interception meant the native panel was
+ * never shown, so this is tidying Realm's own pending state rather than reaching into macOS.
+ */
+export async function cancelFileChooser(send: CdpSend, backendNodeId: number): Promise<void> {
+  await send("DOM.setFileInputFiles", { backendNodeId, files: [] }).catch(() => {});
+}
+
+/** Arm/disarm the interception. Separate exports rather than a flag, because the two are used at
+ *  different times by different callers and the ORDER (arm strictly before the click) is the
+ *  property that keeps a native panel off the screen. */
+export async function setFileChooserInterception(send: CdpSend, enabled: boolean): Promise<void> {
+  await send("Page.setInterceptFileChooserDialog", { enabled });
+}
+
 /* ------------------------------------ read ------------------------------------ */
 
 const PAGE_TEXT_MAX = 40_000;
@@ -606,21 +1106,48 @@ export async function readPageText(send: CdpSend): Promise<string> {
   return text.length > PAGE_TEXT_MAX ? `${text.slice(0, PAGE_TEXT_MAX)}\n…(truncated at ${PAGE_TEXT_MAX} chars)` : text;
 }
 
-/* ------------------------------------ action highlight (W4) ------------------------------------ */
+/* --------------------------- the marks an act leaves in the page --------------------------- */
 
-/** The attribute that marks W4's in-page action highlight as Realm furniture. Everything that touches
- *  the ring keys off this one name: the injector sets it, `buildSnapshot` filters it out of the
- *  element list AND removes lingering rings before capturing, and the ring's own timeout removes it. */
-export const HIGHLIGHT_ATTR = "data-realm-agent-highlight";
+/**
+ * The attribute that marks everything Realm draws INSIDE an agent-driven page as Realm's furniture,
+ * never page content. Everything that touches a mark keys off this one name: the injector sets it,
+ * `buildSnapshot` filters it out of the element list, and the sweeps below remove by it.
+ *
+ * It carries a VALUE (Plan 25 W2), and the value is load-bearing. The ring and the cursor have
+ * different lifetimes — the ring is one act's 900ms flash, the cursor and the frame last the whole
+ * drive — so a sweep that removed "every mark" would delete the cursor every time a ring was drawn,
+ * and `buildSnapshot`'s pre-capture sweep would blink it mid-`browser_batch`. The snapshot FILTER
+ * stays presence-based (`attrs[HIGHLIGHT_ATTR] !== undefined`), which covers every value for free;
+ * only the removals narrow.
+ */
+export const HIGHLIGHT_ATTR = AGENT_MARK_ATTR;
+
+/** The attribute's values. `css` is the injected stylesheet, tagged so the snapshot filter excludes
+ *  it for free and so neither sweep takes it — it is shared by every mark and outlives all of them. */
+export const MARK_RING = "ring";
+export const MARK_CURSOR = "cursor";
+export const MARK_FRAME = AGENT_MARK_FRAME;
+const MARK_CSS = "css";
 
 /** How long the ring stays before fading itself out. Long enough for the eye to land where the click
  *  did, short enough that it is gone before the page's own reaction finishes drawing. */
 const HIGHLIGHT_TTL_MS = 900;
 
-export const REMOVE_HIGHLIGHTS_JS = `(() => { try { for (const n of document.querySelectorAll("[${HIGHLIGHT_ATTR}]")) n.remove(); } catch (e) {} })()`;
+const removeJs = (...values: string[]): string =>
+  `(() => { try { for (const n of document.querySelectorAll(${JSON.stringify(values.map((v) => `[${HIGHLIGHT_ATTR}="${v}"]`).join(","))})) n.remove(); } catch (e) {} })()`;
 
-/** The element ref a highlight should ring for this action, or null when there is nothing to point
- *  at (a bare key press, a page scroll). */
+/** Rings only — this is what `buildSnapshot` sweeps before every capture, and what one act's ring
+ *  clears before drawing the next. Widening it to the whole attribute is the named mutant: it would
+ *  delete the cursor the very act that placed it. */
+export const REMOVE_RINGS_JS = removeJs(MARK_RING);
+
+/** The drive's own marks: the cursor and the controlled-screen frame. Used by `armElementPick`,
+ *  because two accent overlays chasing one pointer is the failure the picker would otherwise have. */
+export const REMOVE_AGENT_MARKS_JS = removeJs(MARK_CURSOR, MARK_FRAME);
+
+/** The element ref the RING should trace for this action, or null when there is nothing to outline.
+ *  The ring says "this element": it is quad-shaped, it outlives the act, and it is the only honest
+ *  mark for `type` and `key`, which dispatch no mouse event at all. */
 export function highlightTargetRef(action: BrowserAction): number | null {
   switch (action.kind) {
     case "click": case "type": return action.ref;
@@ -629,46 +1156,360 @@ export function highlightTargetRef(action: BrowserAction): number | null {
   }
 }
 
+/** How the mark answers the act at the moment it lands. `count` repeats the contraction once per
+ *  click; `sign` is the DELTA'S sign and nothing else — magnitude is not depicted, because the page
+ *  is not told how far it scrolled either. */
+export type CursorPress =
+  | { kind: "click"; count: number }
+  | { kind: "scroll"; axis: "x" | "y"; sign: -1 | 0 | 1 };
+
+/** Where the cursor goes. `ref: null` means "the viewport centre `performAct` computes", which is
+ *  the only fallback there is — see `viewportCentre`. */
+export type CursorTarget = { ref: number | null; press: CursorPress };
+
 /**
- * W4's in-page action highlight: a brief ring around the element a permitted act is about to touch —
- * injected INTO the page via `Runtime.evaluate` (DOM injection rides the debugger, so CSP that blocks
- * page scripts does not block it), which is what keeps the no-overlay invariant untouched: nothing of
- * Realm's ever paints over the view.
+ * The point the CURSOR marks for this action, or null when a pointer there would be a lie.
+ *
+ * `type` and `key` dispatch no mouse event whatsoever, so a pointer at that field is the one outright
+ * false thing this feature could draw — they get the ring and nothing else. `scroll` is the inverse:
+ * it has no ring today and a wheel event really is dispatched at a point, so it is the one act whose
+ * ONLY honest mark is the cursor.
+ *
+ * A `download` reaches this through the ordinary click it performs (`browser-agent-host.ts`), which
+ * is why there is no case for it here. `fillCredential` deliberately reaches nothing at all.
+ */
+export function cursorTargetFor(action: BrowserAction): CursorTarget | null {
+  switch (action.kind) {
+    case "click":
+      return { ref: action.ref, press: { kind: "click", count: action.clickCount ?? 1 } };
+    case "type": case "key":
+      return null;
+    case "scroll": {
+      const dx = action.deltaX ?? 0;
+      const dy = action.deltaY ?? 0;
+      // The dominant axis, so a sideways scroll is not drawn as a vertical one. Ties go to y, which
+      // is what a wheel means when nothing distinguishes the two.
+      const axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      const sign = Math.sign(axis === "x" ? dx : dy) as -1 | 0 | 1;
+      return { ref: action.ref ?? null, press: { kind: "scroll", axis, sign } };
+    }
+  }
+}
+
+/** The centre of the visual viewport, in the exact form `performAct`'s scroll fallback uses. Shared
+ *  rather than repeated: a mark at a point the wheel event did not go to is the whole failure. */
+export function viewportCentre(metrics: LayoutMetrics): { x: number; y: number } {
+  return {
+    x: (metrics.cssVisualViewport?.clientWidth ?? 800) / 2,
+    y: (metrics.cssVisualViewport?.clientHeight ?? 600) / 2,
+  };
+}
+
+/** The accent used when the renderer has not told main the theme's — Realm's default blue. Shared by
+ *  the ring, the cursor, the frame and the picker, so all four are one colour or none of them are. */
+export const DEFAULT_AGENT_ACCENT = "rgb(76, 141, 255)";
+
+/** The picker's own name for it, kept because that is what its parameter has always been called. */
+export const DEFAULT_PICK_ACCENT = DEFAULT_AGENT_ACCENT;
+
+/**
+ * The injected stylesheet: every transition, animation and reduced-motion rule the marks use.
+ *
+ * A stylesheet rather than inline `style.transition` strings, and a CSS media query rather than a
+ * `matchMedia` read in JS, for one reason each. The sheet is where a keyframe can live at all, and
+ * the pulse needs one. And a media query is re-evaluated by the page the moment the preference
+ * changes, where a boolean sampled at injection time would keep a user who turned motion off
+ * mid-drive in full motion — and could be inverted by a single edit with nothing to catch it.
+ *
+ * Geometry and colour stay INLINE on each node, where they beat any rule the page itself might
+ * carry; only motion is declared here, which no page has a reason to target.
+ */
+function markStylesheet(): string {
+  const { pressScale } = AGENT_CURSOR;
+  const { pressMs, fastMs, swapMs, enterMs, easeOutStrong, framePulseMs } = AGENT_MOTION;
+  const cursor = `[${HIGHLIGHT_ATTR}="${MARK_CURSOR}"]`;
+  const glyph = `[${HIGHLIGHT_ATTR}="${MARK_CURSOR}"] svg`;
+  const glow = `[${HIGHLIGHT_ATTR}="${MARK_FRAME}"] > u`;
+  return [
+    // The mark SWAPS position. Only `translate` and `opacity` are named — there is no path, no
+    // intermediate point drawn, no trail and no afterimage, because the page received one
+    // instantaneous arrival and a drawn traversal would depict a journey that never happened.
+    `${cursor}{transition:translate ${swapMs}ms ${easeOutStrong},opacity ${enterMs}ms ${easeOutStrong}}`,
+    // The press scales about the HOTSPOT (`transform-origin` is set inline, per form): a pointer
+    // that contracts toward its own middle walks its tip off the pixel the input went to, which is
+    // the one thing the mark exists to be right about.
+    `${cursor}[data-press]{animation:rl-agent-press ${pressMs}ms ${easeOutStrong} both}`,
+    `@keyframes rl-agent-press{50%{scale:${pressScale}}}`,
+    // A white pointer has to survive a white page. `overflow:visible` so the accent outline, which
+    // is drawn outside the fill, is never clipped by the glyph's own box.
+    `${glyph}{overflow:visible;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.32))}`,
+    `${cursor} i{transition:opacity ${fastMs}ms linear}`,
+    `${glow}{animation:rl-agent-pulse ${framePulseMs}ms ease-in-out infinite}`,
+    `@keyframes rl-agent-pulse{0%,100%{opacity:1}50%{opacity:.3}}`,
+    // Under the preference the mark JUMPS to the point — which is literally the event stream, so it
+    // is the MORE honest rendering — and the press becomes an opacity flash rather than a
+    // contraction nobody would see without motion. The frame's ring stays painted and only its glow
+    // stops moving: the rule `styles.css` already writes down for the in-flight ping, that what
+    // carries the state has to survive when the motion carrying it is taken away.
+    `@media (prefers-reduced-motion:reduce){`,
+    `${cursor}{transition:opacity ${enterMs}ms ${easeOutStrong}}`,
+    `${cursor}[data-press]{animation-name:rl-agent-press-flat}`,
+    `@keyframes rl-agent-press-flat{50%{opacity:.35}}`,
+    `${glow}{animation:none}`,
+    `}`,
+  ].join("");
+}
+
+/**
+ * The two ticks beside the mark on a scroll, on the side matching the delta's SIGN — one entry per
+ * form, because the mark is a directional glyph now and each one occupies its box differently.
+ *
+ * Anchored to the HOTSPOT's row or column and pushed clear of the glyph's own box, so a downward
+ * tick beside an arrow sits below the arrow rather than on top of its tail. Precomputed per form
+ * here rather than worked out inside the page, so the arithmetic is something a test can read.
+ *
+ * A sign of 0 — a wheel event with no delta at all — draws none, because there is no side to put
+ * them on and the magnitude is not depicted either way.
+ */
+export function tickStylesFor(press: CursorPress, accent: string): Record<string, string> | null {
+  if (press.kind !== "scroll" || press.sign === 0) return null;
+  const line = `1px solid ${accent}`;
+  const common = "position:absolute;pointer-events:none;";
+  const gap = 5;
+  const out: Record<string, string> = {};
+  for (const [name, form] of Object.entries(AGENT_CURSOR_FORMS)) {
+    const [w, h] = form.box;
+    const [hx, hy] = form.hot;
+    if (press.axis === "y") {
+      const top = press.sign < 0 ? -gap - 3 : h + gap;
+      out[name] = `${common}left:${hx - 3}px;top:${top}px;width:6px;height:3px;border-top:${line};border-bottom:${line}`;
+    } else {
+      const left = press.sign < 0 ? -gap - 3 : w + gap;
+      out[name] = `${common}top:${hy - 3}px;left:${left}px;width:3px;height:6px;border-left:${line};border-right:${line}`;
+    }
+  }
+  return out;
+}
+
+/**
+ * One form's node, ready for the page to build: the element styles that place it by its hotspot, and
+ * the SVG the glyph is drawn from.
+ *
+ * `paint-order: stroke fill` is what makes the outline sit OUTSIDE the white rather than eating half
+ * of it, and it is what tells a reader at a glance whose pointer this is: theirs is white with a
+ * black edge, this one is white with an edge in their own accent.
+ */
+function formNode(name: CursorFormName): { css: string; svg: { box: readonly [number, number]; paths: readonly { d: string; evenOdd?: true }[]; stroke: number } } {
+  // Widened deliberately: the table is `as const` so each entry keeps its own literal shape, and
+  // only the barred circle declares a `stroke`. Read through the interface and the optional is back.
+  const form: CursorForm = AGENT_CURSOR_FORMS[name];
+  const [w, h] = form.box;
+  const [hx, hy] = form.hot;
+  return {
+    // `left:0;top:0` with a negative margin, so `translate` stays the act's own point and the swap
+    // transition interpolates that point directly rather than some offset derived from it.
+    css: `position:fixed;left:0;top:0;width:${w}px;height:${h}px;margin:${-hy}px 0 0 ${-hx}px;`
+      + `transform-origin:${hx}px ${hy}px;pointer-events:none;z-index:2147483647;opacity:0;`,
+    svg: { box: form.box, paths: form.paths, stroke: (form.stroke ?? AGENT_CURSOR.stroke) * 2 },
+  };
+}
+
+/**
+ * Draw everything one permitted act leaves in the page — the ring, the cursor and the
+ * controlled-screen frame — in ONE `Runtime.evaluate` over ONE geometry read.
+ *
+ * Injected into the page over CDP rather than drawn by the renderer, because a `WebContentsView`
+ * composites above all DOM unconditionally: nothing Realm paints beside one can reach it. DOM
+ * injection rides the debugger, so a CSP that blocks page scripts does not block this.
  *
  * The constraints, each load-bearing:
- *   - geometry comes from `DOM.getContentQuads` on the ref NOW — the same at-act-time re-resolution
- *     the act itself performs. A page that navigated between permission and execution has no quads
- *     for the ref, so the ring is silently skipped (and the act will fail honestly on its own);
- *   - the node carries `HIGHLIGHT_ATTR` and `pointer-events:none` with a transparent background —
+ *   - geometry comes from `DOM.getContentQuads` on the ref NOW, after the same `scrollIntoViewIfNeeded`
+ *     the act itself is about to perform — so the ring's rect and the cursor's point are resolved
+ *     under the act's own precondition and cannot diverge from where the input lands. Nothing here
+ *     accepts a rect from a snapshot;
+ *   - a page that navigated between permission and execution has no quads for the ref, so the ring is
+ *     silently skipped and the act fails honestly on its own;
+ *   - every node carries `HIGHLIGHT_ATTR` and `pointer-events:none` over a transparent background —
  *     invisible to snapshots (filtered by the attribute), inert to the click about to land, and
- *     see-through to the occlusion check (its background never "covers" anything);
- *   - it removes itself (fade + remove after `HIGHLIGHT_TTL_MS`), any predecessor is removed first,
- *     and `buildSnapshot` sweeps stragglers before every capture;
- *   - EVERY failure path is swallowed: a failed highlight must never fail — or even delay-fail — the
- *     act it decorates.
+ *     see-through to the occlusion check (a transparent background never "covers" anything);
+ *   - the caller does NOT await the settle. The mark is placed before the dispatch and the press
+ *     flash is what marks the moment, so there is no added latency per act;
+ *   - EVERY failure path is swallowed. A failed mark must never fail — or even delay-fail — the act
+ *     it decorates.
  */
-export async function showActionHighlight(send: CdpSend, backendNodeId: number): Promise<void> {
+export async function markAct(send: CdpSend, action: BrowserAction, accent = DEFAULT_AGENT_ACCENT): Promise<void> {
   try {
-    const { quads } = (await send("DOM.getContentQuads", { backendNodeId })) as { quads?: number[][] };
-    const quad = quads?.[0];
-    if (!quad || quad.length < 8) return; // no live geometry — likely navigated away; no ring
-    const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
-    const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
-    const x = Math.min(...xs), y = Math.min(...ys);
-    const w = Math.max(...xs) - x, h = Math.max(...ys) - y;
-    if (!Number.isFinite(x + y + w + h)) return;
-    const expression = `(() => { try {
-      ${REMOVE_HIGHLIGHTS_JS};
-      const ring = document.createElement("div");
-      ring.setAttribute("${HIGHLIGHT_ATTR}", "");
-      ring.style.cssText = "position:fixed;left:${x - 3}px;top:${y - 3}px;width:${w + 6}px;height:${h + 6}px;" +
-        "border:2px solid #4c8dff;border-radius:6px;box-shadow:0 0 0 3px rgba(76,141,255,0.28);" +
-        "background:transparent;pointer-events:none;z-index:2147483647;transition:opacity 220ms ease;";
-      (document.body || document.documentElement).appendChild(ring);
-      setTimeout(() => { try { ring.style.opacity = "0"; setTimeout(() => { try { ring.remove(); } catch (e) {} }, 260); } catch (e) {} }, ${HIGHLIGHT_TTL_MS});
-    } catch (e) {} })()`;
-    await send("Runtime.evaluate", { expression });
-  } catch { /* the ring is decoration; the act must proceed untouched */ }
+    const ringRef = highlightTargetRef(action);
+    const cursor = cursorTargetFor(action);
+    // At most one quads read: the ring and the cursor address the same ref whenever both exist.
+    const geomRef = ringRef ?? cursor?.ref ?? null;
+    let quad: number[] | null = null;
+    if (geomRef !== null) {
+      await send("DOM.scrollIntoViewIfNeeded", { backendNodeId: geomRef }).catch(() => {});
+      const { quads } = (await send("DOM.getContentQuads", { backendNodeId: geomRef })) as { quads?: number[][] };
+      const first = quads?.[0];
+      quad = first && first.length >= 8 ? first : null;
+      if (!quad) return; // no live geometry — likely navigated away; draw nothing
+    }
+    let ring = "";
+    let point: { x: number; y: number } | null = null;
+    if (quad) {
+      const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
+      const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
+      const left = Math.min(...xs), top = Math.min(...ys);
+      const w = Math.max(...xs) - left, h = Math.max(...ys) - top;
+      if (!Number.isFinite(left + top + w + h)) return;
+      if (ringRef !== null) {
+        ring = `position:fixed;left:${left - 3}px;top:${top - 3}px;width:${w + 6}px;height:${h + 6}px;`
+          + `border:2px solid ${accent};border-radius:6px;box-shadow:0 0 0 3px color-mix(in srgb, ${accent} 28%, transparent);`
+          + "background:transparent;pointer-events:none;z-index:2147483647;transition:opacity 220ms ease;";
+      }
+      if (cursor) point = { x: xs.reduce((a, b) => a + b, 0) / 4, y: ys.reduce((a, b) => a + b, 0) / 4 };
+    }
+    if (cursor && cursor.ref === null) {
+      point = viewportCentre((await send("Page.getLayoutMetrics")) as LayoutMetrics);
+    }
+    await send("Runtime.evaluate", { expression: markScript({ accent, ring, point, press: cursor?.press ?? null }) });
+  } catch { /* the marks are decoration; the act must proceed untouched */ }
+}
+
+/** The page-side half, written as a string because it runs in the PAGE, whose globals are not ours.
+ *  Every value it needs is `JSON.stringify`d in, so nothing here has to quote anything by hand. */
+function markScript(o: { accent: string; ring: string; point: { x: number; y: number } | null; press: CursorPress | null }): string {
+  const forms = Object.fromEntries(
+    (Object.keys(AGENT_CURSOR_FORMS) as CursorFormName[]).map((name) => [name, formNode(name)]),
+  );
+  const ticks = tickStylesFor(o.press ?? { kind: "click", count: 1 }, o.accent);
+  // The ring and the glow read their numbers from `AGENT_FRAME` rather than spelling them, because
+  // Realm's own panes draw the same mark from the same table (`styles.css`, `DriveFrame.tsx`) and a
+  // literal here is how the two faces of one signal drift apart.
+  const frameCss = "position:fixed;inset:0;pointer-events:none;z-index:2147483646;opacity:1;"
+    + `box-shadow:inset 0 0 0 ${AGENT_FRAME.ringPx}px ${o.accent};`;
+  const glowCss = "position:absolute;inset:0;pointer-events:none;"
+    + `box-shadow:inset 0 0 ${AGENT_FRAME.glowBlurPx}px ${AGENT_FRAME.glowSpreadPx}px ${o.accent};`;
+  const labelCss = "position:absolute;left:50%;bottom:12px;translate:-50% 0;padding:4px 10px;border-radius:8px;"
+    + `background:${o.accent};color:#fff;font:500 12px/1.4 ui-sans-serif,system-ui,sans-serif;white-space:nowrap;`
+    + "box-shadow:0 2px 10px rgba(0,0,0,0.25);pointer-events:none;";
+  const j = JSON.stringify;
+  return `(() => { try {
+    var A = ${j(HIGHLIGHT_ATTR)}, D = document, R = D.body || D.documentElement;
+    if (!R) return;
+    var sel = function (v) { return D.querySelector("[" + A + "=\\"" + v + "\\"]"); };
+    var make = function (v, css, tag) { var n = D.createElement(tag || "div"); n.setAttribute(A, v); n.style.cssText = css; return n; };
+    if (!sel(${j(MARK_CSS)})) { var st = make(${j(MARK_CSS)}, "", "style"); st.textContent = ${j(markStylesheet())}; (D.head || R).appendChild(st); }
+    ${REMOVE_RINGS_JS};
+    var ringCss = ${j(o.ring)};
+    if (ringCss) {
+      var ring = make(${j(MARK_RING)}, ringCss);
+      R.appendChild(ring);
+      setTimeout(function () { try { ring.style.opacity = "0"; setTimeout(function () { try { ring.remove(); } catch (e) {} }, 260); } catch (e) {} }, ${HIGHLIGHT_TTL_MS});
+    }
+    var pt = ${j(o.point)};
+    if (pt) {
+      var FORMS = ${j(forms)}, TICKS = ${j(ticks)}, MAP = ${j(CURSOR_FORM_FOR_CSS)};
+      /* WHICH pointer to draw, asked of the page rather than guessed from the element.
+         The page's computed \`cursor\` at this point is its own statement about what a real pointer
+         here would look like — a hand over something it means to be clicked, an I-beam over a field,
+         a barred circle over a control it has disabled. Drawing that is reporting; drawing an arrow
+         over all of them and calling it a cursor would be decoration.
+         The mark itself is \`pointer-events:none\`, so elementFromPoint never finds Realm's own
+         furniture and the answer is always about the page. */
+      var form = "default";
+      try {
+        var under = D.elementFromPoint(pt.x, pt.y);
+        if (under) {
+          /* \`url(a.png) 4 12, pointer\` is a legal computed value; the keyword is the last fallback
+             in the list, which is also the one Chromium lands on for any image it cannot fetch. */
+          var css = (getComputedStyle(under).cursor || "auto").split(",").pop().trim().split(/\\s+/).pop();
+          if (css === "auto") {
+            /* \`auto\` means the browser decides, and only the page knows what it decided. Resolved
+               the way Chromium renders it: an I-beam over something a caret can go in, an arrow
+               everywhere else. */
+            var tag = under.tagName;
+            css = (tag === "TEXTAREA" || under.isContentEditable
+              || (tag === "INPUT" && !/^(button|submit|reset|checkbox|radio|range|color|file|image)$/i.test(under.type || "text")))
+              ? "text" : "default";
+          }
+          form = MAP[css] || "default";
+        }
+      } catch (e) { /* a cross-origin or detached point: the arrow is the honest fallback */ }
+
+      var mark = sel(${j(MARK_CURSOR)});
+      /* Rebuilt whenever the FORM changes — the box, the hotspot and the transform origin all move
+         with it, so morphing one glyph into another would leave the tip off the point. Position and
+         the swap transition survive the rebuild because they are re-applied below either way. */
+      var fresh = !mark || mark.getAttribute("data-form") !== form;
+      if (mark && fresh) { var was = mark.style.translate; mark.remove(); mark = null; }
+      if (!mark) {
+        var spec = FORMS[form];
+        mark = make(${j(MARK_CURSOR)}, spec.css);
+        mark.setAttribute("data-form", form);
+        var NS = "http://www.w3.org/2000/svg";
+        var svg = D.createElementNS(NS, "svg");
+        svg.setAttribute(A, ${j(MARK_CURSOR)} + "-glyph");
+        svg.setAttribute("viewBox", "0 0 " + spec.svg.box[0] + " " + spec.svg.box[1]);
+        svg.setAttribute("width", String(spec.svg.box[0]));
+        svg.setAttribute("height", String(spec.svg.box[1]));
+        svg.setAttribute("fill", "#fff");
+        svg.setAttribute("stroke", ${j(o.accent)});
+        svg.setAttribute("stroke-width", String(spec.svg.stroke));
+        svg.setAttribute("stroke-linejoin", "round");
+        /* The outline is drawn UNDER the fill, so it sits outside the white instead of eating half
+           of it — the difference between a pointer with an accent edge and a pointer that has gone
+           thin. Built node by node rather than through innerHTML, which is a Trusted Types sink and
+           throws outright on the pages that enforce it. */
+        svg.setAttribute("paint-order", "stroke fill");
+        for (var pi = 0; pi < spec.svg.paths.length; pi++) {
+          var pth = D.createElementNS(NS, "path");
+          pth.setAttribute("d", spec.svg.paths[pi].d);
+          if (spec.svg.paths[pi].evenOdd) pth.setAttribute("fill-rule", "evenodd");
+          svg.appendChild(pth);
+        }
+        mark.appendChild(svg);
+        R.appendChild(mark);
+      }
+      var tick = mark.querySelector("i");
+      if (tick) tick.remove();
+      if (TICKS) mark.appendChild(make(${j(MARK_CURSOR)} + "-tick", TICKS[form], "i"));
+      /* A fresh mark is positioned with the transition OFF and one forced reflow, then faded in at
+         the point. Transitioning from the (0,0) it was created at would fabricate a sweep in from the
+         corner of the page — motion depicting a journey nothing made. A form swap carries the last
+         position across for the same reason: the pointer changed shape, it did not go anywhere. */
+      var here = pt.x + "px " + pt.y + "px";
+      if (fresh) {
+        mark.style.transition = "none";
+        mark.style.translate = was || here;
+        void mark.offsetWidth;
+        mark.style.transition = "";
+      }
+      mark.style.translate = here;
+      mark.style.opacity = "1";
+      /* Removed and re-added around a reflow so a second click in the same burst replays the press
+         rather than sitting on a finished animation. */
+      mark.removeAttribute("data-press");
+      void mark.offsetWidth;
+      mark.style.animationIterationCount = String(${o.press?.kind === "click" ? Math.max(1, o.press.count) : 1});
+      mark.setAttribute("data-press", ${j(o.press?.kind ?? "click")});
+    }
+    if (!sel(${j(MARK_FRAME)})) {
+      var frame = make(${j(MARK_FRAME)}, ${j(frameCss)});
+      frame.appendChild(make(${j(MARK_FRAME)} + "-glow", ${j(glowCss)}, "u"));
+      var label = make(${j(MARK_FRAME)} + "-label", ${j(labelCss)});
+      label.textContent = "An agent is controlling this page";
+      frame.appendChild(label);
+      R.appendChild(frame);
+    }
+    /* The dwell watchdog, owned by the PAGE and reset on every placement: a dead bridge, a crashed
+       host or a lost driving:false must not be able to leave a pointer stuck on someone's page. */
+    if (window.__realmAgentIdle) clearTimeout(window.__realmAgentIdle);
+    window.__realmAgentIdle = setTimeout(function () {
+      try {
+        var gone = D.querySelectorAll("[" + A + "=\\"${MARK_CURSOR}\\"],[" + A + "=\\"${MARK_FRAME}\\"]");
+        for (var i = 0; i < gone.length; i++) { gone[i].style.transition = "opacity ${AGENT_MOTION.fastMs}ms linear"; gone[i].style.opacity = "0"; }
+        setTimeout(function () { try { for (var k = 0; k < gone.length; k++) gone[k].remove(); } catch (e) {} }, ${AGENT_MOTION.fastMs});
+      } catch (e) {}
+    }, ${AGENT_CURSOR.idleMs});
+  } catch (e) {} })()`;
 }
 
 /* ------------------------------------ describe ------------------------------------ */
@@ -702,110 +1543,149 @@ export async function describeElement(send: CdpSend, backendNodeId: number): Pro
 /* ------------------------------------ element picking ------------------------------------ */
 
 /**
- * The USER's element picker, over CDP's `Overlay` domain.
+ * The USER's element picker: Realm's own overlay, injected into the page.
  *
- * `Overlay.setInspectMode("searchForNode")` is the mechanism behind DevTools' own inspect button, and
- * every reason to prefer it here over injecting a click listener with `Runtime.addBinding` +
- * `Page.addScriptToEvaluateOnNewDocument` is something an injected listener cannot do:
+ * It was `Overlay.setInspectMode` once — the DevTools inspector, a flat blue box with a node-info
+ * tooltip, which looks exactly like what it is. This app is not DevTools, and a person pointing at an
+ * element to talk to an agent about is doing a Realm thing; and nothing Realm draws in the window can
+ * be laid over the page (the view composites above it), so the page draws it.
  *
- *   - Chrome CONSUMES the picking click. It never reaches the page, so picking a link does not
- *     navigate and picking a submit button does not submit. An injected listener can only try to
- *     `preventDefault` in the capture phase, and loses to any page that registered its own capture
- *     listener on `window` first — which is most of the pages worth picking from.
- *   - the hit test is the browser's own, so it is right through shadow roots, cross-origin iframes
- *     and `pointer-events`, none of which `document.elementFromPoint` reports correctly from a
- *     single world.
- *   - the highlight is drawn by the overlay layer, not by page DOM. Nothing is appended to the page,
- *     so there is no second `HIGHLIGHT_ATTR` to hold in step across the snapshot filter and the
- *     pre-capture sweep, and the page can neither see nor restyle the marker saying it is inspected.
- *   - nothing is injected into an untrusted page at all, and no script has to be re-established
- *     after a navigation.
+ * It follows the pointer over `elementFromPoint` and outlines what is under it: a soft accent fill
+ * inside a fine accent line, standing a few pixels off the element and rounded concentric with the
+ * element's own corners — a pill outlines as a pill, a square card as a softly rounded one — with a
+ * small dark label above it naming the element and its size. The outline glides between elements
+ * rather than jumping, and keeps to the element while the page scrolls under it. Every press is taken
+ * in the CAPTURE phase and cancelled, so picking a link does not navigate and pressing a menu button
+ * opens nothing — the failure the whole feature would otherwise have on any real page.
  *
- * The cost is the look: this is DevTools' box-model highlight with its tag/size tooltip, not Realm's
- * action ring. For a picker that is the better trade — the tooltip names what the box IS, which is
- * the one thing someone choosing an element needs to read before they commit.
- *
- * One behaviour worth knowing, because it is invisible until it bites: inspect mode inspects the node
- * it is HOVERING, which it learns from mouse moves. A press with no move before it finds nothing
- * highlighted and falls through to the page. A hand always moves before it clicks, so this costs a
- * user nothing — but a synthetic click that skips the move is not a test of this code
- * (`element-picker-live.cjs` sends the move for exactly that reason).
- */
-/**
- * The picker's page-side half — Realm's own overlay, not Chrome's.
- *
- * `Overlay.setInspectMode` is the DevTools inspector: a flat blue box with a node-info tooltip, and
- * it looks exactly like what it is. This app is not DevTools, and a person picking an element to
- * talk to an agent about is doing a Realm thing.
- *
- * So the overlay is injected. It follows the pointer over `elementFromPoint`, draws a thick accent
- * border with an inward glow on the app's own curve, and names the element in a chip that reads like
- * every other chip in Realm. The click is taken in the CAPTURE phase and cancelled, so picking a
- * link does not navigate — the failure the whole feature would otherwise have on any real page.
+ * Drawn in a shadow root on a host element of its own name, so the page's stylesheet cannot reach it
+ * (`div { … !important }` restyles a div, not a `realm-picker`), and hidden from the accessibility tree,
+ * so an agent's snapshot taken mid-pick reads the page and not the label.
  *
  * The element is handed back by stamping a one-shot attribute on it and calling a CDP binding; main
  * turns that attribute into a `backendNodeId` (`resolvePickedNode`) and clears it. That is the whole
- * bridge: everything downstream — `describePick`, `describeElement` — is untouched and still speaks
- * in backendNodeIds.
+ * bridge: everything downstream — `describePick`, `describeElement` — still speaks in backendNodeIds.
+ *
+ * Nothing of it outlives the pick: the click, Escape, a cancel from the pane, and the page going away
+ * (`pagehide`) all take it down. A pick lets the outline answer — a beat of deeper fill and a fade —
+ * on a timer of its own, marked as leaving so a disarm arriving meanwhile lets it finish; anything
+ * else removes it at once, and every arm and disarm sweeps up a host that something left behind.
  *
  * Written as a string rather than a real module because it runs in the PAGE, whose globals are not
  * ours and whose bundler is not ours either. No backticks inside: this is embedded in a template
- * literal, and one would end it.
+ * literal, and one would end it — and a regex escape has to be written `\\s`, or the template cooks it
+ * to a bare letter.
  */
 export const PICK_BINDING = "__realmPickDone";
 export const PICK_ATTR = "data-realm-picked";
+/** The overlay's host element — its own name, which page rules aimed at a `div` do not match. */
+export const PICKER_HOST = "realm-picker";
+
+/** How far the outline stands off the element, and the least it rounds a corner by, in CSS px. */
+const PICK_OUTLINE_GAP = 3;
+const PICK_OUTLINE_MIN_RADIUS = 8;
+/** How long the outline takes to answer a pick before it goes. */
+const PICK_CONFIRM_MS = 260;
 
 const PICKER_SCRIPT = `(() => {
   if (window.__realmPicker) window.__realmPicker.stop();
+  for (const n of document.querySelectorAll(HOST_NAME)) n.remove();
   const ACCENT = ACCENT_RGB;
-  const host = document.createElement("div");
-  host.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none";
+  const GAP = GAP_PX, MIN_R = MIN_RADIUS_PX;
+  const host = document.createElement(HOST_NAME);
+  host.setAttribute("aria-hidden", "true");
+  host.style.cssText = "all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none";
+  const root = host.attachShadow({ mode: "open" });
+  const ease = "cubic-bezier(.23,1,.32,1)";
+  const glide = (p) => p + " 110ms " + ease;
+  const style = document.createElement("style");
+  style.textContent = [
+    ".box{position:absolute;left:0;top:0;box-sizing:border-box;border:1.5px solid " + ACCENT + ";"
+      + "background:color-mix(in srgb," + ACCENT + " 12%,transparent);opacity:0;"
+      + "transition:" + ["transform", "width", "height", "border-radius"].map(glide).join(",") + ",opacity 120ms ease,background-color 120ms ease}",
+    ".label{position:absolute;left:0;top:0;display:flex;gap:6px;height:20px;padding:0 7px;border-radius:6px;"
+      + "background:rgba(24,25,27,.94);color:#f5f5f6;font:600 11px/20px -apple-system,BlinkMacSystemFont,system-ui,sans-serif;"
+      + "white-space:nowrap;box-shadow:0 0 0 .5px rgba(255,255,255,.1),0 2px 8px rgba(0,0,0,.22);opacity:0;"
+      + "transition:" + glide("transform") + ",opacity 120ms ease}",
+    ".size{font-weight:450;color:rgba(245,245,246,.62);font-variant-numeric:tabular-nums}",
+    "[data-on]{opacity:1}",
+    "[data-instant]{transition:none}",
+    ".box[data-picked]{background:color-mix(in srgb," + ACCENT + " 26%,transparent);opacity:0;transition:background-color 80ms ease,opacity 160ms ease 80ms}",
+    "@media (prefers-reduced-motion:reduce){.box,.label{transition:none!important}}",
+  ].join("");
   const box = document.createElement("div");
-  /* 2px rather than the inspector's hairline, an inward glow instead of a flat fill, and the app's
-     own large corner. inset box-shadow so the glow reads as light coming off the edge of the thing
-     you are about to pick rather than as a tint laid over it. */
-  box.style.cssText = "position:absolute;box-sizing:border-box;border:2px solid " + ACCENT
-    + ";border-radius:14px;box-shadow: inset 0 0 24px -4px " + ACCENT + ", 0 0 0 9999px rgba(0,0,0,0.04);"
-    + "transition:all 90ms cubic-bezier(0.2,0,0,1);opacity:0";
-  const chip = document.createElement("div");
-  chip.style.cssText = "position:absolute;padding:3px 9px;border-radius:8px;background:" + ACCENT
-    + ";color:#fff;font:500 11px/1.4 ui-sans-serif,system-ui,sans-serif;white-space:nowrap;"
-    + "box-shadow:0 2px 10px rgba(0,0,0,0.25);opacity:0";
-  host.appendChild(box); host.appendChild(chip);
+  box.className = "box";
+  const label = document.createElement("div");
+  label.className = "label";
+  const nameEl = document.createElement("span");
+  const sizeEl = document.createElement("span");
+  sizeEl.className = "size";
+  label.append(nameEl, sizeEl);
+  root.append(style, box, label);
   document.documentElement.appendChild(host);
 
   let current = null;
+  let shown = false;
+  /* The tag, then its id or its first class: enough to tell two neighbours apart, short enough to
+     read at a glance. The selector the agent is handed is worked out properly, after the pick. */
   const name = (el) => {
-    const tag = el.tagName.toLowerCase();
-    const id = el.id ? "#" + el.id : "";
-    const cls = typeof el.className === "string" && el.className.trim()
-      ? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".") : "";
-    return (tag + id + cls).slice(0, 60);
+    const cls = typeof el.className === "string" ? el.className.trim().split(/\\s+/)[0] : "";
+    const full = el.tagName.toLowerCase() + (el.id ? "#" + el.id : cls ? "." + cls : "");
+    return full.length > 32 ? full.slice(0, 31) + "\\u2026" : full;
   };
-  const draw = (el) => {
-    current = el;
-    if (!el) { box.style.opacity = "0"; chip.style.opacity = "0"; return; }
+  const length = (v, basis) => {
+    const n = parseFloat(v);
+    return !isFinite(n) ? 0 : /%$/.test(v) ? (n * basis) / 100 : n;
+  };
+  const CORNERS = ["border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius"];
+  const place = (el, instant) => {
     const r = el.getBoundingClientRect();
-    box.style.opacity = "1"; chip.style.opacity = "1";
-    box.style.left = r.left + "px"; box.style.top = r.top + "px";
-    box.style.width = r.width + "px"; box.style.height = r.height + "px";
-    chip.textContent = name(el) + "  " + Math.round(r.width) + "x" + Math.round(r.height);
-    /* Above the element, unless there is no room — then inside its top edge. A label that runs off
-       the viewport is a label nobody can read. */
-    const above = r.top >= 26;
-    chip.style.left = Math.max(4, Math.min(r.left, window.innerWidth - chip.offsetWidth - 4)) + "px";
-    chip.style.top = (above ? r.top - 24 : r.top + 4) + "px";
+    const vw = document.documentElement.clientWidth || window.innerWidth;
+    const vh = document.documentElement.clientHeight || window.innerHeight;
+    /* Off the element by GAP, and inside the viewport: an outline round the whole page would
+       otherwise be drawn where nobody can see it. */
+    const left = Math.max(1, r.left - GAP), top = Math.max(1, r.top - GAP);
+    const right = Math.min(vw - 1, r.right + GAP), bottom = Math.min(vh - 1, r.bottom + GAP);
+    const w = Math.max(0, right - left), h = Math.max(0, bottom - top);
+    /* Concentric: the element's own corner plus the gap, and never squarer than MIN_R — or rounder
+       than half the outline's short side, past which a corner stops being one. */
+    const cs = getComputedStyle(el);
+    const short = Math.min(r.width, r.height);
+    const radii = CORNERS.map((p) => Math.min(Math.min(w, h) / 2, Math.max(MIN_R, length(cs.getPropertyValue(p).split(" ")[0], short) + GAP)) + "px");
+    if (instant) { box.setAttribute("data-instant", ""); label.setAttribute("data-instant", ""); }
+    box.style.transform = "translate(" + left + "px," + top + "px)";
+    box.style.width = w + "px";
+    box.style.height = h + "px";
+    box.style.borderRadius = radii.join(" ");
+    nameEl.textContent = name(el);
+    sizeEl.textContent = Math.round(r.width) + " \\u00d7 " + Math.round(r.height);
+    /* Above the outline; below it when there is no room above; inside its top edge when there is
+       room for neither. A label that runs off the viewport is a label nobody can read. */
+    const lw = label.offsetWidth, LH = 20, LGAP = 4;
+    let ly = top - LH - LGAP;
+    if (ly < 2) ly = bottom + LGAP + LH <= vh - 2 ? bottom + LGAP : top + LGAP;
+    const lx = Math.max(2, Math.min(left, vw - lw - 2));
+    label.style.transform = "translate(" + lx + "px," + ly + "px)";
+    box.setAttribute("data-on", "");
+    label.setAttribute("data-on", "");
+    if (instant) { void box.offsetWidth; box.removeAttribute("data-instant"); label.removeAttribute("data-instant"); }
   };
+  /* The first element after the outline was hidden is placed where it is, not slid to from wherever
+     the last one was. */
+  const show = (el) => { current = el; place(el, !shown); shown = true; };
+  const hide = () => { current = null; shown = false; box.removeAttribute("data-on"); label.removeAttribute("data-on"); };
   const onMove = (e) => {
-    host.style.display = "none";
     const el = document.elementFromPoint(e.clientX, e.clientY);
-    host.style.display = "";
-    if (el && el !== current) draw(el);
+    if (!el) hide();
+    else if (el !== current) show(el);
   };
+  const onLeave = (e) => { if (!e.relatedTarget) hide(); };
+  const follow = () => { if (current) place(current, true); };
+  const swallow = (e) => { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); };
   const onClick = (e) => {
-    if (!current) return;
-    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-    const el = current;
+    swallow(e);
+    const el = current || document.elementFromPoint(e.clientX, e.clientY);
+    if (!el) return;
     /* WHERE the click landed, and whether it landed on a STREAMED SURFACE.
        Ordinarily the picked element is the whole answer and this is redundant. It stops being
        redundant over a mirrored device: the entire screen is drawn into one <canvas>, so the element
@@ -816,37 +1696,63 @@ const PICKER_SCRIPT = `(() => {
        Its box travels too: it is what a device point is scaled by, and only the page can measure it. */
     const stack = typeof document.elementsFromPoint === "function" ? document.elementsFromPoint(e.clientX, e.clientY) : [];
     const surfaceEl = stack.find((n) => n.tagName === "CANVAS" || n.tagName === "IMG") || null;
-    const boxEl = surfaceEl || el;
-    const box = boxEl.getBoundingClientRect();
-    const nx = box.width > 0 ? (e.clientX - box.left) / box.width : 0;
-    const ny = box.height > 0 ? (e.clientY - box.top) / box.height : 0;
-    const surface = surfaceEl ? { x: box.left, y: box.top, w: box.width, h: box.height } : null;
-    stop();
+    const frame = (surfaceEl || el).getBoundingClientRect();
+    const nx = frame.width > 0 ? (e.clientX - frame.left) / frame.width : 0;
+    const ny = frame.height > 0 ? (e.clientY - frame.top) / frame.height : 0;
+    const surface = surfaceEl ? { x: frame.left, y: frame.top, w: frame.width, h: frame.height } : null;
+    if (el !== current) show(el);
+    stop(true);
     el.setAttribute(PICK_ATTR_NAME, "1");
     window[BINDING_NAME](JSON.stringify({ x: nx, y: ny, surface }));
   };
-  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); stop(); window[BINDING_NAME](""); } };
-  function stop() {
+  const onKey = (e) => { if (e.key === "Escape") { swallow(e); stop(false); window[BINDING_NAME](""); } };
+  const onPageHide = () => stop(false);
+  const PRESSES = ["pointerdown", "mousedown", "pointerup", "mouseup", "dblclick", "auxclick", "contextmenu"];
+  function stop(picked) {
     window.removeEventListener("mousemove", onMove, true);
+    window.removeEventListener("mouseout", onLeave, true);
     window.removeEventListener("click", onClick, true);
+    for (const t of PRESSES) window.removeEventListener(t, swallow, true);
     window.removeEventListener("keydown", onKey, true);
-    host.remove();
+    window.removeEventListener("scroll", follow, true);
+    window.removeEventListener("resize", follow);
+    window.removeEventListener("pagehide", onPageHide);
     window.__realmPicker = null;
+    if (!picked) { host.remove(); return; }
+    host.setAttribute("data-leaving", "");
+    label.removeAttribute("data-on");
+    box.setAttribute("data-picked", "");
+    setTimeout(() => host.remove(), CONFIRM_MS);
   }
   window.addEventListener("mousemove", onMove, true);
+  window.addEventListener("mouseout", onLeave, true);
   window.addEventListener("click", onClick, true);
+  for (const t of PRESSES) window.addEventListener(t, swallow, true);
   window.addEventListener("keydown", onKey, true);
-  window.__realmPicker = { stop };
+  window.addEventListener("scroll", follow, true);
+  window.addEventListener("resize", follow);
+  window.addEventListener("pagehide", onPageHide);
+  window.__realmPicker = { stop: () => stop(false) };
 })()`;
 
-/** The picker script with its three page-side constants substituted in. `accent` is the user's own
- *  theme colour, so the overlay is the colour of the app it belongs to rather than a fixed blue. */
-function pickerScript(accent: string): string {
+/** The picker script with its page-side constants substituted in. `accent` is the user's own theme
+ *  colour, so the overlay is the colour of the app it belongs to rather than a fixed blue. */
+export function pickerScript(accent: string): string {
   return PICKER_SCRIPT
     .replace("ACCENT_RGB", JSON.stringify(accent))
+    .replace("GAP_PX", String(PICK_OUTLINE_GAP))
+    .replace("MIN_RADIUS_PX", String(PICK_OUTLINE_MIN_RADIUS))
+    .replace("CONFIRM_MS", String(PICK_CONFIRM_MS))
+    .replace(/HOST_NAME/g, JSON.stringify(PICKER_HOST))
     .replace(/PICK_ATTR_NAME/g, JSON.stringify(PICK_ATTR))
     .replace(/BINDING_NAME/g, JSON.stringify(PICK_BINDING));
 }
+
+/**
+ * Take the picker down: its own `stop()`, and then any host something left behind — but not one that
+ * is LEAVING, whose fade is the answer to the pick that just resolved and which removes itself.
+ */
+export const STOP_PICKER_JS = `(() => { try { if (window.__realmPicker) window.__realmPicker.stop(); for (const n of document.querySelectorAll(${JSON.stringify(`${PICKER_HOST}:not([data-leaving])`)})) n.remove(); } catch (e) {} })()`;
 
 /**
  * Arm the picker. The caller listens for `Runtime.bindingCalled` on `PICK_BINDING`; a non-empty
@@ -856,11 +1762,11 @@ function pickerScript(accent: string): string {
 export async function armElementPick(send: CdpSend, accent?: string): Promise<void> {
   await send("Runtime.enable").catch(() => {});
   await send("Runtime.addBinding", { name: PICK_BINDING });
+  // Two accent overlays chasing one pointer is the failure this removal exists to prevent: the
+  // agent's cursor and the picker's box are the same colour and follow the same hand.
+  await send("Runtime.evaluate", { expression: REMOVE_AGENT_MARKS_JS }).catch(() => {});
   await send("Runtime.evaluate", { expression: pickerScript(accent ?? DEFAULT_PICK_ACCENT), returnByValue: true });
 }
-
-/** The accent used when the renderer has not told us the theme's — Realm's default blue. */
-export const DEFAULT_PICK_ACCENT = "rgb(76, 141, 255)";
 
 /**
  * Turn the stamped attribute into the `backendNodeId` everything downstream speaks in, and clear it.
@@ -883,7 +1789,7 @@ export async function resolvePickedNode(send: CdpSend): Promise<number | null> {
 export async function disarmElementPick(send: CdpSend): Promise<void> {
   // Idempotent on the page side (`stop()` removes its own listeners and its own overlay), so calling
   // this on a page that was never armed, or twice, costs nothing.
-  await send("Runtime.evaluate", { expression: "window.__realmPicker && window.__realmPicker.stop()" }).catch(() => {});
+  await send("Runtime.evaluate", { expression: STOP_PICKER_JS }).catch(() => {});
   await send("Runtime.removeBinding", { name: PICK_BINDING }).catch(() => {});
 }
 
@@ -977,4 +1883,223 @@ export async function describePick(send: CdpSend, backendNodeId: number): Promis
     name: clip(identity.name, PICK_NAME_MAX),
     ...detail,
   };
+}
+
+/* ---------------------------------- annotate (Plan 26 W7d) ---------------------------------- */
+
+/**
+ * Annotate: the picker kept armed. Every click pins a numbered outline that STAYS on the page, and a
+ * toolbar drawn in the page counts them and offers Hide pins, Clear, Send and close. Send hands main
+ * every pinned element at once; main takes a screenshot with the pins drawn, and the pane turns the lot
+ * into ONE chip in a session's prompter.
+ *
+ * Page-side for the picker's reason: the native view composites over everything the renderer draws in
+ * its rectangle, so marks that have to sit ON the page — and a toolbar that has to stay with them —
+ * can only be drawn by the page itself. Everything it reports goes through its own binding, and
+ * everything downstream of a pin is the picker's: the stamped attribute becomes a backendNodeId, and
+ * that becomes the same `BrowserPickedElement` a single pick does.
+ *
+ * Clicks, and the presses before them, are taken in the CAPTURE phase and cancelled, so pinning a link
+ * or a button changes nothing about the page under it. The toolbar's own buttons are the one exception.
+ * No backticks inside: this is embedded in a template literal.
+ */
+export const ANNOTATE_BINDING = "__realmAnnotate";
+export const ANNOTATE_ATTR = "data-realm-annotated";
+
+const ANNOTATOR_SCRIPT = `(() => {
+  if (window.__realmAnnotator) window.__realmAnnotator.stop();
+  const ACCENT = ACCENT_RGB;
+  const MAX = MAX_PINS;
+  const report = (msg) => window[BINDING_NAME](JSON.stringify(msg));
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none";
+  const hover = document.createElement("div");
+  /* The picker's outline, in the picker's terms: a fine line over a soft fill on a rounded corner, so
+     pointing reads the same in both modes. The pins below keep their heavier line — they stay on the
+     page and go into the screenshot Send takes. */
+  hover.style.cssText = "position:absolute;box-sizing:border-box;border:1.5px solid " + ACCENT
+    + ";border-radius:8px;background:color-mix(in srgb," + ACCENT + " 12%,transparent);opacity:0;transition:opacity 90ms";
+  const layer = document.createElement("div");
+  layer.style.cssText = "position:absolute;inset:0";
+  const bar = document.createElement("div");
+  bar.setAttribute("role", "toolbar");
+  bar.setAttribute("aria-label", "Annotate");
+  bar.style.cssText = "position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:center;gap:2px;"
+    + "padding:5px;border-radius:14px;background:rgba(30,30,33,0.96);color:#f4f4f5;font:500 12px/1 -apple-system,system-ui,sans-serif;"
+    + "box-shadow:0 0 0 1px rgba(255,255,255,0.08),0 2px 6px rgba(0,0,0,0.25),0 12px 32px rgba(0,0,0,0.3);pointer-events:auto;user-select:none";
+  const count = document.createElement("span");
+  count.style.cssText = "padding:0 10px 0 8px;white-space:nowrap;font-variant-numeric:tabular-nums";
+  const button = (text, title, primary) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = text; b.title = title;
+    const rest = primary ? "background:" + ACCENT + ";color:#fff" : "background:transparent;color:#d4d4d8";
+    b.style.cssText = "all:unset;box-sizing:border-box;height:28px;padding:0 11px;border-radius:9px;white-space:nowrap;cursor:default;" + rest;
+    b.addEventListener("mouseenter", () => { if (!primary && !b.disabled) b.style.background = "rgba(255,255,255,0.1)"; });
+    b.addEventListener("mouseleave", () => { if (!primary) b.style.background = "transparent"; });
+    return b;
+  };
+  const toggle = button("Hide pins", "Hide the pins to see the page under them", false);
+  const clear = button("Clear", "Take every pin off", false);
+  const send = button("Send", "Send these to the session", true);
+  const close = button("\\u00d7", "Stop annotating (Esc)", false);
+  close.setAttribute("aria-label", "Stop annotating");
+  close.style.fontSize = "16px";
+  bar.append(count, toggle, clear, send, close);
+  host.append(hover, layer, bar);
+  document.documentElement.appendChild(host);
+
+  const pins = [];
+  let hidden = false;
+  let current = null;
+  let full = false;
+  const say = () => {
+    count.textContent = full ? "That is as many as one message carries"
+      : pins.length === 0 ? "Annotating \\u00b7 click to pin" : "Annotating \\u00b7 " + pins.length;
+    const none = pins.length === 0;
+    send.disabled = none; clear.disabled = none; toggle.disabled = none;
+    send.style.opacity = none ? "0.45" : "1"; clear.style.opacity = none ? "0.45" : "1"; toggle.style.opacity = none ? "0.45" : "1";
+  };
+  const place = (box, el) => {
+    const r = el.getBoundingClientRect();
+    box.style.left = r.left + "px"; box.style.top = r.top + "px";
+    box.style.width = r.width + "px"; box.style.height = r.height + "px";
+  };
+  const layout = () => { for (const p of pins) place(p.box, p.el); };
+  const pin = (el) => {
+    const n = pins.length + 1;
+    const box = document.createElement("div");
+    box.style.cssText = "position:absolute;box-sizing:border-box;border:2px solid " + ACCENT + ";border-radius:8px";
+    const badge = document.createElement("div");
+    badge.textContent = String(n);
+    badge.style.cssText = "position:absolute;left:-10px;top:-10px;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:10px;"
+      + "background:" + ACCENT + ";color:#fff;font:600 11px/20px -apple-system,system-ui,sans-serif;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.35)";
+    box.appendChild(badge);
+    layer.appendChild(box);
+    pins.push({ el, box });
+    place(box, el);
+    return n;
+  };
+  const inBar = (t) => t instanceof Node && bar.contains(t);
+  const aim = (e) => {
+    if (inBar(e.target)) { current = null; hover.style.opacity = "0"; return; }
+    host.style.display = "none";
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    host.style.display = "";
+    current = el;
+    if (!el || hidden) { hover.style.opacity = "0"; return; }
+    const r = el.getBoundingClientRect();
+    hover.style.opacity = "1";
+    hover.style.left = r.left + "px"; hover.style.top = r.top + "px";
+    hover.style.width = r.width + "px"; hover.style.height = r.height + "px";
+  };
+  const swallow = (e) => { if (inBar(e.target)) return; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); };
+  const onClick = (e) => {
+    if (inBar(e.target)) return;
+    swallow(e);
+    const el = current;
+    if (!el || pins.some((p) => p.el === el)) return;
+    if (pins.length >= MAX) { full = true; say(); return; }
+    const stack = typeof document.elementsFromPoint === "function" ? document.elementsFromPoint(e.clientX, e.clientY) : [];
+    const surfaceEl = stack.find((n) => n.tagName === "CANVAS" || n.tagName === "IMG") || null;
+    const box = (surfaceEl || el).getBoundingClientRect();
+    const nx = box.width > 0 ? (e.clientX - box.left) / box.width : 0;
+    const ny = box.height > 0 ? (e.clientY - box.top) / box.height : 0;
+    const surface = surfaceEl ? { x: box.left, y: box.top, w: box.width, h: box.height } : null;
+    const n = pin(el);
+    el.setAttribute(ATTR_NAME, String(n));
+    if (hidden) { hidden = false; layer.style.display = ""; toggle.textContent = "Hide pins"; }
+    say();
+    report({ type: "pin", n, x: nx, y: ny, surface });
+  };
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); report({ type: "close" }); } };
+  toggle.addEventListener("click", () => {
+    hidden = !hidden;
+    layer.style.display = hidden ? "none" : "";
+    hover.style.opacity = "0";
+    toggle.textContent = hidden ? "Show pins" : "Hide pins";
+  });
+  clear.addEventListener("click", () => {
+    for (const p of pins) { p.box.remove(); p.el.removeAttribute(ATTR_NAME); }
+    pins.length = 0; full = false; say();
+    report({ type: "clear" });
+  });
+  send.addEventListener("click", () => { if (pins.length > 0) report({ type: "send" }); });
+  close.addEventListener("click", () => report({ type: "close" }));
+  const PRESSES = ["pointerdown", "mousedown", "pointerup", "mouseup", "dblclick", "contextmenu"];
+  window.addEventListener("mousemove", aim, true);
+  window.addEventListener("click", onClick, true);
+  for (const t of PRESSES) window.addEventListener(t, swallow, true);
+  window.addEventListener("keydown", onKey, true);
+  window.addEventListener("scroll", layout, true);
+  window.addEventListener("resize", layout);
+  function stop() {
+    window.removeEventListener("mousemove", aim, true);
+    window.removeEventListener("click", onClick, true);
+    for (const t of PRESSES) window.removeEventListener(t, swallow, true);
+    window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("scroll", layout, true);
+    window.removeEventListener("resize", layout);
+    for (const p of pins) p.el.removeAttribute(ATTR_NAME);
+    host.remove();
+    window.__realmAnnotator = null;
+  }
+  /* The picture Send takes: every pin drawn where it is, and nothing else of Realm's — no toolbar, no
+     hover box. Resolves after two frames, so the capture that follows sees what this changed. */
+  function prepareShot() {
+    bar.style.display = "none"; hover.style.opacity = "0"; layer.style.display = "";
+    layout();
+    return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))));
+  }
+  say();
+  window.__realmAnnotator = { stop, prepareShot, count: () => pins.length };
+})()`;
+
+/** The annotator with its page-side constants substituted in. */
+export function annotatorScript(accent: string, maxPins: number): string {
+  return ANNOTATOR_SCRIPT
+    .replace("ACCENT_RGB", JSON.stringify(accent))
+    .replace("MAX_PINS", String(Math.max(1, Math.floor(maxPins))))
+    .replace(/ATTR_NAME/g, JSON.stringify(ANNOTATE_ATTR))
+    .replace(/BINDING_NAME/g, JSON.stringify(ANNOTATE_BINDING));
+}
+
+/** Arm annotate mode. The caller listens for `Runtime.bindingCalled` on `ANNOTATE_BINDING`. */
+export async function armAnnotate(send: CdpSend, accent: string, maxPins: number): Promise<void> {
+  await send("Runtime.enable").catch(() => {});
+  await send("Runtime.addBinding", { name: ANNOTATE_BINDING });
+  // The picker and the agent's own marks would be two more accent overlays chasing the same hand.
+  await send("Runtime.evaluate", { expression: STOP_PICKER_JS }).catch(() => {});
+  await send("Runtime.evaluate", { expression: REMOVE_AGENT_MARKS_JS }).catch(() => {});
+  await send("Runtime.evaluate", { expression: annotatorScript(accent, maxPins), returnByValue: true });
+}
+
+/**
+ * Pin `n`'s stamped element → its `backendNodeId`, clearing the stamp — `resolvePickedNode`, for one
+ * numbered pin. The pin's outline stays: the page holds the element itself, not the attribute.
+ */
+export async function resolveAnnotatedNode(send: CdpSend, n: number): Promise<number | null> {
+  if (!Number.isInteger(n) || n < 1) return null;
+  try {
+    const { root } = await send("DOM.getDocument", { depth: 0 }) as { root: { nodeId: number } };
+    const { nodeId } = await send("DOM.querySelector", { nodeId: root.nodeId, selector: `[${ANNOTATE_ATTR}="${n}"]` }) as { nodeId: number };
+    if (!nodeId) return null;
+    const { node } = await send("DOM.describeNode", { nodeId }) as { node: { backendNodeId: number } };
+    await send("DOM.removeAttribute", { nodeId, name: ANNOTATE_ATTR }).catch(() => {});
+    return node.backendNodeId > 0 ? node.backendNodeId : null;
+  } catch { return null; }
+}
+
+/** Draw every pin and nothing else of Realm's, then capture the viewport as a PNG. Null if the page
+ *  would not draw or the capture came back empty — Send still goes, without a picture. */
+export async function captureAnnotated(send: CdpSend): Promise<Uint8Array | null> {
+  await send("Runtime.evaluate", { expression: "window.__realmAnnotator ? window.__realmAnnotator.prepareShot() : true", awaitPromise: true }).catch(() => {});
+  try {
+    const shot = await send("Page.captureScreenshot", { format: "png" }) as { data?: string };
+    return shot.data ? Uint8Array.from(Buffer.from(shot.data, "base64")) : null;
+  } catch { return null; }
+}
+
+export async function disarmAnnotate(send: CdpSend): Promise<void> {
+  await send("Runtime.evaluate", { expression: "window.__realmAnnotator && window.__realmAnnotator.stop()" }).catch(() => {});
+  await send("Runtime.removeBinding", { name: ANNOTATE_BINDING }).catch(() => {});
 }

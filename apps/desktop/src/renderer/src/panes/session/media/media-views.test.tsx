@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { mediaUrl, type MediaFile } from "@realm/contracts";
 import { Markdown } from "../Markdown";
 import { Transcript } from "../Transcript";
 import { emptyTranscript } from "../transcript-model";
 import { GeneratingCanvas, MediaStrip, formatTime, genResolution, genWidthPx } from "./MediaView";
-import { resetMediaCache } from "./use-media";
+import { resetMediaCache, useMediaFiles } from "./use-media";
+import { MediaViewer } from "../../../components/viewer/MediaViewer";
+import { StoreContext, createAppStore } from "../../../state/store";
+import { fakeApi } from "../../../state/store.test-fakes";
 
 /** What main would answer for a real file. */
 const file = (path: string, kind: MediaFile["kind"], size = 10_485_760): MediaFile => ({
@@ -84,21 +88,27 @@ describe("MediaStrip", () => {
     expect(open).toHaveBeenCalledWith("/out/hero.png");
   });
 
-  it("opens a file in the lightbox and closes it on Escape", async () => {
+  it("opens a file in the media viewer and closes it on Escape", async () => {
     const shot = file("/out/hero.png", "image");
     stubMedia([shot]);
-    render(<MediaStrip files={[shot]} />);
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    render(<StoreContext.Provider value={store}><MediaStrip files={[shot]} /><MediaViewer /></StoreContext.Provider>);
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open hero.png larger" }));
-    expect(screen.getByRole("dialog", { name: "hero.png" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "hero.png" })).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("draws nothing at all for an empty list", () => {
-    const { container } = render(<MediaStrip files={[]} />);
-    expect(container).toBeEmptyDOMElement();
+  it("has nothing to open into in a bare render, so the picture is just a picture", () => {
+    // The suite renders transcripts with no store; a frame there must not offer a viewer it lacks.
+    const shot = file("/out/hero.png", "image");
+    stubMedia([shot]);
+    render(<MediaStrip files={[shot]} />);
+    expect(screen.getByRole("button", { name: "hero.png" })).toBeDisabled();
   });
+
 });
 
 describe("Markdown media embeds", () => {
@@ -213,11 +223,6 @@ describe("GeneratingCanvas", () => {
     expect(container.querySelector(".gen-res")).toBeNull();
   });
 
-  it("carries no progress it cannot know", () => {
-    const { container } = render(<GeneratingCanvas label="Rendering image" />);
-    expect(container.querySelector("progress")).toBeNull();
-    expect(container.querySelector("[role='progressbar']")).toBeNull();
-  });
 });
 
 /* The feature end to end, on the shape of message that motivated it: an agent encodes three videos
@@ -268,5 +273,24 @@ describe("a message that points at files it made", () => {
     const { stat } = stubMedia([file("/Users/test/Desktop/mockups/versed-mockup-1-1403.mp4", "video")]);
     render(<Transcript transcript={transcript(REPORT, true)} sessionStatus="running" onDecide={() => {}} cwd="/work" />);
     expect(stat).not.toHaveBeenCalled();
+  });
+});
+
+describe("two readers of one path", () => {
+  it("are both told when the one ask comes back, and main is asked once", async () => {
+    /* A parent and a child reading the same path is exactly the case where one finds the other's ask
+       already in flight: children's effects run first, so it is always the PARENT. It used to skip
+       the path and never hear the answer — which is how the file browser's lightbox sat on its
+       fallback preview, the preview inside it having asked first. THE MUTANT: drop the in-flight
+       paths from what a reader waits on. */
+    const { stat } = stubMedia([file("/out/shot.png", "image")]);
+    function Reader({ id, children }: { id: string; children?: ReactNode }) {
+      const found = useMediaFiles(["/out/shot.png"]).length > 0;
+      return <div><span data-testid={id}>{found ? "found" : "waiting"}</span>{children}</div>;
+    }
+    render(<Reader id="parent"><Reader id="child" /></Reader>);
+    await waitFor(() => expect(screen.getByTestId("child")).toHaveTextContent("found"));
+    await waitFor(() => expect(screen.getByTestId("parent")).toHaveTextContent("found"));
+    expect(stat).toHaveBeenCalledTimes(1);
   });
 });

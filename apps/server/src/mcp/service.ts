@@ -1,4 +1,5 @@
-import { COMPUTER_PROVIDER_NAME, MCP_SECRET_STORAGE_NOTE, type ItemScope, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
+import { COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME, MCP_SECRET_STORAGE_NOTE, type ItemScope, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
+import { APP_PROVIDER_NAME } from "../app-ui/agent-tools";
 import { RpcError } from "../store/rows";
 import { liveCheck, type McpTestResult } from "./live-check";
 import type { SettingsStore } from "../store/settings";
@@ -35,17 +36,32 @@ const allowedToolsKey = (spaceId: string, serverId: string): string => `mcp.allo
 const providersDisabledKey = (spaceId: string): string => `mcp.providersDisabled:${spaceId}`;
 /** The *enabled* provider names for a space, for the opt-in providers only — see `OPT_IN_PROVIDERS`. */
 const providersEnabledKey = (spaceId: string): string => `mcp.providersEnabled:${spaceId}`;
+/** The servers whose views Realm does NOT draw (MCP Apps) — global, like the server rows themselves,
+ *  and inverted because views default on: a server that ships them did so to be seen. */
+const VIEWS_HIDDEN_KEY = "mcp.viewsHidden";
 
 /**
  * Providers that are OFF until a space turns them on, inverting the default the others get.
  *
- * `realm-computer` is the only one, and the reason is its blast radius rather than its
- * trustworthiness. Every other provider acts inside Realm — a browser pane Realm owns, the space's
- * own folder — so shipping it IS the opt-in. Computer use reaches every application on the Mac,
- * including ones the user has never mentioned to Realm, and a capability like that should be
- * something a space was given rather than something it woke up holding.
+ * Every other provider acts inside Realm — a browser pane Realm owns, the space's own folder — so
+ * shipping it IS the opt-in. These three do not, and their reasons differ enough to be worth stating
+ * separately rather than filed under one heading:
+ *
+ *   - `realm-computer` reaches every application on THIS Mac, including ones the user has never
+ *     mentioned to Realm. That is a capability a space should have been given rather than woken up
+ *     holding.
+ *   - `realm-vm` (Plan 25 W4) reaches a machine, which is a different shape of reach: a computer the
+ *     user's files can be shared into, whose network is the user's network, and — for the most
+ *     likely case, a second Mac at an address — somebody's actual desktop with their actual session
+ *     signed in. The blast radius is not this Mac; it is a whole other one.
+ *   - `realm-app` acts inside Realm, which by the rule above would make it default-on — and that is
+ *     exactly the case the rule does not cover. Everything else reaching "inside Realm" reaches a
+ *     pane Realm made for it. This reaches the INTERFACE: the window the user is reading, and where
+ *     they answer Realm's own questions. The surfaces that grant things are refused outright (see
+ *     `app-drive.ts`), but "an agent may press buttons in the app you are using" is a sentence a
+ *     space should have agreed to rather than woken up holding.
  */
-const OPT_IN_PROVIDERS = new Set<string>([COMPUTER_PROVIDER_NAME]);
+const OPT_IN_PROVIDERS = new Set<string>([COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME, APP_PROVIDER_NAME]);
 
 
 /** What `mcp.add` / `mcp.update` accept, before the transport decides which half of it is meaningful. */
@@ -96,7 +112,7 @@ export class McpService {
     const effective = new Set(this.effectiveServerIds(spaceId));
     return {
       servers: this.d.servers.list().filter((r) => this.appliesTo(r.scope, spaceId))
-        .map((r) => toContract(r, effective.has(r.id), this.allowedTools(spaceId, r.id), this.statusOf(r.id))),
+        .map((r) => toContract(r, effective.has(r.id), this.allowedTools(spaceId, r.id), this.statusOf(r.id), this.showsViews(r.id))),
       secretNote: MCP_SECRET_STORAGE_NOTE,
     };
   }
@@ -118,6 +134,19 @@ export class McpService {
    */
   setAllowedTools(spaceId: string, id: string, tools: string[] | null): void {
     this.d.settings.set(allowedToolsKey(spaceId, id), tools);
+  }
+
+  /** Whether Realm draws this server's views — on unless someone switched them off. */
+  showsViews(id: string): boolean {
+    return !this.d.settings.getIds(VIEWS_HIDDEN_KEY).includes(id);
+  }
+
+  /** Switch a server's views on or off, in every space at once. */
+  setShowsViews(id: string, show: boolean): void {
+    if (!this.d.servers.get(id)) throw new RpcError("NOT_FOUND", `mcp server ${id} not found`);
+    const ids = new Set(this.d.settings.getIds(VIEWS_HIDDEN_KEY));
+    if (show) ids.delete(id); else ids.add(id);
+    this.d.settings.set(VIEWS_HIDDEN_KEY, [...ids].sort());
   }
 
   /**
@@ -156,7 +185,7 @@ export class McpService {
     const scope: ItemScope = profileId ? { kind: "profile", profileId } : { kind: "space", spaceId };
     const row = this.d.servers.create(input, scope);
     if (spaceId && !profileId) this.setEnabled(spaceId, row.id, true);
-    return toContract(row, profileId !== null || spaceId !== null, spaceId ? this.allowedTools(spaceId, row.id) : null, this.statusOf(row.id));
+    return toContract(row, profileId !== null || spaceId !== null, spaceId ? this.allowedTools(spaceId, row.id) : null, this.statusOf(row.id), true);
   }
 
   /**
@@ -183,6 +212,7 @@ export class McpService {
    *  (W2), so re-adding the same name starts clean at either scope. */
   remove(id: string, spaceIds: readonly string[]): void {
     this.d.servers.delete(id);
+    if (!this.showsViews(id)) this.d.settings.set(VIEWS_HIDDEN_KEY, this.d.settings.getIds(VIEWS_HIDDEN_KEY).filter((x) => x !== id));
     for (const spaceId of spaceIds) {
       for (const key of [enabledKey(spaceId), profileDisabledKey(spaceId)]) {
         const ids = this.d.settings.getIds(key);
@@ -202,7 +232,7 @@ export class McpService {
   get(id: string, spaceId: string | null): McpServer | null {
     const row = this.d.servers.get(id);
     if (!row) return null;
-    return toContract(row, spaceId !== null && this.isEnabled(spaceId, id), spaceId ? this.allowedTools(spaceId, id) : null, this.statusOf(id));
+    return toContract(row, spaceId !== null && this.isEnabled(spaceId, id), spaceId ? this.allowedTools(spaceId, id) : null, this.statusOf(id), this.showsViews(id));
   }
 
   /**
@@ -377,7 +407,7 @@ function normalize(f: McpServerFields, transport: McpTransport, base: Omit<McpSe
  * still report `"oauth"` — which is what makes the settings UI show a Connect button (the thing that
  * fixes all three) instead of falling back to the API-key form.
  */
-function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | null, status: McpServerStatus): McpServer {
+function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | null, status: McpServerStatus, showViews: boolean): McpServer {
   const keys = Object.keys(r.secrets).sort();
   return {
     id: r.id, name: r.name, transport: r.transport, scope: r.scope,
@@ -392,7 +422,7 @@ function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | 
     status,
     tools: r.tools,
     allowedTools,
-    enabled, createdAt: r.createdAt,
+    enabled, showViews, createdAt: r.createdAt,
   };
 }
 

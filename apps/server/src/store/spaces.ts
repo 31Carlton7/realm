@@ -65,10 +65,15 @@ export class SpacesStore {
     const r = this.db.prepare("SELECT * FROM spaces WHERE id = ?").get(id) as Row | undefined;
     return r ? toSpace(r) : null;
   }
+  /** The folder `create` would make for `name` under this profile, without making it — the one
+   *  answer for both, so what the New space sheet names is the folder the space gets. */
+  folderFor(profileId: string, name: string): string {
+    const prof = this.db.prepare("SELECT name FROM profiles WHERE id = ?").get(profileId) as { name: string } | undefined;
+    if (!prof) throw new NotFoundError("profile", profileId);
+    return this.allocateFolder(slugify(prof.name), slugify(name));
+  }
   create(input: { profileId: string; name: string; icon: string; color?: string }): Space {
-    const prof = this.db.prepare("SELECT name FROM profiles WHERE id = ?").get(input.profileId) as { name: string } | undefined;
-    if (!prof) throw new NotFoundError("profile", input.profileId);
-    const folder = this.allocateFolder(slugify(prof.name), slugify(input.name));
+    const folder = this.folderFor(input.profileId, input.name);
     mkdirSync(folder, { recursive: true });
     const max = (this.db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM spaces").get() as { m: number }).m;
     const countAll = (this.db.prepare("SELECT COUNT(*) AS c FROM spaces").get() as { c: number }).c;
@@ -102,10 +107,15 @@ export class SpacesStore {
   }
   /** The whole group set in one write. `layout_json` is kept in step with the active group's layout so
    *  it never becomes a stale second answer to "what is on screen" (see migration v17). */
-  setGroups(id: string, groups: SpaceGroups): Space {
-    if (!this.get(id)) throw new NotFoundError("space", id);
-    this.db.prepare("UPDATE spaces SET groups_json = ?, layout_json = ?, updated_at = ? WHERE id = ?")
-      .run(JSON.stringify(groups), JSON.stringify(activeLayout(groups)), now(), id);
+  setGroups(id: string, groups: SpaceGroups, activeItemId?: string | null): Space {
+    const cur = this.get(id);
+    if (!cur) throw new NotFoundError("space", id);
+    // Focus goes in the SAME statement as the layout it was captured against — see `spaces.setGroups`
+    // in the contract. Omitted leaves the stored value alone, so a caller that does not track focus
+    // cannot clear somebody else's.
+    this.db.prepare("UPDATE spaces SET groups_json = ?, layout_json = ?, active_item_id = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(groups), JSON.stringify(activeLayout(groups)),
+        activeItemId === undefined ? cur.activeItemId : activeItemId, now(), id);
     return this.get(id)!;
   }
   delete(id: string): void {

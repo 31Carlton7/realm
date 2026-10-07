@@ -10,7 +10,7 @@
  * Pure, and deliberately conservative: a URL this cannot name is not a chip. Pasting it stays a
  * paste. A wrong name on a chip is worse than the URL, because the URL at least says what it is.
  */
-export type LinkService = "slack" | "notion" | "linear" | "github" | "jira" | "figma" | "sentry";
+export type LinkService = "slack" | "notion" | "linear" | "github" | "jira" | "figma" | "sentry" | "x";
 
 export type LinkRef = { service: LinkService; label: string; url: string };
 
@@ -23,6 +23,7 @@ export const LINK_SERVICE_META: Record<LinkService, { label: string; icon: LinkS
   jira: { label: "Jira", icon: "jira" },
   figma: { label: "Figma", icon: "figma" },
   sentry: { label: "Sentry", icon: "sentry" },
+  x: { label: "X", icon: "x" },
 };
 
 const LABEL_MAX = 48;
@@ -33,6 +34,14 @@ const words = (slug: string): string => {
   try { s = decodeURIComponent(slug); } catch { /* a stray %: keep the raw slug */ }
   return s.replace(/[-_+]+/g, " ").replace(/\s+/g, " ").trim();
 };
+
+/** x.com paths that are the app rather than a person. `i` is not here: it is the prefix of the
+ *  author-less `/i/status/<id>` form, which IS a post, and is handled at the branch. */
+const X_RESERVED = new Set([
+  "home", "explore", "notifications", "messages", "settings", "search", "compose", "login", "logout",
+  "signup", "about", "tos", "privacy", "download", "intent", "share", "hashtag", "bookmarks", "lists",
+  "topics", "communities", "jobs", "premium", "following", "followers", "status",
+]);
 
 /** A Slack permalink's `p1712345678123456` is the message's timestamp with the dot removed. */
 const slackTs = (p: string): string => (p.length > 6 ? `${p.slice(0, -6)}.${p.slice(-6)}` : p);
@@ -103,6 +112,22 @@ export function describeLink(raw: string): LinkRef | null {
       return { service: "figma", label: clip(node ? `${name} · ${node.replace("-", ":")}` : name), url };
     }
     return null;
+  }
+
+  /* Both hosts, both saying "X": half the links in circulation still carry twitter.com, and it is
+     the same post. The label is the AUTHOR, never the nineteen-digit status id, and it has to say
+     "post" or a post and its author's profile would be the same chip. The reserved list is what
+     stops `x.com/home` becoming "@home" — those paths are the app, and a chip claims content. */
+  if (host === "x.com" || host === "twitter.com") {
+    const handle = parts[0];
+    if (!handle || X_RESERVED.has(handle.toLowerCase())) return null;
+    // `/i/status/<id>` is what a quoted post copies, and it names no author.
+    if (handle.toLowerCase() === "i") {
+      return parts[1] === "status" && parts[2] ? { service: "x", label: "Post on X", url } : null;
+    }
+    if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) return null; // not a handle; do not guess
+    if (parts[1] === "status" && parts[2]) return { service: "x", label: `Post by @${handle}`, url };
+    return parts.length === 1 ? { service: "x", label: `@${handle}`, url } : null;
   }
 
   // Sentry: <org>.sentry.io/issues/123… or sentry.io/organizations/<org>/issues/123

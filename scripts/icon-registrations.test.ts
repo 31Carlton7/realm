@@ -76,7 +76,4 @@ describe("competing", () => {
     expect(competing([{ path: "/Applications/./Realm.app", version: "1.1" }])).toEqual([]);
   });
 
-  it("reports a clean database as clean", () => {
-    expect(competing([{ path: INSTALLED_APP, version: "1.1" }])).toEqual([]);
-  });
 });

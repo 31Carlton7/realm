@@ -59,8 +59,22 @@ export async function probeCodex(
  * models are skipped because that is what the flag means ("hidden from the default picker list");
  * only an explicit `hidden: true` hides — an absent flag is not treated as hiding.
  */
-/** One catalog row, plus the one capability Realm reads off it. */
-export type CodexModel = { id: string; label: string; /** Whether the row lists the `priority` service tier — what Codex calls Fast. */ fast: boolean };
+/** One catalog row, plus the two facts Realm reads off it. */
+export type CodexModel = {
+  id: string; label: string;
+  /** Whether the row lists the `priority` service tier — what Codex calls Fast — and the tier's own
+   *  description of itself, which is what Codex's picker shows over its bolt. */
+  fast: boolean;
+  fastDescription: string | null;
+  /** `isDefault: true` — the model a thread started with no `model` runs, which is what lets a session
+   *  that pinned nothing know its fast-mode answer before it starts. */
+  isDefault: boolean;
+  /** `supportedReasoningEfforts[].reasoningEffort`, in the catalog's order — the levels `turn/start`'s
+   *  `effort` may name for this model — and `defaultReasoningEffort`, what it runs when none is named.
+   *  Shapes from `codex app-server generate-ts` 0.154.0 (`Model`, `ReasoningEffortOption`). */
+  efforts: string[];
+  defaultEffort: string | null;
+};
 
 /** The service tier Codex's own picker labels "Fast" (`{ id: "priority", name: "Fast", description:
  *  "1.5x speed, increased usage" }`, live 0.153.4). It is the value `turn/start` takes as
@@ -68,8 +82,8 @@ export type CodexModel = { id: string; label: string; /** Whether the row lists 
  *  whether a model can run it. */
 export const CODEX_FAST_TIER = "priority";
 
-function hasFastTier(tiers: unknown): boolean {
-  return Array.isArray(tiers) && tiers.some((t) => (t as { id?: unknown } | null)?.id === CODEX_FAST_TIER);
+function fastTier(tiers: unknown): { description?: unknown } | null {
+  return (Array.isArray(tiers) ? tiers.find((t) => (t as { id?: unknown } | null)?.id === CODEX_FAST_TIER) : null) ?? null;
 }
 
 export function parseCodexModelPage(page: unknown): { models: CodexModel[]; nextCursor: string | null } {
@@ -77,10 +91,17 @@ export function parseCodexModelPage(page: unknown): { models: CodexModel[]; next
   const rows = Array.isArray(data) ? data : [];
   const models: CodexModel[] = [];
   for (const row of rows) {
-    const m = row as { id?: unknown; displayName?: unknown; hidden?: unknown; serviceTiers?: unknown } | null;
+    const m = row as { id?: unknown; displayName?: unknown; hidden?: unknown; serviceTiers?: unknown; isDefault?: unknown;
+      supportedReasoningEfforts?: unknown; defaultReasoningEffort?: unknown } | null;
     if (!m || typeof m.id !== "string" || m.id.trim() === "" || m.hidden === true) continue;
     const label = typeof m.displayName === "string" && m.displayName.trim() !== "" ? m.displayName.trim() : m.id;
-    models.push({ id: m.id, label, fast: hasFastTier(m.serviceTiers) });
+    const efforts = (Array.isArray(m.supportedReasoningEfforts) ? m.supportedReasoningEfforts : [])
+      .map((o) => (o as { reasoningEffort?: unknown } | null)?.reasoningEffort)
+      .filter((e): e is string => typeof e === "string" && e.trim() !== "");
+    const defaultEffort = typeof m.defaultReasoningEffort === "string" && m.defaultReasoningEffort.trim() !== "" ? m.defaultReasoningEffort : null;
+    const tier = fastTier(m.serviceTiers);
+    const fastDescription = typeof tier?.description === "string" && tier.description.trim() !== "" ? tier.description.trim() : null;
+    models.push({ id: m.id, label, fast: tier !== null, fastDescription, isDefault: m.isDefault === true, efforts, defaultEffort });
   }
   const cursor = (page as { nextCursor?: unknown } | null)?.nextCursor;
   return { models, nextCursor: typeof cursor === "string" && cursor !== "" ? cursor : null };

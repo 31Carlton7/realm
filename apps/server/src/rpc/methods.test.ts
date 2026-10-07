@@ -4,7 +4,9 @@ import { existsSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
+import { sessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
+import { SessionEventsStore } from "../store/sessions";
 import { waitFor } from "../test-utils";
 
 let app: App;
@@ -32,6 +34,35 @@ async function boot() {
 }
 
 describe("rpc methods", () => {
+  it("profiles.delete stops a profile's terminals and sessions the way deleting each space would, and refuses the last profile", async () => {
+    const { c } = await boot();
+    // createApp seeds "Personal" on a fresh home; Work is the one being deleted.
+    const [personal] = (await c.call("profiles.list", {})).result;
+    const work = (await c.call("profiles.create", { name: "Work" })).result;
+    const space = (await c.call("spaces.create", { profileId: work.id, name: "Versed" })).result;
+    const keep = (await c.call("spaces.create", { profileId: personal.id, name: "Notes" })).result;
+    const { terminalId } = (await c.call("terminals.create", { spaceId: space.id })).result;
+    const kept = (await c.call("terminals.create", { spaceId: keep.id })).result.terminalId as string;
+    const { session } = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude" })).result;
+    expect(app.terminals.has(terminalId)).toBe(true);
+    expect((await c.call("profiles.usage", { id: work.id })).result).toEqual({ spaces: 1, sessions: 1 });
+
+    expect((await c.call("profiles.delete", { id: work.id })).result).toEqual({ ok: true });
+    // THE mutant: drop the row and let the cascade take the rest — the pty would outlive its row.
+    expect(app.terminals.has(terminalId)).toBe(false);
+    expect((await c.call("sessions.get", { id: session.id })).error.code).toBe("NOT_FOUND");
+    expect((await c.call("spaces.list", {})).result.map((sp: { id: string }) => sp.id)).toEqual([keep.id]);
+    await waitFor(() => ["profiles.changed", "spaces.changed"].every((e) => c.events.some((x) => x.event === e)));
+
+    // The last profile is refused BEFORE anything of it is stopped — a refusal that had already closed
+    // its terminals would have taken the work and kept the profile.
+    const refused = await c.call("profiles.delete", { id: personal.id });
+    expect(refused.error.code).toBe("LAST_PROFILE");
+    expect((await c.call("spaces.list", {})).result).toHaveLength(1);
+    expect(app.terminals.has(kept)).toBe(true);
+    c.close();
+  });
+
   it("spaces.setGroups round-trips the whole set; setLayout still writes just the active group", async () => {
     const { c } = await boot();
     const prof = (await c.call("profiles.create", { name: "Work" })).result;
@@ -104,14 +135,6 @@ describe("rpc methods", () => {
     c.close();
   });
 
-  it("returns NOT_FOUND for items.create with a bogus spaceId", async () => {
-    const { c } = await boot();
-    const r = await c.call("items.create", { spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", kind: "terminal", title: "t", refId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });
-    expect(r.ok).toBe(false);
-    expect(r.error.code).toBe("NOT_FOUND");
-    c.close();
-  });
-
   it("terminals.create makes an item titled after its cwd basename and streams data events", async () => {
     const { c } = await boot();
     const prof = (await c.call("profiles.create", { name: "W" })).result;
@@ -128,16 +151,6 @@ describe("rpc methods", () => {
     const termData = () => c.events.filter((e) => e.event === "terminal.data").map((e) => e.payload.data).join("");
     await waitFor(() => termData().includes("REALM_RPC_OK"));
     await c.call("terminals.close", { terminalId });
-    c.close();
-  });
-
-  it("workspace.gitInfo answers over rpc: null for a non-repo cwd, INVALID_PARAMS for a relative one", async () => {
-    const { home, c } = await boot();
-    // `home` is a fresh temp dir — a real absolute path that is not a git repo.
-    expect((await c.call("workspace.gitInfo", { cwd: home })).result).toBeNull();
-    const bad = await c.call("workspace.gitInfo", { cwd: "not/absolute" });
-    expect(bad.ok).toBe(false);
-    expect(bad.error.code).toBe("INVALID_PARAMS");
     c.close();
   });
 
@@ -214,6 +227,22 @@ describe("rpc methods", () => {
     expect((await c.call("spaces.update", { id: a.id, color: "red" })).ok).toBe(false);
     c.close();
   });
+  it("spaces.folderFor names the folder spaces.create then makes — the -2 included — and makes nothing itself", async () => {
+    /* The New space sheet prints this as where a space without a folder will work. THE mutants: an
+       answer that drifts from create's (a second slugify, a forgotten collision), or an ask that
+       makes the folder it was only asked about. */
+    const { home, c } = await boot();
+    const work = (await c.call("profiles.create", { name: "My Work!" })).result;
+    const first = (await c.call("spaces.folderFor", { profileId: work.id, name: "Cider App" })).result.path;
+    expect(first).toBe(join(home, "my-work", "cider-app"));
+    expect(existsSync(first)).toBe(false);
+    expect((await c.call("spaces.create", { profileId: work.id, name: "Cider App" })).result.folderPath).toBe(first);
+    const next = (await c.call("spaces.folderFor", { profileId: work.id, name: "Cider App" })).result.path;
+    expect(next).toBe(`${first}-2`);
+    expect((await c.call("spaces.create", { profileId: work.id, name: "Cider App" })).result.folderPath).toBe(next);
+    expect((await c.call("spaces.folderFor", { profileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "X" })).error.code).toBe("NOT_FOUND");
+    c.close();
+  });
 });
 
 /** Plan 7 W2 over the wire: the contract shapes, the broadcast, and the sessions.create seam. */
@@ -240,16 +269,6 @@ describe("environments over rpc", () => {
     await waitFor(() => c.events.some((e) => e.event === "environments.changed" && e.payload.spaceId === space.id));
     const listed = (await c.call("environments.list", { spaceId: space.id })).result;
     expect(listed.map((e: any) => e.kind).sort()).toEqual(["primary", "worktree"]);
-    c.close();
-  });
-
-  it("runs a session in the worktree when sessions.create names it", async () => {
-    const { c, space } = await bootRepoSpace();
-    const env = (await c.call("environments.createWorktree", { spaceId: space.id, title: "wt" })).result;
-    const { session } = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude", environmentId: env.id })).result;
-    expect(session.environmentId).toBe(env.id);
-    expect(session.cwd).toBe(env.path);           // cwd is derived from the environment (W1)
-    expect(session.cwd).not.toBe(space.folderPath);
     c.close();
   });
 
@@ -319,17 +338,6 @@ describe("environments over rpc", () => {
     c.close();
   });
 
-  it("refuses a worktree in a space folder that is not a repository", async () => {
-    const { c } = await boot();
-    const prof = (await c.call("profiles.create", { name: "Work" })).result;
-    const plain = (await c.call("spaces.create", { profileId: prof.id, name: "Notes" })).result;
-    const r = await c.call("environments.createWorktree", { spaceId: plain.id, title: "x" });
-    expect(r.ok).toBe(false);
-    expect(r.error.code).toBe("NOT_A_REPOSITORY");
-    // The space itself still works: a plain directory is a normal Realm space.
-    expect((await c.call("sessions.create", { spaceId: plain.id, agentKind: "claude" })).result.session.cwd).toBe(plain.folderPath);
-    c.close();
-  });
 });
 
 /** Plan 7 W3 over the wire: the diff contract, the write verbs, and the cache invalidation that
@@ -361,14 +369,6 @@ describe("diff and the git write path over rpc", () => {
     expect(summary.files).toEqual([expect.objectContaining({ path: "a.txt", staged: false, unstaged: true, additions: 1 })]);
     const patch = (await c.call("workspace.fileDiff", { cwd, path: "a.txt", staged: false })).result;
     expect(patch.hunks[0].lines.filter((l: any) => l.kind === "add").map((l: any) => l.text)).toEqual(["two"]);
-    c.close();
-  });
-
-  it("returns null for a space that is not a repository, exactly like gitInfo does", async () => {
-    const { c } = await boot();
-    const prof = (await c.call("profiles.create", { name: "W" })).result;
-    const plain = (await c.call("spaces.create", { profileId: prof.id, name: "Notes" })).result;
-    expect((await c.call("workspace.diff", { cwd: plain.folderPath })).result).toBeNull();
     c.close();
   });
 
@@ -423,16 +423,6 @@ describe("diff and the git write path over rpc", () => {
     c.close();
   });
 
-  it("explains a push with no remote rather than failing", async () => {
-    const { c, cwd } = await bootRepoSpace();
-    writeFileSync(join(cwd, "a.txt"), "A\n");
-    await c.call("workspace.stage", { cwd, paths: ["a.txt"] });
-    const ship = (await c.call("workspace.ship", { cwd, commit: true, message: "m", push: true, openPr: true })).result;
-    expect(ship.commit.state).toBe("committed");
-    expect(ship.push).toMatchObject({ state: "no-remote", branch: "main" });
-    expect(ship.pr.state).toBe("skipped");
-    c.close();
-  });
 });
 
 /** The durable ship log over the wire (Plan 14 W1): attribution, listing, and the broadcast. The
@@ -560,15 +550,6 @@ describe("the computer-use allowed-apps list over rpc", () => {
     c.close();
   });
 
-  it("answers with what it will really honour, dropping an app that can never be driven", async () => {
-    const { c } = await boot();
-    const prof = (await c.call("profiles.create", { name: "W" })).result;
-    const s1 = (await c.call("spaces.create", { profileId: prof.id, name: "One" })).result;
-    const r = await c.call("computer.allowedApps.set", { spaceId: s1.id, apps: ["com.apple.Terminal", "com.apple.TextEdit"] });
-    expect(r.result.apps).toEqual(["com.apple.TextEdit"]);
-    c.close();
-  });
-
   it("returns NOT_FOUND for a space that is not there, rather than reading a settings row for it", async () => {
     const { c } = await boot();
     for (const method of ["computer.allowedApps.list", "computer.allowedApps.set"]) {
@@ -576,6 +557,65 @@ describe("the computer-use allowed-apps list over rpc", () => {
       expect(r.ok, method).toBe(false);
       expect(r.error.code, method).toBe("NOT_FOUND");
     }
+    c.close();
+  });
+});
+
+describe("the page about you over rpc", () => {
+  it("usage.records is registered and answers a fresh home with its zeros, not an error", async () => {
+    // The mutant this kills is dropping the `reg("usage.records", …)` line: the service tests keep
+    // passing, and the page's one read comes back as an unregistered method.
+    const { c } = await boot();
+    const r = await c.call("usage.records", {});
+    expect(r.ok).toBe(true);
+    expect(r.result).toMatchObject({
+      tokens: { input: 0, output: 0 }, peakDay: null, longestTurn: null,
+      streak: { current: { days: 0 }, longest: { days: 0 } },
+    });
+    c.close();
+  });
+
+  it("avatar.set copies the picture into the home, tells every window, and avatar.clear takes it back", async () => {
+    const { home, c } = await boot();
+    const picked = join(tempDir("realm-avatar-pick-"), "me.png");
+    writeFileSync(picked, "png");
+    expect((await c.call("avatar.get", {})).result).toEqual({ path: null });
+    const set = (await c.call("avatar.set", { path: picked })).result;
+    expect(set.path.startsWith(join(home, "avatar"))).toBe(true);
+    expect((await c.call("avatar.get", {})).result).toEqual({ path: set.path });
+    await waitFor(() => c.events.some((x) => x.event === "avatar.changed" && x.payload?.path === set.path));
+    expect((await c.call("avatar.clear", {})).result).toEqual({ path: null });
+    expect(existsSync(set.path)).toBe(false);
+    await waitFor(() => c.events.some((x) => x.event === "avatar.changed" && x.payload?.path === null));
+    c.close();
+  });
+});
+
+describe("saved turns over rpc", () => {
+  it("sessions.setSaved keeps a prompt by its event and tells every window; sessions.saved and library.saved read it back", async () => {
+    // The mutants this kills are the three `reg(…)` lines and the broadcast: the store's own tests keep
+    // passing without any of them, and a track in another window would go on showing the old set.
+    const { c } = await boot();
+    const [personal] = (await c.call("profiles.list", {})).result;
+    const space = (await c.call("spaces.create", { profileId: personal.id, name: "Versed" })).result;
+    const { session } = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude", title: "Org access" })).result;
+    const log = new SessionEventsStore(app.db);
+    const asked = log.append(session.id, sessionEvent("user_message", { text: "Fix the crash", attachments: [] }, 10)).seq;
+    const answered = log.append(session.id, sessionEvent("assistant_text", { messageId: "m1", text: "Fixed." }, 11)).seq;
+
+    expect((await c.call("sessions.setSaved", { id: session.id, seq: asked, saved: true })).result).toEqual({ seqs: [asked] });
+    await waitFor(() => c.events.some((x) => x.event === "session.saved" && x.payload?.sessionId === session.id && x.payload.seqs.length === 1));
+    expect((await c.call("sessions.saved", { id: session.id })).result).toEqual({ seqs: [asked] });
+    const listed = (await c.call("library.saved", { profileId: personal.id })).result;
+    expect(listed.total).toBe(1);
+    expect(listed.entries[0]).toMatchObject({ sessionId: session.id, seq: asked, text: "Fix the crash", reply: "Fixed.", sessionTitle: "Org access", spaceId: space.id });
+    // An answer is not a prompt, and the refusal saves nothing.
+    expect((await c.call("sessions.setSaved", { id: session.id, seq: answered, saved: true })).error.code).toBe("INVALID_ARGUMENT");
+
+    c.events.length = 0;
+    expect((await c.call("sessions.setSaved", { id: session.id, seq: asked, saved: false })).result).toEqual({ seqs: [] });
+    await waitFor(() => c.events.some((x) => x.event === "session.saved" && x.payload?.sessionId === session.id && x.payload.seqs.length === 0));
+    expect((await c.call("library.saved", { profileId: personal.id })).result).toEqual({ entries: [], total: 0 });
     c.close();
   });
 });

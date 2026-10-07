@@ -6,6 +6,9 @@ import { AttachmentTile } from "./AttachmentTile";
 import { Transcript } from "./Transcript";
 import { reduceAll } from "./transcript-model";
 import { resetMediaCache } from "./media/use-media";
+import { MediaViewer } from "../../components/viewer/MediaViewer";
+import { StoreContext, createAppStore } from "../../state/store";
+import { fakeApi } from "../../state/store.test-fakes";
 
 /** What main would answer for a real file on disk. */
 const mediaFile = (path: string): MediaFile => ({ path, kind: "image", mime: "image/png", size: 4096 });
@@ -32,7 +35,7 @@ function stubBridge(known: MediaFile[] = []) {
 beforeEach(() => { resetMediaCache(); });
 afterEach(() => { vi.unstubAllGlobals(); });
 
-const lightbox = () => document.querySelector(".media-lightbox");
+const viewer = () => document.querySelector(".media-viewer");
 
 /** The path data a given glyph actually draws. `Icon` gives non-brand marks no name in the DOM, so
  *  the only honest way to assert WHICH glyph is on screen is to render the expected one and compare
@@ -48,15 +51,6 @@ function referenceGlyph(name: string): string {
 }
 
 describe("a folder attached to a session", () => {
-  it("wears a folder glyph, not a document one", async () => {
-    // The report: dragging a folder in showed the same generic file glyph as any unrecognised
-    // document. Only a `stat` can tell the two apart, so the answer rides the mime from main.
-    stubBridge();
-    const folder = referenceGlyph("folder"), artifact = referenceGlyph("artifact");
-    expect(folder).not.toBe(artifact); // the test would prove nothing if these matched
-    const { container } = render(<AttachmentTile path="/x/Notes" mime="inode/directory" />);
-    expect(glyphPaths(container.querySelector(".attach-glyph"))).toBe(folder);
-  });
 
   it("is a folder even when its name says it is a picture", async () => {
     // THE mutant: read the glyph off the path's extension instead of the mime. `photos.png` is a
@@ -86,43 +80,65 @@ describe("a folder attached to a session", () => {
 });
 
 describe("opening an attachment from its tile", () => {
-  it("hands a file the app cannot draw to the OS, and never to the lightbox", async () => {
+  /** The tile inside the app, with the viewer it opens into. */
+  async function inApp(tile: React.ReactNode, files: Record<string, { size: number; mtimeMs: number } | null> = {}) {
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    const realm = (globalThis as unknown as { realm: Record<string, unknown> }).realm;
+    const preview = vi.fn(async () => "data:image/png;base64,UEFHRQ==");
+    realm["files"] = { stat: vi.fn(async (p: string) => (p in files ? files[p] && { path: p, ...files[p]! } : { path: p, size: 4096, mtimeMs: 1 })), preview };
+    render(<StoreContext.Provider value={store}>{tile}<MediaViewer /></StoreContext.Provider>);
+    return { store, preview };
+  }
+
+  it("opens a PDF in the media viewer, as macOS renders it — the tile used to hand it to the OS", async () => {
+    // A PDF has no MediaFile, which is why it once went to the OS. The viewer shows macOS's own
+    // render of it instead, with the session's prompter under it. THE MUTANT: the old branch —
+    // `openAttachment` for anything that is not media.
     const { openAttachment } = stubBridge();
-    render(<AttachmentTile path="/x/report.pdf" mime="application/pdf" />);
+    const { preview } = await inApp(<AttachmentTile path="/x/report.pdf" mime="application/pdf" />);
     fireEvent.click(screen.getByRole("button", { name: "Open report.pdf" }));
-    await waitFor(() => expect(openAttachment).toHaveBeenCalledWith("/x/report.pdf"));
-    // The named mutant: route everything through MediaLightbox. A PDF has no MediaFile, so the
-    // viewer would open on nothing — the broken-image-for-half-of-them failure.
-    expect(lightbox()).toBeNull();
-  });
-
-  it("a PDF is never even put to media:stat — the scheme could not serve one", async () => {
-    const { stat, openAttachment } = stubBridge();
-    render(<AttachmentTile path="/x/report.pdf" mime="application/pdf" />);
-    fireEvent.click(screen.getByRole("button", { name: "Open report.pdf" }));
-    await waitFor(() => expect(openAttachment).toHaveBeenCalled());
-    expect(stat).not.toHaveBeenCalled();
-  });
-
-  it("opens media in the lightbox instead, and does not disturb the OS", async () => {
-    const { openAttachment } = stubBridge([mediaFile("/x/shot.png")]);
-    render(<AttachmentTile path="/x/shot.png" mime="image/png" />);
-    const tile = screen.getByRole("button", { name: "Open shot.png" });
-    await waitFor(() => expect(document.querySelector(".attach-tile[data-media]")).not.toBeNull());
-    fireEvent.click(tile);
-    await waitFor(() => expect(lightbox()).not.toBeNull());
+    expect(await screen.findByRole("dialog", { name: "report.pdf" })).toBeInTheDocument();
+    await waitFor(() => expect(preview).toHaveBeenCalledWith("/x/report.pdf", "page"));
     expect(openAttachment).not.toHaveBeenCalled();
   });
 
-  it("an image whose file has since moved falls to the OS rather than an empty viewer", async () => {
-    // Playable by extension, but main answers null: the branch is on what main SAID, not on the mime
-    // the caller passed. Mutant — branch on `isPlayablePath(path)` — opens a lightbox on nothing.
-    const { openAttachment, stat } = stubBridge([]);
-    render(<AttachmentTile path="/x/gone.png" mime="image/png" />);
-    await waitFor(() => expect(stat).toHaveBeenCalled());
+  it("a PDF is never even put to media:stat — the scheme could not serve one", async () => {
+    const { stat } = stubBridge();
+    await inApp(<AttachmentTile path="/x/report.pdf" mime="application/pdf" />);
+    fireEvent.click(screen.getByRole("button", { name: "Open report.pdf" }));
+    await screen.findByRole("dialog", { name: "report.pdf" });
+    expect(stat).not.toHaveBeenCalled();
+  });
+
+  it("opens media in the viewer, and does not disturb the OS", async () => {
+    const { openAttachment } = stubBridge([mediaFile("/x/shot.png")]);
+    await inApp(<AttachmentTile path="/x/shot.png" mime="image/png" />);
+    const tile = screen.getByRole("button", { name: "Open shot.png" });
+    await waitFor(() => expect(document.querySelector(".attach-tile[data-media]")).not.toBeNull());
+    fireEvent.click(tile);
+    await waitFor(() => expect(viewer()).not.toBeNull());
+    expect(openAttachment).not.toHaveBeenCalled();
+  });
+
+  it("an image whose file has since moved opens on the sentence that says so, not an empty frame", async () => {
+    // Playable by extension, but nothing is there: the viewer says it, where the lightbox once
+    // opened on nothing. THE MUTANT: read the stat's null as "no facts" and draw the frame anyway.
+    stubBridge([]);
+    await inApp(<AttachmentTile path="/x/gone.png" mime="image/png" />, { "/x/gone.png": null });
     fireEvent.click(screen.getByRole("button", { name: "Open gone.png" }));
-    await waitFor(() => expect(openAttachment).toHaveBeenCalledWith("/x/gone.png"));
-    expect(lightbox()).toBeNull();
+    expect(await screen.findByText("This file is no longer on disk.")).toBeInTheDocument();
+    expect(document.querySelector(".media-viewer-img")).toBeNull();
+  });
+
+  it("walks the message's other files from the one opened, and never onto a folder", async () => {
+    stubBridge([mediaFile("/x/a.png"), mediaFile("/x/b.png")]);
+    const row = [{ path: "/x/a.png", mime: "image/png" }, { path: "/x/Notes", mime: "inode/directory" }, { path: "/x/b.png", mime: "image/png" }];
+    const { store } = await inApp(<>{row.map((a) => <AttachmentTile key={a.path} path={a.path} mime={a.mime} siblings={row} />)}</>);
+    fireEvent.click(screen.getByRole("button", { name: "Open b.png" }));
+    await screen.findByRole("dialog", { name: "b.png" });
+    expect(store.getState().viewer!.files.map((f) => f.path)).toEqual(["/x/a.png", "/x/b.png"]);
+    expect(store.getState().viewer!.index).toBe(1);
   });
 
   it("offers no open at all for an extension Realm cannot hand to anything", () => {
@@ -134,30 +150,20 @@ describe("opening an attachment from its tile", () => {
     expect(document.querySelector(".attach-tile")).not.toBeNull();
   });
 
-  it("Escape closes the lightbox and puts focus back on the tile it came out of", async () => {
+  it("Escape closes the viewer and puts focus back on the tile it came out of", async () => {
     stubBridge([mediaFile("/x/shot.png")]);
-    render(<AttachmentTile path="/x/shot.png" mime="image/png" />);
+    await inApp(<AttachmentTile path="/x/shot.png" mime="image/png" />);
     const tile = screen.getByRole("button", { name: "Open shot.png" });
     await waitFor(() => expect(document.querySelector(".attach-tile[data-media]")).not.toBeNull());
     fireEvent.click(tile);
-    await waitFor(() => expect(lightbox()).not.toBeNull());
+    await waitFor(() => expect(viewer()).not.toBeNull());
     fireEvent.keyDown(document.body, { key: "Escape" });
-    await waitFor(() => expect(lightbox()).toBeNull());
-    // The named mutant: drop `opener.current?.focus()` in `close`. The keyboard would land back at
-    // the top of the document, nowhere near the file just looked at.
+    await waitFor(() => expect(viewer()).toBeNull());
+    // The named mutant: pass no `opener` from the tile. The keyboard would land back at the top of
+    // the document, nowhere near the file just looked at.
     expect(document.activeElement).toBe(tile);
   });
 
-  it("the tile is reached and opened by the keyboard alone", async () => {
-    const { openAttachment } = stubBridge();
-    render(<AttachmentTile path="/x/notes.md" mime="text/markdown" />);
-    const tile = screen.getByRole("button", { name: "Open notes.md" });
-    tile.focus();
-    expect(document.activeElement).toBe(tile);
-    // A real <button>, so Enter and Space are the browser's to deliver; clicking is what they raise.
-    fireEvent.click(tile);
-    await waitFor(() => expect(openAttachment).toHaveBeenCalledWith("/x/notes.md"));
-  });
 });
 
 describe("remove and open are separate controls", () => {
@@ -170,7 +176,7 @@ describe("remove and open are separate controls", () => {
     // The mutant this pins: put the open handler on `.attach-tile` (or nest remove inside the open
     // button) and the ✕ opens the file on its way out.
     expect(openAttachment).not.toHaveBeenCalled();
-    expect(lightbox()).toBeNull();
+    expect(viewer()).toBeNull();
   });
 
   it("neither button is a descendant of the other", () => {
@@ -195,14 +201,6 @@ describe("a sent tile and a pending tile are the same tile", () => {
     sent([{ path: "/x/report.pdf", mime: "application/pdf" }]);
     fireEvent.click(screen.getByRole("button", { name: "Open report.pdf" }));
     await waitFor(() => expect(openAttachment).toHaveBeenCalledWith("/x/report.pdf"));
-  });
-
-  it("a sent image still opens in the lightbox", async () => {
-    stubBridge([mediaFile("/x/shot.png")]);
-    sent([{ path: "/x/shot.png", mime: "image/png" }]);
-    await waitFor(() => expect(document.querySelector(".attach-tile[data-media]")).not.toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Open shot.png" }));
-    await waitFor(() => expect(lightbox()).not.toBeNull());
   });
 
   it("the sent row names its files through the tile, with no wrapper of its own", () => {

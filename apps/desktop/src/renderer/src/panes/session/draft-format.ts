@@ -1,4 +1,5 @@
 import { scanElementChips, scanMentions } from "@realm/contracts";
+import { slashQueryAt } from "./slash-commands";
 
 /**
  * The prompter's rich-text layer, as pure functions over the draft string.
@@ -32,7 +33,17 @@ export type SegmentKind =
   /** A backticked span. Tinted, never re-typefaced — a monospace run here would shift the caret. */
   | "code"
   /** An `@[…]` token standing for an element the user picked in a browser pane. */
-  | "element";
+  | "element"
+  /**
+   * The `/name` opening the draft, when it names a command the prompter actually has.
+   *
+   * Gated on the command existing, for the reason `mention` is gated on the skill resolving: a slash
+   * is a path separator, a division sign and half of every URL, and colouring `/usr` or `/or` would
+   * claim something is about to happen that is not. Uncoloured is the honest state for a message
+   * that merely begins with a slash — and while a command is half-typed, the picker under the box is
+   * already saying what it could become.
+   */
+  | "slash";
 
 export type Segment = { text: string; kind: SegmentKind | null };
 
@@ -43,7 +54,7 @@ type Span = { start: number; end: number; kind: SegmentKind; rank: number };
    inside backticks is code, an `@` inside a URL is neither. Lower wins. `element` shares marker's 0
    because its rank never decides anything: no other span here can begin at `@[`, so an element chip
    is never in a tie. */
-const RANK = { element: 0, marker: 0, punct: 1, code: 2, link: 3, mention: 4 } as const;
+const RANK = { element: 0, marker: 0, slash: 0, punct: 1, code: 2, link: 3, mention: 4 } as const;
 
 /** `http(s)://…` and bare `www.…`, up to whitespace. Trailing punctuation is trimmed below — a URL
  *  ending a sentence must not swallow the full stop, and a URL in parentheses must not eat the `)`. */
@@ -73,12 +84,27 @@ function urlEnd(text: string, start: number, raw: string): number {
  * function the server re-runs on the sent text — so a token is coloured as a mention if and only if
  * it would resolve as one. A highlight that guessed differently from the wire would be a lie told in
  * the one place the user could still act on it.
+ *
+ * `commandIds` is the same idea for the `/name` opening the draft: it colours if and only if the
+ * prompter has that command, so the colour means "this will run" rather than "this looks like it
+ * might". Empty is the ordinary case for a session whose commands have not loaded.
  */
-export function highlightSegments(text: string, liveIds: Iterable<string>, staleIds: Iterable<string> = []): Segment[] {
+export function highlightSegments(text: string, liveIds: Iterable<string>, staleIds: Iterable<string> = [],
+  commandIds: Iterable<string> = []): Segment[] {
   const spans: Span[] = [];
   // An element chip's label is arbitrary page text, so a URL or a backtick inside it must not cut the
   // token in half. What protects it is that it starts first: the `@[` is always left of anything the
   // label contains, and a span starting inside an already-emitted one is dropped whole.
+  /* The command opening the draft. `slashQueryAt` at caret 1 is the same gate the picker uses — only
+     position 0, only `[a-z0-9-]` — so the run and the popover can never disagree about what the
+     token IS; the only extra question here is whether it names something. */
+  const opening = slashQueryAt(text, 1);
+  if (opening) {
+    const ids = new Set(commandIds);
+    if (ids.has(text.slice(1, opening.end).toLowerCase())) {
+      spans.push({ start: opening.start, end: opening.end, kind: "slash", rank: RANK.slash });
+    }
+  }
   for (const c of scanElementChips(text)) spans.push({ start: c.start, end: c.end, kind: "element", rank: RANK.element });
   for (const t of scanMentions(text, liveIds)) spans.push({ start: t.start, end: t.end, kind: "mention", rank: RANK.mention });
   for (const t of scanMentions(text, staleIds)) spans.push({ start: t.start, end: t.end, kind: "mention-stale", rank: RANK.mention });
@@ -264,8 +290,9 @@ export function toggleList(text: string, selStart: number, selEnd: number, order
 export type ChipSpan = { kind: SegmentKind; start: number; end: number };
 
 /** The segment kinds that NAME something rather than format something — the runs the mirror draws as
- *  a pill, and therefore the runs a gesture may take whole. */
-const CHIP_KINDS: readonly SegmentKind[] = ["mention", "mention-stale", "element"];
+ *  a pill, and therefore the runs a gesture may take whole. The command opening the draft is one: it
+ *  names the thing that will run instead of a send, and it wears the same pill in its own tone. */
+const CHIP_KINDS: readonly SegmentKind[] = ["mention", "mention-stale", "element", "slash"];
 
 /** Whether a painted run is a chip. The mirror asks this to decide which spans carry the offset a
  *  pointer is matched against, so it and `chipSpans` can never disagree about what a chip is. */
@@ -331,4 +358,52 @@ export function deleteChipAt(spans: readonly ChipSpan[], text: string, caret: nu
   const chip = spans.find((c) => c.kind === "element" && (dir === -1 ? c.end === caret : c.start === caret));
   if (!chip) return null;
   return { text: text.slice(0, chip.start) + text.slice(chip.end), start: chip.start, end: chip.start };
+}
+
+/**
+ * The chip a hover's × takes out of the draft: its token and ONE space beside it, so the sentence it
+ * sat in closes up instead of keeping a double space where it was.
+ *
+ * The space after it goes first, because that is the one the chip brought with it — a pick, a paste
+ * and a mention all land as the token plus a trailing space. A chip ending the draft takes the space
+ * before it instead. The caret is left where the chip began.
+ */
+export function removeChip(spans: readonly ChipSpan[], text: string, start: number): DraftEdit | null {
+  const chip = spans.find((c) => c.start === start);
+  if (!chip) return null;
+  let from = chip.start, to = chip.end;
+  if (text[to] === " ") to += 1;
+  else if (from > 0 && text[from - 1] === " ") from -= 1;
+  return { text: text.slice(0, from) + text.slice(to), start: from, end: from };
+}
+
+/**
+ * Put a passage from the transcript into the draft as a blockquote, with the caret left under it.
+ *
+ * Markdown's own rules decide most of this and there is no latitude in them: a blockquote needs a
+ * blank line in front of it or it is swallowed by the paragraph above, and a blank line INSIDE one
+ * ends it — so an interior empty line gets a bare `>` rather than being left empty, which is the
+ * difference between one quotation and two with the reader's prose accidentally between them.
+ *
+ * The caret lands on the empty line after the quote, never inside it. What the user is about to type
+ * is a question ABOUT the passage, and a caret parked inside the `>` block would make their first
+ * sentence part of the thing they are asking about.
+ *
+ * Trailing blank lines in the selection are dropped — dragging past the end of a paragraph picks them
+ * up, and they would each become a `>` the user has to delete.
+ */
+export function appendQuote(draft: string, quote: string): DraftEdit {
+  const lines = quote.replace(/\r\n?/g, "\n").split("\n").map((l) => l.trimEnd());
+  while (lines.length > 0 && lines[0] === "") lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  // Nothing but whitespace was selected. The draft is handed back untouched rather than growing an
+  // empty `>` — the caret goes to the end, which is where a no-op should leave it.
+  if (lines.length === 0) return { text: draft, start: draft.length, end: draft.length };
+  const block = lines.map((l) => (l === "" ? ">" : `> ${l}`)).join("\n");
+  // One blank line between the draft and the quote, and never two: the separator is markdown's
+  // requirement, not spacing, and a draft already ending in a blank line has met it.
+  const base = draft.replace(/\n+$/, "");
+  const lead = base === "" ? "" : `${base}\n\n`;
+  const text = `${lead}${block}\n\n`;
+  return { text, start: text.length, end: text.length };
 }

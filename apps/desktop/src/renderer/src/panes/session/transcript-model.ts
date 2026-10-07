@@ -1,4 +1,4 @@
-import type { AcpSessionMode, SessionEvent, SessionEventPayload } from "@realm/contracts";
+import { AskCardSchema, askCardFromAskUserQuestion, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges } from "@realm/contracts";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
@@ -7,7 +7,15 @@ export type Block =
    *  W5) still renders a bubble naming its files rather than an empty one. */
   /** `from` is present only when ANOTHER session delivered this message (Plan 20). Absent means the
    *  user typed it — the ordinary case — and the pane must not attribute those to anyone. */
-  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; ts: number }
+  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; goal?: "continuation" | "budget";
+      /** What the message's `@[…]` chips named, so each keeps its mark in the log. */
+      refs?: MentionRef[];
+      /** A scheduled task's run began here (the event's `scheduled`). `text` is the task's instructions
+       *  alone: the note Realm appended for the agent is taken out of it, and kept here. */
+      scheduled?: { task: string; note: string };
+      /** The `user_message` event this is, by its seq, when the log was read from the server: what a
+       *  saved turn names (saved-turns.ts in contracts). Absent on a transcript built from bare events. */
+      seq?: number; ts: number }
   | { kind: "assistant"; messageId: string; text: string; streaming: boolean; ts: number }
   | { kind: "thinking"; messageId: string; text: string; ts: number }
   /** `parentToolUseId` is the Task/Agent call this one was made UNDER — Claude's
@@ -17,8 +25,15 @@ export type Block =
   /** `background` is set only on a call that launched a BACKGROUND sub-agent: `running` from the
    *   moment the launch result lands, `stopped` when the harness notifies. Absent on every ordinary
    *   call, including a blocking sub-agent — whose "still going" is simply `result === null`. */
-  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; ts: number }
-  | { kind: "error"; message: string; ts: number }
+  /** `toolKind` and `paths` are an ACP call's own account of itself (the `tool_call` event's `kind`
+   *  and `paths`) — absent for every other agent, whose tool names say both. */
+  /** `view` is the view an MCP server drew for this call (MCP Apps), carried by its result — absent
+   *   on every call that drew none, and on every call from before views existed. */
+  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; toolKind?: string; paths?: string[]; view?: AppViewRef; ts: number }
+  /** `fix` is the thing to do about it, carried from the server on the failures where Realm knows
+   *   one (today: an auth failure it re-probed). Absent on every other error, which is most of
+   *   them — a block that invented a remedy would be worse than the bare message. */
+  | { kind: "error"; message: string; fix?: { title: string; hint: string; command: string | null }; ts: number }
   /**
    * The session changed agents mid-turn, because the one it was on could not finish (failover).
    *
@@ -33,7 +48,10 @@ export type Block =
    * REPLACED by the next one rather than stacking, so three attempts leave one line saying what is
    * happening now instead of three saying what already did.
    */
-  | { kind: "retrying"; attempt: number; waitMs: number; ts: number }
+  /** `reason` is carried because the wait does not mean the same thing in each case: a `transient`
+   *   retry is the same request again, where an `auth` one is Realm having checked the agent's
+   *   sign-in and found nothing wrong with it. The reader deserves the difference. */
+  | { kind: "retrying"; reason: "provider_down" | "transient" | "auth"; attempt: number; waitMs: number; ts: number }
   /**
    * The harness summarised the conversation above and dropped it. A seam for the same reason
    * `handoff` is one: the messages are all still here, and this line is the only thing that says the
@@ -43,12 +61,42 @@ export type Block =
    * of a before-and-after is a number with nothing to compare it to.
    */
   | { kind: "compacted"; preTokens: number; postTokens?: number; ts: number }
+  /**
+   * The agent below this line has NO context, rather than a summarised one.
+   *
+   * The third member of the seam family, and the one that reports the sharpest version of the same
+   * fact: `handoff` is a different agent, `compacted` is the same agent with less, this is the same
+   * agent with nothing. Written when a session that held a provider session id came back without it —
+   * the provider was asked to continue and declined, or the build could not be asked at all.
+   */
+  | { kind: "context_reset"; note: string; reason: "declined" | "unsupported"; ts: number }
+  /**
+   * Where you stopped reading.
+   *
+   * Not an event — nothing happened here. It is a mark about THIS reader, inserted while the
+   * transcript is rebuilt at open time, which is why it is placed by the store rather than derived
+   * from anything on the wire. It appears at most once, and only when there is something on both
+   * sides of it: a session opened for the first time has nothing above the line, and one you are
+   * caught up on has nothing below it.
+   */
+  | { kind: "unseen-mark"; ts: number }
   /** A plan the agent proposed. `text` is prose, `steps` a checklist, and at least one is present —
    *  which of them depends on the protocol, not on the agent's mood (see the `plan` event). A revised
    *  plan REPLACES this block rather than appending a second one, so `ts` stays the moment the plan
    *  first appeared: the card keeps its place in the scrollback, and claiming the revision's time
    *  would put it out of order with the messages around it. */
   | { kind: "plan"; planId: string; text?: string; steps?: PlanStep[]; ts: number }
+  /**
+   * A question put to the user — by any agent or server, on the card Realm wrote for it — and, once
+   * it has one, its answer: the persisted `permission_response.answers`, masked ones already a mark.
+   *
+   * It takes the place of the call that asked it (Claude's `AskUserQuestion`, `realm-ui`'s `ui_ask`)
+   * rather than sitting beside it: a generic tool row above "Codex asked: Which branch? — main" says
+   * the same thing twice, the second time as JSON. `toolUseId` is that call's, kept so its result can
+   * find nothing to land on. Drawn only once answered; while it waits, the live card is the question.
+   */
+  | { kind: "question"; requestId: string; card: AskCard; input: Record<string, unknown>; toolUseId?: string;
+      decision?: "allow" | "allow_always" | "deny"; answers?: AskAnswers; ts: number }
   /** A finished run, banked where it finished. `ms` is how long the agent actually worked — the time
    *  the run sat parked on a permission prompt is subtracted, because a run the user left waiting on
    *  an Allow button for twenty minutes did not work for twenty minutes. `startedAt` rides along as
@@ -58,10 +106,18 @@ export type Block =
       /** The user pressed stop. The line says so instead of reporting the work as finished — and it
        *  is the only thing the transcript keeps about a cancelled turn, because the harness's own
        *  diagnostic for one is a fact about an API call, not about anything the reader did. */
-      stopped?: boolean };
+      stopped?: boolean;
+      /** The turn ended on a failure: the harness settled it with `error`, or the last thing it left
+       *  in the log is the error it died on. The line says "Failed after", because the run label's
+       *  playful past tense reads as a job that finished. Never set alongside `stopped`. */
+      failed?: boolean;
+      /** Measured from the user's message rather than from a `running` status, because the turn never
+       *  reported one (see `unsettledTurn`). The line uses plain words for it, not the run's verb. */
+      derived?: boolean };
 
 export type Rating = "up" | "down";
-export type PendingPermission = { requestId: string; toolName: string; input: Record<string, unknown>; title: string };
+/** `ask` is set when the request is a question — the card Realm wrote for it (`permission_request.ask`). */
+export type PendingPermission = { requestId: string; toolName: string; input: Record<string, unknown>; title: string; ask?: AskCard };
 export type Usage = { costUsd: number; inputTokens: number; outputTokens: number; numTurns: number;
   /** How much of the window the conversation occupies, as the harness measured it — see the `usage`
    *  event's own note for why this is never derived from the numbers beside it. Undefined for every
@@ -76,7 +132,10 @@ export type Usage = { costUsd: number; inputTokens: number; outputTokens: number
    *  session asked for. Undefined where the engine does not report it at all. */
   fastMode?: "off" | "cooldown" | "on";
   /** Why it could not serve, in the harness's own vocabulary. */
-  fastModeReason?: string };
+  fastModeReason?: string;
+  /** Whether the turn this reports ASKED for fast mode. Undefined on transcripts written before it
+   *  was stamped, and on engines that do not report fast mode at all. */
+  fastModeRequested?: boolean };
 export type Transcript = {
   blocks: Block[];
   /** Open permission requests, oldest first (an agent may ask for several tools at once). */
@@ -88,7 +147,9 @@ export type Transcript = {
     /** Whether the harness says this session's model can run fast mode. Undefined is "not stated",
      *  which is what every engine but `claude` leaves it as — and what the prompter reads as "offer
      *  no switch" rather than as "no". */
-    supportsFastMode?: boolean } | null;
+    supportsFastMode?: boolean;
+    /** THIS session's own reasoning levels (an ACP `thought_level` option) and the one it started on. */
+    efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
   /** The run in flight: when it started, and the permission-prompt time to take off its clock.
    *  `waitingSince` is the open half of that accounting. Null between runs. */
   run: { startedAt: number; waitedMs: number; waitingSince: number | null } | null;
@@ -100,17 +161,45 @@ export type Transcript = {
    *  a summary still in flight) — and null is exactly when the panes fall back to the derived text,
    *  so the surfaces never wait on a model to say something. */
   summary: { text: string; throughSeq: number } | null;
+  /** The model-written next-move suggestion, when the server produced one for the LAST turn. Null is
+   *  the ordinary case — no generator, no Claude CLI, a decline, or a turn the user has already
+   *  answered — and it is exactly when the prompter falls back to the deterministic ladder. */
+  promptHint: { text: string; throughSeq: number } | null;
+  /** What each turn did to its checkout, as git measured it at the settle (`turn_changes`), keyed by
+   *  the `ts` of the run line it belongs to. Keyed rather than placed, because the measurement lands
+   *  after the settle — sometimes after the next message has already gone — and must still sit with
+   *  its own turn. Optional: absent on every transcript nothing has been measured in. */
+  changes?: Record<number, TurnChanges>;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
  *  state; everything else keys on position, which is stable because blocks are only ever appended or
  *  replaced in place (a streaming assistant block becomes its final self at the same index). */
 export const blockKey = (b: Block, i: number): string =>
-  b.kind === "tool" ? `tool:${b.toolUseId}` : b.kind === "plan" ? `plan:${b.planId}` : `${b.kind}:${i}`;
+  b.kind === "tool" ? `tool:${b.toolUseId}` : b.kind === "plan" ? `plan:${b.planId}` : b.kind === "question" ? `question:${b.requestId}` : `${b.kind}:${i}`;
 
-export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null });
+/** The question a request carries, Realm's own card first — a declined one included, since the
+ *  transcript still says what was declined. Claude's `AskUserQuestion` from before the card rode the
+ *  event is read off its input. Never anything an agent's arguments could make look like one. */
+export function questionOf(p: { toolName: string; input: Record<string, unknown>; ask?: unknown }): AskCard | null {
+  if (p.ask !== undefined) { const card = AskCardSchema.safeParse(p.ask); return card.success ? card.data : null; }
+  return p.toolName === "AskUserQuestion" ? askCardFromAskUserQuestion(p.input, { kind: "agent", name: "Claude", agent: "claude" }) : null;
+}
+
+/** A call that asks the user: Claude's own tool, or realm-ui's under whichever prefix the harness gives it. */
+const ASKING_TOOL = /^AskUserQuestion$|realm-ui__ui_ask$/;
+/** Inputs as the same call's two halves report them — key order is the only thing allowed to differ. */
+const sameInput = (a: unknown, b: unknown): boolean => stable(a) === stable(b);
+const stable = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) =>
+  x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) : x);
+
+export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null, promptHint: null });
 
 export type UserBlock = Extract<Block, { kind: "user" }>;
+
+/** What a turn goal mode started says in place of a message: nobody typed it, so it is attributed. */
+export const goalTurnLabel = (kind: NonNullable<UserBlock["goal"]>): string =>
+  kind === "budget" ? "Goal budget spent — Realm asked for a handover" : "Realm continued this goal";
 
 /**
  * The message a retry would ask again: the last one the USER wrote.
@@ -140,12 +229,69 @@ const dropPending = (blocks: Block[]): Block[] => {
 
 const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for (let i = blocks.length - 1; i >= 0; i--) if (pred(blocks[i]!)) return i; return -1; };
 
+/** A scheduled run's message without the note Realm appended for the agent, or the blank line it was
+ *  joined on with. What came after it — a reply to a run that stopped to ask — stays. */
+const withoutNote = (text: string, note: string): string => {
+  const at = text.indexOf(note);
+  return at < 0 ? text : text.slice(0, at).trimEnd() + text.slice(at + note.length);
+};
+
+/** What the agent said or did, as opposed to the seams and marks Realm draws around it. */
+const AGENT_OUTPUT = new Set<Block["kind"]>(["assistant", "thinking", "tool", "error", "plan"]);
+
+/**
+ * The trailing turn, when it produced something and was never banked as a run.
+ *
+ * The run line is written when a `running` status settles, and a turn that failed before its agent
+ * ever reported running — a CLI that would not start, a send into an adapter that had already exited
+ * — never opened one. It still has two real timestamps, the message that asked and the last thing
+ * that came back, and those are enough to say when it ended and how long it took. Null when the turn
+ * already has its run line, has produced nothing yet, or has no message of the user's to measure from.
+ */
+function unsettledTurn(blocks: readonly Block[]): { startedAt: number; lastTs: number; failed: boolean } | null {
+  let last: Block | null = null;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]!;
+    if (b.kind === "run") return null;
+    if (b.kind === "user") return last ? { startedAt: b.ts, lastTs: last.ts, failed: last.kind === "error" } : null;
+    if (!last && AGENT_OUTPUT.has(b.kind)) last = b;
+  }
+  return null;
+}
+
+const derivedRun = (u: { startedAt: number; failed: boolean }, ts: number): Block =>
+  ({ kind: "run", ms: Math.max(0, ts - u.startedAt), startedAt: u.startedAt, ts, derived: true, ...(u.failed ? { failed: true } : {}) });
+
 /** Pure reducer: normalized session events → what the transcript renders. Deltas accumulate into the open
  *  streaming assistant block; the final `assistant_text` replaces it. */
-export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
+/**
+ * `markUnseen` inserts the "new since you were here" rule immediately BEFORE this event's block.
+ *
+ * An argument rather than a synthetic event because it is not one: nothing happened at that point in
+ * the session, and putting it on the wire would mean persisting one reader's place in a log that is
+ * shared by every window.
+ *
+ * `seq` is the stored event's own, where the caller has it: a message keeps it, as the one name a saved
+ * turn can be kept by.
+ */
+export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = false, seq?: number): Transcript {
   const blocks = t.blocks.slice(); const last = blocks.at(-1);
+  if (markUnseen && !blocks.some((b) => b.kind === "unseen-mark")) blocks.push({ kind: "unseen-mark", ts: e.ts });
   switch (e.type) {
-    case "user_message": blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ts: e.ts }); return { ...t, blocks };
+    /* The hint is cleared here, and that is the whole of how a stale suggestion is prevented: it was
+       written about the turn that had just ended, and the moment the user sends anything it is a
+       suggestion about a turn that is no longer the last one. The prompter shows the deterministic
+       ladder in the gap until the next settle produces a new one. */
+    case "user_message": {
+      // The turn before this one never settled into a run line: it is closed at the last thing it
+      // produced, ahead of the unseen mark if this event carries one — it is the end of a turn the
+      // reader has already seen.
+      const open = t.run ? null : unsettledTurn(t.blocks);
+      if (open) blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
+      const scheduled = e.payload.scheduled;
+      blocks.push({ kind: "user", text: scheduled ? withoutNote(e.payload.text, scheduled.note) : e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ...(scheduled ? { scheduled } : {}), ...(seq !== undefined ? { seq } : {}), ts: e.ts });
+      return { ...t, blocks, promptHint: null };
+    }
     case "assistant_delta": {
       if (last?.kind === "assistant" && last.messageId === e.payload.messageId && last.streaming) blocks[blocks.length - 1] = { ...last, text: last.text + e.payload.delta };
       else blocks.push({ kind: "assistant", messageId: e.payload.messageId, text: e.payload.delta, streaming: true, ts: e.ts });
@@ -158,11 +304,22 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
       return { ...t, blocks };
     }
     case "thinking": blocks.push({ kind: "thinking", messageId: e.payload.messageId, text: e.payload.text, ts: e.ts }); return { ...t, blocks };
-    case "tool_call": blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}), result: null, ts: e.ts }); return { ...t, blocks };
+    case "tool_call": {
+      // The asking call can land AFTER its question (a gateway tool is raised by the server while the
+      // agent's own stream is still catching up). Then the question already holds its place.
+      if (ASKING_TOOL.test(e.payload.name)) {
+        const q = findLast(blocks, (b) => b.kind === "question" && b.toolUseId === undefined && sameInput(b.input, e.payload.input));
+        const b = q >= 0 ? blocks[q] : undefined;
+        if (b && b.kind === "question") { blocks[q] = { ...b, toolUseId: e.payload.toolUseId }; return { ...t, blocks }; }
+      }
+      blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}),
+        ...(e.payload.kind ? { toolKind: e.payload.kind } : {}), ...(e.payload.paths?.length ? { paths: e.payload.paths } : {}), result: null, ts: e.ts });
+      return { ...t, blocks };
+    }
     case "tool_result": {
       const i = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
       const b = i >= 0 ? blocks[i] : undefined;
-      if (b && b.kind === "tool") blocks[i] = { ...b, result: { content: e.payload.content, isError: e.payload.isError } };
+      if (b && b.kind === "tool") blocks[i] = { ...b, result: { content: e.payload.content, isError: e.payload.isError }, ...(e.payload.view ? { view: e.payload.view } : {}) };
       return { ...t, blocks };
     }
     /* A background sub-agent started or stopped. Folded onto the LAUNCHING call's block, which is
@@ -184,12 +341,23 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
       return { ...t, blocks };
     }
     case "permission_request": {
-      const p = { requestId: e.payload.requestId, toolName: e.payload.toolName, input: e.payload.input, title: e.payload.title };
-      return { ...t, pendingPermissions: [...t.pendingPermissions.filter((x) => x.requestId !== p.requestId), p] };
+      const p: PendingPermission = { requestId: e.payload.requestId, toolName: e.payload.toolName, input: e.payload.input, title: e.payload.title, ...(e.payload.ask ? { ask: e.payload.ask } : {}) };
+      const card = questionOf(e.payload);
+      if (card && !blocks.some((b) => b.kind === "question" && b.requestId === p.requestId)) {
+        const question: Block = { kind: "question", requestId: p.requestId, card, input: e.payload.input, ts: e.ts };
+        const i = findLast(blocks, (b) => b.kind === "tool" && b.result === null && ASKING_TOOL.test(b.name) && sameInput(b.input, e.payload.input));
+        const asked = i >= 0 ? blocks[i] : undefined;
+        if (asked && asked.kind === "tool") blocks[i] = { ...question, toolUseId: asked.toolUseId, ts: asked.ts };
+        else blocks.push(question);
+      }
+      return { ...t, blocks, pendingPermissions: [...t.pendingPermissions.filter((x) => x.requestId !== p.requestId), p] };
     }
     case "permission_response": {
-      if (!t.pendingPermissions.some((p) => p.requestId === e.payload.requestId)) return t;
-      return { ...t, pendingPermissions: t.pendingPermissions.filter((p) => p.requestId !== e.payload.requestId) };
+      const q = findLast(blocks, (b) => b.kind === "question" && b.requestId === e.payload.requestId);
+      const asked = q >= 0 ? blocks[q] : undefined;
+      if (asked && asked.kind === "question") blocks[q] = { ...asked, decision: e.payload.decision, ...(e.payload.answers ? { answers: e.payload.answers } : {}) };
+      if (!t.pendingPermissions.some((p) => p.requestId === e.payload.requestId)) return asked ? { ...t, blocks } : t;
+      return { ...t, blocks, pendingPermissions: t.pendingPermissions.filter((p) => p.requestId !== e.payload.requestId) };
     }
     // A failure and the recovery from it are ONE thing, and only one of them should be on screen.
     //
@@ -204,15 +372,19 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
     //   error → handoff    the seam supersedes the failure
     //   retrying → error   the ladder ran out; the failure supersedes the wait, and is final
     case "error":
-      return { ...t, blocks: [...dropPending(blocks), { kind: "error", message: e.payload.message, ts: e.ts }] };
+      return { ...t, blocks: [...dropPending(blocks),
+        { kind: "error", message: e.payload.message, ...(e.payload.fix ? { fix: e.payload.fix } : {}), ts: e.ts }] };
     case "handoff":
       return { ...t, blocks: [...dropPending(blocks),
         { kind: "handoff", from: e.payload.from, to: e.payload.to, note: e.payload.note, attempt: e.payload.attempt, ts: e.ts }] };
+    case "context_reset":
+      return { ...t, blocks: [...dropPending(blocks),
+        { kind: "context_reset", note: e.payload.note, reason: e.payload.reason, ts: e.ts }] };
     case "retrying": {
       // Replace rather than stack: attempt 2 says what attempt 1 said, one number later, and a
       // transcript that keeps both is a transcript reporting the wait instead of the work.
       return { ...t, blocks: [...dropPending(blocks),
-        { kind: "retrying", attempt: e.payload.attempt, waitMs: e.payload.waitMs, ts: e.ts }] };
+        { kind: "retrying", reason: e.payload.reason, attempt: e.payload.attempt, waitMs: e.payload.waitMs, ts: e.ts }] };
     }
     case "plan": {
       const i = findLast(blocks, (b) => b.kind === "plan" && b.planId === e.payload.planId);
@@ -235,10 +407,22 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
     case "summary":
       return t.summary && t.summary.throughSeq > e.payload.throughSeq ? t
         : { ...t, summary: { text: e.payload.text, throughSeq: e.payload.throughSeq } };
+    /* Same forward-only rule as the summary above it, and for the same reason: a hint generated for
+       an earlier turn can land after a newer one on a slow machine, and the newer answer wins. */
+    case "prompt_hint":
+      return t.promptHint && t.promptHint.throughSeq > e.payload.throughSeq ? t
+        : { ...t, promptHint: { text: e.payload.text, throughSeq: e.payload.throughSeq } };
+    // Beside the blocks, not among them: it belongs to a run line that is already on screen.
+    case "turn_changes":
+      return { ...t, changes: { ...t.changes, [e.payload.settledAt]: e.payload } };
     case "feedback": {
       const { [e.payload.messageId]: _prev, ...rest } = t.feedback;
       return { ...t, feedback: e.payload.rating ? { ...rest, [e.payload.messageId]: e.payload.rating } : rest };
     }
+    // A plan-quota reading is about the ACCOUNT, not this conversation, and the store folds it into
+    // per-agent state off the event stream. The transcript is unchanged by it on purpose: a block
+    // saying "weekly window at 78%" would be a sentence nobody said, stuck between two that were.
+    case "rate_limit": return t;
     // The four numbers are replaced wholesale; the context measurement is CARRIED when the new event
     // does not state one. Not staleness — occupancy does not reset between turns, so the last
     // measurement is still the last true thing known about this window, and the adapter restates the
@@ -281,6 +465,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
       const fast = e.payload.supportsFastMode ?? (sameModel ? t.init?.supportsFastMode : undefined);
       return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId,
         ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}),
+        ...(e.payload.efforts ? { efforts: e.payload.efforts, ...(e.payload.defaultEffort ? { defaultEffort: e.payload.defaultEffort } : {}) } : {}),
         ...(fast === undefined ? {} : { supportsFastMode: fast }) } };
     }
     case "status": {
@@ -297,12 +482,22 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
           return { ...t, run: { ...run, waitingSince: e.ts } };
         // idle / error / ended all settle the run. Each also arrives with no run open — an adapter
         // announces `idle` when it boots and `ended` after the `idle` that closed the last turn — and
-        // there the event is nothing: no clock was started, so there is no span to report.
+        // there the event is nothing: no clock was started, so there is no span to report. Unless the
+        // turn produced something without ever starting one (`unsettledTurn`), which still gets its
+        // line, dated at the last thing it produced rather than at whenever the adapter went quiet.
         default: {
-          if (!run) return t;
+          if (!run) {
+            const open = unsettledTurn(t.blocks);
+            if (!open) return t;
+            blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
+            return { ...t, blocks };
+          }
           const waited = run.waitedMs + (run.waitingSince === null ? 0 : e.ts - run.waitingSince);
+          // A stop wins over a failure: the harness's diagnostic for a cancelled turn is about the
+          // API call it cut short, and the reader pressed stop — that is what the line has to say.
+          const failed = e.payload.status === "error" || last?.kind === "error";
           blocks.push({ kind: "run", ms: Math.max(0, e.ts - run.startedAt - waited), startedAt: run.startedAt, ts: e.ts,
-            ...(e.payload.interrupted ? { stopped: true } : {}) });
+            ...(e.payload.interrupted ? { stopped: true } : failed ? { failed: true } : {}) });
           return { ...t, blocks, run: null };
         }
       }
@@ -310,4 +505,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
   }
 }
 
-export const reduceAll = (events: SessionEvent[], start = emptyTranscript()): Transcript => events.reduce(reduceTranscript, start);
+// Wrapped rather than passed directly: `reduce` hands its callback an index as the third argument,
+// which would land on `markUnseen` and mark whichever event happened to be at a truthy position.
+export const reduceAll = (events: SessionEvent[], start = emptyTranscript()): Transcript =>
+  events.reduce((t, e) => reduceTranscript(t, e), start);

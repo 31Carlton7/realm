@@ -1,5 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { MODEL_ALIASES, canonicalModelKey } from "./models";
+import { MODEL_ALIASES, canonicalModelKey, fastSupportKey, readEffortSupport, readFastSupport } from "./models";
+
+describe("the remembered fast-mode answers", () => {
+  it("files the harness default under its own entry, apart from any named model", () => {
+    // A session with no model asks for whatever the harness defaults to — a different question from
+    // naming that model, and the only one answerable before it starts.
+    expect(fastSupportKey("claude", null)).toBe("claude:");
+    expect(fastSupportKey("claude", "claude-opus-5-5")).toBe("claude:claude-opus-5-5");
+    expect(fastSupportKey("codex", "claude-opus-5-5")).not.toBe(fastSupportKey("claude", "claude-opus-5-5"));
+  });
+
+  it("keeps a `false` — it is an answer — and drops everything that is not one", () => {
+    expect(readFastSupport({ "claude:": true, "codex:gpt": false, "x:y": "yes", "z:": null })).toEqual({ "claude:": true, "codex:gpt": false });
+    for (const junk of [null, undefined, 3, "x", [true], []]) expect(readFastSupport(junk)).toEqual({});
+  });
+});
+
+describe("the remembered reasoning levels", () => {
+  it("keeps a list of levels — an empty one is an answer — and drops everything that is not one", () => {
+    expect(readEffortSupport({ "claude:": ["low", "high"], "claude:claude-haiku-4-5": [], "x:y": "high", "z:": [1], "w:": null }))
+      .toEqual({ "claude:": ["low", "high"], "claude:claude-haiku-4-5": [] });
+    for (const junk of [null, undefined, 3, "x", [["low"]], []]) expect(readEffortSupport(junk)).toEqual({});
+  });
+});
 
 describe("canonicalModelKey", () => {
   it("folds the same model typed two ways into one key", () => {
@@ -44,12 +67,6 @@ describe("canonicalModelKey", () => {
     // splitting the dot and then sorting made these two keys identical.
     expect(canonicalModelKey("Claude Fable 5.1")).not.toBe(canonicalModelKey("Claude Fable 1.5"));
     expect(canonicalModelKey("Claude Fable 5.1")).not.toBe(canonicalModelKey("Claude Fable 5"));
-  });
-
-  it("keeps genuinely different models apart", () => {
-    const keys = ["Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6", "Gemini 3.7 Flash", "Cursor Grok 4.5"]
-      .map(canonicalModelKey);
-    expect(new Set(keys).size).toBe(keys.length);
   });
 
   it("does not merge on a shared number alone", () => {

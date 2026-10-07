@@ -44,7 +44,13 @@ const SETTLE_WORD: Record<string, string> = { idle: "Finished a turn", ended: "E
  * genuinely new information to a user who saw the old one.
  */
 export class NotificationsService {
-  constructor(private d: { store: NotificationsStore; settings: SettingsStore; rpc: RpcServer; relay?: NotificationRelay }) {}
+  /** Requests that are QUESTIONS, by requestId, while their rows are open — so a question's row says
+   *  "Answered" or "Skipped", which is what happened to it, rather than "Allowed" or "Denied". */
+  private readonly questions = new Set<string>();
+  constructor(private d: { store: NotificationsStore; settings: SettingsStore; rpc: RpcServer; relay?: NotificationRelay;
+    /** Space names, for the relay line. Optional: a server built without it relays exactly as it did
+     *  before, naming the session and not where it lives. */
+    spaces?: { get(id: string): { name: string } | null } }) {}
 
   list(p: { cursor: string | null; limit: number }): { notifications: Notification[]; nextCursor: string | null; unread: number } {
     const { notifications, nextCursor } = this.d.store.list(p);
@@ -83,7 +89,8 @@ export class NotificationsService {
     // Beyond the machine, and only for what SURFACED: an absorbed repeat of a still-open condition
     // is one story, and a phone that buzzed for every re-ask of one permission would be muted by
     // lunchtime. The category gate lives in the relay, beside the destinations it reads.
-    if (surfaced) this.d.relay?.send({ category: input.category, title: input.title, body: input.body });
+    if (surfaced) this.d.relay?.send({ category: input.category, title: input.title, body: input.body,
+      spaceName: input.spaceId ? this.d.spaces?.get(input.spaceId)?.name ?? null : null });
   }
 
   /** Stamp a key's open row resolved (if any) and say how it ended. */
@@ -101,6 +108,10 @@ export class NotificationsService {
    */
   handleSessionEvent(session: Session, ev: SessionEvent): void {
     if (ev.type === "permission_request") {
+      // A question Realm declined itself waited on nobody: it is a line in the transcript, never a row
+      // that says "needs you" — and never a text to a phone.
+      if (ev.payload.ask?.refused) return;
+      if (ev.payload.ask) { this.questions.add(ev.payload.requestId); if (this.questions.size > 512) this.questions.delete(this.questions.values().next().value!); }
       this.notify({ category: "permission", spaceId: session.spaceId, sessionId: session.id, refId: ev.payload.requestId,
         title: session.title, body: ev.payload.title || ev.payload.toolName, acted: false });
       return;
@@ -108,7 +119,9 @@ export class NotificationsService {
     if (ev.type === "permission_response") {
       // The staleness rule: HOWEVER the request was answered — session pane, notifications page, a boot
       // deny — the feed reconciles here, because every answer flows through this same event.
-      const word = ev.payload.decision === "allow" ? "Allowed" : ev.payload.decision === "allow_always" ? "Always allowed" : "Denied";
+      const question = this.questions.delete(ev.payload.requestId);
+      const word = question ? (ev.payload.decision === "deny" ? "Skipped" : "Answered")
+        : ev.payload.decision === "allow" ? "Allowed" : ev.payload.decision === "allow_always" ? "Always allowed" : "Denied";
       this.resolveOpen("permission", ev.payload.requestId, word);
       return;
     }

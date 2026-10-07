@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GuideProgress } from "@realm/contracts";
 import { useApp } from "../../state/store";
+import { recallScroll, rememberScroll } from "../scroll-memory";
 
 /**
  * The preview surface for `html` guides and `pdf` files (Plan 22 W1): an iframe onto the server's
@@ -20,8 +21,10 @@ import { useApp } from "../../state/store";
  * `version` changes force a reload: the parent passes the buffer's disk hash, so an agent's rewrite
  * (delivered through `documents.fileChanged`) re-renders the guide without any polling.
  */
-export function PreviewFrame({ documentsId, path, kind, version }: {
+export function PreviewFrame({ documentsId, path, kind, version, scrollKey }: {
   documentsId: string; path: string; kind: "html" | "pdf"; version: string | null;
+  /** Only a guide can honour this — see the scroll branch below, and `guide-runtime.ts`. */
+  scrollKey?: string | null;
 }) {
   const previewInfo = useApp((s) => s.previewInfo);
   const readGuideProgress = useApp((s) => s.readGuideProgress);
@@ -51,6 +54,14 @@ export function PreviewFrame({ documentsId, path, kind, version }: {
       if (!d || typeof d !== "object") return;
       if (d.type === "realm-guide:ready") {
         readGuideProgress(documentsId, path).then(send).catch(() => {});
+        // The frame is cross-origin, so the offset cannot be read off it — the runtime reports it
+        // and is told it back. `atEnd` is meaningless for a guide, which does not grow.
+        const mark = scrollKey ? recallScroll(scrollKey) : null;
+        if (mark && mark.top > 0) frame.current?.contentWindow?.postMessage({ type: "realm-guide:scroll", top: mark.top }, "*");
+      } else if (d.type === "realm-guide:scroll") {
+        if (scrollKey && typeof (d as { top?: unknown }).top === "number") {
+          rememberScroll(scrollKey, { top: (d as { top: number }).top, atEnd: false });
+        }
       } else if (d.type === "realm-guide:attempt") {
         const topic = typeof d.topic === "string" ? d.topic.trim() : "";
         const correct = typeof d.correct === "number" ? Math.max(0, Math.floor(d.correct)) : NaN;
@@ -61,7 +72,7 @@ export function PreviewFrame({ documentsId, path, kind, version }: {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [kind, documentsId, path, readGuideProgress, recordGuideAttempt]);
+  }, [kind, documentsId, path, scrollKey, readGuideProgress, recordGuideAttempt]);
 
   if (error) return <div className="documents-error">Preview unavailable: {error}</div>;
   if (!src) return <div className="pane-placeholder muted">Loading preview…</div>;

@@ -1,13 +1,13 @@
 import { basename } from "node:path";
 import {
-  USAGE_BUDGET_KEY, USAGE_REPORTING, canonicalModelKey, parseUsageBudget,
-  thresholdsCrossed,
+  AGENT_META, USAGE_BUDGET_KEY, USAGE_RECORDS_TOP, USAGE_REPORTING, canonicalModelKey, dayKey, parseUsageBudget,
+  skillUseName, thresholdsCrossed, usageDeltas, usageStreaks,
   type AgentKind, type ModelInfo, type Session, type SessionEvent, type UsageBucketKind,
-  type UsageBudget, type UsageDay, type UsageSample, type UsageSummary,
+  type UsageBudget, type UsageDay, type UsageRecords, type UsageSample, type UsageSummary,
 } from "@realm/contracts";
 import type { Db } from "../db/database";
 import type { SettingsStore } from "../store/settings";
-import { aggregateUsage, sliceSession, type PriceLookup, type SessionFacts } from "./aggregate";
+import { aggregateUsage, modelKey, sliceSession, turnDurations, type PriceLookup, type SessionFacts, type StatusSample } from "./aggregate";
 
 /**
  * The Settings → Usage tab's server half: read the range, price it, answer the whole page at once.
@@ -23,6 +23,12 @@ import { aggregateUsage, sliceSession, type PriceLookup, type SessionFacts } fro
 type Row = Record<string, unknown>;
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
+
+/** What makes a day a day of use, and which local day an event falls on — written once, because the
+ *  calendar (`activeDays`) and the streak (`records`) have to agree about both. A streak that counted
+ *  a day the grid beside it shows as empty would be a contradiction on one screen. */
+const USED = "type = 'user_message'";
+const LOCAL_DAY = "date(ts / 1000, 'unixepoch', 'localtime')";
 
 export type UsageDeps = {
   db: Db;
@@ -92,15 +98,166 @@ export class UsageService {
    */
   activeDays(p: { from: number; to: number }): UsageDay[] {
     const rows = this.d.db.prepare(`
-      SELECT date(ts / 1000, 'unixepoch', 'localtime') AS day,
+      SELECT ${LOCAL_DAY} AS day,
              COUNT(*) AS messages,
              COUNT(DISTINCT session_id) AS sessions
         FROM session_events
-       WHERE type = 'user_message' AND ts BETWEEN ? AND ?
+       WHERE ${USED} AND ts BETWEEN ? AND ?
        GROUP BY day
        ORDER BY day
     `).all(p.from, p.to) as Row[];
     return rows.map((r) => ({ day: str(r.day), messages: num(r.messages), sessions: num(r.sessions) }));
+  }
+
+  /* ── the page about you ─────────────────────────────────────────────────── */
+
+  /**
+   * Everything the page about you counts, over all of time and every space — what each figure can
+   * and cannot claim is written down on `UsageRecordsSchema`.
+   *
+   * Every number is a different reading of rows this service already reads for the Usage tab, by
+   * the same rules: tokens are `usageDeltas` (so a running total is never summed), days are the
+   * calendar's own (`USED`, `LOCAL_DAY`), and tools are the Activity card's query without its range.
+   */
+  records(): UsageRecords {
+    const { tokens, peakDay } = this.lifetimeTokens();
+    return {
+      tokens, peakDay,
+      unmeasuredSessions: this.unmeasuredSessions(),
+      longestTurn: this.longestTurn(),
+      streak: usageStreaks(this.activeDayKeys(), dayKey(this.now())),
+      models: this.topModels(),
+      efforts: this.topEfforts(),
+      skills: this.topSkills(),
+      tools: this.topTools("1 = 1", [], USAGE_RECORDS_TOP),
+    };
+  }
+
+  /** Every token any session reported, and the local day that saw the most. */
+  private lifetimeTokens(): Pick<UsageRecords, "tokens" | "peakDay"> {
+    const ids = (this.d.db.prepare("SELECT DISTINCT session_id AS id FROM session_events WHERE type = 'usage'")
+      .all() as Row[]).map((r) => str(r.id));
+    const meta = this.sessionMeta(ids);
+    let input = 0, output = 0;
+    const byDay = new Map<string, number>();
+    for (const [id, samples] of this.samplesFor(ids)) {
+      const kind = meta.get(id)?.agentKind;
+      const reporting = kind ? USAGE_REPORTING[kind] : undefined;
+      if (!reporting) continue; // a kind this build has never heard of reports nothing it can read
+      for (const d of usageDeltas(samples, reporting.series)) {
+        input += d.inputTokens; output += d.outputTokens;
+        const day = dayKey(d.ts);
+        byDay.set(day, (byDay.get(day) ?? 0) + d.inputTokens + d.outputTokens);
+      }
+    }
+    let peakDay: UsageRecords["peakDay"] = null;
+    for (const [day, n] of byDay) {
+      // The more recent day wins a tie, as the longest streak does.
+      if (n > 0 && (peakDay === null || n > peakDay.tokens || (n === peakDay.tokens && day > peakDay.day))) peakDay = { day, tokens: n };
+    }
+    return { tokens: { input, output }, peakDay };
+  }
+
+  /** Sessions whose engine sends no usage at all, so that "lifetime tokens" can say what it leaves out. */
+  private unmeasuredSessions(): number {
+    let n = 0;
+    for (const r of this.d.db.prepare("SELECT agent_kind, COUNT(*) AS n FROM sessions GROUP BY agent_kind").all() as Row[]) {
+      if (USAGE_REPORTING[str(r.agent_kind) as AgentKind]?.series === "none") n += num(r.n);
+    }
+    return n;
+  }
+
+  /** The finished turn the agent worked longest on, across every session — see `turnDurations`. */
+  private longestTurn(): UsageRecords["longestTurn"] {
+    const bySession = new Map<string, StatusSample[]>();
+    for (const r of this.d.db.prepare(
+      "SELECT session_id, ts, json_extract(payload_json, '$.status') AS status FROM session_events WHERE type = 'status' ORDER BY seq",
+    ).all() as Row[]) {
+      const id = str(r.session_id);
+      const list = bySession.get(id) ?? [];
+      list.push({ ts: num(r.ts), status: str(r.status) });
+      bySession.set(id, list);
+    }
+    let best: { ms: number; endedAt: number; sessionId: string } | null = null;
+    for (const [sessionId, statuses] of bySession) {
+      for (const turn of turnDurations(statuses)) {
+        if (turn.ms > 0 && (best === null || turn.ms > best.ms)) best = { ...turn, sessionId };
+      }
+    }
+    if (best === null) return null;
+    const row = this.d.db.prepare("SELECT title, space_id FROM sessions WHERE id = ?").get(best.sessionId) as Row | undefined;
+    if (!row) return null;
+    return { ...best, title: str(row.title) || "Untitled session", spaceId: str(row.space_id) };
+  }
+
+  /** Every local day with a sent message, ever — the streak's input, read exactly as `activeDays` reads. */
+  private activeDayKeys(): string[] {
+    return (this.d.db.prepare(`SELECT DISTINCT ${LOCAL_DAY} AS day FROM session_events WHERE ${USED}`)
+      .all() as Row[]).map((r) => str(r.day)).filter(Boolean);
+  }
+
+  /**
+   * Sessions joined to how many messages each was sent. Messages rather than sessions are the
+   * ranking, because a session is opened by a click and used by sending: a model tried once in an
+   * empty session and one written to all week are not equally "used".
+   */
+  private sessionsWithMessages(): { agentKind: AgentKind; model: string | null; effort: string | null; messages: number }[] {
+    return (this.d.db.prepare(`
+      SELECT s.agent_kind, s.model, s.effort, COALESCE(m.n, 0) AS messages
+        FROM sessions s
+        LEFT JOIN (SELECT session_id, COUNT(*) AS n FROM session_events WHERE ${USED} GROUP BY session_id) m
+          ON m.session_id = s.id
+    `).all() as Row[])
+      .map((r) => ({
+        agentKind: str(r.agent_kind) as AgentKind,
+        model: r.model === null ? null : str(r.model),
+        effort: r.effort === null ? null : str(r.effort),
+        messages: num(r.messages),
+      }))
+      // A kind from a newer build has no label here, and a session nobody wrote to was not used.
+      .filter((s) => AGENT_META[s.agentKind] !== undefined && s.messages > 0);
+  }
+
+  private topModels(): UsageRecords["models"] {
+    const by = new Map<string, { key: string; label: string; messages: number; sessions: number }>();
+    for (const s of this.sessionsWithMessages()) {
+      const { key, label } = modelKey(s.agentKind, s.model);
+      const row = by.get(key) ?? { key, label, messages: 0, sessions: 0 };
+      row.messages += s.messages; row.sessions += 1;
+      by.set(key, row);
+    }
+    return ranked([...by.values()], (r) => r.label);
+  }
+
+  /** Only efforts somebody chose. A session left on its engine's default has no effort to count, and
+   *  "Default" across engines would merge a dozen different settings into one row. */
+  private topEfforts(): UsageRecords["efforts"] {
+    const by = new Map<string, { effort: string; messages: number; sessions: number }>();
+    for (const s of this.sessionsWithMessages()) {
+      if (!s.effort) continue;
+      const row = by.get(s.effort) ?? { effort: s.effort, messages: 0, sessions: 0 };
+      row.messages += s.messages; row.sessions += 1;
+      by.set(s.effort, row);
+    }
+    return ranked([...by.values()], (r) => r.effort);
+  }
+
+  /** The skills agents loaded, by their `Skill` tool calls. `command` is the field older CLIs used. */
+  private topSkills(): UsageRecords["skills"] {
+    const by = new Map<string, number>();
+    for (const r of this.d.db.prepare(`
+      SELECT COALESCE(json_extract(payload_json, '$.input.skill'), json_extract(payload_json, '$.input.command')) AS skill, COUNT(*) AS n
+        FROM session_events
+       WHERE type = 'tool_call' AND json_extract(payload_json, '$.name') = 'Skill'
+       GROUP BY skill
+    `).all() as Row[]) {
+      const name = skillUseName(str(r.skill));
+      if (name) by.set(name, (by.get(name) ?? 0) + num(r.n));
+    }
+    return [...by.entries()]
+      .map(([name, uses]) => ({ name, uses }))
+      .sort((a, b) => b.uses - a.uses || a.name.localeCompare(b.name))
+      .slice(0, USAGE_RECORDS_TOP);
   }
 
   /* ── budget alerts ──────────────────────────────────────────────────────── */
@@ -219,15 +376,8 @@ export class UsageService {
     return out;
   }
 
-  /** Calendar-month spend, computed with the same rules as the page so the meter and the chart agree. */
-  private monthSpend(monthStart: number, priceFor: PriceLookup): number {
-    const end = startOfNextMonth(monthStart) - 1;
-    const ids = (this.d.db.prepare(
-      "SELECT DISTINCT session_id AS id FROM session_events WHERE type = 'usage' AND ts BETWEEN ? AND ?",
-    ).all(monthStart, end) as Row[]).map((r) => str(r.id));
-    if (ids.length === 0) return 0;
-
-    const samples = this.samplesFor(ids);
+  /** Each session's engine and model, chunked under SQLite's parameter ceiling like `samplesFor`. */
+  private sessionMeta(ids: readonly string[]): Map<string, { agentKind: AgentKind; model: string | null }> {
     const meta = new Map<string, { agentKind: AgentKind; model: string | null }>();
     for (let i = 0; i < ids.length; i += 400) {
       const chunk = ids.slice(i, i + 400);
@@ -237,6 +387,19 @@ export class UsageService {
         meta.set(str(r.id), { agentKind: str(r.agent_kind) as AgentKind, model: r.model === null ? null : str(r.model) });
       }
     }
+    return meta;
+  }
+
+  /** Calendar-month spend, computed with the same rules as the page so the meter and the chart agree. */
+  private monthSpend(monthStart: number, priceFor: PriceLookup): number {
+    const end = startOfNextMonth(monthStart) - 1;
+    const ids = (this.d.db.prepare(
+      "SELECT DISTINCT session_id AS id FROM session_events WHERE type = 'usage' AND ts BETWEEN ? AND ?",
+    ).all(monthStart, end) as Row[]).map((r) => str(r.id));
+    if (ids.length === 0) return 0;
+
+    const samples = this.samplesFor(ids);
+    const meta = this.sessionMeta(ids);
 
     let total = 0;
     for (const [id, list] of samples) {
@@ -265,11 +428,7 @@ export class UsageService {
       `SELECT type, COUNT(*) AS n FROM session_events ev WHERE ${scope} GROUP BY type`,
     ).all(...args) as Row[]) counts.set(str(r.type), num(r.n));
 
-    const topTools = (this.d.db.prepare(`
-      SELECT json_extract(ev.payload_json, '$.name') AS name, COUNT(*) AS n
-        FROM session_events ev WHERE ${scope} AND ev.type = 'tool_call'
-       GROUP BY name ORDER BY n DESC, name ASC LIMIT 8
-    `).all(...args) as Row[]).map((r) => ({ name: str(r.name) || "(unnamed)", calls: num(r.n) }));
+    const topTools = this.topTools(scope, args, 8);
 
     const mcpScope = p.spaceId || p.profileId
       ? `c.ts BETWEEN ? AND ? AND c.session_id IN (SELECT s.id FROM sessions s JOIN spaces sp ON sp.id = s.space_id WHERE ${[p.spaceId ? "s.space_id = ?" : null, p.profileId ? "sp.profile_id = ?" : null].filter(Boolean).join(" AND ")})`
@@ -299,6 +458,16 @@ export class UsageService {
       mcpCalls, mcpFailures: num(mcpAgg?.bad), mcpMedianMs: num(medianRow?.d),
       topTools, topMcpServers,
     };
+  }
+
+  /** The most-called tools under a `WHERE` fragment over `session_events ev` — the Activity card's
+   *  ranking, shared with the page about you so the two can never order tools differently. */
+  private topTools(scope: string, args: readonly (string | number)[], limit: number): { name: string; calls: number }[] {
+    return (this.d.db.prepare(`
+      SELECT json_extract(ev.payload_json, '$.name') AS name, COUNT(*) AS n
+        FROM session_events ev WHERE ${scope} AND ev.type = 'tool_call'
+       GROUP BY name ORDER BY n DESC, name ASC LIMIT ?
+    `).all(...args, limit) as Row[]).map((r) => ({ name: str(r.name) || "(unnamed)", calls: num(r.n) }));
   }
 
   /* ── prices ─────────────────────────────────────────────────────────────── */
@@ -347,6 +516,13 @@ function sliceUsage(
 }
 
 /* ── small pure helpers ─────────────────────────────────────────────────────── */
+
+/** A "most used" list: most messages first, then most sessions, then by name so a tie is stable. */
+function ranked<T extends { messages: number; sessions: number }>(rows: T[], name: (r: T) => string): T[] {
+  return rows
+    .sort((a, b) => b.messages - a.messages || b.sessions - a.sessions || name(a).localeCompare(name(b)))
+    .slice(0, USAGE_RECORDS_TOP);
+}
 
 export function startOfMonth(ts: number): number {
   const d = new Date(ts);

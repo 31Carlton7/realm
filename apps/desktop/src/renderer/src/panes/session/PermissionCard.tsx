@@ -4,6 +4,7 @@ import type { PermissionDecision } from "../../state/store";
 import type { PendingPermission } from "./transcript-model";
 import { clip, prettyJson, toolIcon, toolSummary } from "./tool-summary";
 import { ToolInputBody } from "./rich/ToolViews";
+import { useDissolve } from "../../components/ScrollFades";
 import { toolInputView } from "./rich/tool-view";
 
 /** §5's numbered-list pattern (`HJz3KMT`): the options are a list with kbd number chips, the
@@ -39,8 +40,11 @@ const optionsFor = (toolName: string): typeof OPTIONS => {
  *  Enter = the selected option, ⇧Enter = Allow always, ⌘⌫ = Deny, 1/2/3 pick an option outright,
  *  ↑/↓ move the selection, Esc denies. Buttons keep exact accessible names ("Allow", not "Allow 1")
  *  via aria-label; the number chips and footer hints are visual only. */
-export function PermissionCard({ permission, onDecide, autoFocus = false, enter = false }: {
+export function PermissionCard({ permission, onDecide, autoFocus = false, enter = false, ownsEscape = true }: {
   permission: PendingPermission; onDecide: (d: PermissionDecision) => void; autoFocus?: boolean; enter?: boolean;
+  /** False where the surface around the card owns Escape (the need-you list), so Escape leaves it
+   *  instead: the card then neither answers on Escape nor offers it as a key. */
+  ownsEscape?: boolean;
 }) {
   const summary = clip(toolSummary(permission.toolName, permission.input), 200);
   /* Plan 24 W1: the thing being approved, drawn. An Edit's diff, the command about to run, the host
@@ -48,6 +52,8 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
      The raw payload stays under the details below it: the drawing is what the reader decides on,
      the JSON is what they check when the drawing surprises them. */
   const preview = toolInputView(permission.toolName, permission.input);
+  const raw = useRef<HTMLPreElement>(null);
+  useDissolve(raw);
   const [selected, setSelected] = useState(0);
   const rows = useRef<(HTMLButtonElement | null)[]>([]);
   useEffect(() => { if (autoFocus) rows.current[0]?.focus(); }, [autoFocus]);
@@ -71,7 +77,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       if (control) return;
       e.preventDefault(); onDecide(e.shiftKey ? "allow_always" : OPTIONS[selected]!.decision);
     } else if (e.key === "Backspace" && e.metaKey) { e.preventDefault(); onDecide("deny"); }
-    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onDecide("deny"); }
+    else if (e.key === "Escape" && ownsEscape) { e.preventDefault(); e.stopPropagation(); onDecide("deny"); }
     else if (e.key === "ArrowDown") { e.preventDefault(); select(selected + 1); }
     else if (e.key === "ArrowUp") { e.preventDefault(); select(selected - 1); }
     // Bare digits only: ⌘1–9 is the app's switch-space binding, and a permission decision is the
@@ -82,7 +88,12 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
   };
 
   return (
-    <div className="permission-card" role="group" aria-label="Permission request" data-enter={enter || undefined} onKeyDown={onKeyDown}>
+    /* data-no-agent: nothing inside this card may be acted on by `app_act`, in any mode. An agent
+       able to press these buttons could approve the very request it is blocked on, and no permission
+       model survives that — every approval in Realm ends up as a button in this window. The claim
+       lives HERE, on the component that grants things, rather than as a label match in main, so
+       whoever next changes this card sees it. `app-drive.ts` carries the reasoning. */
+    <div className="permission-card" role="group" aria-label="Permission request" data-no-agent="permission request" data-enter={enter || undefined} onKeyDown={onKeyDown}>
       {/* §5: the amber wash is gone — colour survives as a 6px dot and a "Waiting" pill. */}
       <div className="permission-head">
         <span className="permission-dot" />
@@ -91,7 +102,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       </div>
       <div className="permission-tool"><Icon name={toolIcon(permission.toolName)} size={16} /><span className="tool-name">{permission.toolName}</span>{summary && <code>{summary}</code>}</div>
       {preview && <div className="permission-preview"><ToolInputBody view={preview} /></div>}
-      <details className="permission-details"><summary>{preview ? "Raw input" : "Input"}</summary><pre>{prettyJson(permission.input)}</pre></details>
+      <details className="permission-details"><summary>{preview ? "Raw input" : "Input"}</summary><pre ref={raw}>{prettyJson(permission.input)}</pre></details>
       <div className="permission-options">
         {optionsFor(permission.toolName).map((o, i) => (
           <button key={o.decision} ref={(el) => { rows.current[i] = el; }} className="permission-option"
@@ -105,7 +116,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       </div>
       <div className="permission-footer">
         <div className="permission-hints">
-          <span><kbd>↑↓</kbd> Navigate</span><span><kbd>↵</kbd> Select</span><span><kbd>esc</kbd> Deny</span>
+          <span><kbd>↑↓</kbd> Navigate</span><span><kbd>↵</kbd> Select</span>{ownsEscape && <span><kbd>esc</kbd> Deny</span>}
         </div>
         <button className="btn primary permission-submit" aria-label="Submit" onClick={() => onDecide(OPTIONS[selected]!.decision)}>
           Submit <kbd>↩</kbd>

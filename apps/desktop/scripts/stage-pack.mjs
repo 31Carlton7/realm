@@ -49,10 +49,20 @@ if (existsSync(pnpmDir)) {
 // 2. Bundled skills — bundledSkillsDir()'s packaged branch reads <resources>/skills.
 cpSync(join(root, "skills"), join(stage, "skills"), { recursive: true });
 
+// 2b. Laya's resources — bundledLayaDir()'s packaged branch reads <resources>/laya: the benchmark every
+// checkpoint is scored on, the training script and its lexicon, and the download's own evaluation.
+cpSync(join(root, "resources", "laya"), join(stage, "laya"), { recursive: true });
+
+// 2c. The device runner's SOURCE — deviceRunnerSourceDir()'s packaged branch reads
+// <resources>/ios-device-runner. Source, not a build: it is signed on the user's Mac with their own
+// identity, and the server copies it out before building, since the bundle is signed and read-only.
+cpSync(join(root, "resources", "ios-device-runner"), join(stage, "ios-device-runner"), { recursive: true });
+
 // 3. Swift helpers (each optional: absent when swiftc was unavailable, and each degrades on its own).
 for (const [binary, missing] of [
   ["scrollphase", "the app falls back to timer-based scroll phases"],
   ["axhelper", "the computer-use tools stay unavailable"],
+  ["phonescreen", "a real iPhone's picture is the runner's screenshots, about one a second"],
 ]) {
   const built = join(desktop, "native", "bin", binary);
   if (existsSync(built)) cpSync(built, join(stage, binary));

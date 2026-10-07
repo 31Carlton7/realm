@@ -1,9 +1,22 @@
 import { z } from "zod";
 import { newId } from "./ids";
 
+/**
+ * A leaf normally shows one item. A TABBED leaf (`tabs` present) holds several and shows the one in
+ * `itemId`, which is always one of them; the rest are open, just not on screen. That is what the
+ * window's side panel is: the browsers, devices, documents and sub-agent previews the sessions on
+ * screen opened, as tabs in one strip rather than a column each.
+ *
+ * Every tab belongs to a session: `owners[tab]` is the session ITEM it was opened for, which is how
+ * it leaves the screen with that session and comes back with it (view.ts). `owner` is how a Plan
+ * 26/27 side pane said the same thing for its whole strip, one strip per session; it is read, and
+ * never written.
+ *
+ * Not the pre-Plan-4 `{tabs, activeTab}` leaf `migrateShape` collapses: that one has no `itemId`.
+ */
 export type Layout =
   | { type: "split"; id: string; dir: "row" | "col"; sizes: number[]; children: Layout[] }
-  | { type: "leaf"; id: string; itemId: string | null };
+  | { type: "leaf"; id: string; itemId: string | null; tabs?: string[]; owner?: string; owners?: Record<string, string> };
 
 export type LayoutLeaf = Extract<Layout, { type: "leaf" }>;
 export type LayoutSplit = Extract<Layout, { type: "split" }>;
@@ -35,6 +48,16 @@ function dedupeItems(input: unknown): unknown {
   function walk(node: unknown): unknown {
     if (typeof node !== "object" || node === null) return node;
     const n = node as Record<string, unknown>;
+    if (n.type === "leaf" && Array.isArray(n.tabs)) {
+      // A tabbed leaf claims every tab, not just the one on screen, and its `itemId` is one of them
+      // or the leaf has nothing to show. An emptied tab strip is a plain empty leaf.
+      const tabs = [...new Set(n.tabs.filter((t): t is string => typeof t === "string"))].filter((t) => !seen.has(t));
+      for (const t of tabs) seen.add(t);
+      const { tabs: _drop, owner: _owner, owners: _owners, ...plain } = n;
+      if (tabs.length === 0) return { ...plain, itemId: null };
+      const itemId = typeof n.itemId === "string" && tabs.includes(n.itemId) ? n.itemId : tabs[0]!;
+      return { ...n, itemId, tabs };
+    }
     if (n.type === "leaf") {
       if (typeof n.itemId !== "string") return n;
       if (seen.has(n.itemId)) return { ...n, itemId: null };
@@ -64,7 +87,8 @@ const LayoutBaseSchema: z.ZodType<Layout> = z.lazy(() =>
   z.discriminatedUnion("type", [
     z.object({ type: z.literal("split"), id: z.string(), dir: z.enum(["row", "col"]),
       sizes: z.array(z.number()), children: z.array(LayoutBaseSchema) }),
-    z.object({ type: z.literal("leaf"), id: z.string(), itemId: z.string().nullable() }),
+    z.object({ type: z.literal("leaf"), id: z.string(), itemId: z.string().nullable(),
+      tabs: z.array(z.string()).optional(), owner: z.string().optional(), owners: z.record(z.string()).optional() }),
   ]),
 );
 
@@ -90,15 +114,21 @@ export const emptyLayout = (): LayoutLeaf => ({ type: "leaf", id: newId(), itemI
 
 /** Every open item, depth-first. The layout's "open set". */
 export function allItems(l: Layout): string[] {
-  return l.type === "leaf" ? (l.itemId ? [l.itemId] : []) : l.children.flatMap(allItems);
+  return l.type === "leaf" ? leafItems(l) : l.children.flatMap(allItems);
+}
+
+/** Everything a leaf holds: its tabs, or its one item. */
+export function leafItems(l: LayoutLeaf): string[] {
+  return l.tabs ?? (l.itemId ? [l.itemId] : []);
 }
 
 export function firstLeaf(l: Layout): LayoutLeaf {
   return l.type === "leaf" ? l : firstLeaf(l.children[0]!);
 }
 
+/** The leaf holding this item — on screen, or as a tab behind another. */
 export function findLeafOfItem(l: Layout, itemId: string): LayoutLeaf | null {
-  if (l.type === "leaf") return l.itemId === itemId ? l : null;
+  if (l.type === "leaf") return leafItems(l).includes(itemId) ? l : null;
   for (const c of l.children) { const f = findLeafOfItem(c, itemId); if (f) return f; }
   return null;
 }
@@ -133,10 +163,56 @@ function hasLeaf(l: Layout, leafId: string): boolean {
  *  kept: only the leaf the item vacated is pruned. */
 export function closeItem(l: Layout, itemId: string): Layout {
   const pruned = prune(l);
-  return pruned ?? { ...firstLeaf(l), itemId: null };
+  return pruned ?? plainLeaf({ ...firstLeaf(l), itemId: null });
 
   function prune(n: Layout): Layout | null {
+    if (n.type === "leaf" && n.tabs?.includes(itemId)) return closeTab(n, itemId);
     if (n.type === "leaf") return n.itemId === itemId ? null : n;
+    const kept: Layout[] = []; const sizes: number[] = [];
+    n.children.forEach((c, i) => { const p = prune(c); if (p) { kept.push(p); sizes.push(n.sizes[i] ?? 0); } });
+    if (kept.length === 0) return null;
+    if (kept.length === 1) return kept[0]!;
+    const total = sizes.reduce((a, b) => a + b, 0) || 1;
+    return { ...n, children: kept, sizes: sizes.map((s) => (s / total) * 100) };
+  }
+}
+
+/** A leaf with its tab strip and owners taken off — what a leaf is once it holds one thing or none. */
+function plainLeaf(l: LayoutLeaf): LayoutLeaf {
+  const { tabs: _t, owner: _o, owners: _os, ...plain } = l;
+  return plain;
+}
+
+/** A tab leaves its strip. The leaf goes with its last tab, and the tab beside a closed active one
+ *  comes on screen — the next one, else the one before, as every tab strip does it. */
+function closeTab(leaf: LayoutLeaf, itemId: string): LayoutLeaf | null {
+  const tabs = leaf.tabs!;
+  const at = tabs.indexOf(itemId);
+  const left = tabs.filter((t) => t !== itemId);
+  if (left.length === 0) return null;
+  const active = leaf.itemId === itemId ? left[Math.min(at, left.length - 1)]! : leaf.itemId;
+  return { ...leaf, itemId: active, tabs: left };
+}
+
+/**
+ * Remove an EMPTY leaf by id, pruning on the same terms `closeItem` does.
+ *
+ * Its own function rather than a branch in `closeItem`, because the two are keyed differently: an
+ * item can only be open in one leaf, while a deliberately-empty leaf has nothing to look it up by
+ * except where it is. `closeItem`'s own note says it keeps leaves that were already empty — this is
+ * how the one the user actually pointed at goes.
+ *
+ * A leaf holding an item is left alone: closing THAT is `closeItem`'s job, and pruning it here would
+ * lift an open session out of the layout from a control that only ever means "drop this empty box".
+ */
+export function closeLeaf(l: Layout, leafId: string): Layout {
+  const pruned = prune(l);
+  // The tree may not become nothing: the last leaf survives, same id, empty — which is exactly the
+  // state this function is usually asked to remove, and is the right answer when it is the only one.
+  return pruned ?? plainLeaf({ ...firstLeaf(l), itemId: null });
+
+  function prune(n: Layout): Layout | null {
+    if (n.type === "leaf") return n.id === leafId && n.itemId === null ? null : n;
     const kept: Layout[] = []; const sizes: number[] = [];
     n.children.forEach((c, i) => { const p = prune(c); if (p) { kept.push(p); sizes.push(n.sizes[i] ?? 0); } });
     if (kept.length === 0) return null;
@@ -152,11 +228,112 @@ export function closeItem(l: Layout, itemId: string): Layout {
 export function openItem(l: Layout, leafId: string | null, itemId: string): Layout {
   const existing = findLeafOfItem(l, itemId);
   const target0 = leafId !== null && hasLeaf(l, leafId) ? leafId : firstLeaf(l).id;
-  if (existing?.id === target0) return l;
+  // Already in this leaf: on screen, or a tab behind another that now comes to the front.
+  if (existing?.id === target0) return existing.itemId === itemId ? l : mapLeaves(l, (leaf) => (leaf.id === target0 ? { ...leaf, itemId } : leaf));
   const base = existing ? closeItem(l, itemId) : l;
   // closeItem may have pruned the target leaf's ancestor structure; re-check.
   const target = hasLeaf(base, target0) ? target0 : firstLeaf(base).id;
-  return mapLeaves(base, (leaf) => (leaf.id === target ? { ...leaf, itemId } : leaf));
+  // A tabbed leaf takes the item as a new tab, after the one on screen, rather than replacing it.
+  return mapLeaves(base, (leaf) => (leaf.id !== target ? leaf : leaf.tabs ? { ...leaf, itemId, tabs: withTab(leaf, itemId) } : { ...leaf, itemId }));
+}
+
+function withTab(leaf: LayoutLeaf, itemId: string): string[] {
+  const tabs = leaf.tabs ?? [];
+  const at = leaf.itemId ? tabs.indexOf(leaf.itemId) : -1;
+  return at < 0 ? [...tabs, itemId] : [...tabs.slice(0, at + 1), itemId, ...tabs.slice(at + 1)];
+}
+
+/** The session item a tab belongs to: its own, or — in a Plan 26/27 strip — the strip's. */
+export function tabOwner(leaf: LayoutLeaf, tab: string): string | undefined {
+  return leaf.owners?.[tab] ?? leaf.owner;
+}
+
+/** Every tab's session, written out — a Plan 26/27 strip's one `owner` becomes one per tab. */
+function ownersOf(leaf: LayoutLeaf): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const t of leaf.tabs ?? []) { const o = tabOwner(leaf, t); if (o) out[t] = o; }
+  return out;
+}
+
+/** The window's side panel — the tabbed leaf — or null while nothing is open in it. */
+export function findPanel(l: Layout): LayoutLeaf | null {
+  if (l.type === "leaf") return l.tabs ? l : null;
+  for (const c of l.children) { const f = findPanel(c); if (f) return f; }
+  return null;
+}
+
+/** The side panel when it holds a tab of this session item, or null. */
+export function findSidePane(l: Layout, ownerItemId: string): LayoutLeaf | null {
+  if (l.type === "leaf") return l.tabs?.some((t) => tabOwner(l, t) === ownerItemId) ? l : null;
+  for (const c of l.children) { const f = findSidePane(c, ownerItemId); if (f) return f; }
+  return null;
+}
+
+/** This session's own tabs in the side panel, in the strip's order. */
+export function sideTabsOf(l: Layout, ownerItemId: string): string[] {
+  const panel = findSidePane(l, ownerItemId);
+  return panel ? panel.tabs!.filter((t) => tabOwner(panel, t) === ownerItemId) : [];
+}
+
+/**
+ * Open `itemId` as a tab of the side panel, for the session item `ownerItemId`: in that session's run
+ * of the panel's strip, or in a new panel at the right of everything when nothing is open in one yet.
+ * Null when the session is not in this layout — there is nothing to be beside.
+ *
+ * One strip for everything the sessions on screen open is the point. Eight agent-opened browsers used
+ * to be eight columns a fifth of a window wide, every title an ellipsis; as tabs, the one showing gets
+ * the whole panel and the rest are a click away.
+ *
+ * `front` false adds the tab behind the one showing — an agent's open beside a person reading another
+ * session's tab (the store decides). A tab that is already there comes to the front and stays whose
+ * it was.
+ */
+export function openInSidePane(l: Layout, ownerItemId: string, itemId: string, opts: { front?: boolean } = {}): Layout | null {
+  if (ownerItemId === itemId) return null;
+  const front = opts.front ?? true;
+  const there = findPanel(l);
+  if (there?.tabs!.includes(itemId)) return front ? openItem(l, there.id, itemId) : l;
+  const base = findLeafOfItem(l, itemId) ? closeItem(l, itemId) : l;
+  const at = findLeafOfItem(base, ownerItemId);
+  if (!at) return null;
+  // The session is itself a tab — a sub-agent previewed beside its parent. What it opens is the
+  // parent's: a strip per agent is the column-per-agent layout again.
+  const owner = at.tabs ? tabOwner(at, ownerItemId) ?? ownerItemId : ownerItemId;
+  const panel = findPanel(base);
+  if (!panel) {
+    const fresh: LayoutLeaf = { type: "leaf", id: newId(), itemId, tabs: [itemId], owners: { [itemId]: owner } };
+    return { type: "split", id: newId(), dir: "row", sizes: equalSizes(2), children: [base, fresh] };
+  }
+  // After the tab showing when that one is the session's own, else after the session's last: its run
+  // stays one run (view.ts puts the runs in order).
+  const tabs = panel.tabs!;
+  const mine = tabs.filter((t) => tabOwner(panel, t) === owner);
+  const after = panel.itemId && tabOwner(panel, panel.itemId) === owner ? panel.itemId : mine.at(-1);
+  const i = after ? tabs.indexOf(after) + 1 : tabs.length;
+  const next = [...tabs.slice(0, i), itemId, ...tabs.slice(i)];
+  const owners = { ...ownersOf(panel), [itemId]: owner };
+  return mapLeaves(base, (leaf) => {
+    if (leaf.id !== panel.id) return leaf;
+    const { owner: _o, ...rest } = leaf;
+    return { ...rest, itemId: front ? itemId : leaf.itemId, tabs: next, owners };
+  });
+}
+
+/**
+ * Move a tab within its strip, to `index` among the tabs. Anything else is returned unchanged.
+ * `owner` hands the tab to another session — a tab dropped into another session's run is that
+ * session's from then on, and leaves the screen with it.
+ */
+export function moveTab(l: Layout, leafId: string, itemId: string, index: number, owner?: string): Layout {
+  return mapLeaves(l, (leaf) => {
+    if (leaf.id !== leafId || !leaf.tabs?.includes(itemId)) return leaf;
+    const rest = leaf.tabs.filter((t) => t !== itemId);
+    const at = Math.max(0, Math.min(index, rest.length));
+    const tabs = [...rest.slice(0, at), itemId, ...rest.slice(at)];
+    if (!owner || tabOwner(leaf, itemId) === owner) return { ...leaf, tabs };
+    const { owner: _o, ...plain } = leaf;
+    return { ...plain, tabs, owners: { ...ownersOf(leaf), [itemId]: owner } };
+  });
 }
 
 /** The shares a split is born with, and the ones `equalizeSplit` restores: every child the same. */

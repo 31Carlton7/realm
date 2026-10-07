@@ -1,10 +1,10 @@
-import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
-
-type QueryFn = typeof sdkQuery;
+/* The summary FIELD of a session's recap: its ceiling and its cleanup. The call that fills it
+   lives in `generate-session-recap.ts`, which answers this field and the prompter's hint together. */
 
 /** Two sentences of prose, and a hard ceiling so a model that ignores the brief cannot push the
- *  transcript's closing line into a paragraph. */
-const SUMMARY_MAX = 320;
+ *  transcript's closing line into a paragraph. The model is told this number too (see the system
+ *  prompt) — a budget it can write to is what keeps the ceiling from ever being reached. */
+export const SUMMARY_MAX = 400;
 
 /** How much transcript the model is shown. A summary is worth one small call, not a large one: the
  *  tail is where the answer is, and the ask at the top is passed separately so it survives the clip. */
@@ -21,63 +21,28 @@ export type SummaryInput = {
 };
 
 /**
- * A short, model-written account of what a session did.
+ * Strips the wrappers a model adds around prose it was told not to wrap, and clips an over-budget
+ * summary to whole sentences.
  *
- * The same one-shot shape as `generateSessionTitle`: the SDK's `query()` directly rather than a full
- * `ClaudeAdapter` session, `maxTurns: 1`, no tools, and the cheapest model in the fleet regardless of
- * what the SESSION is running. A summary is a nicety attached to every settled turn, so it is priced
- * like one — and being harness-independent is what lets a Codex or Cursor session have one at all.
+ * The clip keeps every COMPLETE sentence that fits and drops the one that does not, rather than
+ * cutting at the ceiling and marking the wound with an ellipsis. The model's habitual shape is a
+ * short opener ("You asked …") followed by a long second sentence, so a rule that demanded the cut
+ * land late in the window rejected the only sentence end there was and truncated mid-word every
+ * time — the trailing "…" was the ceiling showing through, not the model trailing off.
  *
- * The counts are handed in rather than asked for. A model reading a transcript will cheerfully
- * miscount the files it touched, and a summary that says "edited 8 files" when it was 3 is worse
- * than the derived line it replaced, because it reads like it was checked.
- *
- * Throws on any non-success result or empty text; callers treat that as "no summary" and keep the
- * derived one.
+ * An ellipsis remains possible for exactly one input: a first sentence that is itself over budget.
+ * There is no whole sentence to keep there, so the cut falls on a word boundary and says so.
  */
-export async function generateSessionSummary(input: SummaryInput, deps: { query?: QueryFn } = {}): Promise<string> {
-  const query = deps.query ?? sdkQuery;
-  const tail = input.transcript.length > TAIL_CHARS ? input.transcript.slice(-TAIL_CHARS) : input.transcript;
-  const q = query({
-    prompt: [
-      input.asked ? `The user opened with: ${input.asked}` : "",
-      input.facts ? `What Realm counted (these numbers are correct — use them, do not recount):\n${input.facts}` : "",
-      `Transcript (most recent part):\n${tail}`,
-    ].filter(Boolean).join("\n\n"),
-    options: {
-      maxTurns: 1,
-      allowedTools: [],
-      model: "claude-haiku-4-5",
-      systemPrompt: [
-        "You summarize a coding assistant's session for someone returning to it later.",
-        "Write at most two sentences of plain prose. Say what the user wanted and what actually",
-        "happened — what changed, what was decided, whether anything is unfinished or failed.",
-        "Prefer the outcome over the process; never narrate the steps in order.",
-        "Use the counts you are given verbatim and never invent your own.",
-        "Respond with ONLY the summary: no markdown, no bullet points, no preamble like",
-        '"This session". Write in past tense, and address the reader as "you" where the user acted.',
-      ].join(" "),
-    },
-  });
-  let result = "";
-  for await (const msg of q) {
-    if (msg.type === "result") {
-      if (msg.subtype !== "success") throw new Error(`summary generation failed: ${msg.subtype}`);
-      result = msg.result;
-    }
-  }
-  const text = cleanSummary(result);
-  if (!text) throw new Error("summary generation returned no text");
-  return text;
-}
-
-/** Strips the wrappers a model adds around prose it was told not to wrap, and clips to the ceiling
- *  on a sentence boundary where there is one — a summary cut mid-word reads as a truncation bug. */
 export function cleanSummary(text: string): string {
   const joined = text.trim().split(/\n{2,}/)[0]?.replace(/\s+/g, " ").trim() ?? "";
   const unquoted = joined.replace(/^["'“”]+|["'“”]+$/g, "").replace(/^(?:summary|tl;?dr)\s*:\s*/i, "").trim();
   if (unquoted.length <= SUMMARY_MAX) return unquoted;
+  // Searched one char past the ceiling so a sentence ending exactly ON it still counts: the space
+  // that proves it is a sentence end sits at index SUMMARY_MAX.
+  const window = unquoted.slice(0, SUMMARY_MAX + 1);
+  const lastStop = Math.max(window.lastIndexOf(". "), window.lastIndexOf("! "), window.lastIndexOf("? "));
+  if (lastStop >= 0) return window.slice(0, lastStop + 1);
   const cut = unquoted.slice(0, SUMMARY_MAX);
-  const lastStop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
-  return lastStop > SUMMARY_MAX / 2 ? cut.slice(0, lastStop + 1) : `${cut.trimEnd()}…`;
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd().replace(/[,;:]$/, "")}…`;
 }

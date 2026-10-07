@@ -1,8 +1,9 @@
 import { AGENT_META, SELECTABLE_AGENT_KINDS, type AgentKind, type Checkpoint, type RestorePreview, type RestoreResult } from "@realm/contracts";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useApp } from "../state/store";
 import { Menu } from "./Menu";
 import { Sheet } from "./Sheet";
+import { useDissolve } from "./ScrollFades";
 
 /**
  * The agents a fork may land on: the ancestor's own first, then every other selectable kind.
@@ -80,11 +81,17 @@ function Confirm({ preview }: { preview: RestorePreview }) {
       <p className="cp-note">
         Nothing is lost: the checkout as it is right now is captured first, and appears above as an undo point.
       </p>
-      {!preview.rewindsConversation && (
-        <p className="cp-note">
-          Files only — the agent keeps its memory of these turns. No agent Realm supports can rewind a conversation.
-        </p>
-      )}
+      {/* Both branches, because the old copy said no agent Realm supports can rewind a conversation and
+          that is no longer true: Claude's truncating resume can, when this checkpoint recorded the
+          cursors and the session still holds the provider conversation they name. The negative copy is
+          deliberately unspecific — it is true of every way a rewind can be unavailable (wrong agent, no
+          cursor recorded, a cursor the CLI refused, a conversation that has moved on) and naming one
+          of them here would be a guess. */}
+      <p className="cp-note">
+        {preview.rewindsConversation
+          ? "The conversation rewinds too: this session's transcript is cut back to this point, and the agent picks up from here with no memory of the turns after it."
+          : "Files only — the agent keeps its memory of these turns."}
+      </p>
       {!preview.headMovable && preview.headReason && (
         <p className="cp-note">The branch will not move: {preview.headReason}.</p>
       )}
@@ -127,6 +134,8 @@ export function CheckpointsSheet({ environmentId, sessionId }: { environmentId: 
   /** Which row's fork menu is open, whose agent it forks from, and the button it hangs off. */
   const [forkMenu, setForkMenu] = useState<{ checkpointId: string; ancestor: AgentKind | null; at: HTMLElement } | null>(null);
   const now = Date.now();
+  const scroller = useRef<HTMLUListElement>(null);
+  useDissolve(scroller);
 
   return (
     <Sheet title={preview ? "Restore this checkpoint?" : "Checkpoints"} onClose={closeSheet} width={520}>
@@ -142,7 +151,7 @@ export function CheckpointsSheet({ environmentId, sessionId }: { environmentId: 
                 {sessionId ? " in this session" : ""}.
               </p>
             )}
-            <ul className="cp-list">
+            <ul className="cp-list" ref={scroller}>
               {(list ?? []).map((c) => (
                 <li className="cp-row" key={c.id} data-kind={c.kind}>
                   <span className="cp-kind">{KIND_LABEL[c.kind]}</span>

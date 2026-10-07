@@ -32,7 +32,7 @@ export class LectureService {
     await writeAtomic(abs, lectureTemplate({ course: space.name, title: p.title, date }));
     this.d.documents.noteWrite(abs, null);
     const opened = await this.d.documents.openPath({ spaceId: p.spaceId, path: rel });
-    return { path: rel, ...opened };
+    return { ...opened, path: rel };
   }
 
   /** Every `.md` under `lectures/`, newest date first (undated last, by name). */

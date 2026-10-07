@@ -1,12 +1,95 @@
 import { readFile, stat } from "node:fs/promises";
-import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, newId, sessionEvent, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { spawn as nodeSpawn } from "node:child_process";
+import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
+import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
-import { createSdkMapper } from "./map-sdk-message";
+import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaude } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 
 type QueryFn = typeof sdkQuery;
+/** The keys `Settings` actually declares. The SDK's type ends in `[k: string]: unknown`, so a
+ *  `satisfies Settings` passes any misspelling; this is the same type without that catch-all. */
+type DeclaredSettings = { [K in keyof Settings as string extends K ? never : number extends K ? never : K]?: Settings[K] };
+/** A model id without its bracketed variant: `claude-opus-5-5[1m]` is the 1M-context build of
+ *  `claude-opus-5-5`, the same model to everything but the window. */
+const modelBase = (id: string | undefined): string | undefined => id?.replace(/\[[^\]]*\]$/, "");
+
+/**
+ * The CLI's fast-mode answer for every model in its `supportedModels()` list, keyed the way a
+ * prompter that has started nothing will ask: by the id a session would pin, or "" for the CLI's own
+ * `default` row — what a session with no model runs.
+ *
+ * The same precedence `reportFastModeSupport` uses for one model, applied to all of them: an entry
+ * naming the id itself outranks a context-window variant of it (`opus[1m]` → `claude-opus-5-5[1m]`),
+ * and a variant only speaks for an id nothing else has named. Rows that state nothing are skipped —
+ * silence is not a `no`.
+ */
+/** The levels the SDK's `effort` takes (`EffortLevel`). A session's level can come from another
+ *  harness — Codex's `minimal`, kept across an agent switch — and that is one Claude has no word for. */
+const CLAUDE_EFFORTS: ReadonlySet<string> = new Set<EffortLevel>(["low", "medium", "high", "xhigh", "max"]);
+const claudeEffort = (e: string | null | undefined): EffortLevel | undefined => (e && CLAUDE_EFFORTS.has(e) ? e as EffortLevel : undefined);
+
+/**
+ * The CLI's effort levels for every model in its `supportedModels()` list, keyed the way
+ * `fastModeByModel` keys its answers. `supportsEffort: false` is an answer — no levels at all — and a
+ * row that says nothing about effort is left out rather than filed as either.
+ */
+export function effortByModel(rows: readonly { value: string; resolvedModel?: string; supportsEffort?: boolean; supportedEffortLevels?: readonly string[] }[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const r of rows) {
+    const levels = r.supportsEffort === false ? [] : Array.isArray(r.supportedEffortLevels) ? r.supportedEffortLevels.filter((l) => CLAUDE_EFFORTS.has(l)) : null;
+    if (levels === null) continue;
+    const isDefault = r.value === "default";
+    if (isDefault) out[""] = levels;
+    const base = modelBase(isDefault ? r.resolvedModel : r.resolvedModel ?? r.value);
+    if (!base) continue;
+    if (!isDefault && (r.value === base || r.resolvedModel === base)) out[base] = levels;
+    else if (!(base in out)) out[base] = levels;
+  }
+  return out;
+}
+
+export function fastModeByModel(rows: readonly { value: string; resolvedModel?: string; supportsFastMode?: boolean }[]): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  for (const r of rows) {
+    if (typeof r.supportsFastMode !== "boolean") continue;
+    const isDefault = r.value === "default";
+    if (isDefault) out[""] = r.supportsFastMode;
+    const base = modelBase(isDefault ? r.resolvedModel : r.resolvedModel ?? r.value);
+    if (!base) continue;
+    if (!isDefault && (r.value === base || r.resolvedModel === base)) out[base] = r.supportsFastMode;
+    else if (!(base in out)) out[base] = r.supportsFastMode;
+  }
+  return out;
+}
+
+/**
+ * The truncating half of a resume: put the model back where a checkpoint found it.
+ *
+ * `resumeAt` is a chain-entry uuid of the session named by `resume`, and `resumeDropsTurn` is the
+ * prompt uuid of the one turn past it that the caller means to discard. They ride TOGETHER or not at
+ * all: `resumeSessionAt` alone is the SDK's unvalidated truncation, which would silently discard a
+ * queued message or a task notification the session absorbed mid-turn, and refusing to do that
+ * silently is the entire point of the pair.
+ *
+ * Declared here rather than on `StartOptions` because these two fields are Claude's and no other
+ * adapter has anything to map them onto (`AGENT_CONVERSATION_REWIND` says why). They reach `start` as
+ * extra properties on the options object, which is structurally what `StartOptions` permits; promoting
+ * them into `StartOptions` proper is a one-line change in `../types` whenever a second agent gains a
+ * truncating resume, and this type then collapses into it.
+ *
+ * PRINT/HEADLESS LANE ONLY, and this adapter is on it: the pair is honoured by the print-mode CLI, the
+ * Agent SDK and ProcessTransport. An interactive `claude --resume` accepts both and ignores them — no
+ * truncation, no guard, no error — so nothing here may be reused to drive an interactive boot and go on
+ * expecting the guard to be armed.
+ */
+export type ClaudeResumeFork = { resumeAt?: string | null; resumeDropsTurn?: string | null };
+
+/** What `ClaudeAdapter.start` really returns: an `AgentHandle` that can also say where the provider's
+ *  chain stood at the end of the last settled turn. Every other adapter returns a bare handle, because
+ *  none of the other wires carries a chain entry to report. */
+export type ClaudeHandle = AgentHandle & { chainCursor(): ChainCursor };
 
 /**
  * `Options.mcpServers` for the SDK: a record keyed by name (`sdk.d.ts:1734`), whose members are the
@@ -88,8 +171,45 @@ export function claudeSdkPermissionMode(mode: string | null | undefined): string
   return mode === ASK_PERMISSION_MODE || !mode ? "default" : mode;
 }
 
+/** Who asks when Claude's own `AskUserQuestion` reaches the card. */
+const CLAUDE_ASKER = { kind: "agent", name: "Claude", agent: "claude" } as const;
+
 const STDERR_TAIL_LINES = 50;
 const DISPOSE_TIMEOUT_MS = 3000;
+
+/**
+ * The CLI subprocess, started through Realm's execution sandbox instead of plainly.
+ *
+ * Installed as `Options.spawnClaudeCodeProcess` and ONLY when a wrap was supplied — see the option
+ * for why standing aside matters for everyone else.
+ *
+ * `wrap` is called outside any `try`: it throws when Seatbelt cannot be applied, and that throw has
+ * to travel — the SDK reports it as a process that would not start, which is exactly the outcome a
+ * session in a sandboxed space must have. There is no branch here that spawns `o.command` unchanged.
+ *
+ * Two details the SDK's own `spawnLocalProcess` does that a bare `spawn` would not:
+ *
+ *  - **stderr is drained.** `SpawnedProcess` has no stderr field, so once a custom spawner is in
+ *    play the SDK never reads the child's stderr. A piped-and-unread stderr fills at the OS buffer
+ *    (~64KB) and then BLOCKS the CLI mid-write. Draining it into `onStderr` both prevents that and
+ *    keeps the diagnostic tail this adapter already builds from `Options.stderr`.
+ *  - **`signal` is passed through.** It is the SDK's forwarded abort, which fires only after its
+ *    stdin-EOF + grace window (`sdk.d.ts`), so hanging Node's kill on it does not race the CLI's own
+ *    graceful shutdown.
+ */
+function spawnWrapped(o: SpawnOptions, wrap: NonNullable<StartOptions["wrap"]>, onStderr: (data: string) => void): SpawnedProcess {
+  const { command, args } = wrap(o.command, o.args);
+  const child = nodeSpawn(command, args, { cwd: o.cwd, env: o.env, signal: o.signal, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (data: string) => onStderr(data));
+  // Unhandled, a stream 'error' takes the whole server down with an uncaughtException. The child
+  // dying is reported by 'exit'; a stderr read that failed is only a lost diagnostic.
+  child.stderr?.on("error", () => {});
+  // `sdk.d.ts`: "ChildProcess already satisfies this interface." The only difference TypeScript can
+  // see is that `stdin`/`stdout` are nullable on ChildProcess and not on SpawnedProcess — and
+  // `stdio: ["pipe","pipe","pipe"]` three lines up is what makes them non-null here.
+  return child as unknown as SpawnedProcess;
+}
 
 /** Claude adapter on the Agent SDK in streaming-input mode. `canUseTool` is bridged to permission_request/response events. */
 export class ClaudeAdapter implements AgentAdapter {
@@ -99,12 +219,12 @@ export class ClaudeAdapter implements AgentAdapter {
 
   async probe(): Promise<ProbeResult> { const p = await probeClaude(); return { kind: this.kind, ...p }; }
 
-  start(opts: StartOptions): AgentHandle {
+  start(opts: StartOptions & ClaudeResumeFork): ClaudeHandle {
     const events = new AsyncQueue<SessionEvent>();
     const input = new AsyncQueue<SDKUserMessage>();
-    const pending = new Map<string, { resolve: (r: PermissionResult) => void; suggestions: PermissionUpdate[]; input: Record<string, unknown> }>();
+    const pending = new Map<string, { resolve: (r: PermissionResult) => void; suggestions: PermissionUpdate[]; input: Record<string, unknown>; ask: AskCard | null }>();
     const abort = new AbortController();
-    const mapper = createSdkMapper();
+    const mapper = createSdkMapper({ resumed: Boolean(opts.resume) });
     const stderrTail: string[] = [];
     let q: Query | null = null;
     // Tracked rather than read off `options`, because Ask has to hold on a LIVE session: the mode can
@@ -114,6 +234,12 @@ export class ClaudeAdapter implements AgentAdapter {
     let running = false;
     let sawResult = false;
     let disposed = false;
+    /* Fast mode as ASKED: what the session wants right now, and what the turn in flight was sent
+       under. Two, because a switch flipped mid-turn is about the NEXT turn — the report this turn
+       ends with describes the old request, and has to say so or a stale refusal reads as a fresh
+       one. */
+    let fastRequested = opts.fastMode === true;
+    let turnFast = fastRequested;
 
     const onStderr = (data: string) => {
       for (const line of data.split("\n")) {
@@ -127,13 +253,16 @@ export class ClaudeAdapter implements AgentAdapter {
 
     // `answers` (AskUserQuestion) rides back as `updatedInput`: the SDK reads the user's choices off the
     // tool's own arguments, so answering a question IS allowing the call with the answers filled in.
-    const resolvePermission = (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => {
+    // They are held to the card first, and the log keeps a mark where a masked one was: the answer goes
+    // to Claude, who asked for it, but `permission_response` is persisted and broadcast to every window.
+    const resolvePermission = (requestId: string, d: PermissionDecision, answers?: AskAnswers) => {
       const p = pending.get(requestId); if (!p) return;
       pending.delete(requestId);
-      events.push(sessionEvent("permission_response", { requestId, decision: d, ...(answers ? { answers } : {}) }));
+      const given = p.ask && answers ? normalizeAnswers(p.ask, answers) : undefined;
+      events.push(sessionEvent("permission_response", { requestId, decision: d, ...(p.ask && given ? { answers: loggableAnswers(p.ask, given) } : {}) }));
       if (d === "deny") p.resolve({ behavior: "deny", message: "User denied" });
       else if (d === "allow_always") p.resolve({ behavior: "allow", updatedPermissions: p.suggestions });
-      else p.resolve({ behavior: "allow", ...(answers ? { updatedInput: { ...p.input, answers } } : {}) });
+      else p.resolve({ behavior: "allow", ...(given ? { updatedInput: { ...p.input, answers: claudeAnswers(given) } } : {}) });
     };
     const denyAllPending = () => { for (const id of [...pending.keys()]) resolvePermission(id, "deny"); };
 
@@ -148,10 +277,13 @@ export class ClaudeAdapter implements AgentAdapter {
       }
       const requestId = newId();
       const suggestions = o.suggestions ?? [];
+      // A question travels on this channel too, and is marked as one HERE — from the SDK's own tool
+      // name, never from anything in its arguments — so the card that draws it is the question card.
+      const ask = toolName === "AskUserQuestion" ? askCardFromAskUserQuestion(toolInput, CLAUDE_ASKER) : null;
       if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
-      events.push(sessionEvent("permission_request", { requestId, toolName, input: toolInput, title: o.title ?? `Allow ${toolName}?`, suggestions: suggestions as unknown[] }));
+      events.push(sessionEvent("permission_request", { requestId, toolName, input: toolInput, title: o.title ?? `Allow ${toolName}?`, suggestions: suggestions as unknown[], ...(ask ? { ask } : {}) }));
       const result = await new Promise<PermissionResult>((resolve) => {
-        pending.set(requestId, { resolve, suggestions, input: toolInput as Record<string, unknown> });
+        pending.set(requestId, { resolve, suggestions, input: toolInput as Record<string, unknown>, ask });
         o.signal.addEventListener("abort", () => {
           if (!pending.delete(requestId)) return;
           events.push(sessionEvent("permission_response", { requestId, decision: "deny" }));
@@ -165,12 +297,29 @@ export class ClaudeAdapter implements AgentAdapter {
     const options: Options = {
       cwd: opts.cwd,
       model: opts.model ?? undefined,
-      effort: (opts.effort ?? undefined) as Options["effort"],
+      effort: claudeEffort(opts.effort),
       permissionMode: claudeSdkPermissionMode(opts.permissionMode) as Options["permissionMode"],
       canUseTool,
       includePartialMessages: true,
       abortController: abort,
+      // The SDK FORKS to a new session id on resume rather than continuing the old one, which is why
+      // the init event below can only claim the request was accepted — see `resumeOutcome` in the
+      // contract. There is no rejection to catch: an unusable id surfaces as an ordinary boot error.
       resume: opts.resume ?? undefined,
+      // …and, when a checkpoint restore armed one, the truncating form of that resume: keep the
+      // conversation up to `resumeSessionAt` and drop the single turn `resumeDropsTurn` names.
+      //
+      // All three or none. Without `resume` there is no session to truncate, and without
+      // `resumeDropsTurn` the SDK performs an UNVALIDATED truncation — which would quietly discard
+      // anything else that landed past the fork point (a queued user message, a task notification)
+      // rather than refusing. The refusal is the feature; the unguarded form is not one Realm wants.
+      //
+      // This IS the rejection to catch that plain `resume` has none of: the guard answers with an
+      // `error_during_execution` result whose message starts `Resume rejected by --resume-drops-turn:`.
+      // It is deterministic, so `SessionService` maps it to a recovery path and never retries it.
+      ...(opts.resume && opts.resumeAt && opts.resumeDropsTurn
+        ? { resumeSessionAt: opts.resumeAt, resumeDropsTurn: opts.resumeDropsTurn }
+        : {}),
       systemPrompt: opts.systemContext ? { type: "preset", preset: "claude_code", append: opts.systemContext } : undefined,
       // A RECORD keyed by name, not an array: `sdk.d.ts` `mcpServers?: Record<string, McpServerConfig>`.
       // Some documentation shows an array; disk wins.
@@ -195,11 +344,31 @@ export class ClaudeAdapter implements AgentAdapter {
       env: { ...process.env, ...opts.env },
       stderr: onStderr,
       pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN,
+      // Realm's execution sandbox. The SDK owns the argv — which node, which cli.js, which flags —
+      // so there is nowhere else to stand: `spawnClaudeCodeProcess` is the SDK's own documented seam
+      // for running the CLI somewhere other than plainly here (`sdk.d.ts`: "Use this to run Claude
+      // Code in VMs, containers, or remote environments"), and it is handed the exact command and
+      // args it was about to spawn.
+      //
+      // Present ONLY when the server passed a wrap — i.e. only for a space that is actually
+      // sandboxed. Installing it unconditionally would put Realm's spawn in front of the SDK's for
+      // everybody, including the users this release ships `off` for, and the SDK's own
+      // `spawnLocalProcess` does more than `spawn` (windowsHide, a stderr tail, an exit it delays
+      // until stderr closes). Standing aside is the only way to promise them an unchanged process.
+      ...(opts.wrap ? { spawnClaudeCodeProcess: (so) => spawnWrapped(so, opts.wrap!, onStderr) } : {}),
       // Asked for at start AND re-assertable mid-session (see setOptions). Passing it here rather
       // than only through `applyFlagSettings` is what makes the FIRST turn of a session that was
       // switched on before it started run fast — the flag layer can only be written once a query
       // exists, and by then the first prompt is already on its way.
-      ...(opts.fastMode ? { fastMode: true } : {}),
+      //
+      // Inside `settings`, which is the flag layer, and NOT as a top-level option. `fastMode` is a
+      // Settings key; `Options` has no field of that name, so the top-level spread this used to be
+      // was dropped without a word and no session ever started fast. The CLI's own gate is the
+      // reason it has to be this layer: running under the SDK, fast mode is offered only when
+      // `flagSettings.fastMode === true`, and otherwise every turn reports `sdk_opt_in_required`.
+      // Checked against the keys `Settings` declares, because nothing else would check it: a spread
+      // is never checked for excess keys (the old line compiled), and `Settings` takes any key.
+      ...(opts.fastMode ? { settings: { fastMode: true } satisfies DeclaredSettings } : {}),
     };
 
     /**
@@ -221,10 +390,104 @@ export class ClaudeAdapter implements AgentAdapter {
       try {
         const rows = await q?.supportedModels();
         if (!rows || disposed) return;
-        const hit = rows.find((r) => r.value === init.model || r.resolvedModel === init.model);
-        if (hit?.supportsFastMode === undefined) return;
-        events.push(sessionEvent("init", { ...init, supportsFastMode: hit.supportsFastMode }));
+        // Exact first, then the same model under another context window. The CLI lists some models
+        // ONLY as a variant — Opus 5.5 appears as `default` and `opus[1m]`, both resolving to
+        // `claude-opus-5-5[1m]` — so a session that picked plain `claude-opus-5-5` was never found,
+        // and its Speed control never appeared at all. The CLI serves fast mode on the plain id
+        // (checked live: `fast_mode_state: "on"`). An entry naming this very id still wins over a
+        // variant of it.
+        const base = modelBase(init.model);
+        const hit = rows.find((r) => r.value === init.model || r.resolvedModel === init.model)
+          ?? rows.find((r) => modelBase(r.value) === base || modelBase(r.resolvedModel) === base);
+        const all = fastModeByModel(rows);
+        const efforts = effortByModel(rows);
+        if (hit?.supportsFastMode === undefined && Object.keys(all).length === 0 && Object.keys(efforts).length === 0) return;
+        events.push(sessionEvent("init", { ...init,
+          ...(hit?.supportsFastMode === undefined ? {} : { supportsFastMode: hit.supportsFastMode }),
+          ...(Object.keys(all).length > 0 ? { fastModeModels: all } : {}),
+          ...(Object.keys(efforts).length > 0 ? { effortModels: efforts } : {}) }));
       } catch { /* the CLI declined; the capability stays unstated */ }
+    };
+
+    /** A utilization percentage, or null for anything that is not a finite number — the SDK types
+     *  these as nullable and a `null` drawn as 0% would read as an empty window. */
+    const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    /** The control request's `resets_at`, an ISO-8601 string ("ISO 8601 timestamp when the window
+     *  resets" in the CLI's own schema), as epoch ms. */
+    const millis = (v: unknown): number | null => {
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      if (typeof v !== "string") return null;
+      const t = Date.parse(v);
+      return Number.isNaN(t) ? null : t;
+    };
+
+    /**
+     * The stream's `rate_limit_info` is the API's rate-limit headers, in their units, which are not the
+     * control request's: `utilization` is a FRACTION (the CLI draws it as `Math.floor(utilization *
+     * 100)`) and `resetsAt` is epoch SECONDS (it waits until `resetsAt * 1000`). The control request
+     * answers in percent and ISO strings. Read as if they matched, an 86% week showed as "at 1%" and
+     * its reset as a day in January 1970 — so the stream's reading is put in the panel's units here,
+     * before the two are merged into one window.
+     */
+    const streamPercent = (v: unknown): number | null => { const n = num(v); return n === null ? null : n * 100; };
+    const streamMillis = (v: unknown): number | null => { const n = num(v); return n === null ? null : n * 1000; };
+
+    /**
+     * Ask the CLI for the whole plan picture — every rate-limit window, plus the subscription tier.
+     *
+     * The stream's `rate_limit_event` names ONE window (the one that just moved) and the account's
+     * status; this control request answers the rest, which is what a panel showing "5-hour, weekly,
+     * and the per-model windows" needs. Called once after the handshake and again whenever the
+     * stream says something changed, so the panel is populated before the first limit moves.
+     *
+     * Two properties of the SDK shape the code has to respect:
+     *
+     *  - Fable (and every future model bucket) arrives in `rate_limits.model_scoped[]` under a
+     *    server-supplied `display_name`, NOT under a fixed key like `seven_day_opus`. So the array is
+     *    read generically and the label is the server's word, never one written here.
+     *  - `rate_limits_available: false` is a real answer, not an error: an API key, Bedrock or Vertex
+     *    session has no plan quota. It becomes `not-on-a-plan` so the panel says that instead of
+     *    drawing empty bars.
+     *
+     * The method is named `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`, and this is
+     * the whole of Realm's exposure to it: every failure mode — renamed, removed, throwing — lands in
+     * the catch and leaves the last stream-reported window standing on its own.
+     */
+    const readPlanLimits = async (): Promise<SessionEventPayload<"rate_limit"> | null> => {
+      const ask = (q as { usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown> } | undefined)
+        ?.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+      if (typeof ask !== "function") return null;
+      try {
+        const res = await ask.call(q) as {
+          subscription_type?: unknown; rate_limits_available?: unknown;
+          rate_limits?: Record<string, unknown> | null;
+        };
+        if (disposed) return null;
+        const subscriptionType = typeof res.subscription_type === "string" ? res.subscription_type : null;
+        if (res.rate_limits_available === false) {
+          return { subscriptionType, organization: null, windows: [], alert: "none", alertWindow: null, unavailable: "not-on-a-plan", detail: null };
+        }
+        const limits = res.rate_limits;
+        if (!limits || typeof limits !== "object") return null;
+        const windows: PlanWindow[] = [];
+        for (const [id, value] of Object.entries(limits)) {
+          if (id === "model_scoped") {
+            // The server's own label is the id here, because there is no key to use instead.
+            for (const bucket of Array.isArray(value) ? value : []) {
+              const b = bucket as { display_name?: unknown; utilization?: unknown; resets_at?: unknown };
+              if (typeof b?.display_name !== "string") continue;
+              windows.push({ id: `model:${b.display_name}`, label: planWindowLabel(`model:${b.display_name}`), utilization: num(b.utilization), resetsAt: millis(b.resets_at) });
+            }
+            continue;
+          }
+          const w = value as { utilization?: unknown; resets_at?: unknown } | null;
+          if (!w || typeof w !== "object" || !("utilization" in w || "resets_at" in w)) continue;
+          windows.push({ id, label: planWindowLabel(id), utilization: num(w.utilization), resetsAt: millis(w.resets_at) });
+        }
+        return { subscriptionType, organization: null, windows, alert: "none", alertWindow: null, unavailable: null, detail: null };
+      } catch {
+        return null; // experimental and allowed to vanish; the stream still reports one window
+      }
     };
 
     /**
@@ -279,6 +542,10 @@ export class ClaudeAdapter implements AgentAdapter {
               providerSessionId: String(i.session_id ?? ""), model: String(i.model ?? ""),
               tools: Array.isArray(i.tools) ? i.tools.map(String) : [], cwd: String(i.cwd ?? opts.cwd),
             });
+            // The plan panel should be answerable before any limit moves, so it is read once here
+            // rather than waiting for the first `rate_limit_event` — which on a quiet account may
+            // never come. Off the message loop, like the fast-mode probe above it.
+            void readPlanLimits().then((p) => { if (p && !disposed) events.push(sessionEvent("rate_limit", p)); }).catch(() => {});
             if (!running) events.push(sessionEvent("status", { status: "idle" })); // init arrives after the first send in streaming mode
             continue;
           }
@@ -286,9 +553,16 @@ export class ClaudeAdapter implements AgentAdapter {
             // A cancelled turn still reports its usage — the tokens were spent — but its error is
             // the cancellation, and that is what the settle below says instead.
             let usage: SessionEventPayload<"usage"> | null = null;
-            for (const e of mapper.map(msg)) {
-              if (interrupted && e.type === "error") continue;
-              if (e.type === "usage") usage = e.payload;
+            for (const mapped of mapper.map(msg)) {
+              if (interrupted && mapped.type === "error") continue;
+              let e = mapped;
+              if (e.type === "usage") {
+                // Stamped here rather than in the mapper, which sees only the SDK's message and not
+                // what this session asked for. Carried on the persisted event, so a transcript read
+                // back after a restart still knows which request a refusal was about.
+                e = sessionEvent("usage", { ...e.payload, fastModeRequested: turnFast });
+                usage = e.payload;
+              }
               events.push(e);
             }
             // Off the message loop: the meter is worth a beat of lateness and nothing else on this
@@ -301,6 +575,25 @@ export class ClaudeAdapter implements AgentAdapter {
             // suite yields its fixture once per session, so a second turn cannot be driven through
             // it — this line is the reason that mutant is not reachable there, not an oversight.)
             interrupted = false;
+            continue;
+          }
+          if (msg.type === "rate_limit_event") {
+            const info = (msg as { rate_limit_info?: Record<string, unknown> }).rate_limit_info ?? {};
+            const status = info.status;
+            const alert: PlanAlert = status === "rejected" ? "exceeded" : status === "allowed_warning" ? "approaching" : "none";
+            const id = typeof info.rateLimitType === "string" ? info.rateLimitType : null;
+            const window: PlanWindow[] = id
+              ? [{ id, label: planWindowLabel(id), utilization: streamPercent(info.utilization), resetsAt: streamMillis(info.resetsAt) }]
+              : [];
+            // The full picture first, so a panel opened on this event shows every window rather than
+            // only the one that moved. Its `alert` is always "none" — the control request reports
+            // quotas, not status — so the stream's verdict is laid over it here.
+            const full = await readPlanLimits();
+            const merged = full
+              ? { ...full, windows: mergeWindows(full.windows, window), alert, alertWindow: id }
+              : { subscriptionType: null, organization: null, windows: window, alert, alertWindow: id,
+                  unavailable: null, detail: typeof info.overageDisabledReason === "string" ? info.overageDisabledReason : null };
+            events.push(sessionEvent("rate_limit", merged));
             continue;
           }
           for (const e of mapper.map(msg)) events.push(e);
@@ -354,6 +647,10 @@ export class ClaudeAdapter implements AgentAdapter {
 
     return {
       events,
+      /** Where the provider's chain stood at the end of the last SETTLED turn. Read by the server on
+       *  the settle, which is the only moment the answer is both complete and not yet overwritten by
+       *  the next turn — see the mapper's freeze. */
+      chainCursor: () => mapper.chain(),
       send: async (m: UserMessage) => {
         if (disposed || input.isClosed) { events.push(sessionEvent("error", { message: "session ended" })); return; }
         let images: Array<Record<string, unknown>>;
@@ -361,6 +658,7 @@ export class ClaudeAdapter implements AgentAdapter {
         catch (e) { events.push(sessionEvent("error", { message: `attachment error: ${(e as Error).message ?? String(e)}` })); return; }
         if (disposed || input.isClosed) { events.push(sessionEvent("error", { message: "session ended" })); return; }
         running = true;
+        turnFast = fastRequested;
         events.push(sessionEvent("status", { status: "running" }));
         // A resolved @-mention (W4) becomes `/realm:<name>` at POSITION 0 — the only place the SDK
         // dispatches a slash command; mid-text it is literal characters. The rest of the message rides
@@ -399,7 +697,14 @@ export class ClaudeAdapter implements AgentAdapter {
         // `fastMode` is a settings key, so the flag layer is how it moves mid-session — the same
         // layer `query()`'s inline `settings` writes, above user and project settings and below
         // managed policy. There is no `setFastMode`, and there does not need to be.
-        if (o.fastMode !== undefined) await q?.applyFlagSettings({ fastMode: o.fastMode });
+        if (o.fastMode !== undefined) { fastRequested = o.fastMode; await q?.applyFlagSettings({ fastMode: o.fastMode }); }
+        // The level moves the same way. `effortLevel: null` is the SDK's own "back to the model's
+        // default effort" (`applyFlagSettings`), which is what a reset in the picker means; a level the
+        // SDK has no word for is not sent at all.
+        if (o.effort !== undefined) {
+          const level = o.effort === null ? null : claudeEffort(o.effort);
+          if (level !== undefined) await q?.applyFlagSettings({ effortLevel: level });
+        }
         if (o.permissionMode) {
           // Realm's own record moves FIRST: it is what the gate above reads, and it must hold even
           // if the SDK call throws.

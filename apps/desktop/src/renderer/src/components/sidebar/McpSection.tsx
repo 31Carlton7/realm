@@ -87,6 +87,7 @@ export function McpSection({ spaceId }: { spaceId: string }) {
           </Sheet>
         )}
         <RealmProviders spaceId={spaceId} />
+        <SignInSwitch spaceId={spaceId} />
         {agentKinds.length > 0 && (
           <ul className="mcp-agent-notes">
             {agentKinds.map((k) => (
@@ -110,7 +111,16 @@ export function McpSection({ spaceId }: { spaceId: string }) {
  * Realm-native gateway toolsets (`realm-browser`, `realm-agent`), rendered as rows like the servers
  * above but honestly different: no status dot (they are in-process — there is no connection to have
  * checked), no editor, no scope moves (they are code, not config — the same in every profile), just
- * this space's switch. Default ON, per `mcp.setProviderEnabled`'s rationale.
+ * this space's switch.
+ *
+ * The rows are built from whatever the gateway reports, so a provider added in app.ts appears here
+ * without a line of work — which is also why the hint below does not say "on by default" flatly any
+ * more. Three of them are not: `realm-computer`, `realm-vm` and `realm-app` start off, and the hint
+ * names the property they share rather than listing them, so it stays true as the list grows.
+ *
+ * The switch is what the space ASKED for. A provider that needs something this Mac may not have —
+ * the simulator tools, without Xcode or Android Studio — also reports what HAPPENED (`offered`), and
+ * where the two differ the row shows that instead of a switch claiming otherwise.
  */
 function RealmProviders({ spaceId }: { spaceId: string }) {
   const providers = useApp((s) => s.mcpProviders);
@@ -120,20 +130,33 @@ function RealmProviders({ spaceId }: { spaceId: string }) {
   return (
     <div className="field">
       <span>Realm's own tools</span>
-      <p className="settings-hint">Built into Realm and served through the same gateway. On by default — they run under Realm's own permission flow, not as a process you configured. The switch is this space's.</p>
+      <p className="settings-hint">Built into Realm and served through the same gateway — they run under Realm's own permission flow, not as a process you configured. The switch is this space's. Most are on by default; the ones that reach outside a pane Realm made — other Mac apps, another machine, Realm's own interface — start off.</p>
       <ul className="env-list">
         {providers.map((p) => (
           <li key={p.name} className="env-row mcp-row">
             <div className="env-main">
               <span className="env-name">{p.name}</span>
-              <span className="env-kind">built-in</span>
+              <span className="env-kind">Built-in</span>
             </div>
             <div className="env-actions">
-              <label className="mcp-enable">
-                <input type="checkbox" role="switch" className="switch" aria-label={`Provider ${p.name} in this space`} checked={p.enabled}
-                  onChange={(e) => run(() => setMcpProviderEnabled(spaceId, p.name, e.target.checked))} />
-                Enabled
-              </label>
+              {p.offered === true ? (
+                <label className="mcp-enable">
+                  <input type="checkbox" role="switch" className="switch" aria-label={`Provider ${p.name} in this space`} checked={p.enabled}
+                    onChange={(e) => run(() => setMcpProviderEnabled(spaceId, p.name, e.target.checked))} />
+                  Enabled
+                </label>
+              ) : (
+                /* What actually happened, where the switch would be. A switch here reads "Enabled" over
+                   tools that do nothing on this Mac, so the row says why instead — and tells the two
+                   reasons apart, because one resolves itself in a moment and the other waits on an
+                   install. The space's choice is kept either way; the switch comes back as it was.
+                   Dim text rather than a warning pill: on a Mac that will never have Xcode this row
+                   says it on every visit, and that is a fact about the Mac, not a fault in Realm. */
+                <span className="mcp-provider-state" data-state={p.offered === null ? "checking" : "missing"}
+                  title={p.offered === false ? `This space's switch is kept, and comes back as it was once ${p.needs ?? "what it needs"} is on this Mac.` : undefined}>
+                  {p.offered === null ? "Checking…" : p.needs ? `Needs ${p.needs}` : "Not available on this Mac"}
+                </span>
+              )}
             </div>
           </li>
         ))}
@@ -145,6 +168,7 @@ function RealmProviders({ spaceId }: { spaceId: string }) {
 function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer }) {
   const run = useApp((s) => s.run);
   const setMcpEnabled = useApp((s) => s.setMcpEnabled);
+  const setMcpShowViews = useApp((s) => s.setMcpShowViews);
   const removeMcpServer = useApp((s) => s.removeMcpServer);
   const retryMcpServer = useApp((s) => s.retryMcpServer);
   const testMcpServer = useApp((s) => s.testMcpServer);
@@ -159,6 +183,9 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
   const [test, setTest] = useState<McpTestResult | "testing" | null>(null);
 
   const endpoint = server.transport === "stdio" ? [server.command, ...server.args].filter(Boolean).join(" ") : server.url;
+  // MCP Apps: a server whose tools draw their results in views of their own. Read off the cached
+  // tools, so the row says so before anything has connected this launch.
+  const hasViews = server.tools.some((t) => t.view);
   // Inherited = defined at the profile (§2's contract): toggleable here (the per-space override — the
   // same setEnabled wire, routed server-side), never editable in place. The editor still opens, but as
   // "Edit in profile": the SAME McpServerForm, wearing a banner that names the defining scope — mcp.update
@@ -185,6 +212,7 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
         <span className="status-dot" data-status={server.status} title={STATUS_LABEL[server.status]} aria-label={`Status: ${STATUS_LABEL[server.status]}`} />
         <span className="env-name">{server.name}</span>
         <span className="env-kind">{server.transport}</span>
+        {hasViews && <span className="env-kind" title="Its tools draw their results in views of their own, shown under the call and openable as a tab.">Views</span>}
         {/* The hub status dot only says whether calls currently succeed — it says nothing about auth,
             so a server needing reauth otherwise looks completely normal until Edit is opened. */}
         {server.authKind === "oauth" && server.oauthStatus === "reconnect_needed" && (
@@ -214,7 +242,7 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
             the banner-wearing inline form survives as the fallback behind "Edit here…" — the same
             form, opened AS the profile's, for when leaving the tab mid-thought isn't worth it. */}
         {inherited && !editing && (
-          <button type="button" className="btn-quiet" onClick={() => run(() => openProfilePage("connections"))}>Edit in profile</button>
+          <button type="button" className="btn-quiet" onClick={() => openProfilePage("connections")}>Edit in profile</button>
         )}
         <button type="button" className="btn-quiet" onClick={() => setEditing((v) => !v)}>
           {editing ? "Close" : inherited ? "Edit here…" : "Edit"}
@@ -237,6 +265,18 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
         <MoveScopeConfirm direction={inherited ? "demote" : "promote"} name={server.name} profileName={profileName}
           onCancel={() => setConfirmMove(false)}
           onConfirm={() => { setConfirmMove(false); run(() => (inherited ? demoteMcpServer : promoteMcpServer)(spaceId, server.id)); }} />
+      )}
+      {/* The server's own switch, not this space's — a view is the vendor's drawing, and whether to see
+          it is a choice about the vendor — so it sits on a line of its own, apart from Enabled, whose
+          scope is the space. On until someone turns it off. */}
+      {hasViews && (
+        <div className="mcp-views">
+          <label className="mcp-enable" title={`Whether Realm shows ${server.name}'s views, in every space. Off, its tools answer in text only.`}>
+            <input type="checkbox" role="switch" className="switch" aria-label={`Show ${server.name}'s views`} checked={server.showViews}
+              onChange={(e) => run(() => setMcpShowViews(server.id, e.target.checked))} />
+            Show views
+          </label>
+        </div>
       )}
       {server.status === "circuit_open" && (
         <div className="mcp-circuit">
@@ -289,6 +329,7 @@ function McpToolsPolicy({ spaceId, server }: { spaceId: string; server: McpServe
                 <label>
                   <input type="checkbox" className="checkbox" checked={isAllowed(t.name)} onChange={(e) => toggle(t.name, e.target.checked)} />
                   <span className="mcp-tool-name">{t.name}</span>
+                  {t.appOnly && <span className="env-kind" title="Only this server's own view calls it, on your click. The agent is never shown it.">For its view</span>}
                 </label>
               </li>
             ))}
@@ -521,6 +562,60 @@ function McpOauthControls({ server }: { server: McpServer }) {
       <div className="form-actions" style={{ justifyContent: "flex-start" }}>
         <button type="button" className="btn-quiet" onClick={connect}>Connect</button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Whether Realm may finish a sign-in it started — including the click on Authorize.
+ *
+ * Here rather than in Settings because it is a per-SPACE decision, and this panel is the one surface
+ * that already mounts for a single space; an app-level page would have to grow a space picker to ask
+ * a question this tab already knows the answer to.
+ *
+ * Off is the real default and the copy says what off MEANS, because a switch whose label only
+ * describes the on state leaves a reader guessing whether the feature works at all without it. It
+ * does: Realm opens the terminal, runs the login, and puts the consent page in front of them either
+ * way. The switch decides only who presses the button.
+ */
+function SignInSwitch({ spaceId }: { spaceId: string }) {
+  const spaceSignInEnabled = useApp((s) => s.spaceSignInEnabled);
+  const setSpaceSignInEnabled = useApp((s) => s.setSpaceSignInEnabled);
+  const run = useApp((s) => s.run);
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+
+  // Loaded per space, for the reason the store action gives. Null until it lands: rendering a switch
+  // as OFF while its real value is still in flight is a claim about a permission, and it would flip
+  // under the pointer a moment later.
+  useEffect(() => {
+    let live = true;
+    void spaceSignInEnabled(spaceId).then((v) => { if (live) setEnabled(v); }).catch(() => { if (live) setEnabled(false); });
+    return () => { live = false; };
+  }, [spaceId, spaceSignInEnabled]);
+
+  if (enabled === null) return null;
+  return (
+    <div className="field">
+      <span>Finishing sign-ins</span>
+      <p className="settings-hint">
+        When an agent CLI is signed out, Realm can open a terminal, run its login command and open the
+        sign-in page in a pane. It stops there: approving the sign-in is yours. Turn this on and Realm
+        will also press Approve — but only on the page it opened, from a login it started itself, for
+        a few minutes.
+      </p>
+      <label className="mcp-enable">
+        <input type="checkbox" role="switch" className="switch" aria-label="Let Realm finish sign-ins in this space"
+          checked={enabled}
+          onChange={(e) => {
+            const next = e.target.checked;
+            setEnabled(next); // answer the gesture now; the write is the slow part
+            run(async () => {
+              try { await setSpaceSignInEnabled(spaceId, next); }
+              catch (err) { setEnabled(!next); throw err; } // put the switch back rather than lie
+            });
+          }} />
+        Let Realm finish sign-ins it started
+      </label>
     </div>
   );
 }

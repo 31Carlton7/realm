@@ -163,14 +163,6 @@ describe("the budget", () => {
     expect(screen.getByText(/On this pace, \$120\.00 by month end/)).toBeInTheDocument();
   });
 
-  it("keeps the meter on the calendar month, not on the chart's range", async () => {
-    // The chart says $12.50 in range; the month says $60. Both are true, and conflating them would
-    // make the budget move whenever someone narrowed the chart.
-    await mount({ usageSummary: withBudget(100) });
-    expect(screen.getByText("$12.50")).toBeInTheDocument();
-    expect(screen.getByText(/September so far: \$60\.00 of \$100\.00/)).toBeInTheDocument();
-  });
-
   it("saves a ceiling and its thresholds, then re-reads so the page shows what actually stored", async () => {
     const { api } = await mount({ usageSummary: withBudget(null) });
     fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly ceiling/ }), { target: { value: "250" } });

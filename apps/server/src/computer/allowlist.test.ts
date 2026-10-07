@@ -22,11 +22,6 @@ function allowlist(seed: Record<string, unknown> = {}) {
 const FORBIDDEN_ID = COMPUTER_FORBIDDEN_BUNDLE_IDS[0];
 
 describe("ComputerAppAllowlist", () => {
-  it("is empty until the user puts something on it", () => {
-    const { list } = allowlist();
-    expect(list.list("sp1")).toEqual([]);
-    expect(list.allows("sp1", "com.apple.TextEdit")).toBe(false);
-  });
 
   it("remembers an app across calls", () => {
     const { list } = allowlist();

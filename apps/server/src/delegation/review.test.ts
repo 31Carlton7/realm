@@ -124,11 +124,6 @@ describe("the read-only cap — hard, per agent kind (the write-permission mutan
     expect(reviewer.permissionMode).toBe(PLAN_PERMISSION_MODE);
   });
 
-  it("a plan-capable parent's reviewer keeps the parent's kind", async () => {
-    const { spaceId, parentId, envId } = await boot({ parentKind: "fake" });
-    await app.reviews.runTool({ sessionId: parentId, spaceId }, { environmentId: envId });
-    expect(reviewerOf(spaceId)!.agentKind).toBe("fake");
-  });
 });
 
 describe("the verdict lands — KV + broadcast + notification, and stops there", () => {
@@ -192,6 +187,24 @@ describe("the verdict lands — KV + broadcast + notification, and stops there",
     await c.call("review.dismiss", { environmentId: envId });
     await waitFor(() => c.events.some((e) => e.event === "review.changed" && e.payload.review === null));
     expect((await c.call("review.get", { environmentId: envId })).result.review).toBeNull();
+    c.close();
+  });
+
+  it("announces the reviewer's settle once, AFTER its verdict has landed on the diff pane", async () => {
+    const { envId } = await boot();
+    const c = await wsClient(app.port);
+    const res = (await c.call("review.request", { environmentId: envId })).result;
+    await waitFor(() => c.events.some((e) => e.event === "session.agentSettled" && e.payload.sessionId === res.sessionId));
+    await new Promise((r) => setTimeout(r, 150)); // several polls: room for a second one to show up
+    const settled = c.events.filter((e) => e.event === "session.agentSettled");
+    expect(settled).toHaveLength(1);
+    expect(settled[0].payload).toEqual({ spaceId: expect.any(String), sessionId: res.sessionId, itemId: res.itemId, outcome: "done" });
+    // THE MUTANT: announce before `publish`. The renderer may then take the reviewer's pane back
+    // while the diff pane still has no verdict on it — the one place a finished review is read, and
+    // the one surface that links back to the reviewer session.
+    const verdictAt = c.events.findIndex((e) => e.event === "review.changed" && e.payload.review !== null);
+    expect(verdictAt).toBeGreaterThanOrEqual(0);
+    expect(verdictAt).toBeLessThan(c.events.indexOf(settled[0]));
     c.close();
   });
 

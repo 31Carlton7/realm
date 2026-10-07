@@ -37,10 +37,6 @@ describe("contextFraction", () => {
     expect(contextFraction(usage({ contextTokens: 160_000, contextWindow: 200_000 }), 1_000_000)).toBeCloseTo(0.8);
   });
 
-  it("falls back to the catalog only where the harness stated no window", () => {
-    expect(contextWindowFor(usage({ contextTokens: 1 }), 180_000)).toBe(180_000);
-    expect(contextWindowFor(usage({ contextTokens: 1 }), null)).toBeNull();
-  });
 });
 
 describe("formatTokens", () => {

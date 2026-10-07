@@ -1,4 +1,4 @@
-import type { AgentKind, AgentModel, SessionEvent } from "@realm/contracts";
+import type { AgentKind, AgentModel, AskAnswers, SessionEvent } from "@realm/contracts";
 
 /**
  * One MCP server on its way to an agent.
@@ -43,9 +43,9 @@ export type StartOptions = {
   model?: string | null;
   effort?: string | null;
   permissionMode?: string;
-  /** The session has ASKED for fast mode. Only `claude` acts on it; every other adapter ignores it,
-   *  and none of them is obliged to report back — the honest answer for an engine with no such
-   *  concept is silence, which the prompter reads as "no switch to offer". */
+  /** The session has ASKED for fast mode. `claude` and `codex` act on it (`AGENT_FAST_MODE`); every
+   *  other adapter ignores it, and none of them is obliged to report back — the honest answer for an
+   *  engine with no such concept is silence, which the prompter reads as "no switch to offer". */
   fastMode?: boolean;
   systemContext?: string;
   /** Since Plan 9 W3, `apps/server` always sends exactly ONE entry: the gateway's own `http` endpoint —
@@ -56,6 +56,27 @@ export type StartOptions = {
   skills?: SkillsInjection;
   resume?: string | null;
   env?: Record<string, string>;
+  /**
+   * Last look at the argv before it becomes a process. Realm's execution sandbox passes one of these
+   * (`ExecutionSandboxService.wrap`); given the command and arguments an adapter was about to spawn,
+   * it answers with what to spawn instead — `/usr/bin/sandbox-exec` with a compiled Seatbelt profile
+   * and the original command behind a `--`.
+   *
+   * **Passed straight through, never interpreted.** An adapter hands it whatever it was going to
+   * spawn and spawns what comes back. Nothing here inspects the result, branches on it, or tries to
+   * decide whether the wrapping was worth doing — that decision belongs to the server, which is the
+   * only thing that knows the space's posture.
+   *
+   * **It MAY THROW — let it.** A throw means the sandbox could not be applied and the session must
+   * not start: the whole design rests on there being no path where a failed wrap yields an
+   * unconfined spawn. An adapter that caught this and spawned the original command would turn the
+   * feature into decoration. Report it the way a failed boot is reported; never recover from it.
+   *
+   * Absent means spawn exactly what the adapter has always spawned. The server omits it for a space
+   * whose posture is `off`, so an un-opted-in user's process plumbing is untouched by this feature
+   * rather than merely equivalent to what it was.
+   */
+  wrap?: (command: string, args: string[]) => { command: string; args: string[] };
   /** Diagnostic sink for provider stderr / log lines. */
   onLog?: (line: string) => void;
 };
@@ -83,11 +104,14 @@ export interface AgentHandle {
   readonly events: AsyncIterable<SessionEvent>;
   /** Resolves once the message has been accepted (attachments read and enqueued); errors are reported as `error` events. */
   send(message: UserMessage): Promise<void>;
-  /** `answers` is carried only by question-shaped tools (AskUserQuestion); adapters that have no
-   *  question surface ignore it and answer the plain allow/deny they always did. */
-  respondPermission(requestId: string, decision: PermissionDecision, answers?: Record<string, string>): void;
+  /** `answers` is carried only by a question (`permission_request.ask`): question id -> what was chosen
+   *  or typed. An adapter that raised no question ignores it and answers the plain allow/deny it
+   *  always did. */
+  respondPermission(requestId: string, decision: PermissionDecision, answers?: AskAnswers): void;
   interrupt(): Promise<void>;
-  setOptions(opts: { model?: string; permissionMode?: string; fastMode?: boolean }): Promise<void>;
+  /** `effort: null` is "the model's own default" — a level the session no longer asks for, not one
+   *  left unsaid. */
+  setOptions(opts: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -98,7 +122,10 @@ export interface AgentHandle {
  * and an unavailable CLI obviously can't be asked. Never an invented list: ids here are ids the
  * provider itself handed over, verbatim.
  */
-export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; models?: AgentModel[] | null };
+export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; models?: AgentModel[] | null;
+  /** An agent's reasoning levels where they are a session setting (an ACP `thought_level` option), with
+   *  the one it starts on. Absent where the agent offers none, or was not asked. */
+  efforts?: { id: string; label: string }[]; defaultEffort?: string | null };
 
 export interface AgentAdapter {
   readonly kind: AgentKind;

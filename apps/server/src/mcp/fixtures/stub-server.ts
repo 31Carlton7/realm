@@ -1,6 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 /**
@@ -18,7 +18,19 @@ export type StubServerOptions = {
   /** Observes every `tools/call`, forced failures included — lets a test assert on args without
    *  threading a return value through the protocol. */
   onCall?: (tool: string, args: unknown) => void;
+  /** Adds an `ask` tool that elicits these params from the client mid-call (MCP elicitation) and
+   *  returns the client's answer as its text — what the hub's elicitation tests drive. */
+  elicitation?: Record<string, unknown>;
+  /** Resources to serve — the `ui://` views of MCP Apps, for the hub's and gateway's view tests.
+   *  `listMeta` is the `_meta` the resource's `resources/list` entry carries; `_meta` is the content
+   *  item's own. Declaring any turns on the `resources` capability. */
+  resources?: StubResource[];
+  /** A fixed result per tool name, returned instead of the echo — a result with `structuredContent`,
+   *  say, the way a tool with a view answers. */
+  results?: Record<string, CallToolResult>;
 };
+
+export type StubResource = { uri: string; name?: string; mimeType?: string; text?: string; blob?: string; _meta?: Record<string, unknown>; listMeta?: Record<string, unknown> };
 
 export type StubServer = {
   server: Server;
@@ -57,15 +69,27 @@ const DEFAULT_TOOLS: Tool[] = [
 const errorResult = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
 
 export function makeStubServer(opts: StubServerOptions = {}): StubServer {
-  let tools = opts.tools ?? DEFAULT_TOOLS;
+  let tools = [...(opts.tools ?? DEFAULT_TOOLS), ...(opts.elicitation ? [{ name: "ask", description: "Asks the user, then reports the answer.", inputSchema: { type: "object" as const } }] : [])];
   let forcedFailures = 0;
   let forcedThrows = 0;
 
   // `tools: { listChanged: true }` is not decoration — the client only wires up its list-changed
   // notification handling for capabilities the server actually advertises during `initialize`.
-  const server = new Server({ name: "stub-mcp-server", version: "1.0.0" }, { capabilities: { tools: { listChanged: true } } });
+  const resources = opts.resources ?? [];
+  const server = new Server({ name: "stub-mcp-server", version: "1.0.0" }, { capabilities: { tools: { listChanged: true }, ...(resources.length ? { resources: { listChanged: true } } : {}) } });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+  if (resources.length) {
+    server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+      resources: resources.map((r) => ({ uri: r.uri, name: r.name ?? r.uri, ...(r.mimeType ? { mimeType: r.mimeType } : {}), ...(r.listMeta ? { _meta: r.listMeta } : {}) })),
+    }));
+    server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      const r = resources.find((x) => x.uri === request.params.uri);
+      if (!r) throw new Error(`no resource ${request.params.uri}`);
+      const body = r.blob !== undefined ? { blob: r.blob } : { text: r.text ?? "" };
+      return { contents: [{ uri: r.uri, ...(r.mimeType ? { mimeType: r.mimeType } : {}), ...body, ...(r._meta ? { _meta: r._meta } : {}) }] };
+    });
+  }
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     opts.onCall?.(name, args);
@@ -80,6 +104,12 @@ export function makeStubServer(opts: StubServerOptions = {}): StubServer {
       return errorResult(`${name} failed (forced by failNext)`);
     }
     if (name === "boom") return errorResult("boom always fails");
+    const fixed = opts.results?.[name];
+    if (fixed) return fixed;
+    if (name === "ask" && opts.elicitation) {
+      const answer = await server.elicitInput(opts.elicitation as Parameters<Server["elicitInput"]>[0]);
+      return { content: [{ type: "text", text: JSON.stringify(answer) }] };
+    }
     return { content: [{ type: "text", text: JSON.stringify(args ?? {}) }] };
   });
 

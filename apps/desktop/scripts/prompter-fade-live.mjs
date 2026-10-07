@@ -1,17 +1,26 @@
 /**
  * Live check for the hero prompter's stacking order (run with: node apps/desktop/scripts/prompter-fade-live.mjs)
  *
- * Boots the REAL app on a scratch REALM_HOME and proves one thing a jsdom test cannot see, because
- * it needs real compositing: `.transcript-fade`'s blur band must never paint OVER the prompter.
+ * Boots the REAL app on a scratch REALM_HOME and proves two things a jsdom test cannot see.
  *
- * The bug it pins: the hero state puts a `transform` on `.composer-dock`, which makes the dock a
- * stacking context — so `.composer`'s own `z-index: 1` is trapped inside it and the whole dock drops
- * to layer 0, under the fade's layer 1. The band then blurred a horizontal stripe straight across
- * the middle of the hero card, square corners and all.
+ * First, real compositing: the transcript's dissolve must never reach the prompter.
  *
- * How it is proven: force the fade VISIBLE over the hero card, screenshot, then delete the fade and
- * screenshot again. If the fade paints over the card the two differ; if the card outranks it they
- * are pixel-identical. Run against the pre-fix stylesheet and this check fails — that is the point.
+ * Second, the page zoom (§ at the end). `--prompter-w` multiplies by `--zoom` so the column gives up
+ * more width than ⌘− already takes from it, and every link in that chain is outside the suite —
+ * `webFrame.getZoomFactor()` through the preload, a `resize` that Chromium fires for a zoom change
+ * and documents nowhere, and a `clamp()` no jsdom computes. The zoom is applied the way the View
+ * menu applies it (`webContents.setZoomFactor`), from the wrapper below.
+ *
+ * The bug it pins has been the same bug twice, through two different mechanisms. It was a blur band
+ * on layer 1 and a hero `transform` that trapped the dock's z-index below it, which blurred a
+ * horizontal stripe across the middle of the hero card. The dissolve is a mask on the scroller now,
+ * and stacking has nothing to do with it — but the same damage is one selector away, because a mask
+ * on `.transcript-wrap` instead of `.transcript` would take the dock with it, and the wrapper is
+ * where a tidying hand would put it.
+ *
+ * How it is proven: the card's own pixels, with the dissolve where it belongs and then with it
+ * moved up one element. The mask must be on the box that holds ONLY the scrolling text, so the card
+ * reads identically either way; under the mutant its lower half fades into the pane.
  *
  * Ports: env-overridable. Touches only a scratch dir; kills only the process it started.
  */
@@ -109,11 +118,24 @@ async function main() {
   }
 
   const wrapper = path.join(scratch, "wrapper.mjs");
+  /* The wrapper watches a file for a zoom factor and applies it to every window. `setZoomFactor` is
+     exactly what the View menu's zoomIn/zoomOut roles call, and it is only reachable from MAIN —
+     CDP has no page-zoom command, and the renderer is given no setter. */
+  const zoomFile = path.join(scratch, "zoom");
   fs.writeFileSync(wrapper, [
-    'import { app } from "electron";',
+    'import { app, BrowserWindow } from "electron";',
+    "import fs from \"node:fs\";",
     'app.setPath("userData", process.env.LIVE_USER_DATA);',
     "await import(process.env.LIVE_MAIN);",
+    "let applied = null;",
+    "setInterval(() => {",
+    "  const want = fs.readFileSync(process.env.LIVE_ZOOM_FILE, \"utf8\").trim();",
+    "  if (!want || want === applied) return;",
+    "  applied = want;",
+    "  for (const w of BrowserWindow.getAllWindows()) w.webContents.setZoomFactor(Number(want));",
+    "}, 200);",
   ].join("\n"));
+  fs.writeFileSync(zoomFile, "");
   const electronBin = process.platform === "darwin"
     ? path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
     : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron");
@@ -126,6 +148,7 @@ async function main() {
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
       LIVE_USER_DATA: path.join(scratch, "userData"),
       LIVE_MAIN: path.join(repoRoot, "apps/desktop/out/main/index.js"),
+      LIVE_ZOOM_FILE: zoomFile,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -158,81 +181,128 @@ async function main() {
   await evalIn(c, `(() => { __live.setInput(document.querySelector('.composer-input'), ${JSON.stringify(DRAFT)}); return true; })()`);
   await sleep(500); // the 320ms dock transition, plus a frame to settle
 
-  // Geometry: the fade band really does cross the card, so the comparison below is not vacuous.
+  /* Geometry: the dissolve's bottom ramp really does reach up into the card, so the comparison below
+     is not vacuous. The ramp is the last `--fade-h` of the scroller, and the card floats over it. */
   const geo = await evalIn(c, `(() => {
     const card = document.querySelector('.composer').getBoundingClientRect();
-    const fade = document.querySelector('.transcript-fade');
-    const prev = fade.style.cssText;
-    fade.style.display = 'block';        // hero hides it; force it back to test the stacking order
-    const f = fade.getBoundingClientRect();
-    fade.style.cssText = prev;
-    return { card: { top: Math.round(card.top), bottom: Math.round(card.bottom), left: Math.round(card.left), right: Math.round(card.right) },
-             fade: { top: Math.round(f.top), bottom: Math.round(f.bottom) } };
+    const sc = document.querySelector('.transcript');
+    const s = sc.getBoundingClientRect();
+    const depth = parseFloat(getComputedStyle(sc).getPropertyValue('--fade-h')) || 68;
+    return { card: { top: Math.round(card.top), bottom: Math.round(card.bottom),
+                     left: Math.round(card.left), right: Math.round(card.right) },
+             ramp: { top: Math.round(s.bottom - depth), bottom: Math.round(s.bottom) },
+             onScroller: getComputedStyle(sc).maskImage !== 'none',
+             maskedAncestors: (() => {
+               const out = [];
+               for (let el = document.querySelector('.composer'); el; el = el.parentElement) {
+                 if (getComputedStyle(el).maskImage !== 'none') out.push(el.className || el.tagName);
+               }
+               return out;
+             })() };
   })()`);
-  const crosses = geo.fade.top < geo.card.bottom && geo.fade.bottom > geo.card.top;
-  check("the fade band overlaps the hero card (so the test below means something)", crosses, geo);
+  /* The guarantee, stated where it actually lives: the card is not a descendant of ANY masked box.
+     That is structural rather than a matter of layer order — a mask applies to everything the
+     element paints, so the only way the prompter survives is by not being inside one. */
+  check("the dissolve is on the scroller, and no ancestor of the prompter carries a mask",
+    geo.onScroller && geo.maskedAncestors.length === 0, { onScroller: geo.onScroller, masked: geo.maskedAncestors });
+  check("its bottom ramp reaches the card (so the measure below means something)",
+    geo.ramp.top < geo.card.bottom && geo.ramp.bottom > geo.card.top, geo);
 
-  // The measure: mean horizontal gradient energy per row inside the card. Blur destroys the sharp
-  // edges of glyphs, so a band painting over the card shows up as a stripe of collapsed energy.
-  // A hash comparison was tried first and rejected: adding a backdrop-filter layer flips the text
-  // above it from subpixel to grayscale antialiasing, so the pixels differ even when nothing is
-  // wrong. Sharpness is the property the bug is actually about.
-  const MEASURE = (shotB64, card, band) => `(async () => {
+  /* The measure: the card's own mean luminance. A mask takes ALPHA, so a card caught inside one
+     fades toward the pane behind it — which moves the mean, while leaving every edge as sharp as it
+     was. (Sharpness is what the blur version of this bug moved; it is the wrong property now, and
+     reading it would pass straight through the mutant.) */
+  const MEAN = (shotB64, card) => `(async () => {
     const img = new Image();
     img.src = "data:image/png;base64," + ${JSON.stringify(shotB64)};
     await img.decode();
     const cv = document.createElement("canvas");
     cv.width = img.width; cv.height = img.height;
     cv.getContext("2d").drawImage(img, 0, 0);
-    const card = ${JSON.stringify(card)}, band = ${JSON.stringify(band)};
-    const x0 = card.left + 10, x1 = card.right - 10;
-    const d = document.createElement("canvas").getContext("2d");
     const px = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
-    const rowEnergy = (y) => {
-      let sum = 0;
-      for (let x = x0; x < x1 - 1; x++) {
-        const i = (y * cv.width + x) * 4, j = i + 4;
-        const a = 0.299*px[i] + 0.587*px[i+1] + 0.114*px[i+2];
-        const b = 0.299*px[j] + 0.587*px[j+1] + 0.114*px[j+2];
-        sum += Math.abs(a - b);
+    const card = ${JSON.stringify(card)};
+    let sum = 0, n = 0;
+    for (let y = card.top + 4; y < card.bottom - 4; y++) {
+      for (let x = card.left + 10; x < card.right - 10; x++) {
+        const i = (y * cv.width + x) * 4;
+        sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+        n++;
       }
-      return sum / (x1 - x0);
-    };
-    const mean = (lo, hi) => { let t = 0, n = 0; for (let y = lo; y < hi; y++) { t += rowEnergy(y); n++; } return n ? t / n : 0; };
-    // The band's blur ramps in, so measure its fully-blurred bottom half against an equal slab of
-    // the same text just above it.
-    const h = Math.round((band.bottom - band.top) / 2);
-    return { inBand: mean(band.bottom - h, band.bottom), above: mean(band.top - h, band.top) };
+    }
+    return sum / n;
   })()`;
 
   const shotOf = async () => (await c.send("Page.captureScreenshot", { format: "png" })).data;
-  const bandRect = { top: geo.fade.top, bottom: geo.fade.bottom };
-
-  // Force the band visible over the hero card, and measure with the fix in place.
-  await evalIn(c, `(() => { document.querySelector('.transcript-fade').style.display = 'block'; return true; })()`);
-  await sleep(350);
   const fixedShot = await shotOf();
-  const fixed = await evalIn(c, MEASURE(fixedShot, geo.card, bandRect));
-  const fixedRatio = fixed.inBand / fixed.above;
+  const fixed = await evalIn(c, MEAN(fixedShot, geo.card));
 
-  // The mutant: drop the dock back to layer 0, exactly as it was before the fix. If this does NOT
-  // collapse the ratio, the measurement above proves nothing.
-  await evalIn(c, `(() => { document.querySelector('.composer-dock').style.zIndex = 'auto'; return true; })()`);
+  /* The mutant: put the mask on the box that holds BOTH — the pane itself. `.transcript-wrap` was
+     tried here first and could not reproduce anything, which is the finding rather than a failed
+     mutant: the dock is the wrapper's sibling, so the nearest element a dissolve could be moved to
+     and still reach the card is the pane. That is how far away this bug now is. */
+  await evalIn(c, `(() => {
+    const st = document.createElement('style'); st.id = 'mutant-mask';
+    // The ramp has to REACH the card, which floats near the middle of the pane in the hero state —
+    // a mask over the pane's last 160px is below it and changes nothing, which is not a mutant.
+    st.textContent = '.session-pane { mask-image: linear-gradient(to bottom, #000 20%, transparent 70%); }';
+    document.head.appendChild(st); return true; })()`);
   await sleep(350);
   const brokenShot = await shotOf();
-  const broken = await evalIn(c, MEASURE(brokenShot, geo.card, bandRect));
-  const brokenRatio = broken.inBand / broken.above;
+  const broken = await evalIn(c, MEAN(brokenShot, geo.card));
+  await evalIn(c, `(() => { document.getElementById('mutant-mask').remove(); return true; })()`);
 
-  check("the mutant reproduces the bug (dock back on layer 0 ⇒ the band blurs the card)",
-    brokenRatio < 0.6, { brokenRatio: +brokenRatio.toFixed(3), ...broken });
-  check("the prompter's text stays as sharp inside the band as above it",
-    fixedRatio > 0.85, { fixedRatio: +fixedRatio.toFixed(3), ...fixed });
+  check("the mutant reproduces the bug (a mask on the pane ⇒ the card fades into it)",
+    Math.abs(broken - fixed) > 2, { fixed: +fixed.toFixed(2), broken: +broken.toFixed(2) });
+  check("with the dissolve where it belongs, the card is untouched by it",
+    fixed > broken, { fixed: +fixed.toFixed(2), broken: +broken.toFixed(2) });
 
   for (const [tag, data] of [["fixed", fixedShot], ["broken", brokenShot]]) {
     const out = path.join(os.tmpdir(), `realm-prompter-fade-${tag}.png`);
     fs.writeFileSync(out, Buffer.from(data, "base64"));
     console.log(`SCREENSHOT ${tag} ${out}`);
   }
+
+  // ── The prompter's column against the page zoom ──────────────────────────
+  /* The metrics override has to go first: it pins the viewport in CSS pixels, and a pinned viewport
+     is one that does not change when the zoom does — which is the very event this section is about. */
+  await c.send("Emulation.clearDeviceMetricsOverride");
+  await sleep(400);
+
+  const column = () => evalIn(c, `(() => {
+    const dock = document.querySelector(".composer-dock");
+    return {
+      zoom: getComputedStyle(document.documentElement).getPropertyValue("--zoom").trim(),
+      bridge: typeof window.realm?.zoomFactor === "function" ? window.realm.zoomFactor() : null,
+      width: Math.round(dock.getBoundingClientRect().width),
+    };
+  })()`);
+
+  const at100 = await column();
+  /* The bridge is the link with nothing behind it if it breaks: no preload getter, no zoom, and the
+     column silently stays the width it has always been — which looks correct in every screenshot. */
+  check("the renderer can read the window's zoom", at100.bridge === 1, at100);
+  check("and it is on the root as a number the stylesheet multiplies by", at100.zoom === "1", at100);
+
+  fs.writeFileSync(zoomFile, "0.8");
+  const at80 = await until(async () => {
+    const c80 = await column();
+    return c80.zoom === "0.8" ? c80 : null;
+  }, 8000, "the zoom reaching the stylesheet").catch(() => null);
+  check("⌘− reaches the stylesheet, which means `resize` is a signal for a zoom change", at80 !== null, at80);
+
+  if (at80) {
+    /* The point of the whole thing. A px column shrinks in exact proportion with the zoom, which
+       leaves it the same SHARE of the window at every level — zooming out to fit more of the work on
+       screen bought nothing back from the prompter. Multiplying by the factor is what makes it give
+       ground: 720 → 576 CSS px at 80%, which is 461 device pixels where a plain px column would
+       still be drawing 576. THE MUTANT is a bare `--prompter-w: 720px`, and it passes every check
+       above this line. */
+    check("the column gives up MORE than the zoom already took",
+      at80.width < at100.width - 100 && Math.abs(at80.width - 576) <= 4,
+      { at100: at100.width, at80: at80.width, device: Math.round(at80.width * 0.8) });
+  }
+  fs.writeFileSync(zoomFile, "1");
+  await sleep(600);
 
   const errs = c.events.filter((e) => !e.includes("Autofill"));
   check("no renderer console errors", errs.length === 0, errs.slice(0, 5));

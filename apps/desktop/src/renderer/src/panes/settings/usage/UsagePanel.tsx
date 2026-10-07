@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../../state/store";
 import { BreakdownBars, BudgetMeter, Legend, Sparkline, StackedColumns, seriesColor } from "./Charts";
 import { ActivityCalendar } from "./ActivityCalendar";
+import { PlanCard } from "./PlanCard";
 
 /**
  * Settings → Usage: what the agents did, what it cost, and how that sits against a budget.
@@ -38,6 +39,7 @@ const DIMENSION_LABEL: Record<UsageDimension, string> = {
 export function UsagePanel() {
   const run = useApp((s) => s.run);
   const usageSummary = useApp((s) => s.usageSummary);
+  const refreshPlanLimits = useApp((s) => s.refreshPlanLimits);
   const setUsageBudget = useApp((s) => s.setUsageBudget);
   const spaces = useApp((s) => s.spaces);
   const activeSpaceId = useApp((s) => s.activeSpaceId);
@@ -79,6 +81,10 @@ export function UsagePanel() {
   }, [usageSummary, window, scope]);
 
   useEffect(() => { void run(load); }, [run, load]);
+  /* The plan quota, read once when the tab opens. Live changes arrive on `limits.changed`, so this is
+     only the panel catching up on what providers reported before anyone looked. Deliberately not part
+     of `load` above: that one re-runs on every range and scope change, and a plan quota has neither. */
+  useEffect(() => { void run(refreshPlanLimits); }, [run, refreshPlanLimits]);
 
   const rows = data?.breakdowns[dimension] ?? [];
   const value = (t: { costUsd: number; inputTokens: number; outputTokens: number }) =>
@@ -169,6 +175,10 @@ function UsageBody({ data, metric, dimension, setDimension, rows, value, format,
 
       <BudgetCard data={data} onSave={onSaveBudget} />
 
+      {/* After the budget, because the two answer different owners' questions in the right order:
+          the budget is the ceiling the USER set, the plan is the ceiling the PROVIDER sets. */}
+      <PlanCard />
+
       {/* Outside the filter row's scope on purpose — see ActivityCalendar. Placed after the budget so
           the page reads money first, then rhythm: the tiles and the meter answer "what is this
           costing", and the calendar answers a different question about the same year. */}
@@ -212,9 +222,11 @@ function UsageBody({ data, metric, dimension, setDimension, rows, value, format,
   );
 }
 
-function StatTile({ label, value, delta, trend }: { label: string; value: string; delta: string; trend?: number[] }) {
+/** One figure: what it is, the number, and a line of context under it. Shared with the page about
+ *  you, which is the same kind of figure about a different subject. */
+export function StatTile({ label, value, delta, trend, title }: { label: string; value: string; delta: React.ReactNode; trend?: number[]; title?: string }) {
   return (
-    <div className="stat-tile">
+    <div className="stat-tile" title={title}>
       <span className="stat-label">{label}</span>
       <span className="stat-value">{value}</span>
       <span className="stat-delta">{delta}</span>
@@ -278,7 +290,7 @@ function BudgetCard({ data, onSave }: { data: UsageSummary; onSave: (b: UsageBud
   const save = () => { if (valid) onSave(parseUsageBudget({ monthlyUsd: parsed, thresholds, includeEstimated: stored.includeEstimated })); };
 
   return (
-    <section className="usage-card budget-card">
+    <section className="usage-card budget-card" data-setting="usage-budget">
       <header className="usage-card-head">
         <h3>Monthly budget</h3>
         <span className="usage-card-sub">
@@ -403,11 +415,15 @@ function ActivityCard({ data }: { data: UsageSummary }) {
   );
 }
 
-function TopList({ title, rows }: { title: string; rows: { key: string; label: string; value: string; note: string | null }[] }) {
+/** A short ranked list with its count on the right. `empty` says why there is nothing, in the
+ *  terms of the page it is on — "in this range" is only true where there is a range. */
+export function TopList({ title, rows, empty = "Nothing in this range." }: {
+  title: string; rows: { key: string; label: string; value: string; note: string | null }[]; empty?: string;
+}) {
   return (
     <div className="usage-toplist">
       <h4>{title}</h4>
-      {rows.length === 0 ? <p className="muted">Nothing in this range.</p> : (
+      {rows.length === 0 ? <p className="muted">{empty}</p> : (
         <ul>
           {rows.map((r) => (
             <li key={r.key}>

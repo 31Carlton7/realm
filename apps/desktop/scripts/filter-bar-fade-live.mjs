@@ -3,16 +3,20 @@
  * (run with: node apps/desktop/scripts/filter-bar-fade-live.mjs)
  *
  * The bug this pins: scroll the Library and the search field and filter chips — the controls that
- * decide WHAT the grid is showing — slid under `.edge-fade[data-edge=top]` and went to a smudge.
- * A backdrop-filter takes everything painted beneath it, and the bar was painted beneath it, so the
- * band a designer added to dissolve CONTENT was blurring CHROME. Nothing in jsdom can see this: it
- * is paint order and a compositor filter, and the stylesheet on its own only says who has a z-index.
+ * decide WHAT the grid is showing — slid under the page's top fade and went to a smudge. That fade
+ * was a backdrop-filter, and a backdrop-filter takes everything painted beneath it, so a band added
+ * to dissolve CONTENT was blurring CHROME. The z-index that used to exempt the bar is gone with the
+ * band: the dissolve is a mask on the scroller now, and a mask applies to everything the element
+ * paints, so nothing inside a scroller can be lifted out of it.
  *
- * So it is measured on pixels. With the bar parked inside the band, a clip of it is captured and
- * scored for sharpness (mean absolute difference between neighbouring pixels — blur is exactly the
- * operation that flattens that). The mutant is the fix taken away, `z-index: auto` on the bar, at the
- * same scroll offset with the same content: the score has to collapse, or the check is measuring
- * nothing. Both Library tabs that carry a bar are run, since they are two different elements.
+ * What holds instead is the property that made the mask the right answer. A mask takes ALPHA, not
+ * detail: the bar scrolling into the dissolve keeps every edge it had and simply becomes less there,
+ * which is what a thing leaving looks like — where a blur destroys the detail and reads as a broken
+ * render. That is measurable, so it is measured: a clip of the bar parked inside the dissolve is
+ * scored for sharpness (mean absolute difference between neighbouring pixels, normalised for the
+ * fade's own loss of contrast), and the mutant is a backdrop blur put back over the same strip at
+ * the same offset. The score has to collapse under the mutant, or the check is measuring nothing.
+ * Both Library tabs that carry a bar are run, since they are two different elements.
  *
  * Ports: env-overridable. Touches only a scratch dir; kills only the process it started.
  */
@@ -22,6 +26,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9371), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8937);
@@ -67,8 +72,8 @@ function cdp(wsUrl) {
   };
 }
 
-function rpc(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   const ready = new Promise((res) => ws.addEventListener("open", res));
@@ -89,10 +94,27 @@ function rpc(port) {
 
 const HELPERS = `
 globalThis.__live = {
-  dest(label) {
-    const row = [...document.querySelectorAll('.sb-destinations .dest-row')].find((b) => b.textContent.trim().startsWith(label));
-    if (!row) throw new Error('no destination: ' + label);
-    row.click();
+  async dest(label) {
+    // The destinations are the rail's (Plan 27), and Settings sits behind the avatar's menu — the
+    // palette's "Open settings" is the same action and reachable from a script.
+    if (label === "Settings") {
+      if (document.querySelector(".settings-page-pane")) return true;
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+      for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await new Promise((r) => setTimeout(r, 25));
+      const input = document.querySelector(".palette input");
+      if (!input) throw new Error('no palette');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "settings");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      for (let i = 0; i < 40; i++) {
+        const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((b) => /open settings/i.test(b.textContent));
+        if (hit) { hit.click(); return true; }
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error('no destination: Settings');
+    }
+    const b = [...document.querySelectorAll('.app-rail .rail-btn')].find((x) => (x.getAttribute('aria-label') ?? '').startsWith(label));
+    if (!b) throw new Error('no destination: ' + label);
+    b.click();
     return true;
   },
   tab(label) {
@@ -122,7 +144,7 @@ globalThis.__live = {
     const s = sc.getBoundingClientRect(), b = bar.getBoundingClientRect();
     return { x: Math.round(b.left), y: Math.round(s.top), width: Math.round(b.width),
              height: Math.round(Math.min(depth, b.bottom - s.top)),
-             armed: !!wrap.querySelector('.edge-fade[data-edge="top"][data-on]'),
+             armed: (sc.dataset.dissolve ?? '').includes('start'),
              barZ: getComputedStyle(bar).zIndex, scrollTop: Math.round(sc.scrollTop),
              overflow: Math.round(sc.scrollHeight - sc.clientHeight) };
   },
@@ -223,9 +245,13 @@ async function main() {
   /* The Files tab is the surface the bug was reported on, and it is empty on a fresh home — so it is
      given something to scroll. Attachments on a user message are what the index calls an upload
      (`artifactsFromEvent`), which is the real write path rather than a row poked into the table. */
-  const api = rpc(SERVER_PORT);
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const session = (await api.call("sessions.listAll", {}))[0];
+  // Onboarding's session runs the first engine this Mac can — the signed-in, billed one — whatever
+  // REALM_ENABLE_FAKE_AGENT says. Onto the fake before anything is sent: the uploads index off the
+  // user's message, which records its attachments whichever agent reads them.
+  await api.call("sessions.setAgent", { id: session.id, agentKind: "fake" });
   const files = Array.from({ length: 12 }, (_, i) => path.join(scratch, `seed-${i}.md`));
   for (const f of files) fs.writeFileSync(f, "# seed\n");
   await api.call("sessions.send", { id: session.id, text: "here are some files",
@@ -235,10 +261,24 @@ async function main() {
   await until(() => evalIn(c, `document.querySelectorAll('.library-grid li').length >= 12`), 20000, "seeded files");
   await sleep(500);
 
-  /* How far into the bar to park, per tab. The Library's is two rows and the chips are the second, so
-     50px puts the strip on the CHIPS — which is the row that was reported smudged. The Skills bar is
-     one row, so it is read at its own top. */
-  for (const [tab, sel, ready, into] of [["Files", ".page-filters", ".library-files", 50], ["Skills", ".skills-filter-row", ".settings-panel", 6]]) {
+  /* Files: its toolbar is the column's head now, standing OUTSIDE the scroller (Codex's layout), so it
+     is never under the dissolve at all — the strongest form of the property this check exists for.
+     Held: scrolled to the end, the toolbar has not moved a pixel and is not inside what scrolls. */
+  await evalIn(c, `__live.tab("Files")`);
+  await until(() => evalIn(c, `!!document.querySelector('.library-files .library-toolbar')`), 15000, "Files toolbar");
+  await sleep(400);
+  const toolbar = await evalIn(c, `(() => {
+    const bar = document.querySelector('.library-files .library-toolbar');
+    const col = document.querySelector('.library-files .page-content');
+    const at = () => { const r = bar.getBoundingClientRect(); return { y: Math.round(r.top), h: Math.round(r.height) }; };
+    const before = at(); col.scrollTop = col.scrollHeight; const after = at(); col.scrollTop = 0;
+    return { before, after, inScroller: col.contains(bar), overflow: col.scrollHeight - col.clientHeight };
+  })()`);
+  check("Files: the toolbar stands outside the scroller and stays put while the files scroll",
+    !toolbar.inScroller && toolbar.overflow > 12 && toolbar.before.y === toolbar.after.y && toolbar.before.h === toolbar.after.h, toolbar);
+
+  /* The Skills bar is one row inside its column, so it is read at its own top. */
+  for (const [tab, sel, ready, into] of [["Skills", ".skills-filter-row", ".settings-panel", 6]]) {
     await evalIn(c, `__live.tab(${JSON.stringify(tab)})`);
     await until(() => evalIn(c, `!!document.querySelector('${ready} ${sel}')`), 15000, `${tab} bar`);
     await sleep(400);
@@ -246,16 +286,18 @@ async function main() {
     await evalIn(c, `__live.park(${JSON.stringify(sel)}, ${into})`);
     await sleep(350);
     const clip = await evalIn(c, `__live.clip(${JSON.stringify(sel)})`);
-    check(`${tab}: the column scrolls and the top band is armed over the bar`,
+    check(`${tab}: the column scrolls and the top end is dissolving over the bar`,
       clip.overflow > 12 && clip.armed && clip.height > 8, clip);
-    check(`${tab}: the bar outranks the band's layer 1`, Number(clip.barZ) > 1, { z: clip.barZ });
 
-    const fixed = await evalIn(c, SHARPNESS(await shot(c, clip, `${tab.toLowerCase()}-fixed`)));
+    const dissolved = await evalIn(c, SHARPNESS(await shot(c, clip, `${tab.toLowerCase()}-dissolved`)));
 
-    // The mutant: put the bar back in the band's backdrop, nothing else moved.
+    /* The mutant: a backdrop blur over the same strip — the band this replaced, in one line. Nothing
+       else moves, so the only difference between the two readings is what the effect does to detail. */
     await evalIn(c, `(() => {
-      const st = document.createElement('style'); st.id = 'mutant-z';
-      st.textContent = '.page-filters, .skills-filter-row { z-index: auto !important; }';
+      const st = document.createElement('style'); st.id = 'mutant-blur';
+      st.textContent = '.page-scroll::after { content: ""; position: absolute; inset: 0 0 auto 0;'
+        + ' height: var(--fade-top-h); z-index: 3; pointer-events: none;'
+        + ' backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }';
       document.head.appendChild(st); return true; })()`);
     await sleep(350);
     const parked = await evalIn(c, `__live.clip(${JSON.stringify(sel)})`);
@@ -263,10 +305,10 @@ async function main() {
       parked.scrollTop === clip.scrollTop && parked.y === clip.y && parked.height === clip.height, parked);
     const mutant = await evalIn(c, SHARPNESS(await shot(c, parked, `${tab.toLowerCase()}-mutant`)));
 
-    check(`${tab}: the bar stays sharp under the band, and the mutant reproduces the smudge`,
-      fixed > mutant * 1.5, { fixed, mutant, ratio: +(fixed / mutant).toFixed(2) });
+    check(`${tab}: the bar keeps its detail as it dissolves, where a blur would take it`,
+      dissolved > mutant * 1.5, { dissolved, mutant, ratio: +(dissolved / mutant).toFixed(2) });
 
-    await evalIn(c, `(() => { document.getElementById('mutant-z').remove(); return true; })()`);
+    await evalIn(c, `(() => { document.getElementById('mutant-blur').remove(); return true; })()`);
     await sleep(250);
   }
 }
@@ -275,5 +317,7 @@ main()
   .catch((e) => { console.log(`FAIL harness ${e.message}`); process.exitCode = 1; })
   .finally(() => {
     electron?.kill("SIGTERM");
-    setTimeout(() => { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch {} process.exit(process.exitCode ?? 0); }, 800);
+    // SIGTERM alone left the window running after the script had exited — holding this harness's
+    // CDP port, so the next run refused to start. The SIGKILL is what makes the teardown a teardown.
+    setTimeout(() => { electron?.kill("SIGKILL"); try { fs.rmSync(scratch, { recursive: true, force: true }); } catch {} process.exit(process.exitCode ?? 0); }, 1200);
   });

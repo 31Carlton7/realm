@@ -53,6 +53,19 @@ export type RunAttemptOutcome = z.infer<typeof RunAttemptOutcomeSchema>;
  */
 export const RunConstraintsSchema = z.object({
   agentKind: AgentKindSchema.optional(),
+  /** The MAIN model the run's session starts on, as the agent's own catalog spells it; omitted, the
+   *  agent's default. Main, because a goal may name other models for the work it hands out ("plan
+   *  this, then have another model implement it") — that is the goal's business, carried verbatim,
+   *  and this is the one the session itself is. */
+  model: z.string().min(1).max(200).optional(),
+  /** The level the session starts at, as its harness names it: one of the model's own, which is a
+   *  Claude level, Codex's `minimal`, or an ACP agent's `thought_level` id. Free text for the reason
+   *  `Session.effort` is — a fixed five refused every level that was not Claude's. Omitted, the
+   *  model's own default. */
+  effort: z.string().min(1).max(64).optional(),
+  /** Fast mode, asked of the run's session as the prompter's bolt asks it: a REQUEST, which the
+   *  harness answers in the first turn's report (`Session.fastMode`). Omitted, not asked for. */
+  fastMode: z.boolean().optional(),
   environmentId: IdSchema.optional(),
   newWorktree: z.union([z.boolean(), z.string().min(1).max(80)]).optional(),
   permissionMode: z.enum(["plan", "default", "acceptEdits"]).optional(),
@@ -85,6 +98,9 @@ export const RunSchema = z.object({
   attempt: z.number().int(),
   maxAttempts: z.number().int(),
   sessionId: z.string().nullable(),
+  /** The schedule whose firing created this run, or null for one started by hand. A plain string for
+   *  `sessionId`'s reason: "schedule S fired run X" stays true after S is deleted. */
+  scheduleId: z.string().nullable(),
   deadlineAt: z.number().int().nullable(),
   /** The final report of the attempt that settled it — the deliverable, verbatim. */
   result: z.string().nullable(),

@@ -174,10 +174,12 @@ export function setActiveLayout(gs: SpaceGroups, layout: Layout): SpaceGroups {
   return mapGroup(gs, activeGroup(gs).id, (g) => withLayout(g, layout));
 }
 
-/** The name a new group gets: "Group 2", "Group 3", … skipping any the space already uses. */
+/** The name a new split gets: "Split 2", "Split 3", … skipping any the space already uses.
+ *  Names already stored are left alone: `renameGroup` exists, so a space's "Group 2" may be one the
+ *  user typed, and there is nothing in the row to tell the two apart. */
 export function nextGroupName(gs: SpaceGroups): string {
   const taken = new Set(gs.groups.map((g) => g.name));
-  for (let n = 2; ; n++) { const name = `Group ${n}`; if (!taken.has(name)) return name; }
+  for (let n = 2; ; n++) { const name = `Split ${n}`; if (!taken.has(name)) return name; }
 }
 
 /** Add an empty group and make it active — the "+" in the group bar and the sidebar. */

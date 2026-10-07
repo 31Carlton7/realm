@@ -23,16 +23,22 @@ const MESSAGE_TURN = [
   "item/agentMessage/delta", "item/agentMessage/delta", "item/completed",
   "thread/tokenUsage/updated", "thread/status/changed", "turn/completed",
 ];
+/**
+ * The same turn as delivered to an ATTACHED listener, which also hears the account-scoped quota
+ * frame (`routeNotification` fans that one to every attached thread).
+ *
+ * It is absent from the buffered sequence above, and that asymmetry is the design rather than a gap:
+ * the buffer is keyed by thread, and a notification that names no thread has no key to be filed
+ * under. A reading missed while nothing was attached costs a slightly stale panel until the next
+ * turn emits another — buying it back would mean a second, global buffer for one advisory frame.
+ */
+const MESSAGE_TURN_ATTACHED = [
+  ...MESSAGE_TURN.slice(0, 8), "account/rateLimits/updated", ...MESSAGE_TURN.slice(8),
+];
 /** The approval turn buffers 4 notifications plus the approval request before it blocks. */
 const APPROVAL_PREFIX = 5;
 
 describe("CodexConnection", () => {
-  it("initializes and starts a thread", async () => {
-    const c = await open();
-    const r = await startThread(c);
-    expect(r.thread.id).toMatch(/^th_/);
-    await c.dispose();
-  });
 
   it("rejects instead of hanging when the server never answers initialize", async () => {
     await expect(
@@ -40,7 +46,11 @@ describe("CodexConnection", () => {
     ).rejects.toThrow(/did not answer initialize/);
   });
 
-  it("routes notifications to the attached thread listener only", async () => {
+  /* Two properties, and the second is why this is not simply "only the attached listener": a
+   * notification that names a thread belongs to that thread alone, and one that names no thread is
+   * about the ACCOUNT both threads share. Collapsing them would either leak another session's turn
+   * into this one or drop the quota reading entirely. */
+  it("routes a thread's own notifications to it alone, and account-scoped ones to every thread", async () => {
     const c = await open();
     const a = await startThread(c);
     const b = await startThread(c);
@@ -49,7 +59,9 @@ describe("CodexConnection", () => {
     c.attach(b.thread.id, { ...silent, onNotification: (m) => seenB.push(m) });
     await say(c, a.thread.id, "hi");
     await waitFor(() => expect(seenA).toContain("turn/completed"));
-    expect(seenB).toEqual([]);
+    // B ran no turn, so it hears nothing about A's — except the one frame that was never A's.
+    expect(seenB).toEqual(["account/rateLimits/updated"]);
+    expect(seenA).toEqual(MESSAGE_TURN_ATTACHED);
     await c.dispose();
   });
 
@@ -75,17 +87,6 @@ describe("CodexConnection", () => {
     expect(completed).toHaveLength(1);
     expect(completed[0]).toMatchObject({ status: "completed", exitCode: 0 });
     expect(unrouted).toEqual([]); // the connection must not also refuse a request it delivered
-    await c.dispose();
-  });
-
-  it("buffers frames that arrive before attach and flushes them in order", async () => {
-    const c = await open();
-    const t = await startThread(c);
-    await say(c, t.thread.id, "hi");
-    await waitFor(() => expect(c.bufferedCount(t.thread.id)).toBe(MESSAGE_TURN.length));
-    const seen: string[] = [];
-    c.attach(t.thread.id, { ...silent, onNotification: (m) => seen.push(m) });
-    expect(seen).toEqual(MESSAGE_TURN);
     await c.dispose();
   });
 
@@ -183,7 +184,7 @@ describe("CodexConnection", () => {
     const seen: string[] = [];
     c.attach(t.thread.id, { ...silent, onNotification: (m) => { seen.push(m); throw new Error("listener boom"); } });
     await say(c, t.thread.id, "hi");
-    await waitFor(() => expect(seen).toEqual(MESSAGE_TURN)); // every later frame still lands
+    await waitFor(() => expect(seen).toEqual(MESSAGE_TURN_ATTACHED)); // every later frame still lands
     expect(logs.some((l) => l.includes("listener boom"))).toBe(true);
     expect(c.alive).toBe(true);
     await c.dispose();

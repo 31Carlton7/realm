@@ -107,8 +107,8 @@ window.__live = window.__live ?? {
     hit.click();
     return true;
   },
-  slider() { return document.querySelector('input[aria-label="Background transparency"]'); },
-  toggle() { return document.querySelector('input[aria-label="Translucent sidebar"]'); },
+  slider() { return document.querySelector('input[aria-label="Sidebar transparency"]'); },
+  toggle() { return document.querySelector('input[aria-label="Sidebar translucency"]'); },
   /** The settings tabs are radio INPUTS inside labels, so the visible word is on the label. */
   tab(name) {
     const hit = [...document.querySelectorAll("label")].find((l) => l.textContent.trim() === name && l.querySelector('input[type="radio"]'));
@@ -203,7 +203,7 @@ async function main() {
 
   await evalIn(c, `__live.openSettings()`);
   await until(() => evalIn(c, `!!document.querySelector('label input[type="radio"]')`), 10000, "settings page");
-  await evalIn(c, `__live.tab("App")`);
+  await evalIn(c, `__live.tab("Appearance")`);
   await until(() => evalIn(c, `!!__live.slider()`), 10000, "the slider");
 
   // 1. The slider reaches the sidebar, at both ends of its range and in the middle.

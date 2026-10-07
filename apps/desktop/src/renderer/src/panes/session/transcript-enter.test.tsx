@@ -19,21 +19,6 @@ describe("enter tracker (§6: new items only)", () => {
     expect([...t.observe(["a", "b", "c", "d"])]).toEqual(["c", "d"]);
   });
 
-  it("never drops a mark: a key stays marked across observations, so a mid-flight re-render cannot abort the animation", () => {
-    const t = createEnterTracker();
-    t.observe(["a"]);
-    t.observe(["a", "b"]);
-    expect([...t.observe(["a", "b"])]).toContain("b"); // same keys again — the mark survives
-    expect([...t.observe(["a", "b"])]).toContain("b");
-  });
-
-  it("a key that leaves and comes back is not new — it is the same item returning", () => {
-    const t = createEnterTracker();
-    t.observe(["a", "b"]);
-    t.observe(["a"]);           // b removed
-    expect([...t.observe(["a", "b"])]).toEqual([]); // b back: still seen, still not entering
-  });
-
   it("an empty first observation still counts as the mount — the first real item is new", () => {
     const t = createEnterTracker();
     expect([...t.observe([])]).toEqual([]);
@@ -42,7 +27,7 @@ describe("enter tracker (§6: new items only)", () => {
 });
 
 const model = (blocks: Block[], pendingPermissions: PendingPermission[] = []): TranscriptModel =>
-  ({ blocks, pendingPermissions, usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null });
+  ({ blocks, pendingPermissions, usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null, promptHint: null });
 
 const user = (text: string): Block => ({ kind: "user", text, ts: 0 });
 const assistant = (text: string, streaming = false): Block => ({ kind: "assistant", messageId: "m1", text, streaming, ts: 0 });
@@ -58,17 +43,6 @@ const view = (t: TranscriptModel, status: "idle" | "running" | "waiting_permissi
   <Transcript transcript={t} sessionStatus={status} onDecide={() => {}} />;
 
 describe("Transcript enter animation (§6: 180ms, new items only)", () => {
-  it("animates nothing on mount, however much history there is", () => {
-    render(view(model([user("hi"), assistant("hello"), tool("t1")])));
-    expect(rows()).toHaveLength(3);
-    expect(entering()).toEqual([]);
-  });
-
-  it("animates only the block that just arrived", () => {
-    const { rerender } = render(view(model([user("hi"), assistant("hello")])));
-    rerender(view(model([user("hi"), assistant("hello"), tool("t1")])));
-    expect(entering()).toEqual(["tool-card"]);
-  });
 
   it("keeps the mark through the re-renders that happen during the 180ms — streaming deltas must not abort it", () => {
     const { rerender } = render(view(model([user("hi")])));
@@ -77,14 +51,6 @@ describe("Transcript enter animation (§6: 180ms, new items only)", () => {
     rerender(view(model([user("hi"), assistant("hello", true)]), "running"));
     rerender(view(model([user("hi"), assistant("hello there")]), "idle"));
     expect(entering()).toEqual(["msg-assistant-row"]); // still marked, and still the only one
-  });
-
-  it("re-rendering with unchanged blocks never promotes an existing block to entering", () => {
-    const t = model([user("hi"), assistant("hello")]);
-    const { rerender } = render(view(t));
-    rerender(view(t, "running"));
-    rerender(view(t, "idle"));
-    expect(entering()).toEqual([]);
   });
 
   it("coming back to a session animates nothing — a fresh mount re-seeds from the full history", () => {

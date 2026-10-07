@@ -3,7 +3,7 @@ import { render, screen, act, fireEvent, waitFor, within } from "@testing-librar
 import { PAGE_REF_IDS } from "@realm/contracts";
 import { ProfilePage } from "./ProfilePage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, mcpServer, skillRow, space, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, item, mcpServer, profile, session, skillRow, space, type FakeData } from "../../state/store.test-fakes";
 
 /** The page pane as PaneHost mounts it: a destination item whose refId is the kind's sentinel
  *  (Plan 14 W2) — the PROFILE is derived live from the item's space, never stored. */
@@ -32,12 +32,19 @@ describe("ProfilePage · header", () => {
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s3"));
   });
 
-  it("the chip strip is a BAND of the page, a sibling of the head and the body", async () => {
-    // It takes the page's measure and gutter from the band rule in styles.css, which reaches it only
-    // as a direct child of `.page`. Nested inside the head or the body it would take the gutter
-    // twice and sit 24px inside the column every other band starts at.
+  it("the spaces are a second list IN the rail, under its own heading, beside the sections", async () => {
+    /* THE MUTANT: leave them as a band over the title. They are navigation, and above the head they
+       read as decoration on the page's name rather than as the other half of the rail's list. */
     const { container } = await mount();
-    expect(container.querySelector(".page > .profile-spaces")).toBe(screen.getByLabelText("Spaces of Work"));
+    const spaces = screen.getByLabelText("Spaces of Work");
+    expect(container.querySelector(".page-rail")!.contains(spaces)).toBe(true);
+    expect(container.querySelector(".page > .profile-spaces")).toBeNull();
+    // Its own heading, not a rule: the rail holds two lists and one of them needs saying which.
+    expect(within(spaces).getByText("Spaces")).toBeInTheDocument();
+    // Buttons, not radios — the sections are a choice of what this page shows, a space is somewhere
+    // to go, and a space wearing `role=radio` would promise the rail keeps one of them lit.
+    expect(within(spaces).queryByRole("radio")).toBeNull();
+    expect(within(spaces).getAllByRole("button").length).toBeGreaterThan(0);
   });
 
   it("derives the profile LIVE from the item's space — a space moved between profiles moves the page's subject", async () => {
@@ -50,8 +57,11 @@ describe("ProfilePage · header", () => {
     expect(screen.queryByRole("heading", { name: "Work" })).toBeNull();
   });
 
-  it("the rail moves between Skills, Connections and Memory", async () => {
+  it("the rail moves between General, Skills, Connections and Memory — General first", async () => {
     await mount({ profileMemoryDocs: { p1: "profile-wide context" } });
+    expect(screen.getByRole("radio", { name: "General" })).toBeChecked();
+    expect(screen.getByRole("textbox", { name: "Profile name" })).toHaveValue("Work");
+    fireEvent.click(screen.getByRole("radio", { name: "Skills" }));
     expect(await screen.findByText(/Skills here are seen by every space of Work/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Connections" }));
     expect(await screen.findByText(/stored in plain text in Realm's database/)).toBeInTheDocument();
@@ -70,6 +80,7 @@ describe("ProfilePage · Skills", () => {
 
   it("lists the profile's OWN skills and the pre-scoping rows — never another profile's, never a space's", async () => {
     await mount({ skills: { s1: [...rows] } });
+    fireEvent.click(screen.getByRole("radio", { name: "Skills" }));
     const own = within(await screen.findByText("Work's skills").then((el) => el.closest(".field") as HTMLElement));
     expect(own.getByText("mine")).toBeInTheDocument();
     // The named W2 mutant: another profile's item surfacing (editable or at all) on this page.
@@ -78,13 +89,18 @@ describe("ProfilePage · Skills", () => {
     expect(screen.queryByText("space-only")).toBeNull();
     const everywhere = within(screen.getByText("Everywhere").closest(".field") as HTMLElement);
     expect(everywhere.getByText("legacy")).toBeInTheDocument();
-    // Read-only: no move, no switch — just the note pointing at its space of use.
-    expect(everywhere.queryByRole("button")).toBeNull();
+    /* Read-only: nothing here CHANGES the row — no move, no switch, just the note pointing at its
+       space of use. The name is a button, and deliberately: it opens the skill's page, which is
+       reading rather than editing, and a skill has to open the same way from every list. */
+    expect(everywhere.getByRole("button", { name: "legacy" })).toBeInTheDocument();
+    expect(everywhere.queryAllByRole("button").map((b) => b.textContent)).toEqual(["legacy"]);
+    expect(everywhere.queryByRole("switch")).toBeNull();
     expect(everywhere.getByText(/manage it from a space page/)).toBeInTheDocument();
   });
 
   it("demote ('Keep in one space…') confirms, names the vantage space, and fires DEMOTE — never promote", async () => {
     const { api } = await mount({ skills: { s1: [...rows] } });
+    fireEvent.click(screen.getByRole("radio", { name: "Skills" }));
     fireEvent.click(await screen.findByRole("button", { name: "Keep in one space…" }));
     // Nothing moved yet — the confirm is the gate.
     expect(api.calls.some((c) => c.startsWith("demoteSkill"))).toBe(false);
@@ -154,9 +170,85 @@ describe("ProfilePage · Memory", () => {
     // The reach is page copy, not a banner: this page IS the defining scope.
     expect(screen.getByText(/every new session in every space of Work/)).toBeInTheDocument();
     fireEvent.change(doc, { target: { value: "new profile-wide rule" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save memory" }));
+    fireEvent.blur(doc);
     await waitFor(() => expect(api.data.profileMemoryDocs.p1).toBe("new profile-wide rule"));
     expect(api.data.profileMemoryDocs.p2).toBe("other profile's doc");
+  });
+});
+
+/**
+ * Plan 27 Phase 2 — the General tab: a profile is edited and deleted here. What must die: a rename that
+ * writes on every keystroke or writes a blank name, a delete one click away, a delete that does not say
+ * what goes with it, and the last profile offered for deletion.
+ */
+describe("ProfilePage · General", () => {
+  it("renames on commit — Enter or leaving the field — and puts a blank name back", async () => {
+    const { api, store } = await mount();
+    const field = screen.getByRole("textbox", { name: "Profile name" });
+    fireEvent.change(field, { target: { value: "Day job" } });
+    expect(api.calls.some((c) => c.startsWith("updateProfile"))).toBe(false);
+    fireEvent.blur(field);
+    await waitFor(() => expect(store.getState().profiles.find((p) => p.id === "p1")!.name).toBe("Day job"));
+    expect(screen.getByRole("heading", { name: "Day job" })).toBeInTheDocument();
+    fireEvent.change(field, { target: { value: "   " } });
+    fireEvent.blur(field);
+    expect(field).toHaveValue("Day job");
+    expect(api.calls.filter((c) => c.startsWith("updateProfile"))).toHaveLength(1);
+  });
+
+  it("recolours from the swatches, and a typed colour only once it is a whole #rrggbb", async () => {
+    const { api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "Colour #3ddc97" }));
+    await waitFor(() => expect(api.data.profiles.find((p) => p.id === "p1")!.color).toBe("#3ddc97"));
+    const hex = screen.getByRole("textbox", { name: "Custom colour" });
+    fireEvent.change(hex, { target: { value: "#12ab" } });
+    expect(api.data.profiles.find((p) => p.id === "p1")!.color).toBe("#3ddc97");
+    fireEvent.change(hex, { target: { value: "#12AB34" } });
+    await waitFor(() => expect(api.data.profiles.find((p) => p.id === "p1")!.color).toBe("#12ab34"));
+  });
+
+  it("changes the icon through the same picker a space uses", async () => {
+    const { api } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Change icon…" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Icon rocket" }));
+    await waitFor(() => expect(api.data.profiles.find((p) => p.id === "p1")!.icon).toBe("rocket"));
+  });
+
+  it("delete says what goes with it, and only the profile's typed name arms it", async () => {
+    const { api } = await mount({
+      spaces: [space("s1", "p1", "Versed"), space("s3", "p1", "Side project"), space("s2", "p2", "Homework")],
+      sessions: [session("a", "s1"), session("b", "s3"), session("c", "s2")],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Delete profile…" }));
+    // The counts are the server's, read when the confirm opens: Work's two spaces and their two
+    // sessions — not School's.
+    expect(await screen.findByText(/Deleting Work deletes its 2 spaces and 2 sessions\./)).toBeInTheDocument();
+    expect(screen.getByText(/Folders on disk are kept/)).toBeInTheDocument();
+    const go = screen.getByRole("button", { name: "Delete Work" });
+    expect(go).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Type Work to confirm" }), { target: { value: "work" } });
+    expect(go).toBeDisabled();
+    expect(api.calls.some((c) => c.startsWith("deleteProfile"))).toBe(false);
+    fireEvent.change(screen.getByRole("textbox", { name: "Type Work to confirm" }), { target: { value: "Work" } });
+    expect(go).toBeEnabled();
+    fireEvent.click(go);
+    await waitFor(() => expect(api.calls).toContain("deleteProfile:p1"));
+  });
+
+  it("Cancel puts the confirm away, and opening it again asks for the name again", async () => {
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Delete profile…" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Type Work to confirm" }), { target: { value: "Work" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete profile…" }));
+    expect(screen.getByRole("textbox", { name: "Type Work to confirm" })).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Delete Work" })).toBeDisabled();
+  });
+
+  it("the last profile cannot be deleted, and the page says why rather than hiding the button", async () => {
+    await mount({ profiles: [profile("p1", "Work")], spaces: [space("s1", "p1", "Versed")] });
+    expect(screen.getByRole("button", { name: "Delete profile…" })).toBeDisabled();
+    expect(screen.getByText("This is the only profile, so it can't be deleted. Make another profile first.")).toBeInTheDocument();
   });
 });
 

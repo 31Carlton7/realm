@@ -8,3 +8,4 @@ next-env.d.ts
 /scripts/*.png
 /scripts/node_modules
 .vercel
+/.captures

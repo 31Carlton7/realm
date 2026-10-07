@@ -5,8 +5,8 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult, type BrowserDownloadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
-import { PICK_BINDING, armElementPick, buildSnapshot, describeElement, describePick, disarmElementPick, highlightTargetRef, performAct, performFillCredential, readPageText, resolvePickedNode, showActionHighlight, type CdpSend, type SnapshotIndex } from "./browser-agent";
+import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { ANNOTATE_BINDING, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { axElementAt, readAxSnapshot } from "./device-ax";
 
@@ -45,6 +45,25 @@ function parseSurface(v: unknown): PickPoint["surface"] {
   return box.w > 0 && box.h > 0 ? box : null;
 }
 
+/**
+ * How an annotate session ended (Plan 26 W7d). `sent` carries every pin, in the order they were made,
+ * and the page as it looked with the pins drawn; `left` is the page navigating out from under them,
+ * which takes the pins with it and is worth saying, unlike a close the user chose.
+ */
+export type AnnotateOutcome =
+  | { outcome: "sent"; elements: BrowserPickedElement[]; png: Uint8Array | null }
+  | { outcome: "closed" }
+  | { outcome: "left" };
+
+/** One annotate session on one view. `queue` orders the page's reports: each pin is resolved before
+ *  the next report is read, so a Send that arrives right behind a click still includes that pin. */
+type AnnotateSession = {
+  browserId: string;
+  pins: { n: number; element: BrowserPickedElement }[];
+  queue: Promise<void>;
+  finish: (o: AnnotateOutcome) => void;
+};
+
 /** Device strings are the device's own and travel into a prompt like every other picked field. */
 const clipField = (v: string, max = PICK_NAME_MAX): string => (v.length > max ? v.slice(0, max) : v);
 
@@ -67,8 +86,11 @@ export type BrowserAgentHostDeps = {
   touch(browserId: string): void;
   /** BrowserPaneHost.navigate — the SAME normalization + allowlist every other navigation obeys. */
   navigate(browserId: string, url: string): string | null;
-  /** Trustworthy page identity (webContents.getURL/getTitle — never page-authored text). */
-  pageState(browserId: string): { url: string; title: string } | null;
+  /** Trustworthy page identity (webContents.getURL/getTitle — never page-authored text), whether
+   *  the page is still loading (`isLoading()`, the pane's own spinner), and why it did not load. */
+  pageState(browserId: string): { url: string; title: string; loading?: boolean; error?: BrowserLoadError | null } | null;
+  /** The clock a page's network quiet is measured on. A test seam; `Date.now` otherwise. */
+  now?: () => number;
   /**
    * The encrypted secret store (`secret-store.ts`), for the `fillCredential` op alone.
    *
@@ -79,16 +101,35 @@ export type BrowserAgentHostDeps = {
    *
    * Note the shape: `withCredentialValue` takes a callback and returns no value. This dependency
    * cannot hand the host a password even if the host asked.
+   *
+   * Every door names a PROFILE (Plan 27 Phase 2): saved sign-ins are a profile's own, and the op
+   * carries the profile of the calling session's space, which realm-server resolved.
    */
   secrets?: {
-    listCredentials(): BrowserCredential[];
-    getCredential(id: string): BrowserCredential | null;
+    listCredentials(profileId: string): BrowserCredential[];
+    getCredential(profileId: string, id: string): BrowserCredential | null;
     withCredentialValue(
+      profileId: string,
       id: string,
       use: (value: string) => Promise<void>,
     ): Promise<{ ok: true } | { ok: false; refused: "no_credential" | "no_presence" }>;
+    /** Mint a password for an origin, keep it, and type it — the generated half of the fill op. Same
+     *  callback shape as `withCredentialValue`, so this dependency cannot hand the host the password
+     *  it just created either; what comes back is the metadata row, which is what the agent needs to
+     *  fill the same new value again into a confirm field. The row is the named profile's own. */
+    withGeneratedCredentialValue(
+      profileId: string,
+      input: { origin: string; username: string; label: string; length: number; symbols: boolean },
+      use: (value: string) => Promise<void>,
+    ): Promise<{ ok: true; credential: BrowserCredential } | { ok: false; refused: "no_store" | "no_presence" }>;
     audit(entry: CredentialAuditEntry): void;
   };
+  /**
+   * Whose pane this is: the profile main gave the view's partition to, or null when there is no
+   * view. A fill puts a profile's secret into a page, so the page must be that profile's — the
+   * session's space and the pane are checked against each other here rather than trusted to agree.
+   */
+  profileOf?(browserId: string): string | null;
   /**
    * The download governor (`downloads.ts`), for the `download` op alone. Optional for the same reason
    * `secrets` is: absent means every download stays blocked, which is the resting state anyway.
@@ -100,22 +141,56 @@ export type BrowserAgentHostDeps = {
       click: () => Promise<{ ok: boolean; error?: string }>,
     ): Promise<BrowserDownloadResult>;
   };
+  /**
+   * Read a file off disk, for the `upload` op alone — and only for its DROP route, where the bytes
+   * have to be materialized inside the page. The other two routes hand Chromium a path and the
+   * browser process opens it, which is why this is not on the hot path.
+   *
+   * Optional for the same reason `secrets` and `downloads` are: a harness without it simply cannot
+   * take the drop route, and says so, rather than falling back to something less careful. Every
+   * path reaching this has already been resolved, symlink-checked, confined and approved
+   * server-side — this dependency is a reader, not a gate, and must never become one, because a
+   * second place that decides which files are legal is a second place that can disagree.
+   */
+  readFile?(path: string): Promise<Uint8Array>;
 };
 
 /** Executor refusals → audit outcomes. `password` is absent because a fill cannot produce it (that
  *  refusal belongs to `act`), and an unmapped code degrades to `error` rather than inventing a row. */
 const FILL_OUTCOMES: Partial<Record<string, CredentialAuditEntry["outcome"]>> = {
-  origin_mismatch: "origin_mismatch", no_credential: "no_credential", no_presence: "no_presence",
+  origin_mismatch: "origin_mismatch", no_credential: "no_credential", no_store: "no_store",
+  no_presence: "no_presence",
 };
 
 const CONSOLE_MAX = 200;
 const NETWORK_MAX = 150;
+/** A request still open after this long is a stream or a long poll — an EventSource, a chat socket's
+ *  fallback — which a page keeps open for as long as it is up. Counting it would call the page busy
+ *  forever, so it stops counting as in flight. */
+const REQUEST_STALE_MS = 10_000;
+/** The requests a page waits on to change what it shows: a document, and data it fetches. An image,
+ *  a font or a stylesheet arriving late changes nothing anyone clicks, and a page that never finishes
+ *  loading one — a slow tracker's pixel, a broken image — would otherwise never be at rest. */
+const WAITED_ON = new Set(["Document", "XHR", "Fetch"]);
+/** How many open requests one view keeps track of before forgetting the oldest. */
+const REQUESTS_MAX = 500;
+
+/** How long an act waits, after a successful click, to see whether it opened a file chooser. Short
+ *  enough to be invisible to a person and to a twenty-step batch; long enough for the renderer to
+ *  dispatch the click handler and for the CDP event to cross the debugger. */
+const CHOOSER_SETTLE_MS = 150;
 
 type Attached = {
   binding: CdpBinding;
   consoleLines: string[];
   network: Map<string, { method: string; url: string; status?: number; mimeType?: string; failed?: string }>;
   networkOrder: string[];
+  /** The requests the page waits on (`WAITED_ON`) that it has open, by id, with when each started —
+   *  what `pageActivity` counts. Kept apart from the log above, which keeps a request long after it
+   *  finished. */
+  open: Map<string, number>;
+  /** When one of those last started or finished, or when Realm attached if none has. */
+  networkAt: number;
   lastSnapshot: SnapshotIndex | null;
   /** Resolver for the pick currently armed on this view, if any — see `pickElement`. */
   pick: ((ref: number | null) => void) | null;
@@ -125,12 +200,66 @@ type Attached = {
   pickPoint: PickPoint | null;
   /** Bumped by every `pickElement`, so a superseded call can tell it no longer owns inspect mode. */
   pickGen: number;
+  /** The annotate session armed on this view, if any — see `annotate`. */
+  annotate: AnnotateSession | null;
+  /** Bumped by every `annotate`, for `pickGen`'s reason. */
+  annotateGen: number;
+  /** File-chooser interception state for this view — see `FileChooserState`. */
+  chooser: FileChooserState;
 };
+
+/**
+ * What this pane knows about file choosers.
+ *
+ * The invariant the whole upload feature rests on: **a file chooser opened by an agent's click is
+ * INTERCEPTED, never shown.** macOS's open panel is modal and unreachable from CDP, so a pane that
+ * shows one is a pane the agent has taken away from its user until they come back and dismiss it by
+ * hand. Interception is armed before any click that could open one and disarmed afterwards, so the
+ * USER's own clicks still get a real panel — interception is a property of the page, and a pane left
+ * permanently armed is one where the human's own "Choose files" button silently does nothing.
+ *
+ *   - `armed` — interception is on right now.
+ *   - `disarmAt` / `timer` — the deadline the post-click window expires at. Extended rather than
+ *     stacked, so twenty clicks in a batch hold one timer, not twenty.
+ *   - `pending` — a chooser that WAS intercepted and has not been answered. The page is waiting on
+ *     that node; `browser_upload` fills it and `browser_dismiss_dialog` cancels it. Interception
+ *     stays armed while one is pending, because disarming would not un-intercept it and the next
+ *     click would open a native panel on top of a page already waiting for files.
+ *   - `waiter` — a `browser_upload` blocked on the next `Page.fileChooserOpened`.
+ */
+type FileChooserState = {
+  armed: boolean;
+  disarmAt: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  pending: InterceptedChooser | null;
+  waiter: ((c: InterceptedChooser | null) => void) | null;
+};
+
+const newChooserState = (): FileChooserState => ({ armed: false, disarmAt: 0, timer: null, pending: null, waiter: null });
 
 export class BrowserAgentHost {
   private readonly attached = new Map<string, Attached>();
 
+  /**
+   * The theme accent every mark this host draws inside a page is painted in — the action ring, the
+   * agent cursor, the controlled-screen frame and the picker's overlay.
+   *
+   * Held here, once, rather than per browser id: the accent is a property of the WINDOW (it is
+   * whatever `--rl-accent` computes to on that document's `:root`) and this host is already one per
+   * window, so a per-view cache would be N copies of one value with N chances to drift. Pushed from
+   * the renderer on every theme apply (`ThemeBridge`), because a page carries none of Realm's CSS
+   * and cannot be asked. The default stands in until the first push, and for a window that never
+   * sends one.
+   */
+  private accent = DEFAULT_AGENT_ACCENT;
+
   constructor(private readonly d: BrowserAgentHostDeps) {}
+
+  /** The renderer's theme changed. Fire-and-forget from the renderer's side: nothing waits on the
+   *  colour, and an act that lands a frame ahead of it is drawn in the previous accent, not wrongly. */
+  setAccent(accent: string): void {
+    if (accent) this.accent = accent;
+  }
 
   /** A download was blocked on this browser's view (main cancels ALL downloads on the browser
    *  partition — the W3 hard block). Lands in the console buffer so `browser_read console` shows it. */
@@ -145,7 +274,18 @@ export class BrowserAgentHost {
     // A pick armed on a view that just died resolves EMPTY rather than hanging: the renderer awaits
     // this promise to un-arm its button, and a pane closed mid-pick would otherwise leave the button
     // lit for a view that no longer exists.
-    this.attached.get(browserId)?.pick?.(null);
+    const entry = this.attached.get(browserId);
+    entry?.pick?.(null);
+    if (entry?.annotate) this.finishAnnotate(entry, { outcome: "closed" });
+    // A chooser waiter on a dead view resolves empty rather than hanging out its timeout, and the
+    // disarm timer is cleared — it would otherwise fire against a binding whose view is gone.
+    if (entry) {
+      this.clearChooserTimer(entry);
+      const waiter = entry.chooser.waiter;
+      entry.chooser.waiter = null;
+      entry.chooser.pending = null;
+      waiter?.(null);
+    }
     this.attached.delete(browserId);
   }
 
@@ -168,15 +308,23 @@ export class BrowserAgentHost {
     const entry = this.ensure(browserId);
     const gen = ++entry.pickGen;
     entry.pick?.(null);
+    // One mode at a time: a pick over a page with pins on it would be two overlays answering one click.
+    if (entry.annotate) { this.finishAnnotate(entry, { outcome: "closed" }); await disarmAnnotate(entry.binding.send); }
     const ref = await new Promise<number | null>((resolve) => {
       entry.pick = resolve;
-      void armElementPick(entry.binding.send, accent).catch(() => this.settlePick(entry, null));
+      void armElementPick(entry.binding.send, accent ?? this.accent).catch(() => this.settlePick(entry, null));
     });
     // A later `pickElement` has taken the view over — it owns inspect mode now, and disarming from
     // here would switch off the picker the user has just re-armed.
     if (entry.pickGen !== gen) return null;
     await disarmElementPick(entry.binding.send);
     if (ref === null) return null;
+    return this.pickedElement(entry, browserId, ref, entry.pickPoint);
+  }
+
+  /** A resolved ref → the element a prompt carries. Shared by a pick and by every annotate pin, so the
+   *  two are described, clipped and upgraded to a device element in exactly one way. */
+  private async pickedElement(entry: Attached, browserId: string, ref: number, point: PickPoint | null): Promise<BrowserPickedElement | null> {
     const state = this.d.pageState(browserId);
     const picked = await describePick(entry.binding.send, ref).catch(() => null);
     if (!picked) return null;
@@ -187,7 +335,77 @@ export class BrowserAgentHost {
     // difference between "a page made its title enormous" and "this did not come from the picker".
     const url = (state?.url ?? "").slice(0, PICK_URL_MAX);
     const base: BrowserPickedElement = { ...picked, url, title: (state?.title ?? "").slice(0, PICK_TITLE_MAX) };
-    return (await this.asDeviceElement(base, url, entry.pickPoint)) ?? base;
+    return (await this.asDeviceElement(base, url, point)) ?? base;
+  }
+
+  /**
+   * Annotate (Plan 26 W7d): the picker kept armed. Resolves when the user presses Send in the page's
+   * toolbar — with every pin and a capture of the page showing them — or when the session ends without
+   * a send: the toolbar's close or Escape, the pane closing, a pick taking the view, the page navigating.
+   *
+   * Off the agent bridge for `pickElement`'s reason: this is a person pointing at their own screen, and
+   * it reaches main over the pane's own IPC. At most `MAX_ELEMENT_CHIPS` pins, because a message carries
+   * no more elements than that however many tokens stand for them; the page says so at the limit.
+   */
+  async annotate(browserId: string, accent?: string): Promise<AnnotateOutcome> {
+    if (!this.d.hasView(browserId)) return { outcome: "closed" };
+    const entry = this.ensure(browserId);
+    const gen = ++entry.annotateGen;
+    if (entry.pick) this.cancelPick(browserId);
+    if (entry.annotate) this.finishAnnotate(entry, { outcome: "closed" });
+    const outcome = await new Promise<AnnotateOutcome>((resolve) => {
+      entry.annotate = { browserId, pins: [], queue: Promise.resolve(), finish: resolve };
+      void armAnnotate(entry.binding.send, accent ?? this.accent, MAX_ELEMENT_CHIPS).catch(() => this.finishAnnotate(entry, { outcome: "closed" }));
+    });
+    // A later `annotate` owns the page now, and taking the overlay down would take ITS down. (A pick
+    // that took the page has already taken this one's down itself.)
+    if (entry.annotateGen === gen) await disarmAnnotate(entry.binding.send);
+    return outcome;
+  }
+
+  /** Take annotate mode down without sending. The armed promise resolves `closed`. */
+  cancelAnnotate(browserId: string): void {
+    const entry = this.attached.get(browserId);
+    if (!entry?.annotate) return;
+    this.finishAnnotate(entry, { outcome: "closed" });
+    void disarmAnnotate(entry.binding.send);
+  }
+
+  private finishAnnotate(entry: Attached, outcome: AnnotateOutcome): void {
+    const session = entry.annotate;
+    entry.annotate = null;
+    session?.finish(outcome);
+  }
+
+  /** A report from the page's annotator. Read in order, through the session's queue. */
+  private onAnnotate(entry: Attached, payload: string): void {
+    const session = entry.annotate;
+    if (!session) return;
+    let msg: { type?: unknown; n?: unknown; x?: unknown; y?: unknown; surface?: unknown };
+    try { msg = JSON.parse(payload) as typeof msg; } catch { return; }
+    const live = () => entry.annotate === session;
+    if (msg.type === "pin" && typeof msg.n === "number") {
+      const n = msg.n;
+      const point = parsePickPoint(JSON.stringify({ x: msg.x, y: msg.y, surface: msg.surface }));
+      session.queue = session.queue.then(async () => {
+        if (!live() || session.pins.length >= MAX_ELEMENT_CHIPS) return;
+        const ref = await resolveAnnotatedNode(entry.binding.send, n);
+        const element = ref === null ? null : await this.pickedElement(entry, session.browserId, ref, point);
+        if (element && live()) session.pins.push({ n, element });
+      });
+    } else if (msg.type === "clear") {
+      session.queue = session.queue.then(() => { if (live()) session.pins = []; });
+    } else if (msg.type === "send") {
+      session.queue = session.queue.then(async () => {
+        if (!live() || session.pins.length === 0) return;
+        const png = await captureAnnotated(entry.binding.send);
+        if (!live()) return;
+        const elements = [...session.pins].sort((a, b) => a.n - b.n).map((p) => p.element);
+        this.finishAnnotate(entry, { outcome: "sent", elements, png });
+      });
+    } else if (msg.type === "close") {
+      this.finishAnnotate(entry, { outcome: "closed" });
+    }
   }
 
   /**
@@ -260,7 +478,7 @@ export class BrowserAgentHost {
         if (!state || !this.d.hasView(browserId)) return { open: false, url: "", title: "", element: null } satisfies BrowserDescribeResult;
         let element: BrowserDescribeResult["element"] = null;
         if (typeof params.ref === "number") element = await this.describeElement(browserId, params.ref).catch(() => null);
-        return { open: true, url: state.url, title: state.title, element } satisfies BrowserDescribeResult;
+        return { open: true, url: state.url, title: state.title, element, ...(state.error ? { loadError: state.error } : {}) } satisfies BrowserDescribeResult;
       }
       case "navigate": {
         // Straight to the pane host: normalization and the per-space origin allowlist live there,
@@ -269,9 +487,25 @@ export class BrowserAgentHost {
       }
       case "snapshot": {
         const entry = this.ensure(browserId);
+        // Sampled before the capture: it is the state the page was in as the read began.
+        const page = this.pageActivity(entry, browserId);
+        // A page that did not load is Chromium's empty error document, and what the pane draws in its
+        // place is Realm's own page, which is not in that DOM — so a capture would come back as a page
+        // with nothing on it. The failure goes in its own field rather than into the page's text: it
+        // is Realm's statement, and the text is the site's.
+        const failed = this.d.pageState(browserId)?.error ?? null;
+        if (failed) return { url: failed.url, title: "", text: "", elementCount: 0, elements: [], page, loadError: failed } satisfies BrowserSnapshotResult;
         const result = await buildSnapshot(entry.binding.send, entry.lastSnapshot);
         entry.lastSnapshot = result.index;
-        const { index: _index, ...wire } = result;
+        const { index: _index, ...rest } = result;
+        const wire: BrowserSnapshotResult = { ...rest, page };
+        // A pending chooser is page state the tree cannot show — the input it belongs to is usually
+        // the hidden one behind a styled button, so it has no box and is in no layout. The note is
+        // how "a click of yours is still waiting for files" survives to the next snapshot, which is
+        // where an agent that acted and moved on will actually look.
+        if (entry.chooser.pending) {
+          wire.text = `${wire.text}\n(a file chooser is open on this page and waiting — Realm intercepted it, so no macOS panel is on screen. browser_upload attaches files to it; browser_dismiss_dialog cancels it.)`;
+        }
         return wire;
       }
       case "read": {
@@ -279,63 +513,197 @@ export class BrowserAgentHost {
         const entry = this.ensure(browserId);
         if (kind === "console") return { text: entry.consoleLines.join("\n") };
         if (kind === "network") return { text: this.formatNetwork(entry) };
+        // The snapshot's reason: the page's text is the error document's, which is nothing.
+        const failed = this.d.pageState(browserId)?.error ?? null;
+        if (failed) return { text: "", loadError: failed } satisfies BrowserReadResult;
         return { text: await readPageText(entry.binding.send) };
       }
       case "act": {
         const entry = this.ensure(browserId);
         // The action was schema-validated server-side; this cast is the two processes' contract.
         const action = params.action as BrowserAction;
-        // W4: ring the target inside the page before acting. Only acts already PERMITTED reach this
-        // op (the gate is server-side), so the ring never marks something that was refused; and
-        // `showActionHighlight` swallows every failure — a page where it cannot draw acts anyway.
-        const ref = highlightTargetRef(action);
-        if (ref !== null) await showActionHighlight(entry.binding.send, ref);
-        return performAct(entry.binding.send, action);
+        // Mark the act inside the page before performing it — the ring, the cursor and the
+        // controlled-screen frame, in one evaluate. Only acts already PERMITTED reach this op (the
+        // gate is server-side), so a mark never points at something that was refused; and `markAct`
+        // swallows every failure — a page where it cannot draw acts anyway.
+        await markAct(entry.binding.send, action, this.accent);
+        /*
+         * Arm file-chooser interception BEFORE a click or a key, and hold it for a short window
+         * afterwards.
+         *
+         * Not an upload feature — a safety one, and the reason there is no `browser_act` that can
+         * wedge a pane any more. Any click can be the one that opens a picker: a "Choose files"
+         * button, a menu item, an `<input type=file>` reached with Enter. If that picker becomes a
+         * native NSOpenPanel it is modal, CDP cannot see or close it, and the pane belongs to nobody
+         * until a human dismisses it by hand. Armed, the same click yields `Page.fileChooserOpened`
+         * — nothing appears on screen, the agent is told, and `browser_upload` or
+         * `browser_dismiss_dialog` can answer it.
+         *
+         * The window is short (`UPLOAD_ARM_WINDOW_MS`) because interception belongs to the PAGE and
+         * not to the caller: while it is on, the user's own click on a file input gets no panel
+         * either. That race is real and it is the trade — a couple of seconds after an agent act, in
+         * a pane the agent is visibly driving, against a class of unrecoverable wedge. `arm` is
+         * awaited and the act is not: the ordering is what the property depends on.
+         */
+        if (action.kind === "click" || action.kind === "key") await this.armChooser(entry);
+        const result = await performAct(entry.binding.send, action);
+        return this.withChooserNote(entry, result);
       }
       /**
-       * Enrolled sign-ins, METADATA ONLY — the `BrowserCredential` type has no value field, so this
-       * op has nothing to redact. It exists because `fill_credential` takes a `credentialId` and the
-       * agent needs some way to learn one; origin/username/label are the same three facts the
-       * permission card shows the user, and the user typed all three themselves in Settings.
+       * Attach files to a page (Plan 26). The gate, the path resolution, the symlink check, the
+       * secret-path refusal and the user's approval all happened SERVER-side; what arrives here is a
+       * list of absolute paths already vetted, and this op's whole job is to get them onto the right
+       * node without the OS panel. `performUpload` picks the route; the seams below are the pieces
+       * only this class can supply — the chooser's event plumbing and the disk.
+       */
+      case "upload": {
+        const entry = this.ensure(browserId);
+        const ref = Number(params.ref);
+        const files = (params.files ?? []) as BrowserUploadFile[];
+        if (!Array.isArray(files) || files.length === 0) {
+          return { ok: false, error: "no files were given to attach" } satisfies BrowserUploadResult;
+        }
+        const read = this.d.readFile;
+        try {
+          return await performUpload(entry.binding.send, ref, files, {
+            pending: () => this.takePendingChooser(entry),
+            arm: () => this.armChooser(entry, { hold: true }),
+            disarm: () => this.disarmChooser(entry),
+            awaitChooser: (timeoutMs) => this.awaitChooser(entry, timeoutMs),
+            retain: (chooser) => { entry.chooser.pending = chooser; },
+            readFile: read
+              ? (path) => read(path)
+              : () => Promise.reject(new Error("this build cannot read files for a synthesized drop")),
+          });
+        } finally {
+          // `arm` above holds interception open for as long as the upload needs, with no timer behind
+          // it, so the disarm has to happen HERE — a pane left armed is one where the USER's own
+          // "Choose files" button silently does nothing. `disarmChooser` declines when a chooser is
+          // still pending (a refused `accept=`, handed back by `retain`), which is the one case where
+          // staying armed is right.
+          await this.disarmChooser(entry);
+        }
+      }
+      /**
+       * Cancel an intercepted file chooser — the recovery valve for a click that turned out to open
+       * a picker the agent did not want.
+       *
+       * Says plainly what it is and is not: it answers a chooser Realm INTERCEPTED, by telling the
+       * page nothing was picked. There is no native panel to close, because interception is what
+       * kept one from ever appearing; a panel that somehow reached the screen (a click in a window
+       * with no interception armed, from before this pane was attached) is outside CDP's reach and
+       * outside this op's, and the honest answer there is that the user has to dismiss it.
+       */
+      case "dismissDialog": {
+        const entry = this.ensure(browserId);
+        const pending = this.takePendingChooser(entry);
+        await this.disarmChooser(entry);
+        if (!pending) return { dismissed: false, detail: "no file chooser was open on this pane" } satisfies BrowserDismissDialogResult;
+        await cancelFileChooser(entry.binding.send, pending.backendNodeId);
+        return { dismissed: true, detail: "the file chooser was cancelled — the page was told nothing was picked" } satisfies BrowserDismissDialogResult;
+      }
+      /**
+       * Saved sign-ins, METADATA ONLY — the `BrowserCredential` type has no value field, so this op
+       * has nothing to redact. It exists because `fill_credential` takes a `credentialId` and the
+       * agent needs some way to learn one; origin/username/label are the same facts the permission
+       * card shows the user, typed by the user in Settings or, for a generated row, asked for by an
+       * earlier approved fill. Neither is page-authored.
        */
       case "credentials": {
-        return { credentials: this.d.secrets?.listCredentials() ?? [] };
+        // No profile named, no sign-ins: a call that cannot say whose it is asking for is answered as
+        // a profile with nothing saved, never as somebody's.
+        const profileId = typeof params.profileId === "string" ? params.profileId : "";
+        return { credentials: profileId ? this.d.secrets?.listCredentials(profileId) ?? [] : [] };
       }
       /**
-       * Fill one enrolled credential into `ref`. Every outcome writes an audit line — including the
-       * refusals, which are the ones worth having a record of.
+       * Fill a sign-in into `ref`: one the user enrolled, named by `credentialId`, or one the store
+       * mints now for the origin the permission card named (`generate`). Every outcome writes an audit
+       * line — including the refusals, which are the ones worth having a record of.
        *
-       * The lookup happens HERE rather than in the executor so that an unknown id never reaches CDP
-       * at all, and so the executor receives only `{ id, origin }`: the piece of the row it needs to
-       * decide the origin gate, and nothing else.
+       * Both routes resolve to a single `CredentialFill` before any CDP call, so the origin gate, the
+       * presence check and the typing are literally the same code for the two. What differs is the one
+       * closure that may see a value, and — for the generated route — that the credential does not
+       * exist until that closure has run, which is why its id is settled afterwards.
+       *
+       * The enrolled route's lookup happens HERE rather than in the executor so an unknown id never
+       * reaches CDP, and so the executor receives only the origin: the piece of the row it needs to
+       * decide the gate, and nothing else.
        */
       case "fillCredential": {
-        const credentialId = String(params.credentialId ?? "");
         const ref = Number(params.ref);
+        const profileId = typeof params.profileId === "string" ? params.profileId : "";
         const store = this.d.secrets;
-        const credential = store?.getCredential(credentialId) ?? null;
-        if (!store || !credential) {
-          this.auditFill(credentialId, "", "no_credential");
-          return { ok: false, refused: "no_credential", error: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins" } satisfies BrowserActResult;
+        const generate = readGenerate(params.generate);
+        let fill: CredentialFill;
+        let origin: string;
+        /** The row the fill used, for the audit line and the result. Empty until a generated fill has
+         *  actually minted one — an audit line for a credential that was never created would name an
+         *  id nothing in Settings can be matched against. */
+        let credentialId = "";
+        // A pane of another profile is refused before anything reaches the page, on both routes: its
+        // cookie jar is not the profile's whose secret this is — and a password minted into one
+        // profile's store and typed into another's jar would be an account neither of them can find.
+        // A call that names no profile is answered the same way: it cannot say whose store it means.
+        const paneProfile = this.d.profileOf?.(browserId);
+        const notThisProfile = !profileId || (paneProfile !== undefined && paneProfile !== profileId);
+        if (generate) {
+          // The origin comes from realm-server, which read it off this pane and put it on the card the
+          // user approved. Re-normalized here, and checked against the LIVE page by the executor a
+          // moment later: the card's origin and the filled origin are the same fact or nothing is
+          // filled. A value that will not normalize refuses without reaching the page at all.
+          const approved = normalizeOrigin(String(params.origin ?? ""));
+          if (notThisProfile) {
+            this.auditFill("", approved ?? "", "no_store");
+            return { ok: false, refused: "no_store", error: "this pane belongs to another profile, so there is no store here to keep a new password in — none was generated or filled" } satisfies BrowserActResult;
+          }
+          if (!store || approved === null) {
+            this.auditFill("", approved ?? "", "no_store");
+            return { ok: false, refused: "no_store", error: "Realm has nowhere to keep a new password right now (macOS is not offering an encryption key), so none was generated or filled" } satisfies BrowserActResult;
+          }
+          origin = approved;
+          fill = {
+            origin,
+            kind: "generated",
+            reveal: async (type) => {
+              const minted = await store.withGeneratedCredentialValue(profileId, { origin, ...generate }, type);
+              if (!minted.ok) return minted;
+              credentialId = minted.credential.id;
+              // Deliberately not `minted`: the executor learns that the value was typed, never which
+              // row it came from.
+              return { ok: true };
+            },
+          };
+        } else {
+          const id = String(params.credentialId ?? "");
+          const credential = notThisProfile ? null : store?.getCredential(profileId, id) ?? null;
+          if (!store || !credential) {
+            this.auditFill(id, "", "no_credential");
+            return { ok: false, refused: "no_credential", error: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins" } satisfies BrowserActResult;
+          }
+          credentialId = credential.id;
+          origin = credential.origin;
+          fill = { origin, kind: "saved", reveal: (type) => store.withCredentialValue(profileId, credential.id, type) };
         }
         const entry = this.ensure(browserId);
-        // No `showActionHighlight` here, unlike `act`. The ring is drawn by evaluating script in the
-        // page, and this is the one op where the page is about to receive a real secret — the moment
-        // to do the least in it, not the most. The permission card already told the user which pane.
+        // No `markAct` here, unlike `act`. Every mark is drawn by evaluating script in the page, and
+        // this is the one op where the page is about to receive a real secret — the moment to do the
+        // least in it, not the most. No ring, no cursor, no frame. The permission card already told
+        // the user which pane.
         let result: BrowserActResult;
         try {
-          result = await performFillCredential(entry.binding.send, ref, {
-            credential: { id: credential.id, origin: credential.origin },
-            reveal: (type) => store.withCredentialValue(credential.id, type),
-          });
+          result = await performFillCredential(entry.binding.send, ref, fill);
         } catch {
           // Bare, like the executor's own: a thrown CDP error can carry the characters it was
           // dispatching, and nothing about it may reach a tool result.
-          this.auditFill(credential.id, credential.origin, "error");
-          return { ok: false, error: "the saved sign-in could not be typed into that field" } satisfies BrowserActResult;
+          this.auditFill(credentialId, origin, "error");
+          return { ok: false, error: `the ${generate ? "new" : "saved"} sign-in could not be typed into that field` } satisfies BrowserActResult;
         }
-        this.auditFill(credential.id, credential.origin, result.ok ? "filled" : FILL_OUTCOMES[result.refused ?? "password"] ?? "error");
-        return result;
+        this.auditFill(credentialId, origin, result.ok ? (generate ? "generated" : "filled") : FILL_OUTCOMES[result.refused ?? "password"] ?? "error");
+        // The id travels back only for a generated fill, and only as metadata: it is how the agent
+        // fills this same new password into a confirm field without ever being told what it is.
+        return result.ok && generate && credentialId
+          ? { ...result, credentialId } satisfies BrowserFillCredentialResult
+          : result;
       }
       /**
        * Download the file behind `ref`, into the directory the SERVER resolved from the space's
@@ -367,8 +735,9 @@ export class BrowserAgentHost {
           // The click goes through the ordinary act path — same ref resolution, same act-time quads,
           // same highlight. A download is a click that happens to produce a file.
           async () => {
-            await showActionHighlight(entry.binding.send, ref);
-            const result = await performAct(entry.binding.send, { kind: "click", ref, button: "left", clickCount: 1, modifiers: [] });
+            const click: BrowserAction = { kind: "click", ref, button: "left", clickCount: 1, modifiers: [] };
+            await markAct(entry.binding.send, click, this.accent);
+            const result = await performAct(entry.binding.send, click);
             return result.ok ? { ok: true } : { ok: false, error: result.error };
           },
         );
@@ -377,11 +746,107 @@ export class BrowserAgentHost {
         const entry = this.ensure(browserId);
         const shot = (await entry.binding.send("Page.captureScreenshot", { format: "jpeg", quality: 70 })) as { data?: string };
         if (!shot.data) throw new Error("screenshot produced no data");
-        return { data: shot.data, mimeType: "image/jpeg" };
+        const failed = this.d.pageState(browserId)?.error ?? null;
+        return { data: shot.data, mimeType: "image/jpeg", ...(failed ? { loadError: failed } : {}) } satisfies BrowserScreenshotResult;
       }
       default:
         throw new Error(`unknown browser host op "${op}"`);
     }
+  }
+
+  /* ------------------------------ file choosers ------------------------------ */
+
+  /**
+   * Turn interception on, and (unless the caller is holding it itself) schedule the disarm.
+   *
+   * Idempotent and cheap to call repeatedly: a second arm inside the window only pushes the deadline
+   * out, so a batch of twenty clicks holds one timer rather than twenty. A CDP failure is swallowed —
+   * this is a hardening on top of the act, and an act must not fail because a page's debugger
+   * declined one extra command.
+   */
+  private async armChooser(entry: Attached, opts: { hold?: boolean } = {}): Promise<void> {
+    try {
+      if (!entry.chooser.armed) await setFileChooserInterception(entry.binding.send, true);
+      entry.chooser.armed = true;
+    } catch {
+      entry.chooser.armed = false;
+      return;
+    }
+    if (opts.hold) { this.clearChooserTimer(entry); return; }
+    entry.chooser.disarmAt = Date.now() + UPLOAD_ARM_WINDOW_MS;
+    if (entry.chooser.timer) return; // one timer; it re-checks the deadline when it fires
+    const tick = () => {
+      const remaining = entry.chooser.disarmAt - Date.now();
+      if (remaining > 0) { entry.chooser.timer = setTimeout(tick, remaining); entry.chooser.timer.unref?.(); return; }
+      entry.chooser.timer = null;
+      void this.disarmChooser(entry);
+    };
+    entry.chooser.timer = setTimeout(tick, UPLOAD_ARM_WINDOW_MS);
+    entry.chooser.timer.unref?.();
+  }
+
+  /** Turn interception off — unless a chooser is still pending. Disarming would not un-intercept
+   *  that one, and the page is already waiting on it; the next click would then put a native panel
+   *  on top of a page mid-upload, which is the exact state this whole mechanism exists to prevent.
+   *  It is disarmed when the pending chooser is answered (`takePendingChooser`) instead. */
+  private async disarmChooser(entry: Attached): Promise<void> {
+    this.clearChooserTimer(entry);
+    if (entry.chooser.pending) return;
+    if (!entry.chooser.armed) return;
+    entry.chooser.armed = false;
+    await setFileChooserInterception(entry.binding.send, false).catch(() => {});
+  }
+
+  private clearChooserTimer(entry: Attached): void {
+    if (entry.chooser.timer) clearTimeout(entry.chooser.timer);
+    entry.chooser.timer = null;
+  }
+
+  /** The pending chooser, removed as it is taken — a chooser is answered once, and two callers must
+   *  not both think they own it. */
+  private takePendingChooser(entry: Attached): InterceptedChooser | null {
+    const pending = entry.chooser.pending;
+    entry.chooser.pending = null;
+    return pending;
+  }
+
+  /** The next intercepted chooser, or null after `timeoutMs`. One already pending satisfies it
+   *  immediately — the event can land between the click returning and this being called. */
+  private awaitChooser(entry: Attached, timeoutMs: number): Promise<InterceptedChooser | null> {
+    const already = this.takePendingChooser(entry);
+    if (already) return Promise.resolve(already);
+    return new Promise<InterceptedChooser | null>((resolve) => {
+      const timer = setTimeout(() => {
+        if (entry.chooser.waiter !== settle) return;
+        entry.chooser.waiter = null;
+        resolve(null);
+      }, timeoutMs);
+      timer.unref?.();
+      const settle = (c: InterceptedChooser | null) => { clearTimeout(timer); entry.chooser.waiter = null; resolve(c); };
+      entry.chooser.waiter = settle;
+    });
+  }
+
+  /**
+   * Tell the agent, in the act's own result, that its click opened a file chooser.
+   *
+   * The wait is what makes this truthful rather than lucky: a chooser opens on the page's side of
+   * the click, so at the instant `performAct` returns nothing is pending yet. `CHOOSER_SETTLE_MS` is
+   * the cost — paid only on a successful click, only while interception is armed, and small enough
+   * to sit under perception even across a full `browser_batch`. Without it the note would appear
+   * only on the next snapshot, and an agent that acted twice in a row would have stranded a chooser
+   * without ever being told.
+   */
+  private async withChooserNote(entry: Attached, result: BrowserActResult): Promise<BrowserActResult> {
+    if (!result.ok || !entry.chooser.armed) return result;
+    if (!entry.chooser.pending) await this.awaitChooser(entry, CHOOSER_SETTLE_MS).then((c) => { if (c) entry.chooser.pending = c; });
+    if (!entry.chooser.pending) return result;
+    return {
+      ok: true,
+      detail:
+        `${result.detail} — that opened a file chooser, which Realm intercepted, so no macOS panel appeared. ` +
+        "Call browser_upload with this same ref and the paths to attach, or browser_dismiss_dialog to cancel it.",
+    };
   }
 
   /** One audit line per fill attempt: timestamp, origin, credentialId, outcome — and never the
@@ -404,7 +869,7 @@ export class BrowserAgentHost {
     if (cached) return cached;
     const binding = this.d.attach(browserId);
     if (!binding) throw new Error(`could not attach the debugger to browser ${browserId}`);
-    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], lastSnapshot: null, pick: null, pickPoint: null, pickGen: 0 };
+    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], open: new Map(), networkAt: this.now(), lastSnapshot: null, pick: null, pickPoint: null, pickGen: 0, annotate: null, annotateGen: 0, chooser: newChooserState() };
     binding.onEvent((method, rawParams) => this.onCdpEvent(entry, method, rawParams));
     this.attached.set(browserId, entry);
     // Enable the event domains the buffers feed on. Fire-and-forget: an enable that fails costs a
@@ -429,6 +894,12 @@ export class BrowserAgentHost {
       const id = String(p.requestId ?? "");
       const req = p.request as { method?: string; url?: string } | undefined;
       if (!id || !req?.url || req.url.startsWith("data:")) return;
+      if (WAITED_ON.has(String(p.type ?? ""))) {
+        // A redirect arrives as the same id again: still one request, started over.
+        entry.open.set(id, this.now());
+        while (entry.open.size > REQUESTS_MAX) entry.open.delete(entry.open.keys().next().value!);
+        entry.networkAt = this.now();
+      }
       if (!entry.network.has(id)) {
         entry.network.set(id, { method: req.method ?? "GET", url: req.url });
         entry.networkOrder.push(id);
@@ -438,7 +909,10 @@ export class BrowserAgentHost {
       const row = entry.network.get(String(p.requestId ?? ""));
       const res = p.response as { status?: number; mimeType?: string } | undefined;
       if (row && res) { row.status = res.status; row.mimeType = res.mimeType; }
+    } else if (method === "Network.loadingFinished") {
+      this.closeRequest(entry, String(p.requestId ?? ""));
     } else if (method === "Network.loadingFailed") {
+      this.closeRequest(entry, String(p.requestId ?? ""));
       const row = entry.network.get(String(p.requestId ?? ""));
       if (row) row.failed = String(p.errorText ?? "failed");
     } else if (method === "Runtime.bindingCalled" && p.name === PICK_BINDING) {
@@ -458,11 +932,33 @@ export class BrowserAgentHost {
         entry.pickPoint = parsePickPoint(String(p.payload ?? ""));
         void resolvePickedNode(entry.binding.send).then((ref) => this.settlePick(entry, ref));
       }
+    } else if (method === "Runtime.bindingCalled" && p.name === ANNOTATE_BINDING) {
+      this.onAnnotate(entry, String(p.payload ?? ""));
+    } else if (method === "Page.fileChooserOpened") {
+      /* The page tried to open a file picker and interception caught it — NOTHING is on screen. The
+         node travels with the event only because interception is on; without it Chromium would have
+         shown macOS's panel and said nothing useful here, which is the whole reason acts arm first.
+         `mode` is the page's own statement of how many files that input takes. */
+      const backendNodeId = Number(p.backendNodeId ?? 0);
+      if (backendNodeId > 0) {
+        const chooser: InterceptedChooser = { backendNodeId, multiple: p.mode === "selectMultiple" };
+        const waiter = entry.chooser.waiter;
+        if (waiter) waiter(chooser);
+        else entry.chooser.pending = chooser;
+        pushRing(entry.consoleLines, "[realm] a file chooser was intercepted (no macOS panel was shown) — browser_upload attaches files to it, browser_dismiss_dialog cancels it", CONSOLE_MAX);
+      }
     } else if (method === "Page.frameNavigated" && (p.frame as { parentId?: string } | undefined)?.parentId === undefined) {
       // A main-frame navigation resets the overlay agent, so an armed picker silently stops picking.
       // Settling it empty is what keeps the toolbar button from staying lit over a page it can no
       // longer pick from; the user presses it again on the new page.
       this.settlePick(entry, null);
+      // The same for annotate, except that it says so: the pins went with the page they were on.
+      if (entry.annotate) this.finishAnnotate(entry, { outcome: "left" });
+      // The same navigation took any pending file chooser's node with it. Forgotten rather than
+      // cancelled: there is nothing left to tell, and holding a dead backendNodeId is what would
+      // keep interception armed forever on a page that never asked for it.
+      entry.chooser.pending = null;
+      void this.disarmChooser(entry);
     }
   }
 
@@ -474,6 +970,25 @@ export class BrowserAgentHost {
     const resolve = entry.pick;
     entry.pick = null;
     resolve?.(ref);
+  }
+
+  private closeRequest(entry: Attached, id: string): void {
+    if (entry.open.delete(id)) entry.networkAt = this.now();
+  }
+
+  /**
+   * What the browser says about the page right now — the `page` a snapshot carries. `loading` is the
+   * webContents' own; the requests are the ones the Network domain saw start and not yet finish,
+   * less any open past `REQUEST_STALE_MS`.
+   */
+  private pageActivity(entry: Attached, browserId: string): BrowserPageActivity {
+    const now = this.now();
+    for (const [id, startedAt] of entry.open) if (now - startedAt >= REQUEST_STALE_MS) entry.open.delete(id);
+    return { loading: this.d.pageState(browserId)?.loading === true, requests: entry.open.size, quietMs: Math.max(0, now - entry.networkAt) };
+  }
+
+  private now(): number {
+    return this.d.now?.() ?? Date.now();
   }
 
   private formatNetwork(entry: Attached): string {
@@ -488,4 +1003,19 @@ export class BrowserAgentHost {
 function pushRing(list: string[], line: string, max: number): void {
   list.push(line);
   while (list.length > max) list.shift();
+}
+
+/** The `generate` half of a `fillCredential` op's params, or null when the op names a credentialId
+ *  instead. realm-server has already validated this against `BrowserGeneratedCredentialSchema`; it is
+ *  read field by field anyway, because this is the process that makes the password and a length that
+ *  arrived as a string must not get that far. */
+function readGenerate(raw: unknown): { username: string; label: string; length: number; symbols: boolean } | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const asked = raw as Record<string, unknown>;
+  return {
+    username: typeof asked.username === "string" ? asked.username : "",
+    label: typeof asked.label === "string" ? asked.label : "",
+    length: typeof asked.length === "number" ? asked.length : GENERATED_PASSWORD_LENGTH,
+    symbols: asked.symbols !== false,
+  };
 }

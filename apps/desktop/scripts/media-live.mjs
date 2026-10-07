@@ -29,6 +29,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = 9223, SERVER_PORT = 8788;
@@ -81,8 +82,8 @@ function cdp(wsUrl) {
 /** A minimal client for the server's WebSocket JSON-RPC. The scripted agent is not offered in the
  *  harness chip — deliberately, it is a dev adapter — so the session is switched onto it here, the
  *  way the UI would if it did. The renderer is subscribed to the same server and renders the result. */
-function rpc(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   const ready = new Promise((res) => ws.addEventListener("open", res));
@@ -255,7 +256,7 @@ async function main() {
 
   // Put the open session on the scripted adapter. Over RPC rather than through the harness chip:
   // `fake` is not in SELECTABLE_AGENT_KINDS, on purpose — it is a dev adapter, not an offer.
-  const api = rpc(SERVER_PORT);
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const sessions = await until(async () => {
     const all = await api.call("sessions.listAll", {});
@@ -368,7 +369,7 @@ async function main() {
   // The lightbox: a portal to <body>, so the transcript's own overflow cannot clip it.
   await evalIn(c, `[...document.querySelectorAll('.media-item')].find((li) => li.querySelector('.media-name').textContent === 'tiny.png').querySelector('.media-image').click()`);
   const light = await until(() => evalIn(c, `(() => {
-    const d = document.querySelector('.media-lightbox');
+    const d = document.querySelector('.media-viewer');
     if (!d) return null;
     const b = d.getBoundingClientRect();
     return { parent: d.parentElement.tagName, w: Math.round(b.width), h: Math.round(b.height),
@@ -411,7 +412,7 @@ async function main() {
   check("the lightbox actually covers the video behind it", delta <= 6, { overVideo: [r, g, bl], control: [cr, cg, cb], delta });
 
   const stage = await evalIn(c, `(() => {
-    const el = document.querySelector('.media-lightbox .media-stage .media-el');
+    const el = document.querySelector('.media-viewer .media-viewer-img');
     const b = el.getBoundingClientRect();
     return { tag: el.tagName, w: Math.round(b.width), h: Math.round(b.height), natural: el.naturalWidth ?? null }; })()`);
   // A picture is shown at its own size, never blown up: an upscaled 2×2 fixture is a smear, and an

@@ -16,9 +16,11 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+// The socket refuses a handshake without the `realm.<token>` subprotocol; the token is in the home.
+const { daemonToken, tokenProtocols } = await import(pathToFileURL(path.join(repoRoot, "apps/desktop/scripts/lib/daemon-token.mjs")).href);
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-skill-roots-live-"));
 let server = null;
 
@@ -32,8 +34,8 @@ const skill = (dir, name) => {
   fs.writeFileSync(path.join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: Fixture skill for the live check.\n---\n\nBody.\n`);
 };
 
-function rpc(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   const ready = new Promise((res, rej) => { ws.addEventListener("open", res); ws.addEventListener("error", () => rej(new Error("RPC unavailable"))); });
@@ -72,7 +74,7 @@ async function boot(env) {
       }
     });
   });
-  const c = rpc(port);
+  const c = rpc(port, await daemonToken(home));
   await c.ready;
   const profile = await c.call("profiles.create", { name: "Live" });
   const space = await c.call("spaces.create", { profileId: profile.id, name: "Work" });

@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { PlanAlertSchema, PlanLimitsUnavailableSchema, PlanWindowSchema } from "./plan-limits";
+import { MentionRefSchema } from "./mention-refs";
+import { AskAnswersSchema, AskCardSchema } from "./ui-ask";
+import { AppViewRefSchema } from "./mcp-apps";
 
 const P = {
   /** `from` is present ONLY when another session delivered this message (Plan 20's interjection).
@@ -10,12 +14,37 @@ const P = {
     text: z.string(),
     attachments: z.array(z.object({ path: z.string(), mime: z.string() })),
     from: z.object({ sessionId: z.string(), title: z.string() }).optional(),
+    /** This turn was written by the session's own goal rather than typed by anyone — a continuation,
+     *  or the handover a spent budget asks for. Absent on everything a person sent, including the
+     *  objective itself, which the user really did write. The transcript attributes it for `from`'s
+     *  reason: a reader must never come away believing they typed it. */
+    goal: z.enum(["continuation", "budget"]).optional(),
+    /** A scheduled task's run began with this message, written from the task rather than typed. `note`
+     *  is what Realm appended for the agent — the unattended rules — and stays in `text`, which is what
+     *  the agent was handed; the transcript draws the task's name above the bubble instead and keeps
+     *  the note out of it, so the bubble reads as the instructions the person wrote. Optional, so every
+     *  row ever written still parses. */
+    scheduled: z.object({ task: z.string(), note: z.string() }).optional(),
+    /** What the message's `@[…]` chips named — files, Library items, apps — so the log can draw each
+     *  chip with its own mark a week later. Kept apart from `attachments`, which stay the files the
+     *  user attached: a mentioned file is a chip in the sentence, and a tile above it would be the
+     *  same file shown twice. Optional, so every row written before mentions existed still parses. */
+    refs: z.array(MentionRefSchema).optional(),
   }),
   assistant_text: z.object({ messageId: z.string(), text: z.string() }),
   assistant_delta: z.object({ messageId: z.string(), delta: z.string() }),
   thinking: z.object({ messageId: z.string(), text: z.string() }),
-  tool_call: z.object({ toolUseId: z.string(), name: z.string(), input: z.record(z.unknown()), parentToolUseId: z.string().nullable() }),
-  tool_result: z.object({ toolUseId: z.string(), content: z.string(), isError: z.boolean() }),
+  /** `kind` and `paths` are what an ACP agent says about a call beside its free-text title — ACP's
+   *  `ToolKind` (`edit`, `read`, `execute`…) and the files its `locations` name. They are how the
+   *  transcript knows an ACP call edited a file at all, since its name is a sentence. Absent for every
+   *  other agent, whose tool names already say both, and on every call written before they existed. */
+  tool_call: z.object({ toolUseId: z.string(), name: z.string(), input: z.record(z.unknown()), parentToolUseId: z.string().nullable(),
+    kind: z.string().optional(), paths: z.array(z.string()).optional() }),
+  /** `view` is present when the call reached an MCP server that drew its result in a view of its own
+   *  (MCP Apps), and Realm is showing that server's views. The server writes it, never an adapter:
+   *  the agent's harness reports only the text, and the gateway is what saw the call carry a view.
+   *  Optional, so every result ever persisted still parses. */
+  tool_result: z.object({ toolUseId: z.string(), content: z.string(), isError: z.boolean(), view: AppViewRefSchema.optional() }),
   /**
    * A sub-agent the HARNESS is running in its own process, started or stopped.
    *
@@ -42,17 +71,72 @@ const P = {
      *  whose notification carried no summary — never defaulted to a sentence Realm made up. */
     summary: z.string().optional(),
   }),
-  permission_request: z.object({ requestId: z.string(), toolName: z.string(), input: z.record(z.unknown()), title: z.string(), suggestions: z.array(z.unknown()) }),
-  /** `answers` present only for question-shaped tools (AskUserQuestion): question text -> chosen label.
-   *  Persisted so a replayed transcript records what was actually answered, not just that it was allowed. */
-  permission_response: z.object({ requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: z.record(z.string()).optional() }),
+  /** `ask` is present when the request is a QUESTION rather than a permission — from any of the four
+   *  feeds `ui-ask.ts` describes — and it is Realm's own: an adapter or the server writes it, never an
+   *  agent's arguments, which is what makes it safe to route the card on. Optional, so every request
+   *  ever persisted still parses. */
+  permission_request: z.object({ requestId: z.string(), toolName: z.string(), input: z.record(z.unknown()), title: z.string(), suggestions: z.array(z.unknown()),
+    ask: AskCardSchema.optional() }),
+  /** `answers` present only for a question: its id (Claude's: the question text) -> what was chosen or
+   *  typed, several as a list. Persisted so a replayed transcript records what was actually answered,
+   *  not just that it was allowed — and so a masked answer is only ever `HIDDEN_ANSWER` here. */
+  permission_response: z.object({ requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: AskAnswersSchema.optional() }),
   status: z.object({ status: z.enum(["idle", "running", "waiting_permission", "error", "ended"]),
     /** The turn ended because the USER pressed stop, not because the agent finished or failed.
      *  Present only on the settle that an interrupt produced. It is what lets the transcript say
      *  "Stopped" instead of banking the harness's own diagnostic as an error the user has to read —
      *  a cancelled turn is not a fault, and reporting it as one is the loudest lie in the log. */
     interrupted: z.boolean().optional() }),
-  error: z.object({ message: z.string() }),
+  /**
+   * The turn failed.
+   *
+   * `fix` is present only where Realm can name a specific thing the user can do, which today is an
+   * auth failure it has already verified (`failover.ts` → `authFix`). Optional rather than a second
+   * event type so every error row ever written still parses, and so the transcript keeps ONE shape
+   * for "the turn failed" — a failure with a fix is not a different kind of block, it is the same
+   * block with somewhere to go.
+   *
+   * `failure` is the classifier's verdict, carried so a client can react to the kind without
+   * re-running a phrase table of its own (the prompter re-probes on `auth`, because the agent's
+   * sign-in state is the one thing an auth failure proves is worth re-reading).
+   */
+  error: z.object({
+    message: z.string(),
+    failure: z.enum(["usage_limit", "provider_down", "transient", "auth", "fatal"]).optional(),
+    fix: z.object({ title: z.string(), hint: z.string(), command: z.string().nullable() }).optional(),
+  }),
+  /**
+   * The provider's accounting of the ACCOUNT's plan quota, as it changes.
+   *
+   * Carried on the session's event channel because that is the only wire an adapter has, but it is
+   * not about this session and is deliberately absent from `PERSISTED_EVENT_TYPES`: a transcript is
+   * what happened in a conversation, and "your weekly window is at 78%" was true of the account for
+   * a moment and will be wrong by the time anyone re-reads the log. The server folds it into
+   * per-agent state instead, where the newest reading simply replaces the last.
+   */
+  /**
+   * The next-move suggestion the prompter offers as its hint text, written by a model once per
+   * settled turn (`PromptHintService`).
+   *
+   * Persisted, and `throughSeq` is why: a hint is about the turn that just ended, so reopening a
+   * session should find the same suggestion rather than pay for it again — and an out-of-order
+   * arrival must not overwrite a newer one. The renderer drops it the moment the user sends
+   * anything, because at that point it is a suggestion about a turn that is no longer the last one.
+   *
+   * Absence is ordinary, not a failure: no generator, no Claude CLI, nothing worth suggesting, or a
+   * call that failed all land here as "no event", and the prompter falls back to the deterministic
+   * ladder in `prompt-hint.ts`.
+   */
+  prompt_hint: z.object({ text: z.string(), throughSeq: z.number().int() }),
+  rate_limit: z.object({
+    subscriptionType: z.string().nullable(),
+    organization: z.string().nullable(),
+    windows: z.array(PlanWindowSchema),
+    alert: PlanAlertSchema,
+    alertWindow: z.string().nullable(),
+    unavailable: PlanLimitsUnavailableSchema.nullable(),
+    detail: z.string().nullable(),
+  }),
   /**
    * The session changed agents mid-flight, because the one it was on could not finish the turn
    * (`failover.ts` decides when). Persisted, and rendered — a session that changes hands has to say
@@ -74,7 +158,7 @@ const P = {
    * "hold on" for someone watching the pane right now, and a transcript reopened tomorrow should
    * show the turn that eventually ran, not three announcements of it being about to.
    */
-  retrying: z.object({ reason: z.enum(["provider_down", "transient"]), attempt: z.number().int(), waitMs: z.number().int() }),
+  retrying: z.object({ reason: z.enum(["provider_down", "transient", "auth"]), attempt: z.number().int(), waitMs: z.number().int() }),
   /**
    * `contextTokens` is how much of the window the conversation OCCUPIES, and `contextWindow` is what
    * that was measured against. Both are the harness's own measurement — Claude's `getContextUsage`,
@@ -115,7 +199,12 @@ const P = {
     fastMode: z.enum(["off", "cooldown", "on"]).optional(),
     /** Why it could not serve, verbatim from the harness (`free`, `model_not_allowed`, …). Present
      *  only alongside a `fastMode` that is not `on`, and only when the harness said. */
-    fastModeReason: z.string().optional() }),
+    fastModeReason: z.string().optional(),
+    /** Whether fast mode was ASKED FOR on the turn this reports. The state above answers "what did it
+     *  do"; this answers "what was it asked to do" — and without it a refusal from before the switch
+     *  was flipped is indistinguishable from a refusal of the switch itself. Absent on events written
+     *  before it existed, and on every harness that does not report fast mode at all. */
+    fastModeRequested: z.boolean().optional() }),
   /**
    * The harness replaced the conversation so far with a summary of it, because it stopped fitting.
    *
@@ -130,6 +219,27 @@ const P = {
    * says the same true thing either way.
    */
   compacted: z.object({ trigger: z.enum(["manual", "auto"]), preTokens: z.number(), postTokens: z.number().optional() }),
+  /**
+   * The agent below this line is NOT reading the conversation above it.
+   *
+   * Written when a session that HELD a provider session id came back without it — the provider was
+   * asked to continue and declined, or the build could not be asked at all. Everything in the
+   * transcript is still here and still true; what changed is that the agent no longer has it.
+   *
+   * A sibling of `handoff` and `compacted` rather than a variant of either, because it reports a
+   * third thing: `handoff` is a different agent, `compacted` is the same agent with a summarised
+   * context, and this is the same agent with NO context. All three draw as the same seam, because
+   * what they have in common — "what is above is not what is below" — is the part the reader needs.
+   *
+   * Failover needs no special case here: it clears the token BEFORE the restart, so the session has
+   * no id to have been refused and `handoff` is the only seam that speaks there.
+   */
+  context_reset: z.object({
+    agent: z.string(),
+    reason: z.enum(["declined", "unsupported"]),
+    /** The sentence shown. Built server-side so every surface tells it identically. */
+    note: z.string(),
+  }),
   /** A plan the agent proposed. Both shapes are carried because the three protocols send genuinely
    *  different artifacts and neither derives from the other:
    *
@@ -183,6 +293,39 @@ const P = {
    * summary is stale rather than merely old.
    */
   summary: z.object({ text: z.string(), throughSeq: z.number().int() }),
+  /**
+   * What one turn did to its checkout, as git measured it when the turn settled: the tree Realm's
+   * checkpoint captured in front of the turn, against the checkout as the turn left it.
+   *
+   * Written by the server, never by an agent. Every agent edits its own way — an `Edit`, an
+   * `apply_patch`, a `sed` in a shell, a codegen step — and git's account is the one that is the same
+   * for all of them, and the only one that counts lines a tool call never stated (a `Write` over a
+   * file says nothing about what was there). Only for a turn a checkpoint fronted: a plain folder, a
+   * message steered into a running turn and a capture that failed have no "before", so they get no
+   * event rather than a guess, and the transcript falls back to what the tool calls said.
+   */
+  turn_changes: z.object({
+    /** The `turn` checkpoint captured in front of the turn — the "before", and what Undo restores. */
+    checkpointId: z.string(),
+    /** The `ts` of the status event that settled the turn: which run line this belongs to. */
+    settledAt: z.number(),
+    /** The checkout root every `path` is relative to — what a client opens them against. */
+    root: z.string(),
+    /** The checkout's tree when the turn settled — the "after" a review diffs against. Nothing
+     *  references it, so a `git gc` past `gc.pruneExpire` may collect it; the review then says so. */
+    afterTree: z.string(),
+    files: z.array(z.object({
+      path: z.string(),
+      /** Where a rename came from; null otherwise. */
+      oldPath: z.string().nullable(),
+      status: z.enum(["added", "modified", "deleted", "renamed", "type-changed"]),
+      /** Lines added and removed — null for a binary file, which git does not count in lines. */
+      additions: z.number().int().nullable(),
+      deletions: z.number().int().nullable(),
+    })),
+    /** The true count when `files` was cut short at TURN_CHANGES_MAX_FILES. */
+    totalFiles: z.number().int(),
+  }),
   init: z.object({
     providerSessionId: z.string(), model: z.string(), tools: z.array(z.string()), cwd: z.string(),
     /** The instruction files the agent says it loaded — Codex `thread/start` `instructionSources`, W3's
@@ -199,6 +342,32 @@ const P = {
      *  Absent means the question was not answered — an agent that has no such concept, or a list the
      *  CLI declined — and the prompter offers nothing rather than guessing. */
     supportsFastMode: z.boolean().optional(),
+    /** The same answer for EVERY model the harness listed, keyed by the id a session would pin ("" for
+     *  the harness's own default). One session's handshake is then enough for the next session on any
+     *  of those models to offer the switch before its first message (`MODEL_FAST_SUPPORT_KEY`). */
+    fastModeModels: z.record(z.string(), z.boolean()).optional(),
+    /** The reasoning levels the harness says each model it listed takes, keyed the same way; `[]` is
+     *  a model that takes none (`MODEL_EFFORTS_KEY`). */
+    effortModels: z.record(z.string(), z.array(z.string())).optional(),
+    /** THIS session's own reasoning levels, where they are a session setting — an ACP agent's
+     *  `thought_level` option — and the one the agent started it on. */
+    efforts: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
+    defaultEffort: z.string().optional(),
+    /** Whether Realm ASKED this handshake to continue an earlier conversation. False on a session's
+     *  first boot, true on every boot after one. */
+    resumeRequested: z.boolean().optional(),
+    /**
+     * What came of that ask. Absent when the adapter does not report it.
+     *
+     * - `continued` — the provider ACCEPTED the resume request. Deliberately not "the conversation is
+     *   the same one": the Claude SDK forks to a fresh session id on resume, so "accepted" is the
+     *   strongest claim Realm can make for every agent that reports this, and the one it makes.
+     * - `declined` — the provider was asked and said no. Codex when the thread is gone from
+     *   `~/.codex`; ACP when `session/load` rejects. The adapter started a fresh conversation instead.
+     * - `unsupported` — never asked, because this build cannot. ACP where `initialize` did not answer
+     *   `loadSession: true`.
+     */
+    resumeOutcome: z.enum(["continued", "declined", "unsupported"]).optional(),
   }),
 } as const;
 
@@ -223,12 +392,24 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("usage"),
   variant("compacted"),
   variant("init"),
+  variant("context_reset"),
   variant("plan"),
   variant("feedback"),
   variant("summary"),
+  variant("turn_changes"),
+  variant("rate_limit"),
+  variant("prompt_hint"),
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEventSchema>;
+
+/** One turn's changes, and one file of them (`turn_changes`). */
+export type TurnChanges = z.infer<(typeof P)["turn_changes"]>;
+export type TurnFile = TurnChanges["files"][number];
+
+/** The most files one `turn_changes` event lists. A codegen turn can touch thousands, and the event is
+ *  a row in the session's log for good — `totalFiles` still says how many there really were. */
+export const TURN_CHANGES_MAX_FILES = 200;
 export type SessionEventOf<T extends SessionEventType> = Extract<SessionEvent, { type: T }>;
 export type SessionEventPayload<T extends SessionEventType> = z.infer<(typeof P)[T]>;
 
@@ -237,7 +418,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "summary"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "summary", "prompt_hint", "turn_changes"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

@@ -515,4 +515,336 @@ export const migrations: string[] = [
   INSERT OR IGNORE INTO settings (key, value_json)
     VALUES ('artifacts.backfill', json_object('done', 0, 'target', COALESCE((SELECT MAX(seq) FROM session_events), 0)));
   `,
+  // v26 — machines (Plan 25 W3): a screen somewhere else, shown and driven in a pane.
+  //
+  // Modelled on `browsers` down to the index, because it is that table's sibling: a live surface with
+  // a durable row, one per space, whose id is an item's `ref_id`.
+  //
+  // NO STATUS COLUMN, and that is a decision rather than an omission. Status is a fact about a
+  // process or a socket, and neither survives a restart — a column would have to be rewritten to
+  // 'off' at every boot, and would be a lie for the entire window in which a machine was killed
+  // while the server was down. `terminals` has none for the same reason.
+  //
+  // `ws_port` is PER-RUN, cleared on stop and by `restoreAll`, under a UNIQUE index that SQLite's
+  // treatment of NULLs makes partial for free (distinct NULLs do not collide). So any number of
+  // stopped machines coexist, and the no-overlap invariant lives in the schema rather than in the
+  // allocator's care. Deliberately the opposite of `environments.port_block_start`, which is
+  // permanent because a dev server left running should keep the port it was reached at.
+  //
+  // `endpoint_json` rather than host/port columns: `qemu` and `mac` have no address at all, and two
+  // columns that are NULL for half the sources are two columns that mean nothing on half the rows.
+  //
+  // `password_sealed` holds the sealed box, never a plaintext, and `machineSecretBox` is what opens
+  // it. A row whose key is gone is a row whose machine needs the password typed again — which is
+  // recoverable, and is why this is a column rather than a reason to refuse to store the row.
+  `
+  CREATE TABLE machines (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, source TEXT NOT NULL, endpoint_json TEXT,
+    password_sealed TEXT, ws_port INTEGER,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX machines_space ON machines(space_id);
+  CREATE UNIQUE INDEX machines_ws_port ON machines(ws_port) WHERE ws_port IS NOT NULL;
+  `,
+  // v27 — headers for the outbound upgrade request (Plan 25 W3, cloud sandboxes).
+  //
+  // A separate column from `password_sealed` and not a field inside `endpoint_json`, for two
+  // different reasons. It is a SECRET — Namespace's `x-nsc-ingress-auth` is a bearer token — so it
+  // cannot sit in the plaintext endpoint blob beside the host. And it is not the RFB password:
+  // one authenticates to the PROXY in front of the machine and the other to the machine itself, and
+  // a sandbox behind an authenticating ingress needs both at once.
+  //
+  // Nullable with no default and no backfill: every existing row has no headers, which is what
+  // NULL means here and is also true.
+  `ALTER TABLE machines ADD COLUMN headers_sealed TEXT;`,
+  // v28 — simulators: an Apple Simulator, shown and driven in a pane.
+  //
+  // `machines`' small sibling, and small for a reason that is about the thing rather than about
+  // effort. A machine can be anywhere, so its row carries an address, a transport and two sealed
+  // secrets; a simulator is always on this Mac, always reached over loopback, and the only durable
+  // fact about one is WHICH device the pane is pointed at.
+  //
+  // No status column, for `machines`' reason: a status is a fact about a process, and the streaming
+  // daemon does not survive a restart. No port column either — serve-sim picks its own and publishes
+  // it, so a number stored here would be a guess about somebody else's allocator.
+  //
+  // `udid` is nullable because the pane exists before the device is chosen: the session bar's button
+  // makes a row with no device, and the picker inside the pane is what fills it in. That is the same
+  // shape as a `machines` row with no endpoint yet.
+  `
+  CREATE TABLE simulators (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, udid TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX simulators_space ON simulators(space_id);
+  `,
+  // v29 — goal mode: an objective a session keeps working on across turns.
+  //
+  // One goal per session, which is why `session_id` IS the primary key rather than a column beside
+  // one. A second objective on the same thread would be two agents with one transcript, and the
+  // thing that makes goal mode safe — a single ceiling and a single "are we there yet" — has nothing
+  // to be about once there are two of them. Replacing a goal is an UPSERT here, deliberately: the
+  // old objective is finished with, and a history of abandoned objectives is a thing nobody asked
+  // for.
+  //
+  // `status` IS a column, which is the opposite of the call `machines` and `simulators` make one
+  // migration up. Their status is a fact about a process and no process survives a restart; this one
+  // is a fact about what the USER asked for, and forgetting it on relaunch would silently drop work
+  // somebody is waiting on. What Realm does NOT do is resume it by itself at boot — see the
+  // service's `parkOnBoot`, which turns an active goal into a paused one, because starting turns at
+  // launch is a surprise nobody consented to.
+  //
+  // `tokens_used` and `turns` are counters rather than a join over the event log. The log is where
+  // the truth about a turn lives, but a budget has to be checked on every settle and a scan of a
+  // session's events on each one is a cost that grows with the transcript.
+  `
+  CREATE TABLE session_goals (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    objective TEXT NOT NULL, status TEXT NOT NULL,
+    token_budget INTEGER, tokens_used INTEGER NOT NULL DEFAULT 0, turns INTEGER NOT NULL DEFAULT 0,
+    note TEXT, started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX session_goals_status ON session_goals(status);
+  `,
+  // v30 — terminal scrollback: what a shell printed, kept across a restart.
+  //
+  // A separate table and not a column on `terminals`, for two reasons that are both about the hot
+  // path. `TerminalsStore` reads `SELECT *`, and `restoreAll` reads EVERY row at boot — putting a
+  // 128KB blob on that row would make every one of those reads carry the scrollback of every
+  // terminal, to answer questions that never mention it.
+  //
+  // The cascade is the whole cleanup story, and it has one consequence worth writing down rather
+  // than discovering: `onExit` deletes the terminals row, so a shell that exited BEFORE the restart
+  // takes its scrollback with it and restores exactly as it does today — as a pane that is not
+  // running. Only a terminal that was still alive when Realm went away has anything to replay.
+  //
+  // `cols` and `rows` are the size the output was PRINTED at, not the size to restore to. A replayed
+  // 120-column screen above a freshly spawned 80-column shell is a ragged seam nobody would attribute
+  // to the pty's default, so `restoreAll` spawns at these instead of the hardcoded 80×24 it used.
+  `
+  CREATE TABLE terminal_history (
+    terminal_id TEXT PRIMARY KEY REFERENCES terminals(id) ON DELETE CASCADE,
+    data TEXT NOT NULL, cols INTEGER NOT NULL, rows INTEGER NOT NULL,
+    captured_at INTEGER NOT NULL);
+  `,
+  // v31 — `sessions.seen_seq`: how far this user has actually READ a session's transcript.
+  //
+  // Distinct from `last_event_seq`, which is how far the session has been WRITTEN. The gap between
+  // the two is the only thing that can answer "what is new since I was last here", and with a daemon
+  // that runs while the app is closed that gap is no longer a rare few seconds — it is days.
+  //
+  // A column on `sessions` and not a table, unlike `terminal_history` one migration up, because the
+  // shapes are opposite: this is one small integer read on every listing, and that blob was 128KB
+  // read by nothing that asked for it.
+  //
+  // Defaulted to 0 rather than backfilled to `last_event_seq`. 0 means "never opened", which for an
+  // existing session is a claim about the future and not about the past: the first open stamps it,
+  // and until then the rules that read it (the sidebar dot, the "new since you were here" line)
+  // simply have nothing to draw. Backfilling would assert that every session in the database has
+  // been read to the end, which is the one thing nobody can know.
+  `ALTER TABLE sessions ADD COLUMN seen_seq INTEGER NOT NULL DEFAULT 0;`,
+  // v32 — `simulators.platform`: which toolchain reaches this device, `ios` or `android`.
+  //
+  // Defaulted to `ios` rather than backfilled, and the default is the whole point: every row written
+  // before Android existed IS an iOS row, so the default is a statement of fact about the past
+  // rather than a guess about it. Nothing has to be rewritten and nothing can be got wrong.
+  //
+  // A column and not a lookup off `udid`'s shape. An Apple UDID and an AVD name are distinguishable
+  // today — one is a formatted GUID — and that is exactly the kind of inference that breaks silently
+  // the first time a vendor changes a format, on rows nobody is looking at.
+  `ALTER TABLE simulators ADD COLUMN platform TEXT NOT NULL DEFAULT 'ios';`,
+  // v33 — conversation rewind: where BOTH transcripts stood when a checkpoint was taken, and the fork
+  // a restore leaves armed for the session's next start.
+  //
+  // Five nullable columns, no defaults and no backfill, and the absence of a backfill is the whole
+  // point rather than laziness. A cursor invented for a row written before these columns existed would
+  // be a fabricated claim about where a provider conversation stood — precisely the claim this feature
+  // exists not to make. NULL reads as "not known", every read path treats it as "restore the files
+  // only", and `CheckpointSchema`'s matching `.default(null)` means a row written by the older build
+  // parses rather than failing on the first read after an upgrade.
+  //
+  // On `checkpoints`:
+  //  - `session_seq`     — Realm's own transcript position at capture: the newest stored event's seq.
+  //  - `provider_cursor` — opaque, adapter-defined, and written at the END of the turn this checkpoint
+  //                        fronted rather than at capture. It needs two uuids that are known at two
+  //                        different moments (the kept turn's last chain entry, and the discarded
+  //                        turn's prompt), so a row carries the complete pair or it carries nothing.
+  //                        Nulled again if the provider ever refuses that exact fork.
+  //
+  // On `sessions`:
+  //  - `provider_cursor`   — where the provider's chain stood after the last settled turn. This is the
+  //                          value the NEXT turn's checkpoint copies as its fork point.
+  //  - `rewind_fork_json`  — a restore's armed fork target, read by the next `ensureLive`. A column and
+  //                          not memory: a restore is refused while any handle in the checkout is live,
+  //                          so the arm is by construction consumed by a LATER process, and an in-memory
+  //                          one would be silently dropped by the first restart between the two.
+  //  - `rewind_refusal`    — the provider's refusal, kept verbatim. Evidence, not control flow: the
+  //                          fork column is cleared on a refusal and the checkpoint's cursor with it, so
+  //                          nothing can re-send a request the CLI has already answered deterministically.
+  //
+  // `ALTER TABLE ... ADD COLUMN` and not a table rebuild: these are five nullable columns on two tables
+  // with live foreign keys pointing at them, and a rebuild needs `foreign_keys` OFF, which is a no-op
+  // inside this migration's transaction (the same trap v5 documents).
+  `
+  ALTER TABLE checkpoints ADD COLUMN session_seq INTEGER;
+  ALTER TABLE checkpoints ADD COLUMN provider_cursor TEXT;
+  ALTER TABLE sessions ADD COLUMN provider_cursor TEXT;
+  ALTER TABLE sessions ADD COLUMN rewind_fork_json TEXT;
+  ALTER TABLE sessions ADD COLUMN rewind_refusal TEXT;
+  `,
+  // v34 — `simulators.physical`: the row is a real iPhone or iPad on this Mac's cable, not a simulator.
+  //
+  // v32's reasoning, again: defaulted rather than backfilled, because every row written before real
+  // devices existed IS a simulator; and a column rather than an inference, because the difference
+  // decides how the device is reached (Realm's test runner, not simctl) and that its input card is
+  // asked even under bypassPermissions — nothing a udid's shape should be trusted to say.
+  `ALTER TABLE simulators ADD COLUMN physical INTEGER NOT NULL DEFAULT 0;`,
+  // v35 — browser history: the pages a profile's browser panes have shown, for the address field's
+  // suggestions (Plan 26 W7c).
+  //
+  // One row per page per PROFILE, not per pane or per space. A profile is the boundary everything else
+  // a person carries is scoped to (skills, connections, memory), and a page visited in one of its
+  // spaces is a page they would expect to be offered in the next. Keyed on the url itself, so a second
+  // visit is an UPDATE of the same row — `visit_count` is how often, `last_visit_at` how recently, and
+  // those two are the whole ranking.
+  //
+  // A new table, empty, with nothing backfilled: Realm kept no record of where a pane had been before
+  // this — the `browsers` row holds only where each pane IS — and inventing visits from that would be
+  // a claim about the past. The cascade is the cleanup: a profile's history goes with the profile.
+  `
+  CREATE TABLE browser_history (
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    url TEXT NOT NULL, title TEXT NOT NULL,
+    visit_count INTEGER NOT NULL DEFAULT 1, last_visit_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, url));
+  CREATE INDEX browser_history_recent ON browser_history(profile_id, last_visit_at DESC);
+  `,
+  // v36 — favicons: a browser pane's, and those of the pages its profile's history holds.
+  //
+  // `browsers.favicon` is the picture itself, a `data:` URL (`isFaviconDataUrl`), never the address it
+  // was fetched from. That is what lets a tab restored after a relaunch draw its icon before its page
+  // has loaded again, with no request made to the site — and what lets the window draw it at all, since
+  // its CSP admits no remote image. '' is "none known", which is the truth for every row written before
+  // this column existed: defaulted, not backfilled, because nobody fetched those pages' icons.
+  //
+  // History does NOT carry a copy per row. A site's icon is shared by every page of it — a profile that
+  // has run a thousand searches would hold one search engine's icon a thousand times, in a table built to
+  // keep five thousand rows — so the picture is kept once per profile in `browser_favicons`, under a
+  // digest of the picture, and a page names it by that digest ('' for none). The cascade cleans up after
+  // a profile; Clear browsing data and the history's own trim sweep away pictures no page names any more.
+  `
+  ALTER TABLE browsers ADD COLUMN favicon TEXT NOT NULL DEFAULT '';
+  ALTER TABLE browser_history ADD COLUMN favicon_digest TEXT NOT NULL DEFAULT '';
+  CREATE TABLE browser_favicons (
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    digest TEXT NOT NULL, data TEXT NOT NULL,
+    PRIMARY KEY (profile_id, digest));
+  `,
+  // v37 — a browser cookie jar per profile (Plan 27 Phase 2).
+  //
+  // Until now every browser pane in every profile used ONE Electron partition, `persist:browser`, so a
+  // Work profile was signed in to whatever Personal was. Each profile now names its own partition, and
+  // the name is STORED rather than derived from the order: the profile that owns the old shared jar is
+  // decided once, here, and reordering profiles later must never hand one profile another's cookies.
+  //
+  // The backfill gives `persist:browser` to the profile the app lists first (sort order, then age, then
+  // insertion), so every sign-in made before this keeps working where the user will look for it; every
+  // other profile starts with an empty jar of its own. A home with no profiles yet is left to
+  // `ProfilesStore.create`, which gives the first profile it makes the old name for the same reason.
+  `
+  ALTER TABLE profiles ADD COLUMN browser_partition TEXT NOT NULL DEFAULT '';
+  UPDATE profiles SET browser_partition = 'persist:browser-' || id;
+  UPDATE profiles SET browser_partition = 'persist:browser'
+    WHERE rowid = (SELECT rowid FROM profiles ORDER BY sort_order, created_at, rowid LIMIT 1);
+  `,
+  // v38 — scheduled tasks keep their runs (Realm v2's Scheduled page lists each task's history and
+  // opens any run's session).
+  //
+  // `runs.schedule_id`: the schedule whose firing created the run. No foreign key, the same log posture
+  // as v23's `last_run_id` the other way round — "schedule S fired run X" stays true after S is
+  // deleted. It IS backfilled, unlike the columns v31 to v37 add, because the fact is already on the
+  // row: the scheduler has always keyed a firing's run as `schedule:<schedule id>:<moment>`, and the
+  // backfill only reads that back. A key without the second colon is not one the scheduler wrote, and
+  // is left alone. Partial index, for the one question the page asks of it.
+  //
+  // `schedules.new_session_per_run`, defaulted 1: every schedule written before this already started
+  // each run in a fresh session — it was the only thing a run could do — so the default states the
+  // past. `schedules.archive_succeeded`, defaulted 0: nothing was ever archived on a schedule's behalf.
+  `
+  ALTER TABLE runs ADD COLUMN schedule_id TEXT;
+  UPDATE runs SET schedule_id = substr(dedupe_key, 10, instr(substr(dedupe_key, 10), ':') - 1)
+    WHERE dedupe_key LIKE 'schedule:%' AND instr(substr(dedupe_key, 10), ':') > 1;
+  CREATE INDEX runs_schedule ON runs(schedule_id, created_at DESC, id DESC) WHERE schedule_id IS NOT NULL;
+  ALTER TABLE schedules ADD COLUMN new_session_per_run INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE schedules ADD COLUMN archive_succeeded INTEGER NOT NULL DEFAULT 0;
+  `,
+  // v39 — the views MCP servers draw for tool calls (MCP Apps). One row per call that drew one: the
+  // call's own arguments and the server's whole result, before Realm compressed anything for the
+  // agent, which is what the view is handed again each time it is opened. The tool result in the
+  // transcript names the row (`tool_result.view`); the HTML is not kept, and is read from the server
+  // again when the view opens.
+  //
+  // Gone with its session (the transcript that names it goes too). `server_id` is plain text with no
+  // foreign key, the log posture again: a view of a server that has since been removed says so,
+  // rather than vanishing. Nothing to backfill — no call drew a view before this.
+  //
+  // `IF NOT EXISTS` so the statement is safe to meet twice; the version table is what keeps it from
+  // being asked to.
+  `
+  CREATE TABLE IF NOT EXISTS app_views (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    tool_use_id TEXT NOT NULL,
+    server_id TEXT NOT NULL,
+    server_name TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    tool_json TEXT NOT NULL,
+    resource_uri TEXT NOT NULL,
+    input_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS app_views_session ON app_views(session_id, created_at);
+  `,
+  // v40 — files a person added to the Library themselves (the Files toolbar's Add, or a drop).
+  //
+  // A table of their own rather than rows in `artifacts`, for two reasons that are each enough. The
+  // index is DERIVED — every row in it can be rebuilt from `session_events`, and v25 says so — and an
+  // added file has no event behind it: this row is the only record that it was added. And an artifact
+  // is a file a SESSION has, `session_id NOT NULL`, its space and profile one join away; an added file
+  // belongs to a profile and to no session, which is what the Library's "Added" says. The Library reads
+  // the two as one list (`ArtifactsStore.list`), so to the page they are one kind of thing.
+  //
+  // `path` is the COPY under the home (`library/<profile>/`), never the file it was copied from: what
+  // the Library shows is Realm's to keep, whatever happens to the original. `digest` (sha-256 of the
+  // bytes) is how the same file chosen twice is recognised and not copied again. Gone with its
+  // profile; the copies stay on disk, as a deleted space leaves its folder. Nothing to backfill —
+  // nothing could be added before this — and `IF NOT EXISTS`, so the statement is safe to meet twice.
+  `
+  CREATE TABLE IF NOT EXISTS library_files (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    name TEXT NOT NULL,
+    ext TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    digest TEXT NOT NULL,
+    ts INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS library_files_recent ON library_files(profile_id, ts DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS library_files_digest ON library_files(profile_id, digest);
+  `,
+  // v41 — saved turns: the prompts a reader saved from a session's scroll track, listed again in the
+  // Library across every session of the profile.
+  //
+  // A row names the prompt's own `user_message` event by its seq — globally unique, so it is the key —
+  // and keeps nothing else of it: the words are read back off the event whenever the list is drawn.
+  // The event's cascade is the cleanup a quote could not have: a rewind that cuts the event out of the
+  // log, or the session's deletion, takes the saved turn with it. `session_id` is the event's own,
+  // carried for the per-session read a pane mounts with. Nothing to backfill — nothing was ever saved.
+  `
+  CREATE TABLE IF NOT EXISTS saved_turns (
+    event_seq INTEGER PRIMARY KEY REFERENCES session_events(seq) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    saved_at INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS saved_turns_session ON saved_turns(session_id, event_seq);
+  CREATE INDEX IF NOT EXISTS saved_turns_recent ON saved_turns(saved_at DESC, event_seq DESC);
+  `,
 ];

@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getTerminalHub } from "./terminal-hub";
+import { DriveFrame } from "../components/DriveFrame";
+import { useAppStoreMaybe } from "../state/store";
 import type { PaneProps } from "./registry";
 
 /** Thin view over the hub-owned xterm: mount = attach host element, unmount = detach. State lives in the hub.
@@ -11,6 +13,12 @@ import type { PaneProps } from "./registry";
 export function TerminalView({ terminalId, title, visible }: { terminalId: string; title: string; visible: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [hasData, setHasData] = useState(() => getTerminalHub().hasData(terminalId));
+  // Store-maybe, exactly as the browser pane watches its own driving flag: `terminal-pane.test.tsx`
+  // renders this view bare, and a component that threw outside the provider would take those tests
+  // with it.
+  const store = useAppStoreMaybe();
+  const subscribe = useCallback((cb: () => void) => (store ? store.subscribe(cb) : () => {}), [store]);
+  const driving = useSyncExternalStore(subscribe, () => store?.getState().terminalDriving[terminalId] ?? false);
 
   useEffect(() => {
     const container = ref.current!;
@@ -46,6 +54,7 @@ export function TerminalView({ terminalId, title, visible }: { terminalId: strin
         <div className="terminal-hint-path">{title}</div>
         <div className="terminal-hint-keys">⌘\ split · ⌘K commands</div>
       </div>
+      <DriveFrame active={driving} subject="this terminal" />
     </div>
   );
 }

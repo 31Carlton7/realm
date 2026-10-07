@@ -4,11 +4,10 @@
  * Boots the REAL app on a scratch REALM_HOME and answers the two questions jsdom cannot, because
  * both are about compositing: does the glow actually PAINT, and does it stay off the prompter?
  *
- * The second is the one with history. `.transcript-fade`'s blur band once cut a stripe straight
- * across the hero card because an ancestor `transform` trapped the dock's z-index (see
- * prompter-fade-live.mjs). The drop glow is another blurring layer inside the same pane, so it is
- * the same bug waiting to be rewritten — it sits on layer 1, under the dock's 2, and this is what
- * holds it there.
+ * The second is the one with history. The transcript's old fade band cut a stripe straight across
+ * the hero card because an ancestor `transform` trapped the dock's z-index (see
+ * prompter-fade-live.mjs). The glow is another overlay inside the same pane, so it is the same bug
+ * waiting to be rewritten — it sits on layer 1, under the dock's 2, and this is what holds it there.
  *
  * How it is proven: the same sharpness measure that check uses. Blur destroys the edges of glyphs,
  * so the mean horizontal gradient energy inside the card is the property the bug is about. Measured
@@ -185,7 +184,7 @@ async function main() {
                r: Math.round(pane.right - b.right), b: Math.round(pane.bottom - b.bottom) },
       size: { w: Math.round(b.width), h: Math.round(b.height) },
       pointer: cs.pointerEvents, zIndex: cs.zIndex,
-      ring: cs.boxShadow.includes("inset"), blur: soft.backdropFilter,
+      ring: cs.boxShadow.includes("inset"), blur: soft.backdropFilter, tint: soft.backgroundColor,
       overlapsCard: b.top < card.bottom && b.bottom > card.top && b.left < card.right && b.right > card.left,
       card: { x: Math.round(card.x), y: Math.round(card.y), width: Math.round(card.width), height: Math.round(card.height) },
     };
@@ -194,8 +193,12 @@ async function main() {
   // Inset on all four sides: flush, a split pane's ring would run straight into its neighbour's.
   check("the glow is inset from the pane edge, not flush to it",
     geo && [geo.inset.l, geo.inset.t, geo.inset.r, geo.inset.b].every((v) => v === 6), geo?.inset);
-  check("it is an inset ring with a real backdrop blur behind it",
-    geo?.ring === true && String(geo?.blur).startsWith("blur("), { ring: geo?.ring, blur: geo?.blur });
+  /* An inset ring with an accent wash behind it, and NO backdrop blur: the pane under this is the
+     window ground over the macOS material, and a filter over a translucent surface filters the
+     window's own transparency toward black — the glow came out as a dark square with a ring. */
+  check("it is an inset ring with an accent wash behind it, and no backdrop filter",
+    geo?.ring === true && geo?.blur === "none" && !/^(none|transparent|rgba\(0, 0, 0, 0\))$/.test(String(geo?.tint)),
+    { ring: geo?.ring, blur: geo?.blur, tint: geo?.tint });
   // It advertises the drop; it must never be the thing that swallows it.
   check("it does not take pointer events", geo?.pointer === "none", { pointerEvents: geo?.pointer });
   // If its box did not reach the card there would be nothing for the measure below to be about.
@@ -247,19 +250,36 @@ async function main() {
   check("the glow actually paints — the pane's corner changes when it is taken away",
     cornerLit.hash !== cornerDark.hash, { lit: cornerLit.hash, dark: cornerDark.hash });
 
-  /* The mutant: raise the glow above the dock, which is exactly the layering the fade band once had.
-     If this does NOT collapse the card's sharpness then the ratio below proves nothing. */
+  check("the prompter stays exactly as sharp with the highlight up as without it",
+    lit / bare > 0.99 && lit / bare < 1.01, { litRatio: +(lit / bare).toFixed(4) });
+
+  /* The mutant, measured as COLOUR rather than as sharpness. Raising the glow above the dock is the
+     layering the transcript's old fade band had, and it used to be visible as a blurred card — the
+     glow was a backdrop-filter then. It is a flat accent wash now, which destroys no detail at all
+     (the check above reads the same either way and would pass through the bug), so what the wrong
+     layer does is TINT the card. That is the property the mutant has to move. */
+  const TINT = (shotB64, box) => `(async () => {
+    const img = new Image();
+    img.src = "data:image/png;base64," + ${JSON.stringify(shotB64)};
+    await img.decode();
+    const cv = document.createElement("canvas");
+    cv.width = img.width; cv.height = img.height;
+    cv.getContext("2d").drawImage(img, 0, 0);
+    const px = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+    let r = 0, b = 0, n = 0;
+    for (let i = 0; i < px.length; i += 4) { r += px[i]; b += px[i + 2]; n++; }
+    // Blue minus red: the accent is blue, and a wash of it moves the two apart on any ground.
+    return (b - r) / n;
+  })()`;
+  const tintOf = async () => evalIn(c, TINT((await shot(c, cardClip)).data, cardClip));
+  const tintUnder = await tintOf();
   await evalIn(c, `(() => { document.querySelector('.session-drop').style.zIndex = '3'; return true; })()`);
   await sleep(300);
-  const over = await energy();
+  const tintOver = await tintOf();
   await evalIn(c, `(() => { document.querySelector('.session-drop').style.zIndex = ''; return true; })()`);
   await sleep(250);
-
-  const litRatio = lit / bare, overRatio = over / bare;
-  check("the mutant reproduces the bug (glow above the dock ⇒ the card is washed out)",
-    overRatio < 0.9, { overRatio: +overRatio.toFixed(3), over: +over.toFixed(2), bare: +bare.toFixed(2) });
-  check("the prompter stays exactly as sharp with the highlight up as without it",
-    litRatio > 0.99 && litRatio < 1.01, { litRatio: +litRatio.toFixed(4) });
+  check("the mutant reproduces the bug (glow above the dock ⇒ the card takes the accent)",
+    tintOver > tintUnder + 3, { under: +tintUnder.toFixed(2), over: +tintOver.toFixed(2) });
 
   const full = await c.send("Page.captureScreenshot", { format: "png" });
   const shotPath = path.join(os.tmpdir(), "realm-session-drop-live.png");
