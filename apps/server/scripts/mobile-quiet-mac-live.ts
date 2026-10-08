@@ -92,10 +92,9 @@ try {
   phone.close();
   try { process.kill(sidecar.pid!, "SIGCONT"); } catch { /* gone */ }
   sidecar.stdin!.write("quit\n");
-  // The home goes only once the sidecar, and the server it stops on the way out, have let go of it.
-  const exited = sidecar.exitCode !== null || (await Promise.race([once(sidecar, "exit").then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 5_000))]));
+  // The home goes only once the sidecar has exited: it waits for the server it stops on the way out.
+  const exited = sidecar.exitCode !== null || (await Promise.race([once(sidecar, "exit").then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 8_000))]));
   if (!exited) { try { sidecar.kill("SIGKILL"); } catch { /* gone */ } }
-  await new Promise((r) => setTimeout(r, 1_000));
   removeHome(home);
 }
 console.log(JSON.stringify(results));

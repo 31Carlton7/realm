@@ -36,7 +36,8 @@ export function scratchGateway(o: Omit<GatewayOptions, "identity" | "phones" | "
   return new RemoteGateway({ ...rest, identity: store.identity(), phones: store, reportsDir: join(store.dir, "reports") });
 }
 
-export type Server = { home: string; port: number; token: string; stop(): void };
+/** `stop` resolves once the server has exited, so its scratch home can go after it. */
+export type Server = { home: string; port: number; token: string; stop(): Promise<void> };
 
 /** Boots `apps/server/dist/main.js` the way the live checks do, on a fresh scratch home. */
 export async function bootServer(o: { home?: string } = {}): Promise<Server> {
@@ -63,7 +64,12 @@ export async function bootServer(o: { home?: string } = {}): Promise<Server> {
   const state = JSON.parse(readFileSync(join(home, "daemon.json"), "utf8")) as { token: string };
   return {
     home, port, token: state.token,
-    stop: () => { child.kill("SIGTERM"); setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); }, 3_000).unref(); },
+    stop: () => new Promise<void>((done) => {
+      if (child.exitCode !== null || child.signalCode !== null) return done();
+      const hard = setTimeout(() => child.kill("SIGKILL"), 3_000);
+      child.once("exit", () => { clearTimeout(hard); done(); });
+      child.kill("SIGTERM");
+    }),
   };
 }
 

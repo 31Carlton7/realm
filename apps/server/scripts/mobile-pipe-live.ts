@@ -130,8 +130,8 @@ try {
   ok("the run completed", false, (e as Error).message);
 } finally {
   relay?.stop();
-  server.stop();
-  setTimeout(() => removeHome(server.home), 1_000).unref();
+  await server.stop();
+  removeHome(server.home);
 }
 
 const r = results as { rtt?: { p50: number; p95: number }; handshake?: { p50: number }; eventOneWay?: { p50: number; p95: number }; sendToOwnRow?: { p50: number; p95: number }; resumeMs?: number; openMs?: number; offlineNoticeMs?: number; onlineNoticeMs?: number };

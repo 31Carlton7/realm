@@ -88,9 +88,8 @@ try {
 } finally {
   phone.close();
   await relay.close();
-  server.stop();
   // The server takes its SIGTERM a moment to close the database; the scratch home goes after it.
-  await new Promise((r) => setTimeout(r, 1_500));
+  await server.stop();
   removeHome(server.home);
 }
 finish();

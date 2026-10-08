@@ -77,7 +77,7 @@ try {
 } finally {
   try { run("xcrun", ["simctl", "shutdown", UDID]); } catch { /* fine */ }
   relay?.stop();
-  server.stop();
-  setTimeout(() => removeHome(server.home), 1_000).unref();
+  await server.stop();
+  removeHome(server.home);
 }
 finish();

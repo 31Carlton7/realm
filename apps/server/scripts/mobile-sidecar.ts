@@ -48,7 +48,7 @@ if (!sessionId) {
 }
 console.log(`home ${home}\nrelay ${relay.url}\nsession ${sessionId}\nType: pair · devices · push <phoneId|all> [kind] · revoke <phoneId> · send <text> · quit`);
 
-const shutdown = () => { gw.stop(); rpc.close(); relay.stop(); server.stop(); rl.close(); setTimeout(() => process.exit(0), 500); };
+const shutdown = async () => { gw.stop(); rpc.close(); relay.stop(); rl.close(); await server.stop(); process.exit(0); };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
