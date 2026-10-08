@@ -4054,7 +4054,15 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    chip is for the command or path a call acts on. */
 .delegation-line-task { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink-2); }
 .delegation-line-task::before { content: "· "; color: var(--ink-3); }
-.delegation-line-model { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-3); }
+/* The model yields first, then the task: in a narrow pane a model chip that would not shrink pushed the
+   row past its card — the task went to nothing, the clock off the edge and the transcript scrolled
+   sideways (design.md §Composition, yielding order). */
+.delegation-line-model { flex: 0 1000 auto; min-width: 0; overflow: hidden; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-3); }
+.delegation-line-model > svg { flex: none; }
+.delegation-line-model > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The wait's line is its words and nothing beside them, so the 45% a verb leaves its task does not
+   apply: "Collected 4 re…" was cut with the row empty after it. */
+.delegation-line .tool-row > .tool-name:last-child { max-width: none; }
 .delegation-line-time { flex: none; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .delegation-line[data-state="done"] .tool-status { color: var(--ink-3); }
 .delegation-line[data-state="failed"] .tool-status, .delegation-line[data-state="timeout"] .tool-status { color: var(--rl-danger); }

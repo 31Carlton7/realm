@@ -227,6 +227,16 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".tooltip[data-instant]").join(" ")).toContain("transition: none");
   });
 
+  it("lets a sub-agent line's model yield before its task, so the row never runs past its card", () => {
+    // Mutant: the model chip back at `flex: none` — a narrow pane scrolled sideways under it.
+    const model = bodiesFor(".delegation-line-model").join(" ");
+    expect(model).toMatch(/flex:\s*0 1000 auto/);
+    expect(model).toMatch(/min-width:\s*0/);
+    expect(bodiesFor(".delegation-line-model > span").join(" ")).toMatch(/text-overflow:\s*ellipsis/);
+    // …and the wait's line, its words alone in the row, takes the whole row.
+    expect(bodiesFor(".delegation-line .tool-row > .tool-name:last-child").join(" ")).toMatch(/max-width:\s*none/);
+  });
+
   it("sets a record's path in mono and the words after it in the interface's face", () => {
     // Mutant: the whole line in mono — "team memory · last changed by Carlton" read as machine output.
     expect(bodiesFor(".tp-file").join(" ")).not.toMatch(/font-family/);
