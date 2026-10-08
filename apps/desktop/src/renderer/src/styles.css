@@ -7510,6 +7510,11 @@ select { appearance: none; padding-right: 22px;
 /* The Tasks lens is the one tab that is a LIST BESIDE A PANEL rather than a single column of form,
    so it opts out of the 720px measure the other tabs are set in. Nothing else does. */
 .page-content[data-wide] { max-width: none; }
+/* A page that ends in a decision keeps it in a bar under the column, outside the scroller, so the
+   decision is on screen from the first frame and never in the dissolve (design.md). */
+.page-scroll[data-foot] { flex-direction: column; }
+.page-foot { flex: none; width: 100%; max-width: 720px; padding: 12px 0 16px; }
+.page-foot.tp-page { max-width: 860px; }
 /* ── Narrow pane (Plan 12 W3, responsive pass) ────────────────────────────
    A 180px rail beside a 60px reading column is two unusable columns, so under ~640px of PANE the
    page stands its parts up: the rail becomes a scrolling tab strip above the content, the head lets
@@ -10137,9 +10142,10 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-mark-add { background: var(--rl-hover); color: var(--rl-text-dim); }
 .tp-picker { gap: 22px; }
 .tp-said { display: flex; flex-direction: column; gap: 12px; }
+/* A field's own problem, said under it in words. */
+.tp-field-error { font-size: 12px; line-height: 16px; color: var(--rl-danger); }
 .tp-picker-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
 .tp-picker-foot > .btn { flex: none; }
-.tp-picker-hint { margin-top: -10px; }
 .tp-shares-line { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 0 auto 0 0; min-width: 0; flex: 1 1 auto; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
 .tp-shares-line[data-over] { color: var(--rl-warning); }
 /* Over, the words say it and the offer to raise takes the meter's place. */

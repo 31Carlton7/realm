@@ -6,6 +6,7 @@ import { fakeApi, profile, space, teamRole, teamSpace, type FakeData } from "../
 import { Sidebar } from "../../components/sidebar/Sidebar";
 import { TeamPage } from "./TeamPages";
 import { AddTeammatesSheet } from "./TeamPicker";
+import { PageScroll } from "../../components/ScrollFades";
 
 /**
  * Choosing who is on a team: the gallery, the person's own teammates, the shares of the week, the
@@ -98,6 +99,54 @@ describe("making a team: who is on it", () => {
     // THE MUTANT: the refusal as a toast with no way forward — the dead end the owner hit.
     fireEvent.click(within(alert).getByRole("button", { name: "Choose a folder…" }));
     await waitFor(() => expect(api.calls).toContain("teamMake:s2:editor@/tmp/picked-repo"));
+  });
+});
+
+describe("making a team: the follow-ups", () => {
+  it("picks the creator roles from the start where the space already keeps creator records, and says why", async () => {
+    await mount(base({ teams: [teamSpace("s2", [], [], { enabled: false, recordCount: 3 })] }), <TeamPage spaceId="s2" tab="team" />);
+    // THE MUTANT: the records ignored — a creator space opens on nothing picked, the owner's two clicks.
+    await waitFor(() => expect(within(card("Creator Manager")).getByRole("checkbox")).toBeChecked());
+    expect(within(card("Content Producer")).getByRole("checkbox")).toBeChecked();
+    expect(within(card("Researcher")).getByRole("checkbox")).not.toBeChecked();
+    expect(screen.getByText(/already keeps 3 creator records, so these two start picked/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Shares come to $45 of the team's $60 a week");
+  });
+
+  it("keeps the shares and the button in the bar under the column, outside the scroller", async () => {
+    await mount(base(), <PageScroll foot className="tp-page"><TeamPage spaceId="s2" tab="team" /></PageScroll>);
+    const button = makeButton();
+    // THE MUTANT: the decision left in the column — below the fold at 1440×900, and in the dissolve.
+    expect(button.closest(".page-foot")).not.toBeNull();
+    expect(button.closest(".page-content")).toBeNull();
+    expect(screen.getByRole("status").closest(".page-foot")).not.toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("Choose at least one teammate");
+  });
+
+  it("says a field's problem under the field, in words, and never the validator's JSON", async () => {
+    await mount(base(), <TeamPage spaceId="s2" tab="team" />);
+    fireEvent.click(screen.getByRole("button", { name: /Custom teammate/ }));
+    const sheet = await screen.findByRole("dialog", { name: "Custom teammate" });
+    fireEvent.change(within(sheet).getByLabelText("Name"), { target: { value: "Booker" } });
+    fireEvent.change(within(sheet).getByLabelText("What they do"), { target: { value: "Pitch guests." } });
+    fireEvent.change(within(sheet).getByLabelText("A week, at most ($)"), { target: { value: "1..2" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Add to the team" }));
+    // THE MUTANT: the schema's issues printed raw, or the sheet handing back a teammate the server will refuse.
+    const budget = within(sheet).getByRole("textbox", { name: "A week, at most ($)" });
+    expect(budget).toHaveAttribute("aria-invalid", "true");
+    expect(budget).toHaveAccessibleDescription(/A week's budget is a number of dollars above zero/);
+    expect(sheet.textContent).not.toMatch(/"code"|too_small|invalid_type/);
+    expect(screen.getByRole("dialog", { name: "Custom teammate" })).toBeInTheDocument();
+  });
+
+  it("a server's validation answer reads as plain words where the button is", async () => {
+    const issues = JSON.stringify([{ code: "too_small", minimum: 1, type: "string", inclusive: true, exact: false, message: "String must contain at least 1 character(s)", path: ["roles", 0, "model"] }], null, 2);
+    await mount(base({ teamMakeRefusal: { code: "INVALID_PARAMS", message: issues } }), <TeamPage spaceId="s2" tab="team" />);
+    pick("Editor");
+    fireEvent.click(makeButton());
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Pick a model.");
+    expect(alert.textContent).not.toMatch(/too_small|\[/);
   });
 });
 

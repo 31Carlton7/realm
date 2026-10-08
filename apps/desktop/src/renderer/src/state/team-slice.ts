@@ -47,6 +47,9 @@ export type TeamSlice = {
   /** One space's team again, and whatever detail of it the window is holding. */
   refreshTeam(spaceId: string): Promise<void>;
   makeTeam(spaceId: string, templates: string[], o?: TeamMakeOptions): Promise<TeamSpace>;
+  /** A space's team as the server sees it, team or not, held nowhere — what making a team reads to
+   *  learn whether the space already keeps creator records. */
+  peekTeam(spaceId: string): Promise<TeamSpace>;
   createRole(input: CreateRoleInput): Promise<TeamRole>;
   updateRole(input: UpdateRoleInput): Promise<TeamRole>;
   archiveRole(id: string, spaceId: string): Promise<void>;
@@ -110,6 +113,7 @@ export function teamSlice<S extends Host & TeamSlice>(
       put("teams", spaceId, team);
       return team;
     },
+    peekTeam: (spaceId) => api.teamSpace(spaceId),
     async createRole(input) {
       const role = await api.teamRoleCreate(input);
       await get().refreshTeam(input.spaceId);

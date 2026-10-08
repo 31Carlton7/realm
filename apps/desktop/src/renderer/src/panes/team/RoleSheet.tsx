@@ -1,10 +1,10 @@
 import { Icon, parseRealmiteSpec, realmiteFromSeed, randomSeed, type RealmiteSpec } from "@realm/ui";
 import { useEffect, useMemo, useState } from "react";
-import { teamShares, TEAM_DEFAULTS, type CustomRoleInput, type TeamRole, type TeamSpace } from "@realm/contracts";
+import { CustomRoleSchema, teamShares, TEAM_DEFAULTS, type CustomRoleInput, type TeamRole, type TeamSpace } from "@realm/contracts";
 import { RealmiteMaker } from "../../components/RealmiteMaker";
 import { Sheet } from "../../components/Sheet";
 import { useApp } from "../../state/store";
-import { sharesNote, wakeSentence } from "./team-format";
+import { invalidIssues, plainError, roleFieldErrors, sharesNote, wakeSentence, type RoleFieldErrors } from "./team-format";
 
 export const MODELS: { id: string; label: string }[] = [
   { id: "sonnet", label: "Sonnet" }, { id: "opus", label: "Opus" }, { id: "haiku", label: "Haiku" },
@@ -71,22 +71,26 @@ export function RoleSheet({ spaceId, team, role, copyOf, draft, onDraft, otherSh
   const [skills, setSkills] = useState<string[]>(draft?.skills ?? from?.skills ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<RoleFieldErrors>({});
   const cadences = useMemo(() => (cron && !CADENCES.some((c) => c.cron === cron) ? [...CADENCES, { cron, label: wakeSentence(cron) }] : CADENCES), [cron]);
   const offered = (skillsOf ?? []).filter((s) => s.enabled && s.valid && !skills.includes(s.id));
-  const weekBudgetUsd = budget === "" ? null : Number(budget);
+  const weekBudgetUsd = budget.trim() === "" ? null : Number(budget);
   const week = cap ?? team?.weekBudgetUsd ?? TEAM_DEFAULTS.teamWeekBudgetUsd;
   // What the team's shares come to with this teammate as written: the others as they stand, this one replaced or added.
   const shares = onDraft
     ? (otherShares ?? 0) + (weekBudgetUsd ?? 0)
     : role ? teamShares(team?.roles ?? [], { replace: { id: role.id, weekBudgetUsd } }) : teamShares(team?.roles ?? [], { add: [weekBudgetUsd] });
-  const note = sharesNote(shares, week);
-  const valid = name.trim().length > 0 && brief.trim().length > 0 && (budget === "" || Number(budget) > 0);
+  const note = sharesNote(Number.isFinite(shares) ? shares : 0, week);
+  // Checked here against the schema the server holds it to, and said under the field it is about —
+  // never the validator's JSON, and never a button greyed with no reason given.
   const submit = () => {
-    if (!valid) return;
     const fields: CustomRoleInput = {
       name: name.trim(), brief, realmite: spec as unknown as Record<string, unknown>, model, permissionMode: mode, cron, weekBudgetUsd, skills,
       ...(copyOf?.template ? { template: copyOf.template } : {}),
     };
+    const checked = CustomRoleSchema.safeParse(fields);
+    if (!checked.success) { setFieldErrors(roleFieldErrors(checked.error.issues)); return; }
+    setFieldErrors({});
     if (onDraft) { onDraft(fields); return; }
     setBusy(true); setError(null);
     run(async () => {
@@ -99,9 +103,17 @@ export function RoleSheet({ spaceId, team, role, copyOf, draft, onDraft, otherSh
           onClose();
           onMade?.(made);
         }
-      } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+      } catch (e) {
+        const issues = invalidIssues(e);
+        if (issues && Object.keys(roleFieldErrors(issues)).length > 0) setFieldErrors(roleFieldErrors(issues));
+        else setError(plainError(e));
+      } finally { setBusy(false); }
     });
   };
+  // Kept out of the field's NAME (aria-hidden inside its label) and given to it as its description.
+  const said = (field: string) => fieldErrors[field]
+    ? <span className="tp-field-error" id={`tp-err-${field}`} aria-hidden="true">{fieldErrors[field]}</span> : null;
+  const invalid = (field: string) => (fieldErrors[field] ? { "aria-invalid": true, "aria-describedby": `tp-err-${field}` } : {});
   const title = role ? `Edit ${role.name}` : copyOf ? `Duplicate ${copyOf.name}` : "Custom teammate";
   const verb = role ? "Save" : onDraft ? (draft ? "Save" : "Add to the team") : copyOf ? "Make the copy" : "Add to the team";
   return (
@@ -109,13 +121,14 @@ export function RoleSheet({ spaceId, team, role, copyOf, draft, onDraft, otherSh
       footer={<>
         {error && <span className="tp-sheet-error" role="alert">{error}</span>}
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn primary" disabled={!valid || busy} onClick={submit}>{verb}</button>
+        <button type="button" className="btn primary" disabled={busy} onClick={submit}>{verb}</button>
       </>}>
       <form className="form tp-role-form" onSubmit={(e) => { e.preventDefault(); submit(); }}>
-        <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Podcast Booker" maxLength={60} autoFocus={!role} /></label>
-        <div className="field"><span>Realmite</span><RealmiteMaker spec={spec} onChange={setSpec} name={name.trim() || undefined} /></div>
+        <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Podcast Booker" maxLength={60} autoFocus={!role} {...invalid("name")} />{said("name")}</label>
+        <div className="field"><span>Realmite</span><RealmiteMaker spec={spec} onChange={setSpec} name={name.trim() || undefined} />{said("realmite")}</div>
         <label className="field"><span>What they do</span>
-          <textarea rows={6} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="What this teammate does, for whom, and what it must never do. It delivers to Review; it never sends or posts." />
+          <textarea rows={6} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="What this teammate does, for whom, and what it must never do. It delivers to Review; it never sends or posts." {...invalid("brief")} />
+          {said("brief")}
         </label>
         <div className="tp-form-row">
           <label className="field"><span>Model</span>
@@ -123,21 +136,25 @@ export function RoleSheet({ spaceId, team, role, copyOf, draft, onDraft, otherSh
               {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
               {from?.model && !MODELS.some((m) => m.id === from.model) && <option value={from.model}>{from.model}</option>}
             </select>
+            {said("model")}
           </label>
           <label className="field"><span>Mode</span>
             <select value={mode} onChange={(e) => setMode(e.target.value as TeamRole["permissionMode"])} title="A teammate's runs are unattended, so it never has full access">
               {MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
+            {said("permissionMode")}
           </label>
           <label className="field"><span>Wakes</span>
             <select value={cron ?? ""} onChange={(e) => setCron(e.target.value || null)}>
               {cadences.map((c) => <option key={c.cron ?? "none"} value={c.cron ?? ""}>{c.label}</option>)}
             </select>
+            {said("cron")}
           </label>
         </div>
         <div className="tp-form-row tp-form-row-2">
           <label className="field"><span>A week, at most ($)</span>
-            <input inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value.replace(/[^\d.]/g, ""))} aria-describedby="tp-budget-note" />
+            <input inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value.replace(/[^\d.]/g, ""))} aria-describedby={fieldErrors.weekBudgetUsd ? "tp-err-weekBudgetUsd" : "tp-budget-note"} aria-invalid={!!fieldErrors.weekBudgetUsd || undefined} />
+            {said("weekBudgetUsd")}
           </label>
           <div className="field"><span>Skills</span>
             <div className="tp-skills">
@@ -153,6 +170,7 @@ export function RoleSheet({ spaceId, team, role, copyOf, draft, onDraft, otherSh
                 {offered.map((s) => <option key={s.id} value={s.id} title={s.description}>{s.name}</option>)}
               </select>
             </div>
+            {said("skills")}
           </div>
         </div>
         <p className="tp-shares-line" id="tp-budget-note" data-over={note.over || undefined}>

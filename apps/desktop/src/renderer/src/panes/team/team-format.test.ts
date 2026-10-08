@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { teamReview, teamRole } from "../../state/store.test-fakes";
-import { ageShort, duration, feedTime, meter, money, reviewGroups, roleStateLine, runChip, sharesNote, spendLine, wakeSentence } from "./team-format";
+import { ageShort, duration, feedTime, meter, money, plainError, reviewGroups, roleFieldErrors, roleStateLine, runChip, sharesNote, spendLine, wakeSentence } from "./team-format";
 
 const NOW = new Date(2026, 9, 8, 15, 0).getTime();
 
 describe("the team's words and numbers", () => {
+  it("turns validation issues into one plain line per field, and anything else into a plain sentence", () => {
+    expect(roleFieldErrors([{ path: ["roles", 0, "weekBudgetUsd"] }, { path: ["name"] }, { path: ["name"] }])).toEqual({
+      weekBudgetUsd: expect.stringMatching(/^A week's budget is a number of dollars/), name: "Give this teammate a name of up to 60 characters.",
+    });
+    const raw = Object.assign(new Error(JSON.stringify([{ path: ["roles", 1, "model"], code: "too_small" }])), { code: "INVALID_PARAMS" });
+    // THE MUTANT: the message passed through — the validator's JSON on screen.
+    expect(plainError(raw)).toBe("Pick a model.");
+    expect(plainError(Object.assign(new Error(JSON.stringify([{ path: ["spaceId"] }])), { code: "INVALID_PARAMS" }))).toBe("Realm could not read part of this request. Check the fields and try again.");
+    expect(plainError(new Error("this team already has a role called Editor"))).toBe("this team already has a role called Editor");
+  });
+
   it("says what the shares come to against the week, and by how much they pass it", () => {
     expect(sharesNote(45, 60)).toEqual({ text: "Shares come to $45 of the team's $60 a week", over: false, pct: 75 });
     // THE MUTANT: the cap read as a floor — over never said, and the meter past its end.

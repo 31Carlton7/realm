@@ -1,11 +1,12 @@
 import { Icon, Realmite, parseRealmiteSpec, realmiteFromSeed } from "@realm/ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ROLE_TEMPLATES, TEAM_DEFAULTS, teamShares, type CustomRoleInput, type RoleTemplate, type TeamSpace } from "@realm/contracts";
+import { PageFoot } from "../../components/ScrollFades";
 import { Sheet } from "../../components/Sheet";
 import { RpcError } from "../../rpc/client";
 import { useApp } from "../../state/store";
 import { RoleSheet, modelLabel } from "./RoleSheet";
-import { money, sharesNote, wakeSentence } from "./team-format";
+import { money, plainError, sharesNote, wakeSentence } from "./team-format";
 
 /**
  * Choosing who is on a team: a gallery of starter roles, each a card that toggles, on two shelves —
@@ -18,6 +19,10 @@ import { money, sharesNote, wakeSentence } from "./team-format";
  * team to — and when they pass the week, the picker says by how much and offers to raise it, rather
  * than letting the press be refused.
  */
+
+/** The starters that work with creators: picked from the start where the space already keeps creator
+ *  records, and nowhere else — a space that is not about creators is not handed them. */
+export const CREATOR_TEMPLATE_IDS = ROLE_TEMPLATES.filter((t) => t.group === "creators").map((t) => t.id);
 
 const SHELVES: { group: RoleTemplate["group"]; head: string; note: string | null }[] = [
   { group: "any", head: "For any team", note: null },
@@ -44,8 +49,10 @@ function totals(team: TeamSpace | undefined, p: Picked): { shares: number; cap: 
 
 /** The cards. Templates already on the team stand lit and say so; a teammate written here can be
  *  opened again or taken off. */
-function Gallery({ team, picked, setPicked, onWrite }: {
+function Gallery({ team, picked, setPicked, onWrite, creatorRecords = 0 }: {
   team: TeamSpace | undefined;
+  /** How many creator records the space keeps, when that is why the creator roles are picked. */
+  creatorRecords?: number;
   picked: Picked;
   setPicked: (f: (p: Picked) => Picked) => void;
   /** Open the role sheet: a new teammate (null) or the one at this index. */
@@ -58,7 +65,11 @@ function Gallery({ team, picked, setPicked, onWrite }: {
       {SHELVES.map((shelf) => (
         <section key={shelf.group} className="tp-shelf" aria-label={shelf.head}>
           <h3 className="settings-head">{shelf.head}</h3>
-          {shelf.note && <p className="tp-make-note tp-shelf-note">{shelf.note}</p>}
+          {shelf.note && <p className="tp-make-note tp-shelf-note">
+            {shelf.group === "creators" && creatorRecords > 0
+              ? `This space already keeps ${creatorRecords} creator record${creatorRecords === 1 ? "" : "s"}, so these two start picked. ${shelf.note}`
+              : shelf.note}
+          </p>}
           <div className="tp-cards">
             {ROLE_TEMPLATES.filter((t) => t.group === shelf.group).map((t) => {
               const there = onTeam.has(t.name.toLowerCase());
@@ -111,9 +122,15 @@ function Gallery({ team, picked, setPicked, onWrite }: {
 }
 
 /** The week, as the picks divide it, and — once they pass it — the offer to raise it to fit. */
-function SharesFoot({ team, picked, setPicked, children }: { team: TeamSpace | undefined; picked: Picked; setPicked: (f: (p: Picked) => Picked) => void; children: ReactNode }) {
+function SharesFoot({ team, picked, setPicked, empty = null, children }: {
+  team: TeamSpace | undefined; picked: Picked; setPicked: (f: (p: Picked) => Picked) => void;
+  /** What to say instead while nothing is picked: why the button cannot act yet. */
+  empty?: string | null;
+  children: ReactNode;
+}) {
   const { shares, cap } = totals(team, picked);
   const note = sharesNote(shares, cap);
+  if (empty) return <div className="tp-picker-foot"><span className="tp-shares-line"><span role="status">{empty}</span></span>{children}</div>;
   return (
     <div className="tp-picker-foot">
       <span className="tp-shares-line" data-over={note.over || undefined}>
@@ -162,7 +179,20 @@ export function MakeTeam({ spaceId }: { spaceId: string }) {
   const pickFolder = useApp((s) => s.pickFolder);
   const toast = useApp((s) => s.toast);
   const run = useApp((s) => s.run);
-  const [picked, setPicked] = useState<Picked>({ templates: [], customs: [], raised: null });
+  const peekTeam = useApp((s) => s.peekTeam);
+  const [picked, setPickedRaw] = useState<Picked>({ templates: [], customs: [], raised: null });
+  const [creatorRecords, setCreatorRecords] = useState(0);
+  // A person's own picks are never overwritten by the answer arriving late.
+  const touched = useRef(false);
+  const setPicked = (f: (p: Picked) => Picked) => { touched.current = true; setPickedRaw(f); };
+  useEffect(() => {
+    run(async () => {
+      const seen = await peekTeam(spaceId);
+      if (touched.current || seen.recordCount === 0) return;
+      setCreatorRecords(seen.recordCount);
+      setPickedRaw((p) => ({ ...p, templates: [...new Set([...p.templates, ...CREATOR_TEMPLATE_IDS])] }));
+    });
+  }, [spaceId, peekTeam, run]);
   const [writing, setWriting] = useState<number | null | false>(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -183,7 +213,7 @@ export function MakeTeam({ spaceId }: { spaceId: string }) {
         }
       } catch (e) {
         if (e instanceof RpcError && e.code === "MEMORY_REPO_FORBIDDEN") setRefusal(e.message);
-        else setError(e instanceof Error ? e.message : String(e));
+        else setError(plainError(e));
       } finally { setBusy(false); }
     });
   };
@@ -200,7 +230,7 @@ export function MakeTeam({ spaceId }: { spaceId: string }) {
           A team is this space with standing teammates: agents with a brief, a model, a clock and a budget, whose work comes to
           Review for your yes before anything leaves Realm. Choose who is on it — you can add, change or remove anyone later.
         </p>
-        <Gallery team={team} picked={picked} setPicked={setPicked} onWrite={setWriting} />
+        <Gallery team={team} picked={picked} setPicked={setPicked} onWrite={setWriting} creatorRecords={creatorRecords} />
         <div ref={said} className="tp-said">
           {refusal && (
             <div className="tp-refusal" role="alert">
@@ -212,15 +242,16 @@ export function MakeTeam({ spaceId }: { spaceId: string }) {
               <button type="button" className="btn" disabled={busy} onClick={choose}>Choose a folder…</button>
             </div>
           )}
-          <SharesFoot team={team} picked={picked} setPicked={setPicked}>
-            {error && <span className="tp-sheet-error" role="alert">{error}</span>}
-            <button type="button" className="btn primary" disabled={busy || n === 0 || over} onClick={() => make()}
-              title={n === 0 ? "Choose at least one teammate" : over ? "The shares are over the team's week" : undefined}>
-              Make {space?.name ?? "this space"} a team
-            </button>
-          </SharesFoot>
+          <PageFoot>
+            <SharesFoot team={team} picked={picked} setPicked={setPicked} empty={n === 0 ? "Choose at least one teammate. Each stops at $3 or 20 minutes a run." : null}>
+              {error && <span className="tp-sheet-error" role="alert">{error}</span>}
+              <button type="button" className="btn primary" disabled={busy || n === 0 || over} onClick={() => make()}
+                title={n === 0 ? "Choose at least one teammate" : over ? "The shares are over the team's week" : undefined}>
+                Make {space?.name ?? "this space"} a team
+              </button>
+            </SharesFoot>
+          </PageFoot>
         </div>
-        {n === 0 && <p className="tp-make-note tp-picker-hint">Choose at least one teammate. Each runs on Sonnet unless you say otherwise, and stops at $3 or 20 minutes a run.</p>}
       </div>
       {writing !== false && (
         <DraftSheet spaceId={spaceId} team={team} picked={picked} index={writing}
@@ -268,7 +299,7 @@ export function AddTeammatesSheet({ spaceId }: { spaceId: string }) {
         closeSheet();
         const added = made.roles.filter((r) => !before.has(r.id));
         openSpacePage(spaceId, added.length === 1 ? `role:${added[0]!.id}` : "team");
-      } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+      } catch (e) { setError(plainError(e)); } finally { setBusy(false); }
     });
   };
   return (

@@ -93,6 +93,58 @@ export function sharesNote(shares: number, cap: number): { text: string; over: b
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/** A teammate's fields as the role sheet names them, and what each needs, in words a person reads. */
+export const ROLE_FIELD_WORDS: Record<string, string> = {
+  name: "Give this teammate a name of up to 60 characters.",
+  brief: "Say what this teammate does.",
+  model: "Pick a model.",
+  effort: "Pick an effort level.",
+  permissionMode: "Pick a mode.",
+  cron: "Pick when it wakes.",
+  weekBudgetUsd: "A week's budget is a number of dollars above zero, up to $10,000 — or leave it empty for no share of its own.",
+  runCapUsd: "A run's limit is a number of dollars above zero.",
+  runCapMs: "A run's time limit is between 1 minute and a day.",
+  skills: "Pick at most 50 skills.",
+  realmite: "Its Realmite could not be read. Shuffle it and try again.",
+};
+
+export type RoleFieldErrors = Partial<Record<string, string>>;
+
+type Issue = { path: readonly PropertyKey[]; message?: string };
+
+/** Validation issues as one plain message per field: the last part of each issue's path that names a
+ *  field. A field Realm has no words for is left out here and said by `plainError`. */
+export function roleFieldErrors(issues: readonly Issue[]): RoleFieldErrors {
+  const out: RoleFieldErrors = {};
+  for (const i of issues) {
+    const field = [...i.path].reverse().find((p): p is string => typeof p === "string" && p in ROLE_FIELD_WORDS);
+    if (field && !out[field]) out[field] = ROLE_FIELD_WORDS[field];
+  }
+  return out;
+}
+
+/** The issues a server's INVALID_PARAMS answer carries — its message is the validator's JSON — or
+ *  null when the error is anything else. */
+export function invalidIssues(e: unknown): Issue[] | null {
+  const code = (e as { code?: unknown } | null)?.code;
+  if (code !== "INVALID_PARAMS" || !(e instanceof Error)) return null;
+  try {
+    const v = JSON.parse(e.message) as unknown;
+    return Array.isArray(v) && v.every((i) => i && Array.isArray((i as Issue).path)) ? (v as Issue[]) : null;
+  } catch { return null; }
+}
+
+/** Any error as a sentence: never the validator's JSON. A field it names is said in that field's words;
+ *  anything else in the request reads as one plain line. */
+export function plainError(e: unknown): string {
+  const issues = invalidIssues(e);
+  if (issues) {
+    const words = [...new Set(Object.values(roleFieldErrors(issues)))];
+    return words.length > 0 ? words.join(" ") : "Realm could not read part of this request. Check the fields and try again.";
+  }
+  return e instanceof Error ? e.message : String(e);
+}
+
 /** How full a meter is, 0–100, and whether it has crossed 80% — orange is state, not decoration. */
 export function meter(spent: number, budget: number | null): { pct: number; high: boolean } | null {
   if (!budget) return null;
