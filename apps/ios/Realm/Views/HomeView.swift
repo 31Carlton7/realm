@@ -1,102 +1,276 @@
 import RealmKit
 import SwiftUI
 
+/// The sidebar's answer to "what should I look at": what needs you, then each space's sessions by
+/// activity. Under the title, the Mac and its state.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        List {
-            if let problem = model.problem {
-                Section {
-                    Label(problem, systemImage: "exclamationmark.triangle")
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 8) {
+                if let savedAt = model.store.homeSavedAt, model.store.home != nil {
+                    LastUpdated(savedAt: savedAt)
+                        .padding(.bottom, 4)
                 }
-            }
-            if case .refused(_, let reason) = model.store.connection {
-                Section {
-                    Label(reason, systemImage: "xmark.octagon")
+                if case .refused(_, let reason) = model.store.connection {
+                    RefusedNote(reason: reason)
                 }
-            }
-            if let home = model.store.home {
-                if !home.needsYou.isEmpty {
-                    Section("Needs you") {
+                if let home = model.store.home {
+                    if !home.needsYou.isEmpty {
+                        SectionHead(title: "Needs you", symbol: "hand.raised")
                         ForEach(home.needsYou) { row in
-                            SessionLink(row: row, showsSpace: true)
+                            SessionCard(row: row, showsSpace: true)
                         }
                     }
-                }
-                ForEach(home.spaces) { space in
-                    Section(space.name) {
+                    ForEach(home.spaces) { space in
+                        SectionHead(title: space.name, emoji: space.emoji)
                         if space.sessions.isEmpty {
-                            Text("No sessions")
-                                .foregroundStyle(.secondary)
+                            Text("No sessions yet")
+                                .inter(.subheadline)
+                                .foregroundStyle(Palette.ink2)
+                                .padding(.horizontal, 4)
                         }
                         ForEach(space.sessions) { row in
-                            SessionLink(row: row, showsSpace: false)
+                            SessionCard(row: row, showsSpace: false)
                         }
                         if space.more > 0 {
                             Text("\(space.more) more on your Mac")
-                                .foregroundStyle(.secondary)
+                                .inter(.subheadline)
+                                .foregroundStyle(Palette.ink2)
+                                .padding(.horizontal, 4)
+                                .padding(.top, 2)
                         }
                     }
-                }
-            } else if !model.store.connection.isConnected {
-                Section {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                        Text(model.macStatus.text)
+                    if home.spaces.isEmpty && home.needsYou.isEmpty {
+                        Text("There are no spaces on your Mac yet. Make one in Realm on your Mac.")
+                            .inter(.body)
+                            .foregroundStyle(Palette.ink2)
                     }
+                } else {
+                    FirstLoad()
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
         }
-        .navigationTitle(model.store.pairedMac?.macName ?? "Realm")
+        .background(Palette.page)
+        .navigationTitle("Sessions")
+        .navigationSubtitle(model.macLine)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                MacStatusLabel()
-            }
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink(value: Route.diagnostics) {
-                    Label("Diagnostics", systemImage: "stopwatch")
+                NavigationLink(value: Route.settings) {
+                    Label("Settings", systemImage: "gearshape")
                 }
             }
         }
-        .refreshable { await model.refreshHome() }
+        .refreshable { await model.refresh() }
     }
 }
 
-struct SessionLink: View {
+/// A section's name at the caption rung, in sentence case, with its glyph.
+struct SectionHead: View {
+    let title: String
+    var symbol: String?
+    var emoji: String?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let emoji {
+                Text(emoji).accessibilityHidden(true)
+            } else if let symbol {
+                Image(systemName: symbol)
+                    .accessibilityHidden(true)
+            }
+            Text(title)
+        }
+        .inter(.footnote, .medium)
+        .foregroundStyle(Palette.ink2)
+        .padding(.top, 18)
+        .padding(.bottom, 2)
+        .padding(.horizontal, 4)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// One session: its title, then the status as a word and a glyph, the agent and model, and how long
+/// ago it moved. A row of more than one line is a card, with air round it rather than a rule.
+struct SessionCard: View {
     let row: SessionRow
     let showsSpace: Bool
 
     var body: some View {
         NavigationLink(value: Route.session(row.id)) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(row.title.isEmpty ? "Untitled session" : row.title)
-                        .lineLimit(2)
-                    Spacer(minLength: 8)
-                    Text(row.status.word)
-                        .font(.subheadline)
-                        .foregroundStyle(row.needsYou ? .primary : .secondary)
-                }
-                HStack(spacing: 4) {
-                    Text(detail)
-                        .lineLimit(1)
-                    if row.updatedAt > 0 {
-                        Text("·")
-                        Text(Date(timeIntervalSince1970: row.updatedAt / 1000), format: .relative(presentation: .named))
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if row.unread {
+                        Circle()
+                            .fill(Palette.accent)
+                            .frame(width: 7, height: 7)
+                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
                     }
+                    Text(row.title.isEmpty ? "Untitled session" : row.title)
+                        .inter(.body, .medium)
+                        .foregroundStyle(Palette.ink)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+                        .layoutPriority(1)
+                    Spacer(minLength: 8)
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        Text(Ago.text(row.updatedAt, now: context.date))
+                            .inter(.footnote)
+                            .monospacedDigit()
+                            .foregroundStyle(Palette.ink3)
+                    }
+                    .fixedSize()
                 }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    StatusLabel(status: row.status)
+                        .fixedSize()
+                    SessionDetail(row: row, showsSpace: showsSpace)
+                }
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .accessibilityElement(children: .combine)
+        .buttonStyle(CardButtonStyle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
+        .accessibilityHint("Opens the session")
+        .accessibilityAddTraits(.isButton)
     }
 
-    private var detail: String {
-        [showsSpace ? row.spaceName : nil, row.agent, row.model]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-            .joined(separator: " · ")
+    private var accessibilityText: String {
+        var parts = [row.title.isEmpty ? "Untitled session" : row.title, row.status.word]
+        if row.unread { parts.append("Unread") }
+        parts.append(contentsOf: [row.spaceName, AgentNames.label(row.agent)].filter { !$0.isEmpty })
+        if let model = row.model { parts.append(model) }
+        parts.append(Ago.text(row.updatedAt))
+        return parts.joined(separator: ", ")
+    }
+}
+
+/// A status as its word with its glyph, in its tone: never colour alone.
+struct StatusLabel: View {
+    let status: SessionStatus
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: status.symbol)
+                .imageScale(.small)
+            Text(status.word)
+        }
+        .inter(.subheadline, .medium)
+        .foregroundStyle(status.tone.color)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// After the status: the space (only where no section names it), the agent, and the model in mono.
+/// It is one line, and it yields from its end, so the model goes first.
+struct SessionDetail: View {
+    let row: SessionRow
+    let showsSpace: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.legibilityWeight) private var legibilityWeight
+
+    var body: some View {
+        Text(detail)
+            .foregroundStyle(Palette.ink2)
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    private var detail: AttributedString {
+        let fonts = RealmFonts(dynamicTypeSize: dynamicTypeSize, boldText: legibilityWeight == .bold)
+        var words = AttributedString("· " + [showsSpace ? row.spaceName : nil, AgentNames.label(row.agent)]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+        words.font = fonts.inter(.subheadline)
+        guard let model = row.model, !model.isEmpty else { return words }
+        var separator = AttributedString(" · ")
+        separator.font = fonts.inter(.subheadline)
+        var name = AttributedString(model)
+        name.font = fonts.mono(.footnote)
+        return words + separator + name
+    }
+}
+
+/// "Last updated 10:42": what is on screen came from the cache, or from before the connection went.
+struct LastUpdated: View {
+    let savedAt: Date
+
+    var body: some View {
+        Label {
+            Text("Last updated \(LinkStatus.moment(savedAt, now: Date(), calendar: .current, locale: .current))")
+        } icon: {
+            Image(systemName: "clock.arrow.circlepath")
+        }
+        .inter(.footnote)
+        .foregroundStyle(Palette.ink2)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct RefusedNote: View {
+    let reason: String
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(reason, systemImage: "xmark.octagon")
+                .inter(.body, .medium)
+                .foregroundStyle(Palette.ink)
+            Text("Pair again from Settings ▸ Devices on your Mac.")
+                .inter(.subheadline)
+                .foregroundStyle(Palette.ink2)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surface()
+    }
+}
+
+/// Before the Mac has sent anything: what the connection is doing, in words.
+struct FirstLoad: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let status = model.linkStatus
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                if status.kind == .connecting || status.kind == .connected {
+                    ProgressView()
+                } else {
+                    Image(systemName: status.symbol)
+                        .foregroundStyle(Palette.ink2)
+                }
+                Text(status.kind == .connected ? "Loading your sessions…" : status.words)
+                    .inter(.body, .medium)
+                    .foregroundStyle(Palette.ink)
+            }
+            if case .asleep = status.kind {
+                Text("While your Mac sleeps, this iPhone cannot reach it. Its sessions show here once it wakes.")
+                    .inter(.subheadline)
+                    .foregroundStyle(Palette.ink2)
+            } else if status.kind == .relayUnreachable {
+                Text("Check this iPhone's connection. Realm keeps trying.")
+                    .inter(.subheadline)
+                    .foregroundStyle(Palette.ink2)
+            }
+        }
+        .padding(.vertical, 24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A card a person can open: a surface on the page that takes the press as a fill, one rung up,
+/// arriving at once. A press is a fill, never a size.
+struct CardButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? Palette.hover : Palette.surface,
+                        in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 }

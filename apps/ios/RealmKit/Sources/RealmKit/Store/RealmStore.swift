@@ -142,6 +142,11 @@ public final class RealmStore {
         seenUpTo[sessionId] = max(seenUpTo[sessionId] ?? 0, seq)
     }
 
+    /// `session.seen` did not reach the Mac: the next time the bottom is on screen it goes again.
+    public func forgetSeen(_ sessionId: String) {
+        seenUpTo[sessionId] = nil
+    }
+
     // MARK: - What waits to be sent
 
     /// A message, in line behind anything the session already has waiting.

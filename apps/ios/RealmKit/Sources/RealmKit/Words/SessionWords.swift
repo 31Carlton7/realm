@@ -4,7 +4,7 @@ extension SessionStatus {
     /// The status's symbol, drawn beside its word: the word carries it, the symbol is found by shape.
     public var symbol: String {
         switch self {
-        case .idle: "circle"
+        case .idle: "pause.circle"
         case .running: "play.circle"
         case .waiting: "hand.raised"
         case .error: "exclamationmark.triangle"

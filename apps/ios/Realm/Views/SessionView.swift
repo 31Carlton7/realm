@@ -1,80 +1,127 @@
 import RealmKit
 import SwiftUI
 
+/// A session: its transcript, and the composer pinned below it.
 struct SessionView: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
-    @State private var draft = ""
-    @State private var sending = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var atBottom = true
 
     var body: some View {
         let transcript = model.store.transcript(sessionId)
+        let outgoing = model.store.outbox.items(for: sessionId).filter(\.isMessage)
         ScrollViewReader { proxy in
-            List {
-                if let problem = model.problem {
-                    Label(problem, systemImage: "exclamationmark.triangle")
-                }
-                if transcript.hasMore {
-                    Text("Earlier rows are on your Mac.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(transcript.rows) { row in
-                    TranscriptRowView(row: row, sessionId: sessionId)
-                        .id(row.key)
-                }
-            }
-            .listStyle(.plain)
-            .onChange(of: transcript.rows.last) { _, last in
-                if let last { proxy.scrollTo(last.key, anchor: .bottom) }
-            }
-        }
-        .navigationTitle(transcript.session?.title ?? "Session")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if transcript.status == .running {
-                    Button("Stop", role: .destructive) {
-                        Task { await model.stop(sessionId) }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    if let savedAt = transcript.savedAt, !transcript.rows.isEmpty {
+                        LastUpdated(savedAt: savedAt)
                     }
-                } else if let status = transcript.status {
-                    Text(status.word)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    if transcript.hasMore {
+                        Text("Earlier rows are on your Mac.")
+                            .inter(.footnote)
+                            .foregroundStyle(Palette.ink2)
+                    }
+                    if transcript.rows.isEmpty && outgoing.isEmpty {
+                        EmptyTranscript(isLoaded: transcript.session != nil)
+                    }
+                    ForEach(transcript.rows) { row in
+                        TranscriptRowView(row: row, sessionId: sessionId)
+                            .id(row.key)
+                    }
+                    ForEach(outgoing) { item in
+                        OutgoingMessageView(item: item)
+                            .id(item.id.uuidString)
+                    }
+                    Color.clear
+                        .frame(height: 1)
+                        .id(Self.bottom)
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .defaultScrollAnchor(.bottom)
+            .scrollDismissesKeyboard(.interactively)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.visibleRect.maxY >= geometry.contentSize.height - 32
+            } action: { _, isAtBottom in
+                atBottom = isAtBottom
+                if isAtBottom { model.markSeen(sessionId) }
+            }
+            .onChange(of: transcript.rows.last) { _, _ in
+                follow(proxy)
+            }
+            .onChange(of: outgoing.count) { old, new in
+                // What the person just sent is always brought into view.
+                if new > old { scrollToBottom(proxy) }
+            }
+            .onChange(of: transcript.isLive) { _, live in
+                if live && atBottom { model.markSeen(sessionId) }
             }
         }
-        .safeAreaInset(edge: .bottom) { composer }
+        .background(Palette.canvas)
+        .safeAreaBar(edge: .bottom) {
+            ComposerView(sessionId: sessionId)
+        }
+        .navigationTitle(transcript.session.map { $0.title.isEmpty ? "Untitled session" : $0.title } ?? "Session")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationSubtitle(subtitle(transcript))
         .task(id: model.channelGeneration) { await model.open(sessionId) }
         .onDisappear {
             Task { await model.close(sessionId) }
         }
     }
 
-    private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField("Message", text: $draft, axis: .vertical)
-                .lineLimit(1...5)
-                .textFieldStyle(.roundedBorder)
-            Button(sending ? "Sending…" : "Send") { send() }
-                .buttonStyle(.borderedProminent)
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending || !model.isConnected)
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(.bar)
+    private static let bottom = "bottom"
+
+    /// The session's status and space while the Mac is there; the Mac's state when it is not, since
+    /// a status from before the connection went is not news.
+    private func subtitle(_ transcript: Transcript) -> String {
+        guard model.isConnected, let status = transcript.status ?? transcript.session?.status else { return model.macLine }
+        return [status.word, transcript.session?.spaceName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    private func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        sending = true
-        Task {
-            if await model.send(text, to: sessionId) { draft = "" }
-            sending = false
+    /// New rows keep the bottom in view only for someone already reading there.
+    private func follow(_ proxy: ScrollViewProxy) {
+        guard atBottom else { return }
+        scrollToBottom(proxy)
+        model.markSeen(sessionId)
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        if reduceMotion {
+            proxy.scrollTo(Self.bottom, anchor: .bottom)
+        } else {
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.bottom, anchor: .bottom) }
         }
     }
 }
 
+/// Before any row: loading, or why nothing can load.
+private struct EmptyTranscript: View {
+    let isLoaded: Bool
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let status = model.linkStatus
+        HStack(spacing: 10) {
+            if !isLoaded && (status.kind == .connecting || status.kind == .connected) {
+                ProgressView()
+                Text(status.kind == .connected ? "Opening…" : status.words)
+            } else if isLoaded {
+                Text("Nothing here yet. Send the first message.")
+            } else {
+                Image(systemName: status.symbol)
+                Text(status.kind == .connected ? "Opening…" : "\(status.words). This session shows here once your Mac is there.")
+            }
+        }
+        .inter(.body)
+        .foregroundStyle(Palette.ink2)
+        .padding(.vertical, 24)
+    }
+}
+
+/// One row of a transcript, by its kind. A kind this version cannot draw says so, never blank.
 struct TranscriptRowView: View {
     let row: TranscriptRow
     let sessionId: String
@@ -82,79 +129,220 @@ struct TranscriptRowView: View {
     var body: some View {
         switch row.content {
         case .user(let text):
-            VStack(alignment: .leading, spacing: 4) {
-                Text("You")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(text)
-            }
+            UserBubble(text: text)
         case .assistant(let text, let streaming):
-            VStack(alignment: .leading, spacing: 4) {
-                Text(Self.markdown(text))
+            VStack(alignment: .leading, spacing: 6) {
+                MarkdownView(text)
                 if streaming {
                     Text("Writing…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .inter(.footnote)
+                        .foregroundStyle(Palette.ink3)
                 }
             }
         case .thinking(let text):
-            DisclosureGroup("Thinking") {
-                Text(text)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
+            ThinkingView(text: text)
         case .tool(let name, let summary, let state, let detail):
-            DisclosureGroup {
-                Text(detail ?? "No output yet.")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(detail == nil ? .secondary : .primary)
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack {
-                        Text(name).font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Text(Self.word(state)).font(.caption).foregroundStyle(.secondary)
-                    }
-                    Text(summary)
-                        .font(.caption.monospaced())
-                        .lineLimit(2)
-                }
-            }
+            ToolRowView(name: name, summary: summary, state: state, detail: detail)
         case .request(let request):
-            RequestView(request: request, sessionId: sessionId)
+            RequestCard(request: request, sessionId: sessionId)
         case .plan(let text, let steps):
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Plan").font(.subheadline.weight(.semibold))
-                if let text { Text(Self.markdown(text)) }
-                ForEach(Array((steps ?? []).enumerated()), id: \.offset) { _, step in
-                    Text("\(step.status): \(step.text)")
-                        .font(.callout)
-                }
-            }
+            PlanView(text: text, steps: steps ?? [])
         case .notice(let text):
-            Text(text)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            NoticeView(text: text)
         case .error(let text, let hint):
-            VStack(alignment: .leading, spacing: 4) {
-                Label(text, systemImage: "exclamationmark.triangle")
-                if let hint {
-                    Text(hint)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+            ErrorRowView(text: text, hint: hint)
+        case .unknown(let kind, let type):
+            OpenOnMacView(kind: type ?? kind)
+        }
+    }
+}
+
+/// What the person sent: right of the column, on the surface, in the composer's continuous curve
+/// one rung down, so a send reads as the same object moving into the log.
+struct UserBubble: View {
+    let text: String
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 48)
+            Text(text)
+                .inter(.body)
+                .foregroundStyle(Palette.ink)
+                .textSelection(.enabled)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .surface(Palette.surface, radius: 18)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("You: \(text)")
+    }
+}
+
+/// A message on its way: Sending… until the Mac has it, and what is in the way when it cannot go.
+struct OutgoingMessageView: View {
+    let item: OutgoingItem
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            if case .message(let text) = item.payload {
+                UserBubble(text: text)
             }
-        case .unknown:
-            Text("Open this on your Mac")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            OutgoingStatusView(item: item)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+}
+
+/// Where an outgoing message or answer is, in words: Sending…, waiting for the Mac and why, Sent, or
+/// the Mac's refusal with what can be done about it.
+struct OutgoingStatusView: View {
+    let item: OutgoingItem
+    var alignment: HorizontalAlignment = .trailing
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        switch item.state {
+        case .sending, .unconfirmed:
+            label("Sending…", symbol: nil, tone: .quiet)
+        case .waiting:
+            let status = model.linkStatus
+            label(status.kind == .connected ? "Sending…" : status.waitingNote,
+                  symbol: status.kind == .connected ? nil : status.symbol, tone: .quiet)
+        case .delivered:
+            label(item.isMessage ? "Sent" : "Sent to your Mac", symbol: "checkmark", tone: .quiet)
+        case .failed(let reason):
+            VStack(alignment: alignment, spacing: 8) {
+                label(reason, symbol: "exclamationmark.triangle", tone: .failed)
+                HStack(spacing: 12) {
+                    Button("Try again") { model.retry(item) }
+                        .buttonStyle(.bordered)
+                    Button("Delete", role: .destructive) { model.discard(item) }
+                        .buttonStyle(.bordered)
+                }
+                .inter(.subheadline, .medium)
+            }
         }
     }
 
-    /// Inline Markdown only, drawn as text: no HTML, no images.
-    static func markdown(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
+    private func label(_ text: String, symbol: String?, tone: Tone) -> some View {
+        HStack(spacing: 6) {
+            if let symbol {
+                Image(systemName: symbol)
+            } else {
+                ProgressView()
+                    .controlSize(.mini)
+            }
+            Text(text)
+                .multilineTextAlignment(alignment == .trailing ? .trailing : .leading)
+        }
+        .inter(.footnote)
+        .foregroundStyle(tone.color)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Thinking is folded: a line that opens to the words.
+private struct ThinkingView: View {
+    let text: String
+    @State private var open = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { open.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                        .imageScale(.small)
+                    Text("Thinking")
+                }
+                .inter(.subheadline, .medium)
+                .foregroundStyle(Palette.ink2)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(open ? "Open" : "Folded")
+            if open {
+                Text(text)
+                    .inter(.subheadline, italic: true)
+                    .foregroundStyle(Palette.ink2)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// A tool call is one line — its state, its name and what it acted on — that opens to its detail.
+private struct ToolRowView: View {
+    let name: String
+    let summary: String
+    let state: ToolState
+    let detail: String?
+    @State private var open = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { open.toggle() }
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    stateSymbol
+                    Text(name)
+                        .inter(.subheadline, .medium)
+                        .foregroundStyle(Palette.ink)
+                        .fixedSize()
+                    if !summary.isEmpty, summary != name {
+                        Text(summary)
+                            .mono(.footnote)
+                            .foregroundStyle(Palette.ink2)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .imageScale(.small)
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                        .foregroundStyle(Palette.ink3)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(name), \(Self.word(state)): \(summary)")
+            .accessibilityValue(open ? "Open" : "Folded")
+            .accessibilityAddTraits(.isButton)
+            if open {
+                ScrollView(.horizontal) {
+                    Text(detail ?? (state == .running ? "Still running." : "No output."))
+                        .mono(.caption1)
+                        .foregroundStyle(detail == nil ? Palette.ink2 : Palette.ink)
+                        .textSelection(.enabled)
+                        .fixedSize()
+                        .padding(12)
+                }
+                .scrollIndicators(.hidden)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .surface(Palette.page, radius: Radius.card)
+            }
+        }
+    }
+
+    private var stateSymbol: some View {
+        let (symbol, tone): (String, Tone) = switch state {
+        case .running: ("circle.dotted", .working)
+        case .done: ("checkmark.circle", .quiet)
+        case .error: ("xmark.circle", .failed)
+        }
+        return Image(systemName: symbol)
+            .foregroundStyle(tone.color)
+            .imageScale(.medium)
     }
 
     static func word(_ state: ToolState) -> String {
@@ -166,130 +354,118 @@ struct TranscriptRowView: View {
     }
 }
 
-/// A permission or a question the agent is blocked on, answered in place. Swiping away or leaving the
-/// screen answers nothing.
-struct RequestView: View {
-    let request: TranscriptRow.Request
-    let sessionId: String
-    @Environment(AppModel.self) private var model
-    @State private var picks: [String: Set<String>] = [:]
-    @State private var busy = false
+/// A plan, and its steps with where each one is.
+private struct PlanView: View {
+    let text: String?
+    let steps: [PlanStep]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(request.title.isEmpty ? request.tool : request.title)
-                .font(.subheadline.weight(.semibold))
-            if !request.summary.isEmpty, request.summary != request.tool {
-                Text(request.summary)
-                    .font(.callout)
-            }
-            switch request.state {
-            case .pending:
-                if let questions = request.questions, !questions.isEmpty {
-                    questionForm(questions)
-                } else {
-                    HStack {
-                        Button("Allow") { answer(.allow) }
-                            .buttonStyle(.borderedProminent)
-                        Button("Deny", role: .destructive) { answer(.deny) }
-                            .buttonStyle(.bordered)
-                    }
-                    .disabled(busy)
-                }
-            case .allowed:
-                Text("Allowed").foregroundStyle(.secondary)
-            case .denied:
-                Text("Denied").foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func questionForm(_ questions: [Question]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ForEach(questions, id: \.question) { question in
-                VStack(alignment: .leading, spacing: 6) {
-                    if !question.header.isEmpty {
-                        Text(question.header)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(question.question)
-                    if question.multiSelect {
-                        Text("Choose any that apply.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(question.options, id: \.label) { option in
-                        optionButton(option, of: question)
-                    }
-                    if question.options.isEmpty {
-                        Text("Answer this one on your Mac.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Plan", systemImage: "list.bullet.clipboard")
+                .inter(.subheadline, .title)
+                .foregroundStyle(Palette.ink)
+            if !steps.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: Self.symbol(step.status))
+                                .foregroundStyle(Self.tone(step.status).color)
+                            Text(step.text)
+                                .inter(.body)
+                                .foregroundStyle(step.status == "completed" ? Palette.ink2 : Palette.ink)
+                                .strikethrough(step.status == "completed", color: Palette.ink3)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityValue(Self.word(step.status))
                     }
                 }
             }
-            HStack {
-                Button("Send answers") {
-                    answer(.allow, answers: Question.answers(questions, picks: picks))
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!isComplete(questions))
-                Button("Skip", role: .destructive) { answer(.deny) }
-                    .buttonStyle(.bordered)
+            if let text, !text.isEmpty {
+                MarkdownView(text)
             }
-            .disabled(busy)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surface()
+    }
+
+    static func symbol(_ status: String) -> String {
+        switch status {
+        case "completed": "checkmark.circle.fill"
+        case "in_progress": "circle.dotted.circle"
+        default: "circle"
         }
     }
 
-    private func optionButton(_ option: QuestionOption, of question: Question) -> some View {
-        let chosen = picks[question.question]?.contains(option.label) == true
-        let symbol = question.multiSelect
-            ? (chosen ? "checkmark.square.fill" : "square")
-            : (chosen ? "largecircle.fill.circle" : "circle")
-        return Button {
-            toggle(option.label, in: question)
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: symbol)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(option.label)
-                    if let description = option.description {
-                        Text(description)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer(minLength: 0)
+    static func tone(_ status: String) -> Tone {
+        switch status {
+        case "completed": .done
+        case "in_progress": .working
+        default: .quiet
+        }
+    }
+
+    static func word(_ status: String) -> String {
+        switch status {
+        case "completed": "Done"
+        case "in_progress": "In progress"
+        case "pending": "Not started"
+        default: status
+        }
+    }
+}
+
+private struct NoticeView: View {
+    let text: String
+
+    var body: some View {
+        Label(text, systemImage: "info.circle")
+            .inter(.footnote)
+            .foregroundStyle(Palette.ink2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// An error, with the fix the Mac knows for it.
+private struct ErrorRowView: View {
+    let text: String
+    let hint: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
+                Text(text)
+                    .foregroundStyle(Palette.ink)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(Palette.red)
             }
-            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .inter(.body, .medium)
+            if let hint, !hint.isEmpty {
+                Text(hint)
+                    .inter(.subheadline)
+                    .foregroundStyle(Palette.ink2)
+            }
         }
-        .buttonStyle(.bordered)
-        .accessibilityAddTraits(chosen ? .isSelected : [])
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surface()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Error: \(text)\(hint.map { ". \($0)" } ?? "")")
     }
+}
 
-    private func toggle(_ label: String, in question: Question) {
-        var chosen = picks[question.question] ?? []
-        if question.multiSelect {
-            if chosen.contains(label) { chosen.remove(label) } else { chosen.insert(label) }
-        } else {
-            chosen = [label]
-        }
-        picks[question.question] = chosen
-    }
+/// A row this version of the app cannot draw. Nothing is ever blank.
+struct OpenOnMacView: View {
+    static let words = "Open this on your Mac"
+    let kind: String
 
-    /// Every question that offers options has one picked.
-    private func isComplete(_ questions: [Question]) -> Bool {
-        questions.allSatisfy { $0.options.isEmpty || picks[$0.question]?.isEmpty == false }
-            && questions.contains { !$0.options.isEmpty }
-    }
-
-    private func answer(_ decision: Decision, answers: [String: String]? = nil) {
-        busy = true
-        Task {
-            _ = await model.answer(sessionId, requestId: request.requestId, decision: decision, answers: answers)
-            busy = false
-        }
+    var body: some View {
+        Label(Self.words, systemImage: "laptopcomputer")
+            .inter(.subheadline)
+            .foregroundStyle(Palette.ink2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel("\(Self.words). This iPhone cannot show it yet.")
+            .accessibilityIdentifier("open-on-mac-\(kind)")
     }
 }

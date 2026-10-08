@@ -12,8 +12,11 @@ struct RealmApp: App {
         WindowGroup {
             RootView()
                 .environment(delegate.model)
-                .onOpenURL { url in
-                    Task { await delegate.model.pair(with: url.absoluteString) }
+                // `realm-mobile://pair#…`, and `https://realm.computer/pair#…` as a Universal Link. The
+                // pairing secret is in the fragment, which never reaches a server.
+                .onOpenURL { url in delegate.model.open(url: url) }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    if let url = activity.webpageURL { delegate.model.open(url: url) }
                 }
                 .task { await delegate.model.launch() }
         }
@@ -31,6 +34,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         // Unattended runs read `print` from a file (`simctl launch --stdout`); line-buffer it.
         setvbuf(stdout, nil, _IOLBF, 0)
+        if !RealmType.isInstalled { model.log.error("The bundled fonts did not register; the system's stand in.") }
+        Chrome.apply()
         return true
     }
 
@@ -47,6 +52,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         [.banner, .list, .sound]
     }
 
+    /// A tap on a notification opens its session. The extension leaves the session's id in `userInfo`.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let session = response.notification.request.content.userInfo["session"] as? String
         await MainActor.run { model.show(session: session) }
