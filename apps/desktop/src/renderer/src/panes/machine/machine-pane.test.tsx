@@ -156,7 +156,7 @@ describe("one scaler, and it is driven by fit.ts", () => {
    *
    * With it on, noVNC fits the canvas to its container, and the container is sized to the fit's own
    * CSS box — so the ratio it derives is the ratio `fitFramebuffer` computed, and its click map and
-   * `toFramebuffer` agree by construction.
+   * the fit agree by construction.
    */
   it("hands noVNC the scaling rather than fighting it", async () => {
     const hub = await import("./machine-hub");

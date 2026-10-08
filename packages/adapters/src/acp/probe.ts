@@ -31,35 +31,6 @@ export async function probeAcp(
   }
 }
 
-/**
- * Extracts picker rows from the DEPRECATED `models` object an ACP `session/new` answers with.
- *
- * Kept because Cursor still speaks this shape and its id vocabulary is the argument below. New code
- * should go through `acpSessionConfig`, which prefers `configOptions` and falls back to here.
- *
- * This — not `cursor-agent --list-models` — is the catalog Realm can honestly offer, because it is the
- * id vocabulary `session/set_model` actually accepts (verified live against cursor-agent 2026.09:
- * parameterized ids like `composer-2.5[fast=true]` and `default[]` are accepted; the bare
- * `--list-models` ids like `gpt-5.3-codex-high`, and the literal `auto`, are rejected with
- * "Invalid params"). Listing ids from one channel and transmitting them on another would make every
- * pick fail.
- *
- * Defensive on purpose: entries missing a string `modelId` are skipped, never invented. A missing
- * `name` falls back to the id — an ugly true label over a pretty guess.
- */
-export function parseAcpModels(models: unknown): { id: string; label: string }[] {
-  const list = (models as { availableModels?: unknown } | null)?.availableModels;
-  const rows = Array.isArray(list) ? list : [];
-  const out: { id: string; label: string }[] = [];
-  for (const row of rows) {
-    const m = row as { modelId?: unknown; name?: unknown } | null;
-    if (!m || typeof m.modelId !== "string" || m.modelId.trim() === "") continue;
-    const label = typeof m.name === "string" && m.name.trim() !== "" ? m.name.trim() : m.modelId;
-    out.push({ id: m.modelId, label });
-  }
-  return out;
-}
-
 /** `session/new` reaches the network (Cursor signs in and spins up session services); shorter than the
  *  adapter's 30s session budget because a probe is advisory — `null` is always an acceptable answer. */
 const LIST_MODELS_TIMEOUT_MS = 20_000;

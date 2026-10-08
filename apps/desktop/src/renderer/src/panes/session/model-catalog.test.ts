@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey, type ModelInfo } from "@realm/contracts";
 import {
   agentRowHint, billingLead, chipLabel, effortCurrent, effortOptions, fastModeAvailability, fastModeHint, fastModeShown, fastModeTip, fastModeTitle, filterRows, flatten, groupRows, holdRows,
-  modelAbout, modelLabel, modelRows, resolveModelName, usableModel, type FastMode, type ModelRow,
+  modelAbout, modelLabel, modelRows, usableModel, type FastMode, type ModelRow,
 } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
 
@@ -518,60 +518,5 @@ describe("billingLead", () => {
   it("keeps the statement of who bills and leaves the aside to the hover", () => {
     expect(billingLead(AGENT_NOTES.codex.billing)).toBe("Bills through your ChatGPT plan or OpenAI API key.");
     expect(billingLead(AGENT_NOTES["acp:cursor"].billing)).toBe(AGENT_NOTES["acp:cursor"].billing);
-  });
-});
-
-describe("resolveModelName", () => {
-  const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: true,
-    agentProbe: [probe("claude", null), probe("codex", codexCatalog), probe("acp:cursor", cursorWithClaude)] });
-  const resolve = (name: string) => {
-    const m = resolveModelName(name, rows);
-    return m && { kind: m.kind, modelId: m.modelId, label: m.label, exact: m.exact };
-  };
-
-  it("maps a family name to its newest model, on the harness that would run it", () => {
-    expect(resolve("Fable")).toEqual({ kind: "claude", modelId: "claude-fable-5-1", label: "Claude Fable 5.1", exact: false });
-    expect(resolve("opus")).toMatchObject({ modelId: "claude-opus-5-5" });
-  });
-
-  it("takes the newest version even where the catalog lists an older one first", () => {
-    // List order is the vendor's, and a live catalog promises nothing about it: "luna" is the newest
-    // Luna, not whichever the probe happened to hand over first.
-    const lunas = modelRows({ kind: "codex", model: null, canSwitchAgent: true, agentProbe: [probe("codex", [
-      { id: "gpt-5.6-luna", label: "GPT-5.6-Luna" }, { id: "gpt-6-luna", label: "GPT-6-Luna" },
-    ])] });
-    expect(resolveModelName("luna", lunas)).toMatchObject({ modelId: "gpt-6-luna", exact: false });
-  });
-
-  it("treats a version as one word, so Fable 5 is never Fable 5.1", () => {
-    expect(resolve("fable 5")).toMatchObject({ modelId: "claude-fable-5" });
-    expect(resolve("Claude Fable 5.1")).toMatchObject({ modelId: "claude-fable-5-1", exact: true });
-  });
-
-  it("finds a model in a live catalog however it is spaced or hyphenated", () => {
-    for (const name of ["GPT-6 Luna", "gpt 6 luna", "gpt6 luna", "GPT-6-Luna"]) {
-      expect(resolve(name)).toEqual({ kind: "codex", modelId: "gpt-6-luna", label: "GPT-6-Luna", exact: true });
-    }
-  });
-
-  it("takes the route a name asks for, and only where that harness runs the model", () => {
-    expect(resolve("Fable via Cursor")).toMatchObject({ kind: "acp:cursor", modelId: CURSOR_FABLE_ID });
-    expect(resolve("GPT-5.5 through Cursor")).toMatchObject({ kind: "acp:cursor", modelId: "gpt-5.5" });
-    expect(resolve("Sonnet on Cursor")).toBeNull();
-    expect(resolve("Fable on Claude Code")).toMatchObject({ kind: "claude", modelId: "claude-fable-5-1" });
-  });
-
-  it("names an agent's own default by the agent", () => {
-    expect(resolve("opencode")).toMatchObject({ kind: "acp:opencode", modelId: null });
-  });
-
-  it("returns nothing rather than a different model", () => {
-    // Codex's catalog unread: no GPT-6 Luna anywhere, so the answer is a question back to the person.
-    const bare = modelRows({ kind: "claude", model: null, canSwitchAgent: true, agentProbe: [] });
-    expect(resolveModelName("GPT-6 Luna", bare)).toBeNull();
-    expect(resolveModelName("", rows)).toBeNull();
-    // …and never one this session can no longer be put on.
-    const locked = modelRows({ kind: "claude", model: null, canSwitchAgent: false, agentProbe: [probe("codex", codexCatalog)] });
-    expect(resolveModelName("GPT-6 Luna", locked)).toBeNull();
   });
 });

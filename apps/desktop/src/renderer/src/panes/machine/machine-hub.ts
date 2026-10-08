@@ -125,7 +125,7 @@ export class MachineHub {
     const rfb = this.factory(host, url);
     // Driven BY `fit.ts` rather than competing with it: the host element is sized to the fit's own
     // CSS box, and noVNC scales the canvas to fill it — which is the same ratio, and which is also
-    // what keeps its click mapping in step with `toFramebuffer`. See the note on `RfbLike`.
+    // what keeps its click mapping in step with the fit. See the note on `RfbLike`.
     rfb.scaleViewport = true;
 
     const onConnect = () => {
@@ -184,10 +184,6 @@ let singleton: MachineHub | null = null;
 export function getMachineHub(): MachineHub {
   return (singleton ??= new MachineHub(rpc(), defaultFactory));
 }
-
-/** Test seam: substitute a fake-backed hub (pass null to reset). No test loads noVNC — it wants a
- *  real canvas, a real WebSocket and a real decoder, none of which says anything about attach. */
-export function setMachineHubForTests(hub: MachineHub | null): void { singleton = hub; }
 
 /** Has a hub been built yet? Asked by the pane bar's menu, which runs for EVERY pane and must not
  *  construct one — the hub is built over the RPC client, and a renderer with no server (a test) has
