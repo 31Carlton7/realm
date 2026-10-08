@@ -256,9 +256,11 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
      pane is focused; this stamps what was already here when the focus did. Without it a session
      opened to read its news kept the unread ring — and its row in every list of what needs you —
      until it said something new. Unfocused, nothing: a pane restored behind another one has been
-     opened, not read. */
+     opened, not read. Nor in a window nobody is looking at — and coming back to the window is when
+     the focused pane is read, so the effect runs again then. */
   const readTo = entry?.lastSeq ?? 0;
-  useEffect(() => { if (focused && readTo > 0) void run(() => markSessionSeen(id)); }, [focused, readTo, id, markSessionSeen, run]);
+  const windowActive = useApp((s) => s.windowActive);
+  useEffect(() => { if (focused && windowActive && readTo > 0) void run(() => markSessionSeen(id)); }, [focused, windowActive, readTo, id, markSessionSeen, run]);
   // Store-owned, keyed by session id (A-M9): layout reshapes/remounts never lose typed text, and a
   // suggestion chip in the empty state can fill the draft without sending it. The pane only WRITES it;
   // the composer reads it (`DraftedComposer`), so a keystroke re-renders the composer and not this.

@@ -3378,9 +3378,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (profileId) get().setProfilePageTab(profileId, (entry.view ?? "general") as ProfilePageTab);
       }
     };
-    /** Whether this session is the pane with the keyboard. The one thing the renderer knows about
-     *  attention, and the same test the notifications feed's auto-read already makes. */
+    /** Whether this session is the pane with the keyboard, in a window someone is looking at. The one
+     *  thing the renderer knows about attention. The window counts: a turn that finishes in the
+     *  focused pane of a window behind another app, or behind Realm's other window, was seen by
+     *  nobody, and it keeps its dot until the window comes back (SessionPane reads it then). */
     const isFocusedSession = (sessionId: string): boolean => {
+      if (!get().windowActive) return false;
       const focused = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
       return focused?.kind === "session" && focused.refId === sessionId;
     };
