@@ -11,7 +11,7 @@ import { FALLBACK_AGENT, useApp } from "../../state/store";
 import { chipLabel, formatEffort, modelRows, type EffortControl, type FastMode, type ModelRow } from "../session/model-catalog";
 import { ModelPicker } from "../session/ModelPicker";
 import {
-  EMPTY_DRAFT, REVIEW_EVENTS, canReview, canSubmit, isOwnRequest, postsLine, reviewBlocked, reviewPayload, reviewRun, reviewerCatalog, reviewerPhrase,
+  EMPTY_DRAFT, REVIEW_EVENTS, canReview, canSubmit, isOwnRequest, postsLine, reviewBlocked, reviewPayload, reviewRun, reviewerCatalog, reviewerPhrase, sentAs,
   type ReviewDraft,
 } from "./code-review-model";
 import { codeReview } from "./code-review-api";
@@ -57,8 +57,8 @@ const firstReviewer = (lastAgentKind: AgentKind | null): ReviewerPick =>
  * setting it never needed one to be possible now. While one runs, the body is that review: its
  * reviewer's mark, whatever the menu has been changed to since.
  */
-export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: {
-  pr: PrRef; detail: PrDetail | null; profileId: string; place: PrPlace | null; review: PrReview | null; onStarted: (r: PrReview) => void;
+export function ReviewWith({ pr, detail, account, profileId, place, review, onStarted }: {
+  pr: PrRef; detail: PrDetail | null; account: string | null; profileId: string; place: PrPlace | null; review: PrReview | null; onStarted: (r: PrReview) => void;
 }) {
   const lastAgentKind = useApp((s) => s.lastAgentKind);
   const agentProbe = useApp((s) => s.agentProbe);
@@ -111,7 +111,7 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
   const blocked = reviewBlocked(detail, place !== null, running);
   const start = () => run(async () => {
     if (!detail || !place) return;
-    onStarted(await codeReview.review({ ref: pr, profileId, spaceId: place.spaceId, projectId: place.projectId, agentKind: kind, model, ...runs }));
+    onStarted(await codeReview.review({ ref: pr, profileId, spaceId: place.spaceId, projectId: place.projectId, agentKind: kind, model, ...runs, ...sentAs(account) }));
   });
   return (
     <span className="cr-review-with" role="group" aria-label="Review with a model">
@@ -218,8 +218,9 @@ function InstructionsPopover({ anchorRef, profileId, pick, rows, effort, fast, o
  * will be posted: the decision, the comment (required), every line comment kept, and a sentence
  * saying where it goes and as whom. Only its Submit posts.
  */
-export function SubmitReview({ pr, detail, login, draft, setDraft }: {
-  pr: PrRef; detail: PrDetail | null; login: string | null; draft: ReviewDraft; setDraft: (d: ReviewDraft | ((d: ReviewDraft) => ReviewDraft)) => void;
+export function SubmitReview({ pr, detail, login, account, draft, setDraft }: {
+  pr: PrRef; detail: PrDetail | null; login: string | null; account: string | null; draft: ReviewDraft;
+  setDraft: (d: ReviewDraft | ((d: ReviewDraft) => ReviewDraft)) => void;
 }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
@@ -231,13 +232,13 @@ export function SubmitReview({ pr, detail, login, draft, setDraft }: {
         onClick={() => setOpen((o) => !o)}>
         Submit review{waiting > 0 && <span className="cr-submit-count" aria-hidden="true">{waiting}</span>}<Icon name="chevronDown" size={12} />
       </button>
-      {open && detail && <SubmitPopover anchorRef={anchor} pr={pr} detail={detail} login={login} draft={draft} setDraft={setDraft} onClose={() => setOpen(false)} />}
+      {open && detail && <SubmitPopover anchorRef={anchor} pr={pr} detail={detail} login={login} account={account} draft={draft} setDraft={setDraft} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function SubmitPopover({ anchorRef, pr, detail, login, draft, setDraft, onClose }: {
-  anchorRef: RefObject<HTMLButtonElement | null>; pr: PrRef; detail: PrDetail; login: string | null; draft: ReviewDraft;
+function SubmitPopover({ anchorRef, pr, detail, login, account, draft, setDraft, onClose }: {
+  anchorRef: RefObject<HTMLButtonElement | null>; pr: PrRef; detail: PrDetail; login: string | null; account: string | null; draft: ReviewDraft;
   setDraft: (d: ReviewDraft | ((d: ReviewDraft) => ReviewDraft)) => void; onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -257,7 +258,7 @@ function SubmitPopover({ anchorRef, pr, detail, login, draft, setDraft, onClose 
   const submit = async () => {
     setPosting(true); setError(null);
     try {
-      const posted = await codeReview.submit(reviewPayload(pr, detail.headSha, draft));
+      const posted = await codeReview.submit(reviewPayload(pr, detail.headSha, draft, account));
       setDraft(EMPTY_DRAFT);
       close();
       toast({ tone: "success", text: `Posted your review to ${prName(pr)}${posted.url ? "" : ", though GitHub sent no link back"}` });

@@ -161,9 +161,18 @@ export function reviewBlocked(detail: Pick<PrDetail, "changedFiles"> | null, has
   return null;
 }
 
+/** Two logins naming one account: GitHub's are case-insensitive, and gh prints them as registered. */
+export const sameLogin = (a: string | null, b: string | null): boolean => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
 /** GitHub refuses an author's Approve and Request changes on their own request; a comment is fine. */
-export const isOwnRequest = (d: Pick<PrDetail, "author">, login: string | null): boolean =>
-  !!login && !!d.author && d.author.toLowerCase() === login.toLowerCase();
+export const isOwnRequest = (d: Pick<PrDetail, "author">, login: string | null): boolean => sameLogin(d.author, login);
+
+/**
+ * The account a read or a write goes out as, for the wire: the profile's pick (`GhStatus.account`),
+ * and nothing at all for gh's own active account — whose calls are sent exactly as they were before
+ * there was an account to pick.
+ */
+export const sentAs = (account: string | null): { account?: string } => (account ? { account } : {});
 
 /* ─────────────────────────────── the review ─────────────────────────────── */
 
@@ -183,11 +192,13 @@ export const REVIEW_EVENTS: readonly { event: ReviewEvent; label: string; line: 
 /** Ready to post: a comment with words in it, which GitHub wants for every event the page offers. */
 export const canSubmit = (draft: ReviewDraft): boolean => draft.body.trim() !== "";
 
-/** Exactly what Submit sends — the comment as typed, every kept line comment on its side. */
-export function reviewPayload(ref: PrRef, headSha: string, draft: ReviewDraft): SubmitReview {
+/** Exactly what Submit sends — the comment as typed, every kept line comment on its side, and the
+ *  account the line beside Submit names when the profile picked one. */
+export function reviewPayload(ref: PrRef, headSha: string, draft: ReviewDraft, account: string | null = null): Omit<SubmitReview, "account"> & { account?: string } {
   return {
     ref, headSha, event: draft.event, body: draft.body,
     comments: draft.comments.map((c) => ({ path: c.path, line: c.line, side: c.side, body: c.body })),
+    ...sentAs(account),
   };
 }
 

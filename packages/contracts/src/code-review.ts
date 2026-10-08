@@ -8,7 +8,12 @@ import { IdSchema } from "./ids";
  *
  * Realm holds no GitHub token of its own. Every read and the one write — a review, on the owner's
  * click of Submit — go through `gh`, so what Realm can see is exactly what `gh` can see, the account
- * is the one `gh auth status` names, and signing out of `gh` is signing Realm out too.
+ * is one `gh auth status` names, and signing out of `gh` is signing Realm out too.
+ *
+ * Which of gh's accounts is a profile's own choice (`prAccountKey`): the one gh has active until
+ * another is picked. A picked account's calls are started through a shell that asks gh for that
+ * account's token and hands it to the `gh` it starts, so the token goes from gh to gh without Realm
+ * ever reading it, and gh's own active account — the one a terminal uses — is left as it was.
  *
  * Nothing here may be reached by an agent: the reviewer a person runs from the page writes findings
  * for that person to keep or discard, and only Submit posts. The service never takes a review from
@@ -69,8 +74,25 @@ export function parsePrRef(text: string): PrRef | null {
  */
 export const GhStateSchema = z.enum(["missing", "signed-out", "ready", "unreachable"]);
 export type GhState = z.infer<typeof GhStateSchema>;
-export const GhStatusSchema = z.object({ state: GhStateSchema, login: z.string().nullable(), reason: z.string().nullable() });
+/** A GitHub login as gh prints it. Checked at the wire because it reaches `gh auth token --user`. */
+export const GhLoginSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/, "not a GitHub login");
+
+export const GhStatusSchema = z.object({
+  state: GhStateSchema, login: z.string().nullable(), reason: z.string().nullable(),
+  /** The account the profile picked, while gh is still signed in to it — what every read and the
+   *  write for that profile are sent as. Absent or null is gh's own active account. */
+  account: z.string().nullable().optional(),
+});
 export type GhStatus = z.infer<typeof GhStatusSchema>;
+
+/**
+ * The account a profile's Code review runs as, once the person has picked one: a login, kept per
+ * PROFILE for the reason the instructions are — work and school are different people on GitHub. A
+ * login and nothing else: the token stays gh's. It holds only while gh is signed in to that account;
+ * signed out of it, the profile is back on gh's active account, and the pick returns when the
+ * account does.
+ */
+export const prAccountKey = (profileId: string): string => `codeReview.account:${profileId}`;
 
 /** The command Set up GitHub types into a terminal. Offered, never run: the person presses Return. */
 export const GH_LOGIN_COMMAND = "gh auth login";
@@ -212,6 +234,10 @@ export const SubmitReviewSchema = z.object({
   event: ReviewEventSchema,
   body: z.string().max(REVIEW_BODY_MAX).refine((b) => b.trim() !== "", "a review needs a comment"),
   comments: z.array(ReviewCommentSchema).max(REVIEW_COMMENTS_MAX).default([]),
+  /** The account the page said the review posts as (`GhStatus.account`): null is gh's own. Sent with
+   *  the review so the one write goes out as the account the person was shown, whatever another
+   *  window has picked since. */
+  account: GhLoginSchema.nullable().default(null),
 });
 export type SubmitReview = z.infer<typeof SubmitReviewSchema>;
 export const SubmittedReviewSchema = z.object({ id: z.number().int().nullable(), url: z.string().nullable() });

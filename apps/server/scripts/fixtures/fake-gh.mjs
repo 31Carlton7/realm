@@ -5,17 +5,25 @@
  * place of the real CLI, so nothing they do can reach GitHub.
  *
  *   FAKE_GH_FIXTURE  the fixture JSON (see code-review-fixture.mjs for the shape)
- *   FAKE_GH_LOG      where each call is appended as one JSON line: { args, stdin }
+ *   FAKE_GH_LOG      where each call is appended as one JSON line: { args, stdin, as }
  *
  * It speaks gh's own shapes — GraphQL search nodes, `pr view --json`, the REST files and reviews
  * endpoints — and gh's exit codes: 4 for "authentication required", 1 for everything else.
+ *
+ * `fixture.accounts` is what `gh auth status --json hosts` lists for github.com, and without it this
+ * is a gh that predates the flag. A call made with one of those accounts' tokens in `GH_TOKEN` is that
+ * account's: it answers `api user` with its login and the lists with its own `sections`. `as` in the
+ * log is that account's login, or null for gh's own — the token itself is never written anywhere.
  */
 import { appendFileSync, readFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const fixture = JSON.parse(readFileSync(process.env.FAKE_GH_FIXTURE, "utf8"));
 const stdin = args.includes("--input") && args[args.indexOf("--input") + 1] === "-" ? readFileSync(0, "utf8") : null;
-if (process.env.FAKE_GH_LOG) appendFileSync(process.env.FAKE_GH_LOG, `${JSON.stringify({ args, stdin })}\n`);
+const tokenOf = (account) => account.token ?? `token-of-${account.login}`;
+/** The account this call was sent as, when it carries one of the fixture's tokens. */
+const acting = process.env.GH_TOKEN ? (fixture.accounts ?? []).find((a) => tokenOf(a) === process.env.GH_TOKEN) ?? null : null;
+if (process.env.FAKE_GH_LOG) appendFileSync(process.env.FAKE_GH_LOG, `${JSON.stringify({ args, stdin, as: acting?.login ?? null })}\n`);
 
 const ok = (value) => ({ code: 0, stdout: typeof value === "string" ? value : JSON.stringify(value), stderr: "" });
 const no = (code, stderr, stdout = "") => ({ code, stdout, stderr: `${stderr}\n` });
@@ -31,11 +39,23 @@ const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : nul
 const pr = (key) => fixture.prs[key.toLowerCase()] ?? null;
 
 function answer() {
+  if (args[0] === "auth" && args[1] === "status") {
+    if (!fixture.accounts) return no(1, "unknown flag: --json");
+    return ok({ hosts: { "github.com": fixture.accounts.map((a, i) => ({
+      state: a.state ?? "success", ...(a.error ? { error: a.error } : {}), active: a.active ?? i === 0, host: "github.com", login: a.login,
+      tokenSource: a.tokenSource ?? "keyring", scopes: "repo", gitProtocol: "https",
+    })) } });
+  }
+  if (args[0] === "auth" && args[1] === "token") {
+    const account = (fixture.accounts ?? []).find((a) => a.login === flag("--user"));
+    return account ? ok(`${tokenOf(account)}\n`) : no(1, `no oauth token found for github.com account ${flag("--user")}`);
+  }
+  if (acting?.revoked) return no(1, "gh: Bad credentials (HTTP 401)", '{"message":"Bad credentials"}');
   if (fixture.auth === "signed-out") return no(4, "To get started with GitHub CLI, please run:  gh auth login");
   if (fixture.auth === "offline") return no(1, "error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com");
   const [cmd, sub] = args;
 
-  if (cmd === "api" && sub === "user") return ok(fixture.user);
+  if (cmd === "api" && sub === "user") return ok(acting ? { login: acting.login } : fixture.user);
 
   if (cmd === "api" && sub === "graphql") {
     const q = field("q") ?? "";
@@ -46,7 +66,7 @@ function answer() {
       : q.includes("user-review-requested:@me") ? "review"
         : q.includes("author:@me") ? "authored" : null;
     let keys;
-    if (section) keys = fixture.sections?.[section] ?? [];
+    if (section) keys = (acting?.sections ?? fixture.sections)?.[section] ?? [];
     else {
       const words = q.split(/\s+/).filter((w) => w && !w.includes(":")).join(" ").toLowerCase();
       keys = Object.keys(fixture.prs).filter((k) => fixture.prs[k].node.title.toLowerCase().includes(words));

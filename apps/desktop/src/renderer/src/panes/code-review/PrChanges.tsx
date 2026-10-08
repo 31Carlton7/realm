@@ -43,8 +43,8 @@ const OVERSCAN = 1200;
  * file's patch is asked for when it first comes near the view, a screen's worth at a time, from the
  * server's copy of the request's files. Nothing about 600 files costs more than the dozen on screen.
  */
-export function PrChanges({ detail, review, draft, setDraft, split, tree, jump }: {
-  detail: PrDetail; review: PrReview | null; draft: ReviewDraft; setDraft: SetDraft;
+export function PrChanges({ detail, account, review, draft, setDraft, split, tree, jump }: {
+  detail: PrDetail; account: string | null; review: PrReview | null; draft: ReviewDraft; setDraft: SetDraft;
   split: boolean; tree: boolean; jump: { path: string; line: number; side: ReviewSide; n: number } | null;
 }) {
   const key = prKey(detail.ref);
@@ -60,7 +60,7 @@ export function PrChanges({ detail, review, draft, setDraft, split, tree, jump }
   useEffect(() => {
     if (files) return;
     let live = true;
-    codeReview.files(detail.ref, detail.headSha).then(
+    codeReview.files(detail.ref, detail.headSha, account).then(
       (f) => { if (!live) return; heldFiles.set(atHead(key, f.headSha), f); setFiles(f); },
       (e: unknown) => { if (live) setError(e instanceof Error ? e.message : String(e)); },
     );
@@ -81,13 +81,13 @@ export function PrChanges({ detail, review, draft, setDraft, split, tree, jump }
       flushTimer.current = null;
       const batch = [...wanted.current].slice(0, PR_PATCHES_PER_CALL);
       for (const p of batch) wanted.current.delete(p);
-      codeReview.patches(detail.ref, headSha, batch).then((r) => {
+      codeReview.patches(detail.ref, headSha, batch, account).then((r) => {
         for (const patch of r.patches) heldPatches.set(patchId(key, headSha, patch.path), patch);
         repaint();
         if (wanted.current.size > 0) want([]);
       }, (e: unknown) => run(() => Promise.reject(e)));
     }, 16);
-  }, [files, key, headSha, detail.ref, repaint, run]);
+  }, [files, key, headSha, detail.ref, account, repaint, run]);
   useEffect(() => () => { if (flushTimer.current) clearTimeout(flushTimer.current); }, []);
 
   const scroller = useRef<HTMLDivElement>(null);
@@ -129,7 +129,7 @@ export function PrChanges({ detail, review, draft, setDraft, split, tree, jump }
         {shown.length === 0 && <p className="cr-empty-line cr-diffs-none">{filter ? "No changed file matches that." : "This pull request changes no files."}</p>}
         <div style={{ height: win.top, overflowAnchor: "none" }} aria-hidden="true" />
         {win.drawn.map((f) => (
-          <FileDiffBlock key={f.path} file={f} detail={detail} headSha={headSha} split={split} hidden={hidden.has(f.path)}
+          <FileDiffBlock key={f.path} file={f} detail={detail} account={account} headSha={headSha} split={split} hidden={hidden.has(f.path)}
             patch={heldPatches.get(patchId(key, headSha, f.path))} measure={win.measure}
             findings={findings.get(f.path) ?? []} reviewer={reviewer} draft={draft} setDraft={setDraft} onToggle={() => toggleHidden(f.path)} />
         ))}
@@ -218,8 +218,8 @@ function upper(offsets: readonly number[], y: number): number {
 }
 
 /** One file: its head (status, path, counts, hide, menu) and its patch. */
-function FileDiffBlock({ file, detail, headSha, split, hidden, patch, measure, findings, reviewer, draft, setDraft, onToggle }: {
-  file: PrFile; detail: PrDetail; headSha: string; split: boolean; hidden: boolean; patch: FileDiff | undefined;
+function FileDiffBlock({ file, detail, account, headSha, split, hidden, patch, measure, findings, reviewer, draft, setDraft, onToggle }: {
+  file: PrFile; detail: PrDetail; account: string | null; headSha: string; split: boolean; hidden: boolean; patch: FileDiff | undefined;
   measure: (path: string, h: number) => void; findings: Finding[]; reviewer: Reviewer | null; draft: ReviewDraft; setDraft: SetDraft; onToggle: () => void;
 }) {
   const box = useRef<HTMLElement>(null);
@@ -243,7 +243,7 @@ function FileDiffBlock({ file, detail, headSha, split, hidden, patch, measure, f
   const openBand = (index: number) => {
     setOpen((o) => new Set([...o, index]));
     if (lines !== undefined || file.status === "deleted") return;
-    codeReview.fileLines(detail.ref, headSha, file.path).then((l) => { heldLines.set(patchId(key, headSha, file.path), l.lines); setLines(l.lines); },
+    codeReview.fileLines(detail.ref, headSha, file.path, account).then((l) => { heldLines.set(patchId(key, headSha, file.path), l.lines); setLines(l.lines); },
       (e: unknown) => run(() => Promise.reject(e)));
   };
 

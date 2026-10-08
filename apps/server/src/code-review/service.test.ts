@@ -170,6 +170,108 @@ describe("submit — nothing posted that GitHub would refuse, or that nobody rea
   });
 });
 
+describe("the account a profile reviews as — picked here, gh's own left alone", () => {
+  const TWO: GhFixture = { ...FIXTURE, accounts: [{ login: "carlton" }, { login: "Mara", sections: { authored: [], review: ["acme/widgets#42"] } }] };
+
+  it("is gh's own until one is picked: nothing is asked about accounts, and nothing is sent as anyone", async () => {
+    const { gh, rpc, profileId } = await boot(TWO);
+    expect(await rpc.call("codeReview.status", { profileId })).toEqual({ state: "ready", login: "carlton", reason: null });
+    await rpc.call("codeReview.list", { section: "authored" });
+    expect(ghCalls(gh, (a) => a[0] === "auth")).toHaveLength(0);
+    expect(gh.calls().every((c) => c.as === null)).toBe(true);
+  });
+
+  it("lists gh's accounts, keeps the pick for the profile alone, and answers as the picked account", async () => {
+    const { gh, rpc, profileId } = await boot(TWO);
+    const other = new ProfilesStore(app!.db).create({ name: "School", icon: "x", color: "#000" });
+    expect(await rpc.call("codeReview.accounts", {})).toEqual({ accounts: ["carlton", "Mara"] });
+    expect(await rpc.call("codeReview.setAccount", { profileId, login: "mara" })).toEqual({ state: "ready", login: "Mara", reason: null, account: "Mara" });
+    expect(await rpc.call("codeReview.status", { profileId })).toMatchObject({ login: "Mara", account: "Mara" });
+    expect(await rpc.call("codeReview.status", { profileId: other.id })).toEqual({ state: "ready", login: "carlton", reason: null });
+    expect(await rpc.call("codeReview.status", {})).toEqual({ state: "ready", login: "carlton", reason: null });
+    expect(ghCalls(gh, (a) => a[0] === "auth" && a[1] === "switch")).toHaveLength(0);
+  });
+
+  it("sends a read as the account it names, and holds each account's reads apart", async () => {
+    const { gh, rpc } = await boot(TWO);
+    const mine = await rpc.call("codeReview.list", { section: "review" });
+    const hers = await rpc.call("codeReview.list", { section: "review", account: "Mara" });
+    expect(mine.prs).toEqual([]);
+    expect(hers.prs.map((p: any) => p.ref.number)).toEqual([42]);
+    await rpc.call("codeReview.list", { section: "review", account: "Mara" });
+    expect(ghCalls(gh, (a) => a[1] === "graphql").map((c) => c.as)).toEqual([null, "Mara"]);
+    await rpc.call("codeReview.detail", { ref });
+    await rpc.call("codeReview.detail", { ref, account: "Mara" });
+    await rpc.call("codeReview.files", { ref, headSha: HEAD, account: "Mara" });
+    expect(ghCalls(gh, (a) => a[0] === "pr").map((c) => c.as)).toEqual([null, "Mara"]);
+    expect(ghCalls(gh, (a) => a[1]?.includes("/files?") ?? false).map((c) => c.as)).toEqual(["Mara"]);
+  });
+
+  it("posts a review as the account the page named, and reads the request again for everyone", async () => {
+    const { gh, rpc } = await boot(TWO);
+    await rpc.call("codeReview.detail", { ref });
+    await rpc.call("codeReview.submit", { ref, headSha: HEAD, event: "APPROVE", body: "Looks right.", comments: [{ path: "src/a.ts", line: 2, side: "RIGHT", body: "Here." }], account: "Mara" });
+    const [post] = ghCalls(gh, (a) => a.includes("POST"));
+    expect(post!.as).toBe("Mara");
+    expect(JSON.parse(post!.stdin!)).not.toHaveProperty("account");
+    await rpc.call("codeReview.detail", { ref });
+    expect(ghCalls(gh, (a) => a[0] === "pr" && a[1] === "view").filter((c) => c.as === null)).toHaveLength(2);
+  });
+
+  it("reads the request as the same account for a question and for a reviewer", async () => {
+    const { gh, rpc, profileId, space } = await boot(TWO);
+    await rpc.call("codeReview.ask", { ref, spaceId: space.id, agentKind: "fake", text: "What changed?", account: "Mara" });
+    await rpc.call("codeReview.review", { ref, profileId, spaceId: space.id, agentKind: "fake", account: "Mara" });
+    const reads = ghCalls(gh, (a) => a[0] === "pr" || (a[1]?.includes("/files?") ?? false));
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.every((c) => c.as === "Mara")).toBe(true);
+  });
+
+  it("refuses an account gh is not signed in to, and keeps what was picked", async () => {
+    const { rpc, profileId } = await boot(TWO);
+    await rpc.call("codeReview.setAccount", { profileId, login: "Mara" });
+    await expect(rpc.call("codeReview.setAccount", { profileId, login: "nobody" }))
+      .rejects.toMatchObject({ code: "GH_ACCOUNT_UNKNOWN", message: expect.stringContaining("@nobody") });
+    await expect(rpc.call("codeReview.setAccount", { profileId: "01HQ0000000000000000000000", login: "Mara" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(rpc.call("codeReview.setAccount", { profileId, login: "--hostname" })).rejects.toMatchObject({ code: "INVALID_PARAMS" });
+    await expect(rpc.call("codeReview.list", { section: "review", account: "a b" })).rejects.toMatchObject({ code: "INVALID_PARAMS" });
+    expect(await rpc.call("codeReview.status", { profileId })).toMatchObject({ account: "Mara" });
+  });
+
+  it("goes back to gh's own account when gh signs out of the pick, and returns to the pick when it is back", async () => {
+    const { gh, rpc, profileId } = await boot(TWO);
+    await rpc.call("codeReview.setAccount", { profileId, login: "Mara" });
+    gh.set({ ...TWO, accounts: [{ login: "carlton" }] });
+    expect(await rpc.call("codeReview.status", { profileId, force: true })).toEqual({ state: "ready", login: "carlton", reason: null });
+    gh.set(TWO);
+    expect(await rpc.call("codeReview.status", { profileId, force: true })).toMatchObject({ login: "Mara", account: "Mara" });
+  });
+
+  it("stays on the pick while GitHub cannot be reached, rather than taking gh's own account for it", async () => {
+    const { gh, rpc, profileId } = await boot(TWO);
+    await rpc.call("codeReview.setAccount", { profileId, login: "Mara" });
+    const down = "Get \"https://api.github.com/\": dial tcp: connect: connection refused";
+    gh.set({ ...TWO, auth: "offline", accounts: TWO.accounts!.map((a) => ({ ...a, state: "error", error: down })) });
+    expect(await rpc.call("codeReview.status", { profileId, force: true })).toMatchObject({ state: "unreachable", login: null, account: "Mara" });
+  });
+
+  it("is still the profile's for the next server over the same home", async () => {
+    const home = tempDir("realm-cr-account-");
+    const first = await boot(TWO, home);
+    await first.rpc.call("codeReview.setAccount", { profileId: first.profileId, login: "Mara" });
+    await app!.close(); app = undefined;
+    const second = await boot(TWO, home);
+    expect(await second.rpc.call("codeReview.status", { profileId: first.profileId })).toMatchObject({ login: "Mara", account: "Mara" });
+  });
+
+  it("offers nothing to pick with a gh that cannot list its accounts", async () => {
+    const { rpc, profileId } = await boot();
+    expect(await rpc.call("codeReview.accounts", {})).toEqual({ accounts: [] });
+    await expect(rpc.call("codeReview.setAccount", { profileId, login: "carlton" })).rejects.toMatchObject({ code: "GH_ACCOUNT_UNKNOWN" });
+    expect(await rpc.call("codeReview.status", { profileId })).toEqual({ state: "ready", login: "carlton", reason: null });
+  });
+});
+
 describe("review instructions — one set per profile, kept as typed", () => {
   it("starts empty, keeps exactly what was saved, and keeps profiles apart", async () => {
     const { rpc, profileId } = await boot();

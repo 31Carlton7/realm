@@ -8,13 +8,41 @@ import { RpcError } from "../store/rows";
 
 export type GhResult = { code: number; stdout: string; stderr: string };
 /** Running `gh` — injectable, so a suite points at a script of its own: nothing in this repository's
- *  test suite may reach GitHub. `input` is written to its stdin (a review's JSON body). */
-export type GhRun = (args: string[], opts?: { input?: string; timeoutMs?: number }) => Promise<GhResult>;
+ *  test suite may reach GitHub. `input` is written to its stdin (a review's JSON body), and `as` names
+ *  the account the call is sent as, where that is not gh's own active one (`AS_ACCOUNT`). */
+export type GhRun = (args: string[], opts?: { input?: string; timeoutMs?: number; as?: string }) => Promise<GhResult>;
 
 /** A read is a page of a list or one request; a minute is a long time for either to say nothing. */
 const GH_TIMEOUT_MS = 60_000;
 /** A page of a big change's patches runs to megabytes; a list or a request is a few kilobytes. */
 const GH_MAX_BUFFER = 64 * 1024 * 1024;
+
+/** The one host the page reads: its links, its addresses and its searches are all github.com's. */
+const GITHUB_HOST = "github.com";
+
+/**
+ * What `/bin/sh` runs for a call sent as another of the accounts gh is signed in to: ask gh for that
+ * account's token, and start gh with it in `GH_TOKEN`, which gh puts ahead of what it has stored.
+ *
+ * gh keeps one active account per host and has no flag for "as this one, just now". A shell does it,
+ * rather than this process, so that the token goes from one gh to the next and never passes through
+ * Realm: nothing here reads it, holds it or could log it, and gh's own active account — the one a
+ * terminal uses — is not touched. It is asked for on every call, so a token refreshed in a terminal
+ * is the one the next call carries.
+ *
+ * The command, the login and the host are positional parameters and never text in the script, so
+ * nothing in them is read as shell. The token read is kept off stdin, which a review's body arrives
+ * on and `exec` hands to the call. No gh at all exits 127, as a spawn of it would report; an account
+ * gh no longer has exits 4, gh's own code for "authentication required" — the two states the page
+ * already has words for.
+ */
+const AS_ACCOUNT = [
+  'command -v "$1" >/dev/null 2>&1 || exit 127',
+  'GH_TOKEN=$("$1" auth token --user "$2" --hostname "$3" </dev/null 2>/dev/null) && [ -n "$GH_TOKEN" ] || { echo "gh is not signed in to GitHub as $2" >&2; exit 4; }',
+  "export GH_TOKEN",
+  "gh=$1; shift 3",
+  'exec "$gh" "$@"',
+].join("\n");
 
 /**
  * The real `gh`, at `command`.
@@ -27,7 +55,8 @@ const GH_MAX_BUFFER = 64 * 1024 * 1024;
  */
 export function ghRunner(command: string): GhRun {
   return (args, opts = {}) => new Promise((resolve, reject) => {
-    const child = execFile(command, args, {
+    const [file, argv] = opts.as === undefined ? [command, args] : ["/bin/sh", ["-c", AS_ACCOUNT, "realm-gh", command, opts.as, GITHUB_HOST, ...args]];
+    const child = execFile(file, argv, {
       cwd: tmpdir(), timeout: opts.timeoutMs ?? GH_TIMEOUT_MS, maxBuffer: GH_MAX_BUFFER, encoding: "utf8",
       env: { ...process.env, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_SPINNER_DISABLED: "1", NO_COLOR: "1", CLICOLOR: "0" },
     }, (err, stdout, stderr) => {
@@ -233,6 +262,38 @@ const FILE_TEXT_MAX = 2 * 1024 * 1024;
 export class GhClient {
   constructor(private readonly run: GhRun) {}
 
+  /** This client with every call sent as `login`, another of the accounts gh is signed in to. */
+  as(login: string): GhClient {
+    return new GhClient((args, opts) => this.run(args, { ...opts, as: login }));
+  }
+
+  /**
+   * The accounts gh is signed in to on github.com and can act as, by login, in name order — a list
+   * that does not reshuffle when a terminal switches gh's active one.
+   *
+   * Empty wherever there is no honest list to give: no gh; a gh older than `auth status --json`
+   * (2.81), which refuses the flag; an answer that is not the JSON; and a token in the environment
+   * (`GH_TOKEN`, `GITHUB_TOKEN`), because gh then acts as that token's account whichever is picked
+   * and has no stored token to hand over for it.
+   *
+   * An account whose token GitHub refused is left out: nothing can be sent as it. One gh could not
+   * check is kept — gh files a dropped network under the same `error` state, and an account it
+   * could not reach GitHub to ask about is still an account it is signed in to.
+   */
+  async accounts(): Promise<string[]> {
+    const r = await this.run(["auth", "status", "--hostname", GITHUB_HOST, "--json", "hosts"]);
+    if (r.code !== 0) return [];
+    try {
+      const rows = (JSON.parse(r.stdout) as { hosts?: Record<string, unknown> }).hosts?.[GITHUB_HOST];
+      if (!Array.isArray(rows)) return [];
+      const accounts = rows as { login?: unknown; state?: unknown; error?: unknown; tokenSource?: unknown }[];
+      if (accounts.some((a) => typeof a.tokenSource === "string" && /^(?:GH|GITHUB)_TOKEN$/.test(a.tokenSource))) return [];
+      const refused = (a: { state?: unknown; error?: unknown }) => a.state === "error" && typeof a.error === "string" && /\b401\b|bad credentials/i.test(a.error);
+      const logins = accounts.flatMap((a) => (typeof a.login === "string" && a.login !== "" && !refused(a) ? [a.login] : []));
+      return [...new Set(logins)].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+    } catch { return []; }
+  }
+
   /** Who `gh` is signed in as — `gh api user` is the one call that needs auth and answers in a
    *  single request, so its failure is the clearest reading of the three states it can be in. */
   async status(): Promise<GhStatus> {
@@ -306,7 +367,7 @@ export class GhClient {
    * length or punctuation reaches GitHub as written, with no shell or field syntax in between. Line
    * comments ride in the same request, so the review lands whole or not at all.
    */
-  async submit(review: SubmitReview): Promise<SubmittedReview> {
+  async submit(review: Omit<SubmitReview, "account">): Promise<SubmittedReview> {
     const payload = {
       commit_id: review.headSha,
       event: review.event,

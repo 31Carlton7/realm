@@ -5,7 +5,7 @@ import { PageRail } from "../../components/page-nav";
 import { useApp } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { codeReview, terminalWith } from "./code-review-api";
-import { pageHeld } from "./held";
+import { holdStatus, pageHeld, signInSent } from "./held";
 import { PrColumn, PrColumnPending } from "./PrColumn";
 import { PrView } from "./PrView";
 
@@ -22,27 +22,37 @@ const INSTALL_COMMAND = `brew install gh && ${GH_LOGIN_COMMAND}`;
  * Until `gh` is installed and signed in, the page is the way to get it there: what is missing, said
  * plainly, and Set up GitHub, which opens a terminal with the command typed in for the person to run.
  * Coming back to the window asks again, so finishing the sign-in is the whole of the next step.
+ *
+ * Which of gh's accounts it reads and posts as is the profile's own (`prAccountKey`), so the page is
+ * one page per profile: another profile's is asked about afresh rather than drawn as this one's.
  */
 export function CodeReviewPage({ item }: PaneProps) {
-  const vantage = item.spaceId;
   const profileId = useApp((s) => s.activeProfileId);
+  return <CodeReviewForProfile key={profileId ?? ""} profileId={profileId} vantage={item.spaceId} />;
+}
+
+function CodeReviewForProfile({ profileId, vantage }: { profileId: string | null; vantage: string }) {
   const windowActive = useApp((s) => s.windowActive);
   // What gh said last time, so a page opened again is drawn in its first frame as it was left —
   // column and all — and asked again behind it.
-  const [status, setStatus] = useState<GhStatus | null>(pageHeld.status);
+  const [status, setStatus] = useState<GhStatus | null>(() => (pageHeld.statusProfile === profileId ? pageHeld.status : null));
   const [checking, setChecking] = useState(false);
 
+  const answer = useCallback((s: GhStatus) => { holdStatus(profileId, s); setStatus(s); return s; }, [profileId]);
   const check = useCallback((force: boolean) => {
     setChecking(true);
-    const answer = (s: GhStatus) => { pageHeld.status = s; setStatus(s); return s; };
-    return codeReview.status(force).then(
+    return codeReview.status(profileId, force).then(
       answer,
       (e: unknown): GhStatus => answer({ state: "unreachable", login: null, reason: e instanceof Error ? e.message : String(e) }),
     ).finally(() => setChecking(false));
-  }, []);
+  }, [profileId, answer]);
   // The held answer first, so the page draws at once; one that says "not yet" is asked again fresh,
   // since the person may be back from the terminal it sent them to.
-  useEffect(() => { void check(false).then((s) => { if (s.state !== "ready") void check(true); }); }, [check]);
+  useEffect(() => {
+    const stale = pageHeld.stale.status;
+    pageHeld.stale.status = false;
+    void check(stale).then((s) => { if (s.state !== "ready" && !stale) void check(true); });
+  }, [check]);
   const away = useRef(!windowActive);
   useEffect(() => {
     if (windowActive && away.current && status && status.state !== "ready") void check(true);
@@ -64,15 +74,26 @@ export function CodeReviewPage({ item }: PaneProps) {
   if (status.state !== "ready" || !profileId) {
     return <div className="page code-review-page"><Setup status={status} vantage={vantage} checking={checking} onCheck={() => void check(true)} /></div>;
   }
-  return <Ready login={status.login} profileId={profileId} vantage={vantage} onLost={() => void check(true)} />;
+  return <Ready key={(status.login ?? "").toLowerCase()} login={status.login} account={status.account ?? null} profileId={profileId} vantage={vantage}
+    onStatus={answer} onLost={() => void check(true)} />;
 }
 
-function Ready({ login, profileId, vantage, onLost }: { login: string | null; profileId: string; vantage: string; onLost: () => void }) {
+function Ready({ login, account, profileId, vantage, onStatus, onLost }: {
+  login: string | null;
+  /** The account this profile picked, which every read and the review are sent as; null is gh's own. */
+  account: string | null;
+  profileId: string; vantage: string;
+  /** gh answered about this profile again — after another account was picked for it. */
+  onStatus: (status: GhStatus) => void;
+  onLost: () => void;
+}) {
   const run = useApp((s) => s.run);
+  const toast = useApp((s) => s.toast);
   const [selected, setSelected] = useState<PrRef | null>(pageHeld.selection);
   const [pins, setPinsHere] = useState<PrSummary[]>(pageHeld.pins[profileId] ?? []);
   const setPins = useCallback((next: PrSummary[]) => { pageHeld.pins[profileId] = next; setPinsHere(next); }, [profileId]);
   const [places, setPlaces] = useState<PrPlace[]>([]);
+  const [accounts, setAccounts] = useState<string[]>(pageHeld.accounts);
   const signIn = useSignIn(vantage);
 
   useEffect(() => {
@@ -81,6 +102,20 @@ function Ready({ login, profileId, vantage, onLost }: { login: string | null; pr
     codeReview.places(profileId).then((r) => { if (live) setPlaces(r.places); }, () => {});
     return () => { live = false; };
   }, [profileId, setPins]);
+
+  const listAccounts = useCallback((force: boolean) => {
+    codeReview.accounts(force).then((r) => { pageHeld.accounts = r.accounts; setAccounts(r.accounts); }, () => {});
+  }, []);
+  useEffect(() => {
+    const stale = pageHeld.stale.accounts;
+    pageHeld.stale.accounts = false;
+    listAccounts(stale);
+  }, [listAccounts]);
+  const pickAccount = (next: string) => run(async () => {
+    const status = await codeReview.setAccount(profileId, next).catch((e: unknown) => { listAccounts(true); throw e; });
+    if (status.state === "ready") toast({ tone: "success", text: `Code review in this profile uses @${status.login ?? next}`, icon: "github" });
+    onStatus(status);
+  });
 
   const select = (ref: PrRef) => { pageHeld.selection = ref; setSelected(ref); };
   const pin = (d: PrDetail, pinned: boolean) => run(async () => {
@@ -92,11 +127,13 @@ function Ready({ login, profileId, vantage, onLost }: { login: string | null; pr
   return (
     <div className="page code-review-page">
       <PageRail label="Code review">
-        <PrColumn login={login} pins={pins} selected={selected} onSelect={(ref) => select(ref)} onSignIn={() => signIn(GH_LOGIN_COMMAND)} onLost={onLost} />
+        <PrColumn login={login} account={account} accounts={accounts} pins={pins} selected={selected} onSelect={(ref) => select(ref)}
+          onAccount={pickAccount} onRefresh={() => listAccounts(true)}
+          onSignIn={() => signIn(GH_LOGIN_COMMAND)} onLost={onLost} />
       </PageRail>
       <div className="cr-main">
         {selected ? (
-          <PrView key={prKey(selected)} pr={selected} login={login} profileId={profileId} vantage={vantage} places={places}
+          <PrView key={prKey(selected)} pr={selected} login={login} account={account} profileId={profileId} vantage={vantage} places={places}
             pinned={isPinned(selected)} onPin={pin} />
         ) : <NothingChosen />}
       </div>
@@ -125,6 +162,7 @@ function useSignIn(spaceId: string) {
   const openItem = useApp((s) => s.openItem);
   const closePageOverlay = useApp((s) => s.closePageOverlay);
   return (command: string) => run(async () => {
+    signInSent();
     const { itemId } = await terminalWith(spaceId, command);
     await refreshItems(spaceId);
     closePageOverlay();

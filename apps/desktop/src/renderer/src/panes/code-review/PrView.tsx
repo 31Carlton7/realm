@@ -25,8 +25,11 @@ export function defaultPlace(places: readonly PrPlace[], pr: PrRef, vantage: str
  * foot for asking about it. Codex's arrangement — the tabs at the left of the bar, the request's own
  * actions at the right, ending in the one decision the page exists for, Submit review.
  */
-export function PrView({ pr, login, profileId, vantage, places, pinned, onPin }: {
-  pr: PrRef; login: string | null; profileId: string; vantage: string; places: PrPlace[];
+export function PrView({ pr, login, account, profileId, vantage, places, pinned, onPin }: {
+  pr: PrRef; login: string | null;
+  /** What the request is read, reviewed and asked about as: the profile's pick, or null for gh's own. */
+  account: string | null;
+  profileId: string; vantage: string; places: PrPlace[];
   pinned: boolean; onPin: (detail: PrDetail, pinned: boolean) => void;
 }) {
   const key = prKey(pr);
@@ -46,7 +49,7 @@ export function PrView({ pr, login, profileId, vantage, places, pinned, onPin }:
 
   useEffect(() => {
     let live = true;
-    codeReview.detail(pr).then(
+    codeReview.detail(pr, false, account).then(
       (d) => { if (!live) return; heldDetails.set(key, d); setDetail(d); setError(null); },
       (e: unknown) => { if (live) setError(e instanceof Error ? e.message : String(e)); },
     );
@@ -107,8 +110,8 @@ export function PrView({ pr, login, profileId, vantage, places, pinned, onPin }:
           <a className="icon-btn" href={detail?.url ?? `https://github.com/${pr.owner}/${pr.repo}/pull/${pr.number}`} target="_blank" rel="noreferrer"
             aria-label="Open on GitHub" title="Open on GitHub"><Icon name="github" size={14} /></a>
         </span>
-        <ReviewWith pr={pr} detail={detail} profileId={profileId} place={place} review={review} onStarted={setReview} />
-        <SubmitReview pr={pr} detail={detail} login={login} draft={draft} setDraft={setDraft} />
+        <ReviewWith pr={pr} detail={detail} account={account} profileId={profileId} place={place} review={review} onStarted={setReview} />
+        <SubmitReview pr={pr} detail={detail} login={login} account={account} draft={draft} setDraft={setDraft} />
       </div>
       {error ? (
         <div className="cr-empty"><h2 className="cr-empty-title">This pull request could not be read</h2><p className="cr-empty-line">{error}</p></div>
@@ -117,9 +120,9 @@ export function PrView({ pr, login, profileId, vantage, places, pinned, onPin }:
       ) : tab === "summary" ? (
         <PrSummary detail={detail} review={review} draft={draft} setDraft={setDraft} onShow={showInChanges} />
       ) : (
-        <PrChanges detail={detail} review={review} draft={draft} setDraft={setDraft} split={split} tree={tree} jump={jump} />
+        <PrChanges detail={detail} account={account} review={review} draft={draft} setDraft={setDraft} split={split} tree={tree} jump={jump} />
       )}
-      {detail && <AskPrompter pr={pr} detail={detail} place={place} places={places} onPlace={(p) => setPlaceKey(placeId(p))} />}
+      {detail && <AskPrompter pr={pr} detail={detail} account={account} place={place} places={places} onPlace={(p) => setPlaceKey(placeId(p))} />}
     </div>
   );
 }

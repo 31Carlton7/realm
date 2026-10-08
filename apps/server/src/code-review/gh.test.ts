@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { GhClient, ghRunner } from "./gh";
+import { GhClient, ghRunner, type GhResult } from "./gh";
 import { PATCH, fakeGh, pr, type GhFixture } from "./fake-gh.test-fakes";
 
 /**
@@ -36,6 +36,102 @@ describe("status — gh's three answers, and its absence", () => {
   it("reads no gh at all as missing", async () => {
     const c = new GhClient(ghRunner(join(tempDir("realm-no-gh-"), "gh")));
     expect(await c.status()).toEqual({ state: "missing", login: null, reason: null });
+  });
+});
+
+describe("accounts — who gh is signed in to on github.com", () => {
+  it("asks `gh auth status` for github.com's accounts as JSON, and lists them by name", async () => {
+    const { gh, client: c } = client({ accounts: [{ login: "work-mara" }, { login: "Mara" }, { login: "carlton" }], prs: {} });
+    expect(await c.accounts()).toEqual(["carlton", "Mara", "work-mara"]);
+    expect(gh.calls().map((x) => x.args)).toEqual([["auth", "status", "--hostname", "github.com", "--json", "hosts"]]);
+  });
+
+  it("leaves out an account whose token GitHub refused, and keeps one gh could not reach GitHub to check", async () => {
+    const refused = "non-200 OK status code: 401 Unauthorized body: \"{\\r\\n  \\\"message\\\": \\\"Bad credentials\\\"}\"";
+    const down = "Get \"https://api.github.com/\": proxyconnect tcp: dial tcp 127.0.0.1:9: connect: connection refused";
+    const { client: c } = client({ accounts: [
+      { login: "carlton" }, { login: "mara", state: "error", error: refused }, { login: "jo", state: "error", error: down }, { login: "kit", state: "timeout" },
+    ], prs: {} });
+    expect(await c.accounts()).toEqual(["carlton", "jo", "kit"]);
+  });
+
+  it("lists none for a gh that predates the flag, and none where there is no gh", async () => {
+    const { client: old } = client({ user: { login: "carlton" }, prs: {} });
+    expect(await old.accounts()).toEqual([]);
+    expect(await old.status()).toMatchObject({ state: "ready", login: "carlton" });
+    expect(await new GhClient(ghRunner(join(tempDir("realm-no-gh-"), "gh"))).accounts()).toEqual([]);
+  });
+
+  it("lists none where a token in the environment decides the account", async () => {
+    const { client: c } = client({ accounts: [{ login: "ci-bot", tokenSource: "GH_TOKEN" }, { login: "carlton" }, { login: "mara" }], prs: {} });
+    expect(await c.accounts()).toEqual([]);
+  });
+});
+
+describe("as — a call sent as another of gh's accounts", () => {
+  const fixture: GhFixture = { user: { login: "carlton" }, accounts: [{ login: "carlton" }, { login: "mara" }], prs: { "acme/widgets#42": pr("acme", "widgets", 42) } };
+  /** A client whose every call from this process, and every answer to one, is kept: what Realm itself
+   *  ran and read, as against everything the fake `gh` was asked (`gh.calls()`). */
+  const watched = (f: GhFixture) => {
+    const gh = fakeGh(f);
+    const run = ghRunner(gh.command);
+    const ran: string[][] = [];
+    const read: GhResult[] = [];
+    const c = new GhClient(async (args, opts) => { ran.push(args); const r = await run(args, opts); read.push(r); return r; });
+    return { gh, client: c, ran, read };
+  };
+
+  it("has gh hand the account's token to the call in its environment, without the token ever reaching Realm", async () => {
+    const { gh, client: c, ran, read } = watched(fixture);
+    const mara = c.as("mara");
+    expect(await mara.status()).toEqual({ state: "ready", login: "mara", reason: null });
+    await mara.detail(ref);
+    const calls = gh.calls();
+    expect(calls.map((x) => x.args.slice(0, 2))).toEqual([["auth", "token"], ["api", "user"], ["auth", "token"], ["pr", "view"]]);
+    expect(calls[0]!.args).toEqual(["auth", "token", "--user", "mara", "--hostname", "github.com"]);
+    expect(calls.map((x) => x.as)).toEqual([null, "mara", null, "mara"]);
+    expect(ran.map((a) => a.slice(0, 2))).toEqual([["api", "user"], ["pr", "view"]]);
+    expect(JSON.stringify(read)).not.toContain("token-of-");
+    expect(calls.flatMap((x) => x.args).some((a) => a.includes("token-of-"))).toBe(false);
+  });
+
+  it("leaves gh's own account as the one a plain call goes out as", async () => {
+    const { gh, client: c } = client(fixture);
+    await c.as("mara").status();
+    expect(await c.status()).toMatchObject({ login: "carlton" });
+    expect(gh.calls().at(-1)!.as).toBeNull();
+    expect(gh.calls().some((x) => x.args[0] === "auth" && x.args[1] === "switch")).toBe(false);
+  });
+
+  it("carries the token gh has at the time of each call, so one refreshed in a terminal is used at once", async () => {
+    const { gh, client: c } = client({ ...fixture, accounts: [{ login: "carlton" }, { login: "mara", revoked: true }] });
+    const mara = c.as("mara");
+    expect(await mara.status()).toMatchObject({ state: "signed-out" });
+    gh.set({ ...fixture, accounts: [{ login: "carlton" }, { login: "mara", token: "refreshed" }] });
+    expect(await mara.status()).toMatchObject({ state: "ready", login: "mara" });
+  });
+
+  it("hands a review's body on to the call it is posted with", async () => {
+    const { gh, client: c } = client(fixture);
+    const review = { ref, headSha: "abc1234def5678abc1234def5678abc1234def56", event: "COMMENT" as const, body: "\"Quoted\", $HOME and `ticks` stay as typed.", comments: [] };
+    await c.as("mara").submit(review);
+    const post = gh.calls().find((x) => x.args.includes("POST"))!;
+    expect(post.as).toBe("mara");
+    expect(JSON.parse(post.stdin!)).toEqual({ commit_id: review.headSha, event: "COMMENT", body: review.body });
+  });
+
+  it("answers as signed out for an account gh no longer has, and sends nothing as anyone", async () => {
+    const { gh, client: c } = client(fixture);
+    const gone = c.as("ghost");
+    expect(await gone.status()).toMatchObject({ state: "signed-out", login: null });
+    await expect(gone.detail(ref)).rejects.toMatchObject({ code: "GH_SIGNED_OUT" });
+    expect(gh.calls().every((x) => x.args[0] === "auth" && x.args[1] === "token")).toBe(true);
+  });
+
+  it("reads no gh at all as missing, as a plain call does", async () => {
+    const none = new GhClient(ghRunner(join(tempDir("realm-no-gh-"), "gh")));
+    expect(await none.as("mara").status()).toEqual({ state: "missing", login: null, reason: null });
+    await expect(none.as("mara").detail(ref)).rejects.toMatchObject({ code: "GH_MISSING" });
   });
 });
 

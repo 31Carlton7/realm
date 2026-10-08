@@ -6,7 +6,8 @@ import { tempDir } from "@realm/test-utils";
 /** The fake `gh` the live checks run too (scripts/fixtures/fake-gh.mjs). */
 const FAKE_GH = fileURLToPath(new URL("../../scripts/fixtures/fake-gh.mjs", import.meta.url));
 
-export type GhCall = { args: string[]; stdin: string | null };
+/** `as` is the account the call was sent as — the one whose token it carried — or null for gh's own. */
+export type GhCall = { args: string[]; stdin: string | null; as: string | null };
 export type FakeGh = { command: string; calls: () => GhCall[]; set: (fixture: GhFixture) => void };
 
 /** A fixture in gh's own shapes (see fake-gh.mjs). Kept loose: the point of a fake is to say
@@ -15,6 +16,11 @@ export type GhFixture = {
   auth?: "ready" | "signed-out" | "offline";
   user?: { login: string };
   sections?: Partial<Record<"authored" | "review" | "team", string[]>>;
+  /** What `gh auth status --json hosts` lists for github.com, the first active unless one says so.
+   *  Left out, the fake is a gh that predates the flag. A call carrying an account's token — by
+   *  default `token-of-<login>` — is that account's: its login, its own `sections`. */
+  accounts?: { login: string; active?: boolean; token?: string; state?: string; error?: string; tokenSource?: string; revoked?: boolean;
+    sections?: Partial<Record<"authored" | "review" | "team", string[]>> }[];
   prs: Record<string, { node: Record<string, unknown>; view: Record<string, unknown>; files: Record<string, unknown>[]; contents?: Record<string, string> }>;
   refuseReview?: Record<string, unknown>;
   reviewId?: number;

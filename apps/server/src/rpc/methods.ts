@@ -905,13 +905,15 @@ export function registerMethods(d: Deps): void {
   reg("review.dismiss", (p) => { d.reviews.dismiss(p.environmentId); return { ok: true as const }; });
   // The Code Review page. Every read is the service's cached `gh`; `codeReview.submit` is the one
   // write, and the page's Submit button is the only thing that sends it.
-  reg("codeReview.status", (p) => d.codeReview.ghStatus(p.force));
-  reg("codeReview.list", (p) => d.codeReview.list(p.section, p.cursor, p.force));
-  reg("codeReview.search", (p) => d.codeReview.search(p.query, p.cursor));
-  reg("codeReview.detail", (p) => d.codeReview.detail(p.ref, p.force));
-  reg("codeReview.files", (p) => d.codeReview.files(p.ref, p.headSha));
-  reg("codeReview.patches", async (p) => ({ patches: await d.codeReview.patches(p.ref, p.headSha, p.paths) }));
-  reg("codeReview.fileLines", async (p) => ({ lines: await d.codeReview.fileLines(p.ref, p.headSha, p.path) }));
+  reg("codeReview.status", (p) => d.codeReview.ghStatus(p.force, p.profileId));
+  reg("codeReview.accounts", async (p) => ({ accounts: await d.codeReview.accounts(p.force) }));
+  reg("codeReview.setAccount", (p) => d.codeReview.setAccount(p.profileId, p.login));
+  reg("codeReview.list", (p) => d.codeReview.list(p.section, p.cursor, p.force, p.account));
+  reg("codeReview.search", (p) => d.codeReview.search(p.query, p.cursor, p.account));
+  reg("codeReview.detail", (p) => d.codeReview.detail(p.ref, p.force, p.account));
+  reg("codeReview.files", (p) => d.codeReview.files(p.ref, p.headSha, p.account));
+  reg("codeReview.patches", async (p) => ({ patches: await d.codeReview.patches(p.ref, p.headSha, p.paths, p.account) }));
+  reg("codeReview.fileLines", async (p) => ({ lines: await d.codeReview.fileLines(p.ref, p.headSha, p.path, p.account) }));
   reg("codeReview.submit", (p) => d.codeReview.submit(p));
   reg("codeReview.instructions", (p) => d.codeReview.instructions(p.profileId));
   reg("codeReview.setInstructions", (p) => d.codeReview.setInstructions(p.profileId, p.text));

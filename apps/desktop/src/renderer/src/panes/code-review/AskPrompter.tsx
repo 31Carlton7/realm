@@ -8,6 +8,7 @@ import { Composer } from "../session/Composer";
 import { draftRun, draftSession as draftAsSession, withOptions, type DraftRun } from "../session/draft-run";
 import { Transcript } from "../session/Transcript";
 import { codeReview } from "./code-review-api";
+import { sentAs } from "./code-review-model";
 
 /** The prompter's draft and attachments live in the store under this slot, as the media viewer's
  *  do under its own — a remount must not drop what was typed. */
@@ -24,8 +25,8 @@ const NOOP = () => {};
  * The place is a space or one of its projects. One whose checkout is the request's repository is
  * chosen first, because there the agent has the code as well as the diff.
  */
-export function AskPrompter({ pr, detail, place, places, onPlace }: {
-  pr: PrRef; detail: PrDetail; place: PrPlace | null; places: PrPlace[]; onPlace: (p: PrPlace) => void;
+export function AskPrompter({ pr, detail, account, place, places, onPlace }: {
+  pr: PrRef; detail: PrDetail; account: string | null; place: PrPlace | null; places: PrPlace[]; onPlace: (p: PrPlace) => void;
 }) {
   const key = prKey(pr);
   const spaces = useApp((s) => s.spaces);
@@ -88,7 +89,7 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
       const sent = attachments;
       const r = await codeReview.ask({ ref: pr, spaceId: place.spaceId, projectId: place.projectId, agentKind: owner?.agentKind ?? pick.agentKind, model: pick.model,
         effort: pick.effort, fastMode: pick.fastMode, permissionMode: pick.permissionMode,
-        text, attachments: sent.map(({ path, mime }) => ({ path, mime })) });
+        text, attachments: sent.map(({ path, mime }) => ({ path, mime })), ...sentAs(account) });
       for (const a of sent) removeAttachment(ASK_SLOT, a.path);
       await refreshSessions(place.spaceId);
       await openSession(r.sessionId);
