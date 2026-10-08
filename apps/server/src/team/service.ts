@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "n
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   CreateRoleSchema, ROLE_TEMPLATES, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink, creatorRecordTemplate,
-  isRunLive, isRunTerminal, parseRecord, recordAccounts, recordField, recordSlug, sessionEvent, usageDeltas, weekStart,
+  isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, sessionEvent, usageDeltas, weekStart,
   type AgentKind, type CreateRoleInput, type LedgerLine, type ReviewCheck, type ReviewKind, type ReviewTarget, type RoleRun,
   type Run, type Schedule, type Session, type SessionEvent, type TeamActivity, type TeamRecord, type TeamRecordSummary,
   type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary, type TeamRole, type TeamSpace, type UpdateRoleInput, type WokeOn,
@@ -870,7 +870,9 @@ export class TeamService {
         : input.op === "replace" ? { op: "replace", match: input.match, entry: input.entry } : { op: "remove", match: input.match };
       const r = applyRecordEdit(before, edit, { source: amrRepoSourceLink(ctx.sessionId), added: this.today() });
       if (!r.ok) throw new RpcError("TEAM_RECORD_EDIT", `${rel}: ${r.error}`);
-      content = r.content; line = r.line;
+      // The log says the FACT: the bullet and its provenance tail are the file's grammar, and printed
+      // in the activity feed they read as "· - … [source: realm:session/…; added: …]".
+      content = r.content; line = r.line === null ? null : parseMemoryEntry(r.line)?.text ?? r.line;
     }
     const out = await this.d.repos.writeFile({ scope: "space", id: ctx.spaceId }, rel, content, role?.name);
     this.log(ctx.spaceId, role ? `role:${role.id}` : "realm", "updated_record", parseRecord(content)?.title ?? rel, { path: rel, op: input.op, line }, run ?? ctx);

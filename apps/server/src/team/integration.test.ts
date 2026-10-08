@@ -131,6 +131,10 @@ describe("teams over the wire", () => {
     expect(rec.lastAuthor).toBe("Content Producer");
     const verbs = (await c.must("team.activity", { spaceId, limit: 50 })).map((a: Any) => a.verb);
     expect(verbs.filter((v: string) => v === "updated_record")).toHaveLength(2);
+    // The feed's detail is the fact alone — no bullet, no provenance tail (the mutant logs the raw line).
+    const lines = (await c.must("team.activity", { spaceId, limit: 50 })).filter((a: Any) => a.verb === "updated_record" && a.detail.line).map((a: Any) => a.detail.line);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) { expect(l).not.toMatch(/^\s*-\s/); expect(l).not.toContain("[source:"); }
     c.close();
   });
 
