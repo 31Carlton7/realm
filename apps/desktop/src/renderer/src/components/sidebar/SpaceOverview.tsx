@@ -1,8 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { StoreApi } from "zustand";
 import { centerOverComplement } from "../../state/no-overlay";
-import { spaceBadge, useApp, useBrowserRects, type AppState } from "../../state/store";
+import { spaceBadge, useApp, useBrowserRects } from "../../state/store";
 import { SpaceIcon } from "../SpaceIcon";
 import { useDissolve } from "../ScrollFades";
 
@@ -14,25 +13,6 @@ const BADGE_LABEL = { running: "agent running", waiting_permission: "agent needs
 
 /** The overview's CSS width (styles.css `.spaces-overview`); the no-overlay path needs the number. */
 const OVERVIEW_WIDTH = 620;
-
-/**
- * ⌘⇧Space, and the profile chip's "All spaces…". Kept out of hotkeys.ts's BINDINGS for the same
- * reason ⌘K is: it must toggle while the overview is open, which that guard forbids. A modal sheet
- * still wins — it owns the keyboard outright.
- */
-export function useSpacesHotkey(store: StoreApi<AppState>) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || !e.shiftKey || !(e.metaKey || e.ctrlKey) || e.altKey) return;
-      e.preventDefault();
-      const s = store.getState();
-      if (s.sheet) return;
-      s.setSpacesOpen(!s.spacesOpen);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [store]);
-}
 
 export function SpaceOverview() {
   const open = useApp((s) => s.spacesOpen);

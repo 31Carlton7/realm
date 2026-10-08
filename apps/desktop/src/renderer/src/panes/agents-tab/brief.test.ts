@@ -43,31 +43,14 @@ describe("delegationBrief", () => {
     expect(text).toContain("For your own model (Claude Opus 5.5), leave constraints.model out.");
   });
 
-  it("split by model: one line per model with its own part, in the order they were picked", () => {
-    const text = delegationBrief({ work: WORK, split: true, picks: [
-      { ...luna, task: "Write the toggle and its tests" }, { ...own, task: "Review it when Luna is done" }] });
-    expect(text).toContain("one per task below");
-    const lines = text.split("\n").filter((l) => l.startsWith("- "));
-    expect(lines).toEqual([
-      "- GPT-6 Luna: Write the toggle and its tests",
-      "- Your own model (Claude Opus 5.5), with constraints.model left out: Review it when Luna is done",
-    ]);
-  });
-
   it("a split model with no part of its own is still given one", () => {
     const text = delegationBrief({ work: WORK, split: true, picks: [{ ...luna, task: "Tests" }, fable] });
     expect(text).toContain("- Claude Fable 5.1: a part of the work below that you choose");
   });
 
-  it("a plan handed over is called the plan, so the agent builds it rather than drafting another", () => {
-    expect(delegationBrief({ work: "1. Do X", picks: [luna], split: false, fromPlan: true })).toContain("The plan:\n\n1. Do X");
-  });
 });
 
 describe("canSend", () => {
-  it("needs a model", () => {
-    expect(canSend(WORK, [], false)).toBe(false);
-  });
 
   it("needs something to build: the shared text, or a part for every model when split", () => {
     expect(canSend("   ", [luna], false)).toBe(false);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, renderHook, screen, waitFor } from "@testing-library/react";
 import { Main } from "../App";
-import { useGlobalHotkeys } from "../hotkeys";
+import { useKeybindings } from "../keys";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item } from "../state/store.test-fakes";
 
@@ -15,7 +15,7 @@ async function mount() {
   const store = createAppStore(api);
   await store.getState().boot();
   render(<StoreContext.Provider value={store}><Main /></StoreContext.Provider>);
-  renderHook(() => useGlobalHotkeys(store)); // the real window-level bindings, as production runs them
+  renderHook(() => useKeybindings(store)); // the real keymap, as App mounts it
   return { api, store };
 }
 

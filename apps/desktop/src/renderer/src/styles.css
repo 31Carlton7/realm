@@ -822,40 +822,6 @@ kbd { font: 11px var(--font-mono); }
 .tile-title { font-size: 10px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
 .tile-rename { aspect-ratio: auto; grid-column: 1 / -1; padding: 0; }
 
-/* The call feed borrows the column's rows wholesale — `.item`, `.item-row`, `.group-label` — and owns
-   only what a call row has that a session row does not: a mono name, and a figure at the trailing
-   edge. `.activity-call` and `.activity-duration` are the sheet's own classes, so the two surfaces
-   cannot drift into two different ways of printing the same tool name.
-
-   The inset is its own: the feed stands in the column without a section around it, so it inherits
-   none of the 16px every other row in this column sits inside, and without it every row and the
-   empty line would sit flush against the window's own edge.
-   The heading of a run keeps its own top padding except at the very top, where `.space-body`'s
-   clearance under the fade is already the gap. */
-.sb-activity { padding-inline: 16px; }
-.sb-activity > div:first-child > .group-label { padding-top: 0; }
-.sb-activity .activity-call { flex: 1; min-width: 0; }
-/* The heading carries both facts the rows stop repeating: whose session, and which server. The
-   session is the unbounded half and takes the slack; the server's name is short and reserved, which
-   is the yielding order this row needs stated. */
-.sb-activity-head { display: flex; align-items: baseline; gap: 8px; }
-.sb-activity-session { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.sb-activity-server { flex: none; font-size: 11px; color: var(--rl-text-faint); }
-.sb-activity .activity-duration { flex: none; }
-.sb-activity .item-row:disabled { opacity: 1; color: var(--rl-text-faint); }
-/* Nothing to show is its own composition, not a sentence left where the rows would have been. It
-   centres in the column it has to itself, and it carries the one route that leads to a call
-   happening — which is what an empty surface owes the reader beyond the news that it is empty.
-   `.space-body`'s scroll and fade are dropped for this state: there is nothing under the band. */
-.sb-activity-blank { overflow: hidden; mask-image: none; -webkit-mask-image: none; padding-block: 0; }
-.sb-activity-empty { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 24px 12px; text-align: center; color: var(--rl-text-faint); }
-.sb-activity-empty-line { margin: 6px 0 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
-.sb-activity-empty-sub { margin: 0; font-size: 12px; line-height: 1.45; color: var(--rl-text-faint); text-wrap: balance; }
-/* A real button, the empty pane's own idiom: the one route out of an empty surface should not be
-   quieter than the sentence explaining it. */
-.sb-activity-empty .btn { margin-top: 10px; }
 .item-list { display: flex; flex-direction: column; gap: 1px; }
 .item { position: relative; display: flex; align-items: center; border-radius: var(--r-ctl); min-height: 32px; font-size: 14px; }
 /* No hover fill. A Mac sidebar does not light a row the pointer passes over — Finder's, Mail's and

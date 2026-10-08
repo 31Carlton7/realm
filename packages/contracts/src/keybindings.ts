@@ -422,7 +422,7 @@ export const CONTEXT_KEYS: readonly ContextKey[] = [
  * command: `./commands` holds the user-written `/slash` templates, and one generic name across the
  * barrel export would leave callers importing whichever one they did not mean.
  *
- * Derived from what the app actually does today: the window-level bindings in
+ * Derived from what the app did before this layer: the window-level bindings of the old
  * `renderer/src/hotkeys.ts` and the one-shot rows in `renderer/src/components/CommandPalette.tsx`.
  * Every id here has a runner in `renderer/src/keys/commands.ts`; a catalog entry with nothing behind
  * it would be a shortcut a user could set and then watch do nothing, which is the honesty rule
@@ -506,8 +506,9 @@ const WHEN_SPLIT = "!overlayOpen";
 /**
  * What Realm ships, seeded into the user's file on first run.
  *
- * Every chord here is the one that key already ran before this layer existed (`hotkeys.ts`,
- * `usePaletteHotkey`, `useSpacesHotkey`), so making shortcuts rebindable rebinds nothing by accident.
+ * Every chord here is the one that key already ran before this layer existed (the retired
+ * `hotkeys.ts`, `usePaletteHotkey` and `useSpacesHotkey`), so making shortcuts rebindable rebinds
+ * nothing by accident.
  * The clauses are the same guard those handlers applied, spelled as conditions instead of as flags:
  *
  *  - `WHEN_IDLE` is the old default — no overlay, not typing.
