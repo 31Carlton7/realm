@@ -239,6 +239,26 @@ describe("teams over the wire", () => {
     c.close();
   });
 
+  it("the role's clock fires a run as the role, with its constraints — and stands down once its week's budget is spent", async () => {
+    const { c, spaceId, roleId } = await boot();
+    await c.must("team.roleUpdate", { id: roleId, cron: "0 9 * * 1-5", model: "fake-model", permissionMode: "acceptEdits" });
+    const sched = (await c.must("schedules.list", { spaceId })).find((x: Any) => x.roleId === roleId);
+    await c.must("schedules.runNow", { id: sched.id });
+    await waitFor(async () => (await runsOf(c, roleId)).length === 1);
+    const run = (await c.must("runs.list", { spaceId })).runs[0];
+    expect(run).toMatchObject({ roleId, wokeOn: "schedule", scheduleId: sched.id, title: "Content Producer",
+      constraints: { agentKind: "fake", model: "fake-model", permissionMode: "acceptEdits" } });
+    await waitFor(async () => (await runsOf(c, roleId)).every(settled), { timeout: 8000 });
+    // A week's budget smaller than what was just spent: the next firing is skipped and said.
+    await c.must("team.roleUpdate", { id: roleId, weekBudgetUsd: 0.0001 });
+    expect((await c.must("team.space", { spaceId })).roles[0]).toMatchObject({ state: "paused", pausedWhy: "Content Producer has spent its $0.00 for this week" });
+    await c.must("schedules.runNow", { id: sched.id });
+    expect(await runsOf(c, roleId)).toHaveLength(1);
+    expect((await c.must("schedules.list", { spaceId })).find((x: Any) => x.id === sched.id).lastSkippedAt).not.toBeNull();
+    expect((await c.must("team.activity", { spaceId, limit: 50 })).some((a: Any) => a.verb === "paused")).toBe(true);
+    c.close();
+  });
+
   it("a role's second wake queues behind its first, and starts when the first settles", async () => {
     const { c, roleId } = await boot();
     const a = await c.must("team.roleRun", { id: roleId, message: "take your time" });
