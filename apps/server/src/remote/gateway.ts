@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import { join } from "node:path";
 import type { EventName, EventPayload, StoredSessionEvent } from "@realm/contracts";
 import {
   b64u, deviceId, encodeLink, FrameReader, fromB64u, HandshakeState, NoiseError, PROLOGUE, sealMessage,
@@ -8,7 +7,7 @@ import {
 import { MobileApi, MobileError, type ChannelContext } from "./api";
 import { RelayLink, type LinkState } from "./link";
 import type { RpcPort } from "./rpc-port";
-import { RemoteStore, type PairedPhone } from "./store";
+import type { MacIdentity, PairedPhone, PhoneStore } from "./store";
 
 /**
  * Plan 28's gateway: the Mac's end of every phone's encrypted channel.
@@ -23,7 +22,10 @@ import { RemoteStore, type PairedPhone } from "./store";
 export type PushPayload = { kind: "permission" | "question" | "finished" | "failed" | "blocked" | "test"; title: string; body: string; session: string | null };
 export type PushResult = { ok: boolean; status: number; reason: string | null };
 
-type Window = { id: string; secret: Buffer; expiresAt: number };
+type Window = { id: string; secret: Buffer; expiresAt: number; url: string; timer: NodeJS.Timeout; expired: boolean };
+
+/** The open pairing window, as Settings shows it: the link its QR code carries, and until when. */
+export type PairingWindow = { windowId: string; url: string; expiresAt: number };
 
 type Channel = {
   ch: string;
@@ -45,21 +47,33 @@ const PAIR_TTL_MS = 5 * 60_000;
 const PUSH_TIMEOUT_MS = 15_000;
 
 export type GatewayOptions = {
-  home: string;
+  /** This Mac's keys, which every paired phone has pinned. */
+  identity: MacIdentity;
+  /** Where paired phones are kept: `remote_devices` in realm-server, a scratch file in the live scripts. */
+  phones: PhoneStore;
   relay: string;
+  /** The server's broadcasts, and the calls a phone makes when there is no port of its own to make them on. */
   rpc: RpcPort;
+  /** A phone's calls, made as that phone (`inProcessRpc(rpc, "phone:<id>")`). The live scripts dial a
+   *  built server over loopback, which has no principal to give, and leave it out. */
+  rpcFor?: (phoneId: string) => RpcPort;
   macName: string;
   version: string;
-  /** Asks the owner whether to pair a phone. Phase 1 answers from the sidecar; Phase 2 is a sheet in Settings. */
-  confirm: (phone: { name: string; model: string }) => Promise<boolean>;
+  /** Asks the owner whether to pair a phone that proved it holds the window's secret: a sheet in
+   *  Settings (`remote.pairRequest`), or the sidecar's prompt. Raced against the window's expiry. */
+  confirm: (phone: { name: string; model: string; windowId: string }) => Promise<boolean>;
+  /** Where `debug.report` writes, in development builds. */
+  reportsDir: string;
   dev?: boolean;
   log?: (line: string) => void;
   /** Tests: the pairing link's scheme. */
   linkBase?: string;
+  /** A phone was added, removed or seen, or the pairing window opened or closed. */
+  onChange?: () => void;
 };
 
 export class RemoteGateway {
-  private readonly store: RemoteStore;
+  private readonly store: PhoneStore;
   private readonly keys: DeviceKeys;
   readonly macId: string;
   private readonly link: RelayLink;
@@ -74,11 +88,10 @@ export class RemoteGateway {
 
   constructor(private readonly o: GatewayOptions) {
     this.log = o.log ?? (() => {});
-    this.store = new RemoteStore(o.home);
-    const id = this.store.identity();
-    this.keys = id.keys;
-    this.macId = id.macId;
-    this.api = new MobileApi({ rpc: o.rpc, macName: () => o.macName, reportsDir: join(this.store.dir, "reports"), dev: o.dev === true });
+    this.store = o.phones;
+    this.keys = o.identity.keys;
+    this.macId = o.identity.macId;
+    this.api = new MobileApi({ macName: () => o.macName, reportsDir: o.reportsDir, dev: o.dev === true });
     this.link = new RelayLink({
       relay: o.relay, macId: this.macId, keys: this.keys, log: this.log,
       on: {
@@ -94,6 +107,20 @@ export class RemoteGateway {
 
   get state(): LinkState { return this.link.state; }
 
+  get relay(): string { return this.o.relay; }
+
+  get pairing(): PairingWindow | null {
+    const w = this.window;
+    return w ? { windowId: w.id, url: w.url, expiresAt: w.expiresAt } : null;
+  }
+
+  /** A phone that proved the window's secret is still waiting on, or still being told, the answer.
+   *  The link must stay up until it has heard — even after the window itself has closed. */
+  get pairingBusy(): boolean {
+    for (const c of this.channels.values()) if (c.mode === "pair" && c.send) return true;
+    return false;
+  }
+
   onState(l: (s: LinkState) => void): () => void { this.stateListeners.add(l); return () => { this.stateListeners.delete(l); }; }
 
   start(): void {
@@ -104,33 +131,51 @@ export class RemoteGateway {
   stop(): void {
     this.offEvents?.();
     this.offEvents = null;
-    for (const c of this.channels.values()) if (c.flush) clearTimeout(c.flush);
-    this.channels.clear();
+    for (const c of [...this.channels.keys()]) this.dropChannel(c);
     if (this.homeTimer) clearTimeout(this.homeTimer);
+    this.homeTimer = null;
+    if (this.window) clearTimeout(this.window.timer);
+    this.window = null;
     this.link.stop();
   }
 
   devices(): PairedPhone[] { return this.store.list(); }
 
-  /** Opens a pairing window at the relay and returns the link to show as a QR code. */
-  openPairing(ttlMs = PAIR_TTL_MS): { url: string; expiresAt: number; windowId: string } {
-    const w: Window = { id: b64u(randomBytes(16)), secret: randomBytes(32), expiresAt: Date.now() + ttlMs };
-    this.window = w;
-    this.link.control({ t: "pair", window: w.id, until: w.expiresAt });
-    const url = encodeLink({ relay: this.o.relay, macId: this.macId, macKey: this.keys.dh.pub, secret: w.secret, windowId: w.id, macName: this.o.macName, expiresAt: w.expiresAt }, this.o.linkBase);
-    return { url, expiresAt: w.expiresAt, windowId: w.id };
+  /** Opens a pairing window at the relay and returns the link to show as a QR code. A window already
+   *  open is replaced: only the newest code pairs. The window closes itself when it expires. */
+  openPairing(ttlMs = PAIR_TTL_MS): PairingWindow {
+    if (this.window) clearTimeout(this.window.timer);
+    const id = b64u(randomBytes(16));
+    const secret = randomBytes(32);
+    const expiresAt = Date.now() + ttlMs;
+    const url = encodeLink({ relay: this.o.relay, macId: this.macId, macKey: this.keys.dh.pub, secret, windowId: id, macName: this.o.macName, expiresAt }, this.o.linkBase);
+    const timer = setTimeout(() => {
+      if (this.window?.id !== id) return;
+      // Marked before it closes, so a phone still waiting on the owner hears "expired", not "declined".
+      this.window.expired = true;
+      this.closePairing();
+    }, ttlMs);
+    timer.unref?.();
+    this.window = { id, secret, expiresAt, url, timer, expired: false };
+    this.link.control({ t: "pair", window: id, until: expiresAt });
+    this.o.onChange?.();
+    return { windowId: id, url, expiresAt };
   }
 
   closePairing(): void {
+    if (!this.window) return;
+    clearTimeout(this.window.timer);
     this.window = null;
     this.link.control({ t: "pair", window: null });
+    this.o.onChange?.();
   }
 
   /** Remove: the relay forgets the phone's key (closing it with 4410) and its channels drop here at once. */
   revoke(phoneId: string): boolean {
     const removed = this.store.remove(phoneId);
-    for (const c of this.channels.values()) if (c.phoneId === phoneId) { this.link.control({ t: "close", ch: c.ch }); this.dropChannel(c.ch); }
+    for (const c of [...this.channels.values()]) if (c.phoneId === phoneId) { this.link.control({ t: "close", ch: c.ch }); this.dropChannel(c.ch); }
     this.syncPhones();
+    this.o.onChange?.();
     return removed;
   }
 
@@ -173,9 +218,11 @@ export class RemoteGateway {
     this.dropChannel(ch);
     const pair = "pair" in who;
     if (!pair && !this.store.get(who.phone)) { this.link.control({ t: "close", ch }); return; }
+    // A pairing channel never reaches the API (`onMessage` refuses it first), so it gets the plain port.
+    const rpc = pair ? this.o.rpc : this.o.rpcFor?.(who.phone) ?? this.o.rpc;
     this.channels.set(ch, {
       ch, mode: pair ? "pair" : "phone", phoneId: pair ? null : who.phone, windowId: pair ? who.pair : null,
-      handshake: null, send: null, reader: null, ctx: { phoneId: pair ? "" : who.phone, sessions: new Map() }, dirty: new Map(), flush: null,
+      handshake: null, send: null, reader: null, ctx: { phoneId: pair ? "" : who.phone, rpc, sessions: new Map() }, dirty: new Map(), flush: null,
     });
   }
 
@@ -184,6 +231,14 @@ export class RemoteGateway {
     if (!c) return;
     if (c.flush) clearTimeout(c.flush);
     this.channels.delete(ch);
+    // Last seen is when a phone was last connected, so a channel that got as far as speaking to us
+    // marks it on the way out as well as on the way in.
+    if (c.mode === "phone" && c.send && c.phoneId && this.store.get(c.phoneId)) {
+      this.store.touch(c.phoneId, Date.now());
+      this.o.onChange?.();
+    }
+    // A pairing phone that has had its answer no longer needs the link (`pairingBusy`).
+    if (c.mode === "pair" && c.send) this.o.onChange?.();
   }
 
   private reject(c: Channel, why: string): void {
@@ -217,6 +272,7 @@ export class RemoteGateway {
       this.link.send(c.ch, hs.writeMessage(Buffer.from(JSON.stringify({ v: 1, mac: this.o.macName, server: this.o.version }), "utf8")));
       this.begin(c, hs);
       this.store.touch(phone.phoneId, Date.now());
+      this.o.onChange?.();
       return;
     }
     const w = this.window;
@@ -230,9 +286,13 @@ export class RemoteGateway {
     const name = typeof hello.name === "string" ? hello.name.slice(0, 80) : "iPhone";
     const model = typeof hello.model === "string" ? hello.model.slice(0, 40) : "";
     const left = w.expiresAt - Date.now();
-    const answer = await Promise.race([this.o.confirm({ name, model }), new Promise<"expired">((r) => setTimeout(() => r("expired"), Math.max(0, left)))]);
+    let expiry: NodeJS.Timeout | undefined;
+    const answer = await Promise.race([
+      this.o.confirm({ name, model, windowId: w.id }),
+      new Promise<"expired">((r) => { expiry = setTimeout(() => r("expired"), Math.max(0, left)); }),
+    ]).finally(() => clearTimeout(expiry));
     if (answer !== true) {
-      this.sendEvent(c, "pair.result", { ok: false, reason: answer === "expired" ? "expired" : "declined" });
+      this.sendEvent(c, "pair.result", { ok: false, reason: answer === "expired" || w.expired ? "expired" : "declined" });
       setTimeout(() => this.reject(c, "pairing not confirmed"), 200);
       return;
     }

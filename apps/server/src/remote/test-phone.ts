@@ -176,6 +176,14 @@ export class TestPhone {
     });
   }
 
+  /** Registers an APNs device token with the relay (PROTOCOL.md §3.2), as the app does once connected. */
+  apns(token: string, env: "sandbox" | "production" = "sandbox"): void {
+    const ws = this.socket?.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error("not connected");
+    ws.send(JSON.stringify({ t: "apns", token, env }));
+  }
+
+  /** Listens for one event, or for every message the Mac sends with `"*"` (handed `{event, payload}`). */
   on(event: string, fn: (payload: unknown, at: number) => void): () => void {
     const set = this.listeners.get(event) ?? new Set();
     set.add(fn);
@@ -224,5 +232,6 @@ export class TestPhone {
 
   private emit(event: string, payload: unknown, at: number): void {
     for (const fn of this.listeners.get(event) ?? []) fn(payload, at);
+    for (const fn of this.listeners.get("*") ?? []) fn({ event, payload }, at);
   }
 }

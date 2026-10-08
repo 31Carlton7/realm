@@ -99,6 +99,8 @@ import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
 import { NotificationsService } from "./notifications/service";
 import { NotificationRelay, realTransport } from "./notifications/relay";
+import { RemoteService } from "./remote/service";
+import { RemoteDevicesStore } from "./store/remote-devices";
 import { RunsStore } from "./store/runs";
 import { RunService } from "./runs/service";
 import { ScheduleService } from "./schedules/service";
@@ -138,7 +140,7 @@ import { userFirstName } from "./user-name";
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; rpc: RpcServer; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
@@ -640,6 +642,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** The Mac's memory pressure and free disk as a training run reads them (`machineState`); left
    *  out, the real ones. A test hands in a Mac short of memory. */
   layaMachine?: () => Promise<import("./laya/training").MachineState>;
+  /** Realm Mobile (Plan 28). `defaultRelay` is the relay dialled when the `remote.relay` setting names
+   *  none; only `main.ts` passes the real one, so no app a test builds reaches a relay it did not name.
+   *  The rest are test knobs: development builds' `debug.report`, the pairing link's scheme, and the
+   *  pairing window's life. */
+  remote?: { defaultRelay?: string; dev?: boolean; linkBase?: string; pairTtlMs?: number };
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -1253,6 +1260,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   } });
   // Two shell-outs for two labels: asked for together so boot waits once, not twice.
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
+  // Realm Mobile (Plan 28): the paired phones and the link to the relay. Nothing dials until a phone is
+  // paired or a pairing window opens.
+  const remote = new RemoteService({ rpc, settings, phones: new RemoteDevicesStore(db), macName: machine, version: SERVER_VERSION,
+    reportsDir: join(opts.home, "remote", "reports"), defaultRelay: opts.remote?.defaultRelay, dev: opts.remote?.dev,
+    linkBase: opts.remote?.linkBase, pairTtlMs: opts.remote?.pairTtlMs, log: (line) => console.error(line) });
   // One searcher for ⌘P and the `@` list's Files, so the two read a checkout the same way.
   const projectSearch = new ProjectSearchService();
   registerMethods({
@@ -1260,7 +1272,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
-    libraryFiles,
+    libraryFiles, remote,
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
     codeReview,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
@@ -1316,6 +1328,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
        Origin at all. */
     allowedOrigins: ["file://", ...(devRendererOrigin() ? [devRendererOrigin()!] : [])],
   });
+  // After the socket is up, so the first `remote.changed` has somebody to reach.
+  remote.start();
   /**
    * Shut this app down.
    *
@@ -1350,12 +1364,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     await appViewServer.close();
     await mcpGateway.close();
     await mcpHub.close();
+    // Before the socket closes and the database with it: the relay is told goodbye rather than left to
+    // notice a silence.
+    remote.close();
     await rpc.close();
     db.close();
   };
 
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, codeReview, gateway: mcpGateway,
+    port, db, rpc, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, codeReview, gateway: mcpGateway,
     close: closeApp,
   };
 }

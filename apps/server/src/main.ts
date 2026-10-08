@@ -13,7 +13,7 @@ import { PhysicalDevices } from "./simulators/physical";
 import { phoneVideo } from "./simulators/phone-video";
 import { simctl } from "./simulators/simctl";
 import { realLayaRuntime } from "./laya/runtime";
-import { DAEMON_PROTOCOL } from "@realm/contracts";
+import { DAEMON_PROTOCOL, DEFAULT_REMOTE_RELAY } from "@realm/contracts";
 import { realmHome } from "./paths";
 import { BOOT_ID, acquireLock, clearState, currentBundleId, newToken, readState, releaseLock, writeState } from "./daemon/state";
 
@@ -76,6 +76,10 @@ try {
       ...(phoneScreen ? { video: (name: string) => phoneVideo({ bin: phoneScreen, name }) } : {}),
       rehearsal: (process.env.REALM_RUNNER_SIMULATOR ?? "").split(",").map((u) => u.trim()).filter(Boolean),
     }),
+    // Realm Mobile's relay. Only here, for the probe's reason: no other `createApp` may dial one it did
+    // not name. A development build (`pnpm dev`, whose window is the Vite server) also takes the phone's
+    // `debug.report`, which is how a test build brings its own timings back; a packaged one never does.
+    remote: { defaultRelay: DEFAULT_REMOTE_RELAY, dev: Boolean(process.env.ELECTRON_RENDERER_URL) },
   });
 
   // The state file is written only now, because `createApp` is what binds the port — a file

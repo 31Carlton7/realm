@@ -1490,3 +1490,96 @@ describe("migration v41 — saved turns", () => {
     again.close();
   });
 });
+
+/**
+ * The v41 shape beside which v42 lands, hand-written for every fixture's reason. v42 makes a table of
+ * its own with no key into anything older, so what it has to leave alone is the home around it: v41's
+ * own `saved_turns`, on the `sessions` and `session_events` it hangs off, with a turn saved — and
+ * `settings`, as v1 made it, holding the row Realm Mobile's sealed identity sits beside.
+ *
+ * Stamped one short of the migration that makes `remote_devices`, found by what it says, as the
+ * fixtures above find theirs: a migration another branch lands first still leaves this one short.
+ */
+const V41_SCHEMA = `
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
+CREATE INDEX session_events_session ON session_events(session_id, seq);
+CREATE TABLE saved_turns (
+  event_seq INTEGER PRIMARY KEY REFERENCES session_events(seq) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  saved_at INTEGER NOT NULL);
+CREATE INDEX saved_turns_session ON saved_turns(session_id, event_seq);
+CREATE INDEX saved_turns_recent ON saved_turns(saved_at DESC, event_seq DESC);
+`;
+const REMOTE_DEVICES_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS remote_devices"));
+
+function v41Fixture(path: string): void {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V41_SCHEMA);
+  for (let v = 1; v <= REMOTE_DEVICES_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  db.prepare("INSERT INTO settings (key, value_json) VALUES ('power.preventSleep', 'true'), ('notifications.relay.iphone', 'false')").run();
+  db.prepare("INSERT INTO sessions (id, title) VALUES ('sess1', 'Org access')").run();
+  db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES ('sess1', 10, 'user_message', '{\"text\":\"Fix the crash\",\"attachments\":[]}')").run(); // seq 1
+  db.prepare("INSERT INTO saved_turns (event_seq, session_id, saved_at) VALUES (1, 'sess1', 5)").run();
+  db.close();
+}
+
+describe("migration v42 — the phones paired with this Mac (Plan 28)", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v41Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+  const pair = (db: DatabaseSync, phoneId: string, name = "Carlton's iPhone") => db.prepare(`INSERT INTO remote_devices
+    (phone_id, name, model, dh_pub, sign_pub, added_at, last_seen) VALUES (?, ?, 'iPhone18,1', 'ZGg', 'c2lnbg', 7, NULL)`).run(phoneId, name);
+
+  it("is appended after v41, not folded into it: a v41 home reaches the end of the chain and gains the table", () => {
+    const { db } = migrated();
+    expect(REMOTE_DEVICES_AT).toBeGreaterThanOrEqual(41);
+    expect(REMOTE_DEVICES_AT).toBeGreaterThan(SAVED_TURNS_AT);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    const cols = (db.prepare("PRAGMA table_info(remote_devices)").all() as { name: string; notnull: number; pk: number }[])
+      .map((c) => `${c.name}${c.pk ? " pk" : ""}${c.notnull ? " not null" : ""}`);
+    expect(cols).toEqual(["phone_id pk", "name not null", "model not null", "dh_pub not null", "sign_pub not null", "added_at not null", "last_seen"]);
+    db.close();
+  });
+
+  it("pairs nothing on the way in, and leaves the settings and v41's saved turns exactly as they were", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM remote_devices").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT key, value_json FROM settings ORDER BY key").all()).toEqual([
+      { key: "notifications.relay.iphone", value_json: "false" }, { key: "power.preventSleep", value_json: "true" }]);
+    expect(db.prepare("SELECT event_seq, session_id, saved_at FROM saved_turns").all()).toEqual([{ event_seq: 1, session_id: "sess1", saved_at: 5 }]);
+    db.close();
+  });
+
+  it("holds one row per phone, and refuses a phone with no keys", () => {
+    /* The mutant: no primary key. Pairing the same phone twice would leave two rows, and Remove would
+       take one of them — leaving the other still sent to the relay as allowed. */
+    const { db } = migrated();
+    pair(db, "phoneA");
+    expect(() => pair(db, "phoneA", "Again")).toThrow(/UNIQUE|PRIMARY KEY/);
+    expect(() => db.prepare("INSERT INTO remote_devices (phone_id, name, model, dh_pub, sign_pub, added_at) VALUES ('phoneB', 'x', 'y', NULL, 'k', 1)").run()).toThrow(/NOT NULL/);
+    expect(db.prepare("SELECT phone_id, name, last_seen FROM remote_devices").all()).toEqual([{ phone_id: "phoneA", name: "Carlton's iPhone", last_seen: null }]);
+    db.close();
+  });
+
+  it("is idempotent: reopening twice more neither re-runs the CREATE nor forgets a phone paired since", () => {
+    const { p, db } = migrated();
+    pair(db, "phoneA");
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(again.prepare("SELECT phone_id FROM remote_devices").all()).toEqual([{ phone_id: "phoneA" }]);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    // The statement itself is safe to meet twice as well — `IF NOT EXISTS`, not a version check alone.
+    expect(() => again.exec(migrations[REMOTE_DEVICES_AT]!)).not.toThrow();
+    expect(again.prepare("SELECT phone_id FROM remote_devices").all()).toEqual([{ phone_id: "phoneA" }]);
+    again.close();
+  });
+});

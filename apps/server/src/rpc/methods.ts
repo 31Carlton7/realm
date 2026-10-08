@@ -79,6 +79,8 @@ import type { PortAllocator } from "../workspace/ports";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import type { LayaService } from "../laya/service";
 import type { AppViewService } from "../apps/service";
+import type { RemoteService } from "../remote/service";
+import { remoteSecretBox } from "../remote/secret";
 import { NotFoundError, RpcError } from "../store/rows";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
@@ -107,6 +109,8 @@ export type Deps = {
   savedTurns: SavedTurnsStore;
   /** The files a person added to the Library themselves, copied in under the profile. */
   libraryFiles: LibraryFilesStore;
+  /** Realm Mobile (Plan 28): Settings ▸ Devices. */
+  remote: RemoteService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -867,6 +871,12 @@ export function registerMethods(d: Deps): void {
     void d.browserBridge.call("eggsKey", {})
       .then((r) => { eggSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); })
       .catch(() => {});
+    /* …and the `remote` key (Plan 28), which opens this Mac's Realm Mobile identity. Machine's failure
+       mode, not oauth's: no key, no identity written in the clear, and the service reports itself
+       locked until one arrives. Once it does, a Mac with a phone paired dials the relay. */
+    void d.browserBridge.call("remoteKey", {})
+      .then((r) => { remoteSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); d.remote.keyChanged(); })
+      .catch(() => { /* no key: Realm Mobile stays locked, and Settings says so */ });
     return { ok: true as const };
   });
   reg("browserHost.result", (p) => { d.browserBridge.handleResult(p); return { ok: true as const }; });
@@ -899,6 +909,18 @@ export function registerMethods(d: Deps): void {
 
   reg("notifications.list", (p) => d.notifications.list(p));
   reg("notifications.markRead", (p) => d.notifications.markRead(p));
+
+  /* Realm Mobile (Plan 28): Settings ▸ Devices. The mobile API has no path to any of these, and each
+     refuses a phone's principal all the same: a phone must never open a pairing window, answer one,
+     or remove a phone. */
+  const fromTheMac = (ctx: CallContext): void => {
+    if (ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only this Mac can do that");
+  };
+  reg("remote.status", (_p, ctx) => { fromTheMac(ctx); return d.remote.status(); });
+  reg("remote.pair.start", (_p, ctx) => { fromTheMac(ctx); return d.remote.pairStart(); });
+  reg("remote.pair.cancel", (_p, ctx) => { fromTheMac(ctx); d.remote.pairCancel(); return { ok: true as const }; });
+  reg("remote.pair.answer", (p, ctx) => { fromTheMac(ctx); d.remote.pairAnswer(p.requestId, p.accept); return { ok: true as const }; });
+  reg("remote.phones.remove", (p, ctx) => { fromTheMac(ctx); d.remote.removePhone(p.phoneId); return { ok: true as const }; });
 
   // The reviewer recipe (Plan 13 W3). `request` returns the moment the reviewer session exists; the
   // verdict arrives later as `review.changed` + a `review_done` notification. Reads and dismissal go

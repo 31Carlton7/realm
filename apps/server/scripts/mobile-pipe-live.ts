@@ -17,8 +17,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { MobileEvents } from "@realm/remote";
 import { finish, ok } from "./harness";
-import { bootServer, ms, quantile, removeHome, repoRoot, startTap, wranglerDev, type Relay } from "./lib/mobile-rig";
-import { RemoteGateway } from "../src/remote/gateway";
+import { bootServer, ms, quantile, removeHome, repoRoot, scratchGateway, startTap, wranglerDev, type Relay } from "./lib/mobile-rig";
 import { loopbackRpc } from "../src/remote/rpc-port";
 import { TestPhone } from "../src/remote/test-phone";
 
@@ -41,7 +40,7 @@ try {
   results.relay = arg("relay") ?? "wrangler dev (local workerd)";
   const tap = await startTap(relay.url, MARKER);
   const rpc = await loopbackRpc({ port: server.port, token: server.token });
-  const gw = new RemoteGateway({ home: server.home, relay: tap.url, rpc, macName: "Live Mac", version: "phase-1", confirm: async () => true, dev: true });
+  const gw = scratchGateway({ home: server.home, relay: tap.url, rpc, macName: "Live Mac", version: "phase-1", confirm: async () => true, dev: true });
   gw.start();
   await until(() => gw.state === "connected", 20_000);
   ok("the gateway connects to the relay and authenticates", gw.state === "connected");
