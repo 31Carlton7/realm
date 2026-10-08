@@ -10030,6 +10030,12 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-meter[data-high] > i { background: var(--rl-warning); }
 .tp-meter-wide { max-width: 160px; flex: none; width: 160px; }
 .tp-state { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The role's name is the card's unbounded data and keeps the width; the state beside it is the part
+   that yields first, to an ellipsis — "Creator Man…" beside a whole "Next run today 9:00 AM" had the
+   order backwards (design.md §Composition, yielding order). */
+.tp-card-head .tp-state { flex: 0 1000 auto; min-width: 0; }
+.tp-card-head .tp-state .t-dot { flex: none; }
+.tp-state-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 .tp-wait { display: flex; flex-direction: column; gap: 6px; }
 .tp-wait-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px;

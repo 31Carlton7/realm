@@ -211,7 +211,7 @@ function RoleCard({ role, onOpen }: { role: TeamRole; onOpen: () => void }) {
       <span className="tp-card-head">
         <span className="tp-mark"><Realmite spec={parseRealmiteSpec(role.realmite, role.id)} size={32} state={realmiteState(role)} /></span>
         <span className="tp-card-name">{role.name}</span>
-        <span className="tp-state"><span className="t-dot" data-s={dot} />{roleStateLine(role)}</span>
+        <span className="tp-state"><span className="t-dot" data-s={dot} /><span className="tp-state-text">{roleStateLine(role)}</span></span>
       </span>
       <span className="tp-card-line">{blurb}</span>
       <span className="tp-card-foot">

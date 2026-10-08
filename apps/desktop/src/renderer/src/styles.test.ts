@@ -227,6 +227,14 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".tooltip[data-instant]").join(" ")).toContain("transition: none");
   });
 
+  it("lets a role card's state yield to the role's name, not the other way round", () => {
+    // Mutant: the state at its full width — the name ellipsizes beside a sentence that had room to give.
+    const state = bodiesFor(".tp-card-head .tp-state").join(" ");
+    expect(state).toMatch(/flex:\s*0 1000 auto/);
+    expect(state).toMatch(/min-width:\s*0/);
+    expect(bodiesFor(".tp-state-text").join(" ")).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
   it("draws a to-do's state in marks that hold on both faces, not in softened edges", () => {
     // A done step's strike is in its own ink, and a pending step's ring is a mark. Mutants: the strike
     // back at a mark's alpha (invisible on light), the ring back on the softened edge token.
