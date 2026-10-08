@@ -79,15 +79,15 @@ public struct Outbox: Sendable, Equatable {
         self.items = items
     }
 
-    /// Restores what was saved: anything that was on its way may have arrived, so it is looked for
-    /// before it goes again; anything delivered is the Mac's now.
+    /// Restores what was saved. The app may have gone mid-send, after the last save, so anything not
+    /// refused is looked for before it goes again; anything delivered is the Mac's now.
     public static func restored(_ saved: [OutgoingItem]) -> Outbox {
         Outbox(items: saved.compactMap { item in
             var item = item
             switch item.state {
-            case .sending: item.state = .unconfirmed
+            case .waiting, .sending, .unconfirmed: item.state = .unconfirmed
             case .delivered: return nil
-            case .waiting, .unconfirmed, .failed: break
+            case .failed: break
             }
             return item
         })

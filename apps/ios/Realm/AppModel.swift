@@ -64,6 +64,9 @@ final class AppModel {
     @ObservationIgnored private var autoDiagnosticsStarted = false
     @ObservationIgnored private var pendingSession: String?
     @ObservationIgnored private var cache: RealmCache?
+    /// Every write to the cache, in the order it was made: a later outbox must never be overwritten by
+    /// an earlier one still on its way to disk.
+    @ObservationIgnored private let disk = DispatchQueue(label: "co.charmtechnologies.realm.ios.cache", qos: .utility)
     /// Sessions on screen: their rows are live and kept.
     @ObservationIgnored private var visibleSessions: Set<String> = []
     @ObservationIgnored private var saveTasks: [String: Task<Void, Never>] = [:]
@@ -172,7 +175,7 @@ final class AppModel {
             if let previous, previous.macId != mac.macId {
                 // One Mac at a time: the one this replaces is forgotten here, as Forget would.
                 try? vault.removeMac(id: previous.macId)
-                try? cache?.removeAll()
+                if let cache { disk.async { try? cache.removeAll() } }
             }
             store.forgetEverything()
             adopt(mac)
@@ -201,7 +204,7 @@ final class AppModel {
         guard let mac = store.pairedMac else { return }
         disconnect()
         try? vault.removeMac(id: mac.macId)
-        try? cache?.removeAll()
+        if let cache { disk.async { try? cache.removeAll() } }
         cache = nil
         store.forgetEverything()
         store.pairedMac = nil
@@ -347,7 +350,7 @@ final class AppModel {
         do {
             let home = try await api.home()
             store.showHome(home)
-            if let cache { Task.detached { try? cache.saveHome(home) } }
+            if let cache { disk.async { try? cache.saveHome(home) } }
             // The badge says what Needs you says: the same moments the Mac's pushes are for.
             try? await UNUserNotificationCenter.current().setBadgeCount(home.needsYou.count)
         } catch {
@@ -502,14 +505,14 @@ final class AppModel {
     private func saveOutbox() {
         guard let cache else { return }
         let items = store.outbox.items
-        Task.detached { try? cache.saveOutbox(items) }
+        disk.async { try? cache.saveOutbox(items) }
     }
 
     private func saveTranscript(_ sessionId: String) {
         guard let cache, let transcript = store.transcripts[sessionId] else { return }
         let snapshot = TranscriptSnapshot(transcript)
         let savedAt = transcript.savedAt ?? Date()
-        Task.detached { try? cache.saveTranscript(snapshot, id: sessionId, at: savedAt) }
+        disk.async { try? cache.saveTranscript(snapshot, id: sessionId, at: savedAt) }
     }
 
     /// Streaming rows arrive ten times a second; the cache is written once they pause.

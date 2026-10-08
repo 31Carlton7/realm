@@ -106,8 +106,8 @@ struct CacheTests {
         let saved = cache.loadOutbox()
         #expect(saved == items)
         let restored = Outbox.restored(saved)
-        // On its way when the app went: it may have arrived, so it is looked for before going again.
-        #expect(restored.items.map(\.state) == [.unconfirmed, .waiting, .failed("Session ended")])
+        // The app may have gone mid-send after its last save: everything is looked for before it goes again.
+        #expect(restored.items.map(\.state) == [.unconfirmed, .unconfirmed, .failed("Session ended")])
         try cache.saveOutbox([])
         #expect(cache.loadOutbox().isEmpty)
     }
