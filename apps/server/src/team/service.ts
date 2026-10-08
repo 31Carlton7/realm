@@ -74,6 +74,8 @@ export class TeamService {
     /** The space's folder — where a review's files must live. */
     rootForSpace: (spaceId: string) => string | null;
     spaceExists: (spaceId: string) => boolean;
+    /** The skills a space has on — a starter role takes its template's skills only where they exist. */
+    enabledSkills?: (spaceId: string) => string[];
     settings: SettingsLike;
     rpc: Pick<RpcServer, "broadcast">;
     /** The agent a role runs on when none is named: claude in production, the fake in tests. */
@@ -150,12 +152,19 @@ export class TeamService {
       if (!t) throw new RpcError("TEAM_TEMPLATE", `no starter role "${id}" — there are ${ROLE_TEMPLATES.map((x) => x.id).join(", ")}`);
       if (this.d.store.roleByName(spaceId, t.name)) continue;
       this.createRole({
-        spaceId, name: t.name, brief: t.brief, realmite: { seed: t.realmiteSeed }, template: t.id, model: t.model, cron: t.cron, skills: t.skills,
+        spaceId, name: t.name, brief: t.brief, realmite: { seed: t.realmiteSeed }, template: t.id, model: t.model, cron: t.cron, skills: this.present(spaceId, t.skills), weekBudgetUsd: t.weekBudgetUsd,
       }, { quiet: true });
     }
     if (fresh) this.log(spaceId, "user", "made_team", null, { roles: templates });
     this.changed(spaceId);
     return this.space(spaceId);
+  }
+
+  /** A template's skills as this space names them (a library skill may carry a prefix), leaving out
+   *  any it does not have: a run whose skills cannot resolve would refuse to start at all. */
+  private present(spaceId: string, wanted: string[]): string[] {
+    const have = this.d.enabledSkills?.(spaceId) ?? [];
+    return wanted.flatMap((w) => have.filter((h) => h === w || h.endsWith(`-${w}`) || h.endsWith(`:${w}`)).slice(0, 1));
   }
 
   /* ═══════════════════════════════ roles ═══════════════════════════════ */

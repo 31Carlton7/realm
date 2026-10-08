@@ -1364,6 +1364,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     store: new TeamStore(db), runs, schedules, sessions, repos: memoryRepos,
     rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
     spaceExists: (id) => Boolean(spaces.get(id)),
+    enabledSkills: (id) => skills.list(id).skills.filter((s) => s.enabled && s.valid).map((s) => s.id),
     settings, rpc,
     defaultKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind,
   });

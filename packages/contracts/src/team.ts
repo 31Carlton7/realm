@@ -151,6 +151,8 @@ export type RoleTemplate = {
   model: string;
   cron: string | null;
   skills: string[];
+  /** Its share of the team's $60 week (decision 5), so its meter has something to fill. */
+  weekBudgetUsd: number;
   /** The seed its Realmite is rolled from, so both starters look the same the first time everywhere. */
   realmiteSeed: string;
 };
@@ -170,6 +172,7 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
     model: "sonnet",
     cron: "0 9 * * 1-5",
     skills: [],
+    weekBudgetUsd: 20,
     realmiteSeed: "creator-manager",
   },
   {
@@ -184,6 +187,7 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
     model: "sonnet",
     cron: "0 9 * * 1,4",
     skills: ["aurafarm"],
+    weekBudgetUsd: 25,
     realmiteSeed: "content-producer",
   },
 ];
