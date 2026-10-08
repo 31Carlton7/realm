@@ -100,11 +100,11 @@ export function directoriesNamedIn(text: string): string[] {
     // A shell command quotes paths for osascript as `\"$D/01.png\"`; the backslash is not the path's.
     const token = trimEdge(m[0].replace(/\\+$/, ""));
     if (token.endsWith("/")) { if (token.length > 1) out.add(token.replace(/\/+$/, "")); continue; }
+    // A path without an extension is taken as the folder itself (`cd ~/decks`), not as a file in its
+    // parent: a picture always has an extension, and the sweep only walks what is really a directory.
+    if (!/\.[A-Za-z0-9]{1,5}$/.test(token)) { out.add(token); continue; }
     const cut = token.lastIndexOf("/");
     if (cut > 0) out.add(token.slice(0, cut));
-    // A bare path without an extension is as likely a folder as a file (`cd ~/decks`); naming it is
-    // cheap, and the sweep only walks what is really a directory.
-    if (!/\.[A-Za-z0-9]{1,5}$/.test(token)) out.add(token);
   }
   return [...out];
 }

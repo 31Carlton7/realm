@@ -2,6 +2,10 @@ import { realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { RpcError } from "../store/rows";
 
+/** Directories the file picker never descends into or lists — nor the turn-media sweep
+ *  (`sessions/turn-media.ts`), for the same reason: what is in them is fetched or built, not made. */
+export const HIDDEN_DIRS: ReadonlySet<string> = new Set([".git", "node_modules", ".DS_Store", "dist", "out", ".next", ".turbo"]);
+
 /**
  * Resolve a client-supplied RELATIVE path against a workspace root, refusing anything that lands
  * outside it.

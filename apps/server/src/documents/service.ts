@@ -14,11 +14,8 @@ import type { ItemsStore } from "../store/items";
 import type { SpacesStore } from "../store/spaces";
 import { NotFoundError, RpcError } from "../store/rows";
 import { hashText, readDocument, readIfExists, renameDocument, writeAtomic, writeDocument, type WriteOutcome } from "./files";
-import { relInRoot, resolveInRoot } from "./paths";
+import { HIDDEN_DIRS, relInRoot, resolveInRoot } from "./paths";
 import { DocumentWatcher } from "./watcher";
-
-/** Directories the file picker never descends into or lists. */
-const HIDDEN_DIRS = new Set([".git", "node_modules", ".DS_Store", "dist", "out", ".next", ".turbo"]);
 
 /**
  * Owns the document workspace: DB row + sidebar item + the filesystem underneath (Plan 17 W1).

@@ -141,8 +141,9 @@ describe("directoriesNamedIn", () => {
 
   it("names the folder a cd went into, and the folder of a file it ran", () => {
     const dirs = directoriesNamedIn("cd ~/Realm/work/versed/content/decks && node compose.mjs forgot-it-by-lunch v1");
-    expect(dirs).toContain("~/Realm/work/versed/content/decks");
-    // THE mutant: only file paths count, so a bare `cd` target is lost.
+    // THE mutants: only file paths count, so a bare `cd` target is lost; or its parent is named too,
+    // which widens every sweep by a level for nothing.
+    expect(dirs).toEqual(["~/Realm/work/versed/content/decks"]);
     expect(directoriesNamedIn("wrote them to ~/out/renders/ and ~/out/notes.md")).toEqual(["~/out/renders", "~/out"]);
   });
 
