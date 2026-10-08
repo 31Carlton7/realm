@@ -1366,7 +1366,7 @@ describe("prompter model picker", () => {
   it("lists the current agent's models first, then each agent with a list, then every other agent by name", async () => {
     await mountKindFresh("codex");
     openPicker();
-    expect(rowNames()).toEqual(["GPT-5.6", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5", "Haiku 4.5",
+    expect(rowNames()).toEqual(["GPT-5.6", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5.5", "Sonnet 5", "Haiku 4.5",
       // DeepSeek's ACP server is booted with one model and enumerates nothing, so its two are curated
       // and keep their group. Every agent with nothing but its own default is one row, by name.
       "DeepSeek V4 Pro", "DeepSeek V4 Flash",
@@ -1397,7 +1397,7 @@ describe("prompter model picker", () => {
     // see itself would show a list with nothing selected.
     await mountFresh({ agentKind: "fake" });
     openPicker();
-    expect(rowNames()).toEqual(["Fake", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5", "Haiku 4.5",
+    expect(rowNames()).toEqual(["Fake", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5.5", "Sonnet 5", "Haiku 4.5",
       "DeepSeek V4 Pro", "DeepSeek V4 Flash",
       "Codex", "Cursor", "Gemini", "OpenCode", "GitHub Copilot", "goose", "Qwen Code", "Grok", "fx", "OpenHands", "Hermes"]);
     expect(screen.getByRole("option", { name: "Fake" })).toHaveAttribute("aria-selected", "true");
@@ -1573,7 +1573,7 @@ describe("prompter model picker", () => {
       // aria-pressed is not decoration here: it is the hook the filled-star CSS keys on, so a
       // starred row that failed to set it would look unstarred with no test noticing.
       expect(starOn(/Claude Opus 5(?!\.)/)).toHaveAttribute("aria-pressed", "true");
-      expect(starOn(/Claude Sonnet 5/)).toHaveAttribute("aria-pressed", "false");
+      expect(starOn(/Claude Sonnet 5(?!\.)/)).toHaveAttribute("aria-pressed", "false");
       fireEvent.click(starOn(/Claude Opus 5(?!\.)/));
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([HAIKU]));
     });
@@ -1727,7 +1727,7 @@ describe("prompter model picker", () => {
       const search = screen.getByRole("combobox", { name: "Search models" });
       fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
       fireEvent.keyDown(search, { key: "ArrowRight" }); // Fable now lit through Cursor
-      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Sonnet 5/ }));
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Sonnet 5(?!\.)/ }));
       fireEvent.keyDown(search, { key: "Enter" });
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-sonnet-5"));
       expect(api.calls.filter((c) => c.startsWith("setSessionAgent"))).toHaveLength(0);

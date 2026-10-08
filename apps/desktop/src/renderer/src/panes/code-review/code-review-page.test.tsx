@@ -402,7 +402,7 @@ describe("Review with…", () => {
     const sheet = await openMenu();
     const picker = await openPicker(sheet);
     const pick = (name: RegExp) => { const row = within(picker).getByRole("option", { name }); fireEvent.pointerDown(row); fireEvent.click(row); };
-    pick(/^Claude Sonnet 5/);
+    pick(/^Claude Sonnet 5(?!\.)/);
     const track = await within(picker).findByRole("slider", { name: "Effort" });
     await waitFor(() => expect(track).toHaveAttribute("aria-valuemax", "2"));
     expect(track).toHaveAttribute("aria-valuetext", "High");
@@ -412,7 +412,7 @@ describe("Review with…", () => {
     expect(reviewerPick).toEqual({ agentKind: "claude", model: "claude-sonnet-5", effort: "max", fastMode: false });
     pick(/^Claude Opus 5\.5/);
     expect(await screen.findByRole("button", { name: "Review with Opus 5.5 Max" })).toBeInTheDocument();
-    pick(/^Claude Sonnet 5/);
+    pick(/^Claude Sonnet 5(?!\.)/);
     fireEvent.click(await screen.findByRole("button", { name: "Review with Sonnet 5" }));
     await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
     expect(called("codeReview.review")[0]!.params).toMatchObject({ model: "claude-sonnet-5", effort: null });
