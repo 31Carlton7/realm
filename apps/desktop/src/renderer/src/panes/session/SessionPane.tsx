@@ -701,7 +701,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             goal={<GoalStrip goal={goal}
               onPause={() => run(() => setGoalStatus(id, "paused", "You paused it."))}
               onResume={() => run(() => resumeGoal(id))}
-              onDrop={() => run(() => clearGoal(id))} />}
+              onDrop={() => run(() => clearGoal(id))}
+              onDone={() => run(() => setGoalStatus(id, "complete", "Marked done by you."))} />}
             sessionInit={transcript.init} fastSupport={fastSupport} effortSupport={effortSupport}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
             mentions={mentionSources} refs={draftRefs} selectInRealm={selectInRealm}

@@ -30,6 +30,7 @@ import { SimulatorService } from "./simulators/service";
 import { GoalService } from "./goals/service";
 import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
+import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
 import { join } from "node:path";
@@ -37,7 +38,7 @@ import { homedir } from "node:os";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
 import { ImageStore } from "./machines/images";
-import { GuestSpecSchema, type GuestSpec } from "@realm/contracts";
+import { GOAL_PROVIDER_NAME, GuestSpecSchema, goalToolWireName, type GuestSpec } from "@realm/contracts";
 import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
@@ -315,7 +316,7 @@ export function defaultAdapters(): AdapterRegistry {
   // updates is the behaviour worth looking at. A to-do list is here for the same reason, in two
   // triggers rather than one run: the strip above the prompter shuts itself once every item is done,
   // and both sides of that have to be reachable and holdable long enough to look at.
-  if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ delayMs: 15, script: [{
+  if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ delayMs: 15, script: [...harnessFakeScript(), {
     // Code Review's "Review with…" (code-review/reviewer.ts) on the live checks' fixture request
     // (scripts/fixtures/code-review): a summary and three findings in the reply shape the page reads —
     // two on lines the fixture's diff shows, one off it, so anchored and unanchored both appear.
@@ -1053,6 +1054,16 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     deliver: (sessionId, text, tag) =>
       sessions.send(sessionId, { text, attachments: [], ...(tag === "goal-start" ? {} : { goal: tag === "goal-budget" ? "budget" as const : "continuation" as const }) }),
     queued: (sessionId) => sessions.queuedFor(sessionId).length > 0,
+    dropQueued: (sessionId) => sessions.dropGoalTurns(sessionId),
+    // A goal started or resumed on a session whose agent connected before it: say the list changed,
+    // so the turn that follows is planned against the goal tools' current descriptions.
+    notifyTools: (sessionId) => mcpGateway.refreshTools(sessionId),
+    // The continuation names `update_goal` as THIS agent lists it, or teaches the `GOAL COMPLETE:`
+    // line when the session cannot reach the tool at all (its space switched `realm-goal` off).
+    closeWith: (sessionId) => {
+      const s = sessionsStore.get(sessionId);
+      return s && mcpGateway.realmProvidersFor(sessionId, s.spaceId).includes(GOAL_PROVIDER_NAME) ? goalToolWireName(s.agentKind) : null;
+    },
     log: (line) => console.log(line),
   });
   const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
@@ -1196,7 +1207,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      add the pane, which is the point. Whether a session sees them at all is the toolchain's answer
      (`offered`) and the space's switch, like every other provider. */
   mcpGateway.registerProvider(simulatorTools);
-  /* Goal mode's two tools, and they appear only on a session that is actually pursuing a goal — see
+  /* Goal mode's two tools, listed on every session and refused on one with no goal running — see
      the provider. Registered after the session service exists because the goal service it wraps
      delivers through it. */
   mcpGateway.registerProvider(createGoalProvider({ goals, mcp }));

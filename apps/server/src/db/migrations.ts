@@ -847,4 +847,19 @@ export const migrations: string[] = [
   CREATE INDEX IF NOT EXISTS saved_turns_session ON saved_turns(session_id, event_seq);
   CREATE INDEX IF NOT EXISTS saved_turns_recent ON saved_turns(saved_at DESC, event_seq DESC);
   `,
+  // v42 — goal mode's provider is `realm-goal` now, not `goal`, so it sits beside Realm's other
+  // providers and an agent searching its deferred tools for `realm-` finds it. The per-space switch is
+  // stored BY NAME (`mcp.providersDisabled:<spaceId>`, a JSON array), so a space that had turned the
+  // goal tools off would quietly have them back under the new name. Each such list has `goal`
+  // swapped for `realm-goal`, once, and comes out sorted as `setProviderEnabled` writes it. Idempotent: a list that no longer
+  // holds `goal` is not touched, and a list that somehow holds both comes out with one.
+  `
+  UPDATE settings SET value_json = (
+    SELECT json_group_array(name) FROM (
+      SELECT DISTINCT CASE WHEN value = 'goal' THEN 'realm-goal' ELSE value END AS name
+      FROM json_each(settings.value_json) ORDER BY name))
+  WHERE key LIKE 'mcp.providersDisabled:%'
+    AND json_valid(value_json)
+    AND EXISTS (SELECT 1 FROM json_each(settings.value_json) WHERE value = 'goal');
+  `,
 ];

@@ -8,17 +8,25 @@
  *
  * One MCP session per Realm session, because the gateway keeps one transport per Realm session and a
  * second `initialize` on it is refused. Hence the connection is created once and its id reused.
+ *
+ * Once connected it also holds the session's GET stream open, as a real client does, and answers a
+ * `notifications/tools/list_changed` by listing again. That is what a live check needs to see the
+ * gateway tell a running agent its tools changed — and what lets `McpGateway.refreshTools` go on at
+ * once instead of waiting out its timeout on a client that never re-lists.
  */
 export type GatewayEntry = { url: string; headers: Record<string, string> };
 /** `notices` counts what the gateway sent on the call's stream before it answered — its progress
  *  and "still running" messages — so a live check can see a long call being kept alive. */
 export type ToolAnswer = { text: string; isError: boolean; notices?: number };
 
-type Rpc = { id?: number; method?: string; result?: { content?: { type: string; text?: string }[]; isError?: boolean; protocolVersion?: string }; error?: { message: string } };
+type Rpc = { id?: number; method?: string; result?: { content?: { type: string; text?: string }[]; isError?: boolean; protocolVersion?: string; tools?: { name: string }[] }; error?: { message: string } };
 
 export function gatewayClient(entry: GatewayEntry) {
   let session: { id: string | null; version: string } | null = null;
   let n = 0;
+  /** How many `tools/list_changed` notifications the GET stream has carried. */
+  let listChanged = 0;
+  const stream = new AbortController();
 
   /** One POST, answered as JSON or as an event stream that the server closes once it has replied.
    *  `notices` is how many notifications came on that stream ahead of the answer. */
@@ -54,9 +62,54 @@ export function gatewayClient(entry: GatewayEntry) {
     if (init?.error) { session = null; throw new Error(init.error.message); }
     session.version = init?.result?.protocolVersion ?? session.version;
     await post({ jsonrpc: "2.0", method: "notifications/initialized" });
+    void listen();
+  };
+
+  const listTools = async (): Promise<string[]> => {
+    const { answer: r } = await post({ jsonrpc: "2.0", id: ++n, method: "tools/list", params: {} });
+    if (r?.error) throw new Error(r.error.message);
+    return (r?.result?.tools ?? []).map((t) => t.name);
+  };
+
+  /** The server-to-client stream: read until the handle goes, re-listing on every list change. */
+  const listen = async (): Promise<void> => {
+    try {
+      const res = await fetch(entry.url, {
+        method: "GET",
+        signal: stream.signal,
+        headers: {
+          ...entry.headers, accept: "text/event-stream",
+          ...(session?.id ? { "mcp-session-id": session.id } : {}),
+          ...(session ? { "mcp-protocol-version": session.version } : {}),
+        },
+      });
+      if (!res.ok || !res.body) return;
+      const decoder = new TextDecoder();
+      let buffered = "";
+      for await (const chunk of res.body) {
+        buffered += decoder.decode(chunk as Uint8Array, { stream: true });
+        const lines = buffered.split("\n");
+        buffered = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          const msg = JSON.parse(line.slice(5)) as Rpc;
+          if (msg.method !== "notifications/tools/list_changed") continue;
+          listChanged += 1;
+          void listTools().catch(() => {});
+        }
+      }
+    } catch {
+      // Aborted on dispose, or the server went away: either way there is nothing left to listen to.
+    }
   };
 
   return {
+    /** `tools/list`, as the agent would read it now, and how many list changes it has been told of. */
+    async list(): Promise<{ names: string[]; listChanged: number }> {
+      await connect();
+      return { names: await listTools(), listChanged };
+    },
+    close(): void { stream.abort(); },
     async call(name: string, args: Record<string, unknown>): Promise<ToolAnswer> {
       await connect();
       const { answer: r, notices } = await post({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name, arguments: args } });

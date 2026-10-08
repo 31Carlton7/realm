@@ -28,6 +28,7 @@ import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
 import type { AppViewRef, MemorySources } from "@realm/contracts";
 import { SecretAnswers } from "./secret-answers";
 import { MTIME_SLACK_MS, sweepTurnMedia, turnSearchRoots } from "./turn-media";
+import type { SettledTurn } from "../goals/service";
 
 /**
  * One message as the prompter hands it over. `elements` are the browser-pane elements the user picked
@@ -149,6 +150,9 @@ export class SessionService {
    *  before it. The window the turn-media sweep reads mtimes against, and where it reads the turn's
    *  own events from (`recordTurnMedia`). */
   private turnStarted = new Map<string, { ts: number; seq: number }>();
+  /** What goal mode is told about each turn when it settles (`SettledTurn`): opened by the turn's
+   *  `user_message`, counted from its events, handed over and dropped at the settle. */
+  private turnSeen = new Map<string, { continuation: boolean; startedAt: number; toolCalls: number; finalText: string | null }>();
   /** A settled turn's measurement still in flight, per session. The next message waits for it: an agent
    *  that started writing before the snapshot was taken would have its first edits counted as the last
    *  turn's — and a steered message, which takes no checkpoint, starts the moment the settle lands. */
@@ -215,7 +219,7 @@ export class SessionService {
     goals?: {
       onUsage(sessionId: string, reading: SessionEventPayload<"usage">): void;
       onError(sessionId: string): void;
-      onSettled(sessionId: string, opts: { interrupted: boolean }): Promise<unknown>;
+      onSettled(sessionId: string, opts: { interrupted: boolean; queuedNext?: boolean; turn?: SettledTurn }): Promise<unknown>;
     };
     /** The views MCP servers draw for tool calls (`apps/views.ts`): told every call the agent
      *  reports, and asked, when its result arrives, for the view that call drew. Optional — without
@@ -423,6 +427,19 @@ export class SessionService {
   /** What this session still has waiting to go out. Read by goal mode, which stands down when the
    *  user has typed something: their message is the next turn, and the goal picks up behind it. */
   queuedFor(id: string): { prompt: QueuedPrompt; msg: SendMessage }[] { return this.queued.get(id) ?? []; }
+
+  /** Throw away the goal's own turns still waiting in this session's queue — continuations and the
+   *  budget handover — and keep everything the person typed. Goal mode calls it when a goal stops:
+   *  a continuation that queued behind the turn that called `update_goal` would otherwise go out
+   *  after the goal was done, and start the loop that was just ended. */
+  dropGoalTurns(id: string): void {
+    const waiting = this.queued.get(id);
+    if (!waiting) return;
+    const left = waiting.filter((w) => !w.msg.goal);
+    if (left.length === waiting.length) return;
+    if (left.length === 0) this.queued.delete(id); else this.queued.set(id, left);
+    this.broadcastQueue(id);
+  }
 
   /** Drop a queued message before its turn comes. An id the queue no longer holds is a no-op: the
    *  drain got there first, which is a race the prompter cannot win and should not have to. */
@@ -895,6 +912,7 @@ export class SessionService {
     this.rewindTurns.delete(id);
     this.toolTurns.delete(id);
     this.turnStarted.delete(id);
+    this.turnSeen.delete(id);
     this.measuring.delete(id);
     // The terminal belongs to the session: deleting the session must not leave its pty running.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
@@ -1538,6 +1556,19 @@ export class SessionService {
     return view ? { ...ev, payload: { ...ev.payload, view } } : ev;
   }
 
+  /** Keep `turnSeen` for the turn in flight: a `user_message` opens it, each tool call counts, and the
+   *  agent's latest whole message is the one goal mode reads for a `GOAL COMPLETE:` line. */
+  private noteTurnSeen(id: string, ev: SessionEvent): void {
+    if (ev.type === "user_message") {
+      this.turnSeen.set(id, { continuation: ev.payload.goal === "continuation", startedAt: Date.now(), toolCalls: 0, finalText: null });
+      return;
+    }
+    const seen = this.turnSeen.get(id);
+    if (!seen) return;
+    if (ev.type === "tool_call") seen.toolCalls += 1;
+    else if (ev.type === "assistant_text") seen.finalText = ev.payload.text;
+  }
+
   private onEvent(id: string, raw: SessionEvent): void {
     if (this.closing) return; // shutdown: the row keeps its last real status; markStaleOnBoot resets it
     const before = this.d.sessions.get(id);
@@ -1583,6 +1614,7 @@ export class SessionService {
      * rich-text editor. */
     if (ev.type === "tool_call") this.surfaceWrittenDocument(id, ev.payload.name, ev.payload.input);
     if (ev.type === "tool_call") this.toolTurns.add(id);
+    this.noteTurnSeen(id, ev);
     // Not persisted and not this session's: the reading describes the ACCOUNT behind every session on
     // this agent, so it is folded into per-kind state and never into the transcript.
     if (ev.type === "rate_limit") this.d.planLimits?.apply(before.agentKind, ev.payload);
@@ -1622,13 +1654,19 @@ export class SessionService {
          *
          * `void` for the same reason the summary is: this runs inside the adapter pump, and awaiting
          * a send here would hold the pump open across the next turn's first events. */
+        // Read BEFORE the drain, which takes the message off the queue synchronously: the goal below
+        // must still learn that a queued message is about to be the next turn.
+        const queuedNext = !ev.payload.interrupted && (this.queued.get(id)?.length ?? 0) > 0;
         if (!ev.payload.interrupted) void this.drainQueue(id).catch(() => {});
         /* …and then the goal, if this session is pursuing one. AFTER the drain and never instead of
            it: a message the user typed during the turn is the next turn, and the goal picks up
            behind it (`GoalService.onSettled` sees the queue and stands down). `void` for the
            reason above — this runs inside the adapter pump, and a continuation's own first events
            must not be waited for from inside it. */
-        void this.d.goals?.onSettled(id, { interrupted: ev.payload.interrupted === true }).catch(() => {});
+        const seen = this.turnSeen.get(id);
+        this.turnSeen.delete(id);
+        const turn = seen && { continuation: seen.continuation, toolCalls: seen.toolCalls, wallMs: Date.now() - seen.startedAt, finalText: seen.finalText };
+        void this.d.goals?.onSettled(id, { interrupted: ev.payload.interrupted === true, queuedNext, ...(turn ? { turn } : {}) }).catch(() => {});
       }
       if (ev.payload.status === "idle" || ev.payload.status === "ended" || ev.payload.status === "error") {
         for (const settle of this.settleWaiters.get(id) ?? []) settle();
