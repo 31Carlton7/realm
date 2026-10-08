@@ -1155,6 +1155,14 @@ describe("a long call is kept alive", () => {
     await sleep(200);
     expect(seen.length).toBe(atResult);
     expect(logged).toEqual([]);
+    // A ping after the answer has no stream left to go on and is dropped without a word, so the wire
+    // alone cannot show a leaked heartbeat; the process's own timers can. The leak re-arms itself
+    // every 30 ms, so it is always among them.
+    const timers = () => process.getActiveResourcesInfo().filter((r) => r === "Timeout").length;
+    const before = timers();
+    await client.callTool({ name: "realm-agent__agent_wait", arguments: {} });
+    await sleep(100);
+    expect(timers()).toBeLessThanOrEqual(before);
     await client.close();
   });
 
