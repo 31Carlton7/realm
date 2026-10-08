@@ -19,10 +19,7 @@ settings:
     Debug:
       APS_ENVIRONMENT: development
     Release:
-      # Distribution builds are signed for the App Store from the archive on, so their push
-      # entitlement is the production one.
       APS_ENVIRONMENT: production
-      "CODE_SIGN_IDENTITY[sdk=iphoneos*]": Apple Distribution
 packages:
   RealmKit:
     path: RealmKit
