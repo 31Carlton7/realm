@@ -15,6 +15,13 @@ vi.mock("../../rpc/client", () => ({
 }));
 const fire = (event: string, p: unknown) => { act(() => { for (const cb of [...(listeners.get(event) ?? [])]) cb(p); }); };
 
+/* pdf.js itself never loads in jsdom: importing it is slow enough to time a test out, and it draws
+   nothing here. pdf-view.test.tsx drives the viewer against a fake of this seam. */
+vi.mock("./pdf-source", () => ({
+  PdfOpenError: class extends Error {},
+  openPdf: () => ({ promise: new Promise(() => {}), cancel: () => {} }),
+}));
+
 import { DocumentsPane } from "./DocumentsPane";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
