@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHART_POINTS_MAX, CHART_SERIES_MAX, COMPUTER_PROVIDER_NAME, GOAL_PROVIDER_NAME, MACHINE_PROVIDER_NAME, PANE_SHOW_WIRE_NAME, WORKSPACE_PROVIDER_NAME, parseUiBlock } from "@realm/contracts";
+import { CHART_POINTS_MAX, CHART_SERIES_MAX, COMPUTER_PROVIDER_NAME, GOAL_PROVIDER_NAME, MACHINE_PROVIDER_NAME, PANE_SHOW_WIRE_NAME, TEAM_PROVIDER_NAME, WORKSPACE_PROVIDER_NAME, parseUiBlock } from "@realm/contracts";
 import { CAPABILITY_PROVIDERS, capabilitiesContext } from "./capabilities";
 import { BROWSER_PROVIDER_NAME } from "../browsers/agent-tools";
 import { REALM_AGENT_PROVIDER_NAME } from "../browsers/browser-agent";
@@ -22,7 +22,7 @@ describe("capabilitiesContext", () => {
     // every session is handed a paragraph about a provider that is never keyed by that name — the
     // preamble goes silent about a capability the session has, with nothing else to notice it.
     expect([...CAPABILITY_PROVIDERS].sort()).toEqual(
-      [REALM_AGENT_PROVIDER_NAME, UI_PROVIDER_NAME, BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME, SCHEDULE_PROVIDER_NAME,
+      [REALM_AGENT_PROVIDER_NAME, UI_PROVIDER_NAME, BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME, SCHEDULE_PROVIDER_NAME, TEAM_PROVIDER_NAME,
        TERMINAL_PROVIDER_NAME, SIMULATOR_PROVIDER_NAME, GOAL_PROVIDER_NAME, WORKSPACE_PROVIDER_NAME, APP_PROVIDER_NAME, COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME].sort());
   });
 

@@ -84,6 +84,14 @@ const BLOCKS: Record<string, string> = {
     "and say back the moment you set, because unattended work the user did not register is work that " +
     "arrives unannounced.",
 
+  "realm-team":
+    "- **This space's team.** The space has standing roles, and `team_roles` lists them. Facts about the " +
+    "people the team works with are records — `record_list`, `record_read`, `record_update` on " +
+    "`creators/<name>.md` in the team's memory — so read the record before acting for someone, and change " +
+    "the record when a fact changes rather than leaving it in this conversation. Finished work a person " +
+    "should approve (slides, a message to send, a document) goes to Review with `review_submit`; nothing " +
+    "you make is sent or posted by you. Ordinary questions about the space need none of this.",
+
   "realm-terminal":
     "- **A terminal that talks back.** `terminal_open` starts a real terminal pane in this space, " +
     "`terminal_write` types into it and `terminal_read` shows what it is displaying NOW — the rendered " +
@@ -174,7 +182,7 @@ const BLOCKS: Record<string, string> = {
 /** Fixed order, so the same set of providers always produces the same bytes: the blocks are read
  *  top-down and registration order is not a reason for the browser to appear above delegation one
  *  day and below it the next. */
-const ORDER = ["realm-agent", "realm-ui", "realm-browser", "realm-docs", "realm-schedule", "realm-terminal", "realm-simulator", "realm-goal", "realm-workspace", "realm-app", "realm-computer", "realm-vm"] as const;
+const ORDER = ["realm-agent", "realm-ui", "realm-browser", "realm-docs", "realm-schedule", "realm-team", "realm-terminal", "realm-simulator", "realm-goal", "realm-workspace", "realm-app", "realm-computer", "realm-vm"] as const;
 
 const HEADER = "# Realm\n\nThis session runs in Realm, a workspace on the user's Mac.";
 const TOOLS =
