@@ -324,6 +324,18 @@ describe("a phone asking to pair", () => {
     }
   });
 
+  it("asked from the page, is the page's one accent: Pair an iPhone steps down beside it, and stays usable", async () => {
+    await asked();
+    expect(screen.getByRole("button", { name: "Pair an iPhone" })).toHaveClass("primary");
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    const row = await phones().findByRole("listitem", { name: "Carlton's iPhone is waiting to pair" });
+    expect(within(row).getByRole("button", { name: "Pair" })).toHaveClass("primary");
+    // Two accents would be two equal calls to act. A new code is still how a question nobody wants is let go.
+    const pair = screen.getByRole("button", { name: "Pair an iPhone" });
+    expect(pair).not.toHaveClass("primary");
+    expect(pair).not.toBeDisabled();
+  });
+
   it("asked from the page, is answered there", async () => {
     const { api, req } = await asked();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
@@ -380,6 +392,9 @@ describe("Notifications ▸ Notify my iPhone", () => {
     const slack = screen.getByRole("textbox", { name: "Slack webhook URL" }).closest("li")!;
     expect(slack.nextElementSibling).toBe(sw.closest("li"));
     expect(sw.closest("li")).toHaveTextContent("Held while you're at this Mac, and sent if it's still waiting two minutes later.");
+    // …and the note under the relays stops claiming the iPhone waits for Realm to be out of front.
+    expect(screen.getByText("Texts and posts go only when Realm is not the app you are in.")).toBeInTheDocument();
+    expect(screen.queryByText("Only when Realm is not the app you are in.")).toBeNull();
   });
 
   it("appears the moment a phone is paired, and goes when the last one is removed", async () => {

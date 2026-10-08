@@ -114,8 +114,10 @@ export function DevicesPanel({ onOpenSetting }: { onOpenSetting: (id: string) =>
         </p>
       )}
       <div className="devices-head" data-setting="pair-iphone">
-        {/* Locked, the server has no key to open a window with: the line above says why. */}
-        <button type="button" className="btn primary" disabled={starting || remote.state === "locked"} onClick={pair}>
+        {/* Locked, the server has no key to open a window with: the line above says why. While a phone
+            waits on its answer the question is the page's decision, so this steps down to a plain
+            button — still there, because a new code is also how a question nobody wants is let go. */}
+        <button type="button" className={waiting ? "btn" : "btn primary"} disabled={starting || remote.state === "locked"} onClick={pair}>
           {starting && <Spinner size={12} />}
           {starting ? "Making a code…" : "Pair an iPhone"}
         </button>
@@ -171,6 +173,9 @@ export function DevicesPanel({ onOpenSetting }: { onOpenSetting: (id: string) =>
   );
 }
 
+/** One width for the page's sheets, so the code and the question it turns into are the same sheet. */
+const SHEET_WIDTH = 440;
+
 /** The side the code is drawn at, in CSS pixels, before it is snapped to whole pixels per module. */
 const CODE_PX = 264;
 
@@ -216,7 +221,7 @@ function PairSheet({ pairing, request, live, offline, starting, answering, onClo
 
   if (request) {
     return (
-      <Sheet title={`Pair ${request.name}?`} onClose={onClose} width={380}
+      <Sheet title={`Pair ${request.name}?`} onClose={onClose} width={SHEET_WIDTH}
         footer={<>
           <button type="button" className="btn" disabled={answering !== null} onClick={() => onAnswer(false)}>Cancel</button>
           <button type="button" className="btn primary" disabled={answering !== null} onClick={() => onAnswer(true)}>
@@ -228,13 +233,13 @@ function PairSheet({ pairing, request, live, offline, starting, answering, onClo
           <Icon name="simulator" size={16} />
           <span>{phoneModelName(request.model)}</span>
         </div>
-        <p className="pair-consequence">It can read every session on this Mac and answer for you.</p>
+        <p className="device-consequence">It can read every session on this Mac and answer for you.</p>
       </Sheet>
     );
   }
 
   return (
-    <Sheet title="Pair an iPhone" onClose={onClose} width={380}>
+    <Sheet title="Pair an iPhone" onClose={onClose} width={SHEET_WIDTH}>
       <div className="pair-scan">
         {usable ? <PairingCode code={code} /> : (
           // The code's own footprint, so the sheet does not jump when a code runs out.
@@ -264,12 +269,12 @@ function RemovePhoneSheet({ phone, onClose }: { phone: PairedPhone; onClose: () 
     try { await removePhone(phone.phoneId); onClose(); } finally { setBusy(false); }
   });
   return (
-    <Sheet title={`Remove ${phone.name}?`} onClose={onClose} width={380}
+    <Sheet title={`Remove ${phone.name}?`} onClose={onClose} width={SHEET_WIDTH}
       footer={<>
         <button type="button" className="btn" onClick={onClose}>Keep it</button>
         <button type="button" className="btn destructive" disabled={busy} onClick={remove}>Remove</button>
       </>}>
-      <p className="sheet-lede">It will no longer see or answer sessions on this Mac.</p>
+      <p className="device-consequence">It will no longer see or answer sessions on this Mac.</p>
     </Sheet>
   );
 }

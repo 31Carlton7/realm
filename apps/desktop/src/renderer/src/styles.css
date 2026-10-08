@@ -8273,10 +8273,11 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .pair-code-gone p { margin: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); }
 .pair-instruction { margin: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); }
 .pair-expiry { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
-/* The question: what is asking, then what saying yes gives it. */
-.pair-device { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+/* The two questions the page asks — pair this phone, remove that one — each name what is asked
+   about, then the one sentence the answer rests on, in the reading ink rather than a lede's. */
+.pair-device { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .pair-device > svg { flex: none; }
-.pair-consequence { margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); }
+.device-consequence { margin: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); text-wrap: balance; }
 .settings-page-pane .settings-tabs { max-width: 340px; }
 /* Every Settings tab is a stack of titled groups now, and `.form`'s 12px gap already separates
    them — so the heads drop the top margin they carry where they punctuate free-standing controls. */
