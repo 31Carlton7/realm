@@ -326,6 +326,19 @@ export function ErrorPanel({ text }: { text: string }) {
   return <Panel head="Error" acts={<PanelCopy what="error" text={text} />}><PanelText text={text} error /></Panel>;
 }
 
+/** A path said from where the agent stands, when it is under the session's folder. */
+const fromCwd = (path: string, cwd: string | null): string => {
+  const root = cwd?.replace(/\/+$/, "");
+  return root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+};
+
+/** A working directory in a panel's head: its last two parts, which are the ones that tell two
+ *  checkouts apart; the whole path is the title. */
+const shortDir = (dir: string): string => {
+  const parts = dir.replace(/\/+$/, "").split("/").filter(Boolean);
+  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : dir;
+};
+
 /** A command and what it printed, in ONE terminal panel: where it ran and how it ended in the head,
  *  the command on its prompt, the output under it in the same fill. */
 function RunPanel({ command, cwd, output, diff, exitCode }: Extract<ToolPanel, { kind: "run" }>) {
@@ -333,7 +346,7 @@ function RunPanel({ command, cwd, output, diff, exitCode }: Extract<ToolPanel, {
     <>
     <Panel tone="terminal"
       head={<>
-        {cwd && <span className="tool-panel-cwd" title={cwd}>in {cwd}</span>}
+        {cwd && <span className="tool-panel-cwd" title={cwd}>in {shortDir(cwd)}</span>}
         {/* Only where the payload stated it: an "exit 0" on output that never said so is a verdict
             nobody gave. */}
         {exitCode !== null && <span className="tool-panel-exit" data-bad={exitCode !== 0 || undefined}>exit {exitCode}</span>}
@@ -379,10 +392,10 @@ export function ToolPanelBody({ panel, cwd }: { panel: Exclude<ToolPanel, { kind
     case "run": return <RunPanel {...panel} cwd={panel.cwd ?? cwd} />;
     // The diff alone: an edit's own receipt ("The file … has been updated") says nothing the diff does
     // not, and it is still in Show raw.
-    case "diff": return <>{<DiffView files={panel.files} />}{panel.error && <ErrorPanel text={panel.error} />}</>;
+    case "diff": return <>{<DiffView files={panel.files.map((f) => ({ ...f, path: fromCwd(f.path, cwd) }))} />}{panel.error && <ErrorPanel text={panel.error} />}</>;
     case "read": return panel.error ? <ErrorPanel text={panel.error} /> : (
       <Panel head={<>
-        <PathLabel className="tool-panel-path" path={panel.path} />
+        <PathLabel className="tool-panel-path" path={fromCwd(panel.path, cwd)} />
         {lineSpan(panel.text, panel.firstLine) && <span className="tool-panel-note">{lineSpan(panel.text, panel.firstLine)}</span>}
       </>} acts={<PanelCopy what="file" text={panel.text} />}>
         <CodeBlock text={panel.text} lang={grammarForPath(panel.path)} firstLine={panel.firstLine} />

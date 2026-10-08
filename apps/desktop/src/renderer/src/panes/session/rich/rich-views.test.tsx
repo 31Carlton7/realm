@@ -4,7 +4,7 @@ import { DiffView } from "./DiffView";
 import { CodeBlock, CommandView, MatchList, RequestView, TerminalView, TodoList, UploadView, clampGroups } from "./ToolViews";
 import { fileDiffsFor, parseUnifiedDiff } from "./diff";
 import { PermissionCard } from "../PermissionCard";
-import { ToolCard } from "../ToolCard";
+import { ToolCard, ToolCwd } from "../ToolCard";
 import type { ToolBlock } from "../tool-group";
 
 const q = (sel: string) => [...document.querySelectorAll<HTMLElement>(sel)];
@@ -289,6 +289,25 @@ describe("ToolCard with a drawn payload", () => {
     expect(document.querySelector(".tool-row .tool-summary")).toHaveTextContent("Tool card redesign");
     open();
     expect(text(".tool-arg dd")[2]).toBe("design, transcript");
+  });
+
+  it("says a read's path from the session's folder, so the lines it holds keep their room", () => {
+    render(<ToolCwd.Provider value="/w/app"><ToolCard sessionStatus="idle" block={tool("Read", { file_path: "/w/app/src/a.ts" }, "     1\tx")} /></ToolCwd.Provider>);
+    open();
+    expect(document.querySelector(".tool-panel-path")).toHaveTextContent(/^src\/a\.ts$/);
+    cleanup();
+    // An edit's diff names its file the same way.
+    render(<ToolCwd.Provider value="/w/app"><ToolCard sessionStatus="idle" block={tool("Edit", { file_path: "/w/app/src/b.ts", old_string: "a", new_string: "b" }, "ok")} /></ToolCwd.Provider>);
+    open();
+    expect(document.querySelector(".fd-path")).toHaveTextContent(/^src\/b\.ts$/);
+  });
+
+  it("names where a command ran by the last two folders, with the whole path in the tooltip", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("Bash", { command: "ls", cwd: "/Users/me/work/realm/apps/desktop" }, "x")} />);
+    open();
+    const cwd = document.querySelector(".tool-panel-cwd")!;
+    expect(cwd).toHaveTextContent(/^in …\/apps\/desktop$/);
+    expect(cwd).toHaveAttribute("title", "/Users/me/work/realm/apps/desktop");
   });
 
   it("a tool Realm has no panel for keeps both wells, named Arguments and Result", () => {
