@@ -1,0 +1,479 @@
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  MEMORY_DOC_MAX, MEMORY_REPO_INDEX_FILE, MEMORY_REPO_INDEX_MAX, MEMORY_REPO_INITIAL_INDEX,
+  amrRepoSourceLink, applyMemoryEdit, memoryEntryProblem, parseMemoryEntry, wikiLinkTarget, withIndexLink,
+  type MemoryEntry, type MemoryRepoCommit, type MemoryRepoState,
+} from "@realm/contracts";
+import { RpcError } from "../store/rows";
+import type { SettingsStore } from "../store/settings";
+import { GIT_DIFF_FLAGS, gitCapture, gitReason, type GitRun } from "../workspace/git-exec";
+
+/** Which repo a profile uses: `{ path, push }`. `push` is the remote-sync seam, false until a release
+ *  that asks the user to confirm the remote is private before anything leaves this Mac. */
+const repoKey = (profileId: string): string => `memory.repo:profile:${profileId}`;
+/** Per-space opt-OUT of the profile's repo, stored as the disable so absence means inherit — the
+ *  profile document's rule (`memory.profileDocDisabled`), for the same reason. */
+const inheritDisabledKey = (spaceId: string): string => `memory.repoInheritDisabled:${spaceId}`;
+
+type RepoConfig = { path: string; push: boolean };
+
+/** Every write goes through a commit Realm makes itself, with an identity passed per command (never
+ *  the user's global config), no signing prompt, and no hooks — an attached repo's `.git/hooks` is
+ *  code Realm did not choose to run. */
+const commitConfig = (name: string): string[] => [
+  "-c", `user.name=${name}`, "-c", "user.email=realm@localhost", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
+];
+
+/** How much of one file `memory_read` hands back, and of one `memory_write_file`. */
+const READ_MAX = 100_000;
+const SEARCH_HITS_MAX = 60;
+const SEARCH_FILE_MAX = 1_000_000;
+const DIFF_MAX = 4_000;
+
+/**
+ * Token shapes a memory must never hold (the spec: "No secrets"). Shapes, not values: `mcp/redact.ts`
+ * scrubs secrets Realm already knows, and a token an agent was just shown is not one of them.
+ */
+const SECRET_SHAPES: readonly [RegExp, string][] = [
+  [/\bsk-[A-Za-z0-9_-]{20,}/, "an API key"],
+  [/\bgh[pousr]_[A-Za-z0-9]{30,}/, "a GitHub token"],
+  [/\bgithub_pat_[A-Za-z0-9_]{30,}/, "a GitHub token"],
+  [/\bxox[abposr]-[A-Za-z0-9-]{10,}/, "a Slack token"],
+  [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/, "an AWS access key"],
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, "a private key"],
+  [/\bAIza[0-9A-Za-z_-]{35}\b/, "a Google API key"],
+  [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/, "a JSON web token"],
+];
+
+/** What kind of secret `text` looks like it holds, or null. */
+export function secretShapeIn(text: string): string | null {
+  for (const [re, what] of SECRET_SHAPES) if (re.test(text)) return what;
+  return null;
+}
+
+const within = (child: string, parent: string): boolean => {
+  const r = relative(parent, child);
+  return r === "" || (!r.startsWith("..") && !isAbsolute(r));
+};
+
+/** `p` with symlinks resolved as far as it exists — `/var` and `/private/var` are one place, and a
+ *  folder not made yet is judged by the folder it will be made in. */
+const realish = (p: string): string => {
+  let head = p;
+  const tail: string[] = [];
+  while (!existsSync(head)) {
+    const up = dirname(head);
+    if (up === head) return p;
+    tail.unshift(basename(head));
+    head = up;
+  }
+  return join(realpathSync(head), ...tail);
+};
+
+const today = (): string => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+const short = (text: string, n = 60): string => (text.length <= n ? text : `${text.slice(0, n - 1).trimEnd()}…`);
+
+export type MemoryRepoDeps = {
+  home: string;
+  settings: SettingsStore;
+  git?: GitRun;
+  /** Space → profile, the same seam MemoryService takes. Unwired, no space has a repo. */
+  scopes?: { profileIdOf(spaceId: string): string | null };
+  /** Folders a memory repo may never be inside: every space's checkouts, the agents' own config
+   *  folders, Realm's install. The spec's first rule is that memory lives apart from the project. */
+  forbiddenRoots?: () => string[];
+  /** Whether the space has the memory tools. Off, the repo neither travels into a session nor takes
+   *  writes there — one predicate, so the injected index can never mention tools that are not there. */
+  toolsEnabled?: (spaceId: string) => boolean;
+  /** The name on Realm's commits. */
+  committerName?: () => Promise<string>;
+  today?: () => string;
+};
+
+export type MemoryEditOutcome = { changed: boolean; file: string; line: string | null; sha: string | null; diff: string };
+
+/**
+ * A profile's memory repo: an Agent Memory Repo (github.com/AgentMemoryRepo/agentmemoryrepo) that
+ * agents in every engine write through Realm's memory tools.
+ *
+ * The spec leaves its git discipline to the model; here it is enforced in one place, because a model
+ * gets it wrong and several sessions write one repo at once:
+ *
+ * - **Clean before writing.** `status --porcelain` must be empty or the write is refused with the
+ *   paths in the way. Reading works on a dirty repo.
+ * - **Staged by path.** `git add -- <the files this edit touched>`, committed with the same pathspec.
+ *   Never `-A`, never `.`, never a push, never a reset of anything but the index on a failed commit.
+ * - **One writer per repo.** An in-process lock serializes edits, so two sessions saving at once
+ *   make two commits rather than one tangled one.
+ * - **Inside the repo.** A path is resolved against the repo, `..` and `.git` are refused, and the
+ *   real path is checked again so a symlink cannot lead out of it.
+ * - **No secrets.** Token shapes are refused before anything is written.
+ *
+ * Every git call goes through `GitRun` (and so `GIT_HARDENING`), injectable for tests.
+ */
+export class MemoryRepoService {
+  private readonly git: GitRun;
+  private readonly locks = new Map<string, Promise<unknown>>();
+  private name: string | null = null;
+
+  constructor(private d: MemoryRepoDeps) {
+    this.git = d.git ?? gitCapture;
+  }
+
+  /** Where a profile's repo is made when no path is given: under Realm's home, never in a project. */
+  defaultPath(profileId: string): string { return join(this.d.home, "memory", "repos", `profile-${profileId}`); }
+
+  config(profileId: string): RepoConfig | null {
+    const v = this.d.settings.get(repoKey(profileId)) as Partial<RepoConfig> | null | undefined;
+    return v && typeof v.path === "string" ? { path: v.path, push: v.push === true } : null;
+  }
+
+  inheritedIn(spaceId: string): boolean { return this.d.settings.get(inheritDisabledKey(spaceId)) !== true; }
+
+  setInherited(spaceId: string, enabled: boolean): void { this.d.settings.set(inheritDisabledKey(spaceId), !enabled); }
+
+  /**
+   * The repo a session in this space uses, or null: the space's profile has one, the space has not
+   * opted out, the space has the memory tools, and the folder still looks like a memory repo. Sync
+   * and filesystem-only, because a session's context is composed synchronously; the full git check
+   * is made when the repo is created or attached, and again before every write.
+   */
+  activeFor(spaceId: string): { path: string; profileId: string } | null {
+    const profileId = this.d.scopes?.profileIdOf(spaceId) ?? null;
+    if (profileId === null) return null;
+    const cfg = this.config(profileId);
+    if (!cfg || !this.inheritedIn(spaceId)) return null;
+    if (this.d.toolsEnabled && !this.d.toolsEnabled(spaceId)) return null;
+    if (!existsSync(join(cfg.path, ".git")) || !existsSync(join(cfg.path, MEMORY_REPO_INDEX_FILE))) return null;
+    return { path: cfg.path, profileId };
+  }
+
+  /** `MEMORY.md` as one session receives it: whole up to `MEMORY_REPO_INDEX_MAX`, cut after that. */
+  indexFor(spaceId: string): { path: string; index: string; truncated: boolean } | null {
+    const repo = this.activeFor(spaceId);
+    if (!repo) return null;
+    let index: string;
+    try { index = readFileSync(join(repo.path, MEMORY_REPO_INDEX_FILE), "utf8"); } catch { return null; }
+    const truncated = index.length > MEMORY_REPO_INDEX_MAX;
+    return { path: repo.path, index: truncated ? index.slice(0, MEMORY_REPO_INDEX_MAX) : index, truncated };
+  }
+
+  // ─── Create, attach, detach ───────────────────────────────────────────────────────────────────
+
+  /** Idempotent: a missing or empty folder becomes a repo with the spec's seed `MEMORY.md`; a valid
+   *  memory repo is reused as it is; anything else is refused and left untouched. */
+  async create(profileId: string, path?: string): Promise<MemoryRepoState> {
+    const p = this.resolvePath(path ?? this.defaultPath(profileId));
+    this.guard(p);
+    const empty = !existsSync(p) || (statSync(p).isDirectory() && readdirSync(p).length === 0);
+    if (empty) {
+      mkdirSync(p, { recursive: true });
+      await this.must(p, ["init", "-q"]);
+      writeFileSync(join(p, MEMORY_REPO_INDEX_FILE), MEMORY_REPO_INITIAL_INDEX);
+      await this.must(p, ["add", "--", MEMORY_REPO_INDEX_FILE]);
+      await this.must(p, [...commitConfig(await this.committer()), "commit", "-q", "-m", "Create memory repo", "--", MEMORY_REPO_INDEX_FILE]);
+    } else {
+      const why = await this.invalidReason(p);
+      if (why) throw new RpcError("MEMORY_REPO_NOT_EMPTY", `${p} already holds something that is not a memory repo (${why}); pick an empty folder, or attach a memory repo`);
+    }
+    this.d.settings.set(repoKey(profileId), { path: p, push: false } satisfies RepoConfig);
+    return (await this.state(profileId))!;
+  }
+
+  /** Use a memory repo that already exists. Writes nothing to it. */
+  async attach(profileId: string, path: string): Promise<MemoryRepoState> {
+    const p = this.resolvePath(path);
+    this.guard(p);
+    const why = await this.invalidReason(p);
+    if (why) throw new RpcError("MEMORY_REPO_INVALID", `${p} is not a memory repo: ${why}`);
+    this.d.settings.set(repoKey(profileId), { path: p, push: false } satisfies RepoConfig);
+    return (await this.state(profileId))!;
+  }
+
+  /** Forget the profile's repo. The folder, its files and its history stay where they are. */
+  detach(profileId: string): void { this.d.settings.set(repoKey(profileId), null); }
+
+  // ─── State ────────────────────────────────────────────────────────────────────────────────────
+
+  async state(profileId: string, spaceId?: string): Promise<MemoryRepoState | null> {
+    const cfg = this.config(profileId);
+    if (!cfg) return null;
+    const exists = existsSync(cfg.path);
+    const invalid = exists ? await this.invalidReason(cfg.path) : "the folder is gone";
+    const base: MemoryRepoState = {
+      path: cfg.path, scope: "profile", ownerId: profileId, exists, valid: invalid === null, clean: false, uncommitted: [],
+      head: null, lastCommitAt: null, lastCommitSubject: null, remote: null, pushEnabled: cfg.push, indexChars: 0,
+      inheritedHere: spaceId === undefined ? null : this.inheritedIn(spaceId), reason: invalid,
+    };
+    if (invalid !== null) return base;
+    const dirty = await this.uncommitted(cfg.path);
+    const last = await this.log(profileId, 1);
+    const remote = await this.remoteOf(cfg.path);
+    let indexChars = 0;
+    try { indexChars = readFileSync(join(cfg.path, MEMORY_REPO_INDEX_FILE), "utf8").length; } catch { /* checked by invalidReason */ }
+    return {
+      ...base, clean: dirty.length === 0, uncommitted: dirty.slice(0, 20),
+      head: last[0]?.sha.slice(0, 7) ?? null, lastCommitAt: last[0]?.at ?? null, lastCommitSubject: last[0]?.subject ?? null,
+      remote, indexChars,
+      reason: dirty.length > 0 ? `${dirty.length} uncommitted change${dirty.length === 1 ? "" : "s"} — agents save again once the repo is clean` : null,
+    };
+  }
+
+  async log(profileId: string, limit: number): Promise<MemoryRepoCommit[]> {
+    const cfg = this.config(profileId);
+    if (!cfg || !existsSync(cfg.path)) return [];
+    const r = await this.git(cfg.path, ["log", `-n${Math.max(1, Math.min(100, limit))}`, "--format=%H%x1f%ct%x1f%s"]);
+    if (r.code !== 0) return [];
+    return r.stdout.split("\n").filter(Boolean).map((l) => {
+      const [sha, ct, subject] = l.split("\x1f");
+      return { sha: sha!, at: Number(ct) * 1000, subject: subject ?? "" };
+    });
+  }
+
+  // ─── Reading ──────────────────────────────────────────────────────────────────────────────────
+
+  /** One file (or a folder's listing) of the repo, by path or `[[link]]`. Allowed on a dirty repo. */
+  read(repo: string, link: string): string {
+    // A bare folder name is a folder, not a link to `<name>.md`.
+    const bare = link.trim().replace(/^\[\[|\]\]$/g, "").replace(/\/+$/, "");
+    const folder = bare !== "" && !bare.split("/").includes("..") && existsSync(join(repo, bare)) && statSync(join(repo, bare)).isDirectory();
+    const rel = folder ? this.checkedRel(bare) : this.relPath(link);
+    const abs = this.inside(repo, rel);
+    if (!existsSync(abs)) throw new RpcError("MEMORY_FILE_NOT_FOUND", `${rel} is not in the memory repo — memory_index lists what is linked, memory_search finds the rest`);
+    if (statSync(abs).isDirectory()) {
+      const names = readdirSync(abs, { withFileTypes: true }).filter((e) => e.name !== ".git").map((e) => (e.isDirectory() ? `${e.name}/` : e.name)).sort();
+      return names.length > 0 ? names.join("\n") : "(empty folder)";
+    }
+    const text = readFileSync(abs, "utf8");
+    return text.length > READ_MAX ? `${text.slice(0, READ_MAX)}\n\n[cut at ${READ_MAX} characters of ${text.length}]` : text;
+  }
+
+  /** Lines of the repo's text files holding every word of `query`, case-insensitively — a walk in
+   *  this process, never a shell `grep` over a string an agent wrote. */
+  search(repo: string, query: string): { path: string; line: number; text: string }[] {
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return [];
+    const hits: { path: string; line: number; text: string }[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        if (hits.length >= SEARCH_HITS_MAX) return;
+        if (e.name === ".git" || e.isSymbolicLink()) continue;
+        const abs = join(dir, e.name);
+        if (e.isDirectory()) { walk(abs); continue; }
+        if (!e.isFile() || statSync(abs).size > SEARCH_FILE_MAX) continue;
+        const buf = readFileSync(abs);
+        if (buf.subarray(0, 8000).includes(0)) continue;
+        const rel = relative(repo, abs).split(sep).join("/");
+        const relHit = words.every((w) => rel.toLowerCase().includes(w));
+        buf.toString("utf8").split("\n").forEach((text, i) => {
+          if (hits.length >= SEARCH_HITS_MAX) return;
+          const lower = text.toLowerCase();
+          if (words.every((w) => lower.includes(w)) || (relHit && i === 0)) hits.push({ path: rel, line: i + 1, text: short(text.trim(), 300) });
+        });
+      }
+    };
+    walk(repo);
+    return hits;
+  }
+
+  // ─── Writing ──────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Add, replace or remove one entry in one Markdown file, as one commit. An `add` or `replace` is
+   * stamped with the calling session and (unless the caller gave one) today's date — the model cannot
+   * forget the provenance the spec recommends, or forge another session's. A new topic file is
+   * linked from `MEMORY.md`'s index in the same commit.
+   */
+  async edit(repo: string, o: { file?: string; op: "add" | "replace" | "remove"; entry?: string; match?: string; sessionId: string }): Promise<MemoryEditOutcome> {
+    const rel = this.relPath(o.file ?? MEMORY_REPO_INDEX_FILE);
+    if (!rel.toLowerCase().endsWith(".md")) throw new RpcError("MEMORY_NOT_MARKDOWN", `${rel} is not a Markdown file — entries go in .md files; use memory_write_file for anything else`);
+    let entry: MemoryEntry | null = null;
+    if (o.op !== "remove") {
+      const raw = (o.entry ?? "").trim();
+      const parsed = parseMemoryEntry(/^[-*+]\s/.test(raw) ? raw : `- ${raw}`)!;
+      // `source` is always the calling session's — a session cannot cite another one as the place a
+      // fact was learned. `added` may be given (a fact carried over from elsewhere keeps its date).
+      const { source: _given, added, ...rest } = parsed.meta;
+      entry = { text: parsed.text, meta: { ...rest, source: amrRepoSourceLink(o.sessionId), added: added ?? (this.d.today ?? today)() } };
+      const problem = memoryEntryProblem(entry);
+      if (problem) throw new RpcError("MEMORY_ENTRY_INVALID", problem);
+      const secret = secretShapeIn(raw);
+      if (secret) throw new RpcError("MEMORY_SECRET", `that looks like ${secret}; memory never holds credentials — save where it is kept instead, never the value`);
+    }
+    if (o.op !== "add" && !(o.match ?? "").trim()) throw new RpcError("MEMORY_ENTRY_INVALID", "say which entry to change: give its text in `replaces`");
+    return this.locked(repo, async () => {
+      await this.ensureWritable(repo);
+      const abs = this.inside(repo, rel);
+      const before = existsSync(abs) ? readFileSync(abs, "utf8") : null;
+      if (before === null && o.op !== "add") throw new RpcError("MEMORY_FILE_NOT_FOUND", `${rel} is not in the memory repo`);
+      const isIndex = rel === MEMORY_REPO_INDEX_FILE;
+      const edit = o.op === "add" ? { op: "add" as const, entry: entry! }
+        : o.op === "replace" ? { op: "replace" as const, match: o.match!, entry: entry! }
+        : { op: "remove" as const, match: o.match! };
+      const r = applyMemoryEdit(before ?? "", edit, { isIndex, title: basename(rel, ".md") });
+      if (!r.ok) throw new RpcError("MEMORY_NO_MATCH", `${rel}: ${r.error}`);
+      if (!r.changed) return { changed: false, file: rel, line: null, sha: null, diff: "" };
+      const writes = new Map<string, string>([[rel, r.content]]);
+      if (before === null && !isIndex) writes.set(MEMORY_REPO_INDEX_FILE, withIndexLink(this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), rel));
+      const verb = o.op === "add" ? "Remember" : o.op === "replace" ? "Update" : "Forget";
+      const what = o.op === "remove" ? (parseMemoryEntry(o.match!)?.text ?? o.match!) : entry!.text;
+      const out = await this.commitFiles(repo, writes, `${verb} ${short(what)}`);
+      return { changed: true, file: rel, line: entry ? `- ${entry.text}` : null, ...out };
+    });
+  }
+
+  /** A whole non-entry file — a saved query, a script, a long note — as one commit. Never MEMORY.md,
+   *  which only changes an entry at a time. */
+  async writeFile(repo: string, link: string, content: string): Promise<MemoryEditOutcome> {
+    const rel = this.relPath(link);
+    if (rel === MEMORY_REPO_INDEX_FILE) throw new RpcError("MEMORY_INDEX_WHOLE", "MEMORY.md changes an entry at a time — use memory_save and memory_remove");
+    if (content.length > MEMORY_DOC_MAX) throw new RpcError("MEMORY_FILE_TOO_LARGE", `a memory file is capped at ${MEMORY_DOC_MAX} characters`);
+    const secret = secretShapeIn(content);
+    if (secret) throw new RpcError("MEMORY_SECRET", `that looks like it holds ${secret}; memory never holds credentials`);
+    return this.locked(repo, async () => {
+      await this.ensureWritable(repo);
+      const abs = this.inside(repo, rel);
+      const before = existsSync(abs) ? readFileSync(abs, "utf8") : null;
+      if (before === content) return { changed: false, file: rel, line: null, sha: null, diff: "" };
+      const writes = new Map<string, string>([[rel, content]]);
+      if (before === null) writes.set(MEMORY_REPO_INDEX_FILE, withIndexLink(this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), rel));
+      const out = await this.commitFiles(repo, writes, `${before === null ? "Save" : "Update"} ${rel}`);
+      return { changed: true, file: rel, line: null, ...out };
+    });
+  }
+
+  // ─── Internals ────────────────────────────────────────────────────────────────────────────────
+
+  private resolvePath(p: string): string {
+    const expanded = p === "~" ? homedir() : p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
+    if (!isAbsolute(expanded)) throw new RpcError("MEMORY_REPO_PATH", "give the memory repo's full path");
+    return resolve(expanded);
+  }
+
+  /** The spec's rule that memory is never inside a project, plus the folders Realm never writes. */
+  private guard(p: string): void {
+    const real = realish(p);
+    for (const root of this.d.forbiddenRoots?.() ?? []) {
+      if (within(real, realish(root))) throw new RpcError("MEMORY_REPO_FORBIDDEN", `a memory repo cannot live inside ${root} — keep it apart from projects and from the agents' own folders`);
+    }
+  }
+
+  /** Why `p` is not a memory repo, or null: the spec's own test — its top level is `p` itself, and
+   *  `MEMORY.md` sits there. */
+  private async invalidReason(p: string): Promise<string | null> {
+    if (!existsSync(p) || !statSync(p).isDirectory()) return "the folder is gone";
+    const r = await this.git(p, ["rev-parse", "--show-toplevel"]);
+    if (r.code !== 0) return "it is not a git repository";
+    if (realish(r.stdout.trim()) !== realish(p)) return `it is inside the git repository at ${r.stdout.trim()}, not one of its own`;
+    if (!existsSync(join(p, MEMORY_REPO_INDEX_FILE))) return "it has no MEMORY.md at its top";
+    return null;
+  }
+
+  private async uncommitted(repo: string): Promise<string[]> {
+    const r = await this.git(repo, ["status", "--porcelain", "--untracked-files=all"]);
+    if (r.code !== 0) throw new RpcError("MEMORY_REPO_GIT", gitReason(r));
+    return r.stdout.split("\n").filter(Boolean).map((l) => l.slice(3));
+  }
+
+  private async remoteOf(repo: string): Promise<string | null> {
+    const names = await this.git(repo, ["remote"]);
+    const first = names.stdout.split("\n").map((s) => s.trim()).find((s) => s === "origin") ?? names.stdout.split("\n").map((s) => s.trim()).find(Boolean);
+    if (!first) return null;
+    const url = await this.git(repo, ["remote", "get-url", first]);
+    return url.code === 0 ? url.stdout.trim() : null;
+  }
+
+  private async ensureWritable(repo: string): Promise<void> {
+    const why = await this.invalidReason(repo);
+    if (why) throw new RpcError("MEMORY_REPO_INVALID", `${repo} is not a memory repo: ${why}`);
+    const dirty = await this.uncommitted(repo);
+    if (dirty.length > 0) {
+      throw new RpcError("MEMORY_REPO_DIRTY",
+        `the memory repo at ${repo} has uncommitted changes, so nothing was saved (the spec's rule: clean before writing). Tell the user these need committing or removing first: ${dirty.slice(0, 10).join(", ")}${dirty.length > 10 ? ` and ${dirty.length - 10} more` : ""}`);
+    }
+  }
+
+  /** A repo-relative path from a path or a `[[link]]`, refused when it could reach outside. */
+  private relPath(link: string): string {
+    const target = wikiLinkTarget(link);
+    if (target === null) throw new RpcError("MEMORY_PATH", "give a path inside the memory repo, such as projects/payments or [[projects/payments]]");
+    return this.checkedRel(target);
+  }
+
+  private checkedRel(target: string): string {
+    const parts = target.split(/[\\/]+/).filter((s) => s !== "" && s !== ".");
+    if (isAbsolute(target) || parts.some((s) => s === ".." || s.toLowerCase() === ".git")) {
+      throw new RpcError("MEMORY_PATH", `${target} is outside the memory repo — paths start at its root and stay in it`);
+    }
+    return parts.join("/");
+  }
+
+  /** The absolute path of `rel`, after checking that what is ON DISK there resolves inside the repo:
+   *  a symlink in the repo pointing at `~/.ssh` is refused, for reads and writes alike. */
+  private inside(repo: string, rel: string): string {
+    const abs = join(repo, rel);
+    const root = realpathSync(repo);
+    // `realish` resolves every link on the way, so a symlink anywhere in the path is judged by where it lands.
+    if (!within(realish(abs), root)) {
+      throw new RpcError("MEMORY_PATH", `${rel} leads outside the memory repo`);
+    }
+    return abs;
+  }
+
+  private readOrEmpty(repo: string, rel: string): string {
+    try { return readFileSync(join(repo, rel), "utf8"); } catch { return ""; }
+  }
+
+  /** Write the files, stage exactly them, commit exactly them. A failed commit puts every file back
+   *  as it was and unstages them — the tree is left as clean as the write found it. */
+  private async commitFiles(repo: string, writes: Map<string, string>, message: string): Promise<{ sha: string; diff: string }> {
+    const before = new Map<string, string | null>();
+    for (const rel of writes.keys()) before.set(rel, existsSync(join(repo, rel)) ? readFileSync(join(repo, rel), "utf8") : null);
+    const paths = [...writes.keys()];
+    try {
+      for (const [rel, content] of writes) {
+        mkdirSync(dirname(join(repo, rel)), { recursive: true });
+        writeFileSync(join(repo, rel), content);
+      }
+      await this.must(repo, ["add", "--", ...paths]);
+      await this.must(repo, [...commitConfig(await this.committer()), "commit", "-q", "-m", message, "--", ...paths]);
+    } catch (e) {
+      for (const [rel, content] of before) {
+        if (content === null) rmSync(join(repo, rel), { force: true });
+        else writeFileSync(join(repo, rel), content);
+      }
+      await this.git(repo, ["reset", "-q", "--", ...paths]);
+      throw e;
+    }
+    const sha = (await this.git(repo, ["rev-parse", "HEAD"])).stdout.trim();
+    const show = await this.git(repo, ["show", ...GIT_DIFF_FLAGS, "--format=", "HEAD"], { maxBytes: 64 * 1024 });
+    return { sha, diff: short(show.stdout, DIFF_MAX) };
+  }
+
+  private async must(cwd: string, args: string[]): Promise<void> {
+    const r = await this.git(cwd, args);
+    if (r.code !== 0) throw new RpcError("MEMORY_REPO_GIT", `git ${args.find((a) => !a.startsWith("-") && !a.includes("=")) ?? ""} failed: ${gitReason(r)}`);
+  }
+
+  private async committer(): Promise<string> {
+    if (this.name === null) this.name = (await this.d.committerName?.())?.trim() || "Realm";
+    return this.name;
+  }
+
+  /** Serialize writes per repo. The chain survives a failed write, so one refusal never wedges the
+   *  next save. Keyed by the real path, so two spellings of one folder share one lock. */
+  private async locked<T>(repo: string, fn: () => Promise<T>): Promise<T> {
+    const key = existsSync(repo) ? realpathSync(repo) : repo;
+    const prev = this.locks.get(key) ?? Promise.resolve();
+    const run = prev.then(fn, fn);
+    const tail = run.catch(() => undefined);
+    this.locks.set(key, tail);
+    try { return await run; } finally { if (this.locks.get(key) === tail) this.locks.delete(key); }
+  }
+}

@@ -599,6 +599,13 @@ export function App() {
     const offMem = rpc().on("memory.changed", ({ spaceId }) => {
       const st = store.getState();
       if (st.spaceMemory[spaceId]) st.run(() => st.refreshMemory(spaceId));
+      // A memory repo is told the same way: a save an agent made, or one made in another window.
+      if (st.spaceMemoryRepos[spaceId]) st.run(() => st.refreshSpaceMemoryRepos(spaceId));
+      const profileId = st.spaces.find((x) => x.id === spaceId)?.profileId;
+      if (profileId && st.profileMemoryRepo[profileId] !== undefined) {
+        st.run(() => st.refreshProfileMemoryRepo(profileId));
+        if (st.memoryRepoLog[profileId]) st.run(() => st.refreshMemoryRepoLog(profileId));
+      }
     });
     const offB = subscribeAgentPanes(store, (event, fn) => rpc().on(event, fn));
     // Every browser's page — address, title, icon — saved as it changes, shown in a pane or not: an
