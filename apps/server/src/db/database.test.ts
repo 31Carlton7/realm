@@ -707,6 +707,7 @@ CREATE TABLE checkpoints (
   created_at INTEGER NOT NULL);
 CREATE INDEX checkpoints_environment ON checkpoints(environment_id, created_at DESC);
 CREATE INDEX checkpoints_session ON checkpoints(session_id, created_at DESC);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 
 /** A v32 home with a Claude session that has already run, and two checkpoints of its turns. */
@@ -826,6 +827,7 @@ CREATE TABLE browsers (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES sp
 CREATE INDEX browsers_space ON browsers(space_id);
 CREATE TABLE runs (id TEXT PRIMARY KEY, dedupe_key TEXT, created_at INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE schedules (id TEXT PRIMARY KEY);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 
 /** A v34 home with two profiles and a browser pane already on a page. */
@@ -926,6 +928,7 @@ CREATE TABLE browser_history (
 CREATE INDEX browser_history_recent ON browser_history(profile_id, last_visit_at DESC);
 CREATE TABLE runs (id TEXT PRIMARY KEY, dedupe_key TEXT, created_at INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE schedules (id TEXT PRIMARY KEY);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 
 /** A v35 home with two profiles, a pane on a page, and that page in the history. */
@@ -1013,6 +1016,7 @@ CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NU
 CREATE TABLE spaces (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE);
 CREATE TABLE runs (id TEXT PRIMARY KEY, dedupe_key TEXT, created_at INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE schedules (id TEXT PRIMARY KEY);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 
 /** A v36 home with three profiles: School (sort 1), Work (sort 0, the app's first), Home (sort 1, younger). */
@@ -1133,6 +1137,7 @@ CREATE TABLE schedules (
   updated_at INTEGER NOT NULL);
 CREATE INDEX schedules_space ON schedules(space_id, created_at);
 CREATE INDEX schedules_due ON schedules(next_run_at) WHERE enabled = 1;
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 
 function v37Fixture(path: string): void {
@@ -1226,6 +1231,7 @@ describe("migration v38 — a scheduled task keeps its runs", () => {
 const V38_SESSIONS_SCHEMA = `
 CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 
 function v38Fixture(path: string): void {
@@ -1302,6 +1308,7 @@ const V39_PROFILES_SCHEMA = `
 CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
   sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   browser_partition TEXT NOT NULL DEFAULT '');
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 const LIBRARY_FILES_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS library_files"));
 
@@ -1407,6 +1414,7 @@ CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
 CREATE INDEX session_events_session ON session_events(session_id, seq);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 const SAVED_TURNS_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS saved_turns"));
 
@@ -1487,6 +1495,49 @@ describe("migration v41 — saved turns", () => {
     // The statement itself is safe to meet twice as well — `IF NOT EXISTS`, not a version check alone.
     expect(() => again.exec(migrations[SAVED_TURNS_AT]!)).not.toThrow();
     expect(again.prepare("SELECT event_seq FROM saved_turns").all()).toEqual([{ event_seq: 1 }]);
+    again.close();
+  });
+});
+
+describe("migration v42 — goal mode's provider renamed to realm-goal", () => {
+  /* The v3 home stands in for any home from before the rename: `settings` has not changed shape since
+     v1, and the switches are rows in it. */
+  const migrated = (rows: [string, string][]) => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v3Fixture(p);
+    const raw = new DatabaseSync(p);
+    for (const [key, value] of rows) raw.prepare("INSERT INTO settings (key, value_json) VALUES (?, ?)").run(key, value);
+    raw.close();
+    return { p, db: openDatabase(p) };
+  };
+  const read = (db: DatabaseSync, key: string) => (db.prepare("SELECT value_json AS v FROM settings WHERE key = ?").get(key) as { v: string }).v;
+
+  it("keeps a space's goal tools off under the new name, and leaves every other switch alone", () => {
+    // THE mutant is no migration: `goal` stays in the list, `realm-goal` is not in it, and a space that
+    // switched the goal tools off has them back after an upgrade.
+    const { db } = migrated([
+      ["mcp.providersDisabled:sp1", '["goal","realm-browser"]'],
+      ["mcp.providersDisabled:sp2", '["realm-docs"]'],
+      ["mcp.providersEnabled:sp1", '["goal"]'],
+      ["theme", '"goal"'],
+    ]);
+    expect(JSON.parse(read(db, "mcp.providersDisabled:sp1"))).toEqual(["realm-browser", "realm-goal"]);
+    expect(read(db, "mcp.providersDisabled:sp2")).toBe('["realm-docs"]');
+    // Only the disabled lists name providers that default on; nothing else is the rename's business.
+    expect(read(db, "mcp.providersEnabled:sp1")).toBe('["goal"]');
+    expect(read(db, "theme")).toBe('"goal"');
+    db.close();
+  });
+
+  it("is idempotent, and folds a list that already had both names into one", () => {
+    const { p, db } = migrated([["mcp.providersDisabled:sp1", '["realm-goal","goal"]']]);
+    expect(JSON.parse(read(db, "mcp.providersDisabled:sp1"))).toEqual(["realm-goal"]);
+    db.prepare("UPDATE settings SET value_json = ? WHERE key = ?").run('["realm-goal","realm-docs"]', "mcp.providersDisabled:sp1");
+    db.close();
+    const again = openDatabase(p);
+    // A list written by the running app after the upgrade is never rewritten again.
+    expect(read(again, "mcp.providersDisabled:sp1")).toBe('["realm-goal","realm-docs"]');
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     again.close();
   });
 });

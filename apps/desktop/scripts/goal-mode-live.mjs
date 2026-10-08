@@ -16,6 +16,10 @@
  *      the continuation in the log is attributed rather than looking like something the user typed.
  *   4. **`/plan` and `/ask` move the session**, through the picker the user actually types into.
  *
+ * The goal's turns are scripted (`REALM_FAKE_SCRIPT`) to do some work each: a bare echo is a turn
+ * that made no progress, and three of those in a row stop a goal by themselves — which is
+ * `realm-self-use-live.mjs`'s S3, not what this check is about.
+ *
  * Ports: env-overridable. Touches only a scratch dir; kills only the process it started.
  */
 import { spawn } from "node:child_process";
@@ -157,6 +161,12 @@ async function main() {
   const mainEntry = path.join(repoRoot, "apps/desktop/out/main/index.js");
   if (!fs.existsSync(mainEntry)) throw new Error("apps/desktop/out is missing — run `pnpm build` first");
 
+  const scriptFile = path.join(scratch, "fake-script.json");
+  fs.writeFileSync(scriptFile, JSON.stringify([{ on: "keep saying hello until I stop you", emit: [
+    { kind: "tool", name: "Read", input: { file_path: "hello.txt" }, result: "hello" },
+    { kind: "tool", name: "Edit", input: { file_path: "hello.txt" }, result: "ok" },
+    { kind: "text", text: "Said hello again." },
+  ] }]));
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, [
     'import { app } from "electron";',
@@ -171,6 +181,7 @@ async function main() {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),
       REALM_ENABLE_FAKE_AGENT: "1",
+      REALM_FAKE_SCRIPT: scriptFile,
       REALM_PORT: String(SERVER_PORT),
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
