@@ -37,7 +37,10 @@ export type FakeStep =
   | { kind: "idle"; text?: string }
   /** A plan-quota reading, as `SDKRateLimitEvent` produces one on the real Claude wire. The scripted
    *  adapter is the only kind that can drive the limits path end to end in a test. */
-  | { kind: "rateLimit"; payload: SessionEventPayload<"rate_limit"> };
+  | { kind: "rateLimit"; payload: SessionEventPayload<"rate_limit"> }
+  /** A usage report mid-turn, with what this stretch cost — how a live check drives a team role's run
+   *  to its dollar cap. A turn that scripted one does not add the fixed end-of-turn report. */
+  | { kind: "usage"; costUsd: number };
 /**
  * `on` is matched as a substring of the message. `turn` narrows an entry to one turn of a goal: the
  * continuation must also say `goalTurnLine(turn)` ("This is turn 3."), so a live check can script
@@ -102,6 +105,7 @@ export class FakeAdapter implements AgentAdapter {
 
     const run = async (msg: UserMessage) => {
       interrupted = false;
+      let reported = false;
       q.push(sessionEvent("status", { status: "running" }));
       const step = this.cfg.script.find((s) => msg.text.includes(s.on) && (s.turn === undefined || msg.text.includes(goalTurnLine(s.turn))));
       for (const st of step?.emit ?? [{ kind: "text", text: `echo: ${msg.text}` } as FakeStep]) {
@@ -110,6 +114,7 @@ export class FakeAdapter implements AgentAdapter {
         await sleep();
         if (st.kind === "throw") throw new Error(st.message);
         if (st.kind === "rateLimit") { q.push(sessionEvent("rate_limit", st.payload)); continue; }
+        if (st.kind === "usage") { reported = true; q.push(sessionEvent("usage", { costUsd: st.costUsd, inputTokens: 10, outputTokens: 10, numTurns: 1 })); continue; }
         if (st.kind === "idle") { sayAll(st.text ?? "Nothing has changed since the last turn."); continue; }
         if (st.kind === "list") {
           const seen = gateway ? await gateway.list().catch((e: unknown) => ({ error: (e as Error).message ?? String(e) })) : { error: "no Realm gateway was handed to this session" };
@@ -171,7 +176,7 @@ export class FakeAdapter implements AgentAdapter {
           q.push(sessionEvent("tool_result", { toolUseId, content: failed ?? st.result, isError: failed !== null }));
         }
       }
-      q.push(sessionEvent("usage", { costUsd: 0.001, inputTokens: 10, outputTokens: 10, numTurns: 1 }));
+      if (!reported) q.push(sessionEvent("usage", { costUsd: 0.001, inputTokens: 10, outputTokens: 10, numTurns: 1 }));
       // Carries `interrupted` as the real adapters do (claude-adapter's result branch): the settle is
       // what tells "you stopped this" apart from "this finished".
       q.push(sessionEvent("status", { status: "idle", ...(interrupted ? { interrupted: true } : {}) }));

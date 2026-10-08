@@ -34,6 +34,7 @@ import { GuideProgressSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchema, UsageSummarySchema } from "./usage";
 import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
+import { CreateRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
 import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
@@ -1563,6 +1564,26 @@ export const Methods = {
   /** Fire once, now, WITHOUT moving the schedule's own clock — see `ScheduleService.runNow`. Answers
    *  the schedule, whose `lastRunId` now names the run this created. */
   "schedules.runNow": { params: z.object({ id: IdSchema }), result: ScheduleSchema },
+  // Teams (Phase 1): roles, Review, records and the activity log. Every change is broadcast as
+  // `team.changed` with the space, and the clients re-read what they hold.
+  "team.overview": { params: z.object({}).default({}), result: z.array(TeamSpaceSchema) },
+  "team.space": { params: z.object({ spaceId: IdSchema }), result: TeamSpaceSchema },
+  "team.make": { params: z.object({ spaceId: IdSchema, templates: z.array(z.string().max(60)).max(10).default([]) }), result: TeamSpaceSchema },
+  "team.roleCreate": { params: CreateRoleSchema, result: TeamRoleSchema },
+  "team.roleUpdate": { params: UpdateRoleSchema, result: TeamRoleSchema },
+  "team.roleArchive": { params: z.object({ id: IdSchema }), result: z.object({ archived: z.boolean() }) },
+  "team.roleRun": { params: z.object({ id: IdSchema, message: z.string().max(20_000).nullable().default(null) }), result: RunSchema },
+  "team.roleRuns": { params: z.object({ id: IdSchema, limit: z.number().int().min(1).max(200).default(30) }), result: z.array(RoleRunSchema) },
+  "team.review": { params: z.object({ id: IdSchema }), result: TeamReviewDetailSchema },
+  "team.reviewApprove": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
+  "team.reviewRequestChanges": { params: z.object({ id: IdSchema, note: z.string().min(1).max(5_000) }), result: TeamReviewSummarySchema },
+  "team.reviewDone": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
+  "team.reviewDismiss": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
+  "team.records": { params: z.object({ spaceId: IdSchema }), result: z.array(TeamRecordSummarySchema) },
+  "team.record": { params: z.object({ spaceId: IdSchema, path: z.string().min(1).max(200) }), result: TeamRecordSchema },
+  "team.recordWrite": { params: z.object({ spaceId: IdSchema, path: z.string().min(1).max(200), markdown: z.string().max(100_000) }), result: TeamRecordSchema },
+  "team.recordCreate": { params: z.object({ spaceId: IdSchema, name: z.string().trim().min(1).max(120) }), result: TeamRecordSchema },
+  "team.activity": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(100), before: z.number().int().optional() }), result: z.array(TeamActivitySchema) },
   /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
     params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
@@ -2183,6 +2204,7 @@ export const Events = {
    *  per event) would have to carry a DELETION as a null and re-introduce the ambiguity `run: null`
    *  already documents. */
   "schedules.changed": z.object({ spaceId: IdSchema }),
+  "team.changed": z.object({ spaceId: IdSchema }),
   /** An environment's persisted review verdict changed (Plan 13 W3): a review settled (`review` is
    *  the fresh result), or was dismissed / cleared by a ship (`review` is null). Diff panes holding
    *  this environment apply the payload directly — no refetch race. */

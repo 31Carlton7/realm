@@ -531,6 +531,7 @@ function HistoryTab({ spaceId }: { spaceId: string }) {
 }
 
 import { ScriptsPanel } from "../../components/settings/ScriptsPanel";
+import { TeamPage, TeamRailList, isTeamTab, teamTabLabel } from "../team/TeamPages";
 import { SandboxPanel } from "../../components/settings/SandboxPanel";
 
 const PAGE_TABS: { id: SpacePageTab; label: string; icon: IconName }[] = [
@@ -563,9 +564,12 @@ const PAGE_TABS: { id: SpacePageTab; label: string; icon: IconName }[] = [
 export function SpacePage({ item }: PaneProps) {
   const spaceId = item.refId;
   const railStrip = useRef<HTMLFieldSetElement>(null);
+  const teamRail = useRef<HTMLDivElement>(null);
   useDissolve(railStrip, "x");
+  useDissolve(teamRail, "x");
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
   const tab = useApp((s) => s.spacePageTab[spaceId] ?? "general");
+  const team = useApp((s) => s.teams[spaceId]);
   const setSpacePageTab = useApp((s) => s.setSpacePageTab);
   // A tab IS a change of what this pane shows, so it is a stop on the pane's back/forward trail.
   const navigateInPane = useApp((s) => s.navigateInPane);
@@ -573,7 +577,23 @@ export function SpacePage({ item }: PaneProps) {
   const run = useApp((s) => s.run);
 
   if (!space) return <div className="pane-placeholder muted">This space no longer exists.</div>;
-  const label = PAGE_TABS.find((t) => t.id === tab)?.label ?? "General";
+  const teamTab = isTeamTab(tab);
+  const label = teamTab ? teamTabLabel(tab, team) : PAGE_TABS.find((t) => t.id === tab)?.label ?? "General";
+  const pick = (id: SpacePageTab) => { setSpacePageTab(spaceId, id); navigateInPane(item.id, id); };
+  /* The space's own sections, under a "Space" head once the space is a team — the team's sections
+     head the column then (the Teams plan, 13.2). A space that is not a team keeps its one flat list,
+     with Team at its end as the way in. */
+  const spaceTabs = (
+    <>
+      {PAGE_TABS.map((t) => (
+        <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
+          <input type="radio" name={`space-page-tab-${spaceId}`} value={t.id} checked={tab === t.id} onChange={() => pick(t.id)} />
+          <Icon name={t.icon} size={16} className="page-rail-glyph" />
+          {t.label}
+        </label>
+      ))}
+    </>
+  );
 
   return (
     // `.page` establishes the pattern; the modifier is `space-page-pane`.
@@ -581,19 +601,30 @@ export function SpacePage({ item }: PaneProps) {
       <div className="page-body">
         {/* The sheet's native-radio tab idiom, stood upright: arrow keys move, one tab stop. Over the
             panes it takes the sidebar's column (page-nav.tsx). */}
-        <PageRail label="Overview" back>
-        <fieldset className="page-rail" ref={railStrip}>
-          <legend className="visually-hidden">Space page section</legend>
-          {PAGE_TABS.map((t) => (
-            <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
-              <input type="radio" name={`space-page-tab-${spaceId}`} value={t.id} checked={tab === t.id} onChange={() => { setSpacePageTab(spaceId, t.id); navigateInPane(item.id, t.id); }} />
-              <Icon name={t.icon} size={16} className="page-rail-glyph" />
-              {t.label}
+        <PageRail label={team?.enabled ? `${space.name} team` : "Overview"} back>
+        {team?.enabled ? (
+          <div className="page-rail" ref={teamRail}>
+            <TeamRailList spaceId={spaceId} team={team} tab={tab} pick={pick} />
+            <fieldset className="page-rail-list">
+              <legend className="visually-hidden">Space</legend>
+              <span className="page-rail-head" aria-hidden="true">Space</span>
+              {spaceTabs}
+            </fieldset>
+          </div>
+        ) : (
+          <fieldset className="page-rail" ref={railStrip}>
+            <legend className="visually-hidden">Space page section</legend>
+            {spaceTabs}
+            <label className="settings-tab page-rail-tab" data-selected={tab === "team" || undefined}>
+              <input type="radio" name={`space-page-tab-${spaceId}`} value="team" checked={tab === "team"} onChange={() => pick("team")} />
+              <Icon name="team" size={16} className="page-rail-glyph" />
+              Team
             </label>
-          ))}
-        </fieldset>
+          </fieldset>
+        )}
         </PageRail>
-        <PageScroll wide={tab === "tasks" || tab === "sessions"}>
+        <PageScroll wide={tab === "tasks" || tab === "sessions"} className={teamTab ? "tp-page" : undefined}>
+          {teamTab ? <TeamPage spaceId={spaceId} tab={tab} /> : <>
           {/* The head names what the page SHOWS — the section — and the space it is seen from beside
               it, as Settings and the Library do (design.md). Plain text: the space's colour is carried
               by its icon in the sidebar, where a person tells spaces apart. */}
@@ -623,6 +654,7 @@ export function SpacePage({ item }: PaneProps) {
           {tab === "sessions" && <SessionsList spaceId={spaceId} />}
           {tab === "tasks" && <TasksTab spaceId={spaceId} />}
           {tab === "history" && <HistoryTab spaceId={spaceId} />}
+          </>}
         </PageScroll>
       </div>
     </div>

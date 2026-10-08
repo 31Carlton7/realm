@@ -62,6 +62,7 @@ export * from "./editors";
 export * from "./terminals";
 export * from "./terminal-programs";
 export * from "./schedules";
+export * from "./team";
 export * from "./failover";
 export * from "./school";
 export * from "./links";

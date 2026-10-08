@@ -5,6 +5,7 @@ import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableMod
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
+import type { RoleRun, TeamActivity, TeamRecord, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -88,11 +89,30 @@ export const shipRow = (id: string, spaceId: string, extra: Partial<Ship> = {}):
   ({ id, environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId, branch: "main", sha: `sha-${id}`,
     subject: `shipped ${id}`, prUrl: null, pushState: "pushed", createdAt: 0, ...extra });
 
+/** A team role, idle, with no clock. */
+export const teamRole = (id: string, spaceId: string, name: string, extra: Partial<TeamRole> = {}): TeamRole => ({
+  id, spaceId, name, brief: `${name}'s brief.`, realmite: { seed: id }, template: null, agentKind: "claude", model: "sonnet", effort: null,
+  permissionMode: "default", skills: [], scheduleId: null, cron: null, scheduleEnabled: false, nextRunAt: null, wakeOnReview: true,
+  weekBudgetUsd: null, runCapUsd: 3, runCapMs: 1_200_000, maxConcurrent: 1, archived: false, createdAt: 0, updatedAt: 0,
+  state: "idle", stateSince: null, pausedWhy: null, weekSpendUsd: 0, lastRunAt: null, latestSessionId: null, unread: false, ...extra,
+});
+
+/** A review waiting on a person. */
+export const teamReview = (id: string, spaceId: string, title: string, extra: Partial<TeamReviewSummary> = {}): TeamReviewSummary => ({
+  id, spaceId, roleId: null, roleName: null, runId: null, sessionId: null, recordPath: null, kind: "slideshows", title, state: "waiting",
+  note: null, version: 1, itemCount: 1, thumb: null, channels: [], account: null, changedSinceApproval: false, createdAt: 0, decidedAt: null, updatedAt: 0, ...extra,
+});
+
+/** A team space: its roles and reviews. */
+export const teamSpace = (spaceId: string, roles: TeamRole[], reviews: TeamReviewSummary[] = [], extra: Partial<TeamSpace> = {}): TeamSpace => ({
+  spaceId, enabled: true, roles, reviews, weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: true, recordCount: 0, runSessionIds: [], ...extra,
+});
+
 /** A durable run. Defaults to a queued run with no attempts yet. */
 export const runRow = (id: string, spaceId: string, extra: Partial<Run> = {}): Run =>
   ({ id, spaceId, title: `Run ${id}`, goal: `do ${id}`, agentKind: "claude", environmentId: null,
     constraints: null, dedupeKey: null, state: "queued", attempt: 0, maxAttempts: 1, sessionId: null, scheduleId: null,
-    deadlineAt: null, result: null, error: null, createdAt: 0, startedAt: null, settledAt: null, updatedAt: 0, ...extra });
+    roleId: null, wokeOn: null, costUsd: null, deadlineAt: null, result: null, error: null, createdAt: 0, startedAt: null, settledAt: null, updatedAt: 0, ...extra });
 
 /** One attempt of a run. */
 export const runAttempt = (id: string, runId: string, n: number, extra: Partial<RunAttempt> = {}): RunAttempt =>
@@ -158,6 +178,12 @@ export type FakeData = {
    *  a new path here as the server would; `clearAvatar` empties it. */
   avatarPath?: string | null;
   schedules?: Schedule[];
+  /** Team spaces as `team.overview` answers, and the detail behind them by id. */
+  teams?: TeamSpace[];
+  teamReviews?: Record<string, TeamReviewDetail>;
+  teamRoleRuns?: Record<string, RoleRun[]>;
+  teamRecords?: Record<string, TeamRecord[]>;
+  teamActivity?: Record<string, TeamActivity[]>;
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
@@ -516,6 +542,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     usageRecords: overrides.usageRecords ?? emptyUsageRecords(),
     avatarPath: overrides.avatarPath ?? null,
     schedules: overrides.schedules ?? [],
+    teams: overrides.teams ?? [],
+    teamReviews: overrides.teamReviews ?? {},
+    teamRoleRuns: overrides.teamRoleRuns ?? {},
+    teamRecords: overrides.teamRecords ?? {},
+    teamActivity: overrides.teamActivity ?? {},
     importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
     importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
     tccRows: overrides.tccRows ?? [
@@ -1600,6 +1631,60 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     // never what comes back.
     setAvatar: async (path) => { calls.push(`setAvatar:${path}`); data.avatarPath = `/realm-home/avatar/${++n}.png`; return data.avatarPath; },
     clearAvatar: async () => { calls.push("clearAvatar"); data.avatarPath = null; },
+    // Copies, as the wire hands over: a store that kept the fake's own objects would see a mutation
+    // here as no change at all.
+    teamOverview: async () => { calls.push("teamOverview"); return structuredClone(data.teams.filter((t) => t.enabled)); },
+    teamSpace: async (spaceId) => {
+      calls.push(`teamSpace:${spaceId}`);
+      return structuredClone(data.teams.find((t) => t.spaceId === spaceId))
+        ?? { spaceId, enabled: false, roles: [], reviews: [], weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: false, recordCount: 0, runSessionIds: [] };
+    },
+    teamMake: async (spaceId, templates) => {
+      calls.push(`teamMake:${spaceId}:${templates.join(",")}`);
+      let t = data.teams.find((x) => x.spaceId === spaceId);
+      if (!t) { t = { spaceId, enabled: true, roles: [], reviews: [], weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: true, recordCount: 0, runSessionIds: [] }; data.teams.push(t); }
+      t.enabled = true;
+      return t;
+    },
+    teamRoleCreate: async (input) => { calls.push(`teamRoleCreate:${input.name}`); throw new Error("not faked"); },
+    teamRoleUpdate: async (input) => {
+      calls.push(`teamRoleUpdate:${input.id}`);
+      for (const t of data.teams) { const r = t.roles.find((x) => x.id === input.id); if (r) { Object.assign(r, input); return r; } }
+      throw new Error("no role");
+    },
+    teamRoleArchive: async (id) => { calls.push(`teamRoleArchive:${id}`); },
+    teamRoleRun: async (id, message) => { calls.push(`teamRoleRun:${id}:${message ?? ""}`); throw new Error("not faked"); },
+    teamRoleRuns: async (id) => { calls.push(`teamRoleRuns:${id}`); return data.teamRoleRuns[id] ?? []; },
+    teamReview: async (id) => { calls.push(`teamReview:${id}`); const r = data.teamReviews[id]; if (!r) throw new Error("no review"); return structuredClone(r); },
+    teamReviewDecide: async (id, decision) => {
+      calls.push(`teamReviewDecide:${id}:${decision}`);
+      const r = data.teamReviews[id]!;
+      r.state = decision === "approve" ? "approved" : decision === "done" ? "done" : "dismissed";
+      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) s.state = r.state; }
+      return r;
+    },
+    teamReviewRequestChanges: async (id, note) => {
+      calls.push(`teamReviewRequestChanges:${id}:${note}`);
+      const r = data.teamReviews[id]!;
+      r.state = "changes"; r.note = note;
+      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) { s.state = "changes"; s.note = note; } }
+      return r;
+    },
+    teamRecords: async (spaceId) => { calls.push(`teamRecords:${spaceId}`); return (data.teamRecords[spaceId] ?? []).map(({ markdown: _m, absPath: _a, lastAuthor: _l, ...rest }) => rest); },
+    teamRecord: async (spaceId, path) => {
+      calls.push(`teamRecord:${spaceId}:${path}`);
+      const r = (data.teamRecords[spaceId] ?? []).find((x) => x.path === path);
+      if (!r) throw new Error("no record");
+      return r;
+    },
+    teamRecordWrite: async (spaceId, path, markdown) => {
+      calls.push(`teamRecordWrite:${spaceId}:${path}`);
+      const r = (data.teamRecords[spaceId] ?? []).find((x) => x.path === path)!;
+      r.markdown = markdown;
+      return r;
+    },
+    teamRecordCreate: async (spaceId, name) => { calls.push(`teamRecordCreate:${spaceId}:${name}`); throw new Error("not faked"); },
+    teamActivity: async (spaceId) => { calls.push(`teamActivity:${spaceId}`); return data.teamActivity[spaceId] ?? []; },
     listSchedules: async (spaceId) => { calls.push(`listSchedules:${spaceId}`); return data.schedules.filter((r) => r.spaceId === spaceId); },
     createSchedule: async (input) => {
       calls.push(`createSchedule:${input.spaceId}`);
@@ -1607,7 +1692,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         id: `sch${data.schedules.length + 1}`, spaceId: input.spaceId, title: input.title, goal: input.goal,
         cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints ?? null,
         nextRunAt: nextFireOf(input.cron, Date.now()), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
-        newSessionPerRun: input.newSessionPerRun ?? true, archiveSucceeded: input.archiveSucceeded ?? false,
+        newSessionPerRun: input.newSessionPerRun ?? true, archiveSucceeded: input.archiveSucceeded ?? false, roleId: null,
         createdAt: Date.now(), updatedAt: Date.now(),
       };
       data.schedules = [made, ...data.schedules];

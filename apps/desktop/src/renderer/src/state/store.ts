@@ -48,6 +48,7 @@ import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browse
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 import type { SettingsTab } from "../panes/settings/settings-index";
 import type { AskAnswers } from "@realm/contracts";
+import { teamSlice, type TeamApi, type TeamSlice } from "./team-slice";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 /** What the New space sheet hands over: the row, and what is made WITH it — the folder its sessions
@@ -159,7 +160,7 @@ export type CredentialStatus = { available: boolean; canPromptTouchID: boolean; 
 /** What a Share with ▸ <profile> did: copied, into the profile named, or why not. */
 export type ShareResult = { ok: true; profileName: string } | { ok: false; error: string };
 
-export type Api = {
+export type Api = TeamApi & {
   listProfiles(): Promise<Profile[]>;
   /** Icon/color left out are the server's defaults (`user` / grey) — the New space sheet's inline
    *  add asks only for a name; the New profile sheet asks for all three. */
@@ -912,7 +913,10 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
  */
 export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "subagent"; toolUseId: string } | { kind: "terminal" };
 
-export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history";
+export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history"
+  /* A team's pages, in the same column under a "Team" head (TeamPages.tsx): the Overview, the records
+     and one of them, a role, the log. */
+  | "team" | "records" | "roles" | "activity" | `role:${string}` | `record:${string}`;
 /** The profile page's rail (Plan 14 W2). */
 export type ProfilePageTab = "general" | "skills" | "connections" | "memory";
 /** The Settings page's tabs, in rail order — the store holds which one is showing so an opener can land
@@ -947,7 +951,7 @@ export type Sheet =
    *  the revision, not the snapshot that was taken when the row was clicked. */
   | { kind: "session-plan"; sessionId: string; planId: string };
 
-export type AppState = {
+export type AppState = TeamSlice & {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
    *  what an unbooted store looks like, so without this the sheet would flash on every launch. */
   booted: boolean;
@@ -2603,6 +2607,9 @@ export type AppState = {
    *  page on a section — the plus-menu's "Manage connections…" passes "connections"; omitted keeps
    *  whatever tab the page last showed. While it is up, that space is the current one. */
   openSpacePage(spaceId: string, tab?: SpacePageTab): void;
+  /** The space's Review pane, on one review when one is named: the pane is one per space, found or
+   *  made, and it takes the main pane in focus as any item opened from the sidebar does. */
+  openTeamReview(spaceId: string, reviewId?: string | null): Promise<void>;
   /** The page's tab, per space — see `spacePageTab`. */
   setSpacePageTab(spaceId: string, tab: SpacePageTab): void;
   /** The Sessions page's filter, per space — see `spaceSessionsView`. */
@@ -4223,6 +4230,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     let contrastTimer: ReturnType<typeof setTimeout> | null = null;
 
     return {
+      ...teamSlice(api, get, set),
       booted: false,
       sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
@@ -5454,7 +5462,7 @@ await get().refreshCustomThemes().catch(() => {});
         set({ connectionState: state });
         if (state !== "connected") return;
         // The socket was down: change events were lost, so refetch what they would have delivered.
-        get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions(), get().refreshAllSessions()]));
+        get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions(), get().refreshAllSessions(), get().refreshTeams()]));
         // openSession fetches events after each transcript's lastSeq — exactly the missed tail.
         for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
         // …and the terminals, which are the same problem with a different cursor.
@@ -7222,6 +7230,17 @@ await get().refreshCustomThemes().catch(() => {});
         // is held — a previewed tab), and the row the feed counts.
         get().run(() => get().markSessionSeen(sessionId));
         if (child.doneRow) get().run(() => get().markNotificationsRead([child.doneRow!]));
+      },
+      async openTeamReview(spaceId, reviewId = null) {
+        if (reviewId) get().selectTeamReview(spaceId, reviewId);
+        let itemId = get().items.find((i) => i.kind === "review" && i.refId === spaceId)?.id;
+        if (!itemId) {
+          const made = await api.createItem(spaceId, "review", "Review", spaceId);
+          await get().refreshItems(spaceId);
+          itemId = made.id;
+        }
+        get().closePageOverlay();
+        await get().openItem(itemId);
       },
       openSpacePage(spaceId, tab) {
         // The tab lands even when the page is already up — "Manage connections…" on an open page

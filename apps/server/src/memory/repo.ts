@@ -262,6 +262,14 @@ export class MemoryRepoService {
     });
   }
 
+  /** Who last committed a file, and when — a team record's "last changed by". The author is the
+   *  name the commit was made under: the person's, or a team role's (`edit`/`writeFile`'s `author`). */
+  async lastChange(repo: string, rel: string): Promise<{ author: string; at: number } | null> {
+    const r = await this.git(repo, ["log", "-n1", "--format=%an%x1f%ct", "--", this.relPath(rel)]);
+    const [author, ct] = r.code === 0 ? r.stdout.trim().split("\x1f") : [];
+    return author && ct ? { author, at: Number(ct) * 1000 } : null;
+  }
+
   // ─── Reading ──────────────────────────────────────────────────────────────────────────────────
 
   /** One file (or a folder's listing) of the repo, by path or `[[link]]`. Allowed on a dirty repo. */
@@ -316,7 +324,7 @@ export class MemoryRepoService {
    * forget the provenance the spec recommends, or forge another session's. A new topic file is
    * linked from `MEMORY.md`'s index in the same commit.
    */
-  async edit(owner: RepoOwner, o: { file?: string; op: "add" | "replace" | "remove"; entry?: string; match?: string; sessionId: string }): Promise<MemoryEditOutcome> {
+  async edit(owner: RepoOwner, o: { file?: string; op: "add" | "replace" | "remove"; entry?: string; match?: string; sessionId: string; author?: string }): Promise<MemoryEditOutcome> {
     const cfg = this.mustConfig(owner);
     const repo = cfg.path;
     const rel = this.relPath(o.file ?? MEMORY_REPO_INDEX_FILE);
@@ -351,7 +359,7 @@ export class MemoryRepoService {
       if (before === null && !isIndex) writes.set(MEMORY_REPO_INDEX_FILE, withIndexLink(this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), rel));
       const verb = o.op === "add" ? "Remember" : o.op === "replace" ? "Update" : "Forget";
       const what = o.op === "remove" ? (parseMemoryEntry(o.match!)?.text ?? o.match!) : entry!.text;
-      const out = await this.commitFiles(repo, writes, `${verb} ${short(what)}`);
+      const out = await this.commitFiles(repo, writes, `${verb} ${short(what)}`, o.author);
       return { changed: true, file: rel, line: entry ? `- ${entry.text}` : null, ...out };
     });
     if (out.changed) void this.queueSync(owner);
@@ -360,7 +368,7 @@ export class MemoryRepoService {
 
   /** A whole non-entry file — a saved query, a script, a long note — as one commit. Never MEMORY.md,
    *  which only changes an entry at a time. */
-  async writeFile(owner: RepoOwner, link: string, content: string): Promise<MemoryEditOutcome> {
+  async writeFile(owner: RepoOwner, link: string, content: string, author?: string): Promise<MemoryEditOutcome> {
     const cfg = this.mustConfig(owner);
     const repo = cfg.path;
     const rel = this.relPath(link);
@@ -375,7 +383,7 @@ export class MemoryRepoService {
       if (before === content) return { changed: false, file: rel, line: null, sha: null, diff: "" };
       const writes = new Map<string, string>([[rel, content]]);
       if (before === null) writes.set(MEMORY_REPO_INDEX_FILE, withIndexLink(this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), rel));
-      const out = await this.commitFiles(repo, writes, `${before === null ? "Save" : "Update"} ${rel}`);
+      const out = await this.commitFiles(repo, writes, `${before === null ? "Save" : "Update"} ${rel}`, author);
       return { changed: true, file: rel, line: null, ...out };
     });
     if (out.changed) void this.queueSync(owner);
@@ -708,7 +716,7 @@ export class MemoryRepoService {
 
   /** Write the files, stage exactly them, commit exactly them. A failed commit puts every file back
    *  as it was and unstages them — the tree is left as clean as the write found it. */
-  private async commitFiles(repo: string, writes: Map<string, string>, message: string): Promise<{ sha: string; diff: string }> {
+  private async commitFiles(repo: string, writes: Map<string, string>, message: string, author?: string): Promise<{ sha: string; diff: string }> {
     const before = new Map<string, string | null>();
     for (const rel of writes.keys()) before.set(rel, existsSync(join(repo, rel)) ? readFileSync(join(repo, rel), "utf8") : null);
     const paths = [...writes.keys()];
@@ -718,7 +726,7 @@ export class MemoryRepoService {
         writeFileSync(join(repo, rel), content);
       }
       await this.must(repo, ["add", "--", ...paths]);
-      await this.must(repo, [...commitConfig(await this.committer()), "commit", "-q", "-m", message, "--", ...paths]);
+      await this.must(repo, [...commitConfig(author?.trim() || await this.committer()), "commit", "-q", "-m", message, "--", ...paths]);
     } catch (e) {
       for (const [rel, content] of before) {
         if (content === null) rmSync(join(repo, rel), { force: true });

@@ -144,11 +144,14 @@ import { AppViewService } from "./apps/service";
 import { ExecutionSandboxService } from "./sandbox/service";
 import { machineName } from "./machine-name";
 import { userFirstName } from "./user-name";
+import { TeamService } from "./team/service";
+import { TeamStore } from "./team/store";
+import { createTeamAgentProvider } from "./team/agent-tools";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
@@ -953,6 +956,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Declared alongside `runs` and for the same reason: `close()` below runs on a boot that may have
   // failed before this was constructed, so the handle has to exist as null from the top.
   let schedules: ScheduleService | null = null;
+  // Teams: read back through the session-event hook and the run seams below, like `runs`.
+  let team: TeamService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
   let forks: ForkService | null = null;
@@ -1136,7 +1141,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
     notifications: {
-      handleSessionEvent: (session, ev) => { notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); usage?.handleSessionEvent(session, ev); },
+      handleSessionEvent: (session, ev) => { notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); usage?.handleSessionEvent(session, ev); team?.handleSessionEvent(session, ev); },
       probeResults: (results) => notifications.probeResults(results),
     },
     // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
@@ -1325,7 +1330,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   runs = new RunService({ store: new RunsStore(db), settings, sessions, rpc, environments: envService, skills, notifications,
     // A run a schedule fired may owe its schedule something once it is over (archiving a success).
     // Read through the variable, which is assigned on the next statement and before any run settles.
-    onSettled: (run) => schedules?.runSettled(run),
+    onSettled: (run) => { schedules?.runSettled(run); team?.runSettled(run); },
+    // A team role's run waits for a slot, wears its role's preamble, and arms its minutes cap when it
+    // starts — all decided by the team service, read through the variable assigned below.
+    admit: (run) => team?.admit(run) ?? true,
+    rolePreamble: (run) => team?.rolePreamble(run) ?? null,
+    onChanged: (run) => team?.runChanged(run),
     fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind });
   // Scheduled tasks: the clock in front of the runs above. It owns a timer and they deliberately do
   // not — every fact this one acts on is a column, so a restart replays from the row rather than
@@ -1334,6 +1344,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   schedules = new ScheduleService({
     store: new SchedulesStore(db), runs, rpc,
     spaceExists: (id) => Boolean(spaces.get(id)),
+    refuse: (schedule) => team?.refuseSchedule(schedule) ?? null,
     // The session's sidebar row: an item, archived the way the row's own Archive does it.
     archiveSession: (sessionId, archived) => {
       const item = items.findByRefId(sessionId);
@@ -1347,6 +1358,17 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      because it wraps the service declared on the line above; the gateway's per-space enablement is
      what decides whether a session actually sees the tools. */
   mcpGateway.registerProvider(createScheduleAgentProvider({ schedules, mcp, sessions }));
+  /* Teams: roles whose work is the runs above, Review, records in the space's memory repo, and the
+     activity log (team/service.ts). `realm-team` is listed only in a space that is a team. */
+  team = new TeamService({
+    store: new TeamStore(db), runs, schedules, sessions, repos: memoryRepos,
+    rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
+    spaceExists: (id) => Boolean(spaces.get(id)),
+    enabledSkills: (id) => skills.list(id).skills.filter((s) => s.enabled && s.valid).map((s) => s.id),
+    settings, rpc,
+    defaultKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind,
+  });
+  mcpGateway.registerProvider(createTeamAgentProvider({ team, mcp }));
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
      has a repo — attaching one is the opt-in. The only memory that reaches Cursor and the other ACP
      agents, which take no per-session context. A save repaints every open memory row of the profile. */
@@ -1415,7 +1437,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const projectSearch = new ProjectSearchService();
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     libraryFiles,
@@ -1444,6 +1466,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // …and only then does the clock start. A schedule that came due while the app was closed fires on
   // this first tick, and it must not race the recovery that decides which runs are still alive.
   schedules.start();
+  team.start();
   // The pre-v15 event history reaches the search index here: chunked, yielding, resumable across
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
@@ -1490,6 +1513,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    */
   const closeApp = async (): Promise<void> => {
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
+    team?.close();
     schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
     codeReview?.close(); // and a reviewer settling now must not write its findings to one
@@ -1520,7 +1544,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   };
 
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, codeReview, gateway: mcpGateway,
+    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, team, codeReview, gateway: mcpGateway,
     close: closeApp,
   };
 }

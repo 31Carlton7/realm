@@ -56,6 +56,7 @@ import type { UsageService } from "../usage/service";
 import type { GraphifyService } from "../graphify/service";
 import type { RunService } from "../runs/service";
 import type { ScheduleService } from "../schedules/service";
+import type { TeamService } from "../team/service";
 import type { ReviewService } from "../delegation/review";
 import type { CodeReviewService } from "../code-review/service";
 import type { DelegationEngine } from "../delegation/engine";
@@ -91,7 +92,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeamService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -940,6 +941,28 @@ export function registerMethods(d: Deps): void {
   reg("schedules.update", (p) => d.schedules.update(p));
   reg("schedules.delete", (p) => ({ deleted: d.schedules.remove(p.id) }));
   reg("schedules.runNow", (p) => d.schedules.runNow(p.id));
+
+  // Teams. The space-scoped reads check the space; the by-id methods let the service raise
+  // NotFoundError, since it loads the row anyway.
+  const space = (id: string) => { if (!d.spaces.get(id)) throw new NotFoundError("space", id); return id; };
+  reg("team.overview", () => d.team.overview());
+  reg("team.space", (p) => d.team.space(space(p.spaceId)));
+  reg("team.make", (p) => d.team.makeTeam(space(p.spaceId), p.templates));
+  reg("team.roleCreate", (p) => d.team.createRole({ ...p, spaceId: space(p.spaceId) }));
+  reg("team.roleUpdate", (p) => d.team.updateRole(p));
+  reg("team.roleArchive", (p) => { d.team.archiveRole(p.id); return { archived: true }; });
+  reg("team.roleRun", (p) => { refuseWhileDraining("start a role's run"); return d.team.runRole(p.id, p.message); });
+  reg("team.roleRuns", (p) => d.team.roleRuns(p.id, p.limit));
+  reg("team.review", (p) => d.team.review(p.id));
+  reg("team.reviewApprove", (p) => d.team.approve(p.id));
+  reg("team.reviewRequestChanges", (p) => d.team.requestChanges(p.id, p.note));
+  reg("team.reviewDone", (p) => d.team.markDone(p.id));
+  reg("team.reviewDismiss", (p) => d.team.dismiss(p.id));
+  reg("team.records", (p) => d.team.records(space(p.spaceId)));
+  reg("team.record", (p) => d.team.record(space(p.spaceId), p.path));
+  reg("team.recordWrite", (p) => d.team.writeRecord(space(p.spaceId), p.path, p.markdown));
+  reg("team.recordCreate", (p) => d.team.createRecord(space(p.spaceId), p.name));
+  reg("team.activity", (p) => d.team.activity(space(p.spaceId), p.limit, p.before));
 
   reg("runs.list", (p) => d.runs.list(p));
   reg("runs.get", (p) => d.runs.get(p.id));

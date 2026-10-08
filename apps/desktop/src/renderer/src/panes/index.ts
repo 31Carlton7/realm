@@ -34,3 +34,5 @@ import { MachinePane } from "./machine/MachinePane";
 registerPane("machine", MachinePane);
 import { SimulatorPane } from "./simulator/SimulatorPane";
 registerPane("simulator", SimulatorPane);
+import { ReviewPane } from "./team/ReviewPane";
+registerPane("review", ReviewPane);
