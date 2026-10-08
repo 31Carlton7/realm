@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest";
 import { exportOptionsPlist, ipaProblems, isBetaXcode, marketingVersion, nextBuildNumber, parseIosReleaseArgs } from "./ios-release.mjs";
 
 describe("parseIosReleaseArgs", () => {
-  it("defaults to asking App Store Connect, uploading, for real", () => {
-    expect(parseIosReleaseArgs([])).toEqual({ build: null, notes: null, skipUpload: false, dryRun: false });
+  it("defaults to asking App Store Connect, uploading, for real, with the selected Xcode", () => {
+    expect(parseIosReleaseArgs([])).toEqual({ build: null, notes: null, xcode: null, skipUpload: false, dryRun: false });
   });
-  it("takes a build number, notes, and the two switches", () => {
-    expect(parseIosReleaseArgs(["--build", "12", "--notes", "Pairing from Settings", "--skip-upload", "--dry-run"])).toEqual({
-      build: 12, notes: "Pairing from Settings", skipUpload: true, dryRun: true,
+  it("takes a build number, an Xcode, notes, and the two switches", () => {
+    expect(parseIosReleaseArgs(["--build", "12", "--xcode", "/Applications/Xcode-27.0.0.app/", "--notes", "Pairing from Settings", "--skip-upload", "--dry-run"])).toEqual({
+      build: 12, xcode: "/Applications/Xcode-27.0.0.app", notes: "Pairing from Settings", skipUpload: true, dryRun: true,
     });
   });
   it("refuses a build number that is not a whole number above 0", () => {
@@ -17,6 +17,7 @@ describe("parseIosReleaseArgs", () => {
   it("refuses a flag left without its value, and unknown flags", () => {
     expect(() => parseIosReleaseArgs(["--build"])).toThrow(/--build needs a value/);
     expect(() => parseIosReleaseArgs(["--notes", "--dry-run"])).toThrow(/--notes needs a value/);
+    expect(() => parseIosReleaseArgs(["--xcode"])).toThrow(/--xcode needs a value/);
     expect(() => parseIosReleaseArgs(["--upload"])).toThrow(/unknown flag --upload/);
   });
 });

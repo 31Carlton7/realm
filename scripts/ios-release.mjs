@@ -14,6 +14,8 @@
  * never has to upload anything — the step that broke for Versed in August 2026.
  *
  * Flags: --build <n>    this build number instead of asking App Store Connect
+ *        --xcode <app>  build with this Xcode (e.g. /Applications/Xcode-27.0.0.app) instead of the
+ *                       selected one, leaving the selection alone
  *        --notes <text> "What to Test" for the build
  *        --skip-upload  stop once the IPA is exported and checked
  *        --dry-run      print the plan and the commands; build and upload nothing
@@ -34,19 +36,20 @@ export const GROUP = "Internal Testers";
 // ---------- pure logic (tested in ios-release.test.ts) ----------
 
 export function parseIosReleaseArgs(argv) {
-  const out = { build: null, notes: null, skipUpload: false, dryRun: false };
+  const out = { build: null, notes: null, xcode: null, skipUpload: false, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === "--skip-upload") out.skipUpload = true;
     else if (flag === "--dry-run") out.dryRun = true;
-    else if (flag === "--build" || flag === "--notes") {
+    else if (flag === "--build" || flag === "--notes" || flag === "--xcode") {
       const value = argv[++i];
       if (value === undefined || value.startsWith("--")) throw new Error(`${flag} needs a value`);
       if (flag === "--notes") out.notes = value;
+      else if (flag === "--xcode") out.xcode = value.replace(/\/+$/, "");
       else if (!/^[1-9]\d*$/.test(value)) throw new Error(`--build must be a whole number above 0, not "${value}"`);
       else out.build = Number(value);
     } else {
-      throw new Error(`unknown flag ${flag} — pnpm ios:release [--build <n>] [--notes <text>] [--skip-upload] [--dry-run]`);
+      throw new Error(`unknown flag ${flag} — pnpm ios:release [--build <n>] [--xcode <app>] [--notes <text>] [--skip-upload] [--dry-run]`);
     }
   }
   return out;
@@ -121,8 +124,12 @@ const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
 const iosDir = join(repo, "apps/ios");
 const asc = process.env.ASC || "asc";
 
+/** Every child runs with this environment: `--xcode` sets DEVELOPER_DIR here, so xcodebuild and the
+ *  tools it calls use that Xcode without `xcode-select` changing for anything else on the Mac. */
+let childEnv = process.env;
+
 function sh(cmd, args, opts = {}) {
-  return execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...opts }).trim();
+  return execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: childEnv, ...opts }).trim();
 }
 
 /** Runs a long step with its output in a log file, and the log's tail on the terminal if it fails. */
@@ -131,7 +138,7 @@ function step(title, cmd, args, { cwd = repo, log, dryRun }) {
   if (dryRun) return Promise.resolve();
   if (log) console.log(`  log: ${log}`);
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, stdio: ["ignore", log ? "pipe" : "inherit", log ? "pipe" : "inherit"] });
+    const child = spawn(cmd, args, { cwd, env: childEnv, stdio: ["ignore", log ? "pipe" : "inherit", log ? "pipe" : "inherit"] });
     if (log) {
       const file = createWriteStream(log);
       child.stdout.pipe(file);
@@ -181,6 +188,11 @@ function readIpaFacts(ipa, scratch) {
 
 async function main() {
   const args = parseIosReleaseArgs(process.argv.slice(2));
+  if (args.xcode) {
+    const dir = join(args.xcode, "Contents/Developer");
+    if (!existsSync(dir)) throw new Error(`--xcode ${args.xcode} is not an Xcode: there is no ${dir}`);
+    childEnv = { ...process.env, DEVELOPER_DIR: dir };
+  }
   const developerDir = sh("xcode-select", ["-p"]);
   const xcode = sh("xcodebuild", ["-version"]).replace(/\n/g, ", ");
   console.log(`Xcode: ${xcode} (${developerDir})`);

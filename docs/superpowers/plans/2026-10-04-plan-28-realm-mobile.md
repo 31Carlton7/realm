@@ -666,6 +666,17 @@ what the relay sees of a sleeping Mac or a pulled network.
   Connect, then runs XcodeGen and archives Release. It exports an App Store Connect IPA and refuses to
   upload it unless it is distribution-signed, with production push and the notification extension
   inside. `asc publish testflight` then uploads it with the API key and gives it to Internal Testers.
+- **The iPhone app's Phase 2 is merged.**
+  - Screens: Home, the transcript with every row kind, the answer cards and the question sheet,
+    pairing (scanner, paste, Universal Link), and Settings.
+  - The cache and outbox, the connection words, Markdown prose, Realm's palette and fonts, and the
+    icon drawn from the Mac's vector.
+  - Release signing, which claims `applinks:realm.computer`.
+- **The first upload, build 0.1.0 (1), was refused for its toolchain (ITMS-90534),** as warned.
+  Archive, export, signing and the upload itself all worked; App Store Connect refuses builds made
+  with Xcode 27.0 beta 6. Nothing was recorded, so build 1 is still free. `pnpm ios:release --xcode
+  <app>` builds with a released Xcode without changing the selected one. Xcode 27.0 (27A266a) is the
+  release to install.
 - **The Mac's half is merged into `feat/mobile`.**
   - **realm-server runs Realm Mobile itself.** It calls its own RPC in process, as a named principal.
     The Mac's identity is sealed under a new `remote` secret domain, whose key Electron main hands
@@ -790,7 +801,8 @@ Each is done once. Phase 1 needs only items 2, 4 and 5.
 
 1. **Install the released Xcode 27.** This Mac has 27.0 beta 6. App Store Connect refuses builds from
    a beta Xcode unless Apple's release notes name that beta (ITMS-90534), and 27.0 shipped on
-   2026-09-14. *2026-10-08: the owner chose to try the beta first.*
+   2026-09-14. *2026-10-08: the owner chose to try the beta first, and App Store Connect refused that
+   build with ITMS-90534.*
 2. **An APNs key.** Create it at developer.apple.com ▸ Certificates, IDs & Profiles ▸ Keys, or name
    an existing `.p8`. It goes into the relay as a Worker secret and nowhere else.
 3. **The app record in App Store Connect.** *Done 2026-10-08 with `asc web apps create`.* The listing
