@@ -6,6 +6,16 @@ const config: NextConfig = {
   // tracing root keeps Next from walking up into the monorepo looking for one.
   outputFileTracingRoot: import.meta.dirname,
   typedRoutes: true,
+  // iOS reads this to let the Realm app open realm.computer/pair links (Plan 28). It has no extension,
+  // so without this it would be served as application/octet-stream.
+  async headers() {
+    return [
+      {
+        source: "/.well-known/apple-app-site-association",
+        headers: [{ key: "Content-Type", value: "application/json" }],
+      },
+    ]
+  },
 }
 
 export default config
