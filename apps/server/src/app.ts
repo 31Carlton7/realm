@@ -37,6 +37,7 @@ import { createSettingsTools } from "./workspace/settings";
 import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
@@ -45,6 +46,7 @@ import { DEFAULT_PERMISSION_MODE_KEY, GOAL_PROVIDER_NAME, GuestSpecSchema, goalT
 import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
+import { namedInRoot } from "./documents/paths";
 import { LectureService } from "./school/lectures";
 import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
@@ -1156,6 +1158,19 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     listForSpace: (spaceId, dir) => documents.list(documents.open({ spaceId }).documentsId, dir),
     openPath: (p) => documents.openPath(p),
     progressForSpace: (spaceId, path) => documents.progressRead(documents.open({ spaceId }).documentsId, path),
+    readForSpace: async (spaceId, path) => {
+      const { rel, abs } = namedInRoot(documents.rootForSpace(spaceId), path);
+      const st = await stat(abs).catch(() => null);
+      if (!st) throw new Error(`no such file: ${rel}`);
+      if (!st.isFile()) throw new Error(`${rel} is not a file`);
+      return { path: rel, text: await extractor.text(abs) };
+    },
+    panesForSpace: (spaceId) => items.list(spaceId).filter((i) => i.kind === "documents" && !i.archived).flatMap((i) => {
+      try {
+        const ws = documents.get(i.refId);
+        return [{ title: i.title, root: documents.rootOfWorkspace(i.refId), openPaths: ws.openPaths, activePath: ws.activePath }];
+      } catch { return []; }
+    }),
   }));
   // Plan 25 W4, on the same terms: off until a space asks for it, a card per MACHINE rather than per
   // tool, and the card kept in bypassPermissions. Registered here and not conditionally — the

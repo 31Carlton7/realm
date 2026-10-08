@@ -1,5 +1,7 @@
 import { realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { expandHome } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 
 /**
@@ -68,4 +70,17 @@ function under(rootAbs: string, target: string): string | null {
   if (target === rootAbs) return "";
   if (!target.startsWith(rootAbs + sep)) return null;
   return relative(rootAbs, target).split(sep).join("/");
+}
+
+/**
+ * A path as a person or an agent writes it — relative to the root, absolute, or `~/…` — as the
+ * relative path under `root` and the absolute one, or a refusal for anything outside it. An absolute
+ * path is relativized rather than refused: what an agent writes in its prose is absolute, and turning
+ * that into a file it can open or read is the point.
+ */
+export function namedInRoot(root: string, path: string): { rel: string; abs: string } {
+  const named = expandHome(path, homedir());
+  const rel = isAbsolute(named) ? relInRoot(root, named) : named;
+  if (rel === null) throw new RpcError("BAD_PATH", `${path} is outside this workspace`);
+  return { rel, abs: resolveInRoot(root, rel) };
 }
