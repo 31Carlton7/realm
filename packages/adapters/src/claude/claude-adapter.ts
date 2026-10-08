@@ -6,6 +6,7 @@ import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaude } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import { GATEWAY_TOOL_TIMEOUT_MS } from "../types";
 
 type QueryFn = typeof sdkQuery;
 /** The keys `Settings` actually declares. The SDK's type ends in `[k: string]: unknown`, so a
@@ -96,14 +97,19 @@ export type ClaudeHandle = AgentHandle & { chainCursor(): ChainCursor };
  * three process transports — `{type:'stdio',command,args,env}` and `{type:'http'|'sse',url,headers}`.
  *
  * No filtering happens here: since Plan 9 W3 `servers` is always exactly the gateway's own `http` entry
- * (or empty), and Claude takes every transport anyway. Translation only.
+ * (or empty), and Claude takes every transport anyway.
+ *
+ * The one addition is `timeout`. Without it Claude aborts a call that has sent "no response or
+ * progress for 300s" — its own words, seen on `agent_wait` — and names the per-server timeout as the
+ * way to allow longer silent runs. The gateway's heartbeat keeps a call from going silent; this keeps
+ * a call that legitimately runs to the hour from being cut off short of Realm's own answer.
  */
 export function claudeMcpServers(servers: readonly McpServerConfig[]): Record<string, unknown> {
   return Object.fromEntries(servers.map((s) => [
     s.name,
     s.transport === "stdio"
       ? { type: "stdio" as const, command: s.command, args: s.args, env: s.env }
-      : { type: s.transport, url: s.url, headers: s.headers },
+      : { type: s.transport, url: s.url, headers: s.headers, timeout: GATEWAY_TOOL_TIMEOUT_MS },
   ]));
 }
 

@@ -5,6 +5,7 @@ import { CodexConnection, type ThreadListener } from "./connection";
 import { createCodexMapper } from "./map-codex";
 import { CODEX_FAST_TIER, parseCodexModelPage, probeCodex, type CodexModel } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import { GATEWAY_TOOL_TIMEOUT_MS } from "../types";
 import { obj, str, type Bag } from "../bag";
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -92,10 +93,10 @@ export function codexUserInputReply(answers: AskAnswers): { answers: Record<stri
 /**
  * How long Codex waits on one of Realm's tools before giving up on it. Its own default is a minute,
  * and a Realm tool can rightly take far longer: a question waits for the user up to the broker's
- * fifteen minutes, and `agent_wait` listens for sub-agents by default for as long. A minute more than
- * the longest of them, so Realm's own answer — even a timeout — is the one that lands.
+ * fifteen minutes, and `agent_wait` listens for sub-agents for up to an hour. The shared gateway
+ * limit, in the seconds Codex counts in.
  */
-export const GATEWAY_TOOL_TIMEOUT_SEC = 16 * 60;
+export const GATEWAY_TOOL_TIMEOUT_SEC = GATEWAY_TOOL_TIMEOUT_MS / 1000;
 
 /**
  * Codex decisions Realm will send, most preferred first.
