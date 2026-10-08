@@ -921,6 +921,8 @@ describe("app store", () => {
       expect(l.type === "split" && l.dir).toBe("row");
       expect(primaryLeaves(l).map((p) => p.itemId)).toEqual(["i9", newItem().id]);
       expect(store.getState().focusedLeafId).toBe(findLeafOfItem(l, newItem().id)!.id);
+      // …with the keyboard in its prompter (THE MUTANT: a split that leaves the caret behind).
+      expect(store.getState().keyboardFor?.sessionId).toBe(newItem().refId);
     });
 
     it("split down puts it below", async () => {

@@ -5189,6 +5189,10 @@ await get().refreshCustomThemes().catch(() => {});
         const sid = spaceFor(anchor?.itemId ? get().items.find((i) => i.id === anchor.itemId)?.spaceId : null);
         if (!sid) return get().splitFocused(dir);
         await get().newSessionInstant(anchor?.id ?? null, dir === "row" ? "right" : "bottom", sid);
+        // Split from the keyboard to type in the new session: its prompter gets the keyboard.
+        const landed = get().focusedLeafId ? findLeaf(get().layout ?? emptyLayout(), get().focusedLeafId!) : null;
+        const made = landed?.itemId ? get().items.find((i) => i.id === landed.itemId && i.kind === "session") : undefined;
+        if (made) set({ keyboardFor: { sessionId: made.refId, n: (get().keyboardFor?.n ?? 0) + 1 } });
       },
       async openItemAt(itemId, leafId, edge) {
         // Self-drop: the item already occupies the target leaf. Splitting would first close the item
