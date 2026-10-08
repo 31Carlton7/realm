@@ -1,5 +1,6 @@
 import { realpathSync, statSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { homedir } from "node:os";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -26,6 +27,7 @@ import type { ExecutionSandboxService } from "../sandbox/service";
 import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
 import type { AppViewRef, MemorySources } from "@realm/contracts";
 import { SecretAnswers } from "./secret-answers";
+import { MTIME_SLACK_MS, sweepTurnMedia, turnSearchRoots } from "./turn-media";
 
 /**
  * One message as the prompter hands it over. `elements` are the browser-pane elements the user picked
@@ -48,6 +50,11 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
  * is — which is the only question a title in a list of ten of them answers. */
 const DEFAULT_TITLE = "New session";
+/** The settings key that says the turn-media catch-up has run on this home (`backfillTurnMedia`). */
+export const MEDIA_BACKFILL_KEY = "artifacts.mediaBackfill";
+/** How far back the catch-up looks: far enough for last week's work, near enough that the files are
+ *  likely still where the turn left them and their mtimes still the turn's. */
+export const MEDIA_BACKFILL_DAYS = 14;
 export const TITLE_MAX = 40;
 /** First line of the message, whitespace-collapsed, clipped to TITLE_MAX. */
 export function titleFromMessage(text: string): string {
@@ -138,6 +145,10 @@ export class SessionService {
   /** Sessions whose turn in flight has called a tool — the only turns whose checkout is worth asking
    *  git about at the settle (`recordTurnChanges`). A turn of conversation changes no file. */
   private toolTurns = new Set<string>();
+  /** Where the turn in flight began, per session: its `running` status's ts, and the last seq written
+   *  before it. The window the turn-media sweep reads mtimes against, and where it reads the turn's
+   *  own events from (`recordTurnMedia`). */
+  private turnStarted = new Map<string, { ts: number; seq: number }>();
   /** A settled turn's measurement still in flight, per session. The next message waits for it: an agent
    *  that started writing before the snapshot was taken would have its first edits counted as the last
    *  turn's — and a steered message, which takes no checkpoint, starts the moment the settle lands. */
@@ -188,6 +199,9 @@ export class SessionService {
      *  (`billed-calls.ts`) — tests go through `createApp` without it, live checks boot `main.ts`
      *  with the scripted agent on, and both get the heuristic title only, never a live network call. */
     titleGenerator?: (text: string) => Promise<string>;
+    /** The user's home, for the folders the turn-media sweep refuses (`~`, `~/Library`) and the `~` it
+     *  expands. Defaults to the OS's; a test passes a scratch one. */
+    userHome?: string;
     /** Writes the model's account of a session when a turn settles (`SessionSummaryService`). Wired
      *  and gated for exactly the same reasons as `titleGenerator` above: it is a billed call, so only
      *  the real server process passes one, and it is `void`ed off the settle rather than awaited. */
@@ -878,6 +892,7 @@ export class SessionService {
     this.forkInFlight.delete(id);
     this.rewindTurns.delete(id);
     this.toolTurns.delete(id);
+    this.turnStarted.delete(id);
     this.measuring.delete(id);
     // The terminal belongs to the session: deleting the session must not leave its pty running.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
@@ -1093,6 +1108,122 @@ export class SessionService {
     } catch (e) {
       console.error(`[sessions] could not measure the turn for ${id}: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  /**
+   * The pictures and movies a settled turn left on disk, put on the rail as `files_made` — which the
+   * artifacts index reads, so the documents home and the Library list them (`turn-media.ts`).
+   *
+   * What the turn already indexed itself (a Write, an attachment) is not repeated, and a file another
+   * session has indexed since this turn began is that session's: two sessions working in one folder
+   * must not both claim the same render. A nicety like `recordTurnChanges`, and fails the same way.
+   */
+  private async recordTurnMedia(id: string, started: { ts: number; seq: number }, settledAt: number): Promise<void> {
+    try {
+      const s = this.d.sessions.get(id);
+      if (!s) return;
+      const stored = this.d.events.listAfter(id, started.seq, 5000);
+      const roots = await turnSearchRoots({
+        cwd: s.cwd, spaceFolder: this.d.spaces.get(s.spaceId)?.folderPath ?? null,
+        events: stored.map((e) => e.event), home: this.d.userHome ?? homedir(),
+      });
+      const found = await sweepTurnMedia(roots, { from: started.ts, to: settledAt, max: TURN_MEDIA_MAX });
+      if (found.total === 0 || this.closing) return;
+      const own = new Set(stored.flatMap((e) =>
+        artifactsFromEvent({ sessionId: id, spaceId: s.spaceId, seq: e.seq, ts: e.event.ts, type: e.event.type, payload: e.event.payload }).map((a) => a.path)));
+      // What every other session has indexed since the turn began: a range on `artifacts_recent`, a
+      // handful of rows, rather than one lookup per picture on a column with no index.
+      const elsewhere = new Set((this.d.db.prepare("SELECT path FROM artifacts WHERE ts >= ? AND session_id <> ?")
+        .all(started.ts - MTIME_SLACK_MS, id) as { path: string }[]).map((r) => r.path));
+      const files = found.files.filter((f) => !own.has(f.path) && !elsewhere.has(f.path));
+      if (files.length === 0) return;
+      const totalFiles = found.total - (found.files.length - files.length);
+      this.publishServerEvent(id, sessionEvent("files_made", { settledAt, files, totalFiles }));
+    } catch (e) {
+      console.error(`[sessions] could not look for the turn's media for ${id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
+   * The turn-media sweep, run once over the last `days` of history: what `recordTurnMedia` would have
+   * written for each tool turn that settled before this build existed, so a deck made last week is in
+   * the documents home and the Library without making it again.
+   *
+   * Once per home, behind a settings key, and only after it finishes — a run cut short by a quit runs
+   * again, and skips every turn that already has its `files_made`. Each turn's window is rebuilt from
+   * the session's own `status` events, and its event is written with the settle's `ts`, so the Library
+   * orders it with the turn that made it. Written quietly (`setLastEventSeqQuietly`) and broadcast to
+   * nobody: an event about last week must not move a session to the top of the list or give it a dot.
+   * Oldest turn first across every session, so of two sessions whose windows both saw a file, the one
+   * that was working first claims it.
+   */
+  async backfillTurnMedia({ days = MEDIA_BACKFILL_DAYS, now = Date.now() }: { days?: number; now?: number } = {}): Promise<number> {
+    if (this.d.settings.get(MEDIA_BACKFILL_KEY) != null) return 0;
+    const since = now - days * 86_400_000;
+    const turns: { sessionId: string; start: { ts: number; seq: number }; settledAt: number; events: StoredSessionEvent[] }[] = [];
+    for (const s of this.d.sessions.listAll()) {
+      if (s.updatedAt < since) continue;
+      const before = this.d.db.prepare("SELECT MAX(seq) AS seq FROM session_events WHERE session_id = ? AND ts < ?").get(s.id, since) as { seq: number | null };
+      const log: StoredSessionEvent[] = [];
+      for (let after = before.seq ?? 0; ;) {
+        const page = this.d.events.listAfter(s.id, after, 5000);
+        log.push(...page);
+        if (page.length < 5000) break;
+        after = page.at(-1)!.seq;
+      }
+      const recorded = new Set(log.flatMap((e) => (e.event.type === "files_made" ? [e.event.payload.settledAt] : [])));
+      let live = false;
+      let open: { start: { ts: number; seq: number }; from: number; tools: boolean } | null = null;
+      for (let i = 0; i < log.length; i++) {
+        const { event } = log[i]!;
+        if (event.type === "tool_call" && open) open.tools = true;
+        if (event.type !== "status") continue;
+        const isLive = event.payload.status === "running" || event.payload.status === "waiting_permission";
+        if (isLive && !live) open = { start: { ts: event.ts, seq: log[i - 1]?.seq ?? before.seq ?? 0 }, from: i, tools: false };
+        if (!isLive && live && open) {
+          if (open.tools && !recorded.has(event.ts)) {
+            turns.push({ sessionId: s.id, start: open.start, settledAt: event.ts, events: log.slice(open.from, i) });
+          }
+          open = null;
+        }
+        live = isLive;
+      }
+    }
+    turns.sort((a, b) => a.settledAt - b.settledAt);
+    const claimed = new Set<string>();
+    let written = 0;
+    for (const turn of turns) {
+      if (this.closing) return written;
+      const s = this.d.sessions.get(turn.sessionId);
+      if (!s) continue;
+      try {
+        const roots = await turnSearchRoots({
+          cwd: s.cwd, spaceFolder: this.d.spaces.get(s.spaceId)?.folderPath ?? null,
+          events: turn.events.map((e) => e.event), home: this.d.userHome ?? homedir(),
+        });
+        const found = await sweepTurnMedia(roots, { from: turn.start.ts, to: turn.settledAt, max: TURN_MEDIA_MAX });
+        if (found.total === 0) continue;
+        const own = new Set(turn.events.flatMap((e) =>
+          artifactsFromEvent({ sessionId: s.id, spaceId: s.spaceId, seq: e.seq, ts: e.event.ts, type: e.event.type, payload: e.event.payload }).map((a) => a.path)));
+        const elsewhere = new Set((this.d.db.prepare("SELECT path FROM artifacts WHERE ts >= ? AND ts <= ? AND session_id <> ?")
+          .all(turn.start.ts - MTIME_SLACK_MS, turn.settledAt + MTIME_SLACK_MS, s.id) as { path: string }[]).map((r) => r.path));
+        const files = found.files.filter((f) => !own.has(f.path) && !elsewhere.has(f.path) && !claimed.has(f.path));
+        if (files.length === 0) continue;
+        for (const f of files) claimed.add(f.path);
+        const ev = sessionEvent("files_made", { settledAt: turn.settledAt, files, totalFiles: found.total - (found.files.length - files.length) }, turn.settledAt);
+        this.d.db.exec("BEGIN");
+        try {
+          const stored = this.d.events.append(s.id, ev);
+          this.d.sessions.setLastEventSeqQuietly(s.id, stored.seq);
+          this.d.db.exec("COMMIT");
+        } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
+        written++;
+      } catch (e) {
+        console.error(`[sessions] media catch-up skipped a turn of ${s.id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    this.d.settings.set(MEDIA_BACKFILL_KEY, { doneAt: now, days, turns: turns.length, written });
+    return written;
   }
 
   /**
@@ -1464,6 +1595,11 @@ export class SessionService {
       const settled = (before.status === "running" || before.status === "waiting_permission")
         && ev.payload.status !== "running" && ev.payload.status !== "waiting_permission";
       const fronting = settled ? this.d.checkpoints?.frontingCheckpoint(id) ?? null : null;
+      if (ev.payload.status === "running" && before.status !== "running" && before.status !== "waiting_permission") {
+        this.turnStarted.set(id, { ts: ev.ts, seq: before.lastEventSeq });
+      }
+      const started = settled ? this.turnStarted.get(id) : undefined;
+      if (settled) this.turnStarted.delete(id);
       // A SETTLE, not any status: the transition out of a live state is the moment the transcript
       // stops moving, and it is the only one worth summarizing. Fired after the events of the turn
       // are persisted below on their own passes — the summary reads the log, so it must not run
@@ -1495,8 +1631,14 @@ export class SessionService {
       if (ev.payload.status === "idle" || ev.payload.status === "ended" || ev.payload.status === "error") {
         for (const settle of this.settleWaiters.get(id) ?? []) settle();
       }
-      if (settled && this.toolTurns.delete(id) && fronting) {
-        const measured: Promise<void> = this.recordTurnChanges(id, fronting, ev.ts)
+      // Consumed on every settle, whatever follows: a checkout git cannot measure (`fronting` null —
+      // a plain folder) is exactly where a turn's pictures land, and must not leave the flag set.
+      const hadTools = settled && this.toolTurns.delete(id);
+      if (hadTools) {
+        const measured: Promise<void> = Promise.all([
+          fronting ? this.recordTurnChanges(id, fronting, ev.ts) : null,
+          started ? this.recordTurnMedia(id, started, ev.ts) : null,
+        ]).then(() => {})
           .finally(() => { if (this.measuring.get(id) === measured) this.measuring.delete(id); });
         this.measuring.set(id, measured);
       }

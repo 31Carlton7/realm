@@ -64,6 +64,39 @@ describe("createCodexMapper", () => {
     expect(done[0]).toMatchObject({ type: "tool_result", payload: { toolUseId: "call_1", content: "hi\n", isError: false } });
   });
 
+  describe("Codex's built-in image generation", () => {
+    const saved = "/Users/u/.codex/generated_images/01a08390/exec-8c2c614d.png";
+    const base64 = "iVBORw0KGgo" + "A".repeat(200_000);
+
+    it("becomes one image_generation call carrying the saved path, and never the base64 picture", () => {
+      const m = createCodexMapper();
+      const started = m.map("item/started", { item: { type: "imageGeneration", id: "ig_1", status: "inProgress", revisedPrompt: "a logo", result: "", savedPath: null } });
+      const done = m.map("item/completed", { item: { type: "imageGeneration", id: "ig_1", status: "completed", revisedPrompt: "a logo", result: base64, transparentBackground: true, failure: null, savedPath: saved } });
+      const all = [...started, ...done];
+      expect(types(all)).toEqual(["tool_call", "tool_result"]);
+      expect(all[0]).toMatchObject({ payload: { toolUseId: "ig_1", name: "image_generation", input: { path: saved, prompt: "a logo" } } });
+      expect(all[1]).toMatchObject({ payload: { toolUseId: "ig_1", content: `Saved ${saved}`, isError: false } });
+      // THE mutant: the default toolInputFor/toolOutputFor, which spread or stringify the whole item.
+      expect(JSON.stringify(all)).not.toContain("AAAAAAAAAA");
+    });
+
+    it("names no path for a generation that failed, so nothing phantom is indexed", () => {
+      const m = createCodexMapper();
+      const done = m.map("item/completed", { item: { type: "imageGeneration", id: "ig_2", status: "failed", revisedPrompt: "a logo", result: "", failure: "content policy", savedPath: null } });
+      expect(done[0]).toMatchObject({ type: "tool_call", payload: { name: "image_generation", input: { prompt: "a logo" } } });
+      expect((done[0]!.payload as { input: Record<string, unknown> }).input).not.toHaveProperty("path");
+      expect(done[1]).toMatchObject({ type: "tool_result", payload: { content: "content policy", isError: true } });
+    });
+
+    it("maps the Extension form Codex's rollouts record the same way", () => {
+      const m = createCodexMapper();
+      // THE mutant: matching on `type === "imageGeneration"` only.
+      const done = m.map("item/completed", { item: { type: "Extension", kind: "image_gen.generation", id: "exec-1", status: "completed", revisedPrompt: "p", result: base64, savedPath: saved } });
+      expect(done[0]).toMatchObject({ type: "tool_call", payload: { name: "image_generation", input: { path: saved } } });
+      expect(JSON.stringify(done)).not.toContain("AAAAAAAAAA");
+    });
+  });
+
   it("marks a failed command as an error result", () => {
     const m = createCodexMapper();
     m.map("item/started", { item: { type: "commandExecution", id: "c2", command: "false", cwd: "/tmp" } });

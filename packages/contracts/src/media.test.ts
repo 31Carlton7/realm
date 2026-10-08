@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_MEDIA_CANDIDATES, isAudioMime, isPlayablePath, isVideoMime, mediaCandidatesIn, mediaKindFor,
+  MAX_MEDIA_CANDIDATES, directoriesNamedIn, isAudioMime, isPlayablePath, isVideoMime, mediaCandidatesIn, mediaKindFor,
   mediaUrl, pathFromMediaUrl,
 } from "./media";
 
@@ -128,5 +128,26 @@ describe("mediaCandidatesIn", () => {
   it("dedupes a name that resolves the same way twice", () => {
     // Two mentions of one directory, one filename: one candidate, not two.
     expect(mediaCandidatesIn("in `/out/` — see `/out/` — `a.png`", null)).toEqual(["/out/a.png"]);
+  });
+});
+
+describe("directoriesNamedIn", () => {
+  it("finds the folder a real clipboard-save command wrote into, quoted the way osascript needs", () => {
+    // Verbatim from the session that made the forgot-it-by-lunch deck.
+    const command = "D=~/Realm/work/versed/content/decks/forgot-it-by-lunch/photos; mkdir -p $D; osascript -e 'clipboard info' 2>&1 | head -3; osascript -e \"set png to (the clipboard as «class PNGf»)\" -e \"set f to open for access POSIX file \\\"$D/01.png\\\" with write permission\" -e \"set eof of f to 0\" -e \"write png to f\" -e \"close access f\" 2>&1 | tail -2; sips -g pixelWidth -g pixelHeight $D/01.png 2>/dev/null | tail -2";
+    // THE mutant: trimEdge leaving the `;` on, which names a folder that does not exist.
+    expect(directoriesNamedIn(command)).toContain("~/Realm/work/versed/content/decks/forgot-it-by-lunch/photos");
+  });
+
+  it("names the folder a cd went into, and the folder of a file it ran", () => {
+    const dirs = directoriesNamedIn("cd ~/Realm/work/versed/content/decks && node compose.mjs forgot-it-by-lunch v1");
+    // THE mutants: only file paths count, so a bare `cd` target is lost; or its parent is named too,
+    // which widens every sweep by a level for nothing.
+    expect(dirs).toEqual(["~/Realm/work/versed/content/decks"]);
+    expect(directoriesNamedIn("wrote them to ~/out/renders/ and ~/out/notes.md")).toEqual(["~/out/renders", "~/out"]);
+  });
+
+  it("dedupes, and keeps paths as written", () => {
+    expect(directoriesNamedIn("/a/b/x.png /a/b/y.png")).toEqual(["/a/b"]);
   });
 });
