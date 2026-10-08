@@ -1,4 +1,4 @@
-import { AskCardSchema, askCardFromAskUserQuestion, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges } from "@realm/contracts";
+import { AskCardSchema, askCardFromAskUserQuestion, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
@@ -170,6 +170,9 @@ export type Transcript = {
    *  after the settle — sometimes after the next message has already gone — and must still sit with
    *  its own turn. Optional: absent on every transcript nothing has been measured in. */
   changes?: Record<number, TurnChanges>;
+  /** The media each turn left on disk (`files_made`), keyed the same way and for the same reason as
+   *  `changes`. Nothing draws it yet; the documents home counts it to know the index has moved. */
+  made?: Record<number, FilesMade>;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
@@ -415,6 +418,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     // Beside the blocks, not among them: it belongs to a run line that is already on screen.
     case "turn_changes":
       return { ...t, changes: { ...t.changes, [e.payload.settledAt]: e.payload } };
+    case "files_made":
+      return { ...t, made: { ...t.made, [e.payload.settledAt]: e.payload } };
     case "feedback": {
       const { [e.payload.messageId]: _prev, ...rest } = t.feedback;
       return { ...t, feedback: e.payload.rating ? { ...rest, [e.payload.messageId]: e.payload.rating } : rest };

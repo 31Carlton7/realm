@@ -241,7 +241,7 @@ export const KNOWN_EXTS: readonly string[] = Object.keys(TYPE_BY_EXT);
  * Pure and total: every event type that carries none returns `[]`, so the writer can call it on
  * every append without a type switch of its own and the backfill can call it on every row it walks.
  *
- * Two provenances, and only two:
+ * Three provenances, and only three:
  *
  *  - a `tool_call` naming a WRITE. Written on the CALL, not on the result, even though the summary's
  *    renderer-side version waits for a non-error result. The result is a separate event with only a
@@ -250,6 +250,8 @@ export const KNOWN_EXTS: readonly string[] = Object.keys(TYPE_BY_EXT);
  *    listed that a failed Write never created, which the browser discovers the moment it tries to
  *    open it. A row that might not be on disk is a better trade than a stateful indexer.
  *  - a `user_message`'s attachments, which are files already on disk by the time the event exists.
+ *  - a `files_made` event: the media a turn left on disk that no write tool named, which the server
+ *    found by looking when the turn settled.
  */
 export function artifactsFromEvent(
   { sessionId, spaceId, seq, ts, type, payload }:
@@ -276,6 +278,14 @@ export function artifactsFromEvent(
       if (typeof a?.path === "string" && a.path.trim() !== "") out.push(make("upload", a.path));
     }
     return out;
+  }
+
+  if (type === "files_made") {
+    const p = payload as { files?: unknown };
+    if (!Array.isArray(p?.files)) return [];
+    return (p.files as { path?: unknown }[])
+      .filter((f) => typeof f?.path === "string" && f.path !== "")
+      .map((f) => make("output", f.path as string));
   }
 
   return [];

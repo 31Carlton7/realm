@@ -291,6 +291,8 @@ export function weakTopics(p: GuideProgress, threshold = 0.8): string[] {
  */
 export const WRITE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "create_file", "str_replace_editor",
+  // Codex's built-in image tool, as the adapter names it: its input carries the PNG's saved path.
+  "image_generation",
 ]);
 
 /** The `file_path` / `path` an input carries, whatever the harness calls it. Null when the tool did
