@@ -1,11 +1,13 @@
 import type { EventName, EventPayload, MethodName, MethodParams, MethodResult } from "@realm/contracts";
 import WebSocket from "ws";
+import type { Principal, RpcServer } from "../rpc/server";
+import { RpcError } from "../store/rows";
 
 /**
  * How the gateway reaches Realm's own RPC. An interface rather than the RpcServer, so the mobile API
- * runs the same in both places it will live: Phase 1 dials the server over loopback like any other
- * client (no change to the server, while the v2 work is in flight), and Phase 2 swaps in an
- * in-process `RpcServer.call()` / `onBroadcast()` without touching anything above this line.
+ * runs the same in both places it lives: inside realm-server, through `RpcServer.call()` and
+ * `onBroadcast()` (`inProcessRpc`), and beside a built server in the live scripts, dialling it over
+ * loopback like any other client (`loopbackRpc`).
  */
 export interface RpcPort {
   call<M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>>;
@@ -17,6 +19,26 @@ export interface RpcPort {
 /** An RPC error with the server's code, kept so the mobile API can map it rather than flatten it. */
 export class RpcCallError extends Error {
   constructor(readonly code: string, message: string) { super(message); }
+}
+
+/**
+ * The server's own RPC, in process, as `principal`: every call runs the desktop's handler down the
+ * socket's path (`RpcServer.call`), and every broadcast reaches `onEvent`. A phone's calls are made
+ * as `phone:<id>`, so a handler can tell them from the Mac's own.
+ */
+export function inProcessRpc(rpc: RpcServer, principal: Principal): RpcPort {
+  return {
+    call: async <M extends MethodName>(method: M, params: MethodParams<M>) => {
+      try {
+        return await rpc.call(method, params, { client: null, principal }) as MethodResult<M>;
+      } catch (e) {
+        throw e instanceof RpcError ? new RpcCallError(e.code, e.message) : e;
+      }
+    },
+    onEvent: (listener) => rpc.onBroadcast(listener),
+    // Nothing to hang up: the listeners are removed by the functions `onEvent` returned.
+    close: () => {},
+  };
 }
 
 /** Dials realm-server on loopback with its daemon token (the `realm.<token>` subprotocol), exactly as

@@ -1,6 +1,6 @@
 import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@realm/contracts";
 import type { z } from "zod";
-import type { RpcServer } from "./server";
+import type { CallContext, RpcServer } from "./server";
 import { TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { BOOT_ID } from "../daemon/state";
 
@@ -123,8 +123,8 @@ export function registerMethods(d: Deps): void {
     if (draining) throw new RpcError("DAEMON_DRAINING", `Realm is finishing an update — you can ${what} again in a moment`);
   };
   const { rpc } = d;
-  const reg = <M extends MethodName>(name: M, fn: (p: Params<M>) => Result<M>) =>
-    rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
+  const reg = <M extends MethodName>(name: M, fn: (p: Params<M>, ctx: CallContext) => Result<M>) =>
+    rpc.register(name, Methods[name].params, async (p, ctx) => fn(p as Params<M>, ctx));
 
   reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, detachedSince: d.browserBridge.detachedSince }));
 
@@ -834,6 +834,9 @@ export function registerMethods(d: Deps): void {
   // because it is the one method that needs its caller's socket — the bridge sends that exact client
   // its `browserHost.op` events from then on.
   rpc.register("browserHost.register", Methods["browserHost.register"].params, async (p, ctx) => {
+    // The executor IS a socket: everything after this line answers it by `sendTo`. An in-process call
+    // has none to adopt, and a phone is never the Mac's own Electron.
+    if (!ctx.client || ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only Realm's own app can register as the browser host");
     d.browserBridge.register(ctx.client, { hasWindow: p.hasWindow });
     // Adopt the `oauth` domain key from main's Keychain-anchored keyring, so `oauthJson` stops being
     // plaintext in realm.db. Fire-and-forget on purpose: registration must not block on it, and a
