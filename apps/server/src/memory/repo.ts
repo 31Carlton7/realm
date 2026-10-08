@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
@@ -419,10 +419,8 @@ export class MemoryRepoService {
   private inside(repo: string, rel: string): string {
     const abs = join(repo, rel);
     const root = realpathSync(repo);
-    const real = realish(abs);
-    let link = false;
-    try { link = lstatSync(abs).isSymbolicLink(); } catch { /* not there yet */ }
-    if (!within(real, root) || (link && !within(realpathSync(abs), root))) {
+    // `realish` resolves every link on the way, so a symlink anywhere in the path is judged by where it lands.
+    if (!within(realish(abs), root)) {
       throw new RpcError("MEMORY_PATH", `${rel} leads outside the memory repo`);
     }
     return abs;
