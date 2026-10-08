@@ -63,6 +63,14 @@ describe("the phone's rows", () => {
     for (const r of p.all()) expect(RowSchema.safeParse(r).success, r.kind).toBe(true);
   });
 
+  it("says what a turn changed in one line, by file name", () => {
+    const p = new SessionProjector();
+    const file = (path: string) => ({ path, oldPath: null, status: "modified" as const, additions: 3, deletions: 1 });
+    p.apply(persisted(sessionEvent("turn_changes", { checkpointId: "cp1", settledAt: 1, root: "/r", afterTree: "abc", files: ["src/app.ts", "src/remote/rows.ts", "README.md", "x.ts"].map(file), totalFiles: 4 })));
+    p.apply(persisted(sessionEvent("turn_changes", { checkpointId: "cp2", settledAt: 2, root: "/r", afterTree: "def", files: [file("only.ts")], totalFiles: 1 })));
+    expect(p.all().map((r) => r.kind === "notice" && r.text)).toEqual(["Changed 4 files: app.ts, rows.ts, README.md, …", "Changed 1 file: only.ts"]);
+  });
+
   it("names a tool call by what it touches", () => {
     expect(summarize("Read", { file_path: "/a/b.ts" })).toBe("/a/b.ts");
     expect(summarize("WebSearch", { query: "noise protocol" })).toBe("noise protocol");

@@ -102,6 +102,13 @@ export class SessionProjector {
       case "compacted": return put({ key: `e:${seq}`, seq, kind: "notice", text: "Context compacted" });
       case "context_reset": return put({ key: `e:${seq}`, seq, kind: "notice", text: ev.payload.note || "The agent started a fresh context" });
       case "plan": return put({ key: `p:${ev.payload.planId}`, seq, kind: "plan", text: ev.payload.text ?? null, steps: ev.payload.steps ?? null });
+      // The files a turn changed. One line until the phone has a diff view (Plan 28, Phase 4).
+      case "turn_changes": {
+        const { files, totalFiles } = ev.payload;
+        const names = files.slice(0, 3).map((f) => f.path.split("/").pop()).join(", ");
+        const more = totalFiles > 3 ? ", …" : "";
+        return put({ key: `c:${ev.payload.checkpointId}`, seq, kind: "notice", text: `Changed ${totalFiles} ${totalFiles === 1 ? "file" : "files"}: ${names}${more}` });
+      }
       // Carried elsewhere, or not drawn on the phone in Phase 1: status travels as `session.status`;
       // usage, init, feedback and the account's rate limits are desktop detail; the summary and the
       // suggested reply arrive with the Phase 2 composer.
