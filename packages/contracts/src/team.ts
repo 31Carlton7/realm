@@ -145,24 +145,112 @@ export type RoleRun = z.infer<typeof RoleRunSchema>;
 export type RoleTemplate = {
   id: string;
   name: string;
+  /** Which shelf of the gallery it stands on: roles any team can use, or the ones that work with the
+   *  creators a team keeps records of. A space that is not about creators is not handed those first. */
+  group: "any" | "creators";
   /** A line for the role's card: its job, in plain words. */
   blurb: string;
   brief: string;
   model: string;
   cron: string | null;
+  /** Skill ids as the library names them, unprefixed. A space that lacks one simply does not get it. */
   skills: string[];
-  /** Its share of the team's $60 week (decision 5), so its meter has something to fill. */
+  /** Its share of the team's week (decision 5), so its meter has something to fill. */
   weekBudgetUsd: number;
-  /** The seed its Realmite is rolled from, so both starters look the same the first time everywhere. */
+  /** The seed its Realmite is rolled from, so each starter looks the same the first time everywhere. */
   realmiteSeed: string;
 };
 
-/** The two starter roles. Sonnet for routine work (decision 5); the model alias resolves to the
- *  current Sonnet in the Claude harness, so a template never pins a version that will age out. */
+const REVIEW_RULE = "Deliver what you make with review_submit; nothing leaves Realm until a person approves it, and you never send, post, sign or pay yourself.";
+
+/** The starter roles. Sonnet for routine work (decision 5); the model alias resolves to the current
+ *  Sonnet in the Claude harness, so a template never pins a version that will age out. Every brief
+ *  speaks of "this team" and "the space", never of one business: these are offered to any space. */
 export const ROLE_TEMPLATES: RoleTemplate[] = [
+  {
+    id: "researcher",
+    name: "Researcher",
+    group: "any",
+    blurb: "Looks things up when you ask, and sends back a short brief with its sources.",
+    brief: [
+      "You research for this team. When a person asks a question, find the answer from primary sources, read them, and write a short brief: the answer first, then what it rests on, with a link for every claim and a note of anything you could not confirm.",
+      "",
+      `Save the brief as a Markdown file in the space's folder and send it to Review as a report. ${REVIEW_RULE}`,
+    ].join("\n"),
+    model: "sonnet",
+    cron: null,
+    skills: ["browsing"],
+    weekBudgetUsd: 10,
+    realmiteSeed: "researcher-208",
+  },
+  {
+    id: "editor",
+    name: "Editor",
+    group: "any",
+    blurb: "Reads drafts before they reach you and sends back what to fix. Rewrites nothing on its own.",
+    brief: [
+      "You are this team's editor and checker. Read what the other roles have sent to Review and what is waiting in the space's drafts. For each, check facts against the space's records and files, spelling, tone, and anything a reader would trip on.",
+      "",
+      `Send your notes to Review as one report per draft: what is wrong, where, and the fix you suggest. ${REVIEW_RULE}`,
+    ].join("\n"),
+    model: "sonnet",
+    cron: "0 9 * * 1-5",
+    skills: ["humanizer"],
+    weekBudgetUsd: 5,
+    realmiteSeed: "editor-77",
+  },
+  {
+    id: "growth-analyst",
+    name: "Growth Analyst",
+    group: "any",
+    blurb: "Reads the numbers the team watches and reports each Monday. Changes nothing.",
+    brief: [
+      "You read this team's numbers: sign-ups, revenue, retention, and how each piece of published work did, from the dashboards and files the space can reach. You only read; you never change a setting, a price or a campaign.",
+      "",
+      `Each Monday, send one report to Review: what moved since last week, what probably moved it, and one thing worth trying. ${REVIEW_RULE}`,
+    ].join("\n"),
+    model: "sonnet",
+    cron: "0 8 * * 1",
+    skills: [],
+    weekBudgetUsd: 10,
+    realmiteSeed: "growth-analyst-372",
+  },
+  {
+    id: "community-manager",
+    name: "Community Manager",
+    group: "any",
+    blurb: "Reads comments and messages, and drafts the replies for your yes.",
+    brief: [
+      "You look after the people who talk to this team: comments, replies and messages on the accounts the space names. Read what came in since your last run, sort it into what needs an answer, what to thank, and what to ignore.",
+      "",
+      `Draft each reply and send them to Review as one batch of messages, each naming where it would be posted. ${REVIEW_RULE}`,
+    ].join("\n"),
+    model: "sonnet",
+    cron: "0 9 * * 1-5",
+    skills: ["social-content"],
+    weekBudgetUsd: 10,
+    realmiteSeed: "community-manager-5",
+  },
+  {
+    id: "ops",
+    name: "Ops",
+    group: "any",
+    blurb: "Keeps the team's to-dos, deadlines and paperwork in order, and drafts what is due.",
+    brief: [
+      "You keep this team's admin in order: deadlines, renewals, invoices, forms and follow-ups that are in the space's files and records. Each Monday, list what is due in the next two weeks and what is late.",
+      "",
+      `Draft anything that has to go out — an email, a form, a reminder — and send it to Review. ${REVIEW_RULE}`,
+    ].join("\n"),
+    model: "sonnet",
+    cron: "0 8 * * 1",
+    skills: [],
+    weekBudgetUsd: 5,
+    realmiteSeed: "ops-914",
+  },
   {
     id: "creator-manager",
     name: "Creator Manager",
+    group: "creators",
     blurb: "Keeps each creator's record, contract and deadlines. Drafts every message; sends none.",
     brief: [
       "You manage this team's creators. Every creator has a record under creators/ in the team's memory: keep it true — the deal, accounts, deadlines, what was posted and how it did. Read a record with record_read and change it with record_update; never paste a password or key into one.",
@@ -178,6 +266,7 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
   {
     id: "content-producer",
     name: "Content Producer",
+    group: "creators",
     blurb: "Makes slideshows for each signed creator, and sends each batch to Review.",
     brief: [
       "You make short-form slideshows for this team's signed creators. Read each creator's record (record_list, record_read) for their formats and audience, then make one batch per creator per run, saving the slides under the space folder.",
@@ -191,6 +280,22 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
     realmiteSeed: "content-producer-32",
   },
 ];
+
+/**
+ * What the shares of a team's week come to with a change made: the roles kept, a role's share
+ * replaced, and the ones added. A role with no week of its own takes no share. Pure, so the picker
+ * shows exactly the sum the server will check.
+ */
+export function teamShares(roles: readonly { id?: string; weekBudgetUsd: number | null }[], o: { replace?: { id: string; weekBudgetUsd: number | null }; add?: readonly (number | null)[] } = {}): number {
+  let sum = 0;
+  for (const r of roles) sum += (o.replace && r.id === o.replace.id ? o.replace.weekBudgetUsd : r.weekBudgetUsd) ?? 0;
+  for (const a of o.add ?? []) sum += a ?? 0;
+  return Math.round(sum * 100) / 100;
+}
+
+/** A role a person wrote, made with the team — every field a role takes but the space. */
+export const CustomRoleSchema = RoleFieldsSchema;
+export type CustomRoleInput = z.infer<typeof CustomRoleSchema>;
 
 /* ────────────────────────────── review ────────────────────────────── */
 
@@ -292,7 +397,7 @@ export type TeamReviewDetail = z.infer<typeof TeamReviewDetailSchema>;
 
 /* ────────────────────────────── activity ────────────────────────────── */
 
-export const TEAM_VERBS = ["made_team", "made_role", "edited_role", "archived_role", "woke", "queued", "finished", "failed", "stopped_at_cap",
+export const TEAM_VERBS = ["made_team", "edited_team", "made_role", "edited_role", "archived_role", "woke", "queued", "finished", "failed", "stopped_at_cap",
   "paused", "submitted", "revised", "approved", "asked_changes", "marked_done", "dismissed", "read_record", "updated_record", "refused"] as const;
 export type TeamVerb = (typeof TEAM_VERBS)[number];
 
@@ -343,6 +448,14 @@ export const TeamSpaceSchema = z.object({
   weekBudgetUsd: z.number(),
   /** The space has a memory repo of its own, which records need. */
   hasRepo: z.boolean(),
+  /** Where it is, and whether it is somewhere other than Realm's own folder — because that folder is
+   *  inside a space's, and a memory repo stays apart from projects. */
+  repoPath: z.string().nullable(),
+  repoMoved: z.boolean(),
+  /** The roles' weekly shares added up: kept at or under `weekBudgetUsd`. */
+  sharesUsd: z.number(),
+  /** Roles removed from the team, so what they did still reads under their name in the log. */
+  formerRoles: z.array(z.object({ id: z.string(), name: z.string(), realmite: z.unknown() })),
   recordCount: z.number().int(),
   /** Sessions role runs made. Work a clock or a role starts is not work the person started, so the
    *  sidebar leaves these to the role's page (design.md, "Work a clock starts"). */

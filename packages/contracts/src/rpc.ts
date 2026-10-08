@@ -34,7 +34,7 @@ import { GuideProgressSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchema, UsageSummarySchema } from "./usage";
 import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
-import { CreateRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
+import { CreateRoleSchema, CustomRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
 import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
@@ -1568,7 +1568,16 @@ export const Methods = {
   // `team.changed` with the space, and the clients re-read what they hold.
   "team.overview": { params: z.object({}).default({}), result: z.array(TeamSpaceSchema) },
   "team.space": { params: z.object({ spaceId: IdSchema }), result: TeamSpaceSchema },
-  "team.make": { params: z.object({ spaceId: IdSchema, templates: z.array(z.string().max(60)).max(10).default([]) }), result: TeamSpaceSchema },
+  "team.make": { params: z.object({
+    spaceId: IdSchema, templates: z.array(z.string().max(60)).max(20).default([]),
+    /** Teammates the person wrote, made with the team. */
+    roles: z.array(CustomRoleSchema).max(20).default([]),
+    /** Where the team's memory repo goes, when the person chose a folder. */
+    repoPath: z.string().min(1).max(1_000).optional(),
+    /** The team's week, when the picker raised it to fit the roles chosen. */
+    weekBudgetUsd: z.number().positive().max(100_000).optional(),
+  }), result: TeamSpaceSchema },
+  "team.setBudget": { params: z.object({ spaceId: IdSchema, weekBudgetUsd: z.number().positive().max(100_000) }), result: TeamSpaceSchema },
   "team.roleCreate": { params: CreateRoleSchema, result: TeamRoleSchema },
   "team.roleUpdate": { params: UpdateRoleSchema, result: TeamRoleSchema },
   "team.roleArchive": { params: z.object({ id: IdSchema }), result: z.object({ archived: z.boolean() }) },

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
-  CreateRoleSchema, ROLE_TEMPLATES, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink, creatorRecordTemplate,
+  CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink, creatorRecordTemplate,
   isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, sessionEvent, usageDeltas, weekStart,
   type AgentKind, type CreateRoleInput, type LedgerLine, type ReviewCheck, type ReviewKind, type ReviewTarget, type RoleRun,
   type Run, type Schedule, type Session, type SessionEvent, type TeamActivity, type TeamRecord, type TeamRecordSummary,
@@ -70,7 +70,7 @@ export class TeamService {
     runs: Pick<RunService, "create" | "get" | "listForRole" | "spentSince" | "listLive" | "recordCost" | "stopAtLimit" | "pump">;
     schedules: Pick<ScheduleService, "createForRole" | "forRole" | "update" | "remove">;
     sessions: Pick<SessionService, "get" | "events" | "publishServerEvent">;
-    repos: Pick<MemoryRepoService, "config" | "create" | "read" | "writeFile" | "lastChange">;
+    repos: Pick<MemoryRepoService, "config" | "create" | "defaultPath" | "read" | "writeFile" | "lastChange">;
     /** The space's folder — where a review's files must live. */
     rootForSpace: (spaceId: string) => string | null;
     spaceExists: (spaceId: string) => boolean;
@@ -112,6 +112,7 @@ export class TeamService {
     this.refreshApprovedHashes(spaceId);
     const reviews = this.d.store.reviews(spaceId).filter((r) => r.state !== "dismissed").map((r) => this.summary(r));
     const repo = this.repoPath(spaceId);
+    const owner = { scope: "space", id: spaceId } as const;
     return {
       spaceId,
       enabled: this.isTeam(spaceId),
@@ -120,6 +121,10 @@ export class TeamService {
       weekSpendUsd: round(this.d.runs.spentSince({ spaceId }, weekStart(this.now()))),
       weekBudgetUsd: this.teamBudget(spaceId),
       hasRepo: repo !== null,
+      repoPath: repo,
+      repoMoved: repo !== null && resolve(repo) !== resolve(this.d.repos.defaultPath(owner)),
+      sharesUsd: teamShares(roles),
+      formerRoles: this.d.store.roles(spaceId, true).filter((r) => r.archived).map((r) => ({ id: r.id, name: r.name, realmite: r.realmite })),
       recordCount: repo ? this.recordFiles(repo).length : 0,
       runSessionIds: this.runSessionIds(spaceId),
     };
@@ -140,24 +145,63 @@ export class TeamService {
   }
 
   /**
-   * Make a space a team: its own memory repo (where records live) if it has none, and the starter
-   * roles asked for — each only if no role of that name exists, so a second click adds nothing.
+   * Make a space a team, or add to one: its own memory repo (where records live) if it has none, in
+   * the folder the person chose if they chose one; the starter roles asked for — each only if no role
+   * of that name exists, so a second click adds nothing — and the roles the person wrote. Everything
+   * is checked before anything is made: the names, and that the shares fit the team's week (raised
+   * first, when the picker asked to raise it).
    */
-  async makeTeam(spaceId: string, templates: string[]): Promise<TeamSpace> {
+  async makeTeam(spaceId: string, templates: string[], o: { roles?: CustomRoleInput[]; repoPath?: string; weekBudgetUsd?: number } = {}): Promise<TeamSpace> {
     if (!this.d.spaceExists(spaceId)) throw new NotFoundError("space", spaceId);
-    if (!this.repoPath(spaceId)) await this.d.repos.create({ scope: "space", id: spaceId });
-    const fresh = !this.isTeam(spaceId);
-    for (const id of templates) {
+    const picked = templates.map((id) => {
       const t = ROLE_TEMPLATES.find((x) => x.id === id);
       if (!t) throw new RpcError("TEAM_TEMPLATE", `no starter role "${id}" — there are ${ROLE_TEMPLATES.map((x) => x.id).join(", ")}`);
-      if (this.d.store.roleByName(spaceId, t.name)) continue;
+      return t;
+    }).filter((t) => !this.d.store.roleByName(spaceId, t.name));
+    const custom = (o.roles ?? []).map((r) => CustomRoleSchema.parse(r));
+    const names = [...picked.map((t) => t.name), ...custom.map((r) => r.name)].map((n) => n.toLowerCase());
+    const twice = names.find((n, i) => names.indexOf(n) !== i);
+    if (twice) throw new RpcError("TEAM_ROLE_NAME", `two of the roles are called ${[...picked, ...custom].find((r) => r.name.toLowerCase() === twice)!.name} — give one another name`);
+    for (const r of custom) if (this.d.store.roleByName(spaceId, r.name)) throw new RpcError("TEAM_ROLE_NAME", `this team already has a role called ${r.name}`);
+    const cap = o.weekBudgetUsd ?? this.teamBudget(spaceId);
+    this.checkShares(spaceId, cap, { add: [...picked.map((t) => t.weekBudgetUsd), ...custom.map((r) => r.weekBudgetUsd ?? null)] });
+    if (!this.repoPath(spaceId)) await this.d.repos.create({ scope: "space", id: spaceId }, o.repoPath);
+    if (o.weekBudgetUsd !== undefined) this.d.settings.set(teamBudgetKey(spaceId), o.weekBudgetUsd);
+    const fresh = !this.isTeam(spaceId);
+    for (const t of picked) {
       this.createRole({
         spaceId, name: t.name, brief: t.brief, realmite: { seed: t.realmiteSeed }, template: t.id, model: t.model, cron: t.cron, skills: this.present(spaceId, t.skills), weekBudgetUsd: t.weekBudgetUsd,
       }, { quiet: true });
     }
-    if (fresh) this.log(spaceId, "user", "made_team", null, { roles: templates });
+    for (const r of custom) this.createRole({ ...r, spaceId }, { quiet: true });
+    if (fresh) this.log(spaceId, "user", "made_team", null, { roles: [...picked.map((t) => t.id), ...custom.map((r) => r.name)] });
     this.changed(spaceId);
     return this.space(spaceId);
+  }
+
+  /** Set the team's week. Never under what its roles' shares already come to. */
+  setTeamBudget(spaceId: string, weekBudgetUsd: number): TeamSpace {
+    if (!this.d.spaceExists(spaceId)) throw new NotFoundError("space", spaceId);
+    const shares = teamShares(this.d.store.roles(spaceId));
+    if (weekBudgetUsd < shares) throw new RpcError("TEAM_BUDGET_OVER", `the roles' shares already come to ${usd(shares)} a week — lower a role's budget first, or keep the team's week at ${usd(shares)} or more`);
+    this.d.settings.set(teamBudgetKey(spaceId), weekBudgetUsd);
+    this.log(spaceId, "user", "edited_team", null, { weekBudgetUsd });
+    this.changed(spaceId);
+    return this.space(spaceId);
+  }
+
+  /**
+   * The rule that keeps a team's week honest: its roles' shares add up to no more than the team's
+   * cap. Only a change that RAISES the sum is held to it, so a team already over (made before the rule)
+   * can still lower a share or remove a role.
+   */
+  private checkShares(spaceId: string, cap: number, change: { replace?: { id: string; weekBudgetUsd: number | null }; add?: (number | null)[] }): void {
+    const roles = this.d.store.roles(spaceId);
+    const before = teamShares(roles);
+    const after = teamShares(roles, change);
+    if (after > before && after > cap + 1e-9) {
+      throw new RpcError("TEAM_BUDGET_OVER", `the roles' shares would come to ${usd(after)} of the team's ${usd(cap)} a week — lower a share, or raise the team's week to ${usd(after)}`);
+    }
   }
 
   /** A template's skills as this space names them (a library skill may carry a prefix), leaving out
@@ -205,6 +249,7 @@ export class TeamService {
     const p = CreateRoleSchema.parse(input);
     if (!this.d.spaceExists(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     if (this.d.store.roleByName(p.spaceId, p.name)) throw new RpcError("TEAM_ROLE_NAME", `this team already has a role called ${p.name}`);
+    this.checkShares(p.spaceId, this.teamBudget(p.spaceId), { add: [p.weekBudgetUsd ?? null] });
     const row = this.d.store.createRole({
       spaceId: p.spaceId, name: p.name, brief: p.brief, realmite: p.realmite, template: p.template ?? null,
       agentKind: p.agentKind ?? this.d.defaultKind ?? "claude", model: p.model ?? null, effort: p.effort ?? null,
@@ -224,6 +269,7 @@ export class TeamService {
     if (!before) throw new NotFoundError("role", p.id);
     if (p.name && p.name.toLowerCase() !== before.name.toLowerCase() && this.d.store.roleByName(before.spaceId, p.name))
       throw new RpcError("TEAM_ROLE_NAME", `this team already has a role called ${p.name}`);
+    if (p.weekBudgetUsd !== undefined && !before.archived) this.checkShares(before.spaceId, this.teamBudget(before.spaceId), { replace: { id: p.id, weekBudgetUsd: p.weekBudgetUsd } });
     const row = this.d.store.updateRole(p.id, {
       ...(p.name !== undefined ? { name: p.name } : {}), ...(p.brief !== undefined ? { brief: p.brief } : {}),
       ...(p.realmite !== undefined ? { realmite: p.realmite } : {}), ...(p.agentKind !== undefined ? { agentKind: p.agentKind } : {}),

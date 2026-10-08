@@ -309,3 +309,104 @@ describe("records' git author", () => {
     c.close();
   });
 });
+
+describe("choosing who is on the team", () => {
+  it("makes starters and the person's own teammates in one go, each with its own Realmite, and shows the shares", async () => {
+    const { c, spaceId } = await boot();
+    const team = await c.must("team.make", {
+      spaceId, templates: ["researcher", "editor"],
+      roles: [{ name: "Podcast Booker", brief: "Find guests and draft the pitch to each.", realmite: { seed: "booker-1" }, model: "haiku", cron: null, weekBudgetUsd: 8, permissionMode: "plan", skills: [] }],
+    });
+    const names = team.roles.map((r: Any) => r.name);
+    expect(names).toEqual(["Content Producer", "Researcher", "Editor", "Podcast Booker"]);
+    const booker = team.roles.find((r: Any) => r.name === "Podcast Booker");
+    expect(booker).toMatchObject({ model: "haiku", permissionMode: "plan", cron: null, weekBudgetUsd: 8, realmite: { seed: "booker-1" } });
+    // Researcher $10 + Editor $5 + the booker's $8; Content Producer has no share of its own.
+    expect(team.sharesUsd).toBe(23);
+    expect(new Set(team.roles.map((r: Any) => JSON.stringify(r.realmite))).size).toBe(4);
+    c.close();
+  });
+
+  it("keeps the shares within the team's week: over is refused with nothing made, and raising the week makes room", async () => {
+    const { c, spaceId } = await boot();
+    const every = ["researcher", "editor", "growth-analyst", "community-manager", "ops", "creator-manager", "content-producer"];
+    // Content Producer is already on the team, so the six others come to $60 — and one more $5 is over.
+    const over = await c.call("team.make", { spaceId, templates: every, roles: [{ name: "Intern", brief: "Help.", realmite: { seed: "i" }, weekBudgetUsd: 5 }] });
+    expect(over.error.code).toBe("TEAM_BUDGET_OVER");
+    expect(over.error.message).toMatch(/\$65 of the team's \$60 a week/);
+    expect((await c.must("team.space", { spaceId })).roles).toHaveLength(1);
+    const raised = await c.must("team.make", { spaceId, templates: every, roles: [{ name: "Intern", brief: "Help.", realmite: { seed: "i" }, weekBudgetUsd: 5 }], weekBudgetUsd: 65 });
+    expect(raised).toMatchObject({ weekBudgetUsd: 65, sharesUsd: 65 });
+    // A role's share raised past the week is refused; lowered, it is taken.
+    const intern = raised.roles.find((r: Any) => r.name === "Intern");
+    expect((await c.call("team.roleUpdate", { id: intern.id, weekBudgetUsd: 6 })).error.code).toBe("TEAM_BUDGET_OVER");
+    expect((await c.must("team.roleUpdate", { id: intern.id, weekBudgetUsd: 2 })).weekBudgetUsd).toBe(2);
+    expect((await c.call("team.roleCreate", { spaceId, name: "Second intern", brief: "Help.", realmite: { seed: "j" }, weekBudgetUsd: 4 })).error.code).toBe("TEAM_BUDGET_OVER");
+    // The week cannot go under what the shares already come to.
+    expect((await c.call("team.setBudget", { spaceId, weekBudgetUsd: 50 })).error.code).toBe("TEAM_BUDGET_OVER");
+    expect((await c.must("team.setBudget", { spaceId, weekBudgetUsd: 100 })).weekBudgetUsd).toBe(100);
+    c.close();
+  });
+
+  it("refuses two new teammates with one name before making either", async () => {
+    const { c, spaceId } = await boot();
+    const r = await c.call("team.make", { spaceId, templates: ["editor"], roles: [{ name: "editor", brief: "x", realmite: { seed: "e" } }] });
+    expect(r.error.code).toBe("TEAM_ROLE_NAME");
+    expect((await c.must("team.space", { spaceId })).roles).toHaveLength(1);
+    c.close();
+  });
+
+  it("a removed role stops waking, keeps its history under its name, and its name is free again", async () => {
+    const { c, spaceId } = await boot();
+    const team = await c.must("team.make", { spaceId, templates: ["editor"] });
+    const editor = team.roles.find((r: Any) => r.name === "Editor");
+    await c.must("team.roleArchive", { id: editor.id });
+    const after = await c.must("team.space", { spaceId });
+    expect(after.roles.map((r: Any) => r.name)).toEqual(["Content Producer"]);
+    expect(after.formerRoles).toEqual([{ id: editor.id, name: "Editor", realmite: { seed: "editor-77" } }]);
+    expect((await c.must("schedules.list", { spaceId })).some((s: Any) => s.roleId === editor.id)).toBe(false);
+    const log = await c.must("team.activity", { spaceId, limit: 50 });
+    expect(log.map((a: Any) => a.verb)).toEqual(expect.arrayContaining(["made_role", "archived_role"]));
+    const again = await c.must("team.make", { spaceId, templates: ["editor"] });
+    expect(again.roles.map((r: Any) => r.name)).toEqual(["Content Producer", "Editor"]);
+    c.close();
+  });
+});
+
+describe("a team's memory repo when Realm's home is inside a space's folder", () => {
+  async function bootInside(fallback: string | undefined) {
+    const outer = tempDir("realm-team-projects-");
+    const home = join(outer, "preview-home");
+    mkdirSync(home, { recursive: true });
+    const fake = new FakeAdapter({ script: SCRIPT, delayMs: 2 });
+    app = await createApp({ home, port: 0, adapters: { fake, claude: fake }, ...(fallback ? { memoryFallbackRoot: fallback } : {}) });
+    const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
+    const projects = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "Projects", icon: "folder" });
+    app.db.prepare("UPDATE spaces SET folder_path = ? WHERE id = ?").run(outer, projects.id);
+    const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "Versed", icon: "folder" });
+    return { c: await client(app.port), spaceId: space.id, home };
+  }
+
+  it("goes to the fallback folder, and the team says where", async () => {
+    const fallback = join(tempDir("realm-team-fallback-"), "memory-repos");
+    const { c, spaceId, home } = await bootInside(fallback);
+    // THE MUTANT: no fallback — the default under the home is refused and the team is never made.
+    const team = await c.must("team.make", { spaceId, templates: ["editor"] });
+    expect(team).toMatchObject({ hasRepo: true, repoMoved: true });
+    expect(team.repoPath).toBe(join(fallback, `space-${spaceId}`));
+    expect(team.repoPath.startsWith(home)).toBe(false);
+    c.close();
+  });
+
+  it("with nowhere allowed, says so in plain words, and a chosen folder makes it", async () => {
+    const { c, spaceId } = await bootInside(undefined);
+    const r = await c.call("team.make", { spaceId, templates: ["editor"] });
+    expect(r.error.code).toBe("MEMORY_REPO_FORBIDDEN");
+    expect(r.error.message).toMatch(/Choose a folder outside your projects/);
+    expect((await c.must("team.space", { spaceId })).enabled).toBe(false);
+    const chosen = join(tempDir("realm-team-chosen-"), "versed-memory");
+    const team = await c.must("team.make", { spaceId, templates: ["editor"], repoPath: chosen });
+    expect(team).toMatchObject({ hasRepo: true, repoPath: chosen, repoMoved: true });
+    c.close();
+  });
+});

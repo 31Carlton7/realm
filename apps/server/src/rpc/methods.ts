@@ -947,7 +947,8 @@ export function registerMethods(d: Deps): void {
   const space = (id: string) => { if (!d.spaces.get(id)) throw new NotFoundError("space", id); return id; };
   reg("team.overview", () => d.team.overview());
   reg("team.space", (p) => d.team.space(space(p.spaceId)));
-  reg("team.make", (p) => d.team.makeTeam(space(p.spaceId), p.templates));
+  reg("team.make", (p) => d.team.makeTeam(space(p.spaceId), p.templates, { roles: p.roles, ...(p.repoPath ? { repoPath: p.repoPath } : {}), ...(p.weekBudgetUsd !== undefined ? { weekBudgetUsd: p.weekBudgetUsd } : {}) }));
+  reg("team.setBudget", (p) => d.team.setTeamBudget(space(p.spaceId), p.weekBudgetUsd));
   reg("team.roleCreate", (p) => d.team.createRole({ ...p, spaceId: space(p.spaceId) }));
   reg("team.roleUpdate", (p) => d.team.updateRole(p));
   reg("team.roleArchive", (p) => { d.team.archiveRole(p.id); return { archived: true }; });
