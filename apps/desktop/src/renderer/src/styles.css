@@ -4533,14 +4533,17 @@ button.edit-file:hover { background: var(--rl-hover); }
 .todo-list { display: flex; flex-direction: column; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
 .todo-list li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
 .todo-dot { flex: none; display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%;
-  box-shadow: inset 0 0 0 1.5px var(--rl-line-strong); color: var(--rl-accent-contrast); transform: translateY(2px); }
+  box-shadow: inset 0 0 0 1.5px var(--mark-strong); color: var(--rl-accent-contrast); transform: translateY(2px); }
 .todo-list li[data-status="in_progress"] { color: var(--rl-text-bright); }
 .todo-list li[data-status="in_progress"] .todo-dot { box-shadow: inset 0 0 0 1.5px var(--rl-accent); background:
   radial-gradient(circle, var(--rl-accent) 0 3.5px, transparent 3.5px); }
 .todo-list li[data-status="completed"] { color: var(--rl-text-faint); }
 /* Struck through, not hidden: the plan's history is the point — what the agent decided to do and in
    what order — and a list that deletes its finished items reads as a list that changed its mind. */
-.todo-list li[data-status="completed"] .todo-text { text-decoration: line-through; text-decoration-color: var(--mark-strong); }
+/* The strike is the state, so it is the text's own ink: at a mark's 8% it vanished on the light face
+   and "done" was said by colour alone. A pending dot is a mark, not an edge (design.md §Surfaces), so
+   softening the edges never takes the "to do" off a list. */
+.todo-list li[data-status="completed"] .todo-text { text-decoration: line-through; text-decoration-color: currentColor; }
 .todo-list li[data-status="completed"] .todo-dot { box-shadow: none; background: var(--rl-success); }
 
 /* ── Search results (Grep / Glob) ─────────────────────────────────────────── */

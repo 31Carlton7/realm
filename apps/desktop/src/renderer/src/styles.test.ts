@@ -227,6 +227,14 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".tooltip[data-instant]").join(" ")).toContain("transition: none");
   });
 
+  it("draws a to-do's state in marks that hold on both faces, not in softened edges", () => {
+    // A done step's strike is in its own ink, and a pending step's ring is a mark. Mutants: the strike
+    // back at a mark's alpha (invisible on light), the ring back on the softened edge token.
+    expect(bodiesFor('.todo-list li[data-status="completed"] .todo-text').join(" ")).toMatch(/text-decoration-color:\s*currentColor/);
+    expect(bodiesFor(".todo-dot").join(" ")).toContain("var(--mark-strong)");
+    expect(bodiesFor(".todo-dot").join(" ")).not.toContain("--rl-line");
+  });
+
   it("transcript items enter at 180ms with a 6px rise, gated on the data-enter mark Transcript.tsx sets", () => {
     expect(bodiesFor(".transcript-col > [data-enter]").join(" ")).toContain(`animation: rl-msg-in ${dur("--dur-enter")} var(--ease-out-strong)`);
     expect(blockAfter("@keyframes rl-msg-in")).toContain("translateY(6px)");
