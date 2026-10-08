@@ -41,6 +41,7 @@ import { emptyTranscript, lastUserMessage, reduceTranscript, type Rating, type T
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
 import { draftRun, withOptions } from "../panes/session/draft-run";
+import { usableModel } from "../panes/session/model-catalog";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 import type { SettingsTab } from "../panes/settings/settings-index";
@@ -108,6 +109,18 @@ export type AgentProbe = MethodResult<"agents.probe">[number];
 export type McpTestResult = { reached: boolean; detail: string };
 /** A `session.event` broadcast: persisted rows carry their seq; ephemeral ones (deltas) have seq -1. */
 export type LiveSessionEvent = StoredSessionEvent & { ephemeral: boolean };
+
+/** `ui.lastModels` as stored: entries of a known agent kind with a model id or null. Anything else —
+ *  a kind this build does not know, a value of another shape — is dropped rather than guessed at. */
+function parseLastModels(raw: unknown): Partial<Record<AgentKind, string | null>> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Partial<Record<AgentKind, string | null>> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const kind = AgentKindSchema.safeParse(k);
+    if (kind.success && (typeof v === "string" || v === null)) out[kind.data] = v;
+  }
+  return out;
+}
 
 /** Each kind's currently-known model ids, for kinds that could enumerate at all. A kind absent from
  *  the map is one whose catalog is unknown, which is not the same as one whose catalog is empty. */
@@ -783,6 +796,9 @@ const SETTING_GROUND_ALPHA = "ui.groundAlpha";
 export const SETTING_PANE_ALPHA = "ui.paneAlpha";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
+/** Per agent kind, the model of the last message the user sent — what "+"/⌘N put the next session
+ *  of that kind on. `null` is a send on the harness's own default, and is remembered as one. */
+export const SETTING_LAST_MODELS = "ui.lastModels";
 /** Whether the app keeps its decorative motion off for good. See `lowPower`. */
 const SETTING_LOW_POWER = "ui.lowPower";
 const SETTING_SUBMIT_KEY = "ui.submitKey";
@@ -1100,6 +1116,9 @@ export type AppState = {
   /** Agent of the last session created or switched to, persisted across launches; null until one exists
    *  (then instant-create falls back to FALLBACK_AGENT). */
   lastAgentKind: AgentKind | null;
+  /** The model of the last message sent on each agent kind (`SETTING_LAST_MODELS`). A kind absent
+   *  from it has never been sent on, and starts on its harness's default. */
+  lastModels: Partial<Record<AgentKind, string | null>>;
   /** Arms the inline rename of the pane showing this item (palette → PanelBar seam). */
   renamingItemId: string | null;
   /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
@@ -3284,6 +3303,27 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       set({ lastAgentKind: agentKind });
       get().run(() => api.setSetting(SETTING_LAST_AGENT, agentKind));
     };
+    /** The model a message was just sent on, the same posture: a failed write never fails the send. */
+    const rememberModel = (agentKind: AgentKind, model: string | null) => {
+      const now = get().lastModels;
+      if (agentKind in now && now[agentKind] === model) return;
+      const lastModels = { ...now, [agentKind]: model };
+      set({ lastModels });
+      get().run(() => api.setSetting(SETTING_LAST_MODELS, lastModels));
+    };
+    /** Recorded on SEND, never on pick: a model picked and abandoned is not the one the user used. */
+    const rememberSentOn = (sessionId: string) => {
+      const row = get().sessions[sessionId] ?? get().allSessions[sessionId];
+      if (!row) return;
+      rememberModel(row.agentKind, row.model);
+      rememberAgent(row.agentKind);
+    };
+    /** What a session made with no other say is put on: the last agent, and the model last sent on it
+     *  if that harness still offers it. */
+    const instantPick = (): { agentKind: AgentKind; model: string | null } => {
+      const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
+      return { agentKind, model: usableModel(agentKind, get().lastModels[agentKind] ?? null, get().agentProbe) };
+    };
     /** Persisted events that arrive while openSession is fetching; replayed after the fetch so order is kept. */
     const loading = new Map<string, StoredSessionEvent[]>();
     /** `also` is folded into the SAME write. A transcript move and a session's activity line are two
@@ -3853,7 +3893,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * An aborted `signal` (the sheet dismissed while this ran) starts nothing further and moves
      * nothing: whatever was already made stays made, and the window stays where the person went.
      */
-    const openNewSpace = async (input: CreateSpaceInput & { folder: string | null; memory?: string; agentKind: AgentKind },
+    const openNewSpace = async (input: CreateSpaceInput & { folder: string | null; memory?: string; agentKind: AgentKind; model?: string | null },
       made: NewSpaceProgress = {}, signal?: AbortSignal) => {
       const stopped = () => signal?.aborted === true;
       const before = profileSpaceIds();
@@ -3877,7 +3917,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().refreshProjects(space.id);
       }
       if (stopped()) return;
-      const { session, itemId } = await api.createSession({ spaceId: space.id, agentKind: input.agentKind, projectId });
+      const { session, itemId } = await api.createSession({ spaceId: space.id, agentKind: input.agentKind, model: input.model ?? null, projectId });
       rememberAgent(input.agentKind);
       if (inProfile(space.id)) mergeSession(session);
       if (stopped()) return;
@@ -4062,7 +4102,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     return {
       booted: false,
       sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
-      allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
+      allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
       appPick: null,
       libraryRevision: 0,
@@ -4087,7 +4127,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_SIDEBAR_OPEN_SPACES), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
@@ -4101,6 +4141,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // Same posture: a face that fails to load is an initial, never a failed boot.
           api.getAvatar().catch(() => null),
           api.getSetting(SETTING_SIDE_PANES_HIDDEN),
+          api.getSetting(SETTING_LAST_MODELS),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         /* The panes' own value, or — in a home saved while one control moved both — the value that
@@ -4134,7 +4175,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // Only an explicit false turns it off: an unset key and a missing row both mean "nobody
           // has said", and the answer to that for a destructive step is to keep asking.
           confirmDelete: askDelete !== false,
-          lastAgentKind: agent.success ? agent.data : null,
+          lastAgentKind: agent.success ? agent.data : null, lastModels: parseLastModels(lastModels),
           easterEggs: eggs === true, konamiUnlocked: konami === true,
           terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, avatarPath, detachedSince: system.detachedSince });
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
@@ -4433,7 +4474,7 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async createSpace({ folder = null, memory, ...input }, attempt) {
         // Another profile's switches the window, as a click on one of its spaces would.
-        await openNewSpace({ ...input, folder, memory, agentKind: get().lastAgentKind ?? FALLBACK_AGENT }, attempt?.made, attempt?.signal);
+        await openNewSpace({ ...input, folder, memory, ...instantPick() }, attempt?.made, attempt?.signal);
       },
       spaceFolderFor(profileId, name) { return api.spaceFolderFor(profileId, name); },
       async updateSpace(input) {
@@ -5706,21 +5747,21 @@ await get().refreshCustomThemes().catch(() => {});
         await get().openSession(session.id);
       },
       async newSessionInstant(targetLeafId = null, edge, spaceId = null) {
-        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, spaceId }, targetLeafId, edge);
+        await get().newSession({ ...instantPick(), spaceId }, targetLeafId, edge);
       },
       async newSessionInWorktree(targetLeafId = null, spaceId = null) {
         const sid = spaceFor(spaceId); if (!sid) return;
         // A plain folder has no worktrees. The session asked for still opens — in the folder, the only
         // checkout such a space has — and nothing is said, because nothing went wrong.
         if (!(await checkoutIsRepo(sid))) {
-          await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, spaceId: sid }, targetLeafId);
+          await get().newSession({ ...instantPick(), spaceId: sid }, targetLeafId);
           return;
         }
         // The worktree is created FIRST and the session pinned to it. If creating it throws (git
         // refused the add) no session is made at all — `run` surfaces the reason.
         const env = await api.createWorktree(sid, null);
         if (inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
-        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id, spaceId: sid }, targetLeafId);
+        await get().newSession({ ...instantPick(), environmentId: env.id, spaceId: sid }, targetLeafId);
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       /**
@@ -5749,6 +5790,8 @@ await get().refreshCustomThemes().catch(() => {});
         // The named files and apps, re-derived from the FINAL text like the elements above.
         const named = keepLiveRefs(text, get().draftRefs[id] ?? []);
         await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs, named);
+        // The quick chat's model is a throwaway choice, not the one the next session should start on.
+        if (get().quickChat?.sessionId !== id) rememberSentOn(id);
         if (refs.length) set({ draftSessionRefs: { ...get().draftSessionRefs, [id]: [] } });
         // Only AFTER the send lands, and only the ones that went: a rejected send that also emptied the
         // chip row would leave the user with no record of what they had attached, and a file dragged in
@@ -5787,6 +5830,7 @@ await get().refreshCustomThemes().catch(() => {});
         // Send FIRST, clear after: a rejected send must leave the draft in the composer (run
         // surfaces the reason), exactly as a failed normal send would.
         await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, get().draftSessionRefs[sessionId] ?? [], named);
+        rememberSentOn(session.id);
         const sent = new Set(pending.map((a) => a.path));
         const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => !sent.has(a.path));
         set({
