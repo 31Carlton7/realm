@@ -13,10 +13,12 @@ export function money(n: number | null | undefined): string {
   return Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`;
 }
 
-/** A run's length: "45s", "6m", "1h 12m". */
+/** A run's length: "<1s", "45s", "6m", "1h 12m". A run that settled inside half a second says "<1s",
+ *  not the "0s" that reads as a run that never happened. */
 export function duration(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || ms < 0) return "—";
   const s = Math.round(ms / 1000);
+  if (s < 1) return "<1s";
   if (s < 60) return `${s}s`;
   const m = Math.round(s / 60);
   if (m < 60) return `${m}m`;

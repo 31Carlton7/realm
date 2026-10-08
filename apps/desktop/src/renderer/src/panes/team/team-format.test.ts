@@ -14,6 +14,8 @@ describe("the team's words and numbers", () => {
 
   it("says a run's length and an age the way a list's corner does", () => {
     expect(duration(45_000)).toBe("45s");
+    expect(duration(0)).toBe("<1s");
+    expect(duration(400)).toBe("<1s");
     expect(duration(6 * 60_000)).toBe("6m");
     expect(duration(72 * 60_000)).toBe("1h 12m");
     expect(ageShort(NOW - 40 * 60_000, NOW)).toBe("40m");
