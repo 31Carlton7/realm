@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import { HIDDEN_ANSWER, type SessionEvent, type SessionEventOf, type SessionEventType } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, CodexAdapter, GATEWAY_TOOL_TIMEOUT_SEC, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
-import type { AgentHandle, StartOptions } from "../types";
+import { GATEWAY_TOOL_TIMEOUT_MS, type AgentHandle, type StartOptions } from "../types";
 
 /**
  * Every assertion in this file is gated on a real child process: node cold start, module load and at least one
@@ -1090,6 +1090,12 @@ describe("codexMcpConfig", () => {
     // still up, and the answer the user gives afterwards goes nowhere.
     expect(GATEWAY_TOOL_TIMEOUT_SEC).toBeGreaterThan(15 * 60);
     expect((codexMcpConfig([http])!.mcp_servers as Record<string, Record<string, unknown>>).vercel!.tool_timeout_sec).toBe(GATEWAY_TOOL_TIMEOUT_SEC);
+  });
+
+  it("waits as long as Claude does on the gateway — an agent_wait at its full hour is not cut off at sixteen minutes", () => {
+    // THE MUTANT: the old 16-minute literal. A Codex lead's 30-minute agent_wait was killed half-way.
+    expect(GATEWAY_TOOL_TIMEOUT_SEC * 1000).toBe(GATEWAY_TOOL_TIMEOUT_MS);
+    expect(GATEWAY_TOOL_TIMEOUT_SEC).toBeGreaterThan(60 * 60);
   });
 
   it("omits empty args and env rather than sending empty collections", () => {

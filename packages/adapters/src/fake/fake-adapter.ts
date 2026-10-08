@@ -92,7 +92,10 @@ export class FakeAdapter implements AgentAdapter {
             ? await gateway.call(st.tool, st.input).catch((e: unknown) => ({ text: (e as Error).message ?? String(e), isError: true }))
             : { text: "no Realm gateway was handed to this session", isError: true };
           if (disposed) return;
-          q.push(sessionEvent("tool_result", { toolUseId, content: answer.text, isError: answer.isError }));
+          // What kept the call alive is said under its answer, so a live check can see it on the
+          // transcript. Real agents keep this to themselves; the scripted one is there to be looked at.
+          const notices = "notices" in answer && answer.notices ? `\n\n(${answer.notices} progress notice${answer.notices === 1 ? "" : "s"} came before this answer)` : "";
+          q.push(sessionEvent("tool_result", { toolUseId, content: answer.text + notices, isError: answer.isError }));
           continue;
         }
         if (st.kind === "text") {

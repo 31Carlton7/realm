@@ -16,6 +16,9 @@
  *   5. A click on a card opens that child's transcript as a tab beside the lead.
  *   6. A click on a transcript line brings the Agents tab forward with that row lit.
  *   7. "Implement with…" on a plan opens the tab with the plan in the composer.
+ *   8. The lead's agent_wait was kept alive while it waited: the gateway's heartbeat, shortened to two
+ *      seconds here (REALM_MCP_HEARTBEAT_MS), reached the scripted agent's client on the call's own
+ *      stream before the answer did.
  *
  * Ports: LIVE_SERVER_PORT (8795), LIVE_CDP_PORT (9235). Screenshots go to LIVE_OUT_DIR (the system
  * temp dir unless set); the scratch home to LIVE_SCRATCH_DIR. Kills only what listens on its own ports.
@@ -155,6 +158,8 @@ async function main() {
       // Claude and Codex are the scripted agent here, so the onboarding session and every child
       // below run the script — nothing reaches a real engine or an account.
       REALM_FAKE_STANDS_IN: "claude,codex",
+      // Two seconds instead of twenty-five, so the one wait below spans several heartbeats.
+      REALM_MCP_HEARTBEAT_MS: "2000",
       LIVE_USER_DATA: path.join(scratch, "userData"),
       LIVE_MAIN: mainEntry,
     },
@@ -301,6 +306,14 @@ async function main() {
     return evs.some((e) => e.event.type === "assistant_text" && e.event.payload.text.startsWith("Both sub-agents are done")) ? evs : null;
   }, 30_000, "the lead's report");
   check("the lead collected both reports with agent_wait", settled.some((e) => e.event.type === "tool_result" && e.event.payload.content.startsWith("All 2 delegated agents finished")));
+
+  // ── 8. The wait was kept alive on the wire ───────────────────────────────────────────────────
+  // The scripted agent's client counts the notices that came on the call's stream ahead of its
+  // answer and says so under the result. The wait spans a permission held open by hand, so with a
+  // two-second heartbeat it heard several.
+  const waited = settled.find((e) => e.event.type === "tool_result" && e.event.payload.content.startsWith("All 2 delegated agents finished"));
+  const notices = Number(/\((\d+) progress notices? came before this answer\)$/.exec(waited?.event.payload.content ?? "")?.[1] ?? 0);
+  check("the lead's agent_wait heard the gateway keep it alive before the answer", notices >= 3, { notices });
   const lines = await evalIn(c, `[...document.querySelectorAll('.delegation-line .tool-row')].map((b) => b.textContent)`);
   note("transcript lines", lines);
   check("the transcript draws each as 'Subagent finished · <task>'", lines.filter((l) => l.startsWith("Subagent finished")).length === 2, lines);

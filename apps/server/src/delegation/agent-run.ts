@@ -450,12 +450,54 @@ export class AgentRunService {
   async run(ctx: ProviderCallContext, rawArgs: unknown): Promise<CallToolResult> {
     const spawned = await this.spawn(ctx, rawArgs, false);
     if (!isSpawned(spawned)) return spawned;
-    try {
-      const settled = await spawned.run.settled!;
-      return reportOne(settled, spawned);
-    } finally {
-      this.d.engine.end(ctx.sessionId, spawned.run);
+    const { run } = spawned;
+    // No listening deadline of its own: the watcher's execution deadline settles the run, and this
+    // wait ends with it. The ticks are what keep a long call audible on the wire.
+    const outcome = await this.d.engine.awaitRuns([run], "all", Number.POSITIVE_INFINITY, this.pollMs, {
+      onTick: () => ctx.progress?.(this.runningLine(run)),
+      signal: ctx.signal,
+    });
+    if (outcome === "aborted") {
+      // The caller cancelled the call, so this answer reaches nobody. The child keeps its budget and
+      // its report is kept for agent_wait, as if it had been started with agent_start.
+      this.d.engine.detach(run);
+      return err(`The call was cancelled before ${spawned.childId} finished. It is still running; collect its report with ${AGENT_WAIT_TOOL_NAME}.`);
     }
+    try {
+      return reportOne(run.done!, spawned);
+    } finally {
+      this.d.engine.end(ctx.sessionId, run);
+    }
+  }
+
+  private get pollMs(): number {
+    return (this.d.timeouts ?? DEFAULT_TIMEOUTS).pollMs;
+  }
+
+  /** A child as a waiting call names it: its title, and whether it is held on the user. */
+  private described(childId: string): { title: string; needsYou: boolean } {
+    try {
+      const s = this.d.sessions.get(childId);
+      return { title: s.title, needsYou: s.status === "waiting_permission" };
+    } catch {
+      return { title: childId, needsYou: false };
+    }
+  }
+
+  /** `agent_run`'s progress: "Dark-mode toggle working, 2:10". */
+  private runningLine(run: ActiveRun): string {
+    const { title, needsYou } = this.described(run.childSessionId);
+    return `${title} ${needsYou ? "needs you" : "working"}, ${clock(Date.now() - run.startedAt)}`;
+  }
+
+  /** `agent_wait`'s progress: "1 of 2 sub-agents finished; waiting on Dark-mode toggle (needs you)". */
+  private waitingLine(runs: readonly ActiveRun[]): string {
+    const open = runs.filter((r) => r.done === null).map((r) => {
+      const { title, needsYou } = this.described(r.childSessionId);
+      return needsYou ? `${title} (needs you)` : title;
+    });
+    const finished = runs.length - open.length;
+    return `${finished} of ${runs.length} sub-agent${runs.length === 1 ? "" : "s"} finished; waiting on ${open.join(", ")}`;
   }
 
   /* --------------------------------------- agent_start --------------------------------------- */
@@ -495,7 +537,12 @@ export class AgentRunService {
       return err(`unknown handle${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}. A handle belongs to the session that started it, and is spent once ${AGENT_WAIT_TOOL_NAME} has reported it. ${AGENT_STATUS_TOOL_NAME} lists what is outstanding.`);
     const runs = wanted.map((h) => mine.get(h)!);
 
-    const outcome = await this.d.engine.awaitRuns(runs, mode, Date.now() + timeoutMs, (this.d.timeouts ?? DEFAULT_TIMEOUTS).pollMs);
+    const outcome = await this.d.engine.awaitRuns(runs, mode, Date.now() + timeoutMs, this.pollMs, {
+      onTick: () => ctx.progress?.(this.waitingLine(runs), runs.filter((r) => r.done !== null).length, runs.length),
+      signal: ctx.signal,
+    });
+    // The caller cancelled the call: nothing is claimed, so every report is still there for the next wait.
+    if (outcome === "aborted") return err(`The wait was cancelled. Nothing was collected; ${AGENT_WAIT_TOOL_NAME} again to collect.`);
     const settledRuns = runs.filter((r) => r.done !== null);
     // Claimed — and ONLY the ones that settled. A run still executing stays in the registry with its
     // watcher intact, so a wait that timed out has cost the caller nothing but the wait.
@@ -685,7 +732,7 @@ export const AGENT_WAIT_TOOL: Tool = {
     properties: {
       handles: { type: "array", items: { type: "string" }, description: `Handles from ${AGENT_START_TOOL_NAME}. Omitted: every agent this session has in flight.` },
       mode: { type: "string", enum: ["all", "any"], description: "all (default) waits for every named handle; any returns as soon as one finishes, leaving the rest running and collectable later." },
-      timeoutMs: { type: "number", description: "How long to wait, in ms (1s–1h; default 15min). Bounds the WAIT, never the agents." },
+      timeoutMs: { type: "number", description: "How long to wait, in ms (1s–1h; default 15min). Bounds the WAIT, never the agents. The call reports progress while it waits, so it is not cut off for being quiet: leave this at the default, or set it as long as the work needs — there is no need to keep it under a few minutes." },
     },
     additionalProperties: false,
   },
@@ -699,3 +746,9 @@ export const AGENT_STATUS_TOOL: Tool = {
 };
 
 const message = errorMessage;
+
+/** "2:10" — a duration the way a clock shows it. */
+function clock(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}

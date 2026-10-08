@@ -149,6 +149,17 @@ export class DelegationEngine {
   }
 
   /**
+   * Nobody is blocked on this run any more — its caller went away mid-wait — but it is still running
+   * under its own deadline. It becomes what an `agent_start` run is: invisible to `hasRun`, and held
+   * for `agent_wait` to collect once it settles.
+   */
+  detach(run: ActiveRun): void {
+    if (run.detached) return;
+    run.detached = true;
+    this.announce(run.parentSessionId);
+  }
+
+  /**
    * The run is over (any outcome) — always called from the tool's `finally`.
    *
    * Omitting `run` removes ALL of the parent's runs, which is what `release` (the parent session was
@@ -214,12 +225,20 @@ export class DelegationEngine {
    * Polls `run.done` rather than racing the `settled` promises so that `mode: "any"` does not have to
    * abandon promises it is no longer interested in, and so a run that settled BEFORE this call (the
    * common case: fire three, do other work, collect) resolves on the first pass with no wait at all.
+   *
+   * `onTick` is called on every pass that is still waiting — what the waiting tool reports as its
+   * progress, so a long wait is never silent on the wire. `signal` is the caller's own cancellation:
+   * once it aborts nobody is listening, and the wait returns `aborted` on the next pass, leaving every
+   * run exactly as it was.
    */
-  async awaitRuns(runs: ActiveRun[], mode: "all" | "any", deadline: number, pollMs: number): Promise<"settled" | "timeout"> {
+  async awaitRuns(runs: ActiveRun[], mode: "all" | "any", deadline: number, pollMs: number,
+    opts: { onTick?: () => void; signal?: AbortSignal } = {}): Promise<"settled" | "timeout" | "aborted"> {
     if (runs.length === 0) return "settled";
     const satisfied = (): boolean => mode === "all" ? runs.every((r) => r.done !== null) : runs.some((r) => r.done !== null);
     for (;;) {
       if (satisfied()) return "settled";
+      if (opts.signal?.aborted) return "aborted";
+      opts.onTick?.();
       // A cancelled run whose drain has returned is `done`; one whose parent was interrupted mid-poll
       // resolves on the next pass. Either way the loop below is what notices, so there is no separate
       // cancellation branch here.
@@ -304,7 +323,7 @@ export class DelegationEngine {
    * assistant_text exists yet; a turn that is still running cannot either, because its last status
    * is `running`/`waiting_permission` until the adapter closes the turn.
    */
-  async drain(childId: string, fromSeq: number, run: ActiveRun, deadline: number, pollMs: number): Promise<SettledRun> {
+  async drain(childId: string, fromSeq: number, run: ActiveRun, deadline: number, pollMs: number, onTick?: () => void): Promise<SettledRun> {
     let last = fromSeq;
     let lastStatus: string | null = null;
     let finalText: string | null = null;
@@ -340,6 +359,7 @@ export class DelegationEngine {
         void this.d.sessions.interrupt(childId).catch(() => { /* best effort — it may have just ended */ });
         return { outcome: "timeout", finalText, lastStatus };
       }
+      onTick?.();
       await sleep(pollMs);
     }
   }

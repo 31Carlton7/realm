@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
-import type { StartOptions } from "../types";
+import { GATEWAY_TOOL_TIMEOUT_MS, type StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "turn.json"), "utf8")) as unknown[];
@@ -857,8 +857,16 @@ describe("claudeMcpServers", () => {
 
   it("tags each entry with its transport and carries only that transport's fields", () => {
     expect(claudeMcpServers([stdio])).toEqual({ airtable: { type: "stdio", command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } } });
-    expect(claudeMcpServers([http])).toEqual({ vercel: { type: "http", url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } } });
-    expect(claudeMcpServers([sse])).toEqual({ legacy: { type: "sse", url: "https://sse.example/mcp", headers: {} } });
+    expect(claudeMcpServers([http])).toEqual({ vercel: { type: "http", url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" }, timeout: GATEWAY_TOOL_TIMEOUT_MS } });
+    expect(claudeMcpServers([sse])).toEqual({ legacy: { type: "sse", url: "https://sse.example/mcp", headers: {}, timeout: GATEWAY_TOOL_TIMEOUT_MS } });
+  });
+
+  it("lets a gateway call run past Claude's five-minute silence limit, to the hour agent_wait may take", () => {
+    // THE MUTANT: drop `timeout`. Claude then aborts an agent_wait that has sent nothing for 300 s,
+    // and the lead is handed Claude's error instead of its sub-agents' reports.
+    const entry = claudeMcpServers([{ name: "realm", transport: "http", url: "http://127.0.0.1:1/mcp", headers: {} }]).realm as { timeout?: number };
+    expect(entry.timeout).toBe(GATEWAY_TOOL_TIMEOUT_MS);
+    expect(GATEWAY_TOOL_TIMEOUT_MS).toBeGreaterThan(60 * 60_000);
   });
 
   it("is empty — not absent — when there is nothing configured", () => {
