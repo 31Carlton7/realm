@@ -8,7 +8,7 @@ import { clip, err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import { titleFromMessage, type SessionService } from "../sessions/service";
 import type { SkillsService } from "../skills/service";
-import { MAX_RUNS_PER_PARENT, type ActiveRun, type DelegationEngine, type SettledRun } from "./engine";
+import { MAX_RUNS_PER_PARENT, workingMs, type ActiveRun, type DelegationEngine, type SettledRun } from "./engine";
 import { delegableModels, modelMenu, resolveModelName, type ModelResolution, type ProbedAgent } from "./models";
 
 export const AGENT_RUN_TOOL_NAME = "agent_run";
@@ -62,6 +62,10 @@ export type AgentChildRecord = {
    *  Full access". `requested` is absent when the caller named none. Absent on records from before
    *  children inherited their lead's mode. */
   mode?: { requested?: string; granted: string; inherited: boolean };
+  /** The budget of working time it was given, and — once settled — how much of it it spent. Absent on
+   *  records from before the Agents tab showed them. */
+  budgetMs?: number;
+  workedMs?: number;
   /** Why Realm stopped this child itself, when it did: said on its card and in the lead's report in
    *  place of "stopped by the user". Absent for every child nobody but the user stopped. */
   stopNote?: string;
@@ -170,6 +174,8 @@ export class AgentRunService {
       ...(settledAt !== undefined ? { settledAt } : {}),
       ...(outcome ? { outcome } : {}),
       ...(mode ? { mode } : {}),
+      ...(time(r.budgetMs) !== undefined ? { budgetMs: time(r.budgetMs) } : {}),
+      ...(time(r.workedMs) !== undefined ? { workedMs: time(r.workedMs) } : {}),
       ...(typeof r.stopNote === "string" ? { stopNote: r.stopNote } : {}),
     };
   }
@@ -180,6 +186,14 @@ export class AgentRunService {
     return this.childRecord(sessionId);
   }
 
+  /** How much of its budget a child still running has spent so far, from the engine's run — null once
+   *  the run has settled (the record holds `workedMs` then) or for a child with no run. */
+  working(sessionId: string): number | null {
+    const parent = this.childRecord(sessionId)?.parentSessionId;
+    const run = parent ? this.d.engine.running(parent).find((r) => r.childSessionId === sessionId) : undefined;
+    return run ? workingMs(run, Date.now()) : null;
+  }
+
   /** A run settled: write down how, so the lead's Agents tab can still say it once the engine has
    *  let the run go. A child deleted mid-run has had its record released, and writing one back would
    *  resurrect it — so only a record that still exists is touched, and `gone` never is.
@@ -187,11 +201,12 @@ export class AgentRunService {
    *  It runs in the background, off the watcher, so it may land as the server shuts down: a store
    *  that has closed under it means there is nothing left to write to, and a throw here would be an
    *  unobserved rejection rather than anybody's error. */
-  private noteSettled(childId: string, outcome: DelegationOutcome): void {
+  private noteSettled(childId: string, outcome: DelegationOutcome, run: ActiveRun): void {
     if (outcome === "gone") return;
     try {
       const record = this.childRecord(childId);
-      if (record) this.d.settings.set(childKey(childId), { ...record, settledAt: Date.now(), outcome } satisfies AgentChildRecord);
+      const now = Date.now();
+      if (record) this.d.settings.set(childKey(childId), { ...record, settledAt: now, outcome, workedMs: workingMs(run, now) } satisfies AgentChildRecord);
     } catch { /* the store closed under a settle at shutdown */ }
   }
 
@@ -434,11 +449,14 @@ export class AgentRunService {
       return err(`could not create the delegated session: ${message(e)}`);
     }
     const childId = created.session.id;
+    const t = this.d.timeouts ?? DEFAULT_TIMEOUTS;
+    const maxTurns = constraints?.maxTurns ?? DEFAULT_MAX_TURNS;
+    const budgetMs = constraints?.timeoutMs ?? (t.baseMs + maxTurns * t.perTurnMs);
     // Persisted BEFORE the first send: `ensureLive` reads the skill narrowing and the preamble off
     // this record when it starts the adapter, and the gateway reads the exclusion off it on the
     // child's first tools/list — the record must exist first.
     const record: AgentChildRecord = {
-      parentSessionId: ctx.sessionId, goal, skills: skillIds, depth: this.depthOf(ctx.sessionId) + 1, startedAt: Date.now(),
+      parentSessionId: ctx.sessionId, goal, skills: skillIds, depth: this.depthOf(ctx.sessionId) + 1, startedAt: Date.now(), budgetMs,
       mode: { granted: permissionMode, inherited: granted.inherited, ...(constraints?.permissionMode ? { requested: constraints.permissionMode } : {}) },
     };
     this.d.settings.set(childKey(childId), record);
@@ -446,9 +464,6 @@ export class AgentRunService {
     // the layout BESIDE the parent (the fixed openItemBeside path), never replacing it.
     this.d.rpc.broadcast("session.agentOpened", { spaceId: ctx.spaceId, sessionId: childId, itemId: created.itemId });
 
-    const t = this.d.timeouts ?? DEFAULT_TIMEOUTS;
-    const maxTurns = constraints?.maxTurns ?? DEFAULT_MAX_TURNS;
-    const budgetMs = constraints?.timeoutMs ?? (t.baseMs + maxTurns * t.perTurnMs);
     const run = this.d.engine.begin(ctx.sessionId, childId, { detached });
     const fromSeq = created.session.lastEventSeq;
     // The watcher is started BEFORE the first send and owns the execution deadline whether or not
@@ -462,7 +477,7 @@ export class AgentRunService {
     void run.settled!.then(
       (s) => {
         // Written before it is announced, so anything that re-reads on the announcement reads it.
-        this.noteSettled(childId, s.outcome);
+        this.noteSettled(childId, s.outcome, run);
         this.d.rpc.broadcast("session.agentSettled", { spaceId: ctx.spaceId, sessionId: childId, itemId: created.itemId, outcome: s.outcome });
       },
       () => { /* surfaced through run.done / the awaiting tool */ },

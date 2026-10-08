@@ -307,6 +307,45 @@ describe("the lead's list of its sub-agents", () => {
     c.close();
   });
 
+  it("says each child's budget and how much of it is spent — time waiting on the user is not charged", async () => {
+    // THE MUTANT: report wall time as spent — a child held on a prompt reads as over its budget for a
+    // wait the user caused, which the engine does not charge it for.
+    const asks: FakeScript = [{ on: "You are a delegated agent.", emit: [
+      { kind: "tool", name: "Bash", input: { command: "pnpm test" }, needsPermission: true, result: "ok" },
+      { kind: "text", text: "FINAL: tests pass" },
+    ] }];
+    const { ctx } = await boot({ leadScript: asks });
+    const c = await client(app.port);
+    await app.agentRuns.start(ctx, { goal: "run the tests" });
+    const [child] = children(ctx);
+    await waitFor(() => app.sessions.get(child!.id).status === "waiting_permission");
+    await new Promise((r) => setTimeout(r, 600));
+    const waiting = (await c.call<{ children: (Child & { budgetMs: number | null; working: { ms: number; at: number } | null })[] }>("delegation.children", { sessionId: ctx.sessionId })).children[0]!;
+    expect(waiting.budgetMs).toBe(5000);
+    expect(waiting.working!.ms).toBeLessThan(waiting.working!.at - waiting.startedAt - 500);
+    const ask = app.sessions.events(child!.id, 0, 500).map((e) => e.event).find((e) => e.type === "permission_request");
+    await app.sessions.respondPermission(child!.id, ask!.type === "permission_request" ? ask!.payload.requestId : "", "allow");
+    await app.agentRuns.wait(ctx, {});
+    await waitFor(() => app.agentRuns.record(child!.id)?.workedMs !== undefined);
+    const rec = app.agentRuns.record(child!.id)!;
+    expect(rec.workedMs!).toBeLessThan(rec.settledAt! - rec.startedAt! - 500);
+    c.close();
+  }, 20_000);
+
+  it("lists a sub-agent's own sub-agents under it — the ones started before a sub-agent could no longer start any", async () => {
+    // THE MUTANT: list one level — a grandchild from an older build has no place in the tab at all.
+    const { ctx } = await boot();
+    const c = await client(app.port);
+    await app.agentRuns.start(ctx, { goal: "go" });
+    const [child] = children(ctx);
+    const grandchild = app.sessions.create({ spaceId: ctx.spaceId, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: "default",
+      dispatchedBy: { kind: "agent_run", sessionId: child!.id } });
+    const kids = (await c.call<{ children: (Child & { children?: Child[] })[] }>("delegation.children", { sessionId: ctx.sessionId })).children;
+    expect(kids.map((k) => k.session.id)).toEqual([child!.id]);
+    expect(kids[0]!.children?.map((k) => k.session.id)).toEqual([grandchild.session.id]);
+    c.close();
+  });
+
   it("delegation.models offers the catalog on its routes, and names what the lead itself runs", async () => {
     const { ctx } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
     await app.sessions.probe();

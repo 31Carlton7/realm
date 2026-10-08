@@ -32,20 +32,31 @@ export class DelegatedChildren {
     events: Pick<SessionEventsStore, "lastOfType" | "lastOfTypes">;
     items: Pick<ItemsStore, "findTab" | "create">;
     rpc: Pick<RpcServer, "broadcast">;
-    agentRuns: { record(sessionId: string): AgentChildRecord | null };
+    agentRuns: { record(sessionId: string): AgentChildRecord | null; working(sessionId: string): number | null };
     browserAgents: { goalOf(sessionId: string): string | null };
   }) {}
 
   /** Every sub-agent `parentId` started, oldest first — the order the lead started them in, which is
    *  also the order a person reading the lead's transcript met them. */
   list(parentId: string): DelegatedChild[] {
-    return this.d.sessions.listDispatchedBy(parentId)
-      .filter((s) => s.dispatchedBy && CHILD_ORIGINS.has(s.dispatchedBy.kind))
-      .map((s) => this.describe(s));
+    return this.childrenOf(parentId).map((s) => {
+      const child = this.describe(s);
+      // A sub-agent can no longer start its own, but one from before that rule may have: its children
+      // are listed under it, one level, which is as deep as delegation ever went.
+      const nested = this.childrenOf(s.id).map((g) => this.describe(g));
+      return nested.length > 0 ? { ...child, children: nested } : child;
+    });
+  }
+
+  private childrenOf(parentId: string): Session[] {
+    return this.d.sessions.listDispatchedBy(parentId).filter((s) => s.dispatchedBy && CHILD_ORIGINS.has(s.dispatchedBy.kind));
   }
 
   private describe(session: Session): DelegatedChild {
     const record = this.d.agentRuns.record(session.id);
+    const live = this.d.agentRuns.working(session.id);
+    const now = Date.now();
+    const working = live !== null ? { ms: live, at: now } : record?.workedMs !== undefined ? { ms: record.workedMs, at: now } : null;
     const report = this.d.events.lastOfType(session.id, "assistant_text");
     const text = report?.type === "assistant_text" ? report.payload.text : null;
     return {
@@ -57,6 +68,8 @@ export class DelegatedChildren {
       outcome: record?.outcome ?? null,
       report: text === null ? null : text.length > REPORT_MAX ? `${text.slice(0, REPORT_MAX - 1).trimEnd()}…` : text,
       activity: this.d.events.lastOfTypes(session.id, ACTIVITY),
+      budgetMs: record?.budgetMs ?? null,
+      working,
       ...(record?.stopNote ? { note: record.stopNote } : {}),
     };
   }
