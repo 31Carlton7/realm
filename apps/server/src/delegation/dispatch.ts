@@ -1,5 +1,6 @@
 import { AGENT_SKILL_SUPPORT, type AgentKind, type Environment } from "@realm/contracts";
 import type { SkillsService } from "../skills/service";
+import { titleFromMessage } from "../sessions/service";
 
 /**
  * The dispatch recipe, extracted (Plan 18 W1) — the three resolutions every flow that spawns a
@@ -125,3 +126,37 @@ export async function cleanupWorktree(created: Environment | null, environments:
 }
 
 export const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** A sentence that sets a sub-agent up rather than naming its task — the role and context leads open
+ *  their goals with. Skipped when a goal is turned into a name. */
+const BOILERPLATE = [
+  /^you(?: are|'re) (?:a|an|the|doing|researching|implementing)\b/i,
+  /^(?:read-only|research)(?:\s+(?:code|research))*\s+(?:task|research)[.:]/i,
+  /^(?:repo|repository|context|background):/i,
+  /^#+\s/,
+];
+
+/**
+ * A sub-agent's name when the caller gave it none: the task, not the boilerplate around it.
+ *
+ * Leads open their goals with a role ("You are implementing a feature in…") or a frame ("Read-only
+ * research task. Repo: /Users/…"), and a name cut from the first line reads as that frame every time —
+ * five rows of "Read-only research task. Repo: /…" tell the person nothing. So the goal is read a
+ * sentence at a time, the setting-up sentences are skipped, and the first one left is the name, cut
+ * at its first clause and clipped the way a session's title is. A goal that is all boilerplate keeps
+ * its first line, which is still better than nothing.
+ *
+ * Never prefixed with "Agent:": the child is drawn as a sub-agent wherever it appears — its mark,
+ * its place under the lead, the Agents tab — and in a forty-character title the prefix costs a fifth
+ * of the room.
+ */
+export function taskName(goal: string): string {
+  const sentences = goal.split("\n")
+    .flatMap((line) => line.trim().split(/(?<=[.!?])\s+/))
+    .map((x) => x.trim().replace(/^[-*•]\s+/, "").replace(/^(?:task|goal):\s*/i, ""))
+    .filter((x) => x !== "");
+  const task = sentences.find((x) => !BOILERPLATE.some((re) => re.test(x)));
+  if (task === undefined) return titleFromMessage(goal);
+  const clause = task.split(/;\s|\s[—–]\s/)[0]!.replace(/[.:]$/, "");
+  return titleFromMessage(clause);
+}

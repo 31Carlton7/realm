@@ -14,9 +14,11 @@ import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { EnvironmentsStore } from "../store/environments";
 import { SettingsStore } from "../store/settings";
+import { ItemsStore } from "../store/items";
+import { SessionsStore } from "../store/sessions";
 import { waitFor } from "../test-utils";
 import { createRealmAgentProvider, RUN_TOOL_NAME } from "../browsers/browser-agent";
-import { AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL_NAME } from "./agent-run";
+import { AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL_NAME, legacyTitle } from "./agent-run";
 
 /**
  * Plan 13 W1 behaviour suite — `agent_run`, driven through the REAL app (`createApp` + FakeAdapter),
@@ -79,6 +81,7 @@ async function boot(opts: {
   parentKind?: "fake" | "claude"; parentMode?: string;
   timeouts?: { baseMs: number; perTurnMs: number; pollMs: number };
   maxDepth?: number; caps?: { perParent?: number; total?: number };
+  titleGenerator?: (text: string) => Promise<string>;
 } = {}) {
   const home = tempDir("realm-ar-");
   const fake = new CaptureFake({ script: opts.script ?? CHILD_SCRIPT, delayMs: opts.delayMs ?? 5 });
@@ -88,6 +91,7 @@ async function boot(opts: {
     home, port: 0, adapters: { fake, claude: fake },
     browserAgent: { fallbackKind: "fake", timeouts: { baseMs: 5000, perActMs: 0, pollMs: 20 } },
     agentRun: { timeouts: opts.timeouts ?? { baseMs: 5000, perTurnMs: 0, pollMs: 20 }, maxDepth: opts.maxDepth, caps: opts.caps },
+    titleGenerator: opts.titleGenerator,
   });
   const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
   const spacesStore = new SpacesStore(app.db, home);
@@ -112,7 +116,7 @@ describe("agent_run — the delegated session", () => {
     expect(result.isError).toBe(false);
     const child = childOf(spaceId, parentId);
     expect(child.spaceId).toBe(spaceId);
-    expect(child.title).toContain("Agent:");
+    expect(child.title).toBe("Write DONE.txt in the repo");
     const out = text(result);
     expect(out).toContain(child.id);            // the structured identity names the child
     expect(out).toContain(child.title);
@@ -463,6 +467,16 @@ describe("environments — named, fresh worktree, or the space primary", () => {
     expect(env.path).toBe(join(home, "worktrees", spaceId, "fix-login"));
     expect(child.cwd).toBe(env.path);
     expect(git(env.path, "rev-parse", "--abbrev-ref", "HEAD").trim()).toMatch(/fix-login/);
+  });
+
+  it("newWorktree: true names the worktree's branch after the sub-agent's title", async () => {
+    // THE MUTANT: the worktree named from the goal's first line — "realm/you-are-implementing-a-…".
+    const { spaceId, folder, parentId } = await boot();
+    initRepo(folder);
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { title: "Meta ads: Hallow", goal: "You are researching paid social.\nFind Hallow's ads", constraints: { newWorktree: true } });
+    const env = new EnvironmentsStore(app.db).get(childOf(spaceId, parentId).environmentId)!;
+    expect(env.branch).toMatch(/meta-ads-hallow$/);
+    expect(env.path).toContain("meta-ads-hallow");
   });
 
   it("newWorktree: true titles the worktree from the goal's first words", async () => {
@@ -826,3 +840,61 @@ function handleIn(result: string): string {
   expect(m, `no handle in: ${result}`).toBeTruthy();
   return m![1]!;
 }
+
+describe("titles — the task's name, not the boilerplate", () => {
+  it("takes the caller's title, and names the child by its task when there is none", async () => {
+    // THE MUTANTS: the title argument ignored; the old "Agent: <first line>".
+    const { spaceId, parentId } = await boot();
+    const ctx = { sessionId: parentId, spaceId };
+    const started = await app.agentRuns.start(ctx, { title: "Theme migration", goal: "You are implementing a feature. Write the migration." });
+    expect(text(started)).toContain('("Theme migration")');
+    await app.agentRuns.start(ctx, { goal: "Read-only research task. Repo: /Users/c/realm. Find every caller of setOptions." });
+    const titles = app.sessions.list(spaceId).filter((x) => x.id !== parentId).map((x) => x.title).sort();
+    expect(titles).toEqual(["Find every caller of setOptions", "Theme migration"]);
+    await app.agentRuns.wait(ctx, {});
+  });
+
+  it("lets a title generator improve a name read out of the goal, and never one the caller gave", async () => {
+    // THE MUTANT: suggestTitle called whatever the caller said — the lead's own name overwritten.
+    const asked: string[] = [];
+    const { spaceId, parentId } = await boot({ titleGenerator: async (t) => { asked.push(t); return "Setter audit"; } });
+    const ctx = { sessionId: parentId, spaceId };
+    await app.agentRuns.run(ctx, { title: "Kept as given", goal: "Look at the setters." });
+    await app.agentRuns.run(ctx, { goal: "Read-only research task. Find every caller of setOptions." });
+    await waitFor(() => app.sessions.list(spaceId).some((x) => x.title === "Setter audit"));
+    expect(app.sessions.list(spaceId).filter((x) => x.id !== parentId).map((x) => x.title).sort()).toEqual(["Kept as given", "Setter audit"]);
+    expect(asked).toEqual(["Read-only research task. Find every caller of setOptions."]);
+  });
+
+  it("renames, once, the children still wearing the old generated title — never one renamed by hand", async () => {
+    // THE MUTANTS: matching on the prefix alone (a hand-renamed "Agent: mine" gets clobbered), and a
+    // repair that is not idempotent.
+    const { home, spaceId, parentId } = await boot();
+    const ctx = { sessionId: parentId, spaceId };
+    await app.agentRuns.run(ctx, { goal: "You are implementing a feature. Add the font-size picker." });
+    await app.agentRuns.run(ctx, { goal: "Read-only research task. Find the callers." });
+    const [a, b] = app.sessions.list(spaceId).filter((x) => x.id !== parentId);
+    const items = new ItemsStore(app.db);
+    const sessions = new SessionsStore(app.db);
+    // Both as a build before this one left them: the old string on the session and on its item…
+    for (const s of [a!, b!]) {
+      const old = legacyTitle("Agent: ", app.agentRuns.record(s.id)!.goal);
+      sessions.update({ id: s.id, title: old });
+      items.update({ id: items.findByRefId(s.id)!.id, title: old });
+    }
+    // …and the second renamed by hand since, which touches the item alone.
+    items.update({ id: items.findByRefId(b!.id)!.id, title: "Agent: my callers list" });
+    const before = sessions.get(b!.id)!.title;
+    await app.close();
+
+    const reboot = async () => {
+      app = await createApp({ home, port: 0, adapters: { fake: new CaptureFake({ script: CHILD_SCRIPT }) }, agentRun: { timeouts: { baseMs: 5000, perTurnMs: 0, pollMs: 20 } } });
+    };
+    await reboot();
+    expect(app.sessions.get(a!.id).title).toBe("Add the font-size picker");
+    expect(new ItemsStore(app.db).findByRefId(a!.id)!.title).toBe("Add the font-size picker");
+    expect(app.sessions.get(b!.id).title).toBe(before);
+    expect(new ItemsStore(app.db).findByRefId(b!.id)!.title).toBe("Agent: my callers list");
+    expect(app.agentRuns.retitleLegacyChildren()).toBe(0);
+  });
+});

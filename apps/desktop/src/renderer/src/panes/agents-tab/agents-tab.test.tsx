@@ -8,13 +8,13 @@ import { AgentsTab } from "./AgentsTab";
 import { delegationBrief } from "./brief";
 
 const LEAD = session("se1", "s1", { title: "Parent", agentKind: "claude", model: "claude-opus-5-5" });
-const LUNA = session("se2", "s1", { title: "Agent: Write the tests", agentKind: "codex", model: "gpt-6-luna", status: "running", dispatchedBy: { sessionId: "se1", kind: "agent_run" } });
-const FABLE = session("se3", "s1", { title: "Agent: Write the migration", agentKind: "claude", model: "claude-fable-5-1", dispatchedBy: { sessionId: "se1", kind: "agent_run" } });
+const LUNA = session("se2", "s1", { title: "Write the tests", agentKind: "codex", model: "gpt-6-luna", status: "running", dispatchedBy: { sessionId: "se1", kind: "agent_run" } });
+const FABLE = session("se3", "s1", { title: "Write the migration", agentKind: "claude", model: "claude-fable-5-1", dispatchedBy: { sessionId: "se1", kind: "agent_run" } });
 const TAB = item("i20", "s1", { kind: "agents", title: "Agents", refId: "se1" });
 const ITEMS = { s1: [
   item("i9", "s1", { kind: "session", title: "Parent", refId: "se1" }),
-  item("i8", "s1", { kind: "session", title: "Agent: Write the tests", refId: "se2" }),
-  item("i7", "s1", { kind: "session", title: "Agent: Write the migration", refId: "se3" }),
+  item("i8", "s1", { kind: "session", title: "Write the tests", refId: "se2" }),
+  item("i7", "s1", { kind: "session", title: "Write the migration", refId: "se3" }),
   TAB,
 ] };
 const NOW = Date.now();
