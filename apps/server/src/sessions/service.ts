@@ -174,8 +174,11 @@ export class SessionService {
      *  forgets a deleted session's child record/run; `extraSystemContext` is the policy preamble a
      *  delegated child starts with; `skillsFilter` (optional, Plan 13 W1) narrows which of the
      *  space's enabled skills an agent_run child is staged — null/undefined for every other session.
+     *  `modeSet` (optional) is told a session's permission mode was just set, so its running
+     *  children come down with it (`AgentRunService.cascadeMode`).
      *  Optional — a harness without delegation behaves exactly as before. */
-    browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined; skillsFilter?(sessionId: string): string[] | null };
+    browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined; skillsFilter?(sessionId: string): string[] | null;
+      modeSet?(sessionId: string, mode: string): Promise<void> };
     /** Plan 12 W5: the notifications feed's session hooks. `handleSessionEvent` gets the session row as
      *  it stood BEFORE the event (so a status event carries its previous status implicitly); it is
      *  called from `onEvent` — the pump and `emitExternal` alike — and from `markStaleOnBoot`'s
@@ -712,6 +715,8 @@ export class SessionService {
     // makes the switch mean the same thing before the first message as after it. The level goes to a
     // live one too: Claude and Codex both take it on the next turn.
     await this.live.get(id)?.handle.setOptions({ model: o.model, effort: o.effort, permissionMode: o.permissionMode, fastMode: o.fastMode });
+    // A lead's children run in its mode; lowering it lowers them, before this returns.
+    if (o.permissionMode !== undefined) await this.d.browserAgents?.modeSet?.(id, o.permissionMode);
     return s;
   }
 

@@ -64,6 +64,17 @@ describe("capabilitiesContext", () => {
     expect(text).toContain("read-only");
   });
 
+  it("leads with agent_start for independent parts, says sub-agents share the mode and cannot delegate, and no longer says they cannot ask", () => {
+    // THE MUTANT: the old copy surviving — an agent told a sub-agent "cannot ask you anything once it
+    // is running" keeps work it should hand out, and one never told the mode is shared assumes less.
+    const text = capabilitiesContext([REALM_AGENT_PROVIDER_NAME])!;
+    expect(text).toContain("you are the orchestrator");
+    expect(text).toMatch(/start them as sub-agents with `agent_start`, one per part/);
+    expect(text).toContain("Sub-agents run in your permission mode and cannot start sub-agents of their own");
+    expect(text).toContain("Prefer `agent_start` over a built-in sub-agent tool");
+    expect(text).not.toContain("cannot ask you anything");
+  });
+
   it("tells a session with simulators to use the pane, and not to stream one into a browser", () => {
     const text = capabilitiesContext([SIMULATOR_PROVIDER_NAME, BROWSER_PROVIDER_NAME])!;
     expect(text).toContain("simulator_open");
