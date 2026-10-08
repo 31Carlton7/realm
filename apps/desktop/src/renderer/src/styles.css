@@ -6196,7 +6196,7 @@ select { appearance: none; padding-right: 22px;
   .lecture-list, .install-cmd code, .code-preview, .cli-job-output,
   /* documents — the home's lists, and the new code file's languages, included */
   .documents-picker-list, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
-  .docs-home-scroll, .code-file-languages,
+  .docs-home-scroll, .code-file-languages, .pdf-view, .pdf-strip,
   /* the prompter — only the pinned strips' copies of the lists are bounded enough to scroll */
   .composer-todos .todo-list, .agents-pop .delegation-list,
   /* the sub-agent panel: the column itself, and the two prose panels it caps */
@@ -8627,7 +8627,98 @@ button.cr-finding-where:hover { text-decoration: underline; }
 
 /* ---- Plan 22: previews, lecture sheets ---------------------------------------------------- */
 .documents-frame { width: 100%; height: 100%; border: 0; background: var(--rl-panel); display: block; }
-.documents-frame[data-kind="pdf"] { background: #525659; }
+
+/* ── PDFs (PdfView.tsx) ──────────────────────────────────────────────────
+   Pages are white paper on the PANE's own ground — what every other document stands on — not on the
+   slate Chromium's viewer brought with it. The column is spaced by the page grid (24 above the first
+   page and below the last, 16 between), never by rules; the numbers live in pdf-layout.ts, which
+   places every page. The scroller does NOT dissolve: the dissolve is a mask, and over a white sheet it
+   fades the paper into the window's material, which drew a grey band across the top and foot of every
+   page in view. A page passing a fixed edge is simply cut there, as it is in Preview. */
+.pdf-body { position: relative; display: flex; min-height: 0; min-width: 0; background: var(--rl-panel); }
+.pdf-view { flex: 1 1 auto; min-width: 0; position: relative; overflow: auto; background: var(--rl-panel); outline: none; }
+.pdf-view:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: -2px; }
+.pdf-pages { position: relative; }
+/* A page not yet drawn is a sheet of the frame's tone at the page's size — no spinner, no shimmer. Once
+   drawn it is paper: the object shadow a file wears wherever it is shown, and the picture outline
+   (white at low alpha on dark, black on light) drawn over its edge, so a white page on the light
+   ground still has one. Pages are never inverted for dark mode: the file is the file. */
+.pdf-page { position: absolute; overflow: hidden; border-radius: var(--r-sm); background: var(--rl-frame);
+  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+.pdf-page[data-painted] { background: #fff; box-shadow: var(--rl-object-shadow); }
+:root[data-mode="light"] .pdf-page { outline-color: rgba(0, 0, 0, 0.14); }
+/* On the light face the pane's canvas is near-white too, and white paper on it had no edge at all
+   (255 on 249, the outline the only line). Light PDFs stand on the frame — the ground a step under
+   the canvas that wells and the sidebar use — so the sheet reads by its fill before its outline. The
+   placeholder sheet takes the canvas in exchange, so it still reads against that ground. */
+:root[data-mode="light"] :is(.pdf-body, .pdf-view, .pdf-strip:not([data-floating])) { background: var(--rl-frame); }
+:root[data-mode="light"] .pdf-page:not([data-painted]), :root[data-mode="light"] .pdf-thumb-page:not([data-painted]) { background: var(--rl-panel); }
+/* The first paint fades in where it lands; a redraw at a new zoom swaps in with no fade at all. */
+.pdf-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+  transition: opacity var(--dur-fast) ease; }
+.pdf-page:not([data-painted]) .pdf-canvas { opacity: 0; }
+/* pdf.js's text layer: transparent text laid exactly over the drawn glyphs, so a drag selects and
+   copies the page's own words. These are pdf.js's own rules (web/pdf_viewer.css), less the parts of
+   its viewer Realm does not use; the find marks are kept out of the positioning they would inherit. */
+.textLayer { position: absolute; inset: 0; overflow: clip; text-align: initial; line-height: 1; opacity: 1;
+  text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; caret-color: CanvasText; z-index: 1;
+  --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size)); }
+.textLayer :is(span, br):not(.pdf-hit) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
+.textLayer > :not(.markedContent, .pdf-hit), .textLayer .markedContent span:not(.markedContent, .pdf-hit) {
+  z-index: 1; --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
+.textLayer .markedContent { display: contents; }
+.textLayer span[role="img"] { user-select: none; }
+.textLayer br::selection { background: transparent; }
+.textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; user-select: none; }
+.textLayer.selecting .endOfContent { top: 0; }
+/* Find's hits, laid on the paper. Both faces show a white page, so both take the same marks: the
+   accent at two strengths, the current hit the stronger. */
+.pdf-hit { border-radius: var(--r-sm); background: color-mix(in srgb, var(--rl-accent) 28%, transparent); }
+.pdf-hit[data-current] { background: color-mix(in srgb, var(--rl-accent) 55%, transparent); }
+.pdf-links { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.pdf-link { position: absolute; pointer-events: auto; border-radius: var(--r-sm); }
+.pdf-link:hover { background: color-mix(in srgb, var(--rl-accent) 12%, transparent); }
+/* The page strip: a column on the pane's own ground beside the pages, told apart by being its own
+   scroller rather than by a rule. Narrow, it is a sheet over the pages and takes a sheet's lift. */
+.pdf-strip { flex: none; width: 132px; overflow: auto; display: flex; flex-direction: column; align-items: center;
+  gap: 12px; padding: 24px 0; background: var(--rl-panel); }
+.pdf-strip[data-floating] { position: absolute; z-index: 3; inset: 0 auto 0 0; background: var(--surface); box-shadow: var(--shadow-overlay); }
+.pdf-thumb { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0; border: none; background: none; }
+.pdf-thumb-page { position: relative; display: block; overflow: hidden; border-radius: var(--r-sm); background: var(--rl-frame);
+  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+.pdf-thumb-page[data-painted] { background: #fff; box-shadow: var(--rl-object-shadow); }
+:root[data-mode="light"] .pdf-thumb-page { outline-color: rgba(0, 0, 0, 0.1); }
+/* The page being read is the selection, and selection is the accent: a ring outside the sheet,
+   changing at once as the reader moves. */
+.pdf-thumb[aria-current="page"] .pdf-thumb-page { box-shadow: 0 0 0 2px var(--rl-accent); }
+.pdf-thumb-number { font-size: 11px; line-height: 14px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.pdf-thumb[aria-current="page"] .pdf-thumb-number { color: var(--rl-text-bright); }
+.pdf-thumb:focus-visible { outline: none; }
+.pdf-thumb:focus-visible .pdf-thumb-page { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.pdf-message { display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center;
+  font-size: 13px; color: var(--rl-text-dim); background: var(--rl-panel); }
+.pdf-message p { margin: 0; max-width: 52ch; }
+
+/* The viewer's controls, in the document's own head row where other kinds keep Rich | Source. */
+.documents-head-tools { flex: none; display: flex; align-items: center; margin-left: auto; min-width: 0; }
+.documents-head:has(.pdf-tools) { padding-block: 4px; }
+.pdf-tools { display: flex; align-items: center; gap: 8px; }
+.pdf-tools-page, .pdf-tools-zoom, .pdf-find { display: flex; align-items: center; gap: 2px; }
+.pdf-tools-of { padding: 0 4px 0 2px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim); white-space: nowrap; }
+.pdf-page-field, .pdf-find-field {
+  height: 24px; padding: 0 6px; border: none; border-radius: var(--r-chip); background: var(--field);
+  box-shadow: var(--shadow-hairline); color: var(--rl-text-bright); font: inherit; font-size: 12px; outline: none; }
+.pdf-page-field { width: 5ch; text-align: center; font-variant-numeric: tabular-nums; }
+.pdf-page-field:focus, .pdf-find-field:focus { box-shadow: 0 0 0 1px var(--rl-accent); }
+.pdf-find-glyph { flex: none; margin-right: 4px; color: var(--rl-text-faint); }
+.pdf-find-field { width: 160px; }
+.pdf-find-count { padding: 0 6px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim); white-space: nowrap; }
+.pdf-tools-fit { display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border-radius: var(--r-ctl);
+  font-size: 12px; color: var(--rl-text-dim); white-space: nowrap;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.pdf-tools-fit:hover { background: var(--rl-hover); color: var(--rl-text-bright); transition: none; }
 /* ── Quick Look renders (QuickLookView.tsx) ──────────────────────────────
    A picture of a document, on the same slate ground Chromium's PDF viewer uses — a rendered page is
    white, and floating a white sheet on the pane's own dark ground reads as a broken layout rather

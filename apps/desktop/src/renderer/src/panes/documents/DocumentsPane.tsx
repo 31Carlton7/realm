@@ -16,17 +16,16 @@ import { DocumentsHome } from "./DocumentsHome";
 import { folderName } from "./home-model";
 import { NewMenu, iconFor } from "./NewMenu";
 import { PreviewFrame } from "./PreviewFrame";
+import { publishShownFile } from "./shown-file";
 import { QuickLookView } from "./QuickLookView";
 
 /** How long the editor stays quiet before autosaving. Long enough not to write on every keystroke,
  *  short enough that an agent asked to read the file right after you stop typing sees your text. */
 const AUTOSAVE_MS = 700;
 
-/** A PDF is bytes, not text: no buffer is read for it, and its tab can never be dirty. The frame
- *  streams it from the preview server instead (Plan 22). */
 /** Files the pane opens WITHOUT reading their bytes: a PDF, and everything Quick Look renders for
- *  us. Both are shown by pointing a frame at the preview server, so pulling a `.docx` through
- *  `readDocument` would only produce mojibake and a failed open. */
+ *  us. Both are fetched from the preview server — the PDF's bytes by pdf.js, the rest as Quick Look's
+ *  picture — so pulling a `.docx` through `readDocument` would only produce mojibake and a failed open. */
 const isBinaryKind = (path: string): boolean => {
   const k = documentKindFor(path);
   return k === "pdf" || k === "preview";
@@ -45,6 +44,8 @@ const SheetEditor = lazy(() => import("./SheetEditor").then((m) => ({ default: m
 /** Same treatment again: CodeMirror plus a grammar is a payload a workspace of Markdown must never
  *  pay for, and `code-modes.ts` splits the grammars one chunk further. */
 const CodeEditor = lazy(() => import("./CodeEditor").then((m) => ({ default: m.CodeEditor })));
+/** And pdf.js: a megabyte and a half a workspace with no PDF in it never loads. */
+const PdfView = lazy(() => import("./PdfView").then((m) => ({ default: m.PdfView })));
 
 /**
  * The document workspace pane (Plan 17 W1): a tab strip over open files, one editor per file type,
@@ -88,6 +89,8 @@ export function DocumentsPane({ item }: PaneProps) {
   const [searchAsk, setSearchAsk] = useState(0);
   /** A line asked for from outside (`openDocumentPath(…, { line })`), for the code editor to go to. */
   const [reveal, setReveal] = useState<{ path: string; line: number } | null>(null);
+  /** The head row's slot for a viewer's own controls (a PDF's page and zoom), filled through a portal. */
+  const [headSlot, setHeadSlot] = useState<HTMLElement | null>(null);
   /* The session this pane serves: the one whose tab of the side panel it is. A documents pane of its
      own serves nobody — its home lists no session and offers nothing to add a file to. */
   const sessionId = useApp((s) => {
@@ -292,6 +295,11 @@ export function DocumentsPane({ item }: PaneProps) {
   }), [run, renameDocumentFile, documentsId]);
 
   const showingHome = home || !buf;
+  /* The file on screen, for the pane's menu (Open in Preview, Share) — which is drawn by the pane's bar,
+     outside this component. Only a PDF has rows there today. */
+  const shownPath = buf && !showingHome && root ? `${root.replace(/\/$/, "")}/${buf.path}` : null;
+  useEffect(() => publishShownFile(item.id, shownPath && kind === "pdf" ? { path: shownPath, kind } : null), [item.id, shownPath, kind]);
+  useEffect(() => () => publishShownFile(item.id, null), [item.id]);
   return (
     <div className="documents-pane">
       {/* The picker hangs off the strip rather than off the pane, so "just below the tabs" is a
@@ -331,7 +339,7 @@ export function DocumentsPane({ item }: PaneProps) {
           <DocumentHead
             buffer={buf} kind={kind} mode={mode} onSetMode={setMode}
             renaming={renaming} onRenaming={setRenaming}
-            onRename={(stem) => renameActive(buf.path, stem)}
+            onRename={(stem) => renameActive(buf.path, stem)} onToolsSlot={setHeadSlot}
           />
           {buf.conflict && (
             <ConflictBar
@@ -349,7 +357,7 @@ export function DocumentsPane({ item }: PaneProps) {
           )}
           <Editor
             buffer={buf} kind={kind} mode={mode} documentsId={documentsId}
-            reveal={reveal?.path === buf.path ? reveal : null}
+            reveal={reveal?.path === buf.path ? reveal : null} headSlot={headSlot} filePath={shownPath}
             onChange={(text) => setBuffer(buf.path, (b) => edited(b, text))}
             onSave={() => { void save(buf.path); }}
           />
@@ -411,13 +419,16 @@ function TabStrip({ tabs, active, buffers, home, onHome, onSelect, onClose, menu
  * a third time. What a person actually wants from a document's chrome is the name (and the ability to
  * change it) and the answer to "is my work safe" — so that is what is here, and nothing else.
  */
-function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onRename }: {
+function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onRename, onToolsSlot }: {
   buffer: Buffer; kind: DocumentKind; mode: "rich" | "source"; onSetMode: (m: "rich" | "source") => void;
   renaming: boolean; onRenaming: (v: boolean) => void; onRename: (stem: string) => void;
+  onToolsSlot: (el: HTMLElement | null) => void;
 }) {
   const structured = structuredViewFor(kind);
   const state = buffer.conflict ? "conflict" : buffer.missing ? "missing" : buffer.dirty ? "dirty" : "clean";
-  const stateLabel = { conflict: "Needs a decision", missing: "Deleted on disk", dirty: "Saving…", clean: "Saved" }[state];
+  /* Realm never writes a PDF, so "Saved" beside one claims something nobody did. It still says when
+     the file is gone or needs a decision. */
+  const stateLabel = { conflict: "Needs a decision", missing: "Deleted on disk", dirty: "Saving…", clean: kind === "pdf" ? "" : "Saved" }[state];
   return (
     <div className="documents-head">
       <Icon name={iconFor(buffer.path)} size={14} className="documents-head-glyph" />
@@ -436,6 +447,9 @@ function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onR
             {kind === "code" && documentExtension(buffer.path) && <span className="documents-name-ext">.{documentExtension(buffer.path)}</span>}
           </button>}
       <span className="documents-state t-xs muted" data-state={state} role="status">{stateLabel}</span>
+      {/* A PDF's page, zoom and fit sit here, where other kinds keep their view toggle: the document's
+          own bar, not a second one under it (PdfView.tsx portals them in). */}
+      {structured === "pdf" && <span className="documents-head-tools" ref={onToolsSlot} />}
       {structured && structured !== "pdf" && structured !== "render" && (
         <span className="documents-modes" role="group" aria-label="Editor mode">
           <button type="button" aria-pressed={mode === "rich"} onClick={() => onSetMode("rich")}>{structuredLabel(structured)}</button>
@@ -493,15 +507,17 @@ function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onT
  * The editor host. W2 adds the rich Markdown editor for `doc` and `slides`; the source view remains for
  * every kind and is the only view for `sheet` and `latex` until W3 and W5 replace it.
  */
-function Editor({ buffer, kind, mode, documentsId, reveal, onChange, onSave }: {
+function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, onChange, onSave }: {
   buffer: Buffer; kind: DocumentKind; mode: "rich" | "source"; documentsId: string;
+  /** Where a PDF's controls go, and the file on disk for its Open in Preview. */
+  headSlot: HTMLElement | null; filePath: string | null;
   /** A line asked for from outside the pane. The code editor goes to it; the rich views have no lines
    *  to go to, and open where the reader left off. */
   reveal: { line: number } | null;
   onChange: (text: string) => void; onSave: () => void;
 }) {
   // The toggle itself lives in the head bar beside the name — the editor only has to know which view
-  // it is drawing. A PDF has no text, so it is preview-only regardless of the mode (Plan 22).
+  // it is drawing. A PDF has no source to show, so it is the viewer regardless of the mode (Plan 22).
   const structured = structuredViewFor(kind);
   /* Where the reader was in this file, kept across the unmount a space switch causes
      (scroll-memory.ts). Per VIEW as well as per file: the rich column and the source text are two
@@ -516,12 +532,18 @@ function Editor({ buffer, kind, mode, documentsId, reveal, onChange, onSave }: {
         {showStructured && structured === "render" ? (
           <QuickLookView key={buffer.path} documentsId={documentsId} path={buffer.path} version={buffer.baseHash}
             scrollKey={`doc:${documentsId}:render:${buffer.path}`} />
-        ) : showStructured && (structured === "preview" || structured === "pdf") ? (
+        ) : showStructured && structured === "pdf" ? (
+          // Read again on the DISK hash, as the guide's frame is: an agent's rewrite lands on the page
+          // the reader was on.
+          <Suspense fallback={<div className="pane-placeholder muted">Loading preview…</div>}>
+            <PdfView key={buffer.path} documentsId={documentsId} path={buffer.path} version={buffer.baseHash}
+              scrollKey={`doc:${documentsId}:pdf:${buffer.path}`} head={headSlot} filePath={filePath} />
+          </Suspense>
+        ) : showStructured && structured === "preview" ? (
           // The frame reloads on the DISK hash: while the user edits the source, the preview keeps
           // showing the last saved version, and the autosave tick (or an agent's write) refreshes it.
           <PreviewFrame key={buffer.path} documentsId={documentsId} path={buffer.path}
-            kind={structured === "pdf" ? "pdf" : "html"} version={buffer.baseHash}
-            scrollKey={`doc:${documentsId}:preview:${buffer.path}`} />
+            version={buffer.baseHash} scrollKey={`doc:${documentsId}:preview:${buffer.path}`} />
         ) : showStructured ? (
           <Suspense fallback={<div className="pane-placeholder muted">Loading editor…</div>}>
             {/* Keyed by path so switching documents remounts the editor rather than diffing one
