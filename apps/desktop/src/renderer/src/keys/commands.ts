@@ -76,8 +76,8 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
   };
 
   return {
-    "pane.splitRight": () => { const s = get(); s.run(() => s.splitFocused("row")); },
-    "pane.splitDown": () => { const s = get(); s.run(() => s.splitFocused("col")); },
+    "pane.splitRight": () => { const s = get(); s.run(() => s.splitNewSession("row")); },
+    "pane.splitDown": () => { const s = get(); s.run(() => s.splitNewSession("col")); },
     // Layout-only, and never the window: a tab leaves its strip, a pane its split, and a session
     // alone closes nothing — the keyboard goes to its prompter (`closeIntent`). Where there is
     // nothing to close the ⌘W swallow in the hook keeps the key from reaching Electron.

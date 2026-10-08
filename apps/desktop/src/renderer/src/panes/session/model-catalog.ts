@@ -225,6 +225,21 @@ export function modelIdOn(row: ModelRow, harness: AgentKind): string | null | un
   return row.harnesses.includes(harness) ? row.ids[harness] ?? null : undefined;
 }
 
+/**
+ * A remembered model, if the harness still offers it — else `null`, the harness's own default.
+ *
+ * Read from the same two lists `modelRows` draws: the probe's live catalog when it has one, else the
+ * curated `AGENT_MODELS`. A kind with neither (unprobed, or a harness that cannot enumerate) has
+ * nothing to check against, so the id stands as stored and the adapter has the last word on it.
+ */
+export function usableModel(kind: AgentKind, model: string | null, agentProbe: AgentProbe[]): string | null {
+  if (model === null) return null;
+  const probed = agentProbe.find((p) => p.kind === kind)?.models ?? null;
+  const known: ReadonlyArray<{ id: string }> = probed !== null && probed.length > 0 ? probed : AGENT_MODELS[kind];
+  if (known.length === 0) return model;
+  return known.some((m) => m.id === model) ? model : null;
+}
+
 /** A harness's own default row — "whatever this agent runs when nothing is pinned". */
 export const isHarnessDefault = (row: ModelRow): boolean => row.key === `default:${row.kind}`;
 

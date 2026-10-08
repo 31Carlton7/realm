@@ -2175,7 +2175,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-slot { flex: 1; min-width: 0; min-height: 0; display: flex; }
 /* A side pane's browser tab behind the one showing: mounted, so its view lives, and out of the flow. */
 .pane-slot[hidden] { display: none; }
-.pane-placeholder { flex: 1; display: grid; place-content: center; text-align: center; gap: 6px; color: var(--rl-text-dim); }
+.pane-placeholder { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; gap: 6px; color: var(--rl-text-dim); }
 /* A pane whose subject is a FOLDER, when there is nothing in it to show. It was one grey sentence
    with an absolute path inlined into it — a line nobody reads to the end of. What a person needs is
    which folder, where, and the one thing they can still do with it. */

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey, type ModelInfo } from "@realm/contracts";
 import {
   agentRowHint, billingLead, chipLabel, effortCurrent, effortOptions, fastModeAvailability, fastModeHint, fastModeShown, fastModeTip, fastModeTitle, filterRows, flatten, groupRows, holdRows,
-  modelAbout, modelLabel, modelRows, resolveModelName, type FastMode, type ModelRow,
+  modelAbout, modelLabel, modelRows, resolveModelName, usableModel, type FastMode, type ModelRow,
 } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
 
@@ -64,6 +64,36 @@ describe("modelRows with a probe catalog", () => {
     // And the blocked reason still lands on the OTHER kinds only.
     expect(rows.filter((r) => r.kind === "codex").every((r) => r.blockedReason === null)).toBe(true);
     expect(rows.filter((r) => r.kind !== "codex").every((r) => r.blockedReason !== null)).toBe(true);
+  });
+});
+
+describe("usableModel — a remembered model, if the harness still offers it", () => {
+  it("against a live catalog: kept when listed, dropped when not", () => {
+    // THE MUTANT: checking the curated list while a live one is in — Codex's is empty, so any id passes.
+    expect(usableModel("codex", "gpt-6-luna", [probe("codex", codexCatalog)])).toBe("gpt-6-luna");
+    expect(usableModel("codex", "gpt-4-retired", [probe("codex", codexCatalog)])).toBeNull();
+  });
+
+  it("against the curated list when no catalog came back", () => {
+    expect(usableModel("claude", "claude-opus-5-5", [])).toBe("claude-opus-5-5");
+    expect(usableModel("claude", "claude-retired-9", [])).toBeNull();
+    expect(usableModel("claude", "claude-retired-9", [probe("claude", null)])).toBeNull();
+  });
+
+  it("with no list at all, the id stands — there is nothing to check it against", () => {
+    // THE MUTANT: dropping whatever cannot be confirmed — an unprobed Codex would forget its model.
+    expect(usableModel("codex", "gpt-6-luna", [])).toBe("gpt-6-luna");
+    expect(usableModel("codex", "gpt-6-luna", [probe("codex", [])])).toBe("gpt-6-luna");
+  });
+
+  it("the default stays the default", () => {
+    expect(usableModel("claude", null, [])).toBeNull();
+    expect(usableModel("codex", null, [probe("codex", codexCatalog)])).toBeNull();
+  });
+
+  it("reads only its own kind's catalog", () => {
+    // THE MUTANT: any probe's list — Codex's catalog would vouch for a Claude id it does not run.
+    expect(usableModel("claude", "gpt-6-luna", [probe("codex", codexCatalog)])).toBeNull();
   });
 });
 
