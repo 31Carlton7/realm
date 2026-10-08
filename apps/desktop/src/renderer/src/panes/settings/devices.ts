@@ -6,7 +6,7 @@ import { encode } from "uqr";
  * iPhones that run iOS 26 and later. An identifier missing here is shown as it is: a wrong name is
  * worse than the code it was guessed from, and a newer phone's code still says what it is.
  */
-export const PHONE_MODELS: Readonly<Record<string, string>> = {
+const PHONE_MODELS: Readonly<Record<string, string>> = {
   "iPhone12,1": "iPhone 11", "iPhone12,3": "iPhone 11 Pro", "iPhone12,5": "iPhone 11 Pro Max",
   "iPhone12,8": "iPhone SE (2nd generation)",
   "iPhone13,1": "iPhone 12 mini", "iPhone13,2": "iPhone 12", "iPhone13,3": "iPhone 12 Pro", "iPhone13,4": "iPhone 12 Pro Max",
