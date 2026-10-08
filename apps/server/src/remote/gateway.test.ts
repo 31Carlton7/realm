@@ -6,6 +6,7 @@ import { REMOTE_RELAY_KEY, type EventName, type EventPayload } from "@realm/cont
 import { isSealed } from "@realm/contracts/src/secret-box";
 import { fromB64u, generateDeviceKeys, HandshakeState, HomeSchema, MobileCalls, MobileEvents, PROLOGUE, type Row } from "@realm/remote";
 import { startLocalRelay, type ApnsPush, type LocalRelay } from "@realm/relay/src/node";
+import WebSocket, { WebSocketServer } from "ws";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 import { REMOTE_IDENTITY_KEY } from "./keys";
@@ -44,6 +45,34 @@ function nextEvent<E extends EventName>(rpc: RpcPort, event: E, pick: (p: EventP
       resolve(p as EventPayload<E>);
     });
   });
+}
+
+/** A relay that has stopped listening to the Mac: it forwards every frame both ways, but once told to,
+ *  it swallows the Mac's new phone list — so a phone the Mac removes keeps its socket, and only the Mac
+ *  itself can cut it off. */
+async function forgetfulRelay(upstream: string): Promise<LocalRelay & { forget: boolean }> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await new Promise<void>((r) => wss.once("listening", () => r()));
+  const proxy = { url: `ws://127.0.0.1:${(wss.address() as { port: number }).port}`, forget: false, close: async () => {
+    for (const c of wss.clients) c.terminate();
+    await new Promise<void>((r) => wss.close(() => r()));
+  } };
+  wss.on("connection", (client, req) => {
+    const up = new WebSocket(`${upstream}${req.url ?? ""}`, { perMessageDeflate: false });
+    const queued: { data: Buffer; binary: boolean }[] = [];
+    client.on("message", (data: Buffer, binary: boolean) => {
+      if (proxy.forget && !binary && req.url?.startsWith("/v1/mac/") && data.toString().includes('"t":"phones"')) return;
+      if (up.readyState === WebSocket.OPEN) up.send(data, { binary }); else queued.push({ data, binary });
+    });
+    up.on("open", () => { for (const m of queued.splice(0)) up.send(m.data, { binary: m.binary }); });
+    up.on("message", (data: Buffer, binary: boolean) => { if (client.readyState === WebSocket.OPEN) client.send(data, { binary }); });
+    const code = (c: number) => (c >= 1000 && c <= 4999 && c !== 1005 && c !== 1006 ? c : 1000);
+    up.on("close", (c, reason) => client.close(code(c), reason));
+    client.on("close", (c, reason) => up.close(code(c), reason));
+    up.on("error", () => client.terminate());
+    client.on("error", () => up.terminate());
+  });
+  return proxy;
 }
 
 /** Electron main, as far as Realm Mobile can tell: a socket that registers as the browser host and
@@ -341,6 +370,20 @@ describe("Plan 28: a paired phone, in process", () => {
     // phone's key, so a lost phone cannot even reach the Mac's socket to try.
     await expect(phone.connect()).rejects.toThrow(/socket closed 4403/);
     await expect(r.mac.call("remote.phones.remove", { phoneId: phone.phoneId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("cuts a removed phone off itself, even through a relay that never heard it was removed", async () => {
+    const upstream = await startLocalRelay({ port: 0 });
+    const relay = await forgetfulRelay(upstream.url);
+    relays.push(relay, upstream);
+    const r = await boot({ relay });
+    const phone = await pairPhone(r);
+    expect(await phone.call("ping")).toMatchObject({ at: expect.any(Number) });
+    relay.forget = true;
+    await r.mac.call("remote.phones.remove", { phoneId: phone.phoneId });
+    // THE mutant: drop the row and tell the relay, but leave the open channel. A relay that did not
+    // pass the new list on would then keep a removed phone talking to the Mac.
+    await expect(phone.call("ping")).rejects.toThrow();
   });
 
   it("will not talk to a phone whose relay key is paired but whose Noise key is not", async () => {
